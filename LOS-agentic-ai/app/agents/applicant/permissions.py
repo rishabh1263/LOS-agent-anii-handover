@@ -69,6 +69,10 @@ _READ_REQUIREMENT = {
     Intent.DOCUMENTS_PENDING: "documents",
     Intent.POLICY_EXPLANATION: "documents",
     Intent.DOCUMENT_VERIFICATION: "verification",
+    # Recorded findings are verification output, so they need the scope
+    # that reading verification needs. A caller who may not see a verdict
+    # may not see the reasons behind it either.
+    Intent.CASE_HISTORY: "verification",
     Intent.PENDING_ITEMS: "pending_items",
     Intent.NEXT_ACTION: "next_action",
     Intent.READINESS: "next_action",

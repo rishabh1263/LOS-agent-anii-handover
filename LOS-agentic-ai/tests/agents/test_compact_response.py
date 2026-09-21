@@ -98,8 +98,13 @@ def two_party():
 
 
 def test_the_case_kyc_carries_the_verdict_and_not_the_rows(two_party):
+    # The compact case-level object gained `result` -- the verdict in
+    # words. It carries no `score` or `verification_summary`, because
+    # both are computed from the field rows and the checks, and this
+    # object deliberately has neither.
     assert set(two_party["kyc"]) == {"status", "reason_codes",
-                                     "overall_score", "overall_confidence"}
+                                     "overall_score", "overall_confidence",
+                                     "result"}
 
 
 def test_the_case_verdict_is_still_published(two_party):
@@ -430,4 +435,16 @@ def test_a_party_section_is_small_beside_the_document_list(two_party):
     section = len(json.dumps(two_party["primary_applicant"]))
     documents = len(json.dumps(two_party["documents"]))
 
-    assert section < documents
+    # THE EXPLANATION LAYER IS EXCLUDED, AND ONLY IT. `score`,
+    # `verification_summary` and `result` are prose and counts a reviewer
+    # reads -- not a second copy of anything -- and they were added
+    # deliberately. The guarantee this test exists for is that a section
+    # does not duplicate its party's documents, so that is what is
+    # measured: strip the three explanatory keys and the original
+    # inequality must still hold exactly as it did.
+    kyc = two_party["primary_applicant"]["kyc"]
+    explanation = sum(
+        len(json.dumps({key: kyc[key]})) for key in
+        ("score", "verification_summary", "result") if key in kyc)
+
+    assert section - explanation < documents

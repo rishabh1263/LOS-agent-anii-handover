@@ -25,6 +25,7 @@ from typing import Any
 
 from app.agents.applicant import (
     audit,
+    case_memory_facts,
     config,
     counters,
     facts,
@@ -171,6 +172,10 @@ async def answer_question(
     case_id: str | None,
     claims: dict[str, Any],
     request_id: str | None = None,
+    # Which party on the case the question is about. Optional: without
+    # it a case question answers across the whole case, which is what
+    # every existing caller already gets.
+    party_id: str | None = None,
     concise: bool = True,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -211,6 +216,9 @@ async def answer_question(
             # case answer, because no knowledge was consulted and saying
             # otherwise would imply a source the facts did not have.
             "knowledge": None,
+            # Recorded findings, for a case-history question only.
+            "case_memory": None,
+            "sources": [],
             # Which of the four kinds of question this was, so a caller can
             # tell "the store answered it" from "the handbook did" without
             # inferring it from which fields happen to be populated.
@@ -420,7 +428,25 @@ async def answer_question(
     answering_intent = (classification.base_intent or Intent.FULL_SUMMARY
                         if intent is Intent.MIXED else intent)
 
-    if intent is Intent.MIXED:
+    # CASE HISTORY IS ANSWERED FROM WHAT WAS RECORDED, AND ONLY THAT.
+    #
+    # Reached here and not earlier because ownership has now been checked
+    # -- case memory must never be read for a case the caller has not
+    # been cleared for, and the check above is the one that clears it.
+    #
+    # No model on this path at any setting. The answer is a list of
+    # reason codes the pipeline wrote down; a paraphrase can drop one,
+    # and a dropped finding reads as a finding that did not happen.
+    case_memory_block = None
+    case_sources: list[dict[str, Any]] = []
+
+    if intent is Intent.CASE_HISTORY:
+        memory = case_memory_facts.case_memory(case_id or "", party_id)
+        answer, case_sources = case_memory_facts.explain(memory)
+        case_memory_block = memory
+        source, llm_ms = "deterministic", 0.0
+
+    elif intent is Intent.MIXED:
         answer = deterministic_answer(answering_intent, results)
         source, llm_ms = "deterministic", 0.0
     else:
@@ -488,6 +514,11 @@ async def answer_question(
         category=category.value,
         response_source=response_source,
         knowledge=knowledge_block,
+        # What the case actually recorded, and the findings the answer
+        # rests on. Both absent unless case history was asked for, so no
+        # existing response grows a key.
+        **({"case_memory": case_memory_block} if case_memory_block else {}),
+        **({"sources": case_sources} if case_sources else {}),
         errors=errors,
         **payload,
     )

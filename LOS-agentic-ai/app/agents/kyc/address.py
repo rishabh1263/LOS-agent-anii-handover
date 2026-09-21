@@ -18,6 +18,13 @@ import re
 from difflib import SequenceMatcher
 
 from app.agents.kyc.schemas import AddressInput
+from app.agents.los.address_public import house_number
+
+# WHY KYC IMPORTS FROM LOS HERE. `address_public` is a leaf -- it imports
+# only `re` -- and `app/agents/los/__init__.py` is deliberately empty, so
+# this closes no cycle. The alternative was a second house-number rule
+# living here, and this codebase has been bitten twice by two answers to
+# one question drifting apart. One rule, two callers.
 
 _PINCODE_RE = re.compile(r"\b(\d{6})\b")
 
@@ -70,9 +77,6 @@ _STATE_CODES = {
     "UK": "UTTARAKHAND", "UA": "UTTARAKHAND", "WB": "WESTBENGAL",
     "DL": "DELHI", "CH": "CHANDIGARH", "JK": "JAMMUANDKASHMIR",
 }
-
-_HOUSE_RE = re.compile(r"\b(?:HOUSE|ROOM|BLOCK|FLAT|PLOT|DOOR)?\s*(?:NO\.?|#)?\s*"
-                       r"([0-9]+(?:[-/][0-9A-Z]+)*)\b")
 
 COMPONENTS = ("pincode", "house", "street", "locality", "city", "state")
 
@@ -138,9 +142,21 @@ def parse(address: AddressInput | None) -> dict[str, str]:
                     break
 
         if not parsed["house"]:
-            found = _HOUSE_RE.search(raw.upper())
+            # THE PINCODE IS NOT A HOUSE NUMBER. The old rule here matched
+            # any digit run, so "Mumbai, Maharashtra 400043" parsed as
+            # house=400043 AND pincode=400043 -- one datum scored twice,
+            # carrying 50% of the weight between them. Worse, on an address
+            # printing several numbers each side picked a different one:
+            # "Block No-F/5, R.No.3" gave 5 and "BLOCK F5 ROOM 3" gave 3,
+            # so two spellings of one address reported a house MISMATCH.
+            #
+            # Separators are still stripped for COMPARISON -- "5/14" and
+            # "5-14" are the same house and must score as one -- which is
+            # why the shared helper's as-written form is reduced here
+            # rather than used directly.
+            found = house_number(raw, parsed["pincode"] or None)
             if found:
-                parsed["house"] = re.sub(r"[^A-Z0-9]", "", found.group(1))
+                parsed["house"] = re.sub(r"[^A-Z0-9]", "", found)
 
         # Whatever is left over -- no pincode, no state, not a bare number --
         # is locality/street text. Kept as one bag rather than guessed into

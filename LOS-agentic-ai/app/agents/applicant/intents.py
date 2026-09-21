@@ -64,6 +64,13 @@ class Intent(str, Enum):
     CREATE_APPLICATION = "CREATE_APPLICATION"
     MARK_FOR_REUPLOAD = "MARK_FOR_REUPLOAD"
 
+    # -- what was FOUND, as opposed to what is true now
+    #
+    # "Why is this case in review?" is not answerable from current state:
+    # the state says REVIEW, not why. The reasons were recorded by the LOS
+    # pipeline at the time and read back from case memory.
+    CASE_HISTORY = "CASE_HISTORY"
+
     # -- knowledge, not case data
     #
     # A question about how the FOS stage WORKS rather than about this case.
@@ -104,6 +111,7 @@ SIMPLE_INTENTS = frozenset({
     Intent.PENDING_ITEMS,
     Intent.APPLICATION_STAGE,
     Intent.POLICY_EXPLANATION,
+    Intent.CASE_HISTORY,
 })
 
 #: Intents that change stored data. Every one needs a write scope and an
@@ -263,6 +271,19 @@ _DOC_TYPES = (
 )
 
 _PATTERNS: list[tuple[str, Intent]] = [
+    # -- why is it like this? --------------------------------------------
+    #
+    # FIRST, because "why is this case in review" also matches the generic
+    # status patterns further down, and the status answer ("it is in
+    # review") is not what was asked.
+    (r"\bwhy\b.{0,40}\b(in\s+)?(review|pending|rejected|failed|flagged)\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhy\b.{0,30}\b(this\s+)?case\b", Intent.CASE_HISTORY),
+    (r"\bwhat\s+(findings?|reasons?)\b", Intent.CASE_HISTORY),
+    (r"\b(findings?|reasons?)\b.{0,30}\b(caused|led\s+to|behind)\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhat\s+happened\b.{0,30}\b(with|to)\b", Intent.CASE_HISTORY),
+    (r"\bcase\s+history\b", Intent.CASE_HISTORY),
     # writes, before the reads they resemble
     (r"\b(create|add|register)\s+(a\s+)?(new\s+)?applicant\b", Intent.CREATE_APPLICANT),
     (r"\b(create|start|open)\s+(a\s+)?(new\s+)?application\b", Intent.CREATE_APPLICATION),
@@ -590,6 +611,12 @@ def plan_for(
     if classification.intent in (Intent.OUT_OF_SCOPE, Intent.UNKNOWN,
                                  Intent.FOS_KNOWLEDGE):
         return ()
+
+    # Case history is read from case memory, not from a tool. The
+    # application is still fetched so the answer can name the case it is
+    # about rather than answering into the void.
+    if classification.intent is Intent.CASE_HISTORY:
+        return ("application.get",) if has_case else ()
 
     # A mixed question needs the case data its case half would have needed.
     if classification.intent is Intent.MIXED:
