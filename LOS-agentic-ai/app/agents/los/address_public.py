@@ -289,4 +289,10 @@ def public_address(raw: Any) -> dict[str, str] | None:
             if name in address} or None
 
 
-__all__ = ["public_address", "COMPONENTS"]
+#: The house-number rule, for the one other caller that needs it.
+#: KYC's address COMPARISON needs the same answer this module's public
+#: view gives, or a house could be published as one number and compared
+#: as another.
+house_number = _house_of
+
+__all__ = ["public_address", "house_number", "COMPONENTS"]

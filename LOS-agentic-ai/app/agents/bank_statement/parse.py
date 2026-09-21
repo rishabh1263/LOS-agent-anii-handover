@@ -221,9 +221,133 @@ def is_transaction_start(line: str) -> str | None:
     return match.group(1) if match else None
 
 
+# ---------------------------------------------------------------------------
+# The account holder
+# ---------------------------------------------------------------------------
+#
+# ONLY WHERE THE STATEMENT LABELS IT. Every rule below was written against
+# the real samples in this repository, not guessed:
+#
+#   Canara   "Name GUDDI DEVI"           label and value on one line
+#   HDFC     "Welcome:" / "BRIJ RAJ..."  label alone, value on the next
+#   Kotak    "Vishal"                    NO label at all -- not extracted
+#
+# The Kotak case is the important one. Its holder name is simply the second
+# line of the page, indistinguishable by shape from a branch, a city or a
+# note. Guessing there would put a WRONG name into an identity comparison,
+# which is worse than putting none: a wrong name that happens to match is a
+# false PASS on someone else's bank account. So the unlabelled case is given
+# up deliberately, and KYC reports NAME_SINGLE_SOURCE instead.
+
+#: Labels a statement uses for the person whose account it is. Anchored at
+#: the start of the line, which is what keeps "Branch Name SITAMARHI" and
+#: "Bank Name" out -- both appear on the Canara sample, one line apart from
+#: the real thing.
+_HOLDER_LABEL_RE = re.compile(
+    r"^\s*(?:account\s+holder(?:'?s)?(?:\s+name)?|customer\s+name"
+    r"|account\s+name|name\s+of\s+(?:the\s+)?(?:account\s+holder|customer)"
+    r"|welcome|name)\s*[:\-]?\s*(.*)$",
+    re.IGNORECASE,
+)
+
+#: A label that is NOT the account holder, however much it contains "name".
+#: Checked first, because "Branch Name" would otherwise satisfy the rule
+#: above if the anchor ever loosened.
+_NOT_HOLDER_RE = re.compile(
+    r"^\s*(?:branch|bank|nominee|joint|guardian|father|mother|spouse|"
+    r"beneficiary|payee|merchant|employer|scheme|product|company)\b",
+    re.IGNORECASE,
+)
+
+#: What a person's name may contain. Letters, spaces and the punctuation
+#: Indian names actually use. A digit, an @ or a / means this is an address
+#: line, a UPI handle or a reference -- not a name.
+_HOLDER_VALUE_RE = re.compile(r"^[A-Za-z][A-Za-z .'\-]{2,69}$")
+
+#: Relationship prefixes printed where an address begins on Canara
+#: statements: "Address W O PURUSHOTTAM KUMAR" is the HUSBAND, and reading
+#: it as the account holder would compare the applicant against their
+#: spouse and report a mismatch that is not one.
+_RELATION_PREFIX_RE = re.compile(
+    r"^(?:[SWDC]\s*[/.]?\s*O\b|son|wife|daughter|care)\b", re.IGNORECASE)
+
+#: Words that mean the line is furniture, not a person.
+_HOLDER_STOPWORDS = frozenset({
+    "STATEMENT", "ACCOUNT", "SAVINGS", "CURRENT", "BALANCE", "SUMMARY",
+    "ADDRESS", "BRANCH", "IFSC", "MICR", "PHONE", "MOBILE", "EMAIL",
+    "CUSTOMER", "PERIOD", "DATE", "PARTICULARS", "DEPOSITS", "WITHDRAWALS",
+    "OPENING", "CLOSING", "TRANSACTION", "TRANSACTIONS", "NOMINEE",
+    "REGISTERED", "CURRENCY", "ACTIVE", "TYPE", "CODE", "NAME", "BANK",
+    "LIMITED", "LTD", "INDIA", "RUPEE", "TOTAL", "PAGE",
+})
+
+
+def _holder_candidate(value: str) -> str | None:
+    """One label's value, if it looks like a person and not like furniture."""
+    text = " ".join((value or "").split())
+    if not text or not _HOLDER_VALUE_RE.match(text):
+        return None
+    if _RELATION_PREFIX_RE.match(text):
+        return None
+
+    words = [w for w in re.split(r"[ .]+", text.upper()) if w]
+    if not words or len(words) > 6:
+        return None
+    # Every word furniture means a caption wrapped onto its own line.
+    if all(w in _HOLDER_STOPWORDS for w in words):
+        return None
+    # Any furniture word at all is enough to reject: a real name does not
+    # contain "BRANCH" or "IFSC", and a caption usually does.
+    if any(w in _HOLDER_STOPWORDS for w in words):
+        return None
+    return text.upper()
+
+
+def detect_account_holder(text: str) -> str | None:
+    """
+    The name of the person whose account this is, where the statement says so.
+
+    CONSERVATIVE BY CONSTRUCTION. Returns None unless an explicit label
+    identifies the value. None is a safe answer -- the identity check simply
+    has one fewer source and reports NAME_SINGLE_SOURCE -- whereas a wrong
+    name is compared against the applicant's PAN and decides their case.
+
+    Never raises and never affects the extraction verdict: a statement whose
+    holder cannot be read is still a perfectly good statement.
+    """
+    lines = (text or "").splitlines()
+
+    for index, line in enumerate(lines[:40]):
+        if _NOT_HOLDER_RE.match(line):
+            continue
+
+        match = _HOLDER_LABEL_RE.match(line)
+        if not match:
+            continue
+
+        holder = _holder_candidate(match.group(1))
+        if holder:
+            return holder
+
+        # The label stood alone on its line ("Welcome:" on HDFC); the value
+        # is the next non-empty line.
+        if not match.group(1).strip():
+            for following in lines[index + 1:index + 3]:
+                if not following.strip():
+                    continue
+                if _NOT_HOLDER_RE.match(following):
+                    break
+                holder = _holder_candidate(following)
+                if holder:
+                    return holder
+                break
+
+    return None
+
+
 __all__ = [
     "parse_date", "parse_amount", "detect_bank", "mask_account",
-    "find_header", "is_transaction_start",
+    "find_header", "is_transaction_start", "detect_account_holder",
 ]
 
 

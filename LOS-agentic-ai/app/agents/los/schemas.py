@@ -351,6 +351,111 @@ class KycFieldResult(BaseModel):
     sources: list[KycFieldSource] = Field(default_factory=list)
 
 
+class KycScore(BaseModel):
+    """
+    What `overall_score` actually measured.
+
+    THE NUMBER ALONE IS AMBIGUOUS. `overall_score` is a weighted mean over
+    the fields that could be compared, so on a bundle where only the name
+    was comparable it IS the name-match score -- and a reviewer reading
+    "38" with no label reasonably takes it for an accuracy figure. This
+    names the basis instead of leaving it to be inferred.
+
+    Nothing here is a new calculation: `value` and `confidence` are the
+    existing `overall_score` and `overall_confidence`.
+    """
+
+    value: int = Field(..., ge=0, le=100, description="Exactly `overall_score`.")
+    type: str = Field(
+        ...,
+        description=(
+            "What the score measured. A single-field score names that "
+            "field; a score over several fields is `KYC_CONSISTENCY`. "
+            "Never an accuracy figure -- nothing in this pipeline "
+            "measures how often the extractor is right."
+        ),
+        examples=["NAME_MATCH", "ADDRESS_MATCH", "KYC_CONSISTENCY"],
+    )
+    label: str = Field(..., examples=["Name Match Score"])
+    interpretation: str = Field(
+        ...,
+        description=(
+            "The score in words. EXPLANATORY ONLY -- it draws no "
+            "PASS/FAIL boundary. Those thresholds live in "
+            "kyc_policies.yaml, so a band and a verdict may legitimately "
+            "differ: a non-blocking check can FAIL and still leave the "
+            "case at REVIEW."
+        ),
+        examples=["Exact match", "Low similarity"],
+    )
+    confidence: int = Field(..., ge=0, le=100,
+                            description="Exactly `overall_confidence`.")
+
+
+class KycVerificationSummary(BaseModel):
+    """How many checks ran, and how they came out."""
+
+    checks_evaluated: int = Field(..., description="Checks that were not skipped.")
+    checks_passed: int = 0
+    checks_failed: int = 0
+    checks_review: int | None = Field(
+        None,
+        description=(
+            "Checks that reached REVIEW. Present only when there are any, "
+            "so that passed + failed + review + skipped always equals the "
+            "total -- a summary whose numbers do not add up invites the "
+            "reader to assume the rest failed."
+        ),
+    )
+    checks_skipped: int = 0
+
+    primary_applicant: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "This party's own counts. Present only on a case with a "
+            "co-applicant -- \"four of five checks passed\" across two "
+            "people describes neither of them. The case-wide counts "
+            "above are unchanged and stay beside these."
+        ),
+    )
+    co_applicant: dict[str, Any] | None = Field(
+        None, description="The co-applicant's own counts."
+    )
+
+    primary_issue: str | None = Field(
+        None,
+        description="The reason code a reviewer should read first.",
+        examples=["NAME_MISMATCH"],
+    )
+
+
+class KycOutcome(BaseModel):
+    """
+    The verdict as a sentence, selected deterministically by reason code.
+
+    NAMED `KycOutcome`, NOT `KycResult`. The KYC agent already publishes a
+    `KycResult` of its own, and two models with one name make FastAPI
+    disambiguate BOTH into `app__agents__kyc__schemas__KycResult` --
+    renaming an existing public schema as a side effect of adding a new
+    one.
+    """
+
+    title: str = Field(..., examples=["Identity verification requires review"])
+    message: str | None = Field(
+        None,
+        description=(
+            "Present only where the reason code carries enough to say "
+            "something true. A code with no entry produces no sentence "
+            "rather than a plausible one."
+        ),
+    )
+    action: str = Field(
+        ...,
+        description="What a human does next. Never an approval.",
+        examples=["Manual review required", "No action required"],
+    )
+
+
 class KycSummary(BaseModel):
     """
     The KYC verdict.
@@ -376,6 +481,33 @@ class KycSummary(BaseModel):
         0, ge=0, le=100,
         description="Weighted mean of the field confidences, same basis.",
     )
+    overall_score_basis: str | None = Field(
+        None,
+        description=(
+            "What `overall_score` measured, for a client reading only "
+            "that number.\n\n"
+            "**Party-qualified on a joint case.** At case level "
+            "`overall_score` is the MINIMUM of the parties' scores, not "
+            "a mean across them, and a minimum belongs to one person -- "
+            "so `CO_APPLICANT_NAME_MATCH` rather than a bare "
+            "`NAME_MATCH`, which would read as a figure describing the "
+            "whole case."
+        ),
+        examples=["NAME_MATCH", "CO_APPLICANT_NAME_MATCH",
+                  "KYC_CONSISTENCY"],
+    )
+    score: KycScore | None = Field(
+        None,
+        description=(
+            "`overall_score`, with what it measured. Absent when no field "
+            "was comparable -- `roll_up` returns 0 there, and that 0 does "
+            "not mean the documents disagreed."
+        ),
+    )
+    verification_summary: KycVerificationSummary | None = Field(
+        None, description="Counts over the checks, from the checks."
+    )
+    result: KycOutcome | None = Field(None, description="The verdict in words.")
     fields: list[KycFieldResult] | None = Field(
         None,
         description=(
@@ -393,6 +525,21 @@ class CrossDocumentCheck(BaseModel):
     """One named agreement check across the uploaded documents."""
 
     check: str = Field(..., examples=["NAME", "DOB", "ADDRESS", "PAN", "INCOME"])
+    party_id: str | None = Field(
+        None,
+        description=(
+            "Whose documents this check ran over. Present only on a case "
+            "with a co-applicant, where two people each produce their own "
+            "NAME row and a reviewer has to tell them apart. Absent on a "
+            "single-applicant case, exactly as before.\n\n"
+            "Every check is scoped to ONE party. Nothing in this list "
+            "compares one applicant against another -- two people on a "
+            "joint application legitimately have different names, and "
+            "reporting that as a mismatch is a defect this field exists "
+            "to make visible."
+        ),
+        examples=["COAPP-7F2A11C4D9E0"],
+    )
     status: str = Field(
         ...,
         description="SKIPPED means there was nothing to compare, not agreement.",

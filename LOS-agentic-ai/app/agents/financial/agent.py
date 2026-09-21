@@ -163,6 +163,13 @@ def _from_bank_statement(path: str) -> FinancialResult:
     return FinancialResult(
         document_type=FinancialDocumentType.BANK_STATEMENT,
         status=status_map.get(raw.status.value, FinancialStatus.PARTIAL),
+        # The account holder, so cross-document identity can use it. This
+        # is the ONLY new thing on this path: `name` is already what
+        # `mapping._NAME_FIELDS` reads and what `check_name` compares, so
+        # nothing bank-specific is added to KYC. None when the statement
+        # did not label its holder, which the identity check already
+        # handles as one fewer source.
+        name=raw.account_holder,
         account_number_masked=raw.account_number_masked,
         evidence=bank_signals.derive(raw) or None,
         period_start=raw.period.start,

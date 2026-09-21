@@ -243,13 +243,157 @@ def status_for_verdict(verdict: str | None) -> DocumentStatus:
     )
 
 
+
+# ==========================================================================
+# CASE MEMORY
+#
+# WHAT THIS IS FOR. Everything above survives a request because the FOS stage
+# needs it later. Everything the pipeline CONCLUDES -- what verification
+# found, what KYC decided, what the bank statement showed, what risk scored --
+# was computed, returned in one response and then lost. A question like "why
+# did KYC go to review?" could not be answered five minutes later, because
+# nothing had written the answer down.
+#
+# ONE TABLE FOR FINDINGS, NOT FIVE. Verification, KYC, financial, risk and
+# RCU findings have the same shape: they belong to a party on a case, they
+# carry a status, a score, a confidence, reason codes and some structured
+# detail. Five near-identical tables would be five places to add a column and
+# five migrations to keep in step. `finding_kind` discriminates instead.
+#
+# STRUCTURED FINDINGS ONLY. `payload` is for values the pipeline already
+# publishes -- never OCR tokens, bounding boxes, prompts, model reasoning,
+# raw tool payloads, credentials or filesystem paths. What is not worth
+# putting in a response is not worth keeping in a database.
+# ==========================================================================
+
+class FindingKind(str, Enum):
+    """
+    What produced a finding.
+
+    A closed vocabulary rather than a free string: a typo'd kind would
+    write a row that no reader ever asks for, and it would look like
+    successful persistence.
+    """
+
+    VERIFICATION = "VERIFICATION"
+    EXTRACTION = "EXTRACTION"
+    KYC = "KYC"
+    PROFILE_MATCH = "PROFILE_MATCH"
+    FINANCIAL = "FINANCIAL"
+    RISK = "RISK"
+    RCU = "RCU"
+
+
+@dataclass
+class CaseFinding:
+    """
+    One conclusion the pipeline reached, kept.
+
+    OWNERSHIP IS NOT OPTIONAL. `case_id` is required and `party_id` is
+    carried wherever the finding belongs to one person rather than to the
+    case as a whole -- a KYC result is a party's, a cross-document check is
+    the case's. A finding with no case cannot be scoped, so it is never
+    written.
+    """
+
+    finding_id: str
+    case_id: str
+    finding_kind: FindingKind
+    party_id: str | None = None
+    stage: str | None = None
+    status: str | None = None
+    score: int | None = None
+    confidence: int | None = None
+    reason_codes: list[str] = field(default_factory=list)
+    #: Structured detail, already public. Never raw OCR or model output.
+    payload: dict[str, Any] = field(default_factory=dict)
+    source_type: str | None = None
+    source_id: str | None = None
+    document_id: str | None = None
+    created_at: datetime = field(default_factory=utcnow)
+    #: Bumped when the same logical finding is recorded again.
+    version: int = 1
+    #: Identifies an unchanged re-run, so a repeated request does not
+    #: accumulate duplicate rows saying the same thing.
+    content_hash: str | None = None
+
+
+@dataclass
+class DocumentVersion:
+    """
+    One upload of one document.
+
+    A re-uploaded document is a NEW VERSION, not an overwrite. The current
+    `documents` row keeps answering "what is the state of this document";
+    this keeps "what was sent, and when" -- which is the question a reviewer
+    asks when a document changed after a rejection.
+    """
+
+    document_version_id: str
+    document_id: str
+    case_id: str
+    version: int = 1
+    party_id: str | None = None
+    source_id: str | None = None
+    content_hash: str | None = None
+    created_at: datetime = field(default_factory=utcnow)
+
+
+@dataclass
+class CaseDecision:
+    """
+    A decision the pipeline RECORDED. Never one this layer made.
+
+    Stored with the policy it was taken under, because a decision without
+    its policy version cannot be explained six months later -- the rules
+    will have moved and nothing will say which ones applied.
+    """
+
+    decision_id: str
+    case_id: str
+    decision: str | None = None
+    next_action: str | None = None
+    status: str | None = None
+    reason_codes: list[str] = field(default_factory=list)
+    policy_id: str | None = None
+    policy_version: str | None = None
+    created_at: datetime = field(default_factory=utcnow)
+
+
+@dataclass
+class CaseEvent:
+    """
+    One thing that happened on a case, in order.
+
+    `sequence` exists because timestamps are not enough: several events are
+    written inside one request and can share a millisecond, and a timeline
+    that reorders itself between reads is worse than no timeline.
+    """
+
+    event_id: str
+    case_id: str
+    event_type: str
+    party_id: str | None = None
+    stage: str | None = None
+    summary: str | None = None
+    #: The finding, document or decision this event is about.
+    ref_id: str | None = None
+    created_at: datetime = field(default_factory=utcnow)
+    sequence: int = 0
+
+
 __all__ = [
     "ACTIONABLE_STATUSES",
     "Applicant",
     "Application",
     "ApplicationStatus",
+    "CaseDecision",
+    "CaseEvent",
+    "CaseFinding",
     "Document",
     "DocumentStatus",
+    "DocumentVersion",
+    "FindingKind",
     "SATISFYING_STATUSES",
     "VERDICT_TO_STATUS",
     "status_for_verdict",

@@ -31,8 +31,13 @@ from app.store.models import (
     Applicant,
     Application,
     ApplicationStatus,
+    CaseDecision,
+    CaseEvent,
+    CaseFinding,
     Document,
     DocumentStatus,
+    DocumentVersion,
+    FindingKind,
     utcnow,
 )
 from app.store.repository import Repository, RepositoryError
@@ -86,6 +91,106 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 CREATE INDEX IF NOT EXISTS idx_documents_case
     ON documents (case_id, uploaded_at);
+
+-- ======================================================================
+-- CASE MEMORY
+--
+-- Additive. Every statement is CREATE ... IF NOT EXISTS, so opening a
+-- store written before these tables existed adds them and touches
+-- nothing that was already there.
+-- ======================================================================
+
+-- One conclusion the pipeline reached. VERIFICATION, KYC, FINANCIAL,
+-- RISK and the rest share this shape, discriminated by finding_kind --
+-- see models.CaseFinding for why that is one table and not five.
+CREATE TABLE IF NOT EXISTS case_findings (
+    finding_id    TEXT PRIMARY KEY,
+    case_id       TEXT NOT NULL,
+    party_id      TEXT,
+    finding_kind  TEXT NOT NULL,
+    stage         TEXT,
+    status        TEXT,
+    score         INTEGER,
+    confidence    INTEGER,
+    reason_codes  TEXT NOT NULL DEFAULT '[]',
+    payload       TEXT NOT NULL DEFAULT '{}',
+    source_type   TEXT,
+    source_id     TEXT,
+    document_id   TEXT,
+    created_at    TEXT NOT NULL,
+    version       INTEGER NOT NULL DEFAULT 1,
+    content_hash  TEXT,
+    FOREIGN KEY (case_id) REFERENCES applications (case_id)
+);
+CREATE INDEX IF NOT EXISTS idx_findings_case
+    ON case_findings (case_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_findings_party
+    ON case_findings (case_id, party_id);
+CREATE INDEX IF NOT EXISTS idx_findings_kind
+    ON case_findings (case_id, finding_kind);
+CREATE INDEX IF NOT EXISTS idx_findings_document
+    ON case_findings (document_id);
+-- One row per logical finding per content. A re-run that concluded the
+-- same thing collides here instead of appending a duplicate.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_identity
+    ON case_findings (case_id, finding_kind, IFNULL(party_id, ''),
+                      IFNULL(source_id, ''), IFNULL(content_hash, ''));
+
+-- One upload of one document. A re-upload is a new row, not an edit.
+CREATE TABLE IF NOT EXISTS document_versions (
+    document_version_id TEXT PRIMARY KEY,
+    document_id         TEXT NOT NULL,
+    case_id             TEXT NOT NULL,
+    party_id            TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    source_id           TEXT,
+    content_hash        TEXT,
+    created_at          TEXT NOT NULL,
+    FOREIGN KEY (document_id) REFERENCES documents (document_id),
+    FOREIGN KEY (case_id) REFERENCES applications (case_id)
+);
+CREATE INDEX IF NOT EXISTS idx_docversions_document
+    ON document_versions (document_id, version);
+CREATE INDEX IF NOT EXISTS idx_docversions_case
+    ON document_versions (case_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_docversions_identity
+    ON document_versions (document_id, version);
+
+-- A decision the pipeline RECORDED, with the policy it was taken under.
+CREATE TABLE IF NOT EXISTS case_decisions (
+    decision_id    TEXT PRIMARY KEY,
+    case_id        TEXT NOT NULL,
+    decision       TEXT,
+    next_action    TEXT,
+    status         TEXT,
+    reason_codes   TEXT NOT NULL DEFAULT '[]',
+    policy_id      TEXT,
+    policy_version TEXT,
+    created_at     TEXT NOT NULL,
+    FOREIGN KEY (case_id) REFERENCES applications (case_id)
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_case
+    ON case_decisions (case_id, created_at);
+
+-- What happened on a case, in order. `sequence` and not the timestamp
+-- is the ordering, because a request writes several events inside one
+-- millisecond.
+CREATE TABLE IF NOT EXISTS case_events (
+    event_id   TEXT PRIMARY KEY,
+    case_id    TEXT NOT NULL,
+    party_id   TEXT,
+    event_type TEXT NOT NULL,
+    stage      TEXT,
+    summary    TEXT,
+    ref_id     TEXT,
+    created_at TEXT NOT NULL,
+    sequence   INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (case_id) REFERENCES applications (case_id)
+);
+CREATE INDEX IF NOT EXISTS idx_events_case
+    ON case_events (case_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_events_created
+    ON case_events (case_id, created_at);
 """
 
 
@@ -480,6 +585,285 @@ class SQLiteRepository(Repository):
             uploaded_at=_parse(row["uploaded_at"]),
             updated_at=_parse(row["updated_at"]),
         )
+
+
+    # ==================================================================
+    # CASE MEMORY
+    #
+    # Reads are CASE-SCOPED BY CONSTRUCTION: every SELECT below starts
+    # from a case_id and no method can return a row from another case.
+    # That is a data-access property, not an authorisation check -- the
+    # caller still has to have passed ownership before asking.
+    # ==================================================================
+
+    def save_finding(self, finding: CaseFinding) -> CaseFinding:
+        """
+        Record one conclusion.
+
+        IDEMPOTENT ON CONTENT. The unique index over
+        (case_id, kind, party, source, content_hash) means a re-run that
+        concluded the same thing updates the existing row instead of
+        appending a second one -- a case processed twice should not read
+        as a case that changed its mind.
+        """
+        self._write(
+            """
+            INSERT INTO case_findings (
+                finding_id, case_id, party_id, finding_kind, stage, status,
+                score, confidence, reason_codes, payload, source_type,
+                source_id, document_id, created_at, version, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(case_id, finding_kind, IFNULL(party_id, ''),
+                        IFNULL(source_id, ''), IFNULL(content_hash, ''))
+            DO UPDATE SET
+                status       = excluded.status,
+                score        = excluded.score,
+                confidence   = excluded.confidence,
+                reason_codes = excluded.reason_codes,
+                payload      = excluded.payload,
+                stage        = excluded.stage,
+                document_id  = excluded.document_id,
+                version      = case_findings.version + 1
+            """,
+            (finding.finding_id, finding.case_id, finding.party_id,
+             _kind_value(finding.finding_kind), finding.stage, finding.status,
+             finding.score, finding.confidence,
+             json.dumps(list(finding.reason_codes or [])),
+             json.dumps(finding.payload or {}),
+             finding.source_type, finding.source_id, finding.document_id,
+             _iso(finding.created_at), finding.version, finding.content_hash),
+        )
+        return finding
+
+    def get_case_findings(
+        self,
+        case_id: str,
+        party_id: str | None = None,
+        kind: "FindingKind | str | None" = None,
+    ) -> list[CaseFinding]:
+        """
+        Findings for one case, oldest first.
+
+        `party_id` narrows to that party AND to case-level findings that
+        belong to no single party -- a cross-document check is the case's,
+        not one person's, and hiding it when a party is named would lose
+        it. It never widens past the case.
+        """
+        sql = "SELECT * FROM case_findings WHERE case_id = ?"
+        args: list[object] = [case_id]
+
+        if party_id:
+            sql += " AND (party_id = ? OR party_id IS NULL)"
+            args.append(party_id)
+        if kind:
+            sql += " AND finding_kind = ?"
+            args.append(_kind_value(kind))
+
+        sql += " ORDER BY created_at, rowid"
+        return [self._finding(row) for row in self._all(sql, tuple(args))]
+
+    def save_document_version(
+        self, version: DocumentVersion
+    ) -> DocumentVersion:
+        """Record one upload. Re-recording the same version is a no-op."""
+        self._write(
+            """
+            INSERT INTO document_versions (
+                document_version_id, document_id, case_id, party_id,
+                version, source_id, content_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(document_id, version) DO UPDATE SET
+                source_id    = excluded.source_id,
+                content_hash = excluded.content_hash
+            """,
+            (version.document_version_id, version.document_id, version.case_id,
+             version.party_id, version.version, version.source_id,
+             version.content_hash, _iso(version.created_at)),
+        )
+        return version
+
+    def get_document_versions(self, document_id: str) -> list[DocumentVersion]:
+        """Every version of one document, oldest first."""
+        return [
+            self._document_version(row)
+            for row in self._all(
+                "SELECT * FROM document_versions WHERE document_id = ? "
+                "ORDER BY version, rowid",
+                (document_id,),
+            )
+        ]
+
+    def save_decision(self, decision: CaseDecision) -> CaseDecision:
+        """Record a decision the pipeline reached."""
+        self._write(
+            """
+            INSERT INTO case_decisions (
+                decision_id, case_id, decision, next_action, status,
+                reason_codes, policy_id, policy_version, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(decision_id) DO UPDATE SET
+                decision     = excluded.decision,
+                next_action  = excluded.next_action,
+                status       = excluded.status,
+                reason_codes = excluded.reason_codes
+            """,
+            (decision.decision_id, decision.case_id, decision.decision,
+             decision.next_action, decision.status,
+             json.dumps(list(decision.reason_codes or [])),
+             decision.policy_id, decision.policy_version,
+             _iso(decision.created_at)),
+        )
+        return decision
+
+    def get_case_decisions(self, case_id: str) -> list[CaseDecision]:
+        """Decisions recorded for one case, oldest first."""
+        return [
+            self._decision(row)
+            for row in self._all(
+                "SELECT * FROM case_decisions WHERE case_id = ? "
+                "ORDER BY created_at, rowid",
+                (case_id,),
+            )
+        ]
+
+    def record_event(self, event: CaseEvent) -> CaseEvent:
+        """
+        Append one event to the timeline.
+
+        `sequence` is assigned here when the caller did not set one, so
+        two events written in the same millisecond still have an order.
+        """
+        if not event.sequence:
+            row = self._one(
+                "SELECT COALESCE(MAX(sequence), 0) AS s FROM case_events "
+                "WHERE case_id = ?",
+                (event.case_id,),
+            )
+            event.sequence = int((row["s"] if row else 0) or 0) + 1
+
+        self._write(
+            """
+            INSERT INTO case_events (
+                event_id, case_id, party_id, event_type, stage, summary,
+                ref_id, created_at, sequence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(event_id) DO NOTHING
+            """,
+            (event.event_id, event.case_id, event.party_id, event.event_type,
+             event.stage, event.summary, event.ref_id,
+             _iso(event.created_at), event.sequence),
+        )
+        return event
+
+    def get_case_timeline(self, case_id: str) -> list[CaseEvent]:
+        """The case timeline, in the order things happened."""
+        return [
+            self._event(row)
+            for row in self._all(
+                "SELECT * FROM case_events WHERE case_id = ? "
+                "ORDER BY sequence, rowid",
+                (case_id,),
+            )
+        ]
+
+    # -- row mappers -------------------------------------------------------
+
+    @staticmethod
+    def _finding(row: "sqlite3.Row") -> CaseFinding:
+        return CaseFinding(
+            finding_id=row["finding_id"],
+            case_id=row["case_id"],
+            finding_kind=_kind(row["finding_kind"]),
+            party_id=_column(row, "party_id"),
+            stage=_column(row, "stage"),
+            status=_column(row, "status"),
+            score=_column(row, "score"),
+            confidence=_column(row, "confidence"),
+            reason_codes=_json_list(_column(row, "reason_codes")),
+            payload=_json_dict(_column(row, "payload")),
+            source_type=_column(row, "source_type"),
+            source_id=_column(row, "source_id"),
+            document_id=_column(row, "document_id"),
+            created_at=_parse(_column(row, "created_at")),
+            version=int(_column(row, "version") or 1),
+            content_hash=_column(row, "content_hash"),
+        )
+
+    @staticmethod
+    def _document_version(row: "sqlite3.Row") -> DocumentVersion:
+        return DocumentVersion(
+            document_version_id=row["document_version_id"],
+            document_id=row["document_id"],
+            case_id=row["case_id"],
+            party_id=_column(row, "party_id"),
+            version=int(_column(row, "version") or 1),
+            source_id=_column(row, "source_id"),
+            content_hash=_column(row, "content_hash"),
+            created_at=_parse(_column(row, "created_at")),
+        )
+
+    @staticmethod
+    def _decision(row: "sqlite3.Row") -> CaseDecision:
+        return CaseDecision(
+            decision_id=row["decision_id"],
+            case_id=row["case_id"],
+            decision=_column(row, "decision"),
+            next_action=_column(row, "next_action"),
+            status=_column(row, "status"),
+            reason_codes=_json_list(_column(row, "reason_codes")),
+            policy_id=_column(row, "policy_id"),
+            policy_version=_column(row, "policy_version"),
+            created_at=_parse(_column(row, "created_at")),
+        )
+
+    @staticmethod
+    def _event(row: "sqlite3.Row") -> CaseEvent:
+        return CaseEvent(
+            event_id=row["event_id"],
+            case_id=row["case_id"],
+            party_id=_column(row, "party_id"),
+            event_type=row["event_type"],
+            stage=_column(row, "stage"),
+            summary=_column(row, "summary"),
+            ref_id=_column(row, "ref_id"),
+            created_at=_parse(_column(row, "created_at")),
+            sequence=int(_column(row, "sequence") or 0),
+        )
+
+
+def _kind_value(kind) -> str:
+    """A FindingKind or its string, as stored."""
+    return kind.value if isinstance(kind, FindingKind) else str(kind)
+
+
+def _kind(value: str | None) -> FindingKind:
+    """
+    Stored kind back to the enum.
+
+    An unrecognised kind is reported as VERIFICATION rather than raising:
+    a row written by a newer version must not make an older reader fall
+    over on an ordinary SELECT.
+    """
+    try:
+        return FindingKind(str(value))
+    except ValueError:
+        return FindingKind.VERIFICATION
+
+
+def _json_list(value: str | None) -> list:
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _json_dict(value: str | None) -> dict:
+    try:
+        parsed = json.loads(value or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 __all__ = ["SQLiteRepository"]

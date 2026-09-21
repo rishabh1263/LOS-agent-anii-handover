@@ -87,6 +87,8 @@ RELEVANT_FIELDS: dict[Intent, tuple[str, ...]] = {
     Intent.APPLICATION_STAGE: ("application", "stage", "checklist",
                                "required_documents"),
     Intent.DOCUMENTS_UPLOADED: ("documents",),
+    # The explanation is the findings; the application says which case.
+    Intent.CASE_HISTORY: ("application", "stage", "case_memory"),
     Intent.DOCUMENTS_REQUIRED: ("checklist", "required_documents"),
     # The explanation IS the policy block, so the answer would be
     # unsupportable without it.

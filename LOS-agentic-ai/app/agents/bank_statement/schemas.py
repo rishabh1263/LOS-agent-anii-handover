@@ -56,6 +56,15 @@ class BankStatementResult(BaseModel):
     bank: str | None = None
     account_number_masked: str | None = None
 
+    #: The person whose account this is, where the statement labels it.
+    #:
+    #: OPTIONAL, AND OFTEN ABSENT ON PURPOSE. It is read only from an
+    #: explicit caption; a statement that prints the holder as a bare line
+    #: with no label (Kotak does) leaves this None rather than guessing.
+    #: None costs the identity check one source; a wrong value would be
+    #: compared against the applicant's PAN and decide their case.
+    account_holder: str | None = None
+
     period: StatementPeriod = Field(default_factory=StatementPeriod)
     transactions: list[Transaction] = Field(default_factory=list)
 

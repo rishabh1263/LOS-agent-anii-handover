@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.agents.los import kyc_explain
 from app.agents.verification import reasons as reasons_module
 
 # Severity of a failed KYC check, by the check it came from. A mismatch on
@@ -308,6 +309,22 @@ def public_kyc_fields(kyc: dict[str, Any] | None) -> list[dict[str, Any]]:
         if row.get("reason_code"):
             row.pop("reason", None)
 
+            # NO PER-ROW SENTENCE HERE, DELIBERATELY.
+            #
+            # `kyc_explain.field_message` can produce one for every code
+            # below, and putting it on each row cost 451 bytes per party
+            # -- half of this phase's total growth, and enough on a
+            # two-party case to threaten the 6000-byte response guard in
+            # test_los_production_e2e. It is also the second time the
+            # same sentence would be added: the `reason` string popped
+            # one line above was removed for exactly this reason.
+            #
+            # What a reviewer needs in prose is the ONE issue that
+            # decided the case, and `kyc.result.message` carries it.
+            # The rest is a reason code, which is what the codes are for.
+            # The function stays public for a caller that wants to render
+            # a code, and for the copilot.
+
         # AN ADDRESS SOURCE CARRIES THE SAME OCR LINE THE DOCUMENT DID.
         # Cleaned the same way, or this is a second door out for the
         # text the extraction shaping just closed.
@@ -399,6 +416,20 @@ def cross_document_from(kyc: dict[str, Any] | None) -> dict[str, Any]:
             "status": status,
             "reason_codes": list(check.get("reason_codes") or []),
         }
+
+        # WHOSE CHECK THIS IS. Stamped by `_case_kyc` only on a case with
+        # more than one party, and carried through so a reviewer reading a
+        # joint application can tell the primary's NAME row from the
+        # co-applicant's. Its absence is what a single-applicant case has
+        # always looked like, so that contract is untouched.
+        #
+        # It is also the guard that keeps this list honest: every row here
+        # was reached WITHIN one person's documents. Nothing in this
+        # response compares one party against another, and a row without a
+        # party to attribute it to would be the first thing to blur that.
+        party_id = check.get("party_id")
+        if party_id:
+            entry["party_id"] = party_id
 
         sources = list(check.get("source_ids") or [])
         if sources:
@@ -858,6 +889,32 @@ def public_kyc(kyc: dict[str, Any] | None, *,
         "overall_score": kyc.get("overall_score", 0),
         "overall_confidence": kyc.get("overall_confidence", 0),
     }
+
+    # WHAT THE NUMBER ABOVE ACTUALLY MEASURES.
+    #
+    # `overall_score` stays exactly as it was -- same key, same value,
+    # same type -- because clients read it. What it was missing is a
+    # statement of what it IS: a weighted mean over the fields that were
+    # comparable, which on a bundle where only the name could be compared
+    # is the name-match score under a general-sounding name. Everything
+    # added here is read from numbers KYC already produced; nothing is
+    # recomputed and no threshold is consulted.
+    score = kyc_explain.score_of(kyc)
+    if score:
+        published["score"] = score
+        # WHAT THE BARE NUMBER MEASURED, beside the bare number itself.
+        # A client reading only `overall_score` -- every existing one --
+        # gets the one word it was missing without having to learn a new
+        # object. On a joint case this is party-qualified, because at
+        # case level `overall_score` is the MINIMUM of the parties' and
+        # a minimum belongs to one of them.
+        published["overall_score_basis"] = score["type"]
+
+    summary = kyc_explain.verification_summary(kyc)
+    if summary:
+        published["verification_summary"] = summary
+
+    published["result"] = kyc_explain.result_of(kyc)
 
     if not compact:
         published["fields"] = public_kyc_fields(kyc)

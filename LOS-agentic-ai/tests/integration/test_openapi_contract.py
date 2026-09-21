@@ -198,7 +198,18 @@ def test_the_verification_summary_is_documented(spec):
 def test_the_kyc_summary_is_documented(spec):
     assert set(spec["components"]["schemas"]["KycSummary"]["properties"]) == {
         "status", "reason_codes", "overall_score", "overall_confidence",
-        "fields"}
+        "fields",
+        # The explanation layer: what `overall_score` measured, the
+        # check tally and the verdict in words. All optional, so an
+        # existing client is unaffected.
+        "score", "overall_score_basis", "verification_summary",
+        "result"}
+
+    # `KycOutcome`, not `KycResult`: the KYC agent already publishes a
+    # `KycResult`, and a duplicate name makes FastAPI rename BOTH to
+    # `app__agents__kyc__schemas__KycResult`.
+    for name in ("KycScore", "KycVerificationSummary", "KycOutcome"):
+        assert name in spec["components"]["schemas"], name
 
 
 def test_a_kyc_field_row_is_documented(spec):
@@ -221,7 +232,9 @@ def test_the_cross_document_object_is_documented(spec):
         "properties"]) == {"status", "checks"}
     assert set(spec["components"]["schemas"]["CrossDocumentCheck"][
         "properties"]) == {"check", "status", "reason_codes", "sources",
-                           "details"}
+                           "details",
+                           # Whose check this is, on a joint case.
+                           "party_id"}
 
 
 def test_the_document_object_is_documented(spec):

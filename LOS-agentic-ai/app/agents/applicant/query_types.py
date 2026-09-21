@@ -81,6 +81,12 @@ _CASE_FACT = frozenset({
     Intent.READINESS,
     Intent.COMPLETENESS,
     Intent.FULL_SUMMARY,
+    # Recorded findings are stored records too. Not DOCUMENT_STATUS: the
+    # question is why the case stands where it does, not what state a
+    # document is in, and a UI renders those differently. Not
+    # POLICY_REQUIREMENT either -- nothing here is a rule the officer is
+    # about to act on, it is what was already found.
+    Intent.CASE_HISTORY,
 })
 
 
