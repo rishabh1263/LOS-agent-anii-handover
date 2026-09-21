@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from 'motion/react'
 export interface CaseDetailsSectionProps {
   applicantId: string
   setApplicantId: (val: string) => void
+  coApplicantId: string
+  setCoApplicantId: (val: string) => void
   caseId: string
   setCaseId: (val: string) => void
   loading: boolean
@@ -14,6 +16,8 @@ export interface CaseDetailsSectionProps {
 export function CaseDetailsSection({
   applicantId,
   setApplicantId,
+  coApplicantId,
+  setCoApplicantId,
   caseId,
   setCaseId,
   loading,
@@ -40,7 +44,7 @@ export function CaseDetailsSection({
               Case details
             </h2>
             <p className="font-sans text-[12px] text-content-secondary">
-              Optional · used to link this run
+              Optional · link primary & co-applicant to this run
             </p>
           </div>
         </div>
@@ -68,18 +72,33 @@ export function CaseDetailsSection({
             transition={{ duration: 0.2, ease: 'easeInOut' }}
             className="overflow-hidden"
           >
-            <div className="grid gap-3.5 sm:grid-cols-2 pt-4 border-t border-line-divider mt-4">
+            <div className="grid gap-3.5 sm:grid-cols-3 pt-4 border-t border-line-divider mt-4">
               <div>
                 <label htmlFor="applicant_id" className="label">
-                  Applicant ID
+                  Primary Applicant ID
                 </label>
                 <input
                   id="applicant_id"
                   name="applicant_id"
                   className="input"
-                  placeholder="CUST-8891"
+                  placeholder="APP-001"
                   value={applicantId}
                   onChange={(e) => setApplicantId(e.target.value)}
+                  disabled={loading}
+                  autoComplete="off"
+                />
+              </div>
+              <div>
+                <label htmlFor="co_applicant_id" className="label">
+                  Co-Applicant ID
+                </label>
+                <input
+                  id="co_applicant_id"
+                  name="co_applicant_id"
+                  className="input"
+                  placeholder="COAPP-001"
+                  value={coApplicantId}
+                  onChange={(e) => setCoApplicantId(e.target.value)}
                   disabled={loading}
                   autoComplete="off"
                 />
@@ -92,7 +111,7 @@ export function CaseDetailsSection({
                   id="case_id"
                   name="case_id"
                   className="input"
-                  placeholder="Auto if empty"
+                  placeholder="CASE-001"
                   value={caseId}
                   onChange={(e) => setCaseId(e.target.value)}
                   disabled={loading}

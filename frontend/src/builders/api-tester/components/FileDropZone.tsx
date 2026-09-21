@@ -4,30 +4,41 @@ import { AnimatePresence, motion } from 'motion/react'
 import {
   ACCEPTED_EXT,
   DOCUMENT_TYPE_OPTIONS,
-  MAX_FILES,
+  MAX_FILES_PER_PARTY,
   formatBytes,
   type DocumentTypeHint,
+  type PartyRole,
   type UploadFileItem,
 } from '../../../runtime/api-tester'
 
 export interface FileDropZoneProps {
   items: UploadFileItem[]
   onChange: (items: UploadFileItem[]) => void
+  partyRole: PartyRole
   disabled?: boolean
+  title?: string
+  subtitle?: string
 }
 
 function makeId() {
   return `f_${Math.random().toString(36).slice(2, 10)}`
 }
 
-export function FileDropZone({ items, onChange, disabled }: FileDropZoneProps) {
+export function FileDropZone({
+  items,
+  onChange,
+  partyRole,
+  disabled,
+  title,
+  subtitle,
+}: FileDropZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
 
   const addFiles = useCallback(
     (fileList: FileList | File[]) => {
       const incoming = Array.from(fileList)
-      const room = MAX_FILES - items.length
+      const room = MAX_FILES_PER_PARTY - items.length
       if (room <= 0) return
       onChange([
         ...items,
@@ -35,10 +46,11 @@ export function FileDropZone({ items, onChange, disabled }: FileDropZoneProps) {
           id: makeId(),
           file,
           expectedType: 'AUTO' as DocumentTypeHint,
+          partyRole,
         })),
       ])
     },
-    [items, onChange],
+    [items, onChange, partyRole],
   )
 
   const onDrop = (e: React.DragEvent) => {
@@ -62,10 +74,21 @@ export function FileDropZone({ items, onChange, disabled }: FileDropZoneProps) {
 
   return (
     <div className="space-y-3">
+      {(title || subtitle) && (
+        <div className="mb-1">
+          {title && (
+            <p className="font-sans text-[13px] font-semibold text-content">{title}</p>
+          )}
+          {subtitle && (
+            <p className="font-sans text-[12px] text-content-secondary">{subtitle}</p>
+          )}
+        </div>
+      )}
+
       <div
         role="button"
         tabIndex={disabled ? -1 : 0}
-        aria-label="Upload documents. Drop files or press Enter to browse."
+        aria-label={`Upload documents for ${partyRole}. Drop files or press Enter to browse.`}
         aria-disabled={disabled}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -82,7 +105,7 @@ export function FileDropZone({ items, onChange, disabled }: FileDropZoneProps) {
         onClick={openPicker}
         className={`
           group relative flex flex-col items-center justify-center gap-3
-          rounded-lg border-2 border-dashed px-5 py-8 transition-colors duration-150
+          rounded-lg border-2 border-dashed px-5 py-7 transition-colors duration-150
           focus:outline-none focus-visible:ring-2 focus-visible:ring-ember
           ${
             dragOver
@@ -111,7 +134,7 @@ export function FileDropZone({ items, onChange, disabled }: FileDropZoneProps) {
             </span>
           </p>
           <p className="mt-1 font-sans text-[12px] text-content-secondary">
-            PDF, JPEG, PNG, TIFF, WebP · max 25 MB · up to {MAX_FILES} files
+            PDF, JPEG, PNG, TIFF, WebP · max 25 MB · up to {MAX_FILES_PER_PARTY} files
           </p>
         </div>
 
@@ -130,7 +153,7 @@ export function FileDropZone({ items, onChange, disabled }: FileDropZoneProps) {
       </div>
 
       {items.length > 0 && (
-        <ul className="space-y-2 pt-1" aria-label="Selected files">
+        <ul className="space-y-2 pt-1" aria-label={`Selected files for ${partyRole}`}>
           <AnimatePresence>
             {items.map((item, index) => (
               <motion.li
@@ -141,7 +164,6 @@ export function FileDropZone({ items, onChange, disabled }: FileDropZoneProps) {
                 transition={{ duration: 0.15 }}
                 className="flex flex-wrap items-center gap-3 rounded-sm border border-line bg-surface p-3 transition hover:border-line-strong"
               >
-                {/* Icon well — Section 9.6: 34px, radius 6px, raised background */}
                 <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-xs bg-raised text-content-secondary">
                   <span className="font-sans text-[11px] font-bold tabular-nums text-content">
                     {index + 1}
@@ -151,7 +173,9 @@ export function FileDropZone({ items, onChange, disabled }: FileDropZoneProps) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <FileText className="h-3.5 w-3.5 text-content-secondary shrink-0" />
-                    <p className="truncate font-sans text-[14px] font-medium text-content">{item.file.name}</p>
+                    <p className="truncate font-sans text-[14px] font-medium text-content">
+                      {item.file.name}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 font-sans text-[12px] text-content-secondary mt-0.5">
                     <span className="font-mono tabular-nums">{formatBytes(item.file.size)}</span>

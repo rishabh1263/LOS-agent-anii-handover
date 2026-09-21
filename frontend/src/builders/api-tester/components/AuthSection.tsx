@@ -42,7 +42,7 @@ export function AuthSection({
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-xs font-sans text-[11px] font-bold tabular-nums transition-colors bg-ember text-oncolor"
             aria-hidden
           >
-            3
+            4
           </span>
           <div>
             <h2 id="section-auth" className="font-display text-[16px] font-semibold text-content">

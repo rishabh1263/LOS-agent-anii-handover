@@ -15,12 +15,16 @@ import type {
   DocumentResult,
   KycField,
   KycResult,
+  PartyResult,
 } from '../../../runtime/api-tester'
 
 export interface CrossDocumentReconciliationProps {
   crossDocument: CrossDocument
   documents: DocumentResult[]
   kyc?: KycResult
+  /** Party summaries — used for Passed/Review KPIs when cross_document.checks is empty */
+  primaryApplicant?: PartyResult | null
+  coApplicant?: PartyResult | null
 }
 
 interface ComparisonRow {
@@ -108,6 +112,8 @@ export function CrossDocumentReconciliation({
   crossDocument,
   documents,
   kyc,
+  primaryApplicant,
+  coApplicant,
 }: CrossDocumentReconciliationProps) {
   const [matrixOpen, setMatrixOpen] = useState(true)
   const [checklistOpen, setChecklistOpen] = useState(true)
@@ -357,17 +363,49 @@ export function CrossDocumentReconciliation({
   }
 
   const totalChecks = checks.length
-  const passCount = checks.filter((c) => c.status === 'PASS').length
-  const failCount = checks.filter((c) => c.status === 'FAIL').length
-  const reviewCount = checks.filter((c) => c.status === 'REVIEW').length
+  // Prefer cross_document.checks when present; otherwise aggregate party verification_summary
+  // (and fall back to per-document status) so KPIs match Applicant / Co-applicant cards.
+  const checksPass = checks.filter((c) => c.status === 'PASS').length
+  const checksFail = checks.filter((c) => c.status === 'FAIL').length
+  const checksReview = checks.filter((c) => c.status === 'REVIEW').length
+
+  const partyPassed =
+    (primaryApplicant?.verification_summary?.passed ?? 0) +
+    (coApplicant?.verification_summary?.passed ?? 0)
+  const partyReview =
+    (primaryApplicant?.verification_summary?.review ?? 0) +
+    (coApplicant?.verification_summary?.review ?? 0)
+  const partyFailed =
+    (primaryApplicant?.verification_summary?.failed ?? 0) +
+    (coApplicant?.verification_summary?.failed ?? 0)
+
+  const docsPassed = documents.filter(
+    (d) => d.status === 'SUCCESS' || d.verification === 'PASS',
+  ).length
+  const docsReview = documents.filter(
+    (d) => d.status === 'REVIEW' || d.verification === 'REVIEW',
+  ).length
+  const docsFailed = documents.filter(
+    (d) =>
+      d.status === 'FAILED' ||
+      d.status === 'REJECTED' ||
+      d.verification === 'FAIL',
+  ).length
+
+  const hasPartySummary =
+    primaryApplicant?.verification_summary != null ||
+    coApplicant?.verification_summary != null
+
+  const passCount =
+    totalChecks > 0 ? checksPass : hasPartySummary ? partyPassed : docsPassed
+  const failCount =
+    totalChecks > 0 ? checksFail : hasPartySummary ? partyFailed : docsFailed
+  const reviewCount =
+    totalChecks > 0 ? checksReview : hasPartySummary ? partyReview : docsReview
+
   const matchScore = kyc?.overall_score ?? 0
-  // const matchScore =
-  //   kyc?.overall_score != null
-  //     ? Math.round(kyc.overall_score)
-  //     : totalChecks > 0
-  //       ? Math.round((passCount / totalChecks) * 100)
-  //       : 0
-  const overallConfidence = kyc?.overall_confidence != null ? Math.round(kyc.overall_confidence) : null
+  const overallConfidence =
+    kyc?.overall_confidence != null ? Math.round(kyc.overall_confidence) : null
 
   const isOverallPass = crossDocument.status === 'PASS'
   const isOverallFail = crossDocument.status === 'FAIL'
@@ -512,7 +550,9 @@ export function CrossDocumentReconciliation({
           <span className="font-display text-[28px] font-bold leading-none tracking-tight text-success">
             {passCount}
           </span>
-          <span className="text-[10px] text-success/70">Identity checks matched</span>
+          <span className="text-[10px] text-success/70">
+            {totalChecks > 0 ? 'Identity checks matched' : 'Documents passed'}
+          </span>
         </div>
 
         <div
@@ -563,9 +603,13 @@ export function CrossDocumentReconciliation({
             }`}
           >
             {failCount > 0
-              ? 'Checks failed — review needed'
+              ? totalChecks > 0
+                ? 'Checks failed — review needed'
+                : 'Documents failed'
               : reviewCount > 0
-                ? 'Flagged for review'
+                ? totalChecks > 0
+                  ? 'Flagged for review'
+                  : 'Documents need review'
                 : 'No issues detected'}
           </span>
         </div>
