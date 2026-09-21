@@ -86,6 +86,23 @@ def llm_summary_enabled() -> bool:
     return _flag("llm_summary_enabled")
 
 
+def case_memory_enabled() -> bool:
+    """
+    Whether pipeline conclusions are written to the case store.
+
+    OFF BY DEFAULT, DELIBERATELY. Persistence here is observational: it
+    records what the pipeline already decided and returned, and nothing
+    downstream reads it yet. Defaulting it on would add writes to every
+    request in exchange for data nobody consumes, and would make the
+    first consumer's bugs look like pipeline bugs.
+
+    Turning it on must not change a single byte of the response -- see
+    `app/store/ingest.py`, where the write happens after the response is
+    built and inside a handler that cannot propagate.
+    """
+    return _flag("case_memory_enabled", default=False)
+
+
 #: Specialist agent id -> the flag that governs it, so the router can ask
 #: one question instead of carrying a branch per capability.
 SPECIALIST_FLAGS = {
@@ -115,6 +132,7 @@ def snapshot() -> dict[str, bool]:
         "collateral_customer_enabled": collateral_customer_enabled(),
         "collateral_property_enabled": collateral_property_enabled(),
         "llm_summary_enabled": llm_summary_enabled(),
+        "case_memory_enabled": case_memory_enabled(),
     }
 
 
@@ -129,6 +147,7 @@ __all__ = [
     "financial_enabled",
     "kyc_enabled",
     "llm_summary_enabled",
+    "case_memory_enabled",
     "reload",
     "sale_deed_enabled",
     "signature_enabled",

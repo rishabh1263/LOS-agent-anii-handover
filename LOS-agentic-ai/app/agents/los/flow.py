@@ -703,6 +703,7 @@ def _match_profiles(
 
 def _kyc_for_party(
     documents: list[dict[str, Any]], *, party_id: str, request_id: str,
+    party_role: str = "PRIMARY_APPLICANT",
 ) -> dict[str, Any]:
     """
     Cross-document KYC over ONE party's documents.
@@ -742,6 +743,7 @@ def _kyc_for_party(
         # is an allowlist that drops it.
         return {
             "party_id": party_id,
+            "party_role": party_role,
             "ran": False,
             "status": CheckStatus.SKIPPED.value,
             "reason_codes": ["INSUFFICIENT_SOURCES"],
@@ -758,6 +760,13 @@ def _kyc_for_party(
         # never reaches a caller except as the `party_id` deliberately
         # added to case-level rows on a two-party case.
         "party_id": party_id,
+        # WHOSE score this is, so the case-level roll-up can say which
+        # person the number it published came from. `_case_kyc` takes the
+        # MINIMUM of the parties' scores, and a minimum belongs to
+        # somebody -- reporting it unattributed is what let a
+        # co-applicant's name-match score be published as though it
+        # described the case.
+        "party_role": party_role,
         "ran": True,
         "status": kyc_result.status.value,
         "reason_codes": [code.value for code in kyc_result.reason_codes],
@@ -855,13 +864,35 @@ def _case_kyc(
     for payload in ran:
         reason_codes.extend(payload.get("reason_codes") or [])
 
+    # WHOSE SCORE THE MINIMUM IS.
+    #
+    # `overall_score` here is a MINIMUM over the parties, not a mean over
+    # fields -- deliberately, so a well-documented applicant cannot hide
+    # a poorly-documented co-applicant. But a minimum belongs to one
+    # person, and publishing it unattributed let a co-applicant's
+    # name-match score be read as a figure describing the whole case.
+    # The party it came from is recorded here, at the only place that
+    # knows.
+    weakest = min(ran, key=lambda p: int(p.get("overall_score") or 0))
+
     aggregate = {
         "status": _worst_kyc_status(ran),
         "reason_codes": list(dict.fromkeys(reason_codes)),
-        "overall_score": min(
-            int(p.get("overall_score") or 0) for p in ran),
+        "overall_score": int(weakest.get("overall_score") or 0),
         "overall_confidence": min(
             int(p.get("overall_confidence") or 0) for p in ran),
+        "score_basis_party_id": weakest.get("party_id", ""),
+        "score_basis_party_role": weakest.get(
+            "party_role", "PRIMARY_APPLICANT"),
+        # Each party's own tally, kept whole rather than summed: "three
+        # of four checks passed" across two people says nothing about
+        # either of them.
+        "per_party": [
+            {"party_id": p.get("party_id", ""),
+             "party_role": p.get("party_role", "PRIMARY_APPLICANT"),
+             "checks": p.get("checks") or []}
+            for p in ran
+        ],
         # WHOSE ROW IS WHOSE. Two parties produce two NAME rows, and a
         # reviewer reading a case-level list has to be able to tell them
         # apart. `party_id` is added only when the case actually has
@@ -971,28 +1002,39 @@ def _public_cross_document(
     envelope: dict[str, Any], kyc: dict[str, Any],
 ) -> dict[str, Any]:
     """
-    Agreement between documents, at CASE level.
+    Agreement between documents, PER PARTY, in one list.
 
-    ON A TWO-PARTY CASE THERE IS NOTHING AT CASE LEVEL TO REPORT. KYC is
-    scoped per party, so every check ran WITHIN one person's documents
-    and is already published under that person. Surfacing them again
-    here read as case-level cross-document findings, which is how a
-    reviewer came to see NAME_MISMATCH against a joint application whose
-    two people simply have different names.
+    WHAT THIS IS NOT, AND MUST NEVER BECOME. It is not a comparison
+    between applicants. Two people on a joint application legitimately
+    have different names, dates of birth and PANs; comparing them and
+    reporting NAME_MISMATCH was a real defect, and the party scoping
+    that fixed it is upstream of this function -- KYC runs once per
+    party over that party's own documents, and `_case_kyc` rolls the
+    verdicts up without ever comparing across them. This publishes what
+    those runs found.
 
-    SKIPPED, NOT PASS. Nothing was compared across the parties, and PASS
-    would claim agreement was established. The distinction is the whole
-    reason this is an object and not a list of disagreements -- "every
-    field agreed" and "nothing was comparable" both arrive with no
-    checks and mean opposite things.
+    WHY IT NO LONGER RETURNS AN EMPTY LIST ON A JOINT CASE. It used to:
+    the checks were already published under each party, so repeating
+    them here looked redundant, and an empty list was the conservative
+    choice. It was the wrong one. A caller reading
+    `cross_document: {status: SKIPPED, checks: []}` is told that nothing
+    was cross-checked, when in fact every check had run and passed. That
+    is not conservative, it is inaccurate -- and SKIPPED exists to mean
+    "nothing was comparable", which is a different claim entirely. The
+    rows now carry `party_id` (see `cross_document_from`), which is what
+    makes publishing them honest rather than ambiguous.
 
-    A single-applicant case is unchanged: its checks ARE case-level, and
-    they are reported exactly as before.
+    THE STATUS IS STILL EARNED, NOT ASSUMED. It is whatever the checks
+    that actually ran came to, capped by policy, computed by the same
+    `cross_document_from` a single-applicant case has always used. No
+    check is invented and nothing is promoted to PASS merely because
+    checks exist: a case whose every check was SKIPPED still reports
+    SKIPPED.
+
+    A single-applicant case is byte-for-byte unchanged -- no party_id is
+    stamped, so the rows are exactly the rows it always published.
     """
     if not los_config.conflict_detection_enabled():
-        return {"status": "SKIPPED", "checks": []}
-
-    if envelope.get("co_applicant_id"):
         return {"status": "SKIPPED", "checks": []}
 
     return response.cross_document_from(kyc)
@@ -1306,7 +1348,8 @@ async def process_application(
     else:
         for party, owned in kyc_parties:
             party_kyc[party.party_id] = _kyc_for_party(
-                owned, party_id=party.party_id, request_id=request_id)
+                owned, party_id=party.party_id, request_id=request_id,
+                party_role=party.party_role.value)
 
         kyc_payload, kyc_rank = _case_kyc(
             [party_kyc[party.party_id] for party, _ in kyc_parties])

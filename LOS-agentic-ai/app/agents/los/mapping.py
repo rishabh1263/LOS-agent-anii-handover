@@ -50,6 +50,32 @@ _NAME_FIELDS = ("name", "employee_name")
 # their own father and the check passes the wrong person.
 _FATHER_NAME_FIELDS = ("father_name", "guardian_name")
 
+# A Voter ID prints ONE relation and says which it is: VOTER_SPEC emits
+# `relation_name` beside `relation_type`. The name alone was being dropped,
+# so a voter card never reached the father-name check at all.
+#
+# IT IS ONLY A FATHER'S NAME WHEN THE CARD SAYS SO. An EPIC prints the
+# husband's name for a married woman just as readily as the father's, and
+# feeding that into the father-name comparison would report
+# FATHER_NAME_MISMATCH against a PAN that is perfectly consistent -- a
+# false mismatch aimed squarely at married women. So the relation is read
+# only when `relation_type` names a father, and an unlabelled relation is
+# given up rather than assumed.
+_FATHER_RELATIONS = frozenset({"FATHER", "F", "FATHERS", "FATHER_NAME"})
+
+
+def _relation_father_name(fields: dict[str, Any]) -> Any:
+    """The voter card's relation, but only if it is the father."""
+    name = fields.get("relation_name")
+    if not name:
+        return None
+
+    relation = str(fields.get("relation_type") or "").strip().upper()
+    relation = relation.replace("'", "").replace(" ", "_")
+    if relation.rstrip("S") in {r.rstrip("S") for r in _FATHER_RELATIONS}:
+        return name
+    return None
+
 
 def _first(fields: dict[str, Any], names: tuple[str, ...]) -> Any:
     for name in names:
@@ -164,7 +190,8 @@ def to_kyc_source(
             source_id=source_id,
             document_type=document_type,
             name=_first(fields, _NAME_FIELDS),
-            father_name=_first(fields, _FATHER_NAME_FIELDS),
+            father_name=(_first(fields, _FATHER_NAME_FIELDS)
+                         or _relation_father_name(fields)),
             date_of_birth=fields.get("date_of_birth"),
             pan=_first(fields, _PAN_FIELDS),
             address=address_input(fields),

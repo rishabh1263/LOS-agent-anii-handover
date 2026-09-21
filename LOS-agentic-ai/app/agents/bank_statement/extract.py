@@ -596,6 +596,10 @@ def extract_bank_statement(path: str) -> BankStatementResult:
         status=ExtractionStatus.SUCCESS,
         source_kind=kind,
         bank=P.detect_bank(_header_text(texts)),
+        # Page one only. The holder is printed in the letterhead, and
+        # scanning the whole document would pick up a payee's name out of a
+        # transaction narration -- the other party, never the holder.
+        account_holder=P.detect_account_holder(_header_text(texts)),
         account_number_masked=P.mask_account(joined),
         pages=pages,
         pages_with_text=with_text,

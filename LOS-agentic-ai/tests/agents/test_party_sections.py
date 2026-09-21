@@ -471,7 +471,12 @@ def test_a_partys_kyc_carries_no_internals():
 
     assert set(public["primary_applicant"]["kyc"]) == {
         "status", "reason_codes", "overall_score", "overall_confidence",
-        "fields"}
+        "fields",
+        # Added by the explanation layer: what the score measured, the
+        # check tally and the verdict in words. All derived from the
+        # numbers already here; none of them is an internal.
+        "score", "overall_score_basis", "verification_summary",
+        "result"}
 
 
 def test_a_party_with_no_kyc_has_no_kyc_key():
@@ -508,7 +513,9 @@ def test_the_case_kyc_is_compact_on_a_two_party_case():
         co_applicant_id="COAPP-9"))
 
     assert set(public["kyc"]) == {"status", "reason_codes", "overall_score",
-                                  "overall_confidence"}
+                                  "overall_confidence",
+                                  "score", "overall_score_basis",
+                                  "verification_summary", "result"}
     assert public["primary_applicant"]["kyc"]["fields"]
     assert public["co_applicant"]["kyc"]["fields"]
 
