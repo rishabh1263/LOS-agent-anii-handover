@@ -1,4 +1,4 @@
-import { ChevronDown, Eye, FileText, MapPin, Link2 } from 'lucide-react'
+import { ChevronDown, FileText, MapPin, Link2 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { DocumentResult } from '../../../runtime/api-tester'
 import { docStatusClass, verificationClass } from '../../../runtime/api-tester'
@@ -8,7 +8,6 @@ export interface DocumentResultCardProps {
   doc: DocumentResult
   isOpen: boolean
   onToggle: () => void
-  onPreview?: () => void
 }
 
 const ADDRESS_KEYS = new Set([
@@ -236,12 +235,7 @@ function partyLabel(role?: string | null) {
   return role || null
 }
 
-export function DocumentResultCard({
-  doc,
-  isOpen,
-  onToggle,
-  onPreview,
-}: DocumentResultCardProps) {
+export function DocumentResultCard({ doc, isOpen, onToggle }: DocumentResultCardProps) {
   const extraction = doc.extraction || {}
   const entries = Object.entries(extraction).filter(([, v]) => v != null)
   const party = partyLabel(doc.party_role)
@@ -307,21 +301,7 @@ export function DocumentResultCard({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          {onPreview && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                onPreview()
-              }}
-              className="btn btn-outline inline-flex h-8 items-center gap-1.5 px-2.5 text-[12px]"
-              title="Preview document"
-            >
-              <Eye className="h-3.5 w-3.5" aria-hidden />
-              <span className="hidden sm:inline">Preview</span>
-            </button>
-          )}
+        <div className="flex items-center gap-2 shrink-0">
           <StatusChip label={doc.status} className={docStatusClass(doc.status)} />
           <StatusChip label={doc.verification} className={verificationClass(doc.verification)} />
           <ChevronDown

@@ -6,7 +6,6 @@ import {
   Clock,
   Code2,
   Copy,
-  FilePlus2,
   FileText,
   RotateCcw,
   ShieldAlert,
@@ -16,14 +15,8 @@ import {
   X,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import type {
-  DocumentResult,
-  LosProcessResponse,
-  PartyResult,
-  UploadFileItem,
-} from '../../../runtime/api-tester'
+import type { DocumentResult, LosProcessResponse, PartyResult } from '../../../runtime/api-tester'
 import { CrossDocumentReconciliation } from './CrossDocumentReconciliation'
-import { DocumentPreviewModal } from './DocumentPreviewModal'
 import { DocumentResultCard } from './DocumentResultCard'
 import { ValidationSummaryCards } from './ValidationSummaryCards'
 import { StatusChip } from './StatusChip'
@@ -31,8 +24,6 @@ import { StatusChip } from './StatusChip'
 export interface ResultsPanelProps {
   result: LosProcessResponse
   onReset: () => void
-  onAddDocuments?: () => void
-  uploadedFiles?: UploadFileItem[]
 }
 
 type PartyView = 'overview' | 'applicant' | 'co_applicant'
@@ -264,19 +255,13 @@ function docsForParty(docs: DocumentResult[], role: 'PRIMARY_APPLICANT' | 'CO_AP
   return docs.filter((d) => d.party_role === role)
 }
 
-export function ResultsPanel({
-  result,
-  onReset,
-  onAddDocuments,
-  uploadedFiles,
-}: ResultsPanelProps) {
+export function ResultsPanel({ result, onReset }: ResultsPanelProps) {
   const hasCo = Boolean(result.co_applicant || result.co_applicant_id)
   const [partyView, setPartyView] = useState<PartyView>('overview')
   // Collapsed by default — open only what you need
   const [expandedDocIds, setExpandedDocIds] = useState<Set<string>>(() => new Set())
   const [showJsonModal, setShowJsonModal] = useState(false)
   const [copiedJson, setCopiedJson] = useState(false)
-  const [previewDoc, setPreviewDoc] = useState<DocumentResult | null>(null)
 
   const toggleDoc = (id: string) => {
     setExpandedDocIds((prev) => {
@@ -366,7 +351,7 @@ export function ResultsPanel({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setShowJsonModal(true)}
@@ -376,17 +361,6 @@ export function ResultsPanel({
               <Code2 className="h-3.5 w-3.5" />
               <span>Inspect JSON</span>
             </button>
-            {onAddDocuments && (
-              <button
-                type="button"
-                onClick={onAddDocuments}
-                className="btn btn-secondary h-9 px-3 text-[12px] inline-flex items-center gap-1.5"
-                title="Keep case details and files; add more documents and re-verify"
-              >
-                <FilePlus2 className="h-3.5 w-3.5" />
-                <span>Add documents</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={onReset}
@@ -664,7 +638,6 @@ export function ResultsPanel({
                     doc={doc}
                     isOpen={expandedDocIds.has(doc.source_id)}
                     onToggle={() => toggleDoc(doc.source_id)}
-                    onPreview={() => setPreviewDoc(doc)}
                   />
                 ))}
               </div>
@@ -732,12 +705,6 @@ export function ResultsPanel({
           </div>
         </div>
       )}
-
-      <DocumentPreviewModal
-        doc={previewDoc}
-        uploadedFiles={uploadedFiles}
-        onClose={() => setPreviewDoc(null)}
-      />
     </div>
   )
 }

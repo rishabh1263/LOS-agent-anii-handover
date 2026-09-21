@@ -129,12 +129,6 @@ export function useLosProcess() {
     setItems([])
   }, [])
 
-  /** Keep case IDs, token, and files — return to form to add more docs and re-run */
-  const addMoreDocuments = useCallback(() => {
-    setResult(null)
-    setError(null)
-  }, [])
-
   const clearFiles = useCallback(() => setItems([]), [])
 
   return {
@@ -164,7 +158,6 @@ export function useLosProcess() {
     canSubmit,
     submit,
     reset,
-    addMoreDocuments,
     clearFiles,
   }
 }

@@ -298,7 +298,6 @@ export function ProcessPage() {
 
 function ProcessPageContent() {
   const {
-    items,
     primaryItems,
     coItems,
     setItemsForParty,
@@ -323,7 +322,6 @@ function ProcessPageContent() {
     canSubmit,
     submit,
     reset,
-    addMoreDocuments,
     clearFiles,
   } = useLosProcess()
 
@@ -348,12 +346,7 @@ function ProcessPageContent() {
           transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
           className="w-full"
         >
-          <ResultsPanel
-            result={result}
-            onReset={reset}
-            onAddDocuments={addMoreDocuments}
-            uploadedFiles={items}
-          />
+          <ResultsPanel result={result} onReset={reset} />
         </motion.div>
       ) : (
         <motion.div

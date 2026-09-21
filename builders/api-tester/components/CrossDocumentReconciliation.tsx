@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useState } from 'react'
 
 import {
   AlertTriangle,
@@ -8,21 +8,15 @@ import {
   Info,
   ShieldCheck,
   TrendingUp,
-  User,
-  Users,
   XCircle,
 } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
 import type {
-  CrossCheck,
   CrossDocument,
   DocumentResult,
   KycField,
   KycResult,
   PartyResult,
 } from '../../../runtime/api-tester'
-
-const ACCORDION = { duration: 0.2, ease: [0.22, 1, 0.36, 1] as const }
 
 export interface CrossDocumentReconciliationProps {
   crossDocument: CrossDocument
@@ -114,221 +108,6 @@ function kycFieldKey(field: string): string {
   return u
 }
 
-type PartyBucket = 'applicant' | 'co_applicant' | 'other'
-
-function resolvePartyBucket(
-  c: CrossCheck,
-  primaryApplicant?: PartyResult | null,
-  coApplicant?: PartyResult | null,
-): PartyBucket {
-  if (!c.party_id) return 'other'
-  if (primaryApplicant?.party_id && c.party_id === primaryApplicant.party_id) return 'applicant'
-  if (coApplicant?.party_id && c.party_id === coApplicant.party_id) return 'co_applicant'
-  // Heuristic: first half of checks without matching ids still tagged by label patterns
-  return 'other'
-}
-
-function ChecklistPartyBlock({
-  title,
-  icon,
-  checks,
-  primaryApplicant,
-  coApplicant,
-  kycFields,
-  statusPill,
-  checkIcon,
-  formatDocLabel,
-  kycFieldKey,
-}: {
-  title: string
-  icon: ReactNode
-  checks: CrossCheck[]
-  primaryApplicant?: PartyResult | null
-  coApplicant?: PartyResult | null
-  kycFields: KycField[]
-  statusPill: (status: string, text: string) => ReactNode
-  checkIcon: (status: string) => ReactNode
-  formatDocLabel: (id: string) => string
-  kycFieldKey: (field: string) => string
-}) {
-  const [open, setOpen] = useState(false)
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
-
-  const passed = checks.filter((c) => c.status === 'PASS').length
-  const failed = checks.filter((c) => c.status === 'FAIL').length
-  const review = checks.filter((c) => c.status === 'REVIEW').length
-  const skipped = checks.filter((c) => c.status === 'SKIPPED').length
-
-  const toggle = (key: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  if (checks.length === 0) return null
-
-  return (
-    <section className="overflow-hidden rounded-sm border border-line bg-surface">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-raised/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
-      >
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xs bg-raised text-content-secondary">
-            {icon}
-          </span>
-          <div className="min-w-0">
-            <p className="font-display text-[13px] font-semibold text-content">{title}</p>
-            <p className="text-[11px] text-content-secondary">
-              <span className="font-medium tabular-nums text-content">
-                {passed}/{checks.length}
-              </span>{' '}
-              passed
-              {failed > 0 && <span className="text-danger-text"> · {failed} failed</span>}
-              {review > 0 && <span className="text-warning-text"> · {review} review</span>}
-              {skipped > 0 && <span> · {skipped} skipped</span>}
-            </p>
-          </div>
-        </div>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-content-secondary transition-transform duration-200 ${
-            open ? 'rotate-180' : ''
-          }`}
-          aria-hidden
-        />
-      </button>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={ACCORDION}
-            className="overflow-hidden border-t border-line-divider"
-          >
-            <ul className="divide-y divide-line-divider">
-              {checks.map((c, idx) => {
-                const partyKycFields =
-                  c.party_id && primaryApplicant?.party_id === c.party_id
-                    ? primaryApplicant.kyc?.fields
-                    : c.party_id && coApplicant?.party_id === c.party_id
-                      ? coApplicant.kyc?.fields
-                      : kycFields
-
-                const kycMatch = (partyKycFields || kycFields).find(
-                  (f) =>
-                    kycFieldKey(f.field) === c.check.toUpperCase() ||
-                    f.field.toUpperCase() === c.check.toUpperCase(),
-                )
-                const score = kycMatch?.match_score
-                const reason = kycMatch?.reason
-                const rowKey = `${c.party_id || 'all'}-${c.check}-${idx}`
-                const isOpen = expanded.has(rowKey)
-                const hasDetail =
-                  Boolean(reason) ||
-                  Boolean(c.reason_codes?.length) ||
-                  Boolean(c.sources?.length) ||
-                  Boolean(c.details && Object.keys(c.details).length > 0) ||
-                  (score != null && score > 0)
-
-                const statusText =
-                  c.status === 'PASS'
-                    ? 'PASS'
-                    : c.status === 'FAIL'
-                      ? 'FAIL'
-                      : c.status === 'REVIEW'
-                        ? 'REVIEW'
-                        : 'SKIPPED'
-
-                return (
-                  <li key={rowKey}>
-                    <button
-                      type="button"
-                      onClick={() => hasDetail && toggle(rowKey)}
-                      aria-expanded={hasDetail ? isOpen : undefined}
-                      disabled={!hasDetail}
-                      className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ember ${
-                        hasDetail ? 'cursor-pointer hover:bg-raised/30' : 'cursor-default'
-                      }`}
-                    >
-                      {checkIcon(c.status)}
-                      <span className="min-w-0 flex-1 font-display text-[12px] font-bold uppercase tracking-wide text-content">
-                        {c.check.replace(/_/g, ' ')}
-                      </span>
-                      {statusPill(statusText, statusText)}
-                      {hasDetail && (
-                        <ChevronDown
-                          className={`h-3.5 w-3.5 shrink-0 text-content-disabled transition-transform duration-200 ${
-                            isOpen ? 'rotate-180' : ''
-                          }`}
-                          aria-hidden
-                        />
-                      )}
-                    </button>
-
-                    <AnimatePresence initial={false}>
-                      {isOpen && hasDetail && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                          className="overflow-hidden"
-                        >
-                          <div className="space-y-2 bg-raised/25 px-3.5 py-2.5 pl-11">
-                            {score != null && score > 0 && (
-                              <span className="chip text-[11px] font-mono font-semibold text-ember">
-                                {score}% match
-                              </span>
-                            )}
-                            {c.sources && c.sources.length > 0 && (
-                              <p className="text-[11px] text-content-secondary">
-                                <span className="font-medium text-content">Sources: </span>
-                                {c.sources.map(formatDocLabel).join(', ')}
-                              </p>
-                            )}
-                            {c.details && Object.keys(c.details).length > 0 && (
-                              <div className="flex flex-wrap gap-1.5">
-                                {Object.entries(c.details).map(([src, val]) => (
-                                  <span
-                                    key={src}
-                                    className="inline-flex max-w-full items-center gap-1 rounded-xs border border-line bg-surface px-2 py-0.5 text-[11px]"
-                                  >
-                                    <span className="truncate font-mono text-content-secondary">
-                                      {formatDocLabel(src)}
-                                    </span>
-                                    <span className="text-content-disabled">→</span>
-                                    <span className="truncate font-medium text-content">{val}</span>
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            {(reason || (c.reason_codes && c.reason_codes.length > 0)) && (
-                              <p className="rounded-md bg-raised/60 px-2.5 py-1.5 text-[11px] leading-relaxed text-content-secondary">
-                                {reason || c.reason_codes?.join(', ')}
-                              </p>
-                            )}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </li>
-                )
-              })}
-            </ul>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </section>
-  )
-}
-
 export function CrossDocumentReconciliation({
   crossDocument,
   documents,
@@ -336,26 +115,12 @@ export function CrossDocumentReconciliation({
   primaryApplicant,
   coApplicant,
 }: CrossDocumentReconciliationProps) {
-  const [matrixOpen, setMatrixOpen] = useState(false)
+  const [matrixOpen, setMatrixOpen] = useState(true)
   const [checklistOpen, setChecklistOpen] = useState(true)
   const [infoOpen, setInfoOpen] = useState<string | null>(null)
 
   const checks = crossDocument?.checks || []
   const kycFields = kyc?.fields || []
-
-  const { applicantChecks, coChecks, otherChecks } = useMemo(() => {
-    const applicantChecks: CrossCheck[] = []
-    const coChecks: CrossCheck[] = []
-    const otherChecks: CrossCheck[] = []
-    for (const c of checks) {
-      const bucket = resolvePartyBucket(c, primaryApplicant, coApplicant)
-      if (bucket === 'applicant') applicantChecks.push(c)
-      else if (bucket === 'co_applicant') coChecks.push(c)
-      else otherChecks.push(c)
-    }
-    // If API didn't stamp party_id, keep a single "All checks" group via other
-    return { applicantChecks, coChecks, otherChecks }
-  }, [checks, primaryApplicant, coApplicant])
 
   const kycByKey = new Map<string, KycField>()
   kycFields.forEach((f) => {
@@ -850,18 +615,18 @@ export function CrossDocumentReconciliation({
         </div>
       </div>
 
-      {/* Verification Checklist — Applicant / Co-applicant bifurcation; fields closed by default */}
+      {/* Verification Checklist (collapsible) */}
       <div className="card overflow-hidden border-line bg-surface p-0 shadow-xs">
         <button
           type="button"
           onClick={() => setChecklistOpen((o) => !o)}
-          className="flex w-full items-center justify-between gap-3 border-b border-line-divider bg-raised/40 px-5 py-3 text-left transition-colors hover:bg-raised/60"
+          className="flex w-full items-center justify-between gap-3 border-b border-line-divider bg-raised/40 px-5 py-3 text-left hover:bg-raised/60 transition-colors"
         >
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-content-secondary">
               Verification Checklist
             </span>
-            <span className="rounded-full bg-raised px-2 py-0.5 text-[10px] font-semibold tabular-nums text-content-disabled">
+            <span className="rounded-full bg-raised px-2 py-0.5 text-[10px] font-semibold text-content-disabled tabular-nums">
               {passCount}/{totalChecks}
             </span>
           </div>
@@ -872,71 +637,117 @@ export function CrossDocumentReconciliation({
           />
         </button>
 
-        <AnimatePresence initial={false}>
-          {checklistOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={ACCORDION}
-              className="overflow-hidden"
-            >
-              <div className="space-y-2.5 p-3 sm:p-4">
-                {checks.length === 0 ? (
-                  <p className="py-6 text-center text-[13px] text-content-disabled">
-                    No cross-document checks available.
-                  </p>
-                ) : (
-                  <>
-                    <ChecklistPartyBlock
-                      title="Applicant"
-                      icon={<User className="h-3.5 w-3.5" aria-hidden />}
-                      checks={applicantChecks}
-                      primaryApplicant={primaryApplicant}
-                      coApplicant={coApplicant}
-                      kycFields={kycFields}
-                      statusPill={statusPill as (s: string, t: string) => ReactNode}
-                      checkIcon={checkIcon}
-                      formatDocLabel={formatDocLabel}
-                      kycFieldKey={kycFieldKey}
-                    />
-                    <ChecklistPartyBlock
-                      title="Co-applicant"
-                      icon={<Users className="h-3.5 w-3.5" aria-hidden />}
-                      checks={coChecks}
-                      primaryApplicant={primaryApplicant}
-                      coApplicant={coApplicant}
-                      kycFields={kycFields}
-                      statusPill={statusPill as (s: string, t: string) => ReactNode}
-                      checkIcon={checkIcon}
-                      formatDocLabel={formatDocLabel}
-                      kycFieldKey={kycFieldKey}
-                    />
-                    {/* Ungrouped checks (no party_id) — only when present */}
-                    {otherChecks.length > 0 && (
-                      <ChecklistPartyBlock
-                        title={
-                          applicantChecks.length === 0 && coChecks.length === 0
-                            ? 'All checks'
-                            : 'Other'
-                        }
-                        icon={<Info className="h-3.5 w-3.5" aria-hidden />}
-                        checks={otherChecks}
-                        primaryApplicant={primaryApplicant}
-                        coApplicant={coApplicant}
-                        kycFields={kycFields}
-                        statusPill={statusPill as (s: string, t: string) => ReactNode}
-                        checkIcon={checkIcon}
-                        formatDocLabel={formatDocLabel}
-                        kycFieldKey={kycFieldKey}
-                      />
+        {checklistOpen && (
+          <ul className="divide-y divide-line-divider">
+            {checks.map((c, idx) => {
+              // Prefer party-scoped KYC fields when party_id is present
+              const partyKycFields =
+                c.party_id && primaryApplicant?.party_id === c.party_id
+                  ? primaryApplicant.kyc?.fields
+                  : c.party_id && coApplicant?.party_id === c.party_id
+                    ? coApplicant.kyc?.fields
+                    : kycFields
+
+              const kycMatch = (partyKycFields || kycFields).find(
+                (f) =>
+                  kycFieldKey(f.field) === c.check.toUpperCase() ||
+                  f.field.toUpperCase() === c.check.toUpperCase(),
+              )
+              const score = kycMatch?.match_score
+              const reason = kycMatch?.reason
+              const rowKey = `${c.party_id || 'all'}-${c.check}-${idx}`
+              const isInfo = infoOpen === rowKey
+              const partyLabel =
+                c.party_id && primaryApplicant?.party_id === c.party_id
+                  ? 'Applicant'
+                  : c.party_id && coApplicant?.party_id === c.party_id
+                    ? 'Co-applicant'
+                    : c.party_id
+                      ? c.party_id
+                      : null
+
+              return (
+                <li key={rowKey} className="flex items-start gap-3 px-5 py-3">
+                  {checkIcon(c.status)}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[13px] font-semibold text-content">
+                        {c.check.replace(/_/g, ' ')}
+                      </span>
+                      {partyLabel && (
+                        <span className="chip text-[10px] font-semibold bg-ember-subtle text-ember-text">
+                          {partyLabel}
+                        </span>
+                      )}
+                      {statusPill(
+                        c.status === 'PASS'
+                          ? 'PASS'
+                          : c.status === 'FAIL'
+                            ? 'FAIL'
+                            : c.status === 'REVIEW'
+                              ? 'REVIEW'
+                              : 'SKIPPED',
+                        c.status,
+                      )}
+                      {score != null && score > 0 && (
+                        <span className="text-[11px] font-mono font-semibold text-ember tabular-nums">
+                          {score}% match
+                        </span>
+                      )}
+                    </div>
+                    {c.sources && c.sources.length > 0 && (
+                      <p className="mt-0.5 text-[11px] text-content-disabled">
+                        Sources: {c.sources.map(formatDocLabel).join(', ')}
+                      </p>
                     )}
-                  </>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                    {/* FAIL details: show per-source values from API */}
+                    {c.details && Object.keys(c.details).length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {Object.entries(c.details).map(([src, val]) => (
+                          <span
+                            key={src}
+                            className="inline-flex max-w-full items-center gap-1 rounded-xs border border-line bg-raised px-2 py-0.5 text-[11px]"
+                          >
+                            <span className="font-mono text-content-secondary truncate">
+                              {formatDocLabel(src)}
+                            </span>
+                            <span className="text-content-disabled">→</span>
+                            <span className="font-medium text-content truncate">{val}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {(reason || (c.reason_codes && c.reason_codes.length > 0)) && isInfo && (
+                      <p className="mt-1.5 rounded-md bg-raised/60 px-2.5 py-1.5 text-[11px] text-content-secondary leading-relaxed">
+                        {reason || c.reason_codes?.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                  {(reason || (c.reason_codes && c.reason_codes.length > 0) || c.details) && (
+                    <button
+                      type="button"
+                      onClick={() => setInfoOpen(isInfo ? null : rowKey)}
+                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                        isInfo
+                          ? 'border-ember/40 bg-ember/10 text-ember'
+                          : 'border-line bg-surface text-content-disabled hover:border-ember/30 hover:text-ember'
+                      }`}
+                      title="Show details"
+                      aria-label="Toggle details"
+                    >
+                      <Info className="h-3 w-3" />
+                    </button>
+                  )}
+                </li>
+              )
+            })}
+            {checks.length === 0 && (
+              <li className="px-5 py-6 text-center text-[13px] text-content-disabled">
+                No cross-document checks available.
+              </li>
+            )}
+          </ul>
+        )}
       </div>
 
       {/* Attribute Reconciliation Matrix (collapsible) */}
