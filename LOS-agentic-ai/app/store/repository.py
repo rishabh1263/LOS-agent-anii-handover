@@ -20,7 +20,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from app.store.models import Applicant, Application, Document
+from app.store.models import (
+    Applicant,
+    Application,
+    CaseDecision,
+    CaseEvent,
+    CaseFinding,
+    Document,
+    DocumentVersion,
+    FindingKind,
+)
 
 
 class RepositoryError(RuntimeError):
@@ -108,6 +117,69 @@ class Repository(ABC):
         """
         application = self.get_application(case_id)
         return application is not None and application.applicant_id == applicant_id
+
+
+    # -- case memory -------------------------------------------------------
+    #
+    # ADDITIVE, AND NOT ABSTRACT. Every method below has a default that does
+    # nothing and returns nothing, so an existing Repository implementation
+    # keeps satisfying this interface without being edited. A backend that
+    # has not implemented case memory reports "no findings", which is true
+    # of it, rather than failing to construct.
+    #
+    # DATA ACCESS ONLY. These take a case_id and filter on it; they do not
+    # decide whether the caller may see that case. Authorisation stays where
+    # it is -- require_jwt, Caller, capability, then ownership -- and moving
+    # any of it here would put two answers to one question in the codebase.
+    # `applicant_owns_case` above is the seam those checks call.
+
+    def save_finding(self, finding: CaseFinding) -> CaseFinding:
+        """Record one conclusion. Re-recording an unchanged one is a no-op."""
+        return finding
+
+    def get_case_findings(
+        self,
+        case_id: str,
+        party_id: str | None = None,
+        kind: FindingKind | str | None = None,
+    ) -> list[CaseFinding]:
+        """
+        Findings for one case, oldest first.
+
+        `party_id` narrows to one party AND to case-level findings that
+        belong to nobody in particular; omitting it returns everything on
+        the case. It never widens beyond the case.
+        """
+        return []
+
+    def save_document_version(self, version: DocumentVersion) -> DocumentVersion:
+        """Record one upload of one document."""
+        return version
+
+    def get_document_versions(self, document_id: str) -> list[DocumentVersion]:
+        """Every version of one document, oldest first."""
+        return []
+
+    def save_decision(self, decision: CaseDecision) -> CaseDecision:
+        """Record a decision the pipeline reached."""
+        return decision
+
+    def get_case_decisions(self, case_id: str) -> list[CaseDecision]:
+        """Decisions recorded for one case, oldest first."""
+        return []
+
+    def record_event(self, event: CaseEvent) -> CaseEvent:
+        """Append one event to the case timeline."""
+        return event
+
+    def get_case_timeline(self, case_id: str) -> list[CaseEvent]:
+        """
+        The case timeline, in the order things happened.
+
+        Ordered by `sequence` and not by timestamp: several events are
+        written inside one request and can share a millisecond.
+        """
+        return []
 
 
 __all__ = ["Repository", "RepositoryError"]
