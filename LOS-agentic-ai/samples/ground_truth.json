@@ -1,0 +1,237 @@
+{
+  "_README": {
+    "purpose": "Values transcribed by reading each document image directly, NOT copied from extractor output. Copying extractor output would make the file circular: a wrong-but-well-formed value would be enshrined as truth and could never be detected.",
+    "fields": "Assertable. Printed on the document AND legible in this image, so extraction is expected to recover it.",
+    "not_asserted": "True of the document but NOT recoverable from this image (masked on the card, or cropped out of frame). Recorded for context; asserting these would penalise extraction for pixels that are not there.",
+    "ambiguous": "The document carries more than one equally-valid value for the field, so no single expected value exists.",
+    "dates": "ISO yyyy-mm-dd. Indian ID documents print dd/mm/yyyy.",
+    "names": "As printed. Comparison is case-insensitive but space-sensitive, so a dropped space counts as wrong."
+  },
+  "lPan.jpg": {
+    "document_type": "PAN",
+    "layout": "labelled, bilingual, good scan",
+    "fields": {
+      "pan_number": "EVPPG6189E",
+      "name": "LAXMI SANTOSH GUPTA",
+      "father_name": "SANTOSH RAMASHARE GUPTA",
+      "date_of_birth": "2004-12-20"
+    }
+  },
+  "rpan.jpg": {
+    "document_type": "PAN",
+    "layout": "labelled, bilingual, high-res photograph",
+    "fields": {
+      "pan_number": "NUHPS4875K",
+      "name": "RISHABH AJIT SINGH",
+      "father_name": "AJIT SINGH",
+      "date_of_birth": "2002-06-12"
+    }
+  },
+  "original.jpg": {
+    "document_type": "PAN",
+    "layout": "UNLABELLED, low contrast, textured background",
+    "fields": {
+      "pan_number": "CNEPB1150M",
+      "name": "BIMAL BHATTARAI",
+      "father_name": "PADAM RAJ BHATTARAI",
+      "date_of_birth": "1997-06-26"
+    }
+  },
+  "f3.jpg": {
+    "document_type": "PAN",
+    "layout": "labelled, very low resolution (14KB), misspelt labels",
+    "fields": {
+      "pan_number": "ELWPM8089J",
+      "name": "RAHUL MISHRA",
+      "father_name": "SATENDRA MISHRA",
+      "date_of_birth": "1997-01-30"
+    }
+  },
+  "pan_bw1.jpg": {
+    "document_type": "PAN",
+    "layout": "phone photo of a card on a screen; card fills a fraction of a 1280x1920 frame, gallery timestamp burnt in",
+    "fields": {
+      "pan_number": "BEKPN6257F",
+      "name": "HAR NARAYAN",
+      "father_name": "SHANKAR SINGH"
+    },
+    "not_asserted": {
+      "date_of_birth": "Printed 12/05/1994 but roughly 8px tall in the source with heavy JPEG artefacts. Neither RapidOCR nor a Tesseract crop can read it; recovering it would mean guessing digits."
+    }
+  },
+  "driving_license.jpg": {
+    "document_type": "DRIVING_LICENCE",
+    "layout": "Maharashtra smart card, PDF at 300dpi",
+    "fields": {
+      "dl_number": "MH0320220045390",
+      "name": "RISHABH AJIT SINGH",
+      "guardian_name": "AJIT SINGH",
+      "date_of_birth": "2002-06-12",
+      "date_of_issue": "2022-10-04",
+      "valid_till": "2042-06-11",
+      "pin_code": "400043",
+      "vehicle_classes": ["LMV", "MCWG"]
+    }
+  },
+  "sidkamble.jpg": {
+    "document_type": "DRIVING_LICENCE",
+    "layout": "Maharashtra laminated card, upright, high resolution",
+    "fields": {
+      "dl_number": "MH0320120037600",
+      "name": "SIDDHANT KAMBLE",
+      "guardian_name": "MANOJ KAMBLE",
+      "date_of_birth": "1994-01-03",
+      "date_of_issue": "2012-10-11",
+      "valid_till": "2032-10-10",
+      "pin_code": "400043",
+      "vehicle_classes": ["LMV", "MCWG"]
+    }
+  },
+  "dl1.jpg": {
+    "document_type": "DRIVING_LICENCE",
+    "layout": "Karnataka card held in hand, ROTATED 90 degrees, gallery timestamp burnt in",
+    "fields": {
+      "dl_number": "KA0520150009483",
+      "name": "UMESHA",
+      "guardian_name": "NARAYANAPPA",
+      "date_of_birth": "1989-01-06",
+      "date_of_issue": "2015-04-22",
+      "valid_till": "2035-04-21",
+      "pin_code": "560074",
+      "vehicle_classes": ["MCWG"]
+    }
+  },
+  "dl2.jpg": {
+    "document_type": "DRIVING_LICENCE",
+    "layout": "Telangana smart card, upright, clear. Carries the LEGACY serial/office/year licence number rather than the modern state+RTO form",
+    "fields": {
+      "dl_number": "39712/NLG/1997",
+      "name": "VENKATAIAH V",
+      "guardian_name": "BUCHAIAH",
+      "date_of_birth": "1977-04-05",
+      "date_of_issue": "2023-05-02",
+      "pin_code": "508253"
+    },
+    "ambiguous": {
+      "valid_till": "The card prints two validity dates: Validity (NT) 2027-04-04 and Validity (TR) 2028-05-01. Neither is more correct than the other for a single valid_till field."
+    },
+    "not_asserted": {
+      "vehicle_classes": "No class-of-vehicle table is printed on the front of this card."
+    }
+  },
+  "dl3.jpg": {
+    "document_type": "DRIVING_LICENCE",
+    "layout": "Bihar card photographed off a phone screen; low resolution, moire, LEFT EDGE CROPPED",
+    "fields": {
+      "dl_number": "BR2820250024834",
+      "guardian_name": "VINDESHWARI SHARMA",
+      "date_of_birth": "1982-02-03",
+      "date_of_issue": "2025-12-17",
+      "valid_till": "2035-12-16",
+      "pin_code": "841434"
+    },
+    "not_asserted": {
+      "name": "Printed OMPRAKASH SHARMA, but the leading O is cropped out of the frame; only ')MPRAKASH SHARMA' is present in the pixels."
+    },
+    "notes": "date_of_birth is legible to a human as 03/02/1982; OCR reads the year as 1582, which the plausibility check correctly rejects rather than emitting. This sample is expected to MISS date_of_birth, not to get it wrong."
+  },
+  "dl4.jpg": {
+    "document_type": "DRIVING_LICENCE",
+    "layout": "Karnataka card on a desk, ROTATED 90 degrees, gallery timestamp burnt in",
+    "fields": {
+      "dl_number": "KA4220200004221",
+      "name": "MOHAMMED RAFEEQ",
+      "guardian_name": "MOHAMMED ANWER",
+      "date_of_birth": "1972-06-20",
+      "date_of_issue": "2020-03-23",
+      "valid_till": "2030-03-22",
+      "pin_code": "562159",
+      "vehicle_classes": ["MCWG"]
+    }
+  },
+  "voter_id.jpg": {
+    "document_type": "VOTER_ID",
+    "layout": "faded photocopy of an older EPIC card, bilingual, gallery timestamp burnt in",
+    "fields": {
+      "epic_number": "UOI0468918",
+      "name": "TAMA KUVAR",
+      "relation_name": "DEELIP SINGH",
+      "relation_type": "HUSBAND",
+      "gender": "FEMALE"
+    },
+    "not_asserted": {
+      "date_of_birth": "Masked on the card itself as XX/XX/1992."
+    },
+    "notes": "The third character of the EPIC is the LETTER I. OCR reads it as the digit 1 (UO10468918), which the positional repair corrects back to UOI0468918."
+  },
+  "voter_id2.jpg": {
+    "document_type": "VOTER_ID",
+    "layout": "worn laminated EPIC card held in hand; masthead heavily degraded",
+    "fields": {
+      "epic_number": "ZAX0399947",
+      "name": "SUNITA",
+      "relation_name": "KAMAL SINGH",
+      "relation_type": "HUSBAND",
+      "gender": "FEMALE"
+    },
+    "not_asserted": {
+      "date_of_birth": "Masked on the card itself as XX/XX/1990."
+    },
+    "notes": "The masthead OCRs as 'ELECTIONCOSSIGN CENDA' / 'IDENTIYaeO'. This card is the reason caption matching has to tolerate dropped characters, not just substituted ones."
+  },
+  "voterid3.jpg": {
+    "document_type": "VOTER_ID",
+    "layout": "modern EPIC card photographed off a phone screen, visible screen glare",
+    "fields": {
+      "epic_number": "NUE1985076",
+      "name": "DEVABAEE",
+      "relation_name": "MAKHANASINH",
+      "relation_type": "HUSBAND"
+    },
+    "not_asserted": {
+      "gender": "Not printed on the visible portion of the card.",
+      "date_of_birth": "Not printed on the visible portion of the card."
+    }
+  },
+  "voter4.jpg": {
+    "document_type": "VOTER_ID",
+    "layout": "older laminated EPIC card, aged paper, prints an AGE rather than a date of birth",
+    "fields": {
+      "epic_number": "MQZ1957976",
+      "name": "KUNTI",
+      "relation_name": "SATISHAPAL",
+      "relation_type": "HUSBAND",
+      "gender": "FEMALE",
+      "age": 25
+    },
+    "notes": "Age is printed as 'Age as on 1.1.2003 : 25'. Older cards carry an age OR a date of birth, never both."
+  },
+  "voter5.jpg": {
+    "document_type": "VOTER_ID",
+    "layout": "Bihar EPIC card, laminated, upright, clear",
+    "fields": {
+      "epic_number": "ZKK0272534",
+      "name": "RAM VILAS SAH",
+      "relation_name": "MUNI LAL SAH",
+      "relation_type": "FATHER",
+      "gender": "MALE"
+    },
+    "not_asserted": {
+      "date_of_birth": "Day and month are masked on the card as XXXX; only the year 1944 is printed."
+    }
+  },
+  "voter6.jpg": {
+    "document_type": "VOTER_ID",
+    "layout": "modern EPIC card on a concrete surface, upright",
+    "fields": {
+      "epic_number": "RNR0090654",
+      "name": "BALARAMASING",
+      "relation_name": "MANGALASING",
+      "relation_type": "FATHER"
+    },
+    "not_asserted": {
+      "gender": "Not printed on the visible portion of the card.",
+      "date_of_birth": "Not printed on the visible portion of the card."
+    }
+  }
+}

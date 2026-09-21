@@ -1,0 +1,361 @@
+# ===========================================================================
+# AGENT REGISTRY
+# ===========================================================================
+# Single source of truth for agent execution. Routing, model selection,
+# timeouts and limits are resolved from here at runtime -- never hardcoded
+# in API routes or business logic.
+#
+# Adding a future agent means adding an entry here and registering its
+# handler in app/orchestration/registry.py. No graph or route changes.
+# ===========================================================================
+
+defaults:
+  model: "qwen3:30b"
+  temperature: 0.1
+  timeout: 30
+  max_iterations: 1
+  approval_required: false
+  prompt_version: "v1"
+  fallback_agent: null
+
+agents:
+
+  fraud_risk_agent:
+    agent_id: fraud_risk_agent
+    agent_name: "Fraud & Risk Agent"
+    stage: risk_assessment
+    enabled: true
+    version: "1.0.0"
+    # Summary generation only. The deterministic engine never uses the LLM.
+    model: "qwen3:30b"
+    temperature: 0.1
+    tools: []
+    prompt_version: "v1"
+    input_schema: "app.agents.fraud_risk.schemas.FraudRiskRequest"
+    output_schema: "app.agents.fraud_risk.schemas.FraudRiskResponse"
+    compact_output_schema: "app.agents.fraud_risk.schemas.FraudRiskCompactResponse"
+    approval_required: false
+    max_iterations: 1
+    timeout: 30
+    fallback_agent: null
+    llm_enabled: true
+    mcp_enabled: false
+    policy_file: "risk_policy.yaml"
+
+  document_agent:
+    agent_id: document_agent
+    agent_name: "Document Agent"
+    stage: document_extraction
+    enabled: true
+    version: "1.0.0"
+    # Extraction is fully deterministic: OCR + regex + spatial reasoning.
+    # No model call, so model/temperature are unused here.
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: null
+    output_schema: "app.agents.document_agent.schemas.DocumentExtractionResult"
+    compact_output_schema: null
+    approval_required: false
+    max_iterations: 1
+    timeout: 60
+    fallback_agent: null
+    llm_enabled: false
+    mcp_enabled: false
+
+  passport_agent:
+    agent_id: passport_agent
+    agent_name: "Passport Agent"
+    stage: document_extraction
+    # DISABLED until verified against a real passport data page.
+    #
+    # The MRZ decoder is checksum-verified and tested, which is a stronger
+    # guarantee than any other extractor here has. What is untested is the
+    # OCR step BEFORE it: whether the recogniser reads a 44-character
+    # restricted-alphabet line off a real page cleanly. Enable after
+    # measuring on samples.
+    enabled: false
+    version: "0.1.0-UNVERIFIED"
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: null
+    output_schema: "app.agents.document_agent.schemas.DocumentExtractionResult"
+    compact_output_schema: null
+    approval_required: false
+    max_iterations: 1
+    timeout: 60
+    fallback_agent: null
+    llm_enabled: false
+    mcp_enabled: false
+
+  sale_deed_agent:
+    agent_id: sale_deed_agent
+    agent_name: "Sale Deed Agent"
+    stage: document_extraction
+    # DISABLED. Scoped only to the e-Stamp certificate cover page (English,
+    # SHCIL/NEWIMPACC template) that precedes some UP property registrations.
+    #
+    # Across 10 real Sale Deed samples: article_type and registration_reference
+    # extract reliably when that cover page is present and legible (2-3 of 10).
+    # first_party/second_party are NOT reliable -- OCR noise leaks into the
+    # name value inconsistently. The deed BODY (property schedule, full legal
+    # text) was not readable on any real sample -- handwritten, regional
+    # script, or scan quality too poor for OCR, in English or Hindi.
+    enabled: false
+    version: "0.1.0-UNVERIFIED"
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: null
+    output_schema: "app.agents.sale_deed.schemas.SaleDeedResult"
+    compact_output_schema: null
+    approval_required: false
+    max_iterations: 1
+    timeout: 60
+    fallback_agent: null
+    llm_enabled: false
+    mcp_enabled: false
+
+  # ---------------------------------------------------------------------
+  # Sale Deed CAPABILITY, distinct from the disabled sale_deed_agent above.
+  #
+  # ENABLED because what it reports is honest, not because the deed became
+  # readable. It assesses the e-Stamp certificate cover page and returns a
+  # conservative verdict: on all four real samples in this repository that
+  # verdict is REVIEW, carrying reason codes saying why. It never returns
+  # PASS from a partial read, and OWNERSHIP_NOT_ESTABLISHED is attached to
+  # every outcome including a hypothetical PASS.
+  #
+  # The deed BODY stays out of scope: every real sample was a photograph of
+  # a handwritten Devanagari form, several shot through glass.
+  # ---------------------------------------------------------------------
+  sale_deed:
+    agent_id: sale_deed
+    agent_name: "Sale Deed Capability"
+    stage: property_proof
+    enabled: true
+    version: "1.0.0"
+    # Deterministic: OCR + template captions + format validation. No model.
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: null
+    output_schema: "app.agents.sale_deed.service.SaleDeedOutcome"
+    compact_output_schema: null
+    approval_required: false
+    max_iterations: 1
+    # Several OCR passes over a multi-page scan, so higher than an ID card.
+    timeout: 120
+    fallback_agent: null
+    llm_enabled: false
+    mcp_enabled: true
+    langgraph_enabled: true
+
+  # ---------------------------------------------------------------------
+  # Business Evidence. ONE capability for Business Proof 1 and 2, because
+  # the real dataset shows both slots carry the same evidence class: phone
+  # photographs of business premises, many with a GPS Map Camera overlay.
+  #
+  # EXIF-first, so a photo with intact metadata costs no OCR. It reports
+  # where and when a photo was taken; it never claims the business exists
+  # or that the applicant owns it.
+  # ---------------------------------------------------------------------
+  business_evidence:
+    agent_id: business_evidence
+    agent_name: "Business Evidence Capability"
+    stage: business_proof
+    enabled: true
+    version: "1.0.0"
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: null
+    output_schema: "app.agents.business_evidence.schemas.BusinessEvidenceOutcome"
+    compact_output_schema: null
+    approval_required: false
+    max_iterations: 1
+    # EXIF is instant; the overlay OCR fallback is one cropped pass.
+    timeout: 60
+    fallback_agent: null
+    llm_enabled: false
+    mcp_enabled: true
+    langgraph_enabled: true
+
+  # ---------------------------------------------------------------------
+  # Signature Verification. ONE service for bank sign cards, PAN, driving
+  # licence and passport -- they differ only in where the signature sits.
+  #
+  # PASS requires a reference comparison. Without a reference the verdict is
+  # REVIEW however clear the ink is, because presence was never the question.
+  # ---------------------------------------------------------------------
+  signature_verification:
+    agent_id: signature_verification
+    agent_name: "Signature Verification Capability"
+    stage: signature_verification
+    enabled: true
+    version: "1.0.0"
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: null
+    output_schema: "app.agents.signature.schemas.SignatureOutcome"
+    compact_output_schema: null
+    approval_required: false
+    max_iterations: 1
+    # Pixel work on one or two images. No OCR, no model.
+    timeout: 60
+    fallback_agent: null
+    llm_enabled: false
+    mcp_enabled: true
+    langgraph_enabled: true
+
+  voter_id_agent:
+    agent_id: voter_id_agent
+    agent_name: "Voter ID Agent"
+    stage: document_extraction
+    # DISABLED until verified against a real EPIC card.
+    #
+    # The EPIC number format is confirmed and the extraction logic is tested,
+    # but no accuracy figure exists because this has never met a real
+    # document. Every other extractor here revealed genuine bugs only on
+    # contact with real files -- a channel swap, a label collision, a
+    # timestamp read as an identifier. Enable after measuring on samples.
+    enabled: false
+    version: "0.1.0-UNVERIFIED"
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: null
+    output_schema: "app.agents.document_agent.schemas.DocumentExtractionResult"
+    compact_output_schema: null
+    approval_required: false
+    max_iterations: 1
+    timeout: 60
+    fallback_agent: null
+    llm_enabled: false
+    mcp_enabled: false
+
+  bank_statement_agent:
+    agent_id: bank_statement_agent
+    agent_name: "Bank Statement Agent"
+    stage: financial_extraction
+    enabled: true
+    version: "1.0.0"
+    # Parsing is fully deterministic: PDF text layer + regex + running-balance
+    # reasoning. No model call, so model/temperature are unused here.
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: null
+    output_schema: "app.agents.bank_statement.schemas.BankStatementResult"
+    compact_output_schema: null
+    approval_required: false
+    max_iterations: 1
+    # Higher than the document agent: a 50-page statement is legitimately
+    # slower than a single ID card, though still seconds not minutes.
+    timeout: 120
+    fallback_agent: null
+    llm_enabled: false
+    mcp_enabled: false
+
+  kyc_agent:
+    agent_id: kyc_agent
+    agent_name: "KYC Agent"
+    stage: kyc
+    enabled: true
+    version: "1.0.0"
+    # Cross-document consistency only: name, DOB, address, PAN and income are
+    # compared deterministically. No model call, and no OCR -- it consumes
+    # what the Document and Financial agents already extracted.
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: "app.agents.kyc.schemas.KycRequest"
+    output_schema: "app.agents.kyc.schemas.KycResult"
+    compact_output_schema: null
+    approval_required: false
+    max_iterations: 1
+    # Pure comparison over already-extracted values, so this is milliseconds.
+    timeout: 30
+    fallback_agent: null
+    llm_enabled: false
+    mcp_enabled: false
+    policy_file: "kyc_policies.yaml"
+
+  # ---------------------------------------------------------------------
+  # Existing document verification agent.
+  # Runs on the separate agent_framework workflow and is unchanged
+  # by Phase 1.
+  # ---------------------------------------------------------------------
+  document_verification:
+    agent_id: document_verification
+    agent_name: "Document Verification Agent"
+    stage: document_verification
+    enabled: true
+    version: "2.0.0"
+    # Verification now runs IN-PROCESS through the Document Agent workflow in
+    # VERIFY mode. It previously proxied an HTTP service at
+    # LEGACY_API_BASE_URL that is not part of this deployment, which made the
+    # agent unrunnable anywhere that service was absent.
+    #
+    # llm_enabled is false for THIS entry because the orchestrated path is
+    # deterministic: the verdict is computed by the workflow and copied
+    # through. The conversational agent in agents/document_verification/
+    # still uses a model, but only to narrate a verdict it cannot change.
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: null
+    output_schema: "app.agents.document_verification.service.DocumentVerificationOutcome"
+    compact_output_schema: null
+    approval_required: false
+    max_iterations: 1
+    # One OCR pass over one document, the same cost as a VERIFY call to
+    # /api/v1/document-agent.
+    timeout: 60
+    fallback_agent: null
+    mcp_enabled: true
+    llm_enabled: false
+    langgraph_enabled: true
+
+  # ---------------------------------------------------------------------
+  # PHASE 2+ placeholders. Declared so routing is config-driven from day
+  # one; not implemented, and disabled.
+  # ---------------------------------------------------------------------
+  credit_agent:
+    agent_id: credit_agent
+    agent_name: "Credit Underwriting Agent"
+    stage: credit_decision
+    enabled: false
+
+  rcu_agent:
+    agent_id: rcu_agent
+    agent_name: "RCU Agent"
+    stage: rcu
+    enabled: false
+
+  decision_agent:
+    agent_id: decision_agent
+    agent_name: "Decision Agent"
+    stage: final_decision
+    enabled: false
+
+  income:
+    enabled: false
+
+  banking:
+    enabled: false
+
+  bureau:
+    enabled: false

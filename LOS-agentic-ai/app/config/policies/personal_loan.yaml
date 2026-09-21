@@ -1,0 +1,211 @@
+# ===========================================================================
+# PERSONAL LOAN — FOS DOCUMENT POLICY
+# ===========================================================================
+#
+#   *** EVERY NUMBER IN THIS FILE IS A PLACEHOLDER. ***
+#
+# The amount bands, the month counts and the document matrix below are
+# STRUCTURAL EXAMPLES chosen to exercise the rule engine. They are not this
+# lender's policy, they are not an industry standard, and they are not an RBI
+# requirement. Nothing here has been approved by anyone.
+#
+# `status: UNCONFIRMED` on every rule says so in the data, so a resolved
+# checklist can carry it through to the response and nobody mistakes a demo
+# threshold for a lending decision.
+#
+# WHAT IS AND IS NOT REGULATION
+# -----------------------------
+# Indian lenders operate under RBI KYC directions that require officially
+# valid documents for identity and address. THAT is regulation. Which
+# documents a particular lender accepts, how many months of bank statement it
+# wants, and at what loan amount it asks for income proof are LENDER POLICY
+# and vary between lenders. This file holds the second kind. Where it needs
+# to state the first kind it says so explicitly and cites nothing it cannot
+# support.
+#
+# TO PUT REAL POLICY IN: replace the bands and documents, set
+# `status: CONFIRMED`, and raise `policy_version`. A case keeps the version
+# it was assessed under, so changing this file does not silently re-scope
+# applications already in flight.
+# ===========================================================================
+
+policy_id: PERSONAL_LOAN_FOS_DOCUMENTS
+policy_version: "0.1.0-DEMO"
+product: PERSONAL_LOAN
+
+#: UNCONFIRMED until a lender signs the matrix off. Carried into every
+#: resolved checklist and every rule explanation.
+status: UNCONFIRMED
+
+currency: INR
+
+# ---------------------------------------------------------------------------
+# BASE REQUIREMENTS — every application, whatever the amount
+# ---------------------------------------------------------------------------
+# Identity and address proof at this stage reflect the KYC obligation every
+# lender has. The SPECIFIC documents accepted are this service's
+# configuration: it can classify and verify these types and no others, which
+# is a capability limit as much as a policy one.
+base:
+  rule_id: PL_BASE
+  description: Identity, address and banking evidence for every personal loan.
+  required:
+    - slot: PAN
+      accepts: [PAN]
+      reason: >-
+        PAN is required to identify the applicant for tax purposes on a
+        credit facility.
+    - slot: ADDRESS_PROOF
+      accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+      reason: >-
+        An officially valid document evidencing the applicant's address.
+        Any one of the accepted types satisfies the requirement.
+    - slot: BANK_STATEMENT
+      accepts: [BANK_STATEMENT]
+      reason: >-
+        A bank statement evidences the applicant's banking relationship and
+        is passed to the credit stage for assessment.
+  optional:
+    - slot: PHOTO
+      accepts: [PHOTO]
+      reason: A photograph for the application record.
+
+# ---------------------------------------------------------------------------
+# AMOUNT BANDS — PLACEHOLDER STRUCTURE
+# ---------------------------------------------------------------------------
+# Rules are ADDITIVE: every band whose range contains the loan amount
+# contributes its documents, and the resolved checklist is the union. A rule
+# can only ADD a requirement; none of them removes a base document.
+#
+# `max_amount: null` means "and above".
+amount_rules:
+  - rule_id: PL_STANDARD
+    status: UNCONFIRMED
+    min_amount: 0
+    max_amount: 500000
+    description: Standard exposure. Base documents only.
+    required: []
+
+  - rule_id: PL_HIGHER_EXPOSURE
+    status: UNCONFIRMED
+    min_amount: 500001
+    max_amount: 2000000
+    description: >-
+      Higher exposure. Income evidence in addition to the base documents.
+    required:
+      - slot: INCOME_PROOF
+        accepts: [SALARY_SLIP, ITR, FORM_16]
+        reason: >-
+          At this exposure the configured policy asks for income evidence in
+          addition to the base documents.
+
+  - rule_id: PL_HIGH_VALUE
+    status: UNCONFIRMED
+    min_amount: 2000001
+    max_amount: null
+    description: >-
+      High value. Income evidence and employment evidence.
+    required:
+      - slot: INCOME_PROOF
+        accepts: [SALARY_SLIP, ITR, FORM_16]
+        reason: >-
+          At this exposure the configured policy asks for income evidence.
+      - slot: EMPLOYMENT_PROOF
+        accepts: [EMPLOYMENT_PROOF]
+        reason: >-
+          At this exposure the configured policy asks for evidence of
+          employment.
+
+# ---------------------------------------------------------------------------
+# CONDITIONAL RULES — attributes other than amount
+# ---------------------------------------------------------------------------
+# `when` is matched against applicant/application attributes the store
+# actually holds. A rule whose attribute is not captured does not fire, and
+# the checklist says the rule could not be evaluated rather than silently
+# skipping it.
+conditional_rules:
+  - rule_id: PL_SELF_EMPLOYED
+    status: UNCONFIRMED
+    when:
+      employment_type: SELF_EMPLOYED
+    description: Self-employed applicants evidence income differently.
+    required:
+      - slot: INCOME_PROOF
+        accepts: [ITR]
+        reason: >-
+          For a self-employed applicant the configured policy asks for an
+          income tax return rather than a salary slip.
+
+# ---------------------------------------------------------------------------
+# DOCUMENT EVIDENCE REQUIREMENTS
+# ---------------------------------------------------------------------------
+# WHAT MUST BE READABLE ON A DOCUMENT for it to satisfy its slot. This is
+# DOCUMENT EVIDENCE, not underwriting: it says a bank statement must have a
+# period and a reconciled balance, never what the balance ought to be.
+#
+# `min_months` and similar are PLACEHOLDERS. A lender sets them.
+documents:
+  PAN:
+    required_fields: [pan_number, name]
+    preferred_fields: [date_of_birth, father_name]
+    verification_required: true
+    notes: >-
+      The name on the PAN is compared with other documents at the KYC stage,
+      which is downstream of FOS.
+
+  DRIVING_LICENCE:
+    required_fields: [dl_number, name]
+    preferred_fields: [date_of_birth, address, valid_until]
+    verification_required: true
+    expiry_field: valid_until
+    satisfies_slots: [ADDRESS_PROOF]
+
+  PASSPORT:
+    required_fields: [passport_number, name]
+    preferred_fields: [date_of_birth, address, valid_until]
+    verification_required: true
+    expiry_field: valid_until
+    satisfies_slots: [ADDRESS_PROOF]
+
+  VOTER_ID:
+    required_fields: [voter_id, name]
+    preferred_fields: [address]
+    verification_required: true
+    satisfies_slots: [ADDRESS_PROOF]
+
+  BANK_STATEMENT:
+    required_fields: [account_number_masked, period_start, period_end]
+    verification_required: true
+    # PLACEHOLDER. Lenders commonly ask for three to twelve months; this
+    # service does not know which this lender wants.
+    min_months: 3
+    min_months_status: UNCONFIRMED
+    integrity:
+      reconciliation_required: true
+      allow_inconclusive: true      # inconclusive -> REVIEW, never FAIL
+    notes: >-
+      Transaction-level analysis belongs to the credit stage. FOS checks that
+      the statement is a readable, complete, internally consistent document.
+
+  SALARY_SLIP:
+    required_fields: [employee_name, period_start]
+    preferred_fields: [employer_name]
+    verification_required: true
+    min_count: 1
+    min_count_status: UNCONFIRMED
+
+  ITR:
+    required_fields: [pan, period_end]
+    verification_required: true
+
+  FORM_16:
+    required_fields: [pan]
+    verification_required: true
+
+  EMPLOYMENT_PROOF:
+    required_fields: []
+    verification_required: true
+
+  PHOTO:
+    required_fields: []
+    verification_required: false

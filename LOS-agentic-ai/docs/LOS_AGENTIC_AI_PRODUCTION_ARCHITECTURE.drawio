@@ -1,0 +1,784 @@
+<mxfile host="app.diagrams.net" agent="LOS Architecture" version="24.7.17" type="device">
+  <diagram id="los-agentic-ai-production" name="LOS Agentic AI — Production Architecture">
+    <mxGraphModel dx="2520" dy="2150" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2520" pageHeight="2150" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ================= TITLE ================= -->
+        <mxCell id="title" value="&lt;b&gt;Loan Origination System (LOS) — Agentic AI Production Architecture&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=26;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="40" y="18" width="1400" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="End-to-end request flow: channel → security → orchestration → agents → MCP tools → data &amp; knowledge → decision → LOS. Deterministic rules decide; the LLM explains." style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;fontSize=13;fontColor=#5A6C7D;" vertex="1" parent="1">
+          <mxGeometry x="1440" y="22" width="1030" height="32" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND BACKGROUNDS ================= -->
+        <mxCell id="band1" value="1 · USER / CHANNEL" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EEF2F6;strokeColor=#AAB7C4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#43536B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="1890" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="band2" value="2 · SECURITY &amp; ENTRY" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EEF2F6;strokeColor=#AAB7C4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#43536B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="209" width="1890" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="band3" value="3 · API &amp; ORCHESTRATION" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EEF2F6;strokeColor=#AAB7C4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#43536B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="338" width="1890" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="band4" value="4 · AGENT LAYER  (Agent Runtime: Python 3.12 + LangGraph)   —   each box: name · responsibility · LOS stage" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EEF2F6;strokeColor=#AAB7C4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#43536B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="507" width="1890" height="355" as="geometry" />
+        </mxCell>
+        <mxCell id="band5" value="5 · MCP TOOL LAYER · DEEP AGENT · LLM" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EEF2F6;strokeColor=#AAB7C4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#43536B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="896" width="1890" height="165" as="geometry" />
+        </mxCell>
+        <mxCell id="band6" value="6 · DOCUMENT PIPELINE  (binary → Amazon S3 · metadata → PostgreSQL)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EEF2F6;strokeColor=#AAB7C4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#43536B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1095" width="1890" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="band7" value="7 · CHATBOT · KNOWLEDGE · RAG &amp; EMBEDDINGS" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EEF2F6;strokeColor=#AAB7C4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#43536B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1244" width="1890" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="band8" value="8 · DATA &amp; STORAGE" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EEF2F6;strokeColor=#AAB7C4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#43536B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1488" width="1890" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="band9" value="9 · DECISION &amp; HUMAN REVIEW" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EEF2F6;strokeColor=#AAB7C4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#43536B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1652" width="1890" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="band10" value="10 · LOS FINAL RESPONSE" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EEF2F6;strokeColor=#AAB7C4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#43536B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1801" width="1890" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="band11" value="END-TO-END EXAMPLE  ·  FOS uploads PAN + Driving Licence + Bank Statement" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F3F0FA;strokeColor=#9B8AC4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#4B3E75;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1915" width="1890" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- side column backgrounds -->
+        <mxCell id="sideExt" value="EXTERNAL SYSTEMS  (double border)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FAF1F0;strokeColor=#C99C96;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#6B3A34;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="507" width="510" height="355" as="geometry" />
+        </mxCell>
+        <mxCell id="sideCtl" value="PRODUCTION CONTROLS" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F1F6F1;strokeColor=#9FBF9F;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#33513A;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="896" width="510" height="314" as="geometry" />
+        </mxCell>
+        <mxCell id="sideLeg" value="LEGEND" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F4F4F4;strokeColor=#B0B0B0;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#3F3F3F;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="1244" width="510" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="sideDeploy" value="RUNTIME &amp; DEPLOYMENT" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F1F4FA;strokeColor=#A8B6CE;verticalAlign=top;align=left;spacingLeft=14;spacingTop=5;fontSize=13;fontStyle=1;fontColor=#3A4A66;" vertex="1" parent="1">
+          <mxGeometry x="1960" y="1488" width="510" height="130" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 1 : USER / CHANNEL ================= -->
+        <mxCell id="u1" value="&lt;b&gt;FOS User&lt;/b&gt;&lt;br&gt;Field officer, on-site" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6F82;fontSize=11;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="70" y="112" width="250" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="u2" value="&lt;b&gt;Customer / Applicant&lt;/b&gt;&lt;br&gt;Self-service" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6F82;fontSize=11;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="340" y="112" width="250" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="u3" value="&lt;b&gt;Internal LOS User&lt;/b&gt;&lt;br&gt;Credit · RCU · Operations" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6F82;fontSize=11;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="610" y="112" width="250" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ch1" value="&lt;b&gt;FOS UI&lt;/b&gt; (React + TypeScript)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DCE9F7;strokeColor=#2E5E9E;fontSize=11;fontColor=#12304F;" vertex="1" parent="1">
+          <mxGeometry x="960" y="112" width="290" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ch2" value="&lt;b&gt;LOS UI&lt;/b&gt; (React + TypeScript)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DCE9F7;strokeColor=#2E5E9E;fontSize=11;fontColor=#12304F;" vertex="1" parent="1">
+          <mxGeometry x="1270" y="112" width="290" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ch3" value="&lt;b&gt;LOS AI Chatbot&lt;/b&gt; (Web / Mobile)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DCE9F7;strokeColor=#2E5E9E;fontSize=11;fontColor=#12304F;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="112" width="320" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="u2c" value="enter through →" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontColor=#5A6C7D;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="866" y="112" width="90" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 2 : SECURITY ================= -->
+        <mxCell id="s1" value="&lt;b&gt;Authentication&lt;/b&gt;&lt;br&gt;(OAuth 2.0 + OIDC, RS256 JWT)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FDE8E8;strokeColor=#B3392B;fontSize=11;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="70" y="240" width="330" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="&lt;b&gt;Authorization&lt;/b&gt;&lt;br&gt;(RBAC — roles, scopes, case &amp; party ownership)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FDE8E8;strokeColor=#B3392B;fontSize=11;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="420" y="240" width="380" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="&lt;b&gt;API Gateway&lt;/b&gt;&lt;br&gt;(Kong / NGINX — TLS 1.3, rate limiting, WAF)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FDE8E8;strokeColor=#B3392B;fontSize=11;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="820" y="240" width="380" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="&lt;b&gt;Enforced on every request:&lt;/b&gt;  identity · token signature &amp; expiry · role / scope · case ownership · applicant &amp; co-applicant ownership · agent &amp; service authorisation · audit log entry.&amp;nbsp;&amp;nbsp;&lt;b&gt;Secrets never leave the vault&lt;/b&gt; (HashiCorp Vault)." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFBEA;strokeColor=#D9BE5E;fontSize=10;align=left;verticalAlign=middle;spacingLeft=10;fontColor=#4A4020;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="240" width="680" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 3 : API / ORCHESTRATION ================= -->
+        <mxCell id="api" value="&lt;b&gt;LOS API&lt;/b&gt;&lt;br&gt;(FastAPI · Python 3.12)&lt;br&gt;&lt;font color=&quot;#5A6C7D&quot;&gt;POST /api/v1/los/process&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DCE9F7;strokeColor=#2E5E9E;fontSize=11;fontColor=#12304F;" vertex="1" parent="1">
+          <mxGeometry x="70" y="372" width="300" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="orch" value="&lt;b&gt;Orchestration Layer&lt;/b&gt;&lt;br&gt;(LangGraph StateGraph)&lt;br&gt;&lt;font color=&quot;#5A6C7D&quot;&gt;workflow state machine&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#C9DCF2;strokeColor=#204B82;fontSize=12;fontColor=#0F2A47;" vertex="1" parent="1">
+          <mxGeometry x="400" y="372" width="330" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="orchresp" value="&lt;b&gt;The orchestrator:&lt;/b&gt;&amp;nbsp; identifies request type and LOS stage&amp;nbsp; ·&amp;nbsp; selects the agents the stage requires&amp;nbsp; ·&amp;nbsp; executes them and manages dependencies&amp;nbsp; ·&amp;nbsp; maintains workflow state&amp;nbsp; ·&lt;br&gt;handles retries, timeouts and circuit breaking&amp;nbsp; ·&amp;nbsp; routes failures&amp;nbsp; ·&amp;nbsp; invokes human review when confidence or policy requires it&amp;nbsp; ·&amp;nbsp; aggregates agent outputs." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6F82;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="760" y="372" width="800" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="orchnote" value="&lt;b&gt;Boundary:&lt;/b&gt; the orchestrator routes and sequences. It holds &lt;b&gt;no business rules&lt;/b&gt; — those live in the agents and deterministic services." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFBEA;strokeColor=#D9BE5E;fontSize=10;align=left;verticalAlign=middle;spacingLeft=10;fontColor=#4A4020;" vertex="1" parent="1">
+          <mxGeometry x="760" y="430" width="800" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="broker1" value="&lt;b&gt;Message Broker&lt;/b&gt;&lt;br&gt;(RabbitMQ)&lt;br&gt;&lt;font color=&quot;#5A6C7D&quot;&gt;async &amp; long-running tasks&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F3E9F8;strokeColor=#7A3FA8;fontSize=11;fontColor=#3F1B57;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1590" y="372" width="310" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 4 : AGENTS ================= -->
+        <mxCell id="a1" value="&lt;b&gt;Applicant Agent&lt;/b&gt;&lt;br&gt;Applicant &amp; case creation, information capture, document checklist, basic document status&lt;br&gt;&lt;i&gt;Stage: FOS&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="70" y="545" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="&lt;b&gt;Document Intake Agent&lt;/b&gt;&lt;br&gt;Receives uploads, classifies document type, routes to the document pipeline&lt;br&gt;&lt;i&gt;Stage: FOS / Document Intake&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="536" y="545" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="&lt;b&gt;Document Verification Agent&lt;/b&gt;&lt;br&gt;Authenticity, image quality, structural validation; emits score, confidence &amp; reason codes&lt;br&gt;&lt;i&gt;Stage: FOS / Verification&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1002" y="545" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="&lt;b&gt;KYC Agent&lt;/b&gt;&lt;br&gt;Cross-document identity consistency — name, DOB, PAN, father's name, address&lt;br&gt;&lt;i&gt;Stage: KYC&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1468" y="545" width="430" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="a5" value="&lt;b&gt;Eligibility Agent&lt;/b&gt;&lt;br&gt;Product &amp; applicant eligibility rules — age, income, configured conditions&lt;br&gt;&lt;i&gt;Stage: Eligibility&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="70" y="623" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a6" value="&lt;b&gt;FOIR Agent&lt;/b&gt;&lt;br&gt;Computes FOIR (obligations ÷ income) &lt;b&gt;deterministically&lt;/b&gt;; compares to configured policy band&lt;br&gt;&lt;i&gt;Stage: Eligibility / Credit&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="536" y="623" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a7" value="&lt;b&gt;LTV Agent&lt;/b&gt;&lt;br&gt;Computes LTV (loan ÷ collateral value) &lt;b&gt;deterministically&lt;/b&gt;; compares to configured policy band&lt;br&gt;&lt;i&gt;Stage: Credit / Collateral&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1002" y="623" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a8" value="&lt;b&gt;Income Assessment Agent&lt;/b&gt;&lt;br&gt;Salary and income analysis from verified evidence only&lt;br&gt;&lt;i&gt;Stage: Credit&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1468" y="623" width="430" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="a9" value="&lt;b&gt;Bank Statement Agent&lt;/b&gt;&lt;br&gt;Transaction extraction, balance reconciliation, banking behaviour signals&lt;br&gt;&lt;i&gt;Stage: Credit&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="70" y="701" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a10" value="&lt;b&gt;ITR Agent&lt;/b&gt;&lt;br&gt;ITR detection, extraction, acknowledgement &amp; PAN validation&lt;br&gt;&lt;i&gt;Stage: Credit / Income&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="536" y="701" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a11" value="&lt;b&gt;Fraud / Risk Agent&lt;/b&gt;&lt;br&gt;Fraud indicators and risk signals from documents, behaviour and device data&lt;br&gt;&lt;i&gt;Stage: Risk / Fraud&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1002" y="701" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a12" value="&lt;b&gt;RCU Agent&lt;/b&gt;&lt;br&gt;Risk Containment Unit sampling — document, customer and property checks&lt;br&gt;&lt;i&gt;Stage: RCU&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1468" y="701" width="430" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="a13" value="&lt;b&gt;Collateral / Property Agent&lt;/b&gt;&lt;br&gt;Property and collateral verification; valuation inputs for LTV&lt;br&gt;&lt;i&gt;Stage: Collateral / RCU&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="70" y="779" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a14" value="&lt;b&gt;Credit Assessment Agent&lt;/b&gt;&lt;br&gt;Combines eligible financial &amp; credit evidence into one credit view&lt;br&gt;&lt;i&gt;Stage: Credit&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="536" y="779" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a15" value="&lt;b&gt;Decision Agent&lt;/b&gt;&lt;br&gt;Consolidates approved upstream outputs; drives the maker / checker workflow&lt;br&gt;&lt;i&gt;Stage: Decision&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#DDEBD8;strokeColor=#3D7A3D;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1002" y="779" width="430" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a16" value="&lt;b&gt;Human Review Agent&lt;/b&gt; (human-in-the-loop)&lt;br&gt;Routes to a person when confidence, policy or an exception requires it&lt;br&gt;&lt;i&gt;Stage: Review&lt;/i&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FCE8D5;strokeColor=#B5701F;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1468" y="779" width="430" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 5 : MCP / DEEP AGENT / LLM ================= -->
+        <mxCell id="mcpbox" value="&lt;b&gt;MCP Layer&lt;/b&gt; (Model Context Protocol) — the &lt;b&gt;only&lt;/b&gt; path from an agent to a database, service or external system" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EAF6EE;strokeColor=#2F7D4F;verticalAlign=top;align=left;spacingLeft=10;spacingTop=5;fontSize=11;fontStyle=1;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="70" y="926" width="1120" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="m1" value="Document MCP" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#E3F3E8;strokeColor=#2F7D4F;fontSize=10;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="85" y="952" width="210" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="m2" value="Applicant MCP" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#E3F3E8;strokeColor=#2F7D4F;fontSize=10;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="305" y="952" width="210" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="m3" value="KYC MCP" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#E3F3E8;strokeColor=#2F7D4F;fontSize=10;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="525" y="952" width="210" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="m4" value="Eligibility MCP" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#E3F3E8;strokeColor=#2F7D4F;fontSize=10;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="745" y="952" width="210" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="m5" value="Credit MCP" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#E3F3E8;strokeColor=#2F7D4F;fontSize=10;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="965" y="952" width="210" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="m6" value="Risk MCP" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#E3F3E8;strokeColor=#2F7D4F;fontSize=10;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="85" y="990" width="210" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="m7" value="RCU MCP" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#E3F3E8;strokeColor=#2F7D4F;fontSize=10;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="305" y="990" width="210" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="m8" value="Decision MCP" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#E3F3E8;strokeColor=#2F7D4F;fontSize=10;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="525" y="990" width="210" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="m9" value="Knowledge MCP" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#E3F3E8;strokeColor=#2F7D4F;fontSize=10;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="745" y="990" width="210" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="m10" value="Storage MCP" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#E3F3E8;strokeColor=#2F7D4F;fontSize=10;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="965" y="990" width="210" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="mcpnote" value="Every tool enforces: &lt;b&gt;JSON schema&lt;/b&gt; · authentication · authorisation (scope + case &amp; party ownership) · timeout · retry budget · &lt;b&gt;audit entry&lt;/b&gt;.&amp;nbsp;&amp;nbsp; MCP is the &lt;b&gt;tool / contract&lt;/b&gt; layer — it is &lt;b&gt;not&lt;/b&gt; the workflow orchestrator." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;fontColor=#1B3D28;" vertex="1" parent="1">
+          <mxGeometry x="85" y="1026" width="1090" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="deep" value="&lt;b&gt;Deep Agent Runtime&lt;/b&gt; (LangGraph Deep Agents)&lt;br&gt;&lt;br&gt;plan the task → select tools &lt;b&gt;via MCP&lt;/b&gt; → execute sub-tasks → gather evidence → synthesise a &lt;b&gt;structured&lt;/b&gt; result&lt;br&gt;&lt;br&gt;&lt;font color=&quot;#8A2E2E&quot;&gt;&lt;b&gt;Cannot bypass&lt;/b&gt; authentication, MCP authorisation, deterministic rules or human approval gates. Assists the orchestrator; never replaces it.&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EDE7F6;strokeColor=#5E35B1;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=6;fontColor=#2A1A4A;" vertex="1" parent="1">
+          <mxGeometry x="1210" y="926" width="340" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="llm" value="&lt;b&gt;LLM&lt;/b&gt; (Qwen 30B via Ollama)&lt;br&gt;&lt;br&gt;&lt;b&gt;Used for:&lt;/b&gt; reasoning, natural-language understanding, summarisation, chatbot phrasing, agent planning.&lt;br&gt;&lt;br&gt;&lt;font color=&quot;#8A2E2E&quot;&gt;&lt;b&gt;Never authoritative for:&lt;/b&gt; document authenticity · PAN / DOB validation · FOIR &amp; LTV arithmetic · eligibility hard rules · the final decision.&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#B5701F;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=6;fontColor=#4A3312;" vertex="1" parent="1">
+          <mxGeometry x="1570" y="926" width="330" height="125" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 6 : DOCUMENT PIPELINE ================= -->
+        <mxCell id="d1" value="&lt;b&gt;Upload&lt;/b&gt;&lt;br&gt;multipart" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1128" width="170" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" value="&lt;b&gt;Object Storage&lt;/b&gt;&lt;br&gt;(Amazon S3)&lt;br&gt;&lt;font color=&quot;#5A6C7D&quot;&gt;binary + hash&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF4D6;strokeColor=#C9A227;fontSize=10;fontColor=#4A3B00;" vertex="1" parent="1">
+          <mxGeometry x="254" y="1128" width="170" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" value="&lt;b&gt;Classification&lt;/b&gt;&lt;br&gt;(Python)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="438" y="1128" width="170" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" value="&lt;b&gt;Image Quality&lt;/b&gt;&lt;br&gt;(OpenCV)&lt;br&gt;&lt;font color=&quot;#5A6C7D&quot;&gt;blur · glare · skew&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="622" y="1128" width="170" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="d5" value="&lt;b&gt;OCR&lt;/b&gt;&lt;br&gt;(RapidOCR / PaddleOCR)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="806" y="1128" width="170" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="d6" value="&lt;b&gt;Extraction&lt;/b&gt;&lt;br&gt;(Python)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="990" y="1128" width="170" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="d7" value="&lt;b&gt;Normalisation&lt;/b&gt;&lt;br&gt;canonical values" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1174" y="1128" width="170" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="d8" value="&lt;b&gt;Validation&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#8A2E2E&quot;&gt;deterministic&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1358" y="1128" width="170" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="d9" value="&lt;b&gt;Verification&lt;/b&gt;&lt;br&gt;hard gates" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1542" y="1128" width="170" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="d10" value="&lt;b&gt;Structured Result&lt;/b&gt;&lt;br&gt;fields · score&lt;br&gt;confidence · reasons" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DDEBD8;strokeColor=#3D7A3D;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1726" y="1128" width="170" height="62" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 7 : CHATBOT + RAG ================= -->
+        <mxCell id="cbbox" value="&lt;b&gt;LOS AI Chatbot&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F7FAFD;strokeColor=#7B8FA3;verticalAlign=top;align=left;spacingLeft=10;spacingTop=5;fontSize=11;fontStyle=1;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1274" width="890" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="cb1" value="&lt;b&gt;Query Router&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#5A6C7D&quot;&gt;deterministic&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DCE9F7;strokeColor=#2E5E9E;fontSize=10;fontColor=#12304F;" vertex="1" parent="1">
+          <mxGeometry x="85" y="1302" width="160" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="cb2" value="&lt;b&gt;CASE&lt;/b&gt; · &lt;b&gt;KNOWLEDGE&lt;/b&gt; · &lt;b&gt;MIXED&lt;/b&gt; · &lt;b&gt;STAGE&lt;/b&gt; · &lt;b&gt;DOWNSTREAM AGENT&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6F82;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="255" y="1302" width="270" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="cb3" value="&lt;b&gt;Grounding &amp; Validation&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#8A2E2E&quot;&gt;rejects unsupported claims&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FDE8E8;strokeColor=#B3392B;fontSize=10;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="535" y="1302" width="200" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="cb4" value="&lt;b&gt;LLM phrasing&lt;/b&gt;&lt;br&gt;(Qwen / Ollama)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#B5701F;fontSize=10;fontColor=#4A3312;" vertex="1" parent="1">
+          <mxGeometry x="745" y="1302" width="200" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="cb5" value="&lt;b&gt;Routing:&lt;/b&gt;&amp;nbsp; CASE → PostgreSQL case services&amp;nbsp; ·&amp;nbsp; KNOWLEDGE → RAG over Vector DB (pgvector)&amp;nbsp; ·&amp;nbsp; MIXED → structured case data &lt;b&gt;+&lt;/b&gt; RAG&amp;nbsp; ·&amp;nbsp; STAGE → workflow state&amp;nbsp; ·&amp;nbsp; AGENT → the authorised agent / MCP tool.&lt;br&gt;&lt;font color=&quot;#8A2E2E&quot;&gt;&lt;b&gt;The chatbot never invents&lt;/b&gt; applicant data, document status, eligibility, credit or risk decisions. Every answer is grounded in a retrieved fact or a stored record, or it is refused.&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFBEA;strokeColor=#D9BE5E;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=6;fontColor=#4A4020;" vertex="1" parent="1">
+          <mxGeometry x="85" y="1358" width="860" height="72" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ragbox" value="&lt;b&gt;Knowledge, Embeddings &amp; RAG&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F7FAFD;strokeColor=#7B8FA3;verticalAlign=top;align=left;spacingLeft=10;spacingTop=5;fontSize=11;fontStyle=1;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="1274" width="890" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="r1" value="&lt;b&gt;A · LOS KNOWLEDGE&lt;/b&gt;&lt;br&gt;policy docs · product rules · SOPs · FAQs · RCU &amp; credit guidelines" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6F82;fontSize=9;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1025" y="1300" width="230" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" value="&lt;b&gt;Chunking&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=9;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1270" y="1300" width="145" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="r3" value="&lt;b&gt;Embedding Model&lt;/b&gt;&lt;br&gt;(BGE-M3 / Qwen Embeddings)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EDE7F6;strokeColor=#5E35B1;fontSize=9;fontColor=#2A1A4A;" vertex="1" parent="1">
+          <mxGeometry x="1430" y="1300" width="225" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="r4" value="&lt;b&gt;Vector DB&lt;/b&gt;&lt;br&gt;(PostgreSQL + pgvector)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF4D6;strokeColor=#C9A227;fontSize=9;fontColor=#4A3B00;" vertex="1" parent="1">
+          <mxGeometry x="1670" y="1300" width="215" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="r5" value="&lt;b&gt;B · CASE KNOWLEDGE&lt;/b&gt;&lt;br&gt;case events · document metadata · verified facts · agent outputs · application state" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6F82;fontSize=9;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1025" y="1354" width="230" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="r6" value="&lt;b&gt;Representation&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=9;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1270" y="1354" width="145" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="ragnote" value="&lt;b&gt;Raw PDFs and images stay in Amazon S3.&lt;/b&gt; Only chunk text and its vector are stored in pgvector." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;fontColor=#8A2E2E;" vertex="1" parent="1">
+          <mxGeometry x="1025" y="1406" width="860" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 8 : DATA ================= -->
+        <mxCell id="db1" value="&lt;b&gt;PostgreSQL 16&lt;/b&gt;&lt;br&gt;applicants · co-applicants · applications &amp; cases · document metadata · verification results · agent results · workflow state · audit · policy versions" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=11;fillColor=#FFF4D6;strokeColor=#C9A227;fontSize=9;align=left;spacingLeft=12;verticalAlign=top;spacingTop=16;fontColor=#4A3B00;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1518" width="350" height="92" as="geometry" />
+        </mxCell>
+        <mxCell id="db2" value="&lt;b&gt;Object Storage (Amazon S3)&lt;/b&gt;&lt;br&gt;uploaded PDFs &amp; images · generated document artefacts · versioned, encrypted at rest (AES-256)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=11;fillColor=#FFF4D6;strokeColor=#C9A227;fontSize=9;align=left;spacingLeft=12;verticalAlign=top;spacingTop=16;fontColor=#4A3B00;" vertex="1" parent="1">
+          <mxGeometry x="440" y="1518" width="350" height="92" as="geometry" />
+        </mxCell>
+        <mxCell id="db3" value="&lt;b&gt;Vector DB (PostgreSQL + pgvector)&lt;/b&gt;&lt;br&gt;policy &amp; knowledge chunks · case knowledge chunks · embeddings + metadata only" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=11;fillColor=#FFF4D6;strokeColor=#C9A227;fontSize=9;align=left;spacingLeft=12;verticalAlign=top;spacingTop=16;fontColor=#4A3B00;" vertex="1" parent="1">
+          <mxGeometry x="810" y="1518" width="350" height="92" as="geometry" />
+        </mxCell>
+        <mxCell id="db4" value="&lt;b&gt;Cache (Redis 7)&lt;/b&gt;&lt;br&gt;short-lived workflow state · frequently read reference data · rate-limit counters · idempotency keys" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=11;fillColor=#FFF4D6;strokeColor=#C9A227;fontSize=9;align=left;spacingLeft=12;verticalAlign=top;spacingTop=16;fontColor=#4A3B00;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="1518" width="350" height="92" as="geometry" />
+        </mxCell>
+        <mxCell id="db5" value="&lt;b&gt;Message Broker (RabbitMQ)&lt;/b&gt;&lt;br&gt;async document processing · long-running agent tasks · domain events · dead-letter queue" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=11;fillColor=#F3E9F8;strokeColor=#7A3FA8;fontSize=9;align=left;spacingLeft=12;verticalAlign=top;spacingTop=16;fontColor=#3F1B57;" vertex="1" parent="1">
+          <mxGeometry x="1550" y="1518" width="350" height="92" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 9 : DECISION ================= -->
+        <mxCell id="x1" value="Agent Outputs&lt;br&gt;&lt;font color=&quot;#5A6C7D&quot;&gt;structured&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1682" width="190" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="x2" value="Evidence&lt;br&gt;Aggregation" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="274" y="1682" width="190" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="x3" value="Eligibility" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="478" y="1682" width="190" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="x4" value="Credit&lt;br&gt;Assessment" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="682" y="1682" width="190" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="x5" value="Risk / Fraud" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="886" y="1682" width="190" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="x6" value="RCU" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F6FA;strokeColor=#7B8FA3;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="1682" width="190" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="x7" value="&lt;b&gt;Decision Agent&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DDEBD8;strokeColor=#3D7A3D;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1294" y="1682" width="190" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="x8" value="&lt;b&gt;Maker / Checker&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#5A6C7D&quot;&gt;two-person rule&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FCE8D5;strokeColor=#B5701F;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1498" y="1682" width="190" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="x9" value="&lt;b&gt;Human Override&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#5A6C7D&quot;&gt;if required&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FCE8D5;strokeColor=#B5701F;fontSize=10;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1702" y="1682" width="190" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="xnote" value="The Decision Agent consumes &lt;b&gt;structured outputs&lt;/b&gt; from upstream agents. &lt;font color=&quot;#8A2E2E&quot;&gt;&lt;b&gt;An LLM alone never makes the final lending decision.&lt;/b&gt;&lt;/font&gt; Every override is recorded with actor, reason and timestamp." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontColor=#33475B;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1738" width="1830" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 10 : FINAL RESPONSE ================= -->
+        <mxCell id="f1" value="&lt;b&gt;Final LOS Decision&lt;/b&gt;&amp;nbsp; Approved · Rejected · Referred" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DDEBD8;strokeColor=#3D7A3D;fontSize=11;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1829" width="420" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" value="&lt;b&gt;Decision Record&lt;/b&gt; (PostgreSQL) + audit trail" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF4D6;strokeColor=#C9A227;fontSize=11;fontColor=#4A3B00;" vertex="1" parent="1">
+          <mxGeometry x="520" y="1829" width="330" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="&lt;b&gt;Core LOS&lt;/b&gt; — system of record" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;fillColor=#FDECEA;strokeColor=#B3392B;fontSize=11;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="880" y="1829" width="380" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="f4" value="&lt;b&gt;LOS API response&lt;/b&gt; → FOS UI · LOS UI · Chatbot&amp;nbsp;&amp;nbsp;(request_id · case_id · decision · reasons)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DCE9F7;strokeColor=#2E5E9E;fontSize=11;fontColor=#12304F;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="1829" width="610" height="44" as="geometry" />
+        </mxCell>
+
+        <!-- ================= BAND 11 : END-TO-END EXAMPLE ================= -->
+        <mxCell id="e1" value="Authenticated&lt;br&gt;request" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="Orchestrator" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="192" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="Document&lt;br&gt;Intake" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="314" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="Document&lt;br&gt;Verification" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="436" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="KYC" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="558" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="Bank&lt;br&gt;Statement" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="680" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="Income&lt;br&gt;Assessment" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="802" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="Eligibility" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="924" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="FOIR" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="1046" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="LTV&lt;br&gt;&lt;font color=&quot;#7A6BA8&quot;&gt;if collateral&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1168" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="Risk /&lt;br&gt;Fraud" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="RCU" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="1412" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" value="Credit&lt;br&gt;Assessment" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="1534" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" value="Decision Agent&lt;br&gt;Maker / Checker" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8E2F5;strokeColor=#9B8AC4;fontSize=9;fontColor=#3A2F5C;" vertex="1" parent="1">
+          <mxGeometry x="1656" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" value="&lt;b&gt;LOS&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DDEBD8;strokeColor=#3D7A3D;fontSize=9;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="1778" y="1945" width="118" height="48" as="geometry" />
+        </mxCell>
+
+        <!-- ================= OBSERVABILITY STRIP ================= -->
+        <mxCell id="obs" value="&lt;b&gt;OBSERVABILITY &amp; AUDIT&lt;/b&gt; (spans every layer)&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp; Tracing &lt;b&gt;(OpenTelemetry)&lt;/b&gt; · Metrics &lt;b&gt;(Prometheus)&lt;/b&gt; · Dashboards &lt;b&gt;(Grafana)&lt;/b&gt; · Centralised logs &lt;b&gt;(Loki / ELK)&lt;/b&gt; · Audit trail &lt;b&gt;(PostgreSQL, append-only)&lt;/b&gt;&lt;br&gt;Correlated on: request_id · case_id · applicant_id · party_role · agent execution · MCP tool call · latency · errors · retries · model &amp; token usage · decisions · human overrides" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8EDF2;strokeColor=#7B8FA3;fontSize=11;align=center;verticalAlign=middle;fontColor=#1F2D3D;" vertex="1" parent="1">
+          <mxGeometry x="40" y="2039" width="2430" height="58" as="geometry" />
+        </mxCell>
+
+        <!-- ================= SIDE : EXTERNAL SYSTEMS ================= -->
+        <mxCell id="ext1" value="Credit Bureau (CIBIL / Experian)" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;fillColor=#FDECEA;strokeColor=#B3392B;fontSize=10;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="540" width="460" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="ext2" value="Banking / Account Aggregator (Setu / Perfios)" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;fillColor=#FDECEA;strokeColor=#B3392B;fontSize=10;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="582" width="460" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="ext3" value="KYC &amp; Govt Verification (NSDL PAN · UIDAI · DigiLocker)" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;fillColor=#FDECEA;strokeColor=#B3392B;fontSize=10;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="624" width="460" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="ext4" value="Property Valuation (panel valuer API)" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;fillColor=#FDECEA;strokeColor=#B3392B;fontSize=10;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="666" width="460" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="ext5" value="External Fraud Services (Hunter / bureau fraud)" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;fillColor=#FDECEA;strokeColor=#B3392B;fontSize=10;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="708" width="460" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="ext6" value="CRM (Salesforce)" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;fillColor=#FDECEA;strokeColor=#B3392B;fontSize=10;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="750" width="460" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="ext7" value="Core LOS (system of record)" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;fillColor=#FDECEA;strokeColor=#B3392B;fontSize=10;fontColor=#5A1810;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="792" width="460" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="extnote" value="All external calls pass through an authorised service / MCP boundary — never directly from an agent or the LLM." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;fontColor=#8A2E2E;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="828" width="460" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- ================= SIDE : PRODUCTION CONTROLS ================= -->
+        <mxCell id="ctl1" value="&lt;b&gt;Security&lt;/b&gt;&lt;br&gt;RBAC · JWT (RS256) · TLS 1.3 in transit · AES-256 at rest · PII masking in logs · secrets in HashiCorp Vault · append-only audit log" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7FA07F;fontSize=9;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#26402C;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="928" width="225" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="ctl2" value="&lt;b&gt;Resilience&lt;/b&gt;&lt;br&gt;idempotency keys · retry with backoff · timeouts · circuit breaker · rate limiting · dead-letter queue · model fallback" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7FA07F;fontSize=9;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#26402C;" vertex="1" parent="1">
+          <mxGeometry x="2220" y="928" width="225" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="ctl3" value="&lt;b&gt;Correctness&lt;/b&gt;&lt;br&gt;JSON schema validation on every MCP call · deterministic rules for all arithmetic &amp; hard gates · human-in-the-loop gates" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7FA07F;fontSize=9;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#26402C;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="1024" width="225" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="ctl4" value="&lt;b&gt;Change control&lt;/b&gt;&lt;br&gt;versioned policies (pinned per case) · versioned prompts · versioned agent configurations · versioned document policy" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7FA07F;fontSize=9;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;fontColor=#26402C;" vertex="1" parent="1">
+          <mxGeometry x="2220" y="1024" width="225" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="ctl5" value="&lt;b&gt;Golden rule:&lt;/b&gt; the LLM explains; deterministic services decide. Any figure that affects a lending outcome is computed in code and is reproducible." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFBEA;strokeColor=#D9BE5E;fontSize=9;align=left;verticalAlign=middle;spacingLeft=8;fontColor=#4A4020;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="1120" width="460" height="42" as="geometry" />
+        </mxCell>
+
+        <!-- ================= SIDE : LEGEND ================= -->
+        <mxCell id="lg1" value="Solid arrow  =  synchronous flow" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#3F3F3F;" vertex="1" parent="1">
+          <mxGeometry x="2060" y="1276" width="380" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="lgA1" value="" style="endArrow=blockThin;endFill=1;html=1;strokeColor=#37474F;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1985" y="1287" as="sourcePoint" />
+            <mxPoint x="2050" y="1287" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg2" value="Dashed arrow  =  asynchronous / event flow" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#3F3F3F;" vertex="1" parent="1">
+          <mxGeometry x="2060" y="1304" width="380" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="lgA2" value="" style="endArrow=blockThin;endFill=1;html=1;strokeColor=#7A3FA8;strokeWidth=2;dashed=1;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1985" y="1315" as="sourcePoint" />
+            <mxPoint x="2050" y="1315" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg3" value="Double border  =  external system" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#3F3F3F;" vertex="1" parent="1">
+          <mxGeometry x="2060" y="1332" width="380" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="lgB3" value="" style="shape=ext;double=1;rounded=0;html=1;fillColor=#FDECEA;strokeColor=#B3392B;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="1334" width="60" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4" value="Cylinder  =  persistent storage" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#3F3F3F;" vertex="1" parent="1">
+          <mxGeometry x="2060" y="1360" width="380" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="lgB4" value="" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=6;html=1;fillColor=#FFF4D6;strokeColor=#C9A227;" vertex="1" parent="1">
+          <mxGeometry x="1995" y="1360" width="40" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5" value="Rounded box  =  agent (autonomous business capability)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#3F3F3F;" vertex="1" parent="1">
+          <mxGeometry x="2060" y="1388" width="390" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="lgB5" value="" style="rounded=1;arcSize=30;html=1;fillColor=#E7F0FB;strokeColor=#3667A6;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="1390" width="60" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lg6" value="Grey band  =  architecture layer&amp;nbsp;&amp;nbsp;|&amp;nbsp;&amp;nbsp;Orange  =  human-in-the-loop&amp;nbsp;&amp;nbsp;|&amp;nbsp;&amp;nbsp;Green  =  MCP / decision" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontColor=#3F3F3F;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="1416" width="465" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- ================= SIDE : RUNTIME & DEPLOYMENT ================= -->
+        <mxCell id="dep1" value="&lt;b&gt;Containerisation&lt;/b&gt; (Docker)&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;&lt;b&gt;Deployment&lt;/b&gt; (Kubernetes)&lt;br&gt;&lt;b&gt;Agent Runtime&lt;/b&gt; (Python 3.12 + LangGraph)&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;&lt;b&gt;LLM Serving&lt;/b&gt; (Ollama)&lt;br&gt;Horizontal pod autoscaling · rolling deploys · per-namespace secrets · blue/green for model and prompt versions" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8FA0BC;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=6;fontColor=#2A3A54;" vertex="1" parent="1">
+          <mxGeometry x="1985" y="1520" width="460" height="82" as="geometry" />
+        </mxCell>
+
+        <!-- ================= SPINE ARROWS ================= -->
+        <mxCell id="g1" value="authenticate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#37474F;labelBackgroundColor=#FFFFFF;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="985" y="175" as="sourcePoint" />
+            <mxPoint x="985" y="209" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="g2" value="validated token + scopes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#37474F;labelBackgroundColor=#FFFFFF;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="985" y="304" as="sourcePoint" />
+            <mxPoint x="985" y="338" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="g3" value="orchestrator selects the agents this stage needs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#37474F;labelBackgroundColor=#FFFFFF;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="985" y="473" as="sourcePoint" />
+            <mxPoint x="985" y="507" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="g4" value="agents reach everything through MCP tools only" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#37474F;labelBackgroundColor=#FFFFFF;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="985" y="862" as="sourcePoint" />
+            <mxPoint x="985" y="896" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="g5" value="document operations" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#37474F;labelBackgroundColor=#FFFFFF;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="620" y="1061" as="sourcePoint" />
+            <mxPoint x="620" y="1095" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="g5b" value="knowledge retrieval" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#37474F;labelBackgroundColor=#FFFFFF;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1420" y="1061" as="sourcePoint" />
+            <mxPoint x="1420" y="1244" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="1420" y="1078" />
+              <mxPoint x="1930" y="1078" />
+              <mxPoint x="1930" y="1226" />
+              <mxPoint x="1420" y="1226" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="g6" value="structured document result" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#37474F;labelBackgroundColor=#FFFFFF;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="620" y="1210" as="sourcePoint" />
+            <mxPoint x="620" y="1244" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="g7" value="persist &amp;amp; read" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#37474F;labelBackgroundColor=#FFFFFF;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="985" y="1454" as="sourcePoint" />
+            <mxPoint x="985" y="1488" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="g8" value="structured agent outputs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#37474F;labelBackgroundColor=#FFFFFF;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="985" y="1618" as="sourcePoint" />
+            <mxPoint x="985" y="1652" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="g9" value="final decision" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#37474F;labelBackgroundColor=#FFFFFF;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="985" y="1767" as="sourcePoint" />
+            <mxPoint x="985" y="1801" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- orchestrator <-> deep agent -->
+        <mxCell id="gdeep" value="plan / delegate · return structured result" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#5E35B1;strokeWidth=2;endArrow=blockThin;endFill=1;startArrow=blockThin;startFill=1;fontSize=10;fontColor=#5E35B1;labelBackgroundColor=#EEF2F6;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1900" y="412" as="sourcePoint" />
+            <mxPoint x="1380" y="926" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="1944" y="412" />
+              <mxPoint x="1944" y="879" />
+              <mxPoint x="1380" y="879" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- MCP -> external systems -->
+        <mxCell id="gext" value="authorised external calls" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#B3392B;strokeWidth=2;endArrow=blockThin;endFill=1;startArrow=blockThin;startFill=1;fontSize=10;fontColor=#B3392B;labelBackgroundColor=#EEF2F6;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1190" y="1005" as="sourcePoint" />
+            <mxPoint x="1960" y="700" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="1944" y="1005" />
+              <mxPoint x="1944" y="700" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- async: broker -> document pipeline -->
+        <mxCell id="gasync" value="async processing (RabbitMQ)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7A3FA8;strokeWidth=2;dashed=1;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#7A3FA8;labelBackgroundColor=#EEF2F6;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1745" y="452" as="sourcePoint" />
+            <mxPoint x="1811" y="1128" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="1745" y="486" />
+              <mxPoint x="1916" y="486" />
+              <mxPoint x="1916" y="1112" />
+              <mxPoint x="1811" y="1112" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- chatbot channel -> chatbot section -->
+        <mxCell id="gchat" value="chat questions" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2E5E9E;strokeWidth=2;dashed=1;endArrow=blockThin;endFill=1;fontSize=10;fontColor=#2E5E9E;labelBackgroundColor=#EEF2F6;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1740" y="162" as="sourcePoint" />
+            <mxPoint x="515" y="1274" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="1740" y="190" />
+              <mxPoint x="24" y="190" />
+              <mxPoint x="24" y="1258" />
+              <mxPoint x="515" y="1258" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- document pipeline steps: light connectors -->
+        <mxCell id="dp1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="d1" target="d2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dp2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="d2" target="d3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dp3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="d3" target="d4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dp4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="d4" target="d5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dp5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="d5" target="d6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dp6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="d6" target="d7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dp7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="d7" target="d8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dp8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="d8" target="d9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dp9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="d9" target="d10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- chatbot connectors -->
+        <mxCell id="cp1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="cb1" target="cb2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cp2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="cb2" target="cb3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cp3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="cb3" target="cb4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- RAG connectors -->
+        <mxCell id="rp1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="r1" target="r2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rp2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="r2" target="r3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rp3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="r3" target="r4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rp4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="r5" target="r6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rp5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=1;" edge="1" parent="1" source="r6" target="r3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- decision chain connectors -->
+        <mxCell id="xp1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="x1" target="x2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="xp2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="x2" target="x3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="xp3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="x3" target="x4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="xp4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="x4" target="x5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="xp5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="x5" target="x6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="xp6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="x6" target="x7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="xp7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="x7" target="x8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="xp8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;dashed=1;" edge="1" parent="1" source="x8" target="x9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- final response connectors -->
+        <mxCell id="fp1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="f1" target="f2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fp2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="f2" target="f3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fp3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="f3" target="f4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- example chain connectors -->
+        <mxCell id="ep1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e1" target="e2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e2" target="e3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e3" target="e4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e4" target="e5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e5" target="e6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e6" target="e7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e7" target="e8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e8" target="e9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;dashed=1;" edge="1" parent="1" source="e9" target="e10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e10" target="e11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e11" target="e12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e12" target="e13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e13" target="e14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B8AC4;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="e14" target="e15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- user -> channel connectors -->
+        <mxCell id="uc1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="u1" target="ch1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="uc2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="u3" target="ch2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="uc3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="u2" target="ch3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- security chain -->
+        <mxCell id="sc1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="s1" target="s2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sc2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B8FA3;strokeWidth=1.5;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="s2" target="s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- api -> orchestrator -->
+        <mxCell id="ao1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#37474F;strokeWidth=2;endArrow=blockThin;endFill=1;" edge="1" parent="1" source="api" target="orch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

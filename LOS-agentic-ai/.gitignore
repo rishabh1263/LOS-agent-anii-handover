@@ -1,0 +1,306 @@
+# =========================================================
+# PYTHON
+# =========================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# Python cache / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# =========================================================
+# VIRTUAL ENVIRONMENTS
+# =========================================================
+.venv/
+venv/
+env/
+ENV/
+.ENV/
+virtualenv/
+env.bak/
+venv.bak/
+
+# =========================================================
+# ENVIRONMENT / SECRETS
+# =========================================================
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Keys / certificates / secrets
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+
+jwt_private.pem
+jwt_public.pem
+
+auth_keys/
+secrets/
+credentials/
+credentials.json
+service-account*.json
+
+# =========================================================
+# IDE / EDITORS
+# =========================================================
+.vscode/
+.idea/
+*.code-workspace
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# =========================================================
+# LOGS
+# =========================================================
+*.log
+logs/
+log/
+*.out
+
+# =========================================================
+# DATABASES
+# =========================================================
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# Local application DB
+app.db
+los.db
+
+# =========================================================
+# APPLICATION RUNTIME DATA
+# =========================================================
+uploads/
+outputs/
+tmp/
+temp/
+cache/
+caches/
+runtime/
+storage/
+
+# =========================================================
+# GENERATED FILES
+# =========================================================
+generated/
+artifacts/
+reports/
+results/
+*.generated.*
+*.tmp
+*.bak
+
+# =========================================================
+# LARGE DATASETS / ARCHIVES
+# =========================================================
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+*.gz
+*.bz2
+*.xz
+*.iso
+
+# Dataset folders
+datasets/
+dataset/
+data/
+raw_data/
+processed_data/
+
+# Large sample archives
+samples/**/*.zip
+samples/**/*.rar
+samples/**/*.7z
+samples/**/*.tar
+samples/**/*.gz
+
+# Specifically exclude large classification archive
+samples/documents/document_classification.zip
+
+# =========================================================
+# DOCUMENT / IMAGE TEST DATA
+# =========================================================
+
+# Uncomment these ONLY if you don't want ANY sample documents
+# samples/documents/
+# samples/real_batch/
+
+# Common large media
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.mp3
+*.wav
+
+# Images generated locally
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.tiff
+*.tif
+
+# PDFs generated/uploaded locally
+*.pdf
+
+# =========================================================
+# ML / AI MODELS
+# =========================================================
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.bin
+*.ckpt
+*.h5
+*.keras
+*.joblib
+*.pkl
+
+models/
+model/
+checkpoints/
+weights/
+
+# =========================================================
+# OCR / ML CACHE
+# =========================================================
+.paddleocr/
+paddleocr/
+.rapidocr/
+rapidocr/
+.easyocr/
+easyocr/
+.huggingface/
+huggingface/
+transformers_cache/
+torch_cache/
+
+# =========================================================
+# NODE / FRONTEND (if added later)
+# =========================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+dist/
+build/
+.next/
+.nuxt/
+.cache/
+
+# =========================================================
+# DOCKER
+# =========================================================
+*.dockerignore
+docker-data/
+.docker/
+
+# =========================================================
+# OS FILES
+# =========================================================
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.directory
+
+# =========================================================
+# TEMP / BACKUP
+# =========================================================
+*.swp
+*.swo
+*.swn
+*.orig
+*.rej
+*.old
+*.save
+*.temp
+*.cache
+
+# =========================================================
+# LOCAL TEST / BENCHMARK OUTPUT
+# =========================================================
+benchmark_results/
+benchmarks/output/
+test_output/
+test_results/
+coverage/
+profiling/
+prof/
+*.prof
+
+# =========================================================
+# API / SERVER RUNTIME
+# =========================================================
+uvicorn.log
+gunicorn.log
+
+# =========================================================
+# LOCAL MCP / AGENT RUNTIME
+# =========================================================
+.agent/
+.agent_state/
+agent_state/
+mcp_state/
+.graph_state/
+langgraph_state/
+
+# =========================================================
+# LOCAL OLLAMA / LLM ARTIFACTS
+# =========================================================
+ollama/
+ollama_models/
+llm_cache/
+
+# =========================================================
+# ZIP / DATASET SAFETY — EXPLICIT
+# =========================================================
+document_classification.zip
+document_classification/
+large_files/
+large_data/

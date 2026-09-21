@@ -1,0 +1,14 @@
+workflows:
+  document_verification:
+    enabled: true
+    agents:
+      - document_verification
+
+  credit_assessment:
+    enabled: false
+    agents:
+      - document_verification
+      - risk
+      - income
+      - banking
+      - bureau

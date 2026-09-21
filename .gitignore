@@ -1,0 +1,240 @@
+# =========================================================
+# React / Node.js
+# =========================================================
+
+# Dependencies
+node_modules/
+.pnpm-store/
+.yarn/
+.yarn-cache/
+.yarn-integrity
+
+# Build output
+dist/
+build/
+out/
+.next/
+.nuxt/
+.output/
+
+# Vite
+.vite/
+
+# React / CRA
+.cache/
+.parcel-cache/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Keep example env files
+!.env.example
+!.env.sample
+
+# =========================================================
+# Python
+# =========================================================
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python compiled files
+*.pyo
+*.pyd
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+develop-eggs/
+*.egg
+MANIFEST
+
+# Python test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.pyre/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# =========================================================
+# Environment / Secrets
+# =========================================================
+
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Certificates / private keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# =========================================================
+# IDE / Editors
+# =========================================================
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Visual Studio
+.vs/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+
+# JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime
+*.sublime-workspace
+*.sublime-project
+
+# =========================================================
+# Operating System
+# =========================================================
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+Desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.directory
+
+# =========================================================
+# Logs / Temporary Files
+# =========================================================
+
+*.log
+logs/
+log/
+tmp/
+temp/
+*.tmp
+*.temp
+
+# =========================================================
+# Database / Local Development
+# =========================================================
+
+# SQLite
+*.sqlite
+*.sqlite3
+*.db
+
+# Local database dumps
+*.sql.gz
+*.dump
+
+# =========================================================
+# Python Web Frameworks
+# =========================================================
+
+# Flask
+instance/
+
+# Django
+*.pyc
+local_settings.py
+db.sqlite3
+media/
+staticfiles/
+
+# =========================================================
+# ML / Data Science
+# =========================================================
+
+# Model/cache files - uncomment if these are generated locally
+# *.pkl
+# *.pickle
+# *.joblib
+# *.h5
+# *.hdf5
+# *.onnx
+
+# Large datasets - uncomment if datasets should not be committed
+# data/
+# datasets/
+# *.csv
+# *.parquet
+# *.xlsx
+
+# =========================================================
+# Docker
+# =========================================================
+
+# Local Docker environment files
+docker-compose.override.yml
+
+# =========================================================
+# Miscellaneous
+# =========================================================
+
+*.bak
+*.swp
+*.swo
+*.orig
+
+# Generated files
+generated/
+.generated/
+
+# Local configuration
+config.local.*
+settings.local.*

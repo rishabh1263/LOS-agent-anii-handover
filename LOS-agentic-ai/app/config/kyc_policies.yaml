@@ -1,0 +1,253 @@
+# ===========================================================================
+# KYC POLICY
+# ===========================================================================
+# Every threshold the KYC Agent applies lives here. None of them are written
+# into the matching logic, so a credit policy change is a config change and is
+# visible in review rather than buried in code.
+#
+# A check can be:
+#   enabled  false -> the check is SKIPPED and contributes nothing
+#   blocking false -> the check may still REVIEW/FAIL, but cannot by itself
+#                     drive the overall verdict below REVIEW
+#
+# ---------------------------------------------------------------------------
+# WHY ORDINARY IDENTITY MISMATCHES ARE NON-BLOCKING
+# ---------------------------------------------------------------------------
+# Documents disagreeing is NOT evidence of fraud, and this agent cannot tell
+# the difference between the two things that actually cause it:
+#
+#   a genuine applicant  -- a married name, a corrected date of birth, an
+#                           initial expanded, a transliteration, a stale
+#                           address, a document issued years apart
+#   a bad application    -- someone else's document in the bundle
+#
+# Only a human can. So a mismatch routes the case to one, and the finding is
+# reported in full -- which documents, which field, what each of them said --
+# rather than being converted into an automatic rejection nobody can appeal.
+#
+# THE BLOCKING MECHANISM IS DELIBERATELY KEPT. Setting blocking: true on a
+# check restores its power to drive the overall verdict to FAIL, and a FAIL
+# rolls up to decision REJECT. That is how a genuine business or risk rule is
+# expressed. What changed is the DEFAULT for ordinary document-to-document
+# disagreement, not the ability to define a blocking condition.
+#
+# The resulting policy, stated once and applied deterministically:
+#
+#   check FAILs, blocking: false  ->  overall REVIEW  ->  decision REVIEW
+#                                                     ->  MANUAL_REVIEW
+#   check FAILs, blocking: true   ->  overall FAIL    ->  decision REJECT
+#
+# The per-check status is NOT capped: a failed check still reports FAIL, with
+# its reason codes, sources and the value each document carried. Only its
+# effect on the overall verdict is bounded.
+# ===========================================================================
+
+policy_version: "1.0.0"
+signed_off: false
+
+# ---------------------------------------------------------------------------
+# NAME
+# ---------------------------------------------------------------------------
+# Scores come from the deterministic matcher in app/services/name_match.py:
+# exact 1.0, token-set 0.98, initials 0.95, otherwise character similarity.
+name:
+  enabled: true
+  # Non-blocking: names legitimately differ across a person's documents.
+  # A disagreement goes to a reviewer with both values attached.
+  blocking: false
+  # At or above this, two names are the same person.
+  match_threshold: 0.85
+  # Between review_threshold and match_threshold the answer is uncertain and
+  # goes to a human rather than being decided either way.
+  review_threshold: 0.70
+
+# ---------------------------------------------------------------------------
+# DATE OF BIRTH
+# ---------------------------------------------------------------------------
+# Compared exactly after normalisation. A date of birth does not have
+# near-misses: two documents either agree or they disagree, and a disagreement
+# is a hard stop. A MISSING date is never inferred from another document.
+dob:
+  enabled: true
+  # Non-blocking. A date of birth has no near-misses -- two documents either
+  # agree or they do not -- and a disagreement is still reported as a hard
+  # FAIL on the check itself. What it no longer does is reject the applicant
+  # without a human ever seeing it.
+  blocking: false
+
+# ---------------------------------------------------------------------------
+# ADDRESS
+# ---------------------------------------------------------------------------
+# Compared component by component, not as raw strings: documents abbreviate
+# and reorder address lines constantly, so string equality would fail almost
+# every genuine applicant.
+#
+# Weights express how much each component says about "same address". A pincode
+# agreeing is strong evidence; a city agreeing is weak, because most applicants
+# in a batch share one.
+address:
+  enabled: true
+  blocking: false
+  pass_score: 0.80
+  review_score: 0.55
+  weights:
+    pincode: 0.30
+    house: 0.20
+    street: 0.15
+    locality: 0.15
+    city: 0.12
+    state: 0.08
+  # Component strings at or above this similarity count as agreeing.
+  component_threshold: 0.85
+
+# ---------------------------------------------------------------------------
+# PAN
+# ---------------------------------------------------------------------------
+# Format is validated with the same rule the Document Agent uses. Values are
+# compared as read; nothing is repaired here beyond case and whitespace.
+pan:
+  enabled: true
+  # Non-blocking. Two documents quoting different PANs is a serious finding
+  # and is reported as FAIL with both values, but it is a reviewer's call --
+  # a mistyped PAN on a payslip is not the same thing as a false identity.
+  blocking: false
+
+# ---------------------------------------------------------------------------
+# INCOME
+# ---------------------------------------------------------------------------
+# Monthly figures are annualised before comparison.
+#
+# IMPORTANT: bank credits are NOT guaranteed salary. A statement's average
+# monthly credit includes transfers, refunds and reimbursements, so it is
+# expected to sit ABOVE declared salary. The comparison basis is reported on
+# every result so a reviewer reads the number correctly.
+income:
+  enabled: true
+  blocking: false
+  months_per_year: 12
+  # Percentage difference between two annualised figures, relative to the
+  # larger of the two.
+  pass_variance_pct: 25.0
+  review_variance_pct: 50.0
+  # Figures below this are treated as not meaningfully comparable rather than
+  # producing enormous percentage differences on rounding noise.
+  min_comparable_annual: 1000.0
+
+# ---------------------------------------------------------------------------
+# OVERALL DECISION
+# ---------------------------------------------------------------------------
+decision:
+  # Fewer comparable sources than this and the result cannot be a PASS: there
+  # was nothing to cross-check against.
+  min_sources_for_pass: 2
+
+# ---------------------------------------------------------------------------
+# FATHER'S NAME
+# ---------------------------------------------------------------------------
+# Corroborating evidence, not the identity itself. It is printed on fewer
+# documents than the applicant's own name and is read less reliably, so it
+# carries its own thresholds and a small weight in the overall score.
+#
+# Non-blocking for the same reason every other identity check is: two
+# documents disagreeing about a father's name is a reason to involve a human,
+# not a finding against the applicant.
+father_name:
+  enabled: true
+  blocking: false
+  match_threshold: 0.85
+  review_threshold: 0.70
+
+# ---------------------------------------------------------------------------
+# FIELD WEIGHTS -- how the overall score is composed
+# ---------------------------------------------------------------------------
+# The overall score is the weighted mean of the field match scores, over the
+# fields that were ACTUALLY COMPARED. A skipped field is dropped and the
+# remaining weights are renormalised, so a bundle that happens not to carry a
+# father's name is neither rewarded nor punished for the gap.
+#
+# Weights express how much each field says about "same person":
+#
+#   NAME           the primary identifier a human reads
+#   DATE_OF_BIRTH  no near-misses; two documents agree or they do not
+#   PAN_NUMBER     a government-issued unique identifier
+#   FATHER_NAME    corroborating; often absent, often read poorly
+#   ADDRESS        weakest -- people move, and documents go stale
+#
+# INCOME is weighted 0 deliberately. It is a financial consistency signal,
+# not an identity one, and letting it move an identity score would mean a
+# salary that disagreed with a bank statement reading as "possibly not the
+# same person". It is still computed, still reported, and still visible.
+fields:
+  weights:
+    NAME: 35
+    DATE_OF_BIRTH: 30
+    PAN_NUMBER: 25
+    FATHER_NAME: 5
+    ADDRESS: 5
+    INCOME: 0
+
+# ---------------------------------------------------------------------------
+# CONFIDENCE
+# ---------------------------------------------------------------------------
+# CONFIDENCE IS NOT MATCH SCORE.
+#
+#   match_score  how closely the available values match EACH OTHER
+#   confidence   how far that answer can be relied on
+#
+# They come apart in both directions, and that is the point:
+#
+#   two cleanly-read names that agree exactly    match 100, confidence high
+#   two barely-legible names that agree exactly  match 100, confidence LOW
+#   two cleanly-read names that plainly differ   match 0,   confidence HIGH
+#   a clean and a barely-legible name, differing match 0,   confidence LOW
+#
+# The last two are why a single number will not do: the first is a finding a
+# reviewer should act on, the second is probably a misread.
+#
+# Confidence starts at a base set by the COMPARISON METHOD -- what the matcher
+# actually did -- and has named penalties deducted. Every adjustment appears
+# in the result's `confidence_factors`, so the number is always answerable.
+confidence:
+  # Starting point per comparison method.
+  method_base:
+    CANONICAL: 99      # a structured identifier compared exactly: date, PAN
+    EXACT: 98          # identical after normalisation
+    TOKEN_SET: 94      # same tokens, different order
+    NO_MATCH: 90       # a clear disagreement is itself a reliable finding
+    COMPONENT: 88      # an address, compared component by component
+    INITIALS: 86       # one side abbreviates the other
+    FUZZY: 74          # character similarity, and nothing stronger
+    UNKNOWN: 70
+
+  penalties:
+    # Two documents is the minimum that proves anything; it is not the
+    # corroboration a third would give.
+    two_sources_only: 4
+    # Scaled by the fraction of the bundle that did not carry the field.
+    incomplete_coverage: 12
+    # The score landed near a decision threshold, so the verdict could flip.
+    near_threshold: 10
+    # Scaled by how far the weakest extraction quality fell below the floor.
+    low_extraction_quality: 30
+    # No extraction quality was reported at all. A small honest deduction
+    # rather than assuming the field was read well.
+    quality_unknown: 5
+
+  # An extractor quality reading below this counts as a poor read.
+  low_quality_below: 0.60
+  # How close to a threshold is too close to be sure of. 0-1 scale.
+  ambiguity_margin: 0.05
+
+  # How much each document type is worth as a source. A PAN card is the
+  # authority on a PAN number; a salary slip quoting one is repeating what
+  # somebody typed.
+  source_reliability:
+    PAN: 1.00
+    PASSPORT: 1.00
+    AADHAAR: 0.97
+    DRIVING_LICENCE: 0.97
+    VOTER_ID: 0.95
+    ITR: 0.90
+    BANK_STATEMENT: 0.85
+    SALARY_SLIP: 0.80
+    APPLICATION: 0.75

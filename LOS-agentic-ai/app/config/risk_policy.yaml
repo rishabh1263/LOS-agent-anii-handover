@@ -1,0 +1,500 @@
+# ===========================================================================
+# FRAUD & RISK AGENT — RISK POLICY
+# ===========================================================================
+#
+# PROVENANCE LEGEND
+#   [EXCEL]       Value or structure traced to the MASTER Excel workbooks.
+#   [PLACEHOLDER] NOT present in any supplied source. Requires credit-policy
+#                 sign-off before production use.
+#
+# Every number below that is marked [PLACEHOLDER] is a stand-in. The rule
+# ENGINE is real and tested; these inputs are not authoritative.
+#
+# policy_version is echoed in every agent response for auditability.
+# ===========================================================================
+
+policy_version: "0.1.0-UNSIGNED"
+signed_off: false
+
+# ---------------------------------------------------------------------------
+# SCORING
+# ---------------------------------------------------------------------------
+
+scoring:
+  max_score: 100
+
+  # [PLACEHOLDER]
+  severity_weights:
+    LOW: 5
+    MEDIUM: 15
+    HIGH: 30
+    CRITICAL: 50
+
+
+# ---------------------------------------------------------------------------
+# RISK CATEGORY
+# ---------------------------------------------------------------------------
+#
+# [EXCEL] CAM sheet:
+# "Risk Category by System"
+#
+# Boundaries are [PLACEHOLDER].
+# ---------------------------------------------------------------------------
+
+risk_categories:
+
+  LOW:
+    min_score: 0
+    max_score: 29
+
+  MEDIUM:
+    min_score: 30
+    max_score: 59
+
+  HIGH:
+    min_score: 60
+    max_score: 100
+
+
+# ---------------------------------------------------------------------------
+# FINAL OUTCOME
+# ---------------------------------------------------------------------------
+#
+# This is the outcome of THIS AGENT only.
+#
+# The future Orchestrator will combine outcomes from all agents.
+# ---------------------------------------------------------------------------
+
+outcomes:
+
+  LOW: PASS
+
+  MEDIUM: REVIEW
+
+  HIGH: REVIEW
+
+  # CRITICAL rule always forces FAIL.
+  on_critical: FAIL
+
+  # Missing required inputs can only make the decision stricter.
+  on_insufficient_data: REVIEW
+
+
+# ===========================================================================
+# RULES
+# ===========================================================================
+
+rules:
+
+  # -------------------------------------------------------------------------
+  # DEDUPE_MATCH
+  # [EXCEL] Sourcing sheet
+  # -------------------------------------------------------------------------
+
+  DEDUPE_MATCH:
+
+    enabled: true
+
+    parameters:
+      - "loan_account_no"
+      - "customer_id"
+      - "pan"
+      - "mobile_no"
+
+    severity_by_parameter:
+
+      pan: CRITICAL
+
+      loan_account_no: HIGH
+
+      customer_id: HIGH
+
+      mobile_no: MEDIUM
+
+
+  # -------------------------------------------------------------------------
+  # VERIFICATION_NEGATIVE
+  # [EXCEL] Valuation & Verification sheet
+  # -------------------------------------------------------------------------
+
+  VERIFICATION_NEGATIVE:
+
+    enabled: true
+
+    severity_by_verification:
+
+      itr: HIGH
+
+      bank: HIGH
+
+      legal: CRITICAL
+
+      residence: MEDIUM
+
+      office: MEDIUM
+
+
+  # -------------------------------------------------------------------------
+  # PD_STATUS_NEGATIVE
+  # [EXCEL] Property Visit & Credit Visit sheet
+  # -------------------------------------------------------------------------
+
+  PD_STATUS_NEGATIVE:
+
+    enabled: true
+
+    severity: HIGH
+
+
+  # -------------------------------------------------------------------------
+  # REFERENCE_NEGATIVE
+  # [EXCEL] References sheet
+  # -------------------------------------------------------------------------
+
+  REFERENCE_NEGATIVE:
+
+    enabled: true
+
+    severity_by_status:
+
+      NEGATIVE: MEDIUM
+
+      REFER: LOW
+
+      WAIVED: LOW
+
+
+  # -------------------------------------------------------------------------
+  # INCOME_MISMATCH
+  # -------------------------------------------------------------------------
+  #
+  # Verified income is calculated by income.py.
+  #
+  # Bands are [PLACEHOLDER].
+  # -------------------------------------------------------------------------
+
+  INCOME_MISMATCH:
+
+    enabled: true
+
+    # variance_pct =
+    # (declared - verified) / verified * 100
+
+    bands:
+
+      - min_variance_pct: 15
+        max_variance_pct: 30
+        severity: LOW
+
+      - min_variance_pct: 30
+        max_variance_pct: 50
+        severity: MEDIUM
+
+      - min_variance_pct: 50
+        max_variance_pct: 100
+        severity: HIGH
+
+      - min_variance_pct: 100
+        max_variance_pct: null
+        severity: CRITICAL
+
+
+  # -------------------------------------------------------------------------
+  # MOB_TOPUP_INELIGIBLE
+  # [EXCEL] Calculations File — D39 / D57
+  # -------------------------------------------------------------------------
+
+  MOB_TOPUP_INELIGIBLE:
+
+    enabled: true
+
+    severity: MEDIUM
+
+    ladders:
+
+      rtr_bt_topup:
+
+        - min_mob: 0
+          max_mob: 12
+          applicable_pct: 0
+
+        - min_mob: 13
+          max_mob: 18
+          applicable_pct: 15
+
+        - min_mob: 19
+          max_mob: 24
+          applicable_pct: 20
+
+        - min_mob: 25
+          max_mob: 36
+          applicable_pct: 25
+
+        - min_mob: 37
+          max_mob: null
+          applicable_pct: 30
+
+
+      topup_internal:
+
+        - min_mob: 0
+          max_mob: 11
+          applicable_pct: 0
+
+        - min_mob: 12
+          max_mob: 24
+          applicable_pct: 10
+
+        - min_mob: 25
+          max_mob: 36
+          applicable_pct: 15
+
+        - min_mob: 37
+          max_mob: null
+          applicable_pct: 20
+
+
+  # -------------------------------------------------------------------------
+  # FOIR_BREACH
+  # -------------------------------------------------------------------------
+  #
+  # Formula:
+  #
+  # foir_pct =
+  # (fixed_obligation + proposed_emi) / gross_income * 100
+  #
+  # Caps are [PLACEHOLDER].
+  # -------------------------------------------------------------------------
+
+  FOIR_BREACH:
+
+    enabled: true
+
+    bands:
+
+      - min_foir_pct: 50
+        max_foir_pct: 60
+        severity: LOW
+
+      - min_foir_pct: 60
+        max_foir_pct: 70
+        severity: MEDIUM
+
+      - min_foir_pct: 70
+        max_foir_pct: null
+        severity: HIGH
+
+
+  # -------------------------------------------------------------------------
+  # LTV_BREACH
+  # -------------------------------------------------------------------------
+  #
+  # Formula:
+  #
+  # ltv_pct =
+  # loan_amount / property_value * 100
+  #
+  # Caps are [PLACEHOLDER].
+  # -------------------------------------------------------------------------
+
+  LTV_BREACH:
+
+    enabled: true
+
+    bands:
+
+      - min_ltv_pct: 75
+        max_ltv_pct: 85
+        severity: LOW
+
+      - min_ltv_pct: 85
+        max_ltv_pct: 90
+        severity: MEDIUM
+
+      - min_ltv_pct: 90
+        max_ltv_pct: null
+        severity: HIGH
+
+
+  # =========================================================================
+  # MANDATORY DOCUMENTS
+  # =========================================================================
+  #
+  # [EXCEL] Documents sheet.
+  #
+  # IMPORTANT:
+  #
+  # The MASTER Excel defines BUSINESS REQUIREMENTS such as:
+  #
+  #   Age Proof
+  #   Signature Verification
+  #   Identity Proof
+  #
+  # The Document Extraction Agent may return PHYSICAL document types such as:
+  #
+  #   PAN
+  #   AADHAAR
+  #   PASSPORT
+  #   VOTER_ID
+  #   DRIVING_LICENSE
+  #
+  # Therefore Risk Agent must map physical document types to business
+  # requirements instead of doing exact string comparison.
+  #
+  # This prevents:
+  #
+  #   PAN != Identity Proof
+  #
+  # from incorrectly becoming:
+  #
+  #   Identity Proof missing
+  #
+  # =========================================================================
+
+  MANDATORY_DOCS_MISSING:
+
+    enabled: true
+
+    severity: MEDIUM
+
+    # -----------------------------------------------------------------------
+    # Business-level mandatory requirements.
+    # -----------------------------------------------------------------------
+
+    required_sections:
+
+      - "Age Proof"
+
+      - "Signature Verification"
+
+      - "Identity Proof"
+
+
+    # -----------------------------------------------------------------------
+    # Physical document -> business requirement mapping.
+    #
+    # This mapping should eventually be maintained from the MASTER document
+    # matrix rather than hardcoded in Python.
+    # -----------------------------------------------------------------------
+
+    document_aliases:
+
+      Identity Proof:
+
+        - "PAN"
+
+        - "AADHAAR"
+
+        - "PASSPORT"
+
+        - "VOTER_ID"
+
+        - "DRIVING_LICENSE"
+
+
+      Age Proof:
+
+        - "AADHAAR"
+
+        - "PASSPORT"
+
+        - "DRIVING_LICENSE"
+
+        - "VOTER_ID"
+
+        - "BIRTH_CERTIFICATE"
+
+
+      Signature Verification:
+
+        - "SIGNATURE"
+
+        - "SIGNATURE_VERIFICATION"
+
+
+  # -------------------------------------------------------------------------
+  # LEGAL_TITLE_RISK
+  # [EXCEL] Legal Verification checklist
+  # -------------------------------------------------------------------------
+
+  LEGAL_TITLE_RISK:
+
+    enabled: true
+
+    severity: HIGH
+
+
+# ===========================================================================
+# REQUIRED INPUTS
+# ===========================================================================
+#
+# If absent:
+#
+#   Rule is not silently treated as PASS.
+#
+# It is recorded as a data gap and can make the final agent outcome stricter.
+# ===========================================================================
+
+required_for_complete_assessment:
+
+  - declared_income
+
+  - gross_income
+
+  - dedupe_result
+
+
+# ===========================================================================
+# RULES DELIBERATELY NOT IMPLEMENTED
+# ===========================================================================
+#
+# These require additional policy/data sources before implementation.
+# ===========================================================================
+
+not_implemented:
+
+  - DPD_RISK
+
+  - EXISTING_LOAN_COUNT
+
+  - CUSTOMER_EXPOSURE_LIMIT
+
+  - BUREAU_SCORE
+
+  - WATCHLIST_PEP
+
+  - DEVICE_IP_INTELLIGENCE
+
+  - CROSS_APPLICATION_LINK
+
+
+# ===========================================================================
+# KNOWN EXCEL DEFECTS
+# ===========================================================================
+
+known_excel_defects:
+
+  - >
+    RTR ladder D39: IF(MOB>=36,30) is unreachable at MOB=36 because the
+    preceding band is 25..36 inclusive. Normalised here to 25..36 -> 25%,
+    37+ -> 30%. Confirm intended treatment of MOB=36.
+
+  - >
+    Both ladders return the STRING "0" in the lowest band and numbers
+    elsewhere. Normalised to numeric 0.
+
+  - >
+    Salaried net income formula adds PF deduction BACK:
+    ((Gross+Other)-OtherDeduction)+PF. Confirm intentional.
+
+
+
+# A CRITICAL flag escalates the risk_category to this value regardless of the
+# arithmetic score. Severity and score are different concepts: a single
+# CRITICAL finding (e.g. a PAN dedupe hit, or income declared 10x over
+# verified) is HIGH risk by definition, even when its weight alone does not
+# reach the HIGH score band.
+#
+# Set to null to disable and let the score alone decide the category.
+# [PLACEHOLDER] Requires credit-policy sign-off.
+critical_forces_category: HIGH

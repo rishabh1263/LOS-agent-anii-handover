@@ -1,0 +1,303 @@
+documents:
+  PAN:
+    enabled: true
+    aliases: ["pan", "pan card"]
+    endpoint: "/pan/verify-pan"
+  ITR:
+    enabled: true
+    aliases: ["itr", "income tax return"]
+    endpoint: "/api/v1/itr/verify"
+  BANK_STATEMENT:
+    enabled: true
+    aliases: ["bank statement", "bank_statement", "statement"]
+    endpoint: "/bank-statement/analyze"
+  PASSPORT:
+    enabled: true
+    aliases: ["passport"]
+    endpoint: "/passport/upload"
+  DRIVING_LICENCE:
+    enabled: true
+    aliases: ["driving licence", "driving license", "dl"]
+    endpoint: "/driving-licence/verify"
+  SALARY_SLIP:
+    enabled: true
+    aliases: ["salary slip", "salary_slip", "payslip", "pay slip"]
+    endpoint: "/salary-slip/verify"
+  VOTER_ID:
+    enabled: true
+    aliases: ["voter id", "voter_id", "voter card"]
+    endpoint: "/voter-id/verify"
+  SALE_DEED:
+    enabled: true
+    aliases: ["sale deed", "sale_deed"]
+    endpoint: "/sale-deed/upload"
+
+
+# ---------------------------------------------------------------------------
+# Verification gate
+#
+# When a document's verification is enabled, extraction runs but its result is
+# released only if verification passes. When it is disabled, extraction is
+# returned directly and the response says so explicitly -- a bypass is always
+# visible in the payload, never silent.
+#
+# `global.enabled: false` turns the gate off everywhere without editing each
+# document, which is what a rollback needs.
+# ---------------------------------------------------------------------------
+verification:
+  global:
+    enabled: true
+    # REVIEW means a human should look. Blocking on it is the conservative
+    # setting; allowing it lets borderline documents through with the warning
+    # attached, which is usually what an operations team wants.
+    block_on_review: false
+    name_match_threshold: 0.85
+
+  # ---------------------------------------------------------------------
+  # POST-EXTRACTION VALIDATION
+  #
+  # Structural verification answers "is this a legible document of the
+  # claimed class carrying an identifier of the right shape?". That is
+  # necessary and not sufficient: measured against the sample corpus, EVERY
+  # readable PAN reached PASS -- including a photograph of a screen and a
+  # black-and-white photocopy -- because nothing after the identifier regex
+  # was checked.
+  #
+  # These rules run AFTER extraction, on the extracted fields, and may only
+  # ever DOWNGRADE a verdict. No rule here can promote a failed check.
+  # ---------------------------------------------------------------------
+  rules:
+    enabled: true
+
+    authenticity:
+      # WHAT A PASS IS ALLOWED TO MEAN.
+      #
+      # STRUCTURAL_PASS  a document satisfying every structural and field
+      #                  rule may reach PASS. This is NOT a claim that it is
+      #                  genuine -- only that nothing checkable is wrong.
+      #                  Responses carry authenticity: NOT_ESTABLISHED.
+      #
+      # REQUIRE_EXTERNAL authenticity must be confirmed by an authoritative
+      #                  external source. None is wired up in this build, so
+      #                  identity documents cap at REVIEW with
+      #                  AUTHENTICITY_NOT_ESTABLISHED. Choose this where an
+      #                  unverified card must not count as verified -- and
+      #                  accept that no case then reaches READY_FOR_CPA on
+      #                  documents alone until an issuer check exists.
+      #
+      # THERE IS NO GOVERNMENT LOOKUP IN THIS CODEBASE. Neither setting adds
+      # one. This only decides how honestly the absence is reported.
+      policy: STRUCTURAL_PASS
+
+    documents:
+      PAN:
+        # A card with a clean number, no name and no date of birth is a
+        # readable card, not a verified identity document.
+        required_fields: [pan_number, name, date_of_birth]
+        checks:
+          structure: true        # holder-type character in position four
+          name_initial: true     # fifth character vs the printed name
+          date_plausible: true
+        severity:
+          # ADVISORY, from measurement. As a blocking rule this rejected a
+          # GENUINE PAN in the sample corpus -- a black-and-white card whose
+          # printed name OCR read without the surname the fifth character
+          # refers to. The check is sound; the name field is not read
+          # reliably enough to refuse a customer's document on it.
+          # Set `review` or `fail` to act on it instead.
+          name_initial: advisory
+
+      DRIVING_LICENCE:
+        required_fields: [dl_number, name, date_of_birth]
+        checks:
+          date_plausible: true   # also catches an expired licence
+
+      VOTER_ID:
+        required_fields: [voter_id, name]
+        checks:
+          date_plausible: true
+        # The extractor calls the EPIC number `epic_number`; this file asks
+        # for `voter_id`. Both are right and they did not agree, so every
+        # voter ID reached REQUIRED_FIELD_MISSING -> REVIEW with the number
+        # sitting in the extraction, read at 0.95 confidence.
+        #
+        # The alias reconciles the two vocabularies. The contract test in
+        # tests/agents/test_required_field_contract.py is what stops it
+        # happening again: it fails if any configured required field is not
+        # producible by that type's extractor.
+        field_aliases:
+          voter_id: [epic_number]
+
+      PASSPORT:
+        required_fields: [passport_number, name, date_of_birth]
+        checks:
+          date_plausible: true
+
+  # WHAT THIS SECTION IS, and is not.
+  #
+  # It is REPORTED, not ENFORCED. The gate the pipeline actually obeys is
+  # verification/agent.py::enabled_for(), driven by the VERIFICATION_ENABLED
+  # and VERIFICATION_ENABLED_<TYPE> environment variables and read by the
+  # document workflow and the API routes. This section is consumed only by
+  # the MCP policy.get tool, which reports what verification applies.
+  #
+  # So these values cannot switch verification off. What they CAN do is
+  # describe it wrongly -- and they did: ITR and SALARY_SLIP were recorded
+  # here as disabled, with a comment saying no extractor existed, while the
+  # pipeline verified both. An agent asking policy.get why a document was
+  # not verified got an answer that had never been true.
+  #
+  # Every class the verification agent handles is listed explicitly, because
+  # an ABSENT entry defaults to enabled and would make the same false claim
+  # by omission.
+  documents:
+    # Identity documents: structural verification plus a field extractor.
+    PAN:
+      enabled: true
+    DRIVING_LICENCE:
+      enabled: true
+    VOTER_ID:
+      enabled: true
+    PASSPORT:
+      enabled: true
+
+    # Financial documents: parsed by the Financial Agent, then verified.
+    # ITR and SALARY_SLIP were corrected from false: both extractors exist
+    # and were validated against real samples -- the ITR reads PAN and
+    # taxpayer name from the text layer, and the salary slip reconciles
+    # gross - deductions = net.
+    BANK_STATEMENT:
+      enabled: true
+    ITR:
+      enabled: true
+    SALARY_SLIP:
+      enabled: true
+
+    # Property: the Sale Deed capability produces its own PASS/REVIEW/FAIL
+    # from the e-Stamp certificate. Conservative by design -- it never
+    # asserts ownership.
+    SALE_DEED:
+      enabled: true
+
+    # Aadhaar is structurally checked like any other card, but NOTHING is
+    # extracted from it: it is verified through the external verification
+    # service, and this codebase deliberately has no Aadhaar extractor.
+    AADHAAR:
+      enabled: true
+
+    # Recorded as enabled because the STRUCTURAL check genuinely runs -- the
+    # classifier recognises mark sheets and the verification agent lists the
+    # class. Recording it as disabled would misreport it in the opposite
+    # direction, which is the bug this section just had.
+    #
+    # What is missing is EXTRACTION: there is no mark sheet field extractor
+    # and no real sample to build one against, so a mark sheet is verified
+    # as a document and yields no fields.
+    MARK_SHEET:
+      enabled: true
+
+  # -------------------------------------------------------------------------
+  # ADDRESS_PROOF = DEFINITION_REQUIRED
+  #
+  # The business requirement list names "Address Proof" under Identity Proof
+  # but never enumerates it, and NOTHING in this repository defines it: no
+  # document class, no extractor, no classifier markers, and no sample. The
+  # real corpus was searched by filename, by the classification CSV, across
+  # every digital PDF and across 547K characters of OCR/metadata dumps --
+  # there is not one utility bill, rent agreement, ration card or municipal
+  # document in it.
+  #
+  # So the accepted types are NOT listed here. Writing a taxonomy from the
+  # usual Indian KYC list would be inventing a production policy from
+  # nothing, and an extractor built against a guessed layout would be
+  # untestable.
+  #
+  # WHAT ALREADY CONTRIBUTES AN ADDRESS, today:
+  #   DRIVING_LICENCE   emits `address` (7 of 8 real samples)
+  #   VOTER_ID          emits `address`
+  #   AADHAAR           carries one, but is external-only and not extracted
+  #   PASSPORT          the back page carries a full address, but the
+  #                     extractor targets the MRZ data page and emits none
+  #
+  # WHY THIS MATTERS OPERATIONALLY: kyc/checks.py::check_address compares
+  # addresses ACROSS documents and needs two sources. With only the licence
+  # and the voter card able to supply one, the check usually returns SKIPPED
+  # with ADDRESS_SINGLE_SOURCE. Address consistency is effectively dormant.
+  #
+  # TO CLOSE THIS, in order:
+  #   1. The business confirms which document types count as address proof.
+  #   2. Real samples of those types are supplied.
+  #   3. Only then: add the class, markers and an extractor.
+  #
+  # The integration point is already generic -- los/mapping.py::_address
+  # builds a KYC AddressInput from any document whose extracted fields carry
+  # `address` or `pin_code`, so a new extractor needs no KYC changes.
+  # -------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Signature verification.
+#
+# Every switch here can be turned off, and turning one off is REPORTED --
+# a disabled check returns SIGNATURE_VERIFICATION_DISABLED or drops its
+# signal to UNKNOWN. Nothing is silently skipped, because a check that
+# quietly stops running looks exactly like a check that keeps passing.
+# ---------------------------------------------------------------------------
+signature:
+  enabled: true
+
+  # Input modes. A signature embedded in a PAN/DL/passport is a different
+  # intake path from an applicant uploading a signature image on its own,
+  # but both run through the one service.
+  standalone_enabled: true
+  document_enabled: true
+
+  # Comparison against a known-good specimen. This is the only path that can
+  # produce PASS: without it the answer is REVIEW / NOT_COMPARABLE.
+  reference_comparison_enabled: true
+
+  # Risk signals. These are heuristics, NOT validated detectors: they can
+  # raise suspicion and send a signature to review, and they may never be
+  # read as evidence that an image is genuine.
+  synthetic_risk_detection_enabled: true
+  manipulation_detection_enabled: true
+
+
+# ---------------------------------------------------------------------------
+# LOS application processing.
+#
+# The stages of POST /api/v1/los/process, each switchable. Every OFF state is
+# REPORTED, never silent: verification off makes verification SKIPPED and
+# extraction null, and a SKIPPED verification is never read as a PASS.
+#
+# Each flag has an environment override (LOS_<FLAG>) so an incident can be
+# rolled back without editing a file inside a container image.
+# ---------------------------------------------------------------------------
+los:
+  classification_enabled: true
+  verification_enabled: true
+  extraction_enabled: true
+  financial_enabled: true
+  kyc_enabled: true
+
+  # Cross-document conflict reporting. Derived from the KYC checks that
+  # failed -- not a separate engine. Off means the conflicts list is
+  # empty and says so, rather than being silently absent.
+  conflict_detection_enabled: true
+
+  # Specialist capabilities. Turning one off makes its documents report
+  # SKIPPED with a reason rather than silently falling through to the
+  # Document Agent, which would classify a shop photograph as an ID card.
+  signature_enabled: true
+  business_evidence_enabled: true
+  sale_deed_enabled: true
+
+  # External verification services. Off by default: this build has no
+  # contract for them, so nothing is wired to call them.
+  collateral_customer_enabled: false
+  collateral_property_enabled: false
+
+  # The LLM writes the summary sentence and nothing else. Off means the
+  # deterministic summary is used, which is also what happens when the model
+  # is unreachable.
+  llm_summary_enabled: true

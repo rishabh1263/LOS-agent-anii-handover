@@ -1,0 +1,22 @@
+# =============================================================================
+# LOS Agentic AI -- DEVELOPMENT and TEST dependencies
+#
+#     pip install -r requirements.txt
+#     pip install -r requirements-dev.txt
+#     pytest
+#
+# Runtime dependencies are NOT repeated here. This file adds only what the
+# test suite needs on top of a working runtime install.
+#
+# Not listed because they are already runtime dependencies:
+#   httpx         -- fastapi.testclient is built on it
+#   cryptography  -- tests/conftest.py generates an RSA keypair per session so
+#                    production JWT verification runs for real against a local
+#                    JWKS stub, rather than being monkeypatched away
+# =============================================================================
+
+-r requirements.txt
+
+# asyncio_mode = auto in pytest.ini, so async tests need no per-test marker.
+pytest>=8,<10
+pytest-asyncio>=0.24,<2

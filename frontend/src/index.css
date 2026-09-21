@@ -1,0 +1,314 @@
+@import "tailwindcss";
+
+@theme {
+  /* Ink — creates */
+  --color-ink: #18181b;
+  --color-ink-hover: #27272a;
+  --color-ink-pressed: #09090b;
+  --color-ink-disabled: #d4d4d8;
+  --color-ink-on: #ffffff;
+  --color-oncolor: #ffffff;
+
+  /* Ember — marks selection and attention */
+  --color-ember: #f4511e;
+  --color-ember-hover: #dc4517;
+  --color-ember-pressed: #c23c13;
+  --color-ember-subtle: #fef0ea;
+  --color-ember-tint: #fdf6f3;
+  --color-ember-text: #c0400f;
+
+  /* Link — informs */
+  --color-link: #4f5ac7;
+  --color-link-hover: #3f49ab;
+  --color-info-subtle: #eef0fc;
+  --color-info-text: #4148a8;
+
+  /* Neutral ramp — pure grey, no hue bias */
+  --color-canvas: #f7f7f8;
+  --color-surface: #ffffff;
+  --color-raised: #f4f4f5;
+  --color-raised-hover: #ebebed;
+  --color-line: #eaeaec;
+  --color-line-strong: #d4d4d8;
+  --color-line-divider: #f0f0f1;
+
+  --color-content: #18181b;
+  --color-content-secondary: #71717a;
+  --color-content-disabled: #a1a1aa;
+  --color-icon-default: #3f3f46;
+
+  /* Status */
+  --color-success: #1e8e3e;
+  --color-success-subtle: #e7f4eb;
+  --color-success-text: #177334;
+  --color-warning: #c08a1e;
+  --color-warning-subtle: #fdf3e0;
+  --color-warning-text: #96690f;
+  --color-danger: #d14343;
+  --color-danger-hover: #b63838;
+  --color-danger-subtle: #fdecec;
+  --color-danger-text: #b03535;
+  --color-rating: #f5a623;
+
+  /* Typography */
+  --font-display: "Space Grotesk", "Inter", -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* Radii — strictly following Ink & Ember scale */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-pill: 999px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-ink: #fafafa;
+    --color-ink-hover: #ffffff;
+    --color-ink-pressed: #e4e4e7;
+    --color-ink-disabled: #3f3f46;
+    --color-ink-on: #18181b;
+    --color-oncolor: #ffffff;
+
+    --color-ember: #ff6b3d;
+    --color-ember-hover: #ff8459;
+    --color-ember-pressed: #e2542a;
+    --color-ember-subtle: #2e1810;
+    --color-ember-tint: #1f1310;
+    --color-ember-text: #ff9068;
+
+    --color-link: #8b94e8;
+    --color-link-hover: #a5acf0;
+    --color-info-subtle: #1d2040;
+    --color-info-text: #a3aaf0;
+
+    --color-canvas: #0c0c0d;
+    --color-surface: #141416;
+    --color-raised: #1d1d20;
+    --color-raised-hover: #26262a;
+    --color-line: #27272a;
+    --color-line-strong: #3f3f46;
+    --color-line-divider: #1f1f22;
+
+    --color-content: #fafafa;
+    --color-content-secondary: #a1a1aa;
+    --color-content-disabled: #71717a;
+    --color-icon-default: #d4d4d8;
+
+    --color-success: #3fa65c;
+    --color-success-subtle: #102416;
+    --color-success-text: #6fcb8d;
+    --color-warning: #d9a13a;
+    --color-warning-subtle: #2a2010;
+    --color-warning-text: #e8bc63;
+    --color-danger: #e06a6a;
+    --color-danger-hover: #ec8585;
+    --color-danger-subtle: #2e1818;
+    --color-danger-text: #f09090;
+    --color-rating: #f5b342;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-ink: #fafafa;
+  --color-ink-hover: #ffffff;
+  --color-ink-pressed: #e4e4e7;
+  --color-ink-disabled: #3f3f46;
+  --color-ink-on: #18181b;
+  --color-oncolor: #ffffff;
+
+  --color-ember: #ff6b3d;
+  --color-ember-hover: #ff8459;
+  --color-ember-pressed: #e2542a;
+  --color-ember-subtle: #2e1810;
+  --color-ember-tint: #1f1310;
+  --color-ember-text: #ff9068;
+
+  --color-link: #8b94e8;
+  --color-link-hover: #a5acf0;
+  --color-info-subtle: #1d2040;
+  --color-info-text: #a3aaf0;
+
+  --color-canvas: #0c0c0d;
+  --color-surface: #141416;
+  --color-raised: #1d1d20;
+  --color-raised-hover: #26262a;
+  --color-line: #27272a;
+  --color-line-strong: #3f3f46;
+  --color-line-divider: #1f1f22;
+
+  --color-content: #fafafa;
+  --color-content-secondary: #a1a1aa;
+  --color-content-disabled: #71717a;
+  --color-icon-default: #d4d4d8;
+
+  --color-success: #3fa65c;
+  --color-success-subtle: #102416;
+  --color-success-text: #6fcb8d;
+  --color-warning: #d9a13a;
+  --color-warning-subtle: #2a2010;
+  --color-warning-text: #e8bc63;
+  --color-danger: #e06a6a;
+  --color-danger-hover: #ec8585;
+  --color-danger-subtle: #2e1818;
+  --color-danger-text: #f09090;
+  --color-rating: #f5b342;
+}
+
+:root[data-theme="light"] {
+  --color-ink: #18181b;
+  --color-ink-hover: #27272a;
+  --color-ink-pressed: #09090b;
+  --color-ink-disabled: #d4d4d8;
+  --color-ink-on: #ffffff;
+  --color-oncolor: #ffffff;
+
+  --color-ember: #f4511e;
+  --color-ember-hover: #dc4517;
+  --color-ember-pressed: #c23c13;
+  --color-ember-subtle: #fef0ea;
+  --color-ember-tint: #fdf6f3;
+  --color-ember-text: #c0400f;
+
+  --color-link: #4f5ac7;
+  --color-link-hover: #3f49ab;
+  --color-info-subtle: #eef0fc;
+  --color-info-text: #4148a8;
+
+  --color-canvas: #f7f7f8;
+  --color-surface: #ffffff;
+  --color-raised: #f4f4f5;
+  --color-raised-hover: #ebebed;
+  --color-line: #eaeaec;
+  --color-line-strong: #d4d4d8;
+  --color-line-divider: #f0f0f1;
+
+  --color-content: #18181b;
+  --color-content-secondary: #71717a;
+  --color-content-disabled: #a1a1aa;
+  --color-icon-default: #3f3f46;
+
+  --color-success: #1e8e3e;
+  --color-success-subtle: #e7f4eb;
+  --color-success-text: #177334;
+  --color-warning: #c08a1e;
+  --color-warning-subtle: #fdf3e0;
+  --color-warning-text: #96690f;
+  --color-danger: #d14343;
+  --color-danger-hover: #b63838;
+  --color-danger-subtle: #fdecec;
+  --color-danger-text: #b03535;
+  --color-rating: #f5a623;
+}
+
+@layer base {
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--color-canvas);
+    color: var(--color-content);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 22px;
+    letter-spacing: -0.006em;
+  }
+
+  #root {
+    min-height: 100dvh;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ember);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 h-11 px-4 rounded-sm font-sans text-[14px] font-semibold transition-colors duration-150 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-ink text-ink-on hover:bg-ink-hover active:bg-ink-pressed disabled:bg-ink-disabled disabled:text-surface;
+  }
+
+  .btn-accent {
+    @apply bg-ember text-oncolor hover:bg-ember-hover active:bg-ember-pressed disabled:bg-line-strong disabled:text-surface;
+  }
+
+  .btn-secondary {
+    @apply bg-raised text-content hover:bg-raised-hover;
+  }
+
+  .btn-outline {
+    @apply bg-surface border border-line text-content hover:bg-raised hover:border-line-strong;
+  }
+
+  .btn-tertiary {
+    @apply bg-transparent text-content hover:bg-raised;
+  }
+
+  .btn-destructive {
+    @apply bg-danger text-oncolor hover:bg-danger-hover;
+  }
+
+  .input {
+    @apply h-11 w-full rounded-sm border border-line bg-surface px-3 font-sans text-[15px] text-content placeholder:text-content-disabled transition-colors duration-150 focus:border-2 focus:border-ember focus:px-[11px] focus:outline-none disabled:bg-raised disabled:text-content-disabled;
+  }
+
+  .label {
+    @apply block font-sans text-[13px] font-medium text-content-secondary mb-1.5;
+  }
+
+  .card {
+    @apply rounded-lg border border-line bg-surface p-4;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 h-[26px] px-2.5 rounded-xs font-sans text-[12px] font-semibold bg-raised text-content-secondary;
+  }
+
+  .status-chip {
+    @apply inline-flex items-center h-[26px] px-2.5 rounded-xs font-sans text-[12px] font-semibold;
+  }
+}

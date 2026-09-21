@@ -1,0 +1,38 @@
+{
+  "application_id": "APP-2026-0001",
+  "customer_id": "CUST-8891",
+  "income": {
+    "eligibility_type": "SALARIED",
+    "declared_income": 180000,
+    "gross_salary": 42000,
+    "pf_deduction": 0,
+    "other_deduction": 0,
+    "other_income": 0,
+    "fixed_obligation": 15000
+  },
+  "loan": {
+    "loan_amount": 2500000,
+    "tenor_months": 120,
+    "eligibility_roi_pct": 11,
+    "property_value": 2800000
+  },
+  "verifications": {
+    "itr": "NEGATIVE",
+    "bank": "POSITIVE",
+    "residence": "POSITIVE",
+    "office": "POSITIVE",
+    "legal": "POSITIVE",
+    "pd_status": "POSITIVE",
+    "legal_checklist": { "title_13_years": true }
+  },
+  "references": [
+    { "name": "R. Sharma", "relation": "Neighbour", "status": "POSITIVE" }
+  ],
+  "dedupe": {
+    "matched_parameters": ["mobile_no"],
+    "matched_customer_ids": ["CUST-4410"]
+  },
+  "documents": {
+    "sections_present": ["Age Proof", "Signature Verification", "Identity Proof"]
+  }
+}

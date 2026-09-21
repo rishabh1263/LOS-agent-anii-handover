@@ -1,0 +1,119 @@
+# =============================================================================
+# LOS Agentic AI -- RUNTIME dependencies
+#
+# Everything needed to import the application and serve
+# POST /api/v1/los/process. Test-only packages live in requirements-dev.txt.
+#
+#     python -m venv .venv
+#     .venv\Scripts\activate          (Windows)   source .venv/bin/activate (Linux)
+#     python -m pip install --upgrade pip
+#     pip install -r requirements.txt
+#
+# Audited against every `import` in app/ and main.py, not against a developer
+# machine's site-packages. Verified by installing this file into an empty
+# virtual environment and starting the service from it.
+#
+# TWO SYSTEM BINARIES ARE NOT PYTHON PACKAGES AND ARE NOT INSTALLED BY PIP:
+#
+#     Tesseract OCR  -- used by pytesseract for name word-spacing
+#                       (DOCUMENT_NAME_SPACING=true). Without it names come
+#                       back unspaced, e.g. LAXMISANTOSHGUPTA.
+#     Poppler        -- used by pdf2image to rasterise scanned PDFs. Without
+#                       it a scanned bank statement / ITR yields no OCR text.
+#
+# Both degrade rather than crash: the service starts and serves without
+# either. See docs/QUICKSTART.md for installation.
+#
+# The language model is also not a Python dependency. Ollama is a separate
+# service and `ollama pull qwen2.5:3b` is a separate step -- see
+# docs/API_HANDOVER.md.
+# =============================================================================
+
+
+# ── Web framework ────────────────────────────────────────────────────────────
+# python-multipart is REQUIRED, not optional: the canonical endpoint is
+# multipart/form-data and FastAPI raises at import time without it.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+python-multipart>=0.0.20,<1
+pydantic>=2.9,<3
+
+# ── HTTP client ──────────────────────────────────────────────────────────────
+# app/agents/fraud_risk/summary.py talks to Ollama directly; fastapi.testclient
+# needs it too.
+httpx>=0.28,<1
+
+# ── Configuration ────────────────────────────────────────────────────────────
+python-dotenv>=1.0.1,<2
+PyYAML>=6.0.2,<7
+
+# ── Authentication ───────────────────────────────────────────────────────────
+# RS256 JWT verified against a JWKS endpoint. PyJWT does RS256 only when
+# cryptography is present, so it is a direct dependency rather than a hopeful
+# transitive one.
+PyJWT>=2.10,<3
+cryptography>=44,<47
+
+# ── Agent framework and orchestration ────────────────────────────────────────
+# `agent-framework` (the meta-package) is deliberately NOT used: it resolves to
+# agent-framework-core[all], which drags in Azure, AWS/boto3, Anthropic,
+# OpenAI, Gemini, Mistral, Redis, Qdrant and a dozen more provider SDKs this
+# service never imports -- hundreds of megabytes for four symbols.
+#
+# What is actually imported:
+#   agent_framework        -> Agent, MCPStdioTool, Message, ChatOptions,
+#                             WorkflowBuilder            (agent-framework-core)
+#   agent_framework.ollama -> OllamaChatClient         (agent-framework-ollama)
+#
+# agent-framework-ollama is pinned exactly because its only published builds
+# are pre-releases; a range would make pip skip it unless given --pre.
+agent-framework-core>=1.13,<2
+agent-framework-ollama==1.0.0b260813
+langgraph>=1.0,<2
+mcp>=1.12,<2
+
+# ── OCR ──────────────────────────────────────────────────────────────────────
+# rapidocr-onnxruntime is the DEFAULT engine (DOCUMENT_OCR_ENGINE=rapidocr) and
+# was the single most serious omission from the previous file: without it the
+# service starts and then fails every extraction.
+#
+# Pinned exactly. Recognition output is the input to deterministic field
+# extraction, so a recogniser version bump changes extracted values -- that is
+# a behaviour change, not a patch upgrade.
+#
+# NOTE: rapidocr-onnxruntime itself depends on `opencv-python`, so that
+# (non-headless) build is installed transitively even though the application
+# imports cv2 through the headless one. Both provide the same `cv2` module.
+rapidocr-onnxruntime==1.4.4
+onnxruntime>=1.19,<2
+opencv-python-headless>=4.8,<6
+numpy>=1.26,<3
+pillow>=10,<14
+
+# Word-box pass that restores spacing inside names. Needs the Tesseract binary.
+pytesseract>=0.3.13,<0.4
+
+# ── PDF ──────────────────────────────────────────────────────────────────────
+# pdfplumber  -- bank statement table/cell text
+# pypdf       -- page counts and text layer
+# pymupdf     -- sale deed text extraction
+# pdf2image   -- rasterises scanned PDFs for OCR. Needs the Poppler binary.
+pdfplumber>=0.11,<0.12
+pypdf>=4,<7
+pymupdf>=1.24,<2
+pdf2image>=1.17,<2
+
+
+# ── REMOVED, with the reason ─────────────────────────────────────────────────
+#
+# agent-framework          -> replaced by agent-framework-core +
+#                             agent-framework-ollama (see above).
+#
+# opentelemetry-api        -> no module under app/ imports opentelemetry.
+# opentelemetry-sdk           app/observability/tracing.py only reads the
+#                             OTEL_ENABLED environment variable; there is no
+#                             exporter, provider or span in the codebase.
+#                             agent-framework-core still requires
+#                             opentelemetry-api, so it remains installed --
+#                             it is simply no longer claimed as a direct
+#                             dependency of this service.

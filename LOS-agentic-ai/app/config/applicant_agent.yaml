@@ -1,0 +1,218 @@
+# =============================================================================
+# Applicant Agent — FOS copilot configuration
+#
+# BUSINESS POLICY LIVES HERE, NOT IN A PROMPT. The readiness gate, the
+# document checklist and the downstream routing table are all decisions a
+# lender makes and changes; putting them in the system prompt would make them
+# invisible to review and unenforceable when the model paraphrases.
+#
+# Every value is read at request time through app/agents/applicant/config.py,
+# so editing this file takes effect on the next request.
+# =============================================================================
+
+agent:
+  name: "Applicant Agent"
+  enabled: true
+
+  # The summary sentence only. Every fact it states comes from a tool result.
+  llm_enabled: true
+  temperature: 0.1
+
+  # Deterministic answers skip the model entirely. A single-fact question --
+  # "is PAN verified?" -- is answered from the tool result, because sending it
+  # to a model adds a second of latency and a chance of paraphrasing the fact.
+  llm_for_simple_intents: false
+
+# -----------------------------------------------------------------------------
+# WORKFLOW
+#
+# The FOS-stage states. Configurable because not every lender uses these four,
+# and an organisation that adds one should not have to edit Python.
+# -----------------------------------------------------------------------------
+workflow:
+  states:
+    - APPLICATION_CREATED
+    - DOCUMENT_COLLECTION
+    - BASIC_DOCUMENT_VERIFICATION
+    - READY_FOR_CPA
+
+# -----------------------------------------------------------------------------
+# DOCUMENT CHECKLIST
+#
+# What each product requires before the case may leave the FOS stage. The
+# checklist is per product, with `default` used when no product is set yet.
+#
+# `any_of` groups alternatives: one satisfies the slot. Address proof is the
+# usual case -- a licence and a passport are equally good evidence of address.
+# -----------------------------------------------------------------------------
+# A slot is either `required` (blocks the CPA handoff) or `optional` (tracked
+# and reported, never blocking). ADDING A TYPE DOES NOT MAKE IT MANDATORY:
+# a new slot is only required if it is listed under `required`, so the
+# taxonomy can grow ahead of the policy.
+#
+# `accepts` names the document types the LOS pipeline may classify a file as
+# to satisfy the slot. Several types in one slot means any of them will do --
+# a licence and a passport are equally good evidence of address.
+documents:
+  # Used when no product is set yet, so a case still has something to be
+  # measured against rather than appearing complete by accident.
+  default:
+    required:
+      - slot: PAN
+        accepts: [PAN]
+      - slot: ADDRESS_PROOF
+        accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+
+  # PERSONAL_LOAN IS RESOLVED FROM config/policies/personal_loan.yaml.
+  #
+  # That file is the authority: it carries the amount bands, the conditional
+  # rules and the version a case is pinned to, none of which can be
+  # expressed here. This entry is the FALLBACK used only if the policy file
+  # is missing or will not parse, and it is deliberately identical to that
+  # file's BASE requirements -- two files describing the same product will
+  # drift, and when they did, /config advertised one checklist while real
+  # cases were measured against another.
+  #
+  # Do not add an amount-dependent slot here. It cannot be conditional in
+  # this file, so it would be imposed on every application.
+  PERSONAL_LOAN:
+    required:
+      - slot: PAN
+        accepts: [PAN]
+      - slot: ADDRESS_PROOF
+        accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+      - slot: BANK_STATEMENT
+        accepts: [BANK_STATEMENT]
+    optional:
+      - slot: PHOTO
+        accepts: [PHOTO]
+
+  HOME_LOAN:
+    required:
+      - slot: PAN
+        accepts: [PAN]
+      - slot: BANK_STATEMENT
+        accepts: [BANK_STATEMENT]
+      - slot: ADDRESS_PROOF
+        accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+    optional:
+      - slot: ITR
+        accepts: [ITR]
+      - slot: SALARY_SLIP
+        accepts: [SALARY_SLIP]
+      - slot: EMPLOYMENT_PROOF
+        accepts: [EMPLOYMENT_PROOF]
+
+# The FOS-stage taxonomy. Naming a type here makes it selectable on upload and
+# renderable in a dropdown; it does NOT make it required anywhere. A product
+# becomes subject to a type only by listing a slot that accepts it above.
+document_types:
+  - PAN
+  - AADHAAR
+  - DRIVING_LICENCE
+  - PASSPORT
+  - VOTER_ID
+  - BANK_STATEMENT
+  - SALARY_SLIP
+  - ITR
+  - FORM_16
+  - EMPLOYMENT_PROOF
+  - PHOTO
+  - SIGNATURE
+
+# -----------------------------------------------------------------------------
+# READINESS GATE
+#
+# "Is this complete enough to hand to CPA?" -- NOT "will the loan be approved?".
+# Each rule can be switched off, and switching one off is reported in the
+# response rather than silently changing the verdict.
+# -----------------------------------------------------------------------------
+readiness:
+  require_applicant_fields: true
+  require_application_fields: true
+  require_all_documents: true
+  require_documents_verified: true
+
+  # A document sitting in REVIEW blocks the handoff. Set false where a lender
+  # lets CPA adjudicate reviews instead of the FOS.
+  block_on_review: true
+
+# -----------------------------------------------------------------------------
+# PERMISSIONS
+#
+# Scope names checked against the JWT's `scope` / `scp` claim. Enforced in the
+# tool layer, outside the model, so no prompt can grant one.
+# -----------------------------------------------------------------------------
+permissions:
+  enforce: true
+
+  # A token carrying this scope satisfies every read below. Convenience for
+  # service accounts; it grants no write.
+  read_all_scope: "los.read"
+
+  read:
+    applicant: "read_applicant"
+    application: "read_application"
+    documents: "read_documents"
+    verification: "read_verification"
+    pending_items: "read_pending_items"
+    next_action: "read_next_action"
+
+  write:
+    create_applicant: "create_applicant"
+    update_applicant: "update_applicant"
+    create_application: "create_application"
+    upload_document: "upload_document"
+
+  # Never served by this agent whatever scope a token carries. Listed so the
+  # denial is a configured decision rather than an accident of omission.
+  denied:
+    - credit_decision
+    - risk_analysis
+    - kyc_decision
+    - rcu_analysis
+
+# -----------------------------------------------------------------------------
+# OUT-OF-SCOPE ROUTING
+#
+# Where a question belongs when it is not the FOS stage's to answer. The agent
+# names the destination and answers nothing on its behalf.
+# -----------------------------------------------------------------------------
+routing:
+  CREDIT_SCORE:      { route_to: CREDIT_AGENT,   message: "Credit and bureau information is handled by the downstream Credit process." }
+  RISK:              { route_to: RISK_AGENT,     message: "Risk scoring is handled by the downstream Risk process." }
+  KYC_DECISION:      { route_to: KYC_AGENT,      message: "The full KYC decision is handled by the downstream KYC process." }
+  RCU_FRAUD:         { route_to: RCU_AGENT,      message: "RCU and fraud investigation is handled by the downstream RCU process." }
+  FINANCIAL_ANALYSIS: { route_to: CREDIT_AGENT,   message: "Bank statement and income analysis is handled by the downstream Credit process." }
+  LOAN_DECISION:     { route_to: DECISION_AGENT, message: "The lending decision is made downstream, after CPA." }
+
+# -----------------------------------------------------------------------------
+# TIMEOUTS
+# -----------------------------------------------------------------------------
+timeouts:
+  tool_seconds: 5.0
+
+  # THE COPILOT'S OWN BUDGET, and deliberately not the LOS summary's 1.5 s.
+  #
+  # These are different surfaces. The LOS summary is one sentence appended to
+  # a document-processing response, where a model that cannot finish inside
+  # 1.5 s is not worth waiting for. This is an interactive question a field
+  # officer asked and is waiting on, and where the whole request does nothing
+  # else.
+  #
+  # Measured on the reference host, the same copilot prompt at four different
+  # output caps (4 generations each):
+  #
+  #     max_tokens   median    max     within 1.5 s
+  #      48          2525 ms  2911 ms     0/4
+  #      64          2293 ms  2619 ms     0/4
+  #      96          2356 ms  2504 ms     0/4
+  #     160          2213 ms  2515 ms     0/4
+  #
+  # Cost is flat across the caps, so it is prompt processing rather than
+  # output length: 1.5 s could not be met by shortening the answer. 3 s clears
+  # the measured maximum with room, and overrunning it still costs only the
+  # phrasing -- the deterministic answer is already computed.
+  llm_seconds: 3.0
+
+  total_seconds: 30.0
