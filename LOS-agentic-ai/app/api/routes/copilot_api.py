@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.agents.applicant.agent import AgentError, answer_question
+from app.agents.los import stage_registry, stages
 from app.security.auth import require_jwt
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,20 @@ class CopilotQueryRequest(BaseModel):
         ),
         examples=["COAPP-7F2A11C4D9E0"],
     )
+    stage: str | None = Field(
+        None,
+        description=(
+            "The LOS stage this question is about: FOS, CPA, CREDIT, "
+            "RCU, BOPS, HOPS or DISBURSEMENT.\n\n"
+            "**Advisory only.** It is used ONLY when the case record "
+            "establishes no stage of its own. A caller that could "
+            "override the case's stage could choose which stage's "
+            "answers it receives, which would make stage scoping a "
+            "preference rather than a boundary. The response's "
+            "`stage_resolution` says which source was used."
+        ),
+        examples=["FOS"],
+    )
     conversation_id: str | None = Field(
         None,
         max_length=128,
@@ -105,6 +120,26 @@ class CopilotQueryResponse(BaseModel):
     party_id: str | None = None
     conversation_id: str | None = None
 
+    stage: str | None = Field(
+        None,
+        description=(
+            "The LOS stage this answer was scoped to. **Absent when the "
+            "stage could not be established** -- defaulting to FOS would "
+            "answer every unresolvable case out of the FOS corpus."
+        ),
+        examples=["FOS"],
+    )
+    stage_resolution: str = Field(
+        "UNRESOLVED",
+        description=(
+            "Where the stage came from: `CASE_TIMELINE` (the pipeline "
+            "recorded it), `APPLICATION_STATUS` (derived from the case), "
+            "`CALLER_SUPPLIED` (the record was silent and the caller "
+            "offered one), or `UNRESOLVED`."
+        ),
+        examples=["CASE_TIMELINE"],
+    )
+
     category: str = Field(
         ...,
         description="Which kind of question this was.",
@@ -128,6 +163,17 @@ class CopilotQueryResponse(BaseModel):
         default_factory=list,
         description="MCP tools this answer used.",
     )
+    status: str | None = Field(
+        None,
+        description=(
+            "Present only when the request could not be served as asked. "
+            "`CAPABILITY_UNAVAILABLE` means this stage has no registered "
+            "capability for this kind of question -- which is neither an "
+            "authorisation failure, nor missing case data, nor an "
+            "unrecognised question."
+        ),
+        examples=["CAPABILITY_UNAVAILABLE"],
+    )
     errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -137,6 +183,56 @@ class CopilotQueryResponse(BaseModel):
 #: prompt, agent state or a tool response.
 _PUBLIC = ("request_id", "case_id", "applicant_id", "category", "intent",
            "answer", "response_source", "errors")
+
+
+#: The kinds of question that need a stage capability behind them.
+#:
+#: THESE ARE `QueryCategory` VALUES, not `QueryType` ones. The envelope
+#: publishes what the service had to CONSULT (the store, the handbook,
+#: both, or nobody), and that is the question here -- a stage with no
+#: handbook cannot answer anything that needs one.
+#:
+#: CASE_ONLY IS DELIBERATELY ABSENT. Case facts come from the case's own
+#: stored records, which exist whatever desk the case sits on; gating
+#: them on stage would make the Copilot useless the moment a case left
+#: FOS.
+#:
+#: MIXED IS PRESENT. It needs the handbook as well as the case, and half
+#: an answer to a question that asked for both is a partial answer
+#: presented as a whole one.
+_NEEDS_CAPABILITY = {"KNOWLEDGE_ONLY", "MIXED", "DOWNSTREAM"}
+
+
+def _unavailable_for(
+    context: stages.StageContext, envelope: dict[str, Any],
+) -> CopilotQueryResponse | None:
+    """
+    The CAPABILITY_UNAVAILABLE answer, when this stage cannot serve this
+    kind of question. None when it can.
+    """
+    category = str(envelope.get("category") or "").upper()
+    if category not in _NEEDS_CAPABILITY:
+        return None
+
+    registered = stage_registry.capabilities_for(context.stage)
+    if category in {"KNOWLEDGE_ONLY", "MIXED"} and registered.answers_knowledge():
+        return None
+    if category == "DOWNSTREAM" and registered.answers_downstream():
+        return None
+
+    unavailable = stage_registry.unavailable(context.stage)
+
+    return CopilotQueryResponse(
+        request_id=str(envelope.get("request_id") or ""),
+        case_id=envelope.get("case_id"),
+        applicant_id=envelope.get("applicant_id"),
+        category=category or "UNSUPPORTED",
+        intent=str(envelope.get("intent") or "UNKNOWN"),
+        answer=unavailable["message"],
+        status=unavailable["status"],
+        response_source="deterministic",
+        **context.public(),
+    )
 
 
 @router.post(
@@ -172,6 +268,12 @@ async def query(
     """
     request_id = f"cp_{uuid.uuid4().hex}"
 
+    # WHICH DESK THIS QUESTION BELONGS TO, read from the case rather than
+    # taken from the caller. `resolve` prefers the case's own timeline,
+    # then its application status, and only falls back to what the caller
+    # said when the record establishes nothing.
+    context = stages.resolve(request.case_id, request.stage)
+
     try:
         envelope = await answer_question(
             message=request.message,
@@ -195,7 +297,21 @@ async def query(
                     "message": "The request could not be completed."},
         ) from exc
 
+    # A QUESTION THIS STAGE CANNOT ANSWER IS SAID SO, NOT ANSWERED.
+    #
+    # Six of the seven stages have no corpus and no capability. A
+    # PROCESS_KNOWLEDGE question for one of them would otherwise be
+    # answered out of the only corpus that exists -- the FOS handbook --
+    # and a BOPS officer would receive authoritative-sounding FOS policy.
+    # Reported as its own outcome: the caller may be perfectly
+    # authorised, the case may be complete and the question perfectly
+    # understood, so this is none of 403, missing data or CLARIFICATION.
+    blocked = _unavailable_for(context, envelope)
+    if blocked is not None:
+        return blocked
+
     published = {key: envelope.get(key) for key in _PUBLIC}
+    published.update(context.public())
     published["party_id"] = request.party_id
     published["conversation_id"] = request.conversation_id
     published["sources"] = list(envelope.get("sources") or [])

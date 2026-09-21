@@ -171,7 +171,7 @@ def test_the_explanation_layer_changes_no_verdict():
     published = public_kyc(name_mismatch_case())
     without = {k: v for k, v in published.items()
                if k not in {"score", "overall_score_basis",
-                            "verification_summary", "result"}}
+                            "verification_summary", "result", "issues"}}
 
     assert set(without) == {"status", "reason_codes", "overall_score",
                             "overall_confidence", "fields"}

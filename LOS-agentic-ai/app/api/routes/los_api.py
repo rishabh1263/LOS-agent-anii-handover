@@ -58,6 +58,69 @@ def _declared_types(declared: list[str] | None) -> list[str]:
     return [value.strip() for value in values]
 
 
+def _uploads(
+    values: list[UploadFile | str] | None, field: str, request_id: str,
+) -> list[UploadFile]:
+    """
+    The real files out of one multipart field.
+
+    WHY THIS EXISTS. Swagger UI submits a file input the user never
+    touched as an EMPTY STRING part rather than omitting it, so an
+    optional `list[UploadFile]` field received `""` and FastAPI rejected
+    the whole request with 422 "Expected UploadFile, received:
+    <class 'str'>". A primary-only application was unsubmittable from
+    the very UI the team tests with -- and once `files` became optional
+    too, so was a co-applicant-only one.
+
+    THE TEST IS ON `str`, NOT ON `UploadFile`. Starlette parses a
+    multipart file into `starlette.datastructures.UploadFile`, while
+    `fastapi.UploadFile` is a SUBCLASS of it -- so
+    `isinstance(value, fastapi.UploadFile)` is False for every real
+    upload, and a first version of this function rejected every genuine
+    file while accepting nothing. The union has exactly two members, so
+    "not a string" is the reliable half to test.
+
+    THE EMPTY PART IS DROPPED, ANYTHING ELSE IS REFUSED. An empty string
+    carries no file and means the field was left blank, which is the
+    same as omitting it. A NON-empty string is a caller sending
+    something that is not a file, and is reported rather than silently
+    ignored -- dropping it would let them believe they had uploaded a
+    document that never existed.
+    """
+    kept: list[UploadFile] = []
+
+    for value in values or []:
+        if not isinstance(value, str):
+            kept.append(value)
+            continue
+        if not value.strip():
+            continue
+        # SAY WHAT ARRIVED. "A text value was received" sent a reader
+        # looking for a bug in their upload when the actual cause was
+        # Swagger rendering this field as a TEXT BOX -- which it does
+        # when it is serving a spec built before `files` became
+        # optional, and whose placeholder text is the literal word
+        # `string`. Naming the value turns a puzzling rejection into an
+        # obvious one.
+        received = " ".join(value.split())[:40]
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "request_id": request_id,
+                "error": "INVALID_FILE_FIELD",
+                "message": (
+                    f"`{field}` must carry uploaded files, but received "
+                    f"the text {received!r}. If this came from Swagger "
+                    "and the field shows a text box rather than a file "
+                    "picker, the page is on a cached OpenAPI document -- "
+                    "restart the service and reload /docs."
+                ),
+            },
+        )
+
+    return kept
+
+
 @router.post(
     "/process",
     summary="Process an applicant's (and optional co-applicant's) documents",
@@ -148,11 +211,16 @@ def _declared_types(declared: list[str] | None) -> list[str]:
     },
 )
 async def process(
-    files: list[UploadFile] = File(
-        ...,
+    files: list[UploadFile | str] | None = File(
+        default=None,
         description=(
             "**PRIMARY APPLICANT** documents. Positionally matched to "
-            "`expected_types`."
+            "`expected_types`.\n\n"
+            "Optional **only** in the sense that a request may instead "
+            "carry `co_applicant_files` alone: the two parties are "
+            "processed independently, and a co-applicant's documents "
+            "must not wait on the primary's. At least one party must "
+            "send something."
         ),
     ),
     operation: str = Form(
@@ -195,7 +263,7 @@ async def process(
             "`applicant_id`. Omit it entirely for a single-applicant case."
         ),
     ),
-    co_applicant_files: list[UploadFile] | None = File(
+    co_applicant_files: list[UploadFile | str] | None = File(
         default=None,
         description=(
             "**CO-APPLICANT** documents — a different person from `files`. "
@@ -258,13 +326,24 @@ async def process(
 
     operation = (operation or PROCESS).strip().upper()
 
-    if not files:
+    files = _uploads(files, "files", request_id)
+    co_files = _uploads(co_applicant_files, "co_applicant_files", request_id)
+
+    # NEITHER PARTY SENT ANYTHING. This used to reject a request whose
+    # PRIMARY files were missing, which made a co-applicant's documents
+    # unprocessable until the primary supplied theirs -- one party's
+    # readiness gating the other's, at the door. The parties are
+    # independent; the requirement is that SOMEBODY sent a document.
+    if not files and not co_files:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "request_id": request_id,
                 "error": "NO_DOCUMENTS",
-                "message": "At least one document is required.",
+                "message": (
+                    "At least one document is required, for either the "
+                    "applicant or the co-applicant."
+                ),
             },
         )
 
@@ -277,8 +356,6 @@ async def process(
                 "message": f"At most {MAX_DOCUMENTS} documents per application.",
             },
         )
-
-    co_files = list(co_applicant_files or [])
 
     if co_files and not str(co_applicant_id or "").strip():
         # REFUSED, NOT GUESSED. A document with no owner cannot be filed

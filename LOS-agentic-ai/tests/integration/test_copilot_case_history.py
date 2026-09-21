@@ -349,7 +349,11 @@ def test_the_response_carries_only_the_published_keys(client, repo):
     assert set(body) == {
         "request_id", "case_id", "applicant_id", "party_id",
         "conversation_id", "category", "intent", "answer",
-        "response_source", "sources", "tool_invoked", "errors"}
+        "response_source", "sources", "tool_invoked", "errors",
+        # Which LOS desk this answer was scoped to, and where that came
+        # from. `status` carries CAPABILITY_UNAVAILABLE for a stage with
+        # nothing registered; it is null on an answered question.
+        "stage", "stage_resolution", "status"}
 
 
 def test_no_payload_or_internals_reach_the_caller(client, repo):
