@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import {
   AlertCircle,
   Check,
   CheckCircle2,
-  Clock,
   Code2,
   Copy,
   FilePlus2,
@@ -51,16 +50,29 @@ function CopyableBadge({ label, value }: { label: string; value: string }) {
       type="button"
       onClick={copy}
       title={`Click to copy ${label}`}
-      className="inline-flex items-center gap-1.5 rounded-xs border border-line bg-raised px-2.5 py-1 font-mono text-[12px] text-content transition-all hover:border-line-strong hover:bg-raised-hover active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+      className="group flex min-w-0 flex-col gap-0.5 rounded-sm border border-line bg-raised/50 px-3 py-2 text-left transition-all hover:border-line-strong hover:bg-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
     >
-      <span className="text-content-secondary font-sans">{label}:</span>
-      <span className="font-semibold text-content">{value}</span>
-      {copied ? (
-        <Check className="h-3.5 w-3.5 text-success animate-in zoom-in-50 duration-150" />
-      ) : (
-        <Copy className="h-3.5 w-3.5 text-content-disabled" />
-      )}
+      <span className="flex items-center gap-1.5 font-sans text-[10px] font-bold uppercase tracking-wider text-content-secondary">
+        {label}
+        {copied ? (
+          <Check className="h-3 w-3 text-success" />
+        ) : (
+          <Copy className="h-3 w-3 text-content-disabled opacity-0 transition-opacity group-hover:opacity-100" />
+        )}
+      </span>
+      <span className="truncate font-mono text-[12px] font-semibold text-content">{value}</span>
     </button>
+  )
+}
+
+function MetaStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-content-secondary">
+        {label}
+      </p>
+      <p className="mt-0.5 truncate font-mono text-[13px] font-semibold text-content">{value}</p>
+    </div>
   )
 }
 
@@ -312,123 +324,139 @@ export function ResultsPanel({
         ? coDocs
         : result.documents
 
+  const statusTone = isSuccess
+    ? {
+      bar: 'bg-success',
+      badge: 'bg-success-subtle text-success-text border-success/30',
+      label: 'Verification passed',
+      Icon: CheckCircle2,
+    }
+    : isReject
+      ? {
+        bar: 'bg-danger',
+        badge: 'bg-danger-subtle text-danger-text border-danger/30',
+        label: 'Verification rejected',
+        Icon: ShieldAlert,
+      }
+      : {
+        bar: 'bg-warning',
+        badge: 'bg-warning-subtle text-warning-text border-warning/30',
+        label: 'Manual review required',
+        Icon: ShieldCheck,
+      }
+  const StatusIcon = statusTone.Icon
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <section className="card border-line bg-surface p-6 sm:p-7 shadow-xs space-y-5">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line-divider pb-5">
-          <div className="space-y-1.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-xs px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${
-                  isSuccess
-                    ? 'bg-success-subtle text-success-text border border-success/30'
-                    : isReject
-                      ? 'bg-danger-subtle text-danger-text border border-danger/30'
-                      : 'bg-warning-subtle text-warning-text border border-warning/30'
-                }`}
-              >
-                {isSuccess ? (
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                ) : isReject ? (
-                  <ShieldAlert className="h-3.5 w-3.5" />
-                ) : (
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                )}
-                <span>
-                  {isSuccess
-                    ? 'Verification Passed'
-                    : isReject
-                      ? 'Verification Rejected'
-                      : 'Manual Review Required'}
-                  {' · '}
-                  {result.status}
+    <div className="w-full max-w-none space-y-5 sm:space-y-6">
+      {/* Report hero */}
+      <section className="card relative overflow-hidden border-line bg-surface p-0 shadow-xs">
+        <div className={`absolute inset-y-0 left-0 w-1 ${statusTone.bar}`} aria-hidden />
+
+        <div className="space-y-5 p-5 pl-6 sm:p-7 sm:pl-8">
+          {/* Title row */}
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-xs border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${statusTone.badge}`}
+                >
+                  <StatusIcon className="h-3.5 w-3.5" />
+                  {statusTone.label}
+                  <span className="opacity-70">· {result.status}</span>
                 </span>
-              </span>
-              <span className="chip text-[11px] font-semibold">Decision: {result.decision}</span>
+                <span className="chip text-[11px] font-semibold">
+                  Decision: {result.decision}
+                </span>
+                {result.next_action && (
+                  <span className="chip font-mono text-[10px] text-content-secondary">
+                    {result.next_action}
+                  </span>
+                )}
+              </div>
+
+              <div>
+                <h2 className="font-display text-[24px] font-bold tracking-tight text-content sm:text-[28px]">
+                  Verification report
+                </h2>
+                {result.summary && (
+                  <p className="mt-2 max-w-4xl text-[14px] leading-relaxed text-content-secondary">
+                    {result.summary}
+                  </p>
+                )}
+              </div>
             </div>
 
-            <h2 className="font-display text-[22px] font-bold tracking-tight text-content sm:text-[24px]">
-              Verification report
-            </h2>
-
-            <div className="flex flex-wrap items-center gap-3 pt-0.5 text-[12px] text-content-secondary">
-              <span className="inline-flex items-center gap-1 font-mono">
-                <Clock className="h-3.5 w-3.5 text-icon-default" />
-                {(result.processing_ms / 1000).toFixed(2)}s
-              </span>
-              <span>·</span>
-              <span className="font-medium text-content">
-                {result.documents.length} documents
-              </span>
-              <span>·</span>
-              <span className="font-mono text-[11px]">Action: {result.next_action}</span>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowJsonModal(true)}
-              className="btn btn-outline h-9 px-3 text-[12px] inline-flex items-center gap-1.5"
-              title="Inspect raw response JSON"
-            >
-              <Code2 className="h-3.5 w-3.5" />
-              <span>Inspect JSON</span>
-            </button>
-            {onAddDocuments && (
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={onAddDocuments}
-                className="btn btn-secondary h-9 px-3 text-[12px] inline-flex items-center gap-1.5"
-                title="Keep case details and files; add more documents and re-verify"
+                onClick={() => setShowJsonModal(true)}
+                className="btn btn-outline inline-flex h-9 items-center gap-1.5 px-3 text-[12px]"
+                title="Inspect raw response JSON"
               >
-                <FilePlus2 className="h-3.5 w-3.5" />
-                <span>Add documents</span>
+                <Code2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Inspect JSON</span>
+                <span className="sm:hidden">JSON</span>
               </button>
+              {onAddDocuments && (
+                <button
+                  type="button"
+                  onClick={onAddDocuments}
+                  className="btn btn-secondary inline-flex h-9 items-center gap-1.5 px-3 text-[12px]"
+                  title="Keep case details and files; add more documents and re-verify"
+                >
+                  <FilePlus2 className="h-3.5 w-3.5" />
+                  <span>Add documents</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onReset}
+                className="btn btn-accent inline-flex h-9 items-center gap-1.5 px-4 text-[12px] shadow-xs"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>New request</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Meta strip */}
+          <div className="grid grid-cols-2 gap-3 rounded-sm border border-line bg-raised/40 px-4 py-3 sm:grid-cols-4">
+            <MetaStat
+              label="Processing"
+              value={`${(result.processing_ms / 1000).toFixed(2)}s`}
+            />
+            <MetaStat label="Documents" value={String(result.documents.length)} />
+            <MetaStat label="Decision" value={String(result.decision)} />
+            <MetaStat label="Status" value={String(result.status)} />
+          </div>
+
+          {/* IDs — full-width grid so long IDs don't wrap awkwardly */}
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <CopyableBadge label="Request" value={result.request_id} />
+            <CopyableBadge label="Case" value={result.case_id} />
+            {result.applicant_id && (
+              <CopyableBadge label="Applicant" value={result.applicant_id} />
             )}
-            <button
-              type="button"
-              onClick={onReset}
-              className="btn btn-accent h-9 px-4 text-[12px] inline-flex items-center gap-1.5 shadow-xs"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>New request</span>
-            </button>
+            {result.co_applicant_id && (
+              <CopyableBadge label="Co-applicant" value={result.co_applicant_id} />
+            )}
           </div>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <CopyableBadge label="Request" value={result.request_id} />
-          <CopyableBadge label="Case" value={result.case_id} />
-          {result.applicant_id && (
-            <CopyableBadge label="Applicant" value={result.applicant_id} />
-          )}
-          {result.co_applicant_id && (
-            <CopyableBadge label="Co-applicant" value={result.co_applicant_id} />
-          )}
-        </div>
-
-        {result.summary && (
-          <p className="text-[13px] text-content-secondary leading-relaxed border-t border-line-divider pt-3">
-            {result.summary}
-          </p>
-        )}
       </section>
 
-      {/* Party slider / segmented control */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <p className="text-[12px] font-semibold text-content-secondary uppercase tracking-wider shrink-0">
-          View
+      {/* View switcher */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-content-secondary">
+          Report view
         </p>
         <div
           role="tablist"
           aria-label="Report view"
-          className="relative flex w-full sm:w-auto rounded-lg border border-line bg-raised p-1 gap-0.5"
+          className="flex w-full gap-0.5 rounded-lg border border-line bg-raised p-1 sm:w-auto"
         >
           {(
             [
-              { id: 'overview' as const, label: 'Overview', icon: null },
+              { id: 'overview' as const, label: 'Overview', icon: null as ReactNode },
               {
                 id: 'applicant' as const,
                 label: 'Applicant',
@@ -454,11 +482,10 @@ export function ResultsPanel({
                 aria-selected={active}
                 disabled={disabled}
                 onClick={() => !disabled && setPartyView(tab.id)}
-                className={`relative flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40 disabled:cursor-not-allowed ${
-                  active
-                    ? 'bg-surface text-content shadow-xs border border-line/60'
-                    : 'text-content-secondary hover:text-content border border-transparent'
-                }`}
+                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none ${active
+                    ? 'border border-line/60 bg-surface text-content shadow-xs'
+                    : 'border border-transparent text-content-secondary hover:text-content'
+                  }`}
               >
                 {tab.icon}
                 <span>{tab.label}</span>
@@ -488,20 +515,22 @@ export function ResultsPanel({
             <PartyKycDetail party={result.co_applicant} title="Co-applicant KYC" />
           )}
 
-          {/* Overview: both party summary cards */}
+          {/* Overview: party summary cards */}
           {partyView === 'overview' && (result.primary_applicant || result.co_applicant) && (
-            <section className="grid gap-3 sm:grid-cols-2">
+            <section className="grid gap-4 lg:grid-cols-2">
               {result.primary_applicant && (
                 <button
                   type="button"
                   onClick={() => setPartyView('applicant')}
-                  className="card border-line bg-surface p-4 text-left space-y-3 hover:border-line-strong transition focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+                  className="card group space-y-4 border-line bg-surface p-5 text-left transition hover:border-line-strong hover:shadow-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <User className="h-4 w-4 text-ember" />
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-sm bg-ember/10 text-ember">
+                        <User className="h-5 w-5" />
+                      </span>
                       <div>
-                        <h4 className="font-display text-[14px] font-semibold text-content">
+                        <h4 className="font-display text-[15px] font-bold text-content">
                           Applicant
                         </h4>
                         <p className="font-mono text-[11px] text-content-secondary">
@@ -512,35 +541,46 @@ export function ResultsPanel({
                     <StatusChip label={String(result.primary_applicant.status)} />
                   </div>
                   {result.primary_applicant.verification_summary && (
-                    <div className="flex flex-wrap gap-1.5 text-[11px]">
-                      <span className="chip">
-                        Docs {result.primary_applicant.verification_summary.total_documents}
-                      </span>
-                      <span className="chip text-success-text bg-success-subtle">
-                        Pass {result.primary_applicant.verification_summary.passed}
-                      </span>
-                      {result.primary_applicant.verification_summary.failed > 0 && (
-                        <span className="chip text-danger-text bg-danger-subtle">
-                          Fail {result.primary_applicant.verification_summary.failed}
-                        </span>
-                      )}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rounded-sm border border-line bg-raised/40 px-2.5 py-2 text-center">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-content-secondary">
+                          Docs
+                        </p>
+                        <p className="mt-0.5 font-display text-[18px] font-bold tabular-nums text-content">
+                          {result.primary_applicant.verification_summary.total_documents}
+                        </p>
+                      </div>
+                      <div className="rounded-sm border border-success/20 bg-success-subtle px-2.5 py-2 text-center">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-success-text">
+                          Pass
+                        </p>
+                        <p className="mt-0.5 font-display text-[18px] font-bold tabular-nums text-success-text">
+                          {result.primary_applicant.verification_summary.passed}
+                        </p>
+                      </div>
+                      <div className="rounded-sm border border-danger/20 bg-danger-subtle px-2.5 py-2 text-center">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-danger-text">
+                          Fail
+                        </p>
+                        <p className="mt-0.5 font-display text-[18px] font-bold tabular-nums text-danger-text">
+                          {result.primary_applicant.verification_summary.failed}
+                        </p>
+                      </div>
                     </div>
                   )}
                   {result.primary_applicant.kyc && (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-[12px]">
-                        <span className="text-content-secondary">KYC</span>
-                        <StatusChip label={result.primary_applicant.kyc.status} />
-                        {result.primary_applicant.kyc.overall_score != null && (
-                          <span className="text-[11px] text-content-secondary tabular-nums">
-                            Score {result.primary_applicant.kyc.overall_score}
-                          </span>
-                        )}
-                      </div>
+                    <div className="flex flex-wrap items-center gap-2 border-t border-line-divider pt-3 text-[12px]">
+                      <span className="text-content-secondary">KYC</span>
+                      <StatusChip label={result.primary_applicant.kyc.status} />
+                      {result.primary_applicant.kyc.overall_score != null && (
+                        <span className="tabular-nums text-content-secondary">
+                          Score {result.primary_applicant.kyc.overall_score}
+                        </span>
+                      )}
                       {result.primary_applicant.kyc.result?.title && (
-                        <p className="text-[11px] text-content-secondary leading-snug">
+                        <span className="w-full text-[11px] leading-snug text-content-secondary">
                           {result.primary_applicant.kyc.result.title}
-                        </p>
+                        </span>
                       )}
                     </div>
                   )}
@@ -550,13 +590,15 @@ export function ResultsPanel({
                 <button
                   type="button"
                   onClick={() => setPartyView('co_applicant')}
-                  className="card border-line bg-surface p-4 text-left space-y-3 hover:border-line-strong transition focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+                  className="card group space-y-4 border-line bg-surface p-5 text-left transition hover:border-line-strong hover:shadow-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Users className="h-4 w-4 text-ember" />
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-sm bg-ember/10 text-ember">
+                        <Users className="h-5 w-5" />
+                      </span>
                       <div>
-                        <h4 className="font-display text-[14px] font-semibold text-content">
+                        <h4 className="font-display text-[15px] font-bold text-content">
                           Co-applicant
                         </h4>
                         <p className="font-mono text-[11px] text-content-secondary">
@@ -567,35 +609,46 @@ export function ResultsPanel({
                     <StatusChip label={String(result.co_applicant.status)} />
                   </div>
                   {result.co_applicant.verification_summary && (
-                    <div className="flex flex-wrap gap-1.5 text-[11px]">
-                      <span className="chip">
-                        Docs {result.co_applicant.verification_summary.total_documents}
-                      </span>
-                      <span className="chip text-success-text bg-success-subtle">
-                        Pass {result.co_applicant.verification_summary.passed}
-                      </span>
-                      {result.co_applicant.verification_summary.failed > 0 && (
-                        <span className="chip text-danger-text bg-danger-subtle">
-                          Fail {result.co_applicant.verification_summary.failed}
-                        </span>
-                      )}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rounded-sm border border-line bg-raised/40 px-2.5 py-2 text-center">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-content-secondary">
+                          Docs
+                        </p>
+                        <p className="mt-0.5 font-display text-[18px] font-bold tabular-nums text-content">
+                          {result.co_applicant.verification_summary.total_documents}
+                        </p>
+                      </div>
+                      <div className="rounded-sm border border-success/20 bg-success-subtle px-2.5 py-2 text-center">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-success-text">
+                          Pass
+                        </p>
+                        <p className="mt-0.5 font-display text-[18px] font-bold tabular-nums text-success-text">
+                          {result.co_applicant.verification_summary.passed}
+                        </p>
+                      </div>
+                      <div className="rounded-sm border border-danger/20 bg-danger-subtle px-2.5 py-2 text-center">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-danger-text">
+                          Fail
+                        </p>
+                        <p className="mt-0.5 font-display text-[18px] font-bold tabular-nums text-danger-text">
+                          {result.co_applicant.verification_summary.failed}
+                        </p>
+                      </div>
                     </div>
                   )}
                   {result.co_applicant.kyc && (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-[12px]">
-                        <span className="text-content-secondary">KYC</span>
-                        <StatusChip label={result.co_applicant.kyc.status} />
-                        {result.co_applicant.kyc.overall_score != null && (
-                          <span className="text-[11px] text-content-secondary tabular-nums">
-                            Score {result.co_applicant.kyc.overall_score}
-                          </span>
-                        )}
-                      </div>
+                    <div className="flex flex-wrap items-center gap-2 border-t border-line-divider pt-3 text-[12px]">
+                      <span className="text-content-secondary">KYC</span>
+                      <StatusChip label={result.co_applicant.kyc.status} />
+                      {result.co_applicant.kyc.overall_score != null && (
+                        <span className="tabular-nums text-content-secondary">
+                          Score {result.co_applicant.kyc.overall_score}
+                        </span>
+                      )}
                       {result.co_applicant.kyc.result?.title && (
-                        <p className="text-[11px] text-content-secondary leading-snug">
+                        <span className="w-full text-[11px] leading-snug text-content-secondary">
                           {result.co_applicant.kyc.result.title}
-                        </p>
+                        </span>
                       )}
                     </div>
                   )}
