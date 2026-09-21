@@ -173,11 +173,28 @@ def test_a_two_party_case_is_not_pushed_to_review_by_being_joint(joint, alone):
 # ==========================================================================
 
 
+#: Always published.
+_KYC_ALWAYS = {"status", "reason_codes", "overall_score",
+               "overall_confidence", "result"}
+
+#: Published only when there is something to say. `score` and
+#: `overall_score_basis` are absent when NO field was comparable --
+#: `roll_up` returns 0 there, and naming a basis for a score that
+#: measured nothing would invent one.
+_KYC_SOMETIMES = {"score", "overall_score_basis", "verification_summary",
+                  "fields"}
+
+#: Added to every KYC object: the reason codes as a reader acts on
+#: them, beside the codes themselves.
+_KYC_ALWAYS = _KYC_ALWAYS | {"issues"}
+
+
 def test_each_party_publishes_its_own_kyc(joint):
     for section in ("primary_applicant", "co_applicant"):
         kyc = joint[section]["kyc"]
-        assert set(kyc) == {"status", "reason_codes", "overall_score",
-                            "overall_confidence", "fields"}
+        assert _KYC_ALWAYS <= set(kyc)
+        assert set(kyc) <= _KYC_ALWAYS | _KYC_SOMETIMES
+        assert "fields" in kyc
 
 
 def test_the_case_kyc_is_compact_on_a_two_party_case(joint):
@@ -187,8 +204,10 @@ def test_the_case_kyc_is_compact_on_a_two_party_case(joint):
     response twice. The rows live under the party they belong to; the
     case object keeps the verdict that is only stated here.
     """
-    assert set(joint["kyc"]) == {"status", "reason_codes", "overall_score",
-                                 "overall_confidence"}
+    assert _KYC_ALWAYS <= set(joint["kyc"])
+    assert set(joint["kyc"]) <= _KYC_ALWAYS | _KYC_SOMETIMES
+    # The field rows are the thing this object must NOT repeat.
+    assert "fields" not in joint["kyc"]
     assert joint["primary_applicant"]["kyc"]["fields"]
     assert joint["co_applicant"]["kyc"]["fields"]
 
@@ -217,8 +236,8 @@ def test_the_case_reason_codes_are_the_union_of_the_parties(joint):
 
 
 def test_a_single_applicant_case_publishes_the_same_kyc_as_always(alone):
-    assert set(alone["kyc"]) == {"status", "reason_codes", "overall_score",
-                                 "overall_confidence", "fields"}
+    assert _KYC_ALWAYS <= set(alone["kyc"])
+    assert set(alone["kyc"]) <= _KYC_ALWAYS | _KYC_SOMETIMES
     assert isinstance(alone["kyc"]["overall_score"], int)
     assert isinstance(alone["kyc"]["reason_codes"], list)
 

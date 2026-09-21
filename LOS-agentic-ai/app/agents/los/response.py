@@ -916,6 +916,18 @@ def public_kyc(kyc: dict[str, Any] | None, *,
 
     published["result"] = kyc_explain.result_of(kyc)
 
+    # THE REASON CODES, AS A READER ACTS ON THEM. Added here rather
+    # than in the party section so the case-level object and a party's
+    # own carry the identical shape -- the control test that proves
+    # party isolation compares those two for equality, and a key on one
+    # but not the other would break it for a presentation reason.
+    published["issues"] = [
+        {"code": str(code),
+         **({"message": kyc_explain.field_message(code)}
+            if kyc_explain.field_message(code) else {})}
+        for code in published["reason_codes"]
+    ]
+
     if not compact:
         published["fields"] = public_kyc_fields(kyc)
 

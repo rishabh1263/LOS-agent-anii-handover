@@ -32,7 +32,7 @@ from typing import Any, Iterable
 
 from app.agents.document_agent.workflow import process_document
 from app.agents.los import config as los_config
-from app.agents.los import parties, response
+from app.agents.los import overview, parties, response
 from app.agents.kyc.agent import check_is_blocking, run_kyc
 from app.agents.kyc.schemas import CheckStatus, KycRequest
 from app.agents.los.mapping import to_kyc_source
@@ -1085,33 +1085,86 @@ def _party_sections(
     if not applicant_id:
         return {}
 
+    # Only the primary adopts an unstamped document -- see
+    # `documents_of`. A pre-party stored row has no party_id and always
+    # belonged to the case's applicant.
+    own = {
+        applicant_id: parties.owned_by(
+            documents, applicant_id, is_primary=True),
+    }
+    if co_applicant_id:
+        own[co_applicant_id] = parties.owned_by(
+            documents, co_applicant_id, is_primary=False)
+
     sections: dict[str, Any] = {
-        "primary_applicant": response.party_section(
-            party_id=applicant_id,
-            party_role="PRIMARY_APPLICANT",
-            # Only the primary adopts an unstamped document -- see
-            # `documents_of`. A pre-party stored row has no party_id and
-            # always belonged to the case's applicant.
-            documents=parties.owned_by(
-                documents, applicant_id, is_primary=True),
-            profile_match=matches.get(applicant_id),
-            kyc=kyc_by_party.get(applicant_id) if scoped_kyc else None,
-            status=status_by_party.get(applicant_id),
-        )
+        "primary_applicant": _section_for(
+            applicant_id, "PRIMARY_APPLICANT", own[applicant_id],
+            matches, kyc_by_party if scoped_kyc else {}, status_by_party),
     }
 
     if co_applicant_id:
-        sections["co_applicant"] = response.party_section(
-            party_id=co_applicant_id,
-            party_role="CO_APPLICANT",
-            documents=parties.owned_by(
-                documents, co_applicant_id, is_primary=False),
-            profile_match=matches.get(co_applicant_id),
-            kyc=kyc_by_party.get(co_applicant_id),
-            status=status_by_party.get(co_applicant_id),
-        )
+        sections["co_applicant"] = _section_for(
+            co_applicant_id, "CO_APPLICANT", own[co_applicant_id],
+            matches, kyc_by_party, status_by_party)
 
     return sections
+
+
+#: A party who sent nothing. NOT a verdict. Defined in `overview` and
+#: re-exported here so the flow and the presentation layer cannot drift.
+#:
+#: A party with no documents used to report `status: REVIEW`, because the
+#: roll-up over an empty document list finds nothing verified -- which is
+#: true and completely misleading. A reviewer reading REVIEW beside an
+#: empty `document_ids` concludes the party was assessed and found
+#: wanting, when nobody has sent anything to assess.
+#:
+#: ABSENT INPUT, PROCESSING FAILURE, VERIFICATION FAILURE and KYC REVIEW
+#: are four different states and this is the first of them. It is also
+#: why KYC and the profile match are withheld here: publishing
+#: `SKIPPED / INSUFFICIENT_SOURCES` would say a check ran and reached a
+#: verdict, and none did.
+NOT_PROVIDED = overview.NOT_PROVIDED
+
+
+def _section_for(
+    party_id: str,
+    party_role: str,
+    owned: list[dict[str, Any]],
+    matches: dict[str, Any],
+    kyc_by_party: dict[str, Any],
+    status_by_party: dict[str, Any],
+) -> dict[str, Any]:
+    """One party's section, or the fact that they sent nothing."""
+    if not owned:
+        section = response.party_section(
+            party_id=party_id, party_role=party_role, documents=[],
+            status=NOT_PROVIDED,
+        )
+        # EXPLICITLY NULL, NOT ABSENT. A party who sent nothing has no
+        # verification and no KYC, and a client rendering the section
+        # should see that stated rather than have to infer it from two
+        # missing keys.
+        section["verification"] = None
+        section["kyc"] = None
+        return section
+
+    section = response.party_section(
+        party_id=party_id,
+        party_role=party_role,
+        documents=owned,
+        profile_match=matches.get(party_id),
+        kyc=kyc_by_party.get(party_id),
+        status=status_by_party.get(party_id),
+    )
+
+    # HOW THIS PARTY'S DOCUMENTS CAME OUT, as an object beside the
+    # counts. `verification_summary` stays exactly as it was -- this is
+    # the same verdicts read a second way, for a reader who wants the
+    # status and the reasons rather than a tally.
+    section["verification"] = overview.verification_of(owned)
+
+    return section
 
 
 def _released_for_matching(
@@ -1586,7 +1639,25 @@ def _public_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
         "errors": envelope.get("errors") or [],
     }
 
-    public.update(_party_sections(envelope, documents))
+    sections = _party_sections(envelope, documents)
+    public.update(sections)
+
+    # THE APPLICATION, IN ONE OBJECT.
+    #
+    # Purely a regrouping of values already published above: the status
+    # the roll-up produced, the decision the decision rules made, the
+    # next action they chose, and each party's own recorded reasons --
+    # now tagged with WHOSE they are. Nothing here ranks, overrides or
+    # re-derives any of it, which is why it can be added to a response
+    # that decides loans without changing a single outcome.
+    public["overall"] = overview.build(
+        status=str(envelope.get("status") or ""),
+        decision=decision["status"],
+        next_action=public["next_action"],
+        sections=sections,
+        documents=documents,
+        processing_ms=processing.get("total_ms") or 0.0,
+    )
 
     # KYC, ONLY WHERE A STAGE ACTUALLY RAN IT.
     #
