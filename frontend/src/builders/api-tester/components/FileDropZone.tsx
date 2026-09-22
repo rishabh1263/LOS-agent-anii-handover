@@ -118,20 +118,18 @@ export function FileDropZone({
           group relative flex flex-col items-center justify-center gap-3
           rounded-lg border-2 border-dashed px-5 py-7 transition-colors duration-150
           focus:outline-none focus-visible:ring-2 focus-visible:ring-ember
-          ${
-            dragOver
-              ? 'border-ember bg-ember-tint'
-              : 'border-line bg-surface hover:border-line-strong hover:bg-raised/40'
+          ${dragOver
+            ? 'border-ember bg-ember-tint'
+            : 'border-line bg-surface hover:border-line-strong hover:bg-raised/40'
           }
           ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
         `}
       >
         <div
-          className={`flex h-11 w-11 items-center justify-center rounded-xs transition-all duration-150 ${
-            dragOver
+          className={`flex h-11 w-11 items-center justify-center rounded-xs transition-all duration-150 ${dragOver
               ? 'bg-ember text-oncolor scale-105'
               : 'bg-raised text-icon-default group-hover:text-content group-hover:scale-105'
-          }`}
+            }`}
           aria-hidden="true"
         >
           <UploadCloud className="h-5 w-5" />

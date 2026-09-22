@@ -122,13 +122,30 @@ def test_a_party_with_no_documents_is_never_a_success():
     assert nothing_verified is False
 
 
-def test_a_declared_co_applicant_who_sent_nothing_reports_review():
+def test_a_declared_co_applicant_who_sent_nothing_says_so():
+    """
+    CHANGED FROM `REVIEW` TO `NOT_PROVIDED`, deliberately.
+
+    The section used to report REVIEW, because the roll-up over an
+    empty document list correctly finds that nothing was verified. True,
+    and misleading: a reviewer reading REVIEW beside an empty
+    `document_ids` concludes this party was assessed and found wanting,
+    when nobody has sent anything to assess. Absent input, processing
+    failure, verification failure and KYC review are four different
+    states and this is the first.
+
+    THE GAP IS NO LESS VISIBLE. It was only ever visible here -- the
+    case-level status is computed from the documents that exist and
+    reports SUCCESS either way, before this change and after it. What
+    changed is the word, from one that named the wrong state to one
+    that names the right one.
+    """
     public = _public_envelope(envelope(
         [internal()], co_applicant_id="COAPP-9",
         party_status={"APP-1": "SUCCESS", "COAPP-9": "REVIEW"}))
 
     assert public["co_applicant"]["document_ids"] == []
-    assert public["co_applicant"]["status"] == "REVIEW"
+    assert public["co_applicant"]["status"] == "NOT_PROVIDED"
 
 
 # ==========================================================================
@@ -241,7 +258,8 @@ def test_the_section_keys_are_a_closed_set(two_party):
     for section in ("primary_applicant", "co_applicant"):
         assert set(two_party("SUCCESS", "SUCCESS")[section]) <= {
             "party_id", "role", "status", "document_ids",
-            "verification_summary", "profile_match", "kyc"}
+            "verification_summary", "profile_match", "kyc",
+            "verification"}
 
 
 # ==========================================================================

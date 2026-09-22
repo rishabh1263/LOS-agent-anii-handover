@@ -82,10 +82,21 @@ def test_the_multipart_schema_declares_the_field(request_schema, field):
     assert field in request_schema["properties"], field
 
 
-def test_only_the_primary_files_are_required(request_schema):
-    """D and E together. Adding a required field would break every
-    existing caller."""
-    assert request_schema["required"] == ["files"]
+def test_no_single_party_is_required_by_the_contract(request_schema):
+    """
+    D and E together, plus party independence.
+
+    `files` used to be the one required field, which made a
+    co-applicant-only application unrepresentable: the request was
+    refused before processing because the PRIMARY had sent nothing.
+    Neither party's files are required on their own now -- the rule
+    that at least one party must send something is enforced in the
+    handler, where it can name both fields in the error.
+
+    NOTHING BECAME REQUIRED. Adding a required field would break every
+    existing caller.
+    """
+    assert not request_schema.get("required")
 
 
 @pytest.mark.parametrize("field", [
@@ -162,7 +173,12 @@ def test_a_party_section_carries_the_agreed_shape(spec):
     section = spec["components"]["schemas"]["PartySection"]["properties"]
 
     assert set(section) == {"party_id", "role", "status", "document_ids",
-                            "verification_summary", "profile_match", "kyc"}
+                            "verification_summary", "profile_match", "kyc",
+                            # This party's verification as a status and
+                            # its reasons -- the same verdicts
+                            # `verification_summary` counts, read a
+                            # second way. Null when they sent nothing.
+                            "verification"}
 
 
 @pytest.mark.parametrize("field", ["decision", "next_action"])
@@ -203,7 +219,10 @@ def test_the_kyc_summary_is_documented(spec):
         # check tally and the verdict in words. All optional, so an
         # existing client is unaffected.
         "score", "overall_score_basis", "verification_summary",
-        "result"}
+        "result",
+        # The reason codes as a reader acts on them, beside the codes
+        # themselves -- never instead of them.
+        "issues"}
 
     # `KycOutcome`, not `KycResult`: the KYC agent already publishes a
     # `KycResult`, and a duplicate name makes FastAPI rename BOTH to

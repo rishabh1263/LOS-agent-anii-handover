@@ -325,9 +325,8 @@ export function DocumentResultCard({
           <StatusChip label={doc.status} className={docStatusClass(doc.status)} />
           <StatusChip label={doc.verification} className={verificationClass(doc.verification)} />
           <ChevronDown
-            className={`h-4 w-4 text-content-secondary transition-transform duration-200 ${
-              isOpen ? 'rotate-180' : ''
-            }`}
+            className={`h-4 w-4 text-content-secondary transition-transform duration-200 ${isOpen ? 'rotate-180' : ''
+              }`}
           />
         </div>
       </button>
@@ -372,9 +371,8 @@ export function DocumentResultCard({
                   return (
                     <div
                       key={k}
-                      className={`flex flex-col py-1.5 border-b border-line-divider/60 ${
-                        isWide ? 'sm:col-span-2' : ''
-                      }`}
+                      className={`flex flex-col py-1.5 border-b border-line-divider/60 ${isWide ? 'sm:col-span-2' : ''
+                        }`}
                     >
                       <span className="font-display text-[10px] font-bold uppercase tracking-wider text-content-secondary">
                         {formatLabel(k)}

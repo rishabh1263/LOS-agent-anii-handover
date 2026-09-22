@@ -104,7 +104,7 @@ def test_the_case_kyc_carries_the_verdict_and_not_the_rows(two_party):
     # object deliberately has neither.
     assert set(two_party["kyc"]) == {"status", "reason_codes",
                                      "overall_score", "overall_confidence",
-                                     "result"}
+                                     "result", "issues"}
 
 
 def test_the_case_verdict_is_still_published(two_party):
@@ -445,6 +445,9 @@ def test_a_party_section_is_small_beside_the_document_list(two_party):
     kyc = two_party["primary_applicant"]["kyc"]
     explanation = sum(
         len(json.dumps({key: kyc[key]})) for key in
-        ("score", "verification_summary", "result") if key in kyc)
+        ("score", "overall_score_basis", "verification_summary", "result",
+         "issues") if key in kyc)
+    explanation += len(json.dumps(
+        two_party["primary_applicant"].get("verification") or {}))
 
     assert section - explanation < documents

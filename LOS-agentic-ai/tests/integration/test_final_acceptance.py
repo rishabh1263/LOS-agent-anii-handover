@@ -222,8 +222,9 @@ def test_a_passing_document_does_release_extraction(pan_only):
 def test_each_party_has_its_own_kyc(two_party):
     for section in ("primary_applicant", "co_applicant"):
         kyc = two_party[section]["kyc"]
-        assert set(kyc) == {"status", "reason_codes", "overall_score",
-                            "overall_confidence", "fields"}
+        assert {"status", "reason_codes", "overall_score",
+                "overall_confidence", "fields", "result",
+                "issues"} <= set(kyc)
 
 
 def test_neither_party_is_measured_against_the_other(two_party):
@@ -240,8 +241,34 @@ def test_neither_party_is_measured_against_the_other(two_party):
 
 
 def test_no_cross_party_check_reaches_cross_document(two_party):
-    """Nothing was compared across parties, so nothing is claimed."""
-    assert two_party["cross_document"] == {"status": "SKIPPED", "checks": []}
+    """
+    Nothing is compared ACROSS parties -- asserted on the published
+    checks themselves.
+
+    THIS USED TO ASSERT AN EMPTY LIST, and an empty list was a weaker
+    guarantee than it looked. `cross_document` was forced to
+    `{"status": "SKIPPED", "checks": []}` on every joint case, so the
+    test passed without ever examining a check: it proved the field was
+    blank, not that the checks behind it were party-scoped. It would
+    have passed just as happily if the scoping underneath were broken.
+
+    The checks are now published, each stamped with the party it was
+    computed for, so the real property can be stated: NO CHECK CITES
+    ANOTHER PARTY'S DOCUMENT. That is what "nothing was compared across
+    parties" always meant.
+    """
+    checks = two_party["cross_document"]["checks"]
+    assert checks, "a joint case published no checks to examine"
+
+    owned = {
+        "ACC-APP": set(two_party["primary_applicant"]["document_ids"]),
+        "ACC-CO": set(two_party["co_applicant"]["document_ids"]),
+    }
+
+    for check in checks:
+        party = check.get("party_id")
+        assert party in owned, f"unattributed check: {check}"
+        assert set(check.get("sources") or []) <= owned[party], check
 
 
 def test_kyc_fields_carry_scores_and_confidence(two_party):
@@ -311,10 +338,17 @@ def test_a_bank_statement_is_processed_with_json_native_numbers(client):
 # ==========================================================================
 
 
-def test_a_request_with_no_files_is_refused(client):
+def test_a_request_with_no_files_from_either_party_is_refused(client):
+    """
+    STILL REFUSED, on a broader rule. `files` alone used to be
+    mandatory, which rejected a co-applicant-only application. The
+    requirement now is that SOMEBODY sent a document.
+    """
     response = client.post(ENDPOINT, data={"operation": "PROCESS"})
 
-    assert response.status_code == 422
+    assert response.status_code in {400, 422}
+    if response.status_code == 400:
+        assert response.json()["detail"]["error"] == "NO_DOCUMENTS"
 
 
 def test_co_applicant_files_without_an_id_are_refused(client):
@@ -393,6 +427,10 @@ PUBLIC_TOP_LEVEL = {
     "documents", "kyc", "cross_document", "decision", "next_action",
     "summary", "summary_source", "processing_ms", "errors",
     "primary_applicant", "co_applicant", "profile_match",
+    # The application in one object: the same status, decision and
+    # next_action published above, beside each party's own reasons
+    # tagged with whose they are. Additive -- nothing moved into it.
+    "overall",
 }
 
 
@@ -410,7 +448,8 @@ def test_a_party_section_is_the_agreed_shape(two_party):
     for section in ("primary_applicant", "co_applicant"):
         assert set(two_party[section]) <= {
             "party_id", "role", "status", "document_ids",
-            "verification_summary", "profile_match", "kyc"}
+            "verification_summary", "profile_match", "kyc",
+            "verification"}
         assert "documents" not in two_party[section]
         assert "decision" not in two_party[section]
         assert "next_action" not in two_party[section]

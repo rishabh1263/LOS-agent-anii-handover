@@ -404,7 +404,7 @@ function ProcessPageContent() {
                 step={2}
                 active={primaryItems.length > 0}
                 title="Applicant"
-                subtitle="Required · PDF or images · up to 25 MB each"
+                subtitle="Optional · PDF or images · up to 25 MB each"
                 sectionId="section-primary-docs"
                 icon={<User className="h-4 w-4" aria-hidden />}
                 count={primaryItems.length}
@@ -420,7 +420,7 @@ function ProcessPageContent() {
                 step={3}
                 active={coItems.length > 0}
                 title="Co-applicant"
-                subtitle="Optional · PDF or images · up to 25 MB each"
+                subtitle="Optional · PDF or images · up to 25 MB each · ID required if used"
                 sectionId="section-co-docs"
                 icon={<Users className="h-4 w-4" aria-hidden />}
                 count={coItems.length}
@@ -484,9 +484,14 @@ function ProcessPageContent() {
               </div>
             )}
 
-            {primaryItems.length === 0 && (
+            {primaryItems.length === 0 && coItems.length === 0 && (
               <p className="text-[12px] text-content-secondary">
-                Add at least one applicant document to run verification.
+                Add at least one document (applicant and/or co-applicant) to run verification.
+              </p>
+            )}
+            {primaryItems.length === 0 && coItems.length > 0 && !coIdMissing && (
+              <p className="text-[12px] text-content-secondary">
+                Running co-applicant only — applicant documents are optional.
               </p>
             )}
 

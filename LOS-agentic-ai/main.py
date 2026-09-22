@@ -432,6 +432,45 @@ def _mark_binary_uploads(node: Any) -> None:
             _mark_binary_uploads(item)
 
 
+def _collapse_upload_unions(node: Any) -> None:
+    """
+    Document a file field as a file, not as "a file or some text".
+
+    WHY THE UNION IS THERE AT ALL. Swagger UI submits an untouched file
+    input as an EMPTY STRING part instead of omitting it, so an optional
+    `list[UploadFile]` field is handed `""` and FastAPI rejects the whole
+    request with 422. The endpoint therefore accepts `UploadFile | str`
+    at runtime and drops the empty part (see `los_api._uploads`).
+
+    THAT TOLERANCE MUST NOT REACH THE CONTRACT. Left alone, the generated
+    schema says each item is `anyOf: [binary, string]`, and Swagger UI
+    renders a TEXT BOX for it -- so the fix for the upload widget would
+    have removed the upload widget. The string half is a workaround for a
+    quirk of one client, not something a caller may send, so it is
+    collapsed away here: the published contract says binary, which is
+    what a client should upload and what every generated client will.
+    """
+    if isinstance(node, dict):
+        options = node.get("anyOf")
+        if isinstance(options, list) and len(options) == 2:
+            binary = [o for o in options
+                      if isinstance(o, dict)
+                      and o.get("contentMediaType") == "application/octet-stream"]
+            plain = [o for o in options
+                     if isinstance(o, dict) and o == {"type": "string"}]
+            if len(binary) == 1 and len(plain) == 1:
+                node.pop("anyOf")
+                node.update(binary[0])
+                return
+
+        for value in node.values():
+            _collapse_upload_unions(value)
+
+    elif isinstance(node, list):
+        for item in node:
+            _collapse_upload_unions(item)
+
+
 def custom_openapi() -> dict[str, Any]:
     """The service's OpenAPI document, with uploads Swagger UI can render."""
     if app.openapi_schema:
@@ -445,7 +484,11 @@ def custom_openapi() -> dict[str, Any]:
         tags=app.openapi_tags,
     )
 
-    _mark_binary_uploads(schema.get("components", {}).get("schemas", {}))
+    schemas = schema.get("components", {}).get("schemas", {})
+    # Order matters: collapse the tolerance union first, then annotate
+    # the binary that is left.
+    _collapse_upload_unions(schemas)
+    _mark_binary_uploads(schemas)
 
     app.openapi_schema = schema
     return schema

@@ -508,6 +508,16 @@ class KycSummary(BaseModel):
         None, description="Counts over the checks, from the checks."
     )
     result: KycOutcome | None = Field(None, description="The verdict in words.")
+    issues: list[PartyIssue] | None = Field(
+        None,
+        description=(
+            "The reason codes as a reader acts on them, one object per "
+            "code. ADDED BESIDE `reason_codes`, never instead of it: "
+            "the codes are published, documented and read by existing "
+            "consumers, and dropping them to tidy the shape would break "
+            "them. Present inside a party's section."
+        ),
+    )
     fields: list[KycFieldResult] | None = Field(
         None,
         description=(
@@ -699,6 +709,102 @@ class PartyVerificationSummary(BaseModel):
     skipped: int = Field(..., examples=[0])
 
 
+class PartyIssue(BaseModel):
+    """One thing wrong, as a reader acts on it."""
+
+    code: str = Field(..., examples=["NAME_MISMATCH"])
+    message: str | None = Field(
+        None,
+        description=(
+            "The code in words. Absent for a code with no entry in the "
+            "lookup -- a sentence guessed from a code that does not "
+            "carry the fact would be a fabrication with a citation."
+        ),
+    )
+    source_id: str | None = Field(
+        None, description="The document this came from, where it was one."
+    )
+    party: str | None = Field(
+        None,
+        description=(
+            "Whose issue this is. Present in the application-level "
+            "`overall.issues`, where both parties' issues share one "
+            "list; absent inside a party's own section, where it would "
+            "repeat the section's own identity."
+        ),
+        examples=["CO_APPLICANT"],
+    )
+
+
+class PartyVerification(BaseModel):
+    """
+    How one party's documents came out.
+
+    The same verdicts `verification_summary` counts, read as a status
+    and its reasons. **Null when the party sent nothing** -- not an
+    object reading SKIPPED, which would claim verification looked.
+    """
+
+    status: str = Field(..., examples=["PASS", "REVIEW", "FAIL"])
+    issues: list[PartyIssue] = Field(default_factory=list)
+
+
+class ProcessingSummary(BaseModel):
+    """What was handled, and how long it took."""
+
+    documents_received: int
+    documents_processed: int = Field(
+        ...,
+        description=(
+            "Equal to `documents_received` by construction: every "
+            "upload produces a result row, including one that failed, "
+            "so nothing received can go unprocessed. Both are published "
+            "so a reader can see that rather than trust it."
+        ),
+    )
+    processing_ms: float
+
+
+class ApplicationOverview(BaseModel):
+    """
+    The application in one object: what happened, and whose problem it is.
+
+    PURELY A REGROUPING. `status`, `decision` and `next_action` are the
+    very values published at top level, produced by the existing rules;
+    the issues are each party's own recorded reason codes, tagged with
+    whose they are. Nothing here ranks or re-derives any of it.
+    """
+
+    status: str = Field(..., examples=["SUCCESS", "PARTIAL", "REVIEW"])
+    decision: str = Field(..., examples=["PASS", "REVIEW", "REJECT"])
+    next_action: str = Field(..., examples=["MANUAL_REVIEW", "CONTINUE"])
+    issues: list[PartyIssue] = Field(
+        default_factory=list,
+        description="Every party's issues in one list, each tagged with whose.",
+    )
+    missing: list[dict[str, str]] = Field(
+        default_factory=list,
+        description=(
+            "**Always empty.** This endpoint has no checklist: "
+            "required-document policy lives in the applicant agent and "
+            "is never computed here. The key is present because its "
+            "absence would read as \"nothing is missing\", which is a "
+            "claim this endpoint cannot make."
+        ),
+    )
+    summary: str = Field(
+        ...,
+        description=(
+            "Why the application stands where it does, one party at a "
+            "time. DETERMINISTIC and separate from the top-level "
+            "`summary`, which a model may write."
+        ),
+        examples=["Primary applicant verification passed. Co-applicant "
+                  "verification requires review due to NAME_MISMATCH."],
+    )
+    processing_summary: ProcessingSummary
+
+
 class PartySection(BaseModel):
     """
     One party's slice of the response: whose, what they sent, how it went.
@@ -747,6 +853,13 @@ class PartySection(BaseModel):
         examples=[["pan.jpg", "dl.jpg"]],
     )
     verification_summary: PartyVerificationSummary
+    verification: PartyVerification | None = Field(
+        None,
+        description=(
+            "This party's verification outcome. **Null** when they sent "
+            "nothing -- absent input is not a verdict."
+        ),
+    )
     profile_match: PartyProfileMatch | None = Field(
         None,
         description=(
@@ -841,6 +954,14 @@ class LosProcessResponse(BaseModel):
             "file. **Absent entirely** when no profile was available to "
             "match -- this block is additional evidence and never changes "
             "a verdict above."
+        ),
+    )
+    overall: ApplicationOverview | None = Field(
+        None,
+        description=(
+            "The application in one object. Additive: every value in it "
+            "is also published at top level or inside a party section, "
+            "so an existing caller is unaffected."
         ),
     )
     primary_applicant: PartySection | None = Field(

@@ -252,9 +252,8 @@ function FilePreviewPane({ file }: { file: File }) {
           alt={file.name}
           onLoad={() => setImgLoaded(true)}
           onError={() => setImgError(true)}
-          className={`mx-auto block h-auto max-h-[min(55vh,480px)] w-auto max-w-full object-contain shadow-sm transition-opacity ${
-            imgLoaded ? 'opacity-100' : 'opacity-0'
-          }`}
+          className={`mx-auto block h-auto max-h-[min(55vh,480px)] w-auto max-w-full object-contain shadow-sm transition-opacity ${imgLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
         />
       </div>
     )
@@ -296,13 +295,13 @@ export function DocumentPreviewModal({
   ]
   const sortedEntries = doc
     ? [
-        ...preferredOrder
-          .filter((k) => extraction[k] != null)
-          .map((k) => [k, extraction[k]] as [string, unknown]),
-        ...Object.entries(extraction).filter(
-          ([k, v]) => v != null && !preferredOrder.includes(k),
-        ),
-      ]
+      ...preferredOrder
+        .filter((k) => extraction[k] != null)
+        .map((k) => [k, extraction[k]] as [string, unknown]),
+      ...Object.entries(extraction).filter(
+        ([k, v]) => v != null && !preferredOrder.includes(k),
+      ),
+    ]
     : []
 
   useEffect(() => {
@@ -469,9 +468,8 @@ export function DocumentPreviewModal({
                         return (
                           <div
                             key={k}
-                            className={`border-b border-line-divider/70 pb-2.5 ${
-                              wide ? 'sm:col-span-2' : ''
-                            }`}
+                            className={`border-b border-line-divider/70 pb-2.5 ${wide ? 'sm:col-span-2' : ''
+                              }`}
                           >
                             <p className="font-display text-[10px] font-bold uppercase tracking-wider text-content-secondary">
                               {formatLabel(k)}

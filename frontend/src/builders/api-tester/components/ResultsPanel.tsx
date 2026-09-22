@@ -483,8 +483,8 @@ export function ResultsPanel({
                 disabled={disabled}
                 onClick={() => !disabled && setPartyView(tab.id)}
                 className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none ${active
-                    ? 'border border-line/60 bg-surface text-content shadow-xs'
-                    : 'border border-transparent text-content-secondary hover:text-content'
+                  ? 'border border-line/60 bg-surface text-content shadow-xs'
+                  : 'border border-transparent text-content-secondary hover:text-content'
                   }`}
               >
                 {tab.icon}

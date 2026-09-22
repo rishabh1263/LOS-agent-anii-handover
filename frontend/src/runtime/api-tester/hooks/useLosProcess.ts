@@ -36,9 +36,9 @@ export function useLosProcess() {
     return validateFiles(items)
   }, [items])
 
-  // Primary docs required; if co docs present, co_applicant_id required (Swagger)
+  // At least one party must have docs; if co docs present, co_applicant_id required (Swagger)
   const canSubmit =
-    primaryItems.length > 0 &&
+    (primaryItems.length > 0 || coItems.length > 0) &&
     issues.length === 0 &&
     !loading &&
     token.trim().length > 0 &&
