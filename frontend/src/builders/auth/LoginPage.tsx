@@ -167,11 +167,6 @@ export function LoginPage() {
             </div>
           </div>
         </div>
-
-        {/* Security / System Footer */}
-        <div className="text-center text-[11px] text-content-disabled">
-          Protected by rate limiting & Dev IDP token rotation.
-        </div>
       </div>
     </div>
   )
