@@ -54,8 +54,9 @@ export function CaseDetailsSection({
           </span>
           <div className="flex h-7 w-7 items-center justify-center rounded-xs bg-raised text-icon-default transition-colors hover:bg-raised-hover">
             <ChevronDown
-              className={`h-4 w-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''
-                }`}
+              className={`h-4 w-4 transition-transform duration-200 ${
+                isOpen ? 'rotate-180' : ''
+              }`}
               aria-hidden="true"
             />
           </div>

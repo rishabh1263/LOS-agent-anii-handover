@@ -108,7 +108,7 @@ function kycFieldKey(field: string): string {
   if (u === 'NAME' || u === 'FULL_NAME') return 'NAME'
   if (u === 'DATE_OF_BIRTH' || u === 'DOB') return 'DOB'
   if (u === 'FATHER_NAME' || u === 'GUARDIAN_NAME') return 'FATHER_NAME'
-  if (u === 'ADDRESS' || u === 'RESIDENTIAL_ADDRESS') return 'ADDRESS'
+  // if (u === 'ADDRESS' || u === 'RESIDENTIAL_ADDRESS') return 'ADDRESS'
   if (u === 'PAN_NUMBER' || u === 'PAN') return 'DOCUMENT_ID'
   if (u === 'INCOME') return 'INCOME'
   return u
@@ -196,8 +196,9 @@ function ChecklistPartyBlock({
           </div>
         </div>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-content-secondary transition-transform duration-200 ${open ? 'rotate-180' : ''
-            }`}
+          className={`h-4 w-4 shrink-0 text-content-secondary transition-transform duration-200 ${
+            open ? 'rotate-180' : ''
+          }`}
           aria-hidden
         />
       </button>
@@ -252,8 +253,9 @@ function ChecklistPartyBlock({
                       onClick={() => hasDetail && toggle(rowKey)}
                       aria-expanded={hasDetail ? isOpen : undefined}
                       disabled={!hasDetail}
-                      className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ember ${hasDetail ? 'cursor-pointer hover:bg-raised/30' : 'cursor-default'
-                        }`}
+                      className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ember ${
+                        hasDetail ? 'cursor-pointer hover:bg-raised/30' : 'cursor-default'
+                      }`}
                     >
                       {checkIcon(c.status)}
                       <span className="min-w-0 flex-1 font-display text-[12px] font-bold uppercase tracking-wide text-content">
@@ -262,8 +264,9 @@ function ChecklistPartyBlock({
                       {statusPill(statusText, statusText)}
                       {hasDetail && (
                         <ChevronDown
-                          className={`h-3.5 w-3.5 shrink-0 text-content-disabled transition-transform duration-200 ${isOpen ? 'rotate-180' : ''
-                            }`}
+                          className={`h-3.5 w-3.5 shrink-0 text-content-disabled transition-transform duration-200 ${
+                            isOpen ? 'rotate-180' : ''
+                          }`}
                           aria-hidden
                         />
                       )}
@@ -380,7 +383,6 @@ export function CrossDocumentReconciliation({
     const st = nameCheck?.status || kycName?.status
     rows.push({
       field: 'Full Name',
-      sublabel: 'Applicant Identity',
       values: nameValues,
       status: st === 'PASS' ? 'PASS' : st === 'FAIL' ? 'FAIL' : st === 'REVIEW' ? 'REVIEW' : 'SINGLE_SOURCE',
       statusText:
@@ -403,7 +405,6 @@ export function CrossDocumentReconciliation({
     const st = dobCheck?.status || kycDob?.status
     rows.push({
       field: 'Date of Birth',
-      sublabel: 'DOB Verification',
       values: dobValues,
       status: st === 'PASS' ? 'PASS' : st === 'FAIL' ? 'FAIL' : st === 'REVIEW' ? 'REVIEW' : 'SINGLE_SOURCE',
       statusText:
@@ -432,7 +433,6 @@ export function CrossDocumentReconciliation({
       const isMulti = nonNulls.length >= 2
       rows.push({
         field: 'Father / Guardian',
-        sublabel: 'Secondary Lineage',
         values: parentValues,
         status:
           st === 'PASS'
@@ -471,7 +471,6 @@ export function CrossDocumentReconciliation({
     const kycPan = kycByKey.get('DOCUMENT_ID')
     rows.push({
       field: 'Document Number',
-      sublabel: 'Official Identifier',
       values: idValues,
       status: 'SINGLE_SOURCE',
       statusText: 'Extracted',
@@ -483,116 +482,112 @@ export function CrossDocumentReconciliation({
   }
 
   // 5. Address
-  {
-    const addrValues: { [sourceId: string]: string | null } = {}
-    let hasAddress = false
-    documents.forEach((d) => {
-      const v = getFieldFromDoc('ADDRESS', d)
-      if (v) hasAddress = true
-      addrValues[d.source_id] = v
-    })
-    if (hasAddress) {
-      const addrCheck = checkStatusMap.get('ADDRESS')
-      const kycAddr = kycByKey.get('ADDRESS')
-      const st = addrCheck?.status || kycAddr?.status
-      rows.push({
-        field: 'Residential Address',
-        sublabel: 'Address Proof',
-        values: addrValues,
-        status:
-          st === 'PASS'
-            ? 'PASS'
-            : st === 'FAIL'
-              ? 'FAIL'
-              : st === 'SKIPPED'
-                ? 'SKIPPED'
-                : 'SINGLE_SOURCE',
-        statusText:
-          st === 'PASS'
-            ? 'Matched'
-            : st === 'FAIL'
-              ? 'Mismatch'
-              : addrCheck?.reason_codes?.includes('ADDRESS_SINGLE_SOURCE')
-                ? 'Single Source'
-                : 'Extracted',
-        matchScore: kycAddr?.match_score ?? null,
-        confidence: kycAddr?.confidence ?? null,
-        reason: kycAddr?.reason ?? null,
-        reasonCode: kycAddr?.reason_code ?? null,
-      })
-    }
-  }
+  // {
+  //   const addrValues: { [sourceId: string]: string | null } = {}
+  //   let hasAddress = false
+  //   documents.forEach((d) => {
+  //     const v = getFieldFromDoc('ADDRESS', d)
+  //     if (v) hasAddress = true
+  //     addrValues[d.source_id] = v
+  //   })
+  //   if (hasAddress) {
+  //     const addrCheck = checkStatusMap.get('ADDRESS')
+  //     const kycAddr = kycByKey.get('ADDRESS')
+  //     const st = addrCheck?.status || kycAddr?.status
+  //     rows.push({
+  //       field: 'Residential Address',
+  //       values: addrValues,
+  //       status:
+  //         st === 'PASS'
+  //           ? 'PASS'
+  //           : st === 'FAIL'
+  //             ? 'FAIL'
+  //             : st === 'SKIPPED'
+  //               ? 'SKIPPED'
+  //               : 'SINGLE_SOURCE',
+  //       statusText:
+  //         st === 'PASS'
+  //           ? 'Matched'
+  //           : st === 'FAIL'
+  //             ? 'Mismatch'
+  //             : addrCheck?.reason_codes?.includes('ADDRESS_SINGLE_SOURCE')
+  //               ? 'Single Source'
+  //               : 'Extracted',
+  //       matchScore: kycAddr?.match_score ?? null,
+  //       confidence: kycAddr?.confidence ?? null,
+  //       reason: kycAddr?.reason ?? null,
+  //       reasonCode: kycAddr?.reason_code ?? null,
+  //     })
+  //   }
+  // }
 
   // 6. Validity
-  {
-    const validityValues: { [sourceId: string]: string | null } = {}
-    let hasValidity = false
-    documents.forEach((d) => {
-      const v = getFieldFromDoc('VALIDITY', d)
-      if (v) hasValidity = true
-      validityValues[d.source_id] = v
-    })
-    if (hasValidity) {
-      rows.push({
-        field: 'Validity & Expiry',
-        sublabel: 'Document Lifecycle',
-        values: validityValues,
-        status: 'PASS',
-        statusText: 'Active',
-        matchScore: null,
-        confidence: null,
-        reason: null,
-        reasonCode: null,
-      })
-    }
-  }
+  // {
+  //   const validityValues: { [sourceId: string]: string | null } = {}
+  //   let hasValidity = false
+  //   documents.forEach((d) => {
+  //     const v = getFieldFromDoc('VALIDITY', d)
+  //     if (v) hasValidity = true
+  //     validityValues[d.source_id] = v
+  //   })
+  //   if (hasValidity) {
+  //     rows.push({
+  //       field: 'Validity & Expiry',
+  //       values: validityValues,
+  //       status: 'PASS',
+  //       statusText: 'Active',
+  //       matchScore: null,
+  //       confidence: null,
+  //       reason: null,
+  //       reasonCode: null,
+  //     })
+  //   }
+  // }
 
   // 7. Vehicle Classes
-  {
-    const vehicleValues: { [sourceId: string]: string | null } = {}
-    let hasVehicle = false
-    documents.forEach((d) => {
-      const v = getFieldFromDoc('VEHICLE_CLASSES', d)
-      if (v) hasVehicle = true
-      vehicleValues[d.source_id] = v
-    })
-    if (hasVehicle) {
-      rows.push({
-        field: 'Vehicle Classes',
-        sublabel: 'Authorised Categories',
-        values: vehicleValues,
-        status: 'SINGLE_SOURCE',
-        statusText: 'Extracted (DL)',
-        matchScore: null,
-        confidence: null,
-        reason: null,
-        reasonCode: null,
-      })
-    }
-  }
+  // {
+  //   const vehicleValues: { [sourceId: string]: string | null } = {}
+  //   let hasVehicle = false
+  //   documents.forEach((d) => {
+  //     const v = getFieldFromDoc('VEHICLE_CLASSES', d)
+  //     if (v) hasVehicle = true
+  //     vehicleValues[d.source_id] = v
+  //   })
+  //   if (hasVehicle) {
+  //     rows.push({
+  //       field: 'Vehicle Classes',
+  //       values: vehicleValues,
+  //       status: 'SINGLE_SOURCE',
+  //       statusText: 'Extracted (DL)',
+  //       matchScore: null,
+  //       confidence: null,
+  //       reason: null,
+  //       reasonCode: null,
+  //     })
+  //   }
+  // }
 
   // 8. Income
-  {
-    const incomeCheck = checkStatusMap.get('INCOME')
-    const kycIncome = kycByKey.get('INCOME')
-    if (incomeCheck || kycIncome) {
-      const incValues: { [sourceId: string]: string | null } = {}
-      documents.forEach((d) => {
-        incValues[d.source_id] = getFieldFromDoc('INCOME', d)
-      })
-      rows.push({
-        field: 'Income & Earnings',
-        sublabel: 'Financial Proof',
-        values: incValues,
-        status: 'SKIPPED',
-        statusText: 'Not provided',
-        matchScore: kycIncome?.match_score ?? null,
-        confidence: kycIncome?.confidence ?? null,
-        reason: kycIncome?.reason ?? null,
-        reasonCode: kycIncome?.reason_code ?? null,
-      })
-    }
-  }
+  // {
+  //   const incomeCheck = checkStatusMap.get('INCOME')
+  //   const kycIncome = kycByKey.get('INCOME')
+  //   if (incomeCheck || kycIncome) {
+  //     const incValues: { [sourceId: string]: string | null } = {}
+  //     documents.forEach((d) => {
+  //       incValues[d.source_id] = getFieldFromDoc('INCOME', d)
+  //     })
+  //     rows.push({
+  //       field: 'Income & Earnings',
+  //       values: incValues,
+  //       status: 'SKIPPED',
+  //       statusText: 'Not provided',
+  //       matchScore: kycIncome?.match_score ?? null,
+  //       confidence: kycIncome?.confidence ?? null,
+  //       reason: kycIncome?.reason ?? null,
+  //       reasonCode: kycIncome?.reason_code ?? null,
+  //     })
+  //   }
+  // }
 
   const totalChecks = checks.length
   // Prefer cross_document.checks when present; otherwise aggregate party verification_summary
@@ -709,12 +704,13 @@ export function CrossDocumentReconciliation({
         </div>
 
         <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider border ${isOverallPass
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider border ${
+            isOverallPass
               ? 'bg-success-subtle text-success-text border-success/25'
               : isOverallFail
                 ? 'bg-danger-subtle text-danger-text border-danger/25'
                 : 'bg-warning-subtle text-warning-text border-warning/25'
-            }`}
+          }`}
         >
           {isOverallPass ? (
             <CheckCircle2 className="h-3.5 w-3.5" />
@@ -738,8 +734,9 @@ export function CrossDocumentReconciliation({
           </div>
           <div className="flex items-end gap-1">
             <span
-              className={`font-display text-[28px] font-bold leading-none tracking-tight ${matchScore >= 80 ? 'text-success' : matchScore >= 50 ? 'text-warning' : 'text-danger'
-                }`}
+              className={`font-display text-[28px] font-bold leading-none tracking-tight ${
+                matchScore >= 80 ? 'text-success' : matchScore >= 50 ? 'text-warning' : 'text-danger'
+              }`}
             >
               {matchScore}
             </span>
@@ -747,8 +744,9 @@ export function CrossDocumentReconciliation({
           </div>
           <div className="h-1.5 w-full rounded-full bg-raised overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${matchScore >= 80 ? 'bg-success' : matchScore >= 50 ? 'bg-warning' : 'bg-danger'
-                }`}
+              className={`h-full rounded-full transition-all ${
+                matchScore >= 80 ? 'bg-success' : matchScore >= 50 ? 'bg-warning' : 'bg-danger'
+              }`}
               style={{ width: `${Math.min(100, matchScore)}%` }}
             />
           </div>
@@ -785,21 +783,23 @@ export function CrossDocumentReconciliation({
         </div>
 
         <div
-          className={`card p-4 shadow-xs flex flex-col gap-2 ${failCount > 0
+          className={`card p-4 shadow-xs flex flex-col gap-2 ${
+            failCount > 0
               ? 'border-danger/25 bg-danger-subtle'
               : reviewCount > 0
                 ? 'border-warning/25 bg-warning-subtle'
                 : 'border-line bg-surface'
-            }`}
+          }`}
         >
           <div className="flex items-center justify-between">
             <span
-              className={`text-[10px] font-bold uppercase tracking-wider ${failCount > 0
+              className={`text-[10px] font-bold uppercase tracking-wider ${
+                failCount > 0
                   ? 'text-danger/70'
                   : reviewCount > 0
                     ? 'text-warning/70'
                     : 'text-content-disabled'
-                }`}
+              }`}
             >
               {failCount > 0 ? 'Failed' : 'Review'}
             </span>
@@ -810,22 +810,24 @@ export function CrossDocumentReconciliation({
             )}
           </div>
           <span
-            className={`font-display text-[28px] font-bold leading-none tracking-tight ${failCount > 0
+            className={`font-display text-[28px] font-bold leading-none tracking-tight ${
+              failCount > 0
                 ? 'text-danger'
                 : reviewCount > 0
                   ? 'text-warning'
                   : 'text-content-disabled'
-              }`}
+            }`}
           >
             {failCount > 0 ? failCount : reviewCount}
           </span>
           <span
-            className={`text-[10px] ${failCount > 0
+            className={`text-[10px] ${
+              failCount > 0
                 ? 'text-danger/70'
                 : reviewCount > 0
                   ? 'text-warning/70'
                   : 'text-content-disabled'
-              }`}
+            }`}
           >
             {failCount > 0
               ? totalChecks > 0
@@ -856,8 +858,9 @@ export function CrossDocumentReconciliation({
             </span>
           </div>
           <ChevronDown
-            className={`h-4 w-4 text-content-secondary transition-transform duration-200 ${checklistOpen ? 'rotate-180' : ''
-              }`}
+            className={`h-4 w-4 text-content-secondary transition-transform duration-200 ${
+              checklistOpen ? 'rotate-180' : ''
+            }`}
           />
         </button>
 
@@ -944,8 +947,9 @@ export function CrossDocumentReconciliation({
             </span>
           </div>
           <ChevronDown
-            className={`h-4 w-4 text-content-secondary transition-transform duration-200 ${matrixOpen ? 'rotate-180' : ''
-              }`}
+            className={`h-4 w-4 text-content-secondary transition-transform duration-200 ${
+              matrixOpen ? 'rotate-180' : ''
+            }`}
           />
         </button>
 
@@ -984,10 +988,11 @@ export function CrossDocumentReconciliation({
                                       e.stopPropagation()
                                       setInfoOpen(infoOpen === row.field ? null : row.field)
                                     }}
-                                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${infoOpen === row.field
+                                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                                      infoOpen === row.field
                                         ? 'border-ember/40 bg-ember/10 text-ember'
                                         : 'border-line text-content-disabled hover:border-ember/30 hover:text-ember'
-                                      }`}
+                                    }`}
                                     title={row.reason}
                                     aria-label={`Info: ${row.field}`}
                                   >
@@ -1037,8 +1042,9 @@ export function CrossDocumentReconciliation({
                           className={`group ${idx % 2 === 1 ? 'bg-raised' : 'bg-surface'}`}
                         >
                           <td
-                            className={`sticky left-0 z-10 py-3.5 pl-5 pr-4 align-top shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)] ${idx % 2 === 1 ? 'bg-raised' : 'bg-surface'
-                              }`}
+                            className={`sticky left-0 z-10 py-3.5 pl-5 pr-4 align-top shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)] ${
+                              idx % 2 === 1 ? 'bg-raised' : 'bg-surface'
+                            }`}
                             style={{ minWidth: 180, width: 180 }}
                           >
                             <div className="flex items-start gap-2">
