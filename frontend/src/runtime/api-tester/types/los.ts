@@ -1,9 +1,9 @@
-/** Types matching the LOS Process API PRD */
+/** Types matching the LOS Process API (multi-party: primary + co-applicant) */
 
 export type Operation = 'PROCESS' | 'EXTRACT' | 'VERIFY'
 
 export type AppStatus = 'SUCCESS' | 'PARTIAL' | 'REVIEW' | 'REJECTED' | 'FAILED'
-export type DocStatus = 'SUCCESS' | 'REVIEW' | 'SKIPPED' | 'FAILED'
+export type DocStatus = 'SUCCESS' | 'REVIEW' | 'SKIPPED' | 'FAILED' | 'REJECTED'
 export type VerificationStatus = 'PASS' | 'REVIEW' | 'FAIL' | 'SKIPPED'
 export type Decision = 'PASS' | 'REVIEW' | 'REJECT'
 export type NextAction =
@@ -13,6 +13,8 @@ export type NextAction =
   | 'REQUEST_CORRECT_DOCUMENT'
 export type CheckStatus = 'PASS' | 'REVIEW' | 'FAIL' | 'SKIPPED'
 export type SummarySource = 'llm' | 'deterministic'
+
+export type PartyRole = 'PRIMARY_APPLICANT' | 'CO_APPLICANT'
 
 export type DocumentTypeHint =
   | 'AUTO'
@@ -65,8 +67,11 @@ export interface DocumentResult {
   type: string
   status: DocStatus
   verification: VerificationStatus
+  party_id?: string | null
+  party_role?: PartyRole | string | null
   extraction?: Record<string, unknown> | null
   reason_codes?: string[]
+  reasons?: string[]
   expected_type?: string | null
   hint?: string | null
   specialist?: SpecialistResult | null
@@ -75,6 +80,8 @@ export interface DocumentResult {
   has_extracted_fields?: boolean
   authenticity?: string
   advisories?: string[]
+  verification_score?: number
+  verification_confidence?: number
 }
 
 export interface KycFieldSource {
@@ -94,20 +101,71 @@ export interface KycField {
   sources?: KycFieldSource[]
 }
 
+/** Nested score object returned by the live API */
+export interface KycScoreDetail {
+  value: number
+  type?: string
+  label?: string
+  interpretation?: string
+  confidence?: number
+}
+
+/** Per-party or overall check counts inside kyc.verification_summary */
+export interface KycVerificationSummary {
+  checks_evaluated?: number
+  checks_passed?: number
+  checks_failed?: number
+  checks_skipped?: number
+  primary_issue?: string
+  party_id?: string
+  primary_applicant?: KycVerificationSummary
+  co_applicant?: KycVerificationSummary
+}
+
+/** Human-readable result block on KYC */
+export interface KycResultBlock {
+  title?: string
+  action?: string
+  message?: string
+}
+
 export interface KycResult {
   status: CheckStatus
   reason_codes?: string[]
   overall_score?: number
   overall_confidence?: number
+  overall_score_basis?: string
+  score?: KycScoreDetail
+  verification_summary?: KycVerificationSummary
+  result?: KycResultBlock
   fields?: KycField[]
 }
 
+export interface PartyVerificationSummary {
+  total_documents: number
+  passed: number
+  review: number
+  failed: number
+  skipped: number
+}
+
+export interface PartyResult {
+  party_id: string
+  role: PartyRole | string
+  status: AppStatus | string
+  document_ids?: string[]
+  verification_summary?: PartyVerificationSummary
+  kyc?: KycResult
+}
+
 export interface CrossCheck {
-  check: 'NAME' | 'DOB' | 'ADDRESS' | 'PAN' | 'INCOME' | string
+  check: 'NAME' | 'DOB' | 'ADDRESS' | 'PAN' | 'INCOME' | 'FATHER_NAME' | string
   status: CheckStatus
   reason_codes?: string[]
   sources?: string[]
   details?: Record<string, string> | null
+  /** Present when checks are scoped per party (multi-party response) */
+  party_id?: string | null
 }
 
 export interface CrossDocument {
@@ -118,6 +176,7 @@ export interface CrossDocument {
 export interface LosProcessResponse {
   request_id: string
   applicant_id: string | null
+  co_applicant_id?: string | null
   case_id: string
   status: AppStatus
   documents: DocumentResult[]
@@ -129,6 +188,8 @@ export interface LosProcessResponse {
   summary_source: SummarySource
   processing_ms: number
   errors: LosError[]
+  primary_applicant?: PartyResult
+  co_applicant?: PartyResult
 }
 
 export interface ApiErrorBody {
@@ -142,6 +203,7 @@ export interface UploadFileItem {
   id: string
   file: File
   expectedType: DocumentTypeHint
+  partyRole: PartyRole
 }
 
 export const DOCUMENT_TYPE_OPTIONS: { value: DocumentTypeHint; label: string }[] = [
@@ -175,3 +237,4 @@ export const ACCEPTED_MIME = [
 export const ACCEPTED_EXT = '.pdf,.jpg,.jpeg,.png,.tif,.tiff,.webp'
 export const MAX_BYTES = 25 * 1024 * 1024
 export const MAX_FILES = 10
+export const MAX_FILES_PER_PARTY = 5

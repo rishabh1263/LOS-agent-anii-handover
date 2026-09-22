@@ -42,7 +42,7 @@ export function AuthSection({
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-xs font-sans text-[11px] font-bold tabular-nums transition-colors bg-ember text-oncolor"
             aria-hidden
           >
-            3
+            4
           </span>
           <div>
             <h2 id="section-auth" className="font-display text-[16px] font-semibold text-content">
@@ -73,7 +73,7 @@ export function AuthSection({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             className="overflow-hidden"
           >
             <div className="space-y-3.5 pt-4 border-t border-line-divider mt-4">
@@ -101,7 +101,7 @@ export function AuthSection({
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.18 }}
+                    transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                     className="overflow-hidden"
                   >
                     <div className="space-y-3.5 rounded-sm border border-line-divider bg-raised/50 p-4">
