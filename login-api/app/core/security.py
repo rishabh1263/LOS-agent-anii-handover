@@ -30,20 +30,45 @@ def verify_credentials(username: str, password: str, settings: Settings) -> bool
 
 def create_access_token(subject: str, settings: Settings) -> str:
     """
-    Creates a signed JWT containing the username (subject) and an expiry claim.
+    Creates an RS256-signed JWT with sub, iss, aud, iat, nbf, exp, jti,
+    scope and role claims, and a `kid` header.
     """
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    payload = {"sub": subject, "exp": expire}
-    token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
-    return token
+    now = datetime.now(timezone.utc)
+    iat = int(now.timestamp())
+    exp = int((now + timedelta(minutes=settings.access_token_expire_minutes)).timestamp())
+
+    payload = {
+        "sub": subject,
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "iat": iat,
+        "nbf": iat,
+        "exp": exp,
+        "jti": f"{settings.dummy_role}-{iat}",
+        "scope": settings.dummy_scope,
+        "role": settings.dummy_role,
+    }
+    return jwt.encode(
+        payload,
+        settings.private_key,
+        algorithm=settings.jwt_algorithm,
+        headers={"kid": settings.jwt_kid},  # "typ": "JWT" PyJWT khud add karta hai
+    )
 
 
 def decode_access_token(token: str, settings: Settings) -> dict:
     """
-    Decodes and validates a JWT. Raises jwt exceptions on failure,
-    which get translated to HTTP errors by get_current_user below.
+    Decodes and validates a JWT (signature, exp, nbf, iss, aud).
+    Raises jwt exceptions on failure, which get translated to HTTP errors
+    by get_current_user below.
     """
-    return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+    return jwt.decode(
+        token,
+        settings.public_key,
+        algorithms=[settings.jwt_algorithm],
+        audience=settings.jwt_audience,
+        issuer=settings.jwt_issuer,
+    )
 
 
 def get_current_user(
