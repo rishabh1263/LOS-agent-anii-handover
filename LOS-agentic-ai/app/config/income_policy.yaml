@@ -1,0 +1,64 @@
+# ===========================================================================
+# INCOME EVIDENCE AND INCOME CONSISTENCY POLICY
+# ===========================================================================
+# Every threshold the income evidence and income consistency checks apply
+# lives here. None of them are written into the comparison logic, so a
+# policy change is a reviewable config change rather than a code change.
+#
+# ---------------------------------------------------------------------------
+# WHY INCOME CONSISTENCY IS NOT AN IDENTITY CHECK
+# ---------------------------------------------------------------------------
+# A salary slip states what an employer says it paid. A bank statement shows
+# what arrived. They routinely differ for reasons that are nobody's fault: a
+# mid-month joining, a reimbursement paid separately, a loan EMI deducted at
+# source, a salary revised between the slip and the statement, an account
+# that is not the salary account.
+#
+# So a difference here is a REVIEW -- a human is asked to look -- and never
+# FRAUD, FAKE, REJECT or a credit verdict. This check produces one signal:
+# whether the two documents tell a consistent story about income.
+#
+# IDENTITY KYC IS UNTOUCHED BY IT. Name, date of birth, PAN, father's name
+# and address are decided by kyc_policies.yaml and are not affected by
+# anything in this file.
+# ---------------------------------------------------------------------------
+
+income_evidence:
+  # How close two credits must be to count as the same recurring payment,
+  # as a fraction of the amount. A salary varies month to month with
+  # attendance, tax and reimbursements; 10% absorbs that without merging
+  # two genuinely different payments.
+  recurring_amount_tolerance: 0.10
+
+  # How many DIFFERENT months a credit must appear in before it is called
+  # recurring. Two credits in one week are one event happening twice.
+  minimum_recurring_months: 2
+
+  # How often a recurring credit may arrive per observed month and still
+  # look like income. Income arrives about once a month; a credit of the
+  # same size landing five times a month is a payment habit -- UPI
+  # refunds, small transfers -- and calling the busiest such cluster the
+  # applicant's income would describe their change, not their earnings.
+  maximum_credits_per_month: 2
+
+  # Below this, evidence is reported but treated as weak by the
+  # consistency check, which reviews rather than passes on it.
+  weak_evidence_confidence: 0.5
+
+income_consistency:
+  enabled: true
+
+  # WHICH SLIP FIGURE THE BANK CREDITS ARE COMPARED AGAINST. Net pay is
+  # what leaves the employer for the employee's account; gross never
+  # arrives anywhere, so comparing credits to it would report a mismatch
+  # on every correctly paid salary.
+  compare_against: NET_PAY
+
+  # How far the observed recurring credit may sit from the stated figure
+  # and still be consistent, as a fraction of the stated figure.
+  amount_tolerance: 0.10
+
+  # How much statement must be observed before a comparison means
+  # anything. Under this, the check reviews for insufficient history
+  # rather than passing or failing on one month.
+  minimum_months_observed: 2

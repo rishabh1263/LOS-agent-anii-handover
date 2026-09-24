@@ -186,26 +186,50 @@ KNOWLEDGE_QUESTION = "What documents are required for a personal loan?"
 
 @pytest.mark.parametrize("stage", ["CPA", "CREDIT", "RCU", "BOPS", "HOPS",
                                    "DISBURSEMENT"])
-def test_a_process_question_on_an_unbuilt_stage_is_refused(client, repo, stage):
+def test_a_process_question_on_a_guide_only_stage_is_answered(client, repo,
+                                                              stage):
+    """
+    CHANGED WHEN THE GUIDES WERE INDEXED. These six used to be refused
+    with CAPABILITY_UNAVAILABLE because no corpus existed for them.
+    B4 indexed a demonstration stage guide for every stage, so the
+    refusal would now be wrong: the Copilot CAN answer how the stage
+    works. What it still cannot do is read a case at that stage, and
+    the test below holds that line.
+    """
     seed(repo, stage=stage)
 
     body = ask(client, KNOWLEDGE_QUESTION).json()
 
-    assert body["status"] == "CAPABILITY_UNAVAILABLE"
+    assert body.get("status") != "CAPABILITY_UNAVAILABLE"
     assert body["stage"] == stage
-    assert body["answer"] == (
-        f"No {stage} Copilot capability is currently registered for "
-        "this request.")
 
 
-def test_the_refusal_is_not_an_authorisation_failure(client, repo):
+@pytest.mark.parametrize("stage", ["CPA", "CREDIT", "RCU", "BOPS", "HOPS",
+                                   "DISBURSEMENT"])
+def test_a_guide_only_stage_still_has_no_case_capability(client, repo, stage):
     """
-    A 403 tells a reviewer to fix the caller's scopes. Nothing is wrong
-    with the caller here -- the stage simply has no capability.
+    A DOWNSTREAM request needs a capability, not a corpus. Six stages
+    have a guide and nothing that can act on a case.
+    """
+    from app.agents.los import stage_registry
+    from app.agents.los.stages import LosStage
+
+    registered = stage_registry.capabilities_for(LosStage(stage))
+
+    assert registered.answers_knowledge()
+    assert not registered.answers_downstream()
+
+
+def test_a_downstream_request_on_a_guide_only_stage_is_refused(client, repo):
+    """
+    THE REFUSAL STILL EXISTS, for the thing that still has no
+    capability. A 403 would tell a reviewer to fix the caller's
+    scopes; nothing is wrong with the caller -- the stage simply
+    cannot act on a case.
     """
     seed(repo, stage="BOPS")
 
-    response = ask(client, KNOWLEDGE_QUESTION)
+    response = ask(client, "what is my credit score?")
 
     assert response.status_code == 200
     assert response.json()["status"] == "CAPABILITY_UNAVAILABLE"
@@ -224,17 +248,24 @@ def test_the_refusal_is_not_an_unrecognised_question(client, repo):
     assert body["category"] != "CLARIFICATION"
 
 
-def test_no_fos_knowledge_leaks_into_an_unbuilt_stages_answer(client, repo):
+def test_a_bops_question_is_answered_from_the_bops_guide(client, repo):
     """
-    THE WHOLE POINT. The FOS handbook is the only corpus that exists, so
-    an unguarded BOPS question would be answered from it.
+    CHANGED, AND THIS IS THE POINT OF THE PHASE. The old version
+    asserted that a BOPS question returned nothing, because the FOS
+    handbook was the only corpus and answering from it would have been
+    wrong. There is a BOPS guide now, so the question is answered --
+    and any process source cited must carry the BOPS stage, never
+    another one.
     """
     seed(repo, stage="BOPS")
 
     body = ask(client, KNOWLEDGE_QUESTION).json()
+    process = [s for s in (body.get("sources") or [])
+               if s.get("source_type") == "PROCESS_KNOWLEDGE"]
 
-    assert body["sources"] == []
-    assert body["response_source"] == "deterministic"
+    for item in process:
+        assert item["stage"] == "BOPS"
+        assert item.get("case_id") is None
 
 
 def test_a_case_fact_question_is_answered_whatever_the_stage(client, repo):

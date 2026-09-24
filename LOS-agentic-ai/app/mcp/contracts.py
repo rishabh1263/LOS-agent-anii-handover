@@ -190,6 +190,37 @@ CONTRACTS: dict[str, ToolContract] = {
         scope_key="next_action",
         never=DOWNSTREAM_CONCERNS,
     ),
+    "eligibility.get": ToolContract(
+        name="eligibility.get",
+        summary=(
+            "The affordability verdict RECORDED for this case: status, "
+            "reason codes and the figures behind them. A read of what the "
+            "Eligibility stage concluded. IT COMPUTES NOTHING: no FOIR, "
+            "no instalment, no threshold comparison. A verdict produced "
+            "to answer a question would be computed from whatever was "
+            "readable at the moment somebody asked, and one applicant "
+            "would have two ratios. It is not a lending decision."
+        ),
+        input_schema=_schema({"case_id": CASE_ID}, ["case_id"]),
+        # Affordability is verification output: figures other stages
+        # verified, compared against a policy. A caller who may not see a
+        # verdict may not see this one either.
+        scope_key="verification",
+        # WHY THERE IS NO `calculate_foir` BESIDE THIS.
+        #
+        # Exposing the arithmetic as a tool would let a caller assemble
+        # its own inputs and produce a second FOIR for one applicant --
+        # and the one a reviewer saw would depend on which response they
+        # opened. Affordability is evaluated once, in the pipeline, by
+        # the stage that owns it. This reads the answer.
+        # THE SHARED STAGE BOUNDARY, and exactly it: every read tool
+        # declares the same list, and a per-tool addition would leave
+        # two lists of refusals to keep in step by hand. What this tool
+        # refuses BEYOND that -- computing anything -- is stated in the
+        # summary, and enforced by there being no calculating tool at
+        # all for a caller to reach for.
+        never=DOWNSTREAM_CONCERNS,
+    ),
     "applicant.360": ToolContract(
         name="applicant.360",
         summary=(
@@ -260,6 +291,29 @@ CONTRACTS: dict[str, ToolContract] = {
                 "employment_type": _string(
                     "An attribute the document policy may key on. Not "
                     "defaulted."),
+                # AFFORDABILITY INPUTS. Declared so a client can send
+                # them; optional so no existing client has to. Every one
+                # absent means the eligibility stage names it and
+                # assesses nothing, which is the honest outcome -- a
+                # default tenure produces an instalment that looks
+                # calculated and was invented.
+                "tenure_months": _string(
+                    "Repayment period in months. Without it no instalment "
+                    "can be computed and eligibility reports "
+                    "EMI_INPUTS_MISSING."),
+                "interest_rate_pct": _string(
+                    "Annual interest rate. Without it no instalment can be "
+                    "computed."),
+                "declared_monthly_obligations": _string(
+                    "What the applicant says they already repay each "
+                    "month. Recorded AS DECLARED: whether a declared "
+                    "figure may be used in an affordability calculation "
+                    "is a policy decision, and it is not accepted by "
+                    "default."),
+                "property_value": _string(
+                    "The property's value, for a secured product LTV "
+                    "applies to. Recorded AS DECLARED; never derived from a "
+                    "sale deed's consideration price."),
                 "case_id": _string("Optional. Generated when omitted."),
             },
             ["applicant_id"],
@@ -278,6 +332,29 @@ CONTRACTS: dict[str, ToolContract] = {
                 "loan_amount": _string("Drives amount-based document rules."),
                 "employment_type": _string(
                     "An attribute the document policy may key on."),
+                # AFFORDABILITY INPUTS. Declared so a client can send
+                # them; optional so no existing client has to. Every one
+                # absent means the eligibility stage names it and
+                # assesses nothing, which is the honest outcome -- a
+                # default tenure produces an instalment that looks
+                # calculated and was invented.
+                "tenure_months": _string(
+                    "Repayment period in months. Without it no instalment "
+                    "can be computed and eligibility reports "
+                    "EMI_INPUTS_MISSING."),
+                "interest_rate_pct": _string(
+                    "Annual interest rate. Without it no instalment can be "
+                    "computed."),
+                "declared_monthly_obligations": _string(
+                    "What the applicant says they already repay each "
+                    "month. Recorded AS DECLARED: whether a declared "
+                    "figure may be used in an affordability calculation "
+                    "is a policy decision, and it is not accepted by "
+                    "default."),
+                "property_value": _string(
+                    "The property's value, for a secured product LTV "
+                    "applies to. Recorded AS DECLARED; never derived from a "
+                    "sale deed's consideration price."),
             },
             ["case_id"],
         ),

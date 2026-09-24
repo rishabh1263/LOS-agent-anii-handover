@@ -515,6 +515,27 @@ def rule_foir_breach(
     cfg: dict[str, Any],
 ) -> RuleResult:
 
+    # THE FIGURE ELIGIBILITY PUBLISHED, WHERE THERE IS ONE.
+    #
+    # Eligibility owns affordability: it assembles the income the
+    # released-extraction gate allowed, the obligations policy accepted
+    # and the loan terms captured on the application, and computes the
+    # FOIR once. This rule's job is to BAND that number for severity.
+    # Recomputing it here from a separately-supplied income would give
+    # one applicant two FOIRs, and the one a reviewer saw would depend
+    # on which response they were reading.
+    published = getattr(req, "eligibility", None)
+    published_foir = getattr(published, "foir_pct", None) if published else None
+
+    if published_foir is not None:
+        foir = _quantise(float(published_foir))
+        severity = _band_severity(
+            foir,
+            cfg.get("bands", []),
+            "foir_pct",
+        )
+        return _foir_outcome(req, cfg, foir, severity, source="ELIGIBILITY")
+
     gross = inc.verified_income(
         req.income
     )
@@ -599,8 +620,43 @@ def rule_foir_breach(
         "foir_pct",
     )
 
+    return _foir_outcome(
+        req, cfg, foir, severity, source="RISK_RULE",
+        gross=gross, obligation=obligation, proposed_emi=proposed_emi,
+    )
+
+
+def _foir_outcome(
+    req: FraudRiskRequest,
+    cfg: dict[str, Any],
+    foir: float,
+    severity: Any,
+    *,
+    source: str,
+    gross: float | None = None,
+    obligation: float | None = None,
+    proposed_emi: float | None = None,
+) -> RuleResult:
+    """
+    One FOIR banding, whoever computed the percentage.
+
+    `source` travels into the evidence so a reviewer can see whether the
+    number came from the Eligibility stage or from this rule's own
+    fallback -- the two use the same formula, and knowing which ran is
+    what makes a disagreement findable.
+    """
     if severity is None:
         return [], []
+
+    evidence: dict[str, Any] = {
+        "foir_pct": round(foir, 2),
+        "foir_source": source,
+    }
+    for name, value in (("gross_income", gross),
+                        ("fixed_obligation", obligation),
+                        ("proposed_emi", proposed_emi)):
+        if value is not None:
+            evidence[name] = round(value, 2)
 
     return [
         _flag(
@@ -610,24 +666,7 @@ def rule_foir_breach(
                 "Fixed obligation to income "
                 "ratio exceeds policy comfort."
             ),
-            {
-                "foir_pct": round(
-                    foir,
-                    2,
-                ),
-                "gross_income": round(
-                    gross,
-                    2,
-                ),
-                "fixed_obligation": round(
-                    obligation,
-                    2,
-                ),
-                "proposed_emi": round(
-                    proposed_emi,
-                    2,
-                ),
-            },
+            evidence,
         )
     ], []
 
@@ -642,6 +681,21 @@ def rule_ltv_breach(
     req: FraudRiskRequest,
     cfg: dict[str, Any],
 ) -> RuleResult:
+
+    # THE FIGURE ELIGIBILITY PUBLISHED, WHERE THERE IS ONE -- exactly as the
+    # FOIR rule does. Eligibility computes LTV once, from the property value
+    # its policy accepted; recomputing it here from a separately-supplied
+    # value would give one application two LTVs.
+    published = getattr(req, "eligibility", None)
+    published_ltv = getattr(published, "ltv_pct", None) if published else None
+    if published_ltv is not None:
+        ltv = _quantise(float(published_ltv))
+        severity = _band_severity(ltv, cfg.get("bands", []), "ltv_pct")
+        if severity is None:
+            return [], []
+        return [_flag("LTV_BREACH", severity,
+                      "Loan to value ratio exceeds policy comfort.",
+                      {"ltv_pct": round(ltv, 2), "ltv_source": "ELIGIBILITY"})], []
 
     missing: list[str] = []
 

@@ -98,6 +98,11 @@ verification:
           structure: true        # holder-type character in position four
           name_initial: true     # fifth character vs the printed name
           date_plausible: true
+          # Consistency between the card's own fields. REVIEW by default;
+          # none of them establishes authenticity.
+          holder_type_consistency: true   # non-individual code + father's name
+          name_father_distinct: true      # holder and father read as one name
+          serial_issued: true             # a 0000 serial is never issued
         severity:
           # ADVISORY, from measurement. As a blocking rule this rejected a
           # GENUINE PAN in the sample corpus -- a black-and-white card whose
@@ -111,6 +116,11 @@ verification:
         required_fields: [dl_number, name, date_of_birth]
         checks:
           date_plausible: true   # also catches an expired licence
+          # Consistency between the licence's own fields; REVIEW by default.
+          state_code: true             # modern number opens with a state code
+          issue_age: true              # not issued before the holder was 16
+          validity_order: true         # valid-till after the issue date
+          name_guardian_distinct: true # holder and guardian read as one name
 
       VOTER_ID:
         required_fields: [voter_id, name]
@@ -131,7 +141,8 @@ verification:
       PASSPORT:
         required_fields: [passport_number, name, date_of_birth]
         checks:
-          date_plausible: true
+          date_plausible: true   # also catches an expired passport
+          number_format: true    # Indian passports: one letter, seven digits
 
   # WHAT THIS SECTION IS, and is not.
   #

@@ -29,8 +29,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from app.agents.applicant import intents, routing
 from app.agents.applicant.agent import AgentError, answer_question
+from app.agents.applicant.grounded import supported_by_case_evidence
 from app.agents.los import stage_registry, stages
+from app.knowledge import grounding, retrieval
+from app.knowledge.retrieval import NotOwned
+from app.knowledge.vector_store import Scope, UnscopedSearch
 from app.security.auth import require_jwt
 
 logger = logging.getLogger(__name__)
@@ -48,13 +53,17 @@ class CopilotQueryRequest(BaseModel):
         description="The question, in natural language.",
         examples=["Why is this case in review?"],
     )
-    case_id: str = Field(
-        ...,
+    case_id: str | None = Field(
+        None,
         max_length=128,
         description=(
-            "The case the question is about. **Required** -- every answer "
-            "here is scoped to one case, and a question with no case has "
-            "no scope to check ownership against."
+            "The case the question is about.\n\n"
+            "**Optional.** With a case, the answer is scoped to it and "
+            "the caller must own it. Without one, the question is about "
+            "the APPLICANT and is scoped to their own applications -- "
+            "'how many cases do I have', 'what happened across my "
+            "cases'. There is no unscoped read either way: every tool "
+            "requires a case_id or an applicant_id."
         ),
         examples=["CASE-9B2E7F1A4C60"],
     )
@@ -101,6 +110,15 @@ class CopilotQueryRequest(BaseModel):
 class CopilotSource(BaseModel):
     """What one part of the answer rests on."""
 
+    type: str | None = Field(
+        None,
+        description=(
+            "The kind of evidence, in the vocabulary the rest of the "
+            "response uses. `kind` is the same thing in lower case and "
+            "is kept for callers that already read it."
+        ),
+        examples=["CASE_FINDING", "CASE_DOCUMENT", "PROCESS_KNOWLEDGE"],
+    )
     kind: str = Field(..., examples=["case_finding", "case_decision"])
     finding_kind: str | None = Field(None, examples=["VERIFICATION", "KYC"])
     reason_code: str | None = Field(None, examples=["DOCUMENT_TYPE_MISMATCH"])
@@ -109,6 +127,22 @@ class CopilotSource(BaseModel):
     party_id: str | None = None
     decision: str | None = Field(None, examples=["REVIEW"])
     status: str | None = Field(None, examples=["PARTIAL"])
+
+    # -- retrieval provenance, added beside the case-memory fields ----
+    source_type: str | None = Field(
+        None,
+        description=(
+            "What the evidence was derived from. `PROCESS_KNOWLEDGE` is "
+            "stage guidance, not a fact about this case."
+        ),
+        examples=["CASE_EVENT", "CASE_FINDING", "PROCESS_KNOWLEDGE"],
+    )
+    case_id: str | None = Field(
+        None,
+        description="Null on process knowledge, which belongs to no case.",
+    )
+    stage: str | None = Field(None, examples=["RCU"])
+    document_type: str | None = Field(None, examples=["PAN"])
 
 
 class CopilotQueryResponse(BaseModel):
@@ -151,6 +185,15 @@ class CopilotQueryResponse(BaseModel):
         None,
         description="Who produced the wording — deterministic or a model.",
         examples=["deterministic"],
+    )
+    grounded: bool = Field(
+        False,
+        description=(
+            "Whether retrieved evidence backed this answer. **False "
+            "means the answer says so** -- an answer with no evidence "
+            "states that the available evidence is insufficient rather "
+            "than offering a plausible one."
+        ),
     )
     sources: list[CopilotSource] = Field(
         default_factory=list,
@@ -235,6 +278,366 @@ def _unavailable_for(
     )
 
 
+#: Categories whose answer can be improved by retrieved evidence.
+#: `DOWNSTREAM` is absent deliberately: it is a routing refusal and
+#: existing behaviour, not a question to answer from a corpus.
+_RETRIEVES = {"CASE_ONLY", "KNOWLEDGE_ONLY", "MIXED", "PROCESS_KNOWLEDGE"}
+
+#: Agent refusals that mean "not your case". Published in the same
+#: shape as the retrieval layer's, so a client sees one outcome.
+_ACCESS_DENIED = {"CASE_NOT_ACCESSIBLE", "CASE_STORE_UNAVAILABLE"}
+
+
+#: Intents whose answer quotes recorded values and is never rephrased.
+_QUOTED = {"CASE_HISTORY", "ELIGIBILITY", "INCOME_EVIDENCE",
+           "DOCUMENT_DETAILS"}
+
+
+async def _grounded(
+    request: CopilotQueryRequest, envelope: dict[str, Any],
+    context: stages.StageContext, request_id: str,
+) -> tuple[grounding.GroundedContext, bool]:
+    """
+    Retrieve evidence for this question and ground the answer on it.
+
+    NEVER RAISES EXCEPT FOR OWNERSHIP. A vector store that is down, a
+    model that is off, an embedding provider that cannot be reached --
+    all of them cost the retrieved half and leave the structured
+    answer standing. `NotOwned` is the exception, and is deliberately
+    allowed to propagate: an access refusal must not be downgraded
+    into "nothing found".
+    """
+    category = str(envelope.get("category") or "").upper()
+    if category not in _RETRIEVES:
+        return grounding.GroundedContext(), False
+
+    applicant_id = str(envelope.get("applicant_id")
+                       or request.applicant_id or "").strip()
+    if not applicant_id and category != "PROCESS_KNOWLEDGE":
+        # No applicant means no scope, and there is no unscoped
+        # retrieval. The structured answer stands alone.
+        return grounding.GroundedContext(), False
+
+    # STAGES ARE CHOSEN HERE, by the orchestrator, never by similarity.
+    # A journey question asks where the case has BEEN, so it gets the
+    # ordered stages up to the current one; everything else gets the
+    # stage the case is in now.
+    journey = _is_journey(request.message)
+
+    # WHICH STAGE THE GUIDE COMES FROM.
+    #
+    # A process question is about the stage it NAMES -- "what does RCU
+    # check" is an RCU question even on a case sitting at FOS, and
+    # answering it from the case's stage would answer a different
+    # question than the one asked. Read from the words the user typed,
+    # never from similarity.
+    #
+    # A CASE question is about the stage the case is IN, which the
+    # record decides and the caller cannot override.
+    named = intents.stage_in(request.message)
+    if category == "PROCESS_KNOWLEDGE":
+        chosen = named or (context.stage.value if context.stage else None)
+        stage_set = (chosen,) if chosen else ()
+    else:
+        stage_set = retrieval.stages_for(
+            context.stage.value if context.stage else None, journey=journey)
+
+    # A PROCESS QUESTION HAS NO CASE SCOPE, because the stage guides
+    # belong to no case. `gather` only builds a case search for the
+    # categories that need one.
+    try:
+        scope = (Scope(app_id=applicant_id, case_id=request.case_id,
+                       stages=() if category == "PROCESS_KNOWLEDGE"
+                       else stage_set)
+                 if applicant_id else None)
+    except UnscopedSearch:
+        return grounding.GroundedContext(), False
+
+    gathered = grounding.gather(
+        request.message, category=category, scope=scope, stages=stage_set)
+
+    # A QUESTION ABOUT ONE DOCUMENT IS ANSWERED FROM THAT DOCUMENT.
+    #
+    # Retrieval returns what the case has, which for a case under
+    # review is dominated by its problems. Asked "was the bank
+    # statement verified", the model received the address mismatch,
+    # the profile mismatch and the review decision -- all true, none
+    # of them about the bank statement -- and concluded the bank
+    # details were not verified. Narrowing first is what stops broad
+    # case context from answering a document-level question.
+    focus = intents.classify(request.message).document_type
+    if focus:
+        gathered = _focused(gathered, focus)
+
+    # A RECORDED VALUE IS QUOTED, NEVER REPHRASED.
+    #
+    # These answers quote what the pipeline recorded -- two names from a
+    # KYC comparison, a FOIR, the name on a PAN -- and the agent builds
+    # them with no model at any setting. Handing them to the model here
+    # undid that: with retrieval confident, a generated sentence replaced
+    # the recorded one, checked only for contradicting the verdict, so a
+    # name could be dropped or changed and the response still said
+    # STRUCTURED. The evidence still counts towards `grounded` and still
+    # appears in `sources`; the model is simply not asked, which also
+    # takes its latency off the questions that need it least.
+    answered_by = str(envelope.get("base_intent")
+                      or envelope.get("intent") or "").upper()
+    if answered_by in _QUOTED:
+        return gathered, gathered.grounded
+
+    structured = str(envelope.get("answer") or "")
+    answer, grounded = await grounding.answer(
+        request.message, structured=structured,
+        facts=_facts(envelope), context=gathered,
+    )
+    envelope["answer"] = answer
+
+    # WHO WROTE THE SENTENCE. A model-phrased case answer was published
+    # as STRUCTURED, which says no model touched it.
+    if (category == "CASE_ONLY"
+            and answer.strip() != grounding._readable(structured).strip()):
+        envelope["response_source"] = routing.ResponseSource.LLM.value
+
+    # WHAT THE ANSWER WAS ACTUALLY BUILT FROM.
+    #
+    # A process question carries no structured answer -- the agent
+    # publishes STRUCTURED only because that is the envelope default,
+    # and on this path it is not true of anything. When a stage guide
+    # was retrieved, the answer came from the knowledge base, which
+    # is what the FOS knowledge path reports for the same reason.
+    #
+    # ONLY THIS CATEGORY. The others already report a source the
+    # agent computed, and overwriting those would claim retrieval
+    # decided an answer the records decided.
+    if category == "PROCESS_KNOWLEDGE" and grounded:
+        envelope["response_source"] = routing.ResponseSource.KNOWLEDGE.value
+
+    return gathered, grounded
+
+
+#: Words that make a question about where the case HAS BEEN rather
+#: than where it is. Deliberately a small, explicit list: widening a
+#: search across stages is a decision, and a decision belongs in
+#: something a reader can see.
+_JOURNEY_WORDS = ("before", "previously", "earlier", "history", "journey",
+                  "moved", "progress", "so far", "until now", "led to")
+
+
+def _is_journey(message: str) -> bool:
+    lowered = (message or "").lower()
+    return any(word in lowered for word in _JOURNEY_WORDS)
+
+
+def _deduplicated(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    One entry per piece of evidence.
+
+    TWO ROUTES REACH THE SAME FINDING. The agent cites case memory
+    directly, with the reason code it recorded; retrieval cites the
+    chunk derived from that same finding, which carries the document
+    but not the code. Published as they came, a reviewer saw the same
+    document listed three and four times, some entries richer than
+    others, and had no way to tell whether that meant several
+    findings or one finding seen twice.
+
+    THE LESS SPECIFIC ENTRY LOSES. A pointer at a document with no
+    reason code, where another entry names a code on that same
+    document, is the same evidence with less said about it -- so it
+    is dropped rather than merged, which would attach a code to a
+    pointer that never carried one.
+
+    TWO CODES ON ONE DOCUMENT ARE TWO FINDINGS and both survive: the
+    key includes the code, so ADDRESS_MISMATCH and PROFILE_MISMATCH
+    on one deed stay separate.
+
+    ORDER IS KEPT, and so are null fields -- the shape callers parse
+    does not change, only the repetition.
+    """
+    def identity(source: dict[str, Any]) -> tuple:
+        # NEITHER case_id NOR stage IS PART OF THE IDENTITY. Every
+        # source in one response belongs to one case, so neither says
+        # anything here -- and the two routes disagree about them:
+        # case memory cites a finding without repeating the case, and
+        # retrieval labels the same finding with the case and the
+        # stage it was indexed under. Keyed on those, one finding
+        # looked like two.
+        return (
+            str(source.get("kind") or source.get("source_type") or ""),
+            str(source.get("document_id") or source.get("source_id") or ""),
+            str(source.get("reason_code") or ""),
+        )
+
+    #: Where a code IS known, for the same kind and document.
+    specific = {
+        identity(s)[:2] for s in sources if s.get("reason_code")
+    }
+
+    kept: dict[tuple, dict[str, Any]] = {}
+    for source in sources:
+        key = identity(source)
+        if not source.get("reason_code") and source.get("document_id"):
+            if key[:2] in specific:
+                continue
+        if key in kept:
+            # Same evidence, twice. Keep whichever said more.
+            for field, value in source.items():
+                if value and not kept[key].get(field):
+                    kept[key][field] = value
+            continue
+        kept[key] = dict(source)
+
+    return list(kept.values())
+
+
+def _focused(gathered: "grounding.GroundedContext",
+             document_type: str) -> "grounding.GroundedContext":
+    """
+    The same context, with case evidence about one kind of document.
+
+    KEPT WHOLE WHEN NOTHING MATCHES. A question naming a document the
+    case does not hold would otherwise be answered from no evidence
+    at all, which reads as "I have nothing" when the honest answer is
+    "no such document is on file" -- and that answer comes from the
+    records, not from here.
+
+    PROCESS EVIDENCE IS UNTOUCHED. It belongs to a stage rather than
+    to a document, and a mixed question still needs it.
+    """
+    from app.knowledge.retrieval import RetrievalResult
+
+    wanted = str(document_type).strip().upper()
+    kept = tuple(
+        item for item in gathered.case.evidence
+        if str(item.provenance.get("document_type") or "").upper() == wanted
+    )
+    if not kept:
+        return gathered
+
+    return grounding.GroundedContext(
+        case=RetrievalResult(evidence=kept,
+                             sufficient=gathered.case.sufficient),
+        process=gathered.process,
+    )
+
+
+def _relevant(sources: list[dict[str, Any]],
+              document_type: str | None) -> list[dict[str, Any]]:
+    """
+    The sources that support THIS answer, not every source the case has.
+
+    A document question cited the whole case: the address mismatch on
+    the deed, the profile mismatch on the PAN and the review decision
+    all appeared under "was the bank statement verified", which
+    invites a reader to connect them to an answer they have nothing
+    to do with.
+
+    THE DECISION AND THE GUIDANCE STAY. The case decision is the
+    context any answer sits in, and process knowledge answers the
+    half of a mixed question that a document cannot.
+    """
+    if not document_type:
+        return sources
+
+    wanted = str(document_type).strip().upper()
+    kept = [
+        source for source in sources
+        if str(source.get("document_type") or "").upper() == wanted
+        or str(source.get("type") or "") in {"CASE_DECISION",
+                                             "PROCESS_KNOWLEDGE"}
+    ]
+    return kept or sources
+
+
+def _document_types(envelope: dict[str, Any]) -> dict[str, str]:
+    """
+    document_id -> the KIND of document, from what the agent cited.
+
+    Retrieval labels a document chunk with its type; case memory cites
+    a finding on the same document without one. Collected here so the
+    second can borrow it from the first rather than a reader seeing a
+    finding against a bare file name.
+    """
+    known: dict[str, str] = {}
+    for source in envelope.get("sources") or []:
+        document, kind = source.get("document_id"), source.get("document_type")
+        if document and kind:
+            known[str(document)] = str(kind)
+    return known
+
+
+def _normalised(sources: list[dict[str, Any]], *, case_id: str | None,
+                stage: str | None,
+                documents: dict[str, str]) -> list[dict[str, Any]]:
+    """
+    Fill in what is known, and say the kind of each source out loud.
+
+    WHY ANY OF THIS IS EMPTY TO BEGIN WITH. Two routes build sources.
+    Case memory cites a finding it holds in hand and repeats neither
+    the case nor the stage, because the caller asked about that case;
+    retrieval cites a chunk and labels it with both. Published
+    together, the same finding appeared once with `case_id: null` and
+    once with it filled, which reads like two different records.
+
+    EVERY SOURCE IN ONE RESPONSE BELONGS TO ONE CASE, and the stage is
+    the one the case resolved to, so neither is a guess -- they are
+    the values the response already states at the top level.
+
+    `type` IS ADDED, `kind` IS KEPT. The uppercase form is what the
+    frontend reads and what the rest of the response uses for a
+    source type; removing the old key would break callers that read
+    it, and it costs one field to keep both.
+    """
+    filled: list[dict[str, Any]] = []
+
+    for source in sources:
+        published = dict(source)
+
+        published["type"] = str(
+            source.get("source_type")
+            or str(source.get("kind") or "evidence").upper()
+        )
+        # NOT ON PROCESS KNOWLEDGE. A stage guide describes a desk
+        # and belongs to no case; stamping this case onto it would
+        # claim the guidance was recorded against this file, which is
+        # what `case_id: null` on that source exists to deny.
+        if (case_id and not published.get("case_id")
+                and published["type"] != "PROCESS_KNOWLEDGE"):
+            published["case_id"] = case_id
+        if stage and not published.get("stage"):
+            published["stage"] = stage
+
+        document = published.get("document_id")
+        if document and not published.get("document_type"):
+            borrowed = documents.get(str(document))
+            if borrowed:
+                published["document_type"] = borrowed
+
+        filled.append(published)
+
+    return filled
+
+
+def _facts(envelope: dict[str, Any]) -> dict[str, Any]:
+    """
+    The structured facts the model may see. AN ALLOWLIST.
+
+    No MCP envelopes, no agent state, no trace, no prompts -- the
+    model gets the same verdicts the caller does.
+    """
+    # NO IDENTIFIERS. These carried the case id, the applicant id and
+    # the internal intent, and a model given an identifier prints it:
+    # "The bank statement document for applicant DEMO-APP-002 has
+    # verified bank account details." The reader knows whose case they
+    # opened, the response states both ids at the top level, and
+    # neither helps answer a question.
+    #
+    # WHAT THE MODEL NEEDS IS THE VERDICT AND THE EVIDENCE, and it now
+    # gets the verdict as `established`. This stays as the one place
+    # structured facts could be added back, deliberately empty rather
+    # than deleted.
+    return {}
+
+
 @router.post(
     "/query",
     summary="Ask the Universal LOS Copilot about a case",
@@ -278,12 +681,39 @@ async def query(
         envelope = await answer_question(
             message=request.message,
             applicant_id=request.applicant_id,
+            # None when the question is about the applicant rather than
+            # one case. `check_ownership` enforces case -> applicant
+            # when a case is given, and the applicant-level read is
+            # scoped by applicant_id at the tool.
             case_id=request.case_id,
             party_id=request.party_id,
             claims=claims,
             request_id=request_id,
         )
+    except NotOwned:
+        # A REFUSAL, NOT AN ERROR, AND NOT A DISCLOSURE. Phrased
+        # identically whether the case belongs to somebody else or
+        # does not exist: confirming which would itself be a leak.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"request_id": request_id,
+                    "code": "CASE_ACCESS_DENIED",
+                    "message": "You are not authorized to access this case."},
+        ) from None
     except AgentError as exc:
+        # ONE SHAPE FOR ONE OUTCOME. The agent refuses ownership before
+        # retrieval ever runs, and retrieval refuses it again for a
+        # caller that reached it another way. A client should not have
+        # to recognise two different refusals for the same thing, so
+        # the agent's access denial is published in the same shape.
+        if exc.code in _ACCESS_DENIED:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"request_id": request_id,
+                        "code": "CASE_ACCESS_DENIED",
+                        "message": "You are not authorized to access "
+                                   "this case."},
+            ) from None
         raise HTTPException(
             status_code=exc.http_status,
             detail={"request_id": request_id, "error": exc.code,
@@ -310,15 +740,63 @@ async def query(
     if blocked is not None:
         return blocked
 
+    # EVIDENCE, BESIDE THE STRUCTURED ANSWER -- never instead of it.
+    # The agent has already answered from authoritative records; this
+    # adds retrieved context and lets the model phrase the two
+    # together. A retrieval failure costs the phrasing and nothing
+    # else, because `structured` is what comes back.
+    try:
+        evidence, grounded = await _grounded(request, envelope, context,
+                                             request_id)
+    except NotOwned:
+        # THE RETRIEVAL OWNERSHIP RE-CHECK, surfaced. It fires for a
+        # caller the agent's own check let through -- or when the
+        # store could not confirm ownership at all, which is not
+        # permission. Same wording either way: confirming that a case
+        # exists under another applicant is itself a disclosure.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"request_id": request_id,
+                    "code": "CASE_ACCESS_DENIED",
+                    "message": "You are not authorized to access this case."},
+        ) from None
+
+    # A PROCESS QUESTION CARRIES NO STRUCTURED ANSWER, by design: its
+    # text comes from the retrieved stage guide. When retrieval could
+    # not run at all -- no vector store, no embedding provider -- the
+    # answer is still empty here, and an empty answer is not an answer.
+    # Said plainly rather than published as a blank.
+    if not str(envelope.get("answer") or "").strip():
+        envelope["answer"] = grounding.NO_EVIDENCE
+
     published = {key: envelope.get(key) for key in _PUBLIC}
     published.update(context.public())
+    # GROUNDED MEANS AUTHORITATIVE EVIDENCE SUPPORTS THE ANSWER: either
+    # retrieval was confident, or the case's own records answered it.
+    # It used to mean the first only, so an answer built entirely from a
+    # recorded KYC finding and decision -- and citing both -- published
+    # `grounded: false`. Evaluated on the agent's own envelope, before
+    # retrieval's sources are merged in below.
+    published["grounded"] = bool(
+        grounded or supported_by_case_evidence(envelope))
     published["party_id"] = request.party_id
     published["conversation_id"] = request.conversation_id
-    published["sources"] = list(envelope.get("sources") or [])
-    published["tool_invoked"] = [
-        step.get("tool") for step in (envelope.get("trace") or [])
-        if step.get("tool")
-    ]
+    # The case-memory sources the agent already cites, plus whatever
+    # retrieval found. Both are pointers into records the caller can
+    # already reach.
+    published["sources"] = _relevant(
+        _normalised(
+            _deduplicated(
+                list(envelope.get("sources") or []) + evidence.sources()),
+            case_id=envelope.get("case_id") or request.case_id,
+            stage=context.stage.value if context.stage else None,
+            documents=_document_types(envelope),
+        ),
+        intents.classify(request.message).document_type,
+    )
+    # WHAT ACTUALLY RAN, as the agent recorded it. Read from a `trace`
+    # key the agent never set, this was empty on every answer.
+    published["tool_invoked"] = list(envelope.get("tools_invoked") or [])
 
     return CopilotQueryResponse(**published)
 

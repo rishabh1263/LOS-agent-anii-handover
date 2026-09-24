@@ -131,13 +131,62 @@ def _quality(response: dict[str, Any]) -> dict[str, float] | None:
     return out or None
 
 
+#: The types of recurring credit that count as income evidence.
+#: UNKNOWN is not one: it means nothing recurred.
+_COMPARABLE_CREDIT_TYPES = frozenset({"SALARY_CREDIT", "RECURRING_CREDIT"})
+
+
+def _comparable_bank_income(fields: dict[str, Any]) -> Any:
+    """
+    The bank figure that may be compared against a stated salary, or None.
+
+    WHY NOT `average_monthly_credit`, WHICH IS WHAT THIS USED TO READ.
+    That figure is every credit divided by the months covered: transfers
+    between one's own accounts, refunds, reimbursements, a friend
+    repaying a dinner. On a live case a statement averaging 55,435 a
+    month annualised to 665,228 and was compared against a salary slip's
+    358,392 -- 46% apart, reported as INCOME_VARIANCE_HIGH, on a
+    statement whose recurring-credit evidence was empty. The applicant
+    was sent to review over an arithmetic artefact.
+
+    ONE POLICY DECIDES WHAT COUNTS AS INCOME. `income_evidence` already
+    answers "did anything income-shaped recur here", under thresholds in
+    income_policy.yaml. Where it found nothing, the bank statement
+    carries no comparable income and the cross-document check reports a
+    single source -- which is true, and is not a finding against anyone.
+
+    THIS IS NOT A SECOND CALCULATION. The value returned is the one
+    `income_evidence` computed; nothing here re-derives it.
+    """
+    evidence = fields.get("income_evidence")
+    if not isinstance(evidence, dict):
+        return None
+
+    if str(evidence.get("type") or "") not in _COMPARABLE_CREDIT_TYPES:
+        return None
+    if not evidence.get("recurring_credit_count"):
+        return None
+    if not evidence.get("evidence"):
+        return None
+
+    try:
+        if float(evidence.get("confidence") or 0) <= 0:
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    return evidence.get("estimated_monthly_amount")
+
+
 def _income(fields: dict[str, Any]) -> IncomeInput | None:
     """
     Read the Financial Agent's normalised income signals.
 
     `signals` is emitted by the Financial Agent exactly as IncomeSignals, and
     IncomeInput mirrors that model field for field, so this is a direct
-    hand-off rather than a translation that could drift.
+    hand-off rather than a translation that could drift -- with ONE
+    exception, the bank statement's income figure, which
+    `_comparable_bank_income` releases or withholds.
     """
     signals = fields.get("signals")
     if not isinstance(signals, dict):
@@ -146,7 +195,7 @@ def _income(fields: dict[str, Any]) -> IncomeInput | None:
     income = IncomeInput(
         monthly_net_salary=signals.get("monthly_net_salary"),
         monthly_gross_salary=signals.get("monthly_gross_salary"),
-        average_monthly_credit=signals.get("average_monthly_credit"),
+        average_monthly_credit=_comparable_bank_income(fields),
         declared_annual_income=signals.get("declared_annual_income"),
     )
 

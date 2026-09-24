@@ -20,6 +20,34 @@ defaults:
 
 agents:
 
+  # ---------------------------------------------------------------------
+  # AFFORDABILITY. Deterministic end to end: no model, no tools, no
+  # retrieval. `llm_enabled: false` is not a performance choice -- a FOIR
+  # is arithmetic over figures other stages verified, and a model has
+  # nothing to contribute to it that would not be an invention.
+  # ---------------------------------------------------------------------
+  eligibility_agent:
+    agent_id: eligibility_agent
+    agent_name: "Eligibility Agent"
+    stage: eligibility
+    enabled: true
+    version: "1.0.0"
+    # Unused: `llm_enabled: false` and there is no prompt on this path.
+    # Carried because every agent config declares them.
+    model: "qwen3:30b"
+    temperature: 0.0
+    tools: []
+    prompt_version: "v1"
+    input_schema: "app.agents.eligibility.schemas.EligibilityInputs"
+    output_schema: null
+    approval_required: false
+    max_iterations: 1
+    timeout: 10
+    fallback_agent: null
+    llm_enabled: false
+    mcp_enabled: false
+    policy_file: "eligibility_policy.yaml"
+
   fraud_risk_agent:
     agent_id: fraud_risk_agent
     agent_name: "Fraud & Risk Agent"

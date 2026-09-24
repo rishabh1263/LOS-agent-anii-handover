@@ -197,6 +197,28 @@ def _labelled_name(
     return normalize_name(value.text), value
 
 
+def _name_region(
+    candidates: list[OCRToken],
+    pan_tok: OCRToken | None,
+    dob_tok: OCRToken | None,
+) -> list[OCRToken] | None:
+    """
+    The name-shaped tokens printed above the DOB, on its side of the number.
+
+    None when either anchor is missing or the region holds nothing -- the
+    caller then keeps its previous behaviour rather than guessing.
+    """
+    if pan_tok is None or dob_tok is None:
+        return None
+    if dob_tok.cy < pan_tok.cy:
+        # Older layout: the names are above the DOB, the number below it.
+        region = [t for t in candidates if t.cy < dob_tok.cy]
+    else:
+        # Newer layout: the names are between the number and the DOB.
+        region = [t for t in candidates if pan_tok.cy < t.cy < dob_tok.cy]
+    return region or None
+
+
 def extract_pan_fields(tokens: list[OCRToken]) -> dict[str, tuple]:
     """Returns {field: (value, evidence_token)}."""
     out: dict[str, tuple] = {}
@@ -236,12 +258,30 @@ def extract_pan_fields(tokens: list[OCRToken]) -> dict[str, tuple]:
             and compact(t.text) not in {"NAME", "FATHERSNAME"}
         ]
 
-        # Layout invariant: on every PAN card the holder name, father's name
-        # and date of birth are printed BELOW the account number, while the
-        # departmental captions sit above it. Anchoring on the number is more
-        # robust than blocklisting caption text, which OCR garbles differently
-        # on every photocopy ("Petmanent Accoumt Number Gard").
-        if pan_tok is not None:
+        # WHERE THE NAMES ARE depends on which PAN layout this is, and the
+        # card says which: the date of birth is always printed directly
+        # under the two names, on the same side of the account number.
+        #
+        #   newer cards   number / name / father / DOB
+        #   older cards   name / father / DOB / caption / number / signature
+        #
+        # So the names are the tokens above the DOB and on its side of the
+        # number. Anchoring on printed fields is more robust than
+        # blocklisting caption text, which OCR garbles differently on every
+        # photocopy ("Petmanent Accoumt Number Gard").
+        #
+        # This used to assume the newer layout everywhere ("names are BELOW
+        # the number"). On an older card that leaves only what is printed
+        # under the number -- the handwritten signature and a phone camera's
+        # location overlay -- and a real card with "TINKU DAS" and
+        # "JUGENDRO DAS" read correctly by OCR (0.97, 0.96) was published as
+        # name "INHU AS" (the signature) and father "RONGPUR SILCHAR" (the
+        # overlay), which then failed KYC as a name mismatch.
+        region = _name_region(candidates, pan_tok, dob_tok)
+        if region is not None:
+            candidates = region
+        elif pan_tok is not None:
+            # No DOB to say which layout this is: the newer layout, as before.
             below = [t for t in candidates if t.cy > pan_tok.cy]
             if len(below) >= 2:
                 candidates = below

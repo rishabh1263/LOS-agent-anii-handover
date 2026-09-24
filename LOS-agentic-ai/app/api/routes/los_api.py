@@ -35,6 +35,84 @@ router = APIRouter(prefix="/los", tags=["LOS"])
 MAX_DOCUMENTS = 10
 
 
+#: What the interactive documentation types into an optional string
+#: field when the person did not. It is not a party id, and it has
+#: been arriving as one.
+_PLACEHOLDERS = frozenset({"string", "none", "null", "undefined"})
+
+
+def _party_or_none(value: str | None) -> str | None:
+    """
+    A party identifier, or None when nothing real was supplied.
+
+    SWAGGER FILLS OPTIONAL STRINGS WITH "string". Sent as the
+    co-applicant id it opened a second party called `string`, which
+    then appeared in the response as a real person with documents of
+    their own. Nobody typed it and nothing should act on it.
+
+    ONLY THE EXACT PLACEHOLDERS, case-insensitively, and only after
+    trimming. A real identifier is never one of these words, and a
+    value that merely contains one is left alone.
+    """
+    cleaned = str(value or "").strip()
+    return None if cleaned.lower() in _PLACEHOLDERS else (cleaned or None)
+
+
+def _retain_for_ocr(result: dict, uploads: list) -> None:
+    """
+    Store the bytes of any document that could not be read yet.
+
+    ONLY THOSE. Keeping every upload would put a copy of every PAN
+    card and bank statement on disk for no reason; these are the ones
+    whose work is unfinished, and the queue cannot do that work
+    without them.
+
+    KEYED EXACTLY AS THE CASE STORE KEYS THE DOCUMENT, through the
+    same `document_key` the ingest path uses, so the worker asks for
+    the same id the case knows the document by.
+
+    NEVER FATAL. The response is already built; a store that is full
+    or unwritable costs the follow-up, not the answer.
+    """
+    # Both mean "the background reader must finish this": a scan, or a
+    # digital statement too long for the upload.
+    queued = {"DOCUMENT_REQUIRES_OCR", "DOCUMENT_QUEUED_FOR_PROCESSING"}
+    documents = [d for d in (result.get("documents") or [])
+                 if queued & set(d.get("reason_codes") or [])]
+    if not documents:
+        return
+
+    case_id = str(result.get("case_id") or "").strip()
+    applicant_id = str(result.get("applicant_id") or "").strip()
+    if not case_id or not applicant_id:
+        return
+
+    by_source = {str(getattr(u, "source_id", "")): u for u in uploads}
+
+    try:
+        from app.agents.los import parties
+        # Imported under a name of its own: `documents` is the list
+        # being iterated below, and the module shadowed it.
+        from app.store import documents as document_store_module
+        from app.store.documents import get_document_store
+
+        store = get_document_store()
+        for document in documents:
+            source_id = str(document.get("source_id") or "")
+            upload = by_source.get(source_id)
+            if upload is None or not getattr(upload, "content", None):
+                continue
+            party_id = str(document.get("party_id") or applicant_id)
+            store.put(
+                document_store_module.storage_key(
+                    parties.document_key(case_id, party_id, source_id)),
+                upload.content,
+                content_type=None,
+            )
+    except Exception as exc:
+        logger.warning("Could not retain a document for OCR: %r", exc)
+
+
 def _declared_types(declared: list[str] | None) -> list[str]:
     """
     The expected types for one party's files, in order.
@@ -257,6 +335,9 @@ async def process(
     # ---- the optional second party --------------------------------------
     co_applicant_id: str | None = Form(
         default=None,
+        # An explicit empty example so the interactive form does not
+        # pre-fill the word "string". See `_party_or_none`.
+        examples=[""],
         description=(
             "**CO-APPLICANT** identifier. Required whenever "
             "`co_applicant_files` is sent, and must differ from "
@@ -443,6 +524,8 @@ async def process(
 
         return built
 
+    co_applicant_id = _party_or_none(co_applicant_id)
+
     uploads = await build(list(files), expected_types, "Applicant")
     co_uploads = await build(co_files, co_applicant_expected_types,
                              "Co-applicant")
@@ -479,6 +562,12 @@ async def process(
         # already has their answer, and a case store that is unavailable must
         # not turn a successful extraction into a 500. It copies verdicts; it
         # never changes one.
+        # BEFORE PERSISTENCE, because persistence queues the OCR work
+        # and the worker needs something to read. A job pointing at
+        # bytes nobody kept is a promise that fails on its first
+        # attempt.
+        _retain_for_ocr(result, uploads + co_uploads)
+
         persist_los_result(result)
 
         return result

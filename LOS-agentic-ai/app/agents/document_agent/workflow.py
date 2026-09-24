@@ -825,6 +825,12 @@ def _serialise_financial_extraction(
         # it. The rows themselves stay in `detail`, which this path does not
         # request.
         "evidence": result.evidence,
+        # WHAT THE STATEMENT EVIDENCES ABOUT INCOME, and no more than
+        # that. Never a salary figure: this says credits of a similar
+        # size arrived in several months, and whether the bank itself
+        # labelled them payroll. Financial analysis, so it travels with
+        # `signals` and `evidence` and is withheld from FOS with them.
+        "income_evidence": result.income_evidence,
     }
 
     # INCOME ANALYSIS IS A LATER STAGE'S OUTPUT.
@@ -840,10 +846,31 @@ def _serialise_financial_extraction(
     if not include_signals:
         explicit.pop("signals", None)
         explicit.pop("evidence", None)
+        explicit.pop("income_evidence", None)
 
     for key, value in explicit.items():
         if value is not None:
             fields[key] = value
+
+    # THE SAME VALUE, UNDER THE NAME A READER LOOKS FOR.
+    #
+    # On a bank statement `name` IS the account holder -- it is called
+    # `name` because that is the key cross-document identity reads, so
+    # one field serves both. But a caller opening the response looks
+    # for "account_holder", finds nothing, and concludes the holder
+    # was not extracted; that happened in review.
+    #
+    # AN ALIAS, NOT A SECOND SOURCE. It is copied from `name` at the
+    # point of publication, so the two can never disagree, and it is
+    # absent for exactly the statements whose holder is absent.
+    # MIRRORED WHENEVER `name` IS PUBLISHED, with no condition of its
+    # own. A rule like "copy it when it is non-empty" is a second
+    # decision about what counts as a holder, and the two fields would
+    # then disagree in exactly the cases where somebody is looking
+    # closely.
+    if (result.document_type is FinancialDocumentType.BANK_STATEMENT
+            and "name" in fields):
+        fields["account_holder_name"] = fields["name"]
 
     # Document-specific parser output remains nested rather than changing
     # the outer API contract.
@@ -856,6 +883,41 @@ def _serialise_financial_extraction(
 
 
 def _serialise_financial_verification(
+    result: FinancialResult,
+) -> dict[str, Any]:
+    """
+    The financial verdict, and what it does NOT establish.
+
+    A reconciled statement or a payslip whose arithmetic holds has passed
+    INTEGRITY checks. That is not evidence the bank or the employer issued
+    it, and nothing here can check that. The verdict therefore carries its
+    scope, `authenticity: NOT_ESTABLISHED` and `issuer_verified: false` --
+    the same statement every identity document has always carried -- and
+    under REQUIRE_EXTERNAL a PASS becomes REVIEW, because the evidence that
+    policy asks for does not exist here. See verification/authenticity.py.
+    """
+    from app.agents.verification import authenticity
+
+    payload = _financial_verdict(result)
+    document_type = str(
+        getattr(result.document_type, "value", result.document_type) or ""
+    ).upper()
+    status, codes = authenticity.cap(
+        document_type, payload.get("status"), payload.get("reason_codes") or [])
+    if status != payload.get("status"):
+        # `checks.financial_integrity` keeps the integrity result: the
+        # document DID pass its integrity checks. Only the verdict moves,
+        # because the verdict is being asked for more than integrity.
+        payload["status"] = status
+        payload["reason_codes"] = codes
+        payload.setdefault("reasons", []).append(
+            "No issuer source is configured, so this document cannot be "
+            "confirmed as genuinely issued; it needs review.")
+    payload.update(authenticity.scope(document_type or "FINANCIAL"))
+    return payload
+
+
+def _financial_verdict(
     result: FinancialResult,
 ) -> dict[str, Any]:
     """
@@ -1166,10 +1228,15 @@ def _financial_reasons(
     status_value = financial_result.status.value
 
     if status_value == "REQUIRES_OCR":
+        digital = str((financial_result.detail or {}).get("source_kind") or "") in (
+            "DIGITAL", "MIXED")
         reasons.append(
             {
                 "code": "REQUIRES_OCR",
                 "message": (
+                    "This statement is too long to read within the upload. "
+                    "It has been queued and is read in full in the background."
+                    if digital else
                     "This statement is a scan with no text layer. It has not "
                     "been read; route it to the asynchronous OCR queue."
                 ),
@@ -1428,6 +1495,14 @@ def _identity_response(
     )
 
     verification_payload["authenticity"] = rule_detail.get("authenticity")
+    # WHAT THE VERDICT RESTS ON: format and field consistency, never
+    # issuance. rules.apply already caps a PASS under REQUIRE_EXTERNAL.
+    if rule_detail.get("authenticity"):
+        from app.agents.verification import authenticity as _authenticity
+
+        _scope = _authenticity.scope(_type_value(resolved_class))
+        verification_payload["verification_scope"] = _scope["verification_scope"]
+        verification_payload["issuer_verified"] = False
     if rule_detail.get("advisories"):
         # Reported beside the verdict, deliberately NOT in reason_codes: a
         # note on a clean document reads as a problem with it.

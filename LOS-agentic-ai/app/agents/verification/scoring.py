@@ -217,6 +217,12 @@ def _score(checks: list[Check]) -> int:
     return int(round(100 * earned / total))
 
 
+#: The most confidence reportable when the check that decides the
+#: verdict could not be evaluated. Not a new idea: the suite already
+#: required an unevaluable statement to score at or below this.
+UNEVALUATED_GATE_CONFIDENCE = 40
+
+
 def _confidence(checks: list[Check]) -> int:
     """
     How far the score can be relied on.
@@ -234,7 +240,25 @@ def _confidence(checks: list[Check]) -> int:
         c.weight for c in checks
         if c.outcome in (Outcome.OK, Outcome.BAD)
     )
-    return int(round(100 * conclusive / total))
+    confidence = int(round(100 * conclusive / total))
+
+    # AND THE DECIDING CHECK COUNTS FOR MORE THAN ITS WEIGHT.
+    #
+    # A hard gate is what sets the verdict. When one could not be
+    # evaluated, the verdict rests on the minor checks that could --
+    # and reporting the share of evidence that happened to be
+    # conclusive overstates how far it can be relied on.
+    #
+    # A scanned statement whose transactions were read but could not
+    # be confirmed against its balance scored 77: readability,
+    # structure and period were all established, and the one check
+    # that decides the outcome was not. Seventy-seven percent
+    # confident of a REVIEW nobody could evaluate is not a useful
+    # thing to tell an operator.
+    if any(c.hard_gate and c.outcome is Outcome.UNKNOWN for c in checks):
+        confidence = min(confidence, UNEVALUATED_GATE_CONFIDENCE)
+
+    return confidence
 
 
 def from_named(

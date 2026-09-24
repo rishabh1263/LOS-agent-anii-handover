@@ -242,7 +242,13 @@ def test_a_scan_awaiting_ocr_says_so_rather_than_failing_arithmetic():
     document = run("BANK_STATEMENT", str(path))
 
     assert document["verification"] != "FAIL"
-    assert "DOCUMENT_REQUIRES_OCR" in (document.get("reason_codes") or [])
+
+    # READ, OR NOT READ -- BUT NEVER BLAMED. The build used to read
+    # nothing from this scan; it now recovers transactions that still
+    # do not confirm the balance. Either way the document goes to a
+    # person with a reason that says the limit is ours.
+    assert set(document.get("reason_codes") or []) & {"DOCUMENT_REQUIRES_OCR",
+                     "BANK_STATEMENT_RECONCILIATION_INCONCLUSIVE"}
 
     joined = " ".join(document.get("reasons") or []).lower()
     assert "do not add up" not in joined

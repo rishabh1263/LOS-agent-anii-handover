@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS applications (
     status           TEXT NOT NULL,
     product          TEXT,
     loan_amount      TEXT,
+    tenure_months    TEXT,
+    interest_rate_pct TEXT,
+    declared_monthly_obligations TEXT,
+    property_value   TEXT,
     employment_type  TEXT,
     policy_id        TEXT,
     policy_version   TEXT,
@@ -191,6 +195,35 @@ CREATE INDEX IF NOT EXISTS idx_events_case
     ON case_events (case_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_events_created
     ON case_events (case_id, created_at);
+
+-- WORK THAT OUTLIVES THE REQUEST THAT ASKED FOR IT.
+--
+-- A scanned statement too large to read inside an upload used to be
+-- answered with "route it to the asynchronous extraction queue", and
+-- there was no queue: nothing was recorded, nothing ran, and the
+-- document stayed REVIEW for ever. This table IS the queue. A row
+-- here is a promise that something will happen, which is why it is
+-- durable rather than an in-memory list -- a restart must not lose
+-- work a caller was told would be done.
+CREATE TABLE IF NOT EXISTS ocr_jobs (
+    job_id        TEXT PRIMARY KEY,
+    document_id   TEXT NOT NULL,
+    case_id       TEXT NOT NULL,
+    applicant_id  TEXT NOT NULL,
+    party_id      TEXT,
+    document_type TEXT,
+    status        TEXT NOT NULL,
+    attempts      INTEGER NOT NULL DEFAULT 0,
+    detail        TEXT,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ocr_jobs_document
+    ON ocr_jobs (document_id);
+CREATE INDEX IF NOT EXISTS idx_ocr_jobs_status
+    ON ocr_jobs (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_ocr_jobs_case
+    ON ocr_jobs (case_id);
 """
 
 
@@ -222,6 +255,20 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("policy_version", "TEXT"),
         ("policy_pinned_at", "TEXT"),
         ("co_applicant_id", "TEXT"),
+        # Affordability inputs. Nullable with no default: an application
+        # written before these existed keeps them NULL, which the
+        # eligibility check reports as not captured -- the truth about
+        # that row.
+        ("tenure_months", "TEXT"),
+        ("interest_rate_pct", "TEXT"),
+        ("declared_monthly_obligations", "TEXT"),
+        ("property_value", "TEXT"),
+    ],
+    "case_findings": [
+        # When the row was LAST written. Nullable: an existing row keeps
+        # NULL and is ordered by `created_at`, which is the truth about
+        # it -- it has only ever been written once as far as it knows.
+        ("updated_at", "TEXT"),
     ],
     "documents": [
         # Nullable with no default: an existing row keeps party_id NULL and
@@ -408,16 +455,25 @@ class SQLiteRepository(Repository):
         self._write(
             """
             INSERT INTO applications (case_id, applicant_id, status, product,
-                                      loan_amount, employment_type,
+                                      loan_amount, tenure_months,
+                                      interest_rate_pct,
+                                      declared_monthly_obligations,
+                                      property_value,
+                                      employment_type,
                                       co_applicant_id,
                                       policy_id, policy_version,
                                       policy_pinned_at,
                                       created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(case_id) DO UPDATE SET
                 status           = excluded.status,
                 product          = excluded.product,
                 loan_amount      = excluded.loan_amount,
+                tenure_months    = excluded.tenure_months,
+                interest_rate_pct = excluded.interest_rate_pct,
+                declared_monthly_obligations =
+                    excluded.declared_monthly_obligations,
+                property_value   = excluded.property_value,
                 employment_type  = excluded.employment_type,
                 co_applicant_id  = excluded.co_applicant_id,
                 policy_id        = excluded.policy_id,
@@ -427,7 +483,11 @@ class SQLiteRepository(Repository):
             """,
             (application.case_id, application.applicant_id,
              application.status.value, application.product,
-             application.loan_amount, application.employment_type,
+             application.loan_amount, application.tenure_months,
+             application.interest_rate_pct,
+             application.declared_monthly_obligations,
+             application.property_value,
+             application.employment_type,
              application.co_applicant_id,
              application.policy_id, application.policy_version,
              (_iso(application.policy_pinned_at)
@@ -548,6 +608,11 @@ class SQLiteRepository(Repository):
             loan_amount=row["loan_amount"],
             employment_type=_column(row, "employment_type"),
             co_applicant_id=_column(row, "co_applicant_id"),
+            tenure_months=_column(row, "tenure_months"),
+            interest_rate_pct=_column(row, "interest_rate_pct"),
+            declared_monthly_obligations=_column(
+                row, "declared_monthly_obligations"),
+            property_value=_column(row, "property_value"),
             policy_id=_column(row, "policy_id"),
             policy_version=_column(row, "policy_version"),
             policy_pinned_at=(_parse(pinned)
@@ -611,8 +676,9 @@ class SQLiteRepository(Repository):
             INSERT INTO case_findings (
                 finding_id, case_id, party_id, finding_kind, stage, status,
                 score, confidence, reason_codes, payload, source_type,
-                source_id, document_id, created_at, version, content_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_id, document_id, created_at, version, content_hash,
+                updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(case_id, finding_kind, IFNULL(party_id, ''),
                         IFNULL(source_id, ''), IFNULL(content_hash, ''))
             DO UPDATE SET
@@ -623,7 +689,8 @@ class SQLiteRepository(Repository):
                 payload      = excluded.payload,
                 stage        = excluded.stage,
                 document_id  = excluded.document_id,
-                version      = case_findings.version + 1
+                version      = case_findings.version + 1,
+                updated_at   = excluded.updated_at
             """,
             (finding.finding_id, finding.case_id, finding.party_id,
              _kind_value(finding.finding_kind), finding.stage, finding.status,
@@ -631,7 +698,8 @@ class SQLiteRepository(Repository):
              json.dumps(list(finding.reason_codes or [])),
              json.dumps(finding.payload or {}),
              finding.source_type, finding.source_id, finding.document_id,
-             _iso(finding.created_at), finding.version, finding.content_hash),
+             _iso(finding.created_at), finding.version, finding.content_hash,
+             _iso(utcnow())),
         )
         return finding
 
@@ -661,6 +729,114 @@ class SQLiteRepository(Repository):
 
         sql += " ORDER BY created_at, rowid"
         return [self._finding(row) for row in self._all(sql, tuple(args))]
+
+    # ======================================================================
+    # THE OCR QUEUE
+    #
+    # Work that outlives the request that asked for it. See
+    # app/store/ocr_queue.py for why it is durable rather than a list.
+    # ======================================================================
+
+    def save_ocr_job(self, job: "OcrJob") -> "OcrJob":
+        """Insert or update one job. Keyed by document, not by attempt."""
+        job.updated_at = utcnow()
+        self._write(
+            """
+            INSERT INTO ocr_jobs (
+                job_id, document_id, case_id, applicant_id, party_id,
+                document_type, status, attempts, detail, created_at,
+                updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(document_id) DO UPDATE SET
+                status     = excluded.status,
+                attempts   = excluded.attempts,
+                detail     = excluded.detail,
+                updated_at = excluded.updated_at
+            """,
+            (job.job_id, job.document_id, job.case_id, job.applicant_id,
+             job.party_id, job.document_type, job.status.value, job.attempts,
+             job.detail, _iso(job.created_at), _iso(job.updated_at)),
+        )
+        return job
+
+    def get_ocr_job(self, document_id: str) -> "OcrJob | None":
+        row = self._one("SELECT * FROM ocr_jobs WHERE document_id = ?",
+                        (document_id,))
+        return self._ocr_job(row) if row else None
+
+    def get_ocr_jobs(self, case_id: str) -> list["OcrJob"]:
+        rows = self._all(
+            "SELECT * FROM ocr_jobs WHERE case_id = ? ORDER BY created_at",
+            (case_id,),
+        )
+        return [self._ocr_job(row) for row in rows]
+
+    def claim_ocr_job(self) -> "OcrJob | None":
+        """
+        Take the oldest queued job, marking it PROCESSING.
+
+        THE CLAIM IS A SINGLE WRITE, so two workers cannot take the
+        same job: the UPDATE names the status it expects to replace,
+        and only one of them changes a row. One worker runs today,
+        which is exactly when a claim like this is cheap to get right
+        and expensive to retrofit.
+        """
+        from app.store.ocr_queue import OcrJobStatus
+
+        while True:
+            row = self._one(
+                "SELECT * FROM ocr_jobs WHERE status = ? "
+                "ORDER BY created_at LIMIT 1",
+                (OcrJobStatus.QUEUED.value,),
+            )
+            if row is None:
+                return None
+
+            job = self._ocr_job(row)
+            taken = self._write_count(
+                "UPDATE ocr_jobs SET status = ?, attempts = ?, "
+                "updated_at = ? WHERE job_id = ? AND status = ?",
+                (OcrJobStatus.PROCESSING.value, job.attempts + 1,
+                 _iso(utcnow()), job.job_id, OcrJobStatus.QUEUED.value),
+            )
+            if taken:
+                job.status = OcrJobStatus.PROCESSING
+                job.attempts += 1
+                return job
+            # Somebody else took it between the read and the write.
+
+    def _write_count(self, sql: str, args: tuple) -> int:
+        """A write that reports how many rows it changed."""
+        self.initialise()
+        conn = self._connect()
+        try:
+            cursor = conn.execute(sql, args)
+            conn.commit()
+            return int(cursor.rowcount or 0)
+        except sqlite3.Error as exc:
+            raise RepositoryError(f"Case store write failed: {exc}") from exc
+
+    def _ocr_job(self, row) -> "OcrJob":
+        from app.store.ocr_queue import OcrJob, OcrJobStatus
+
+        try:
+            status = OcrJobStatus(str(row["status"]))
+        except ValueError:                             # pragma: no cover
+            status = OcrJobStatus.FAILED
+
+        return OcrJob(
+            job_id=row["job_id"],
+            document_id=row["document_id"],
+            case_id=row["case_id"],
+            applicant_id=row["applicant_id"],
+            party_id=row["party_id"],
+            document_type=row["document_type"],
+            status=status,
+            attempts=int(row["attempts"] or 0),
+            detail=row["detail"],
+            created_at=_parse(row["created_at"]),
+            updated_at=_parse(row["updated_at"]),
+        )
 
     def save_document_version(
         self, version: DocumentVersion
@@ -787,6 +963,8 @@ class SQLiteRepository(Repository):
             created_at=_parse(_column(row, "created_at")),
             version=int(_column(row, "version") or 1),
             content_hash=_column(row, "content_hash"),
+            updated_at=(_parse(_column(row, "updated_at"))
+                        if _column(row, "updated_at") else None),
         )
 
     @staticmethod

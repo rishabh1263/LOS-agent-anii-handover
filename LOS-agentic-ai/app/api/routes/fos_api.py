@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.applicant import audit, config, permissions
 from app.agents.applicant.agent import AgentError, answer_question
+from app.agents.applicant.grounded import supported_by_case_evidence
 from app.agents.applicant.intents import Intent
 from app.agents.applicant.permissions import Caller, PermissionDenied
 from app.agents.applicant import followup
@@ -73,6 +74,42 @@ class FosAction(str, Enum):
 #: Structured actions are mapped rather than re-implemented: a dropdown
 #: selection and the same question typed out must reach identical code, or the
 #: two paths drift and only one of them stays tested.
+#: A named action and the intent it IS.
+#:
+#: WHY THIS REPLACED A TABLE OF ENGLISH SENTENCES. Every action below
+#: used to be turned into a phrase -- "Show me the document checklist."
+#: -- and handed to the intent classifier, which matched it against a
+#: few hundred regexes to recover the intent the caller had already
+#: named. A button that says CHECKLIST does not need to be understood.
+#:
+#: AND THE ROUND TRIP WAS NOT FREE. Every routing defect found in review
+#: was a pattern-ordering bug in that ladder: a status question answered
+#: from the handbook, "still pending" missed by one adverb, a mismatch
+#: question answered with a dictionary definition. A dropdown reaching
+#: its capability directly cannot have any of them.
+#:
+#: NOTHING ELSE CHANGES. The intent still goes through the capability
+#: check, the ownership check, the same tool plan, the same
+#: deterministic answer and the same audit record. Only the guessing is
+#: gone.
+_ACTION_INTENT: dict[FosAction, Intent] = {
+    FosAction.GET_APPLICANT: Intent.APPLICANT_DETAILS,
+    FosAction.GET_APPLICATION_STATUS: Intent.APPLICATION_STATUS,
+    FosAction.GET_DOCUMENTS: Intent.DOCUMENTS_UPLOADED,
+    FosAction.GET_DOCUMENT_CHECKLIST: Intent.DOCUMENTS_REQUIRED,
+    FosAction.GET_VERIFICATION_STATUS: Intent.DOCUMENT_VERIFICATION,
+    FosAction.GET_PENDING_ITEMS: Intent.PENDING_ITEMS,
+    FosAction.GET_NEXT_ACTION: Intent.NEXT_ACTION,
+    FosAction.GET_CASE_360: Intent.FULL_SUMMARY,
+    FosAction.CHECK_CPA_READINESS: Intent.READINESS,
+}
+
+#: The same actions as sentences.
+#:
+#: KEPT, AND NO LONGER ON THE ROUTING PATH. The phrase is what the audit
+#: record and the response echo as the question that was asked, so a
+#: trail written before this change and one written after it read the
+#: same. It no longer decides anything.
 _ACTION_PHRASE: dict[FosAction, str] = {
     FosAction.GET_APPLICANT: "Show me the applicant details.",
     FosAction.GET_APPLICATION_STATUS: "What is the application status?",
@@ -115,6 +152,14 @@ class ApplicantDetails(BaseModel):
                                 examples=["Mumbai, Maharashtra"])
 
 
+def _text(value: object) -> str | None:
+    """A captured figure as the store holds it, or nothing at all."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 class ApplicationDetails(BaseModel):
     product: str | None = Field(
         None, max_length=64, examples=["PERSONAL_LOAN"],
@@ -135,6 +180,46 @@ class ApplicationDetails(BaseModel):
             "An applicant attribute the document policy may key on. Not "
             "defaulted: a rule that depends on it is reported as "
             "unevaluated when it is absent."
+        ),
+    )
+
+    # -- affordability inputs ------------------------------------------
+    #
+    # ALL OPTIONAL AND NONE DEFAULTED. Affordability needs an instalment,
+    # and an instalment needs all three of amount, tenure and rate. Where
+    # one is absent the eligibility check names it and assesses nothing,
+    # which is the honest outcome -- a default tenure would produce an
+    # EMI that looks calculated and was invented.
+    tenure_months: int | str | None = Field(
+        None, examples=[36],
+        description=(
+            "Repayment period in months. Without it no instalment can be "
+            "computed and eligibility reports EMI_INPUTS_MISSING."
+        ),
+    )
+    interest_rate_pct: float | str | None = Field(
+        None, examples=[12.5],
+        description=(
+            "Annual interest rate. Without it no instalment can be "
+            "computed and eligibility reports EMI_INPUTS_MISSING."
+        ),
+    )
+    declared_monthly_obligations: float | str | None = Field(
+        None, examples=[8000],
+        description=(
+            "What the applicant says they already repay each month. "
+            "DECLARED, and recorded as declared: whether a declared "
+            "figure may be used in an affordability calculation is a "
+            "policy decision, set in eligibility_policy.yaml, and it is "
+            "not accepted by default."
+        ),
+    )
+    property_value: float | str | None = Field(
+        None, examples=[8000000],
+        description=(
+            "The property's value, for a secured product such as HOME_LOAN, "
+            "where eligibility computes LTV. Recorded as DECLARED. Ignored "
+            "for an unsecured product, where LTV is NOT_APPLICABLE."
         ),
     )
 
@@ -367,6 +452,45 @@ class FosResponse(BaseModel):
             "citing some would imply a source the facts did not have."
         ),
     )
+    # ---- the compact blocks a screen binds to ---------------------------
+    #
+    # ADDITIVE, ALL FOUR. Everything they contain is already elsewhere in
+    # this response; they exist so a client does not have to assemble a
+    # header out of six fields and a checklist, and so the one piece of
+    # generated prose is clearly separated from the state it describes.
+    summary: str | None = Field(
+        None,
+        description=(
+            "One or two sentences describing where the case stands. "
+            "Phrasing only: every fact in it is computed before any model "
+            "is called, and `response_source` says whether a model wrote "
+            "the words."
+        ),
+        examples=["The application is at basic document verification with "
+                  "PAN verified and the bank statement under review."],
+    )
+    status: dict[str, Any] | None = Field(
+        None,
+        description="The stage and the application status, together.",
+        examples=[{"stage": "BASIC_DOCUMENT_VERIFICATION",
+                   "application_status": "BASIC_DOCUMENT_VERIFICATION"}],
+    )
+    processing_queue: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Documents still being read in the background, with the state "
+            "of each. A document here is neither finished nor forgotten."
+        ),
+        examples=[[{"document_type": "BANK_STATEMENT", "status": "QUEUED"}]],
+    )
+    grounded: bool = Field(
+        False,
+        description=(
+            "Whether the answer rests on stored records. False for a "
+            "clarification or a refusal, which rest on nothing."
+        ),
+    )
+
     next_action: dict[str, Any] | None = None
     readiness: dict[str, Any] | None = Field(
         None,
@@ -429,6 +553,10 @@ def _blank(request_id: str, **overrides: Any) -> dict[str, Any]:
         "knowledge": None, "category": "CASE_ONLY", "next_action": None,
         "readiness": None, "actions": [], "route_to": None,
         "response_source": "STRUCTURED", "processing_ms": 0.0, "errors": [],
+        # The compact blocks. Present on every action, like everything
+        # else here, so a client binds one shape.
+        "summary": None, "status": None, "processing_queue": [],
+        "grounded": False,
     }
     base.update(overrides)
     return base
@@ -493,6 +621,11 @@ async def create_case(
         loan_amount=(str(amount) if amount is not None else None),
         employment_type=application_details.employment_type,
         case_id=request.case_id,
+        tenure_months=_text(application_details.tenure_months),
+        interest_rate_pct=_text(application_details.interest_rate_pct),
+        declared_monthly_obligations=_text(
+            application_details.declared_monthly_obligations),
+        property_value=_text(application_details.property_value),
     )
     if not application.ok:
         _raise_from(request_id, application)
@@ -710,6 +843,21 @@ _COPILOT_BODY = {
 }
 
 
+#: The upload half of the facade's body, on its own.
+#:
+#: DERIVED, NOT COPIED. `POST /api/v1/fos/documents` accepts exactly
+#: what `/copilot` accepts for an upload because it IS the same handler;
+#: a second hand-written schema would be a second thing to keep in step,
+#: and the one that drifted would be the one nobody was testing.
+_UPLOAD_BODY = {
+    "required": True,
+    "content": {
+        "multipart/form-data":
+            _COPILOT_BODY["content"]["multipart/form-data"],
+    },
+}
+
+
 @router.post(
     "/copilot",
     summary="The FOS copilot: questions, dropdown actions and document upload",
@@ -800,22 +948,64 @@ async def _copilot_json(
     else:
         message = _ACTION_PHRASE[action]
 
-    result = await answer_question(
-        message=message,
+    return await _run_action(
+        action,
         applicant_id=payload.applicant_id,
         case_id=payload.case_id,
         claims=claims,
         request_id=request_id,
+        message=message,
+        context=payload.context,
+    )
+
+
+async def _run_action(
+    action: FosAction,
+    *,
+    applicant_id: str | None,
+    case_id: str | None,
+    claims: dict[str, Any],
+    request_id: str,
+    message: str | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    One FOS action, however the caller asked for it.
+
+    THE ONE IMPLEMENTATION BEHIND TWO DOORS. The REST reads below and
+    the `/copilot` facade both land here, so a business endpoint and the
+    compatibility endpoint cannot drift into answering the same question
+    two ways -- which is the defect that made this refactor worth doing
+    in the first place.
+    """
+    result = await answer_question(
+        message=(message if message is not None
+                 else _ACTION_PHRASE.get(action, action.value)),
+        applicant_id=applicant_id,
+        case_id=case_id,
+        claims=claims,
+        request_id=request_id,
+        # A NAMED ACTION IS NOT INFERRED. CUSTOM_QUERY is the only
+        # request here that is genuinely a question, and it is the only
+        # one that reaches the classifier.
+        intent_override=(None if action is FosAction.CUSTOM_QUERY
+                         else _ACTION_INTENT.get(action)),
         # Only a typed question is pruned. A dropdown action is a screen and
         # keeps the fields that screen renders.
         concise=action is FosAction.CUSTOM_QUERY,
         # A follow-up only makes sense for a typed question. A dropdown
         # action is unambiguous by construction, and resolving one against
         # a stale context would change what the button does.
-        context=(payload.context if action is FosAction.CUSTOM_QUERY else None),
+        context=(context if action is FosAction.CUSTOM_QUERY else None),
     )
-    return _from_agent(result, action.value, request_id,
-                       concise=action is FosAction.CUSTOM_QUERY)
+    envelope = _from_agent(result, action.value, request_id,
+                           concise=action is FosAction.CUSTOM_QUERY)
+    # THE SUMMARY DESCRIBES THE CASE, NOT THE REPLY. A typed question
+    # is pruned to what it asked about, and summarising that view had
+    # the summary announce a case was ready while the answer beside it
+    # listed three things blocking it -- the pruned envelope simply had
+    # no readiness or pending items in it to see.
+    return await _with_summary(envelope, result)
 
 
 def _declared_types(form) -> list[str | None]:
@@ -1045,6 +1235,10 @@ async def _copilot_upload(
             # behind a PASS, so this says plainly whether fields came back.
             "extraction_released": document.get("extraction") is not None,
             "authenticity": document.get("authenticity"),
+            # PASS means these checks passed -- never that the issuer
+            # confirmed the document.
+            "verification_scope": document.get("verification_scope"),
+            "issuer_verified": bool(document.get("issuer_verified")),
         }
         for document in (los.get("documents") or [])
     ]
@@ -1071,7 +1265,8 @@ async def _copilot_upload(
         verification.update({
             k: outcomes[0][k] for k in
             ("document_type", "verification", "status", "reason_codes",
-             "extraction_released", "expected_type")
+             "extraction_released", "expected_type",
+             "authenticity", "verification_scope", "issuer_verified")
         })
 
     audit.record(request_id=request_id, subject=caller.subject,
@@ -1144,6 +1339,37 @@ async def _copilot_upload(
     )
 
 
+async def _with_summary(envelope: dict[str, Any],
+                        state: dict[str, Any] | None = None) -> dict[str, Any]:
+    """
+    Attach the short summary, and say honestly who wrote it.
+
+    THE FACTS ARE ALREADY DECIDED. `case_summary` is handed the stage,
+    whether the applicant record is complete, each document's status,
+    what is still being read and what is outstanding -- all computed
+    before this runs -- and asked only to phrase them. It cannot
+    decide a status, a document, readiness or a next action, because
+    it is never asked to and never sees anything it would need to.
+
+    `response_source` BECOMES structured+llm ONLY IF A MODEL WROTE IT.
+    A model that is off, slow or unusable leaves the deterministic
+    sentence and the plain `structured`, which is true rather than
+    flattering.
+    """
+    from app.agents.applicant import case_summary
+
+    try:
+        summary, source = await case_summary.summarise(state or envelope)
+    except Exception as exc:
+        logger.warning("Case summary failed: %r", exc)
+        return envelope
+
+    envelope["summary"] = summary
+    if source == case_summary.STRUCTURED_AND_LLM:
+        envelope["response_source"] = source
+    return envelope
+
+
 def _from_agent(
     result: dict[str, Any],
     action: str,
@@ -1201,6 +1427,7 @@ def _from_agent(
         processing_ms=result.get("processing_ms", 0.0),
         errors=result.get("errors") or [],
     )
+    envelope.update(_compact(result, envelope))
     envelope.update(_frontend_contract(result, envelope))
     # Built from the COMPLETE envelope, before pruning: the slot a
     # follow-up is most likely about comes from the checklist, which a
@@ -1234,6 +1461,100 @@ def _from_agent(
     return envelope
 
 
+def _compact(result: dict[str, Any],
+             envelope: dict[str, Any]) -> dict[str, Any]:
+    """
+    The compact blocks, derived from what the agent already computed.
+
+    NOTHING IS RECOMPUTED HERE. `is_complete` and `missing_fields` come
+    from the stored applicant record by way of the agent, not from
+    document extraction -- a document says nothing about whether
+    somebody typed a date of birth into the master record, and
+    inferring one from the other is how a chatbot ends up telling an
+    officer to collect details that are already captured.
+    """
+    applicant = dict(result.get("applicant") or {})
+    application = result.get("application") or {}
+
+    missing = list(applicant.get("missing_fields") or [])
+    if applicant:
+        applicant["is_complete"] = not missing
+        applicant["missing_fields"] = missing
+
+    queued = [job for job in (result.get("processing_queue") or [])]
+
+    # PUBLISHED ONLY WHEN SOMETHING IS KNOWN. A question about
+    # documents carries no stage, and `{"stage": null,
+    # "application_status": null}` tells a reader less than no field
+    # at all while looking like an answer.
+    stage = result.get("stage") or application.get("status")
+    status = {"stage": stage, "application_status": application.get("status")}
+
+    compact: dict[str, Any] = {
+        "status": status if any(status.values()) else None,
+        "processing_queue": queued,
+        # GROUNDED MEANS AUTHORITATIVE EVIDENCE SUPPORTS THE ANSWER, by
+        # the same rule the Universal Copilot publishes. This used to
+        # count any `case_memory` block -- including an empty one -- so
+        # "eligibility has not been evaluated" was reported as grounded.
+        "grounded": supported_by_case_evidence(result),
+    }
+    if applicant:
+        compact["applicant"] = applicant
+    return compact
+
+
+def _with_case_state(envelope: dict[str, Any]) -> dict[str, Any]:
+    """
+    The stage and readiness a case HAS, not the ones this answer fetched.
+
+    WHY THEY WERE NULL. The header is built from the envelope, and the
+    envelope holds what the question planned tools for. "What documents
+    are pending" plans the pending-items tool, so no application record
+    and no readiness were read -- and the header published
+    `stage: null, readiness: null` for a case whose stage and readiness
+    the store knew perfectly well. A client keying on the header saw a
+    case with no state at all.
+
+    READ FROM THE RECORD, COMPUTED BY THE EXISTING RULES. The stage is
+    the application's own status; readiness is `workflow.readiness`,
+    the same deterministic function the readiness intent answers with.
+    No model is involved in either, and nothing here overrides a value
+    the answer did fetch.
+
+    NEVER FATAL, AND NEVER INVENTED. A store that cannot be reached
+    leaves the header exactly as it was.
+    """
+    case_id = str(envelope.get("case_id") or "").strip()
+    if not case_id:
+        return envelope
+    if envelope.get("stage") and envelope.get("readiness"):
+        return envelope
+
+    try:
+        from app.agents.applicant import workflow
+        from app.store import get_repository
+
+        repository = get_repository()
+        application = repository.get_application(case_id)
+        if application is None:
+            return envelope
+
+        filled = dict(envelope)
+        if not filled.get("stage"):
+            filled["stage"] = application.status.value
+
+        if not filled.get("readiness"):
+            applicant = repository.get_applicant(application.applicant_id)
+            documents = repository.list_documents(case_id)
+            filled["readiness"] = workflow.readiness(
+                applicant, application, documents)
+        return filled
+    except Exception as exc:
+        logger.warning("Could not read case state for %s: %r", case_id, exc)
+        return envelope
+
+
 def _frontend_contract(result: dict[str, Any],
                        envelope: dict[str, Any]) -> dict[str, Any]:
     """
@@ -1252,6 +1573,8 @@ def _frontend_contract(result: dict[str, Any],
     """
     from app.agents.applicant import frontend
     from app.agents.applicant.query_types import READS_CASE, QueryType
+
+    envelope = _with_case_state(envelope)
 
     raw = result.get("query_type")
     try:
@@ -1283,6 +1606,158 @@ def _raise_from(request_id: str, envelope) -> None:
 # ==========================================================================
 # SUPPORTING -- not part of the two-endpoint integration surface
 # ==========================================================================
+
+# ==========================================================================
+# FOS BUSINESS READS
+# ==========================================================================
+#
+# WHY THESE EXIST BESIDE `/copilot`. Intake is not a conversation. A
+# frontend rendering a checklist screen wants the checklist, and posting
+# an action name to a chat endpoint to get it made a read look like a
+# question -- which is how nine deterministic lookups ended up being
+# recovered from English sentences by a regex classifier.
+#
+# ONE IMPLEMENTATION, NOT TWO. Each of these calls `_run_action`, which
+# is what `/copilot` calls. They are a different door, not a second
+# answer, so the two can never disagree about what a case contains.
+#
+# THE SAME RESPONSE SHAPE, DELIBERATELY. A client moving off `/copilot`
+# should not have to learn a second envelope to read the same fields,
+# and a client using both should not have to hold two shapes in mind.
+# Fields an action does not populate come back null or empty, exactly as
+# they always have.
+
+
+@router.get(
+    "/applicants/{applicant_id}",
+    summary="The applicant record",
+    responses={200: {"model": FosResponse, "description": "The applicant."}},
+)
+async def get_applicant(
+    applicant_id: str,
+    case_id: str | None = None,
+    claims: dict[str, Any] = Depends(require_jwt),
+):
+    """Who this applicant is, as the store holds them."""
+    return await _run_action(
+        FosAction.GET_APPLICANT, applicant_id=applicant_id, case_id=case_id,
+        claims=claims, request_id=f"fos_{uuid.uuid4().hex}",
+    )
+
+
+@router.get(
+    "/applications/{case_id}",
+    summary="The application and where it stands",
+    responses={200: {"model": FosResponse, "description": "The application."}},
+)
+async def get_application(
+    case_id: str,
+    applicant_id: str | None = None,
+    claims: dict[str, Any] = Depends(require_jwt),
+):
+    """
+    The application record and its FOS stage.
+
+    A STAGE, NOT A DECISION. `status` here is how far intake has got --
+    documents collected, basic verification done -- and says nothing
+    about whether the loan will be approved.
+    """
+    return await _run_action(
+        FosAction.GET_APPLICATION_STATUS, applicant_id=applicant_id,
+        case_id=case_id, claims=claims, request_id=f"fos_{uuid.uuid4().hex}",
+    )
+
+
+@router.get(
+    "/documents/{case_id}",
+    summary="The documents on this case and their verification status",
+    responses={200: {"model": FosResponse, "description": "The documents."}},
+)
+async def get_documents(
+    case_id: str,
+    applicant_id: str | None = None,
+    claims: dict[str, Any] = Depends(require_jwt),
+):
+    """
+    What has been uploaded, and what basic verification made of it.
+
+    BASIC VERIFICATION ONLY: whether each file is readable, is the type
+    it was declared as, and is structurally coherent. Identity
+    consistency across documents, income and affordability are later
+    stages and are not reported here.
+    """
+    return await _run_action(
+        FosAction.GET_DOCUMENTS, applicant_id=applicant_id, case_id=case_id,
+        claims=claims, request_id=f"fos_{uuid.uuid4().hex}",
+    )
+
+
+@router.get(
+    "/checklist/{case_id}",
+    summary="What this product requires, and what is still missing",
+    responses={200: {"model": FosResponse, "description": "The checklist."}},
+)
+async def get_checklist(
+    case_id: str,
+    applicant_id: str | None = None,
+    claims: dict[str, Any] = Depends(require_jwt),
+):
+    """
+    The required documents for this case, with the policy that produced
+    them and which rules could not be evaluated.
+    """
+    return await _run_action(
+        FosAction.GET_DOCUMENT_CHECKLIST, applicant_id=applicant_id,
+        case_id=case_id, claims=claims, request_id=f"fos_{uuid.uuid4().hex}",
+    )
+
+
+@router.post(
+    "/documents",
+    summary="Upload one or more documents for a case",
+    description=(
+        "Runs the existing intake pipeline: classification, then basic "
+        "document verification, then extraction only behind a PASS.\n\n"
+        "**Intake only.** Cross-document identity checks, income analysis "
+        "and affordability do not run here -- they belong to later "
+        "stages, and this endpoint has no authority over them.\n\n"
+        "The same handler as `POST /api/v1/fos/copilot` with "
+        "`action=UPLOAD_DOCUMENT`; both accept `files` and positional "
+        "`document_types`."
+    ),
+    responses={
+        200: {"model": FosResponse,
+              "description": "What was made of the upload."},
+    },
+    # The multipart body the facade already documents, so Swagger offers
+    # a file picker here too rather than an empty form.
+    openapi_extra={"requestBody": _UPLOAD_BODY},
+)
+async def post_documents(
+    request: Request,
+    claims: dict[str, Any] = Depends(require_jwt),
+):
+    """
+    THE SAME CODE AS THE FACADE'S UPLOAD, not a copy of it. A second
+    upload implementation would be a second place for the stage boundary
+    to be got wrong.
+    """
+    request_id = f"fos_{uuid.uuid4().hex}"
+    try:
+        return await _copilot_upload(request, claims, request_id)
+    except HTTPException:
+        raise
+    except AgentError as exc:
+        raise HTTPException(exc.http_status, detail={
+            "request_id": request_id, "error": exc.code, "message": exc.message,
+        }) from exc
+    except Exception as exc:
+        logger.exception("FOS upload failed request_id=%s", request_id)
+        raise HTTPException(500, detail={
+            "request_id": request_id, "error": "UPLOAD_FAILED",
+            "message": "The request could not be completed.",
+        }) from exc
+
 
 @router.get(
     "/actions",

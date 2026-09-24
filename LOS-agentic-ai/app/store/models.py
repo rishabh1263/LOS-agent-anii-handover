@@ -120,6 +120,40 @@ class Application:
     #: complete and is not.
     employment_type: str | None = None
 
+    # -- the loan terms, for affordability --------------------------------
+    #
+    # WHY THESE LIVE HERE AND NOT ON A REQUEST. FOIR needs a monthly
+    # instalment, and an instalment needs an amount, a tenure and a rate.
+    # `loan_amount` was already captured; the other two were not captured
+    # anywhere, so the FOIR that already existed in the risk rules could
+    # only ever be computed from figures a caller typed in by hand.
+    #
+    # ALL THREE OPTIONAL, AND NOT DEFAULTED. An application created
+    # without a tenure is one the affordability check reports as
+    # unassessable, naming the missing input. A default tenure would
+    # produce an EMI that looks calculated and was invented, which is the
+    # one thing this stage must never publish.
+    #
+    # STORED AS TEXT, like `loan_amount`, so the store keeps what was
+    # captured and the parsing and validating happen in one place at the
+    # point of use.
+    tenure_months: str | None = None
+    interest_rate_pct: str | None = None
+
+    #: What the applicant says they already repay each month.
+    #:
+    #: DECLARED, AND ONLY EVER TREATED AS DECLARED. Eligibility reads it
+    #: through a policy allowlist that is empty by default, so capturing
+    #: it does not by itself put it into a FOIR -- see
+    #: eligibility_policy.yaml.
+    declared_monthly_obligations: str | None = None
+
+    #: The property's value, for a secured product LTV applies to.
+    #:
+    #: DECLARED, and used only through the eligibility policy's accepted
+    #: sources. Never derived from a sale deed's consideration price.
+    property_value: str | None = None
+
     #: The second party on this case, when there is one.
     #:
     #: Held on the APPLICATION rather than the applicant because a person
@@ -313,6 +347,11 @@ class CaseFinding:
     created_at: datetime = field(default_factory=utcnow)
     #: Bumped when the same logical finding is recorded again.
     version: int = 1
+    #: When this row was LAST written. `created_at` is when it was first
+    #: written and never moves; a re-run that reached a conclusion recorded
+    #: before updates the old row, so only this says which is current.
+    #: None on a row written before the column existed.
+    updated_at: datetime | None = None
     #: Identifies an unchanged re-run, so a repeated request does not
     #: accumulate duplicate rows saying the same thing.
     content_hash: str | None = None

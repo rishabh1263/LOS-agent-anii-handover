@@ -98,6 +98,53 @@ CATALOGUE: dict[str, str] = {
     "PAN_NAME_INITIAL_MISMATCH": (
         "The PAN's holder-type letter does not match the printed name."
     ),
+    "PAN_HOLDER_TYPE_INCONSISTENT": (
+        "The PAN number says the holder is not an individual, but the card "
+        "prints a father's name, which only an individual's card carries. "
+        "It needs to be reviewed."
+    ),
+    "PAN_NAME_FATHER_IDENTICAL": (
+        "The holder's name and the father's name were read as the same "
+        "name, so the card was not read correctly. It needs to be reviewed."
+    ),
+    "DL_STATE_CODE_UNKNOWN": (
+        "The licence number does not begin with an Indian state or "
+        "union-territory code. It needs to be reviewed."
+    ),
+    "DL_ISSUED_BEFORE_ELIGIBLE_AGE": (
+        "The licence's issue date is before the holder was old enough to be "
+        "issued any licence, so a date was misread or is wrong. It needs to "
+        "be reviewed."
+    ),
+    "DL_DATES_INCONSISTENT": (
+        "The licence's validity ends on or before its issue date, so a date "
+        "was misread or is wrong. It needs to be reviewed."
+    ),
+    "DL_NAME_GUARDIAN_IDENTICAL": (
+        "The holder's and the guardian's names were read as the same name, "
+        "so the licence was not read correctly. It needs to be reviewed."
+    ),
+    "PASSPORT_NUMBER_FORMAT_INVALID": (
+        "The passport number is not in the Indian format of one letter and "
+        "seven digits. It needs to be reviewed."
+    ),
+    "DOCUMENT_NOT_PAN": (
+        "This is not a PAN card. It carries a PAN-shaped number, but none of "
+        "what a PAN card prints -- the Income Tax Department header, the "
+        "card's captions or its fields."
+    ),
+    "PAN_DOCUMENT_IDENTITY_NOT_ESTABLISHED": (
+        "This could not be established as a PAN card: too little of what a "
+        "PAN card prints was found. It needs to be reviewed."
+    ),
+    "PAN_DOCUMENT_STRUCTURE_INVALID": (
+        "This carries PAN card captions but reads as a longer document, not "
+        "a card. It needs to be reviewed."
+    ),
+    "PAN_SERIAL_UNISSUED": (
+        "This PAN's serial number is 0000, which is never issued, so the "
+        "card is a sample or was misread. It needs to be reviewed."
+    ),
 
     # -- image quality --------------------------------------------------
     #
@@ -151,6 +198,11 @@ CATALOGUE: dict[str, str] = {
     "BANK_STATEMENT_NO_TRANSACTIONS": (
         "No transactions could be read from this bank statement, so its "
         "structure could not be confirmed."
+    ),
+    "DOCUMENT_QUEUED_FOR_PROCESSING": (
+        "This statement is too long to read within the upload, so it has "
+        "been queued and is read in full in the background. This is a "
+        "limit of the service, not a finding about the document."
     ),
     "DOCUMENT_REQUIRES_OCR": (
         "This document is a scan that could not be read automatically. "
@@ -390,6 +442,8 @@ DISTINCT_OUTCOMES = (
     "BANK_STATEMENT_RECONCILIATION_INCONCLUSIVE",
     "DOCUMENT_REQUIRES_OCR",
     "DOCUMENT_REQUIRES_LANGUAGE_OCR",
+    # Queued because it is LONG, which is not the same as unreadable.
+    "DOCUMENT_QUEUED_FOR_PROCESSING",
 )
 
 _WORD = re.compile(r"[^A-Za-z0-9]+")

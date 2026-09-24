@@ -152,7 +152,16 @@ def test_an_unreadable_scan_reviews_with_a_reason():
     assert document["verification"] != "FAIL"
     assert document["reason_codes"], "a REVIEW with no reason code"
     assert document["reasons"], "a REVIEW with no explanation"
-    assert "DOCUMENT_REQUIRES_OCR" in document["reason_codes"]
+
+    # EITHER KIND OF DOUBT WILL DO, and which one depends on how much
+    # of the scan this build manages to read. It used to read none of
+    # this fixture and said DOCUMENT_REQUIRES_OCR; column
+    # reconstruction now recovers eleven transactions from it, which
+    # still do not confirm the closing balance. Both are honest, and
+    # both are REVIEW -- what must never happen is FAIL, which is an
+    # accusation about the customer's document.
+    assert set(document["reason_codes"]) & {"DOCUMENT_REQUIRES_OCR",
+                     "BANK_STATEMENT_RECONCILIATION_INCONCLUSIVE"}
 
 
 def test_a_review_reason_is_written_for_a_person():
@@ -365,7 +374,11 @@ def test_the_long_statement_passes_when_given_room():
     """
     document, _ = run(AT_BUDGET, budget_ms="90000")
 
-    if TIMEOUT in (document.get("reason_codes") or []):
+    # QUEUED is the same premise failing, decided earlier: the upload
+    # measured that this machine could not parse it inside the budget and
+    # sent it to the background reader instead of running out of time.
+    if {TIMEOUT, "DOCUMENT_QUEUED_FOR_PROCESSING"} & set(
+            document.get("reason_codes") or []):
         pytest.skip(
             "this machine could not parse the sample inside 90s; the parser "
             "reported the overrun instead of passing an unfinished document"
@@ -404,7 +417,11 @@ def test_a_large_statement_passes_when_given_room_to_parse(name):
 
     assert document["type"] == "BANK_STATEMENT"
 
-    if TIMEOUT in (document.get("reason_codes") or []):
+    # QUEUED is the same premise failing, decided earlier: the upload
+    # measured that this machine could not parse it inside the budget and
+    # sent it to the background reader instead of running out of time.
+    if {TIMEOUT, "DOCUMENT_QUEUED_FOR_PROCESSING"} & set(
+            document.get("reason_codes") or []):
         pytest.skip(
             f"this machine could not parse {name} inside the budget; the "
             f"parser reported the overrun instead of passing an unfinished "

@@ -230,7 +230,7 @@ def test_every_stage_is_registered():
     assert set(stage_registry.REGISTRY) == set(LosStage)
 
 
-def test_fos_is_the_one_stage_with_capabilities():
+def test_fos_is_the_one_stage_that_can_read_a_case():
     fos = stage_registry.capabilities_for(LosStage.FOS)
 
     assert fos.supported
@@ -248,28 +248,42 @@ def test_fos_reaches_the_live_mcp_registry_rather_than_a_copy():
 
 
 @pytest.mark.parametrize("stage", UNBUILT)
-def test_an_unbuilt_stage_claims_nothing(stage):
+def test_a_guide_only_stage_claims_a_corpus_and_nothing_else(stage):
+    """
+    CHANGED WHEN THE GUIDES WERE INDEXED. These six used to claim
+    nothing at all. B4 indexed a demonstration stage guide for every
+    stage, so each can now answer "how does this stage work" -- and
+    still cannot read a case at that stage.
+
+    Registering the corpus without the capabilities is the honest
+    description. Leaving the corpus unregistered would have made the
+    Copilot refuse a question it could answer.
+    """
     registered = stage_registry.capabilities_for(stage)
 
-    assert not registered.supported
-    assert registered.knowledge_corpus is None
+    assert registered.knowledge_corpus == stage.value
+    assert registered.answers_knowledge()
+
+    # No case capability, no MCP: nothing reads a case at this stage.
     assert registered.capabilities == frozenset()
-    assert not registered.answers_knowledge()
     assert not registered.answers_downstream()
     assert stage_registry.mcp_tools(stage) == ()
 
 
-def test_rcu_is_unsupported_despite_having_a_finding_kind():
+def test_rcu_has_no_case_capability_despite_having_a_finding_kind():
     """
     `FindingKind.RCU` exists in case memory and nothing produces those
-    findings. An enum member is not a capability.
+    findings. An enum member is not a capability -- and a stage guide
+    is not one either: RCU can explain itself and cannot read a case.
     """
     from app.store.models import FindingKind
 
+    registered = stage_registry.capabilities_for(LosStage.RCU)
+
     assert FindingKind.RCU.value == "RCU"
-    assert not stage_registry.supports(LosStage.RCU)
-    assert "no RCU capability" in stage_registry.capabilities_for(
-        LosStage.RCU).note
+    assert registered.capabilities == frozenset()
+    assert not registered.answers_downstream()
+    assert "no RCU case capability" in registered.note
 
 
 @pytest.mark.parametrize("stage", UNBUILT)

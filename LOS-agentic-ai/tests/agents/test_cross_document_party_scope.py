@@ -271,13 +271,19 @@ def test_nothing_that_is_not_a_holder_is_read_as_one(header):
     assert bank_parse.detect_account_holder(header) is None
 
 
-def test_an_unlabelled_holder_is_given_up_rather_than_guessed():
+def test_an_unlabelled_holder_is_given_up_rather_than_guessed(monkeypatch):
     """
     The Kotak statement prints the holder as a bare second line, with
     no caption. It is indistinguishable in shape from a branch or a
     city, so it is not extracted.
+
+    GIVEN ROOM, so the outcome does not depend on how loaded the machine
+    is: under a busy suite run the upload budget can legitimately queue
+    a 39-page statement, and that says nothing about the holder.
     """
     from app.agents.bank_statement.extract import extract_bank_statement
+
+    monkeypatch.setenv("BANK_STATEMENT_TIME_BUDGET_MS", "120000")
 
     raw = extract_bank_statement("samples/documents/KOTAK BANK STATEMENT.pdf")
 

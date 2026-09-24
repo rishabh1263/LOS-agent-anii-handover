@@ -120,8 +120,8 @@ def test_the_response_is_identical_either_way(client, repo):
                   operation="PROCESS", applicant_id="MEM-APP",
                   case_id="MEM-B", expected_types="PAN")
 
-    assert {k: v for k, v in off.items() if k not in volatile} == \
-           {k: v for k, v in on.items() if k not in volatile}
+
+    assert {k: v for k, v in off.items() if k not in volatile} ==            {k: v for k, v in on.items() if k not in volatile}
 
 
 # ==========================================================================

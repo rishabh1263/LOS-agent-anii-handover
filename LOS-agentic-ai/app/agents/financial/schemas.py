@@ -72,6 +72,16 @@ class FinancialResult(BaseModel):
     # wrong are worse than no figures. NOT a credit assessment; see
     # app/agents/bank_statement/signals.py.
     evidence: dict[str, Any] | None = None
+
+    #: Recurring credit evidence, for a bank statement that reconciled.
+    #:
+    #: DELIBERATELY SEPARATE FROM `signals`. `signals.average_monthly_credit`
+    #: is every credit divided by the months covered -- a transfer from
+    #: one's own savings raises it exactly as a salary does. This is the
+    #: narrower claim: credits of a similar size that arrived in several
+    #: different months, and what the bank called them. Absent when the
+    #: statement supports neither.
+    income_evidence: dict[str, Any] | None = None
     employer_name: str | None = None
 
     period_start: date | None = None

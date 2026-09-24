@@ -126,10 +126,22 @@ def test_files_is_declared_as_an_array_of_binaries(app_client):
     schema = spec["components"]["schemas"][schema_ref.split("/")[-1]]
     files = schema["properties"]["files"]
 
-    assert files["type"] == "array"
-    assert files["items"]["type"] == "string"
-    assert files["items"]["format"] == "binary"
-    assert "files" in schema["required"]
+    # OPTIONAL NOW, so the array sits inside an `anyOf` beside `null`:
+    # a request may carry `co_applicant_files` alone, because the two
+    # parties are processed independently. Neither field is required on
+    # its own; the handler enforces that SOMEBODY sent a document.
+    array = [o for o in files["anyOf"] if o.get("type") == "array"]
+    assert len(array) == 1, files["anyOf"]
+
+    assert array[0]["items"]["type"] == "string"
+    assert array[0]["items"]["format"] == "binary"
+    assert "files" not in (schema.get("required") or [])
+
+    # AND THE ITEM IS A FILE, NOT "A FILE OR SOME TEXT". The endpoint
+    # tolerates the empty string Swagger sends for an untouched input,
+    # but publishing that union made Swagger render a TEXT BOX -- so the
+    # contract collapses it back to binary.
+    assert "anyOf" not in array[0]["items"]
 
 
 def test_the_endpoint_accepts_multipart_not_json(app_client):
@@ -892,7 +904,31 @@ def test_the_response_carries_no_internal_detail(app_client):
 
 @pytest.mark.ocr
 def test_the_response_stays_mid_short(app_client):
-    """Two documents should not produce a wall of JSON."""
+    """
+    Two documents should not produce a wall of JSON.
+
+    THE LIMIT MOVED FROM 6000 TO 7000, DELIBERATELY. The compact
+    block now explains each issue in a sentence -- "This document is
+    a scan that could not be read automatically" rather than
+    DOCUMENT_REQUIRES_OCR -- and names the kind of document it
+    concerns. That is what a frontend renders, and it costs about
+    270 bytes on this two-document case.
+
+    The old ceiling left roughly twenty bytes of headroom, so it
+    forbade adding any reader-facing text at all. It is raised, not
+    removed: this is still a guard against a wall of JSON, and a
+    response that doubles will still fail it.
+
+    AND FROM 7000 TO 7500, FOR THREE NEW STAGE VERDICTS. Income
+    consistency, eligibility and risk now each publish a result:
+    94, 411 and 222 bytes on this case. The guard caught the first
+    version of that change at 9.6 KB -- risk was publishing its full
+    audit record, 2.5 KB of it, nearly half a list of rules with
+    nothing to evaluate -- and it was cut to the compact view the risk
+    agent already defines. What remained is the verdicts themselves.
+    A 500-byte raise for three stages is the cost of their existing;
+    a doubling still fails.
+    """
     import json
 
     response = post(
@@ -904,7 +940,7 @@ def test_the_response_stays_mid_short(app_client):
         expected=["AUTO", "BUSINESS_PROOF_1"],
     )
 
-    assert len(json.dumps(response.json())) < 6000
+    assert len(json.dumps(response.json())) < 7500
 
 
 @pytest.mark.ocr

@@ -15,9 +15,21 @@ signature. No key material is committed and no token is hardcoded.
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
+
+# THE SUITE RUNS ON THE CODE DEFAULTS, NOT ON THE DEPLOYMENT'S .env.
+#
+# `main` calls load_dotenv(), and the deployment .env switches case memory
+# and the background worker ON. python-dotenv never overrides a variable
+# that is already set, so pinning both here -- before any test imports
+# `main` -- keeps whichever test happens to import it first from turning
+# them on for the rest of the run. Both default OFF in code; a test that
+# needs one sets it explicitly.
+for _flag in ("LOS_CASE_MEMORY_ENABLED", "LOS_OCR_WORKER_ENABLED"):
+    os.environ[_flag] = "false"
 
 import jwt
 import pytest
@@ -90,6 +102,13 @@ def deterministic_summary_by_default(monkeypatch):
     generation call, which continues to work because this is only a default.
     """
     monkeypatch.setenv("LOS_LLM_SUMMARY_ENABLED", "false")
+    # THE CODE DEFAULTS, NOT THE DEPLOYMENT'S. `main` loads the deployment
+    # .env, which turns both of these ON. SET, NOT DELETED: python-dotenv
+    # fills in any variable that is absent, so deleting one here let the
+    # first test to `import main` switch it straight back on. A test that
+    # needs either sets it explicitly.
+    monkeypatch.setenv("LOS_CASE_MEMORY_ENABLED", "false")
+    monkeypatch.setenv("LOS_OCR_WORKER_ENABLED", "false")
 
     from app.agents.los import config
     from app.llm import availability

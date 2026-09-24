@@ -51,8 +51,25 @@ def _worst(statuses: list[str]) -> str:
 
 
 def _issue(code: str, message: str | None = None) -> dict[str, str]:
+    """
+    One reason code, with the sentence that explains it.
+
+    TWO VOCABULARIES, BOTH WRITTEN BY HAND. `kyc_explain` covers the
+    identity codes; the verification catalogue covers the document
+    ones -- DOCUMENT_TYPE_MISMATCH and DOCUMENT_REQUIRES_OCR reached a
+    reader as bare enum names until this consulted it.
+
+    THE CATALOGUE, NOT `reasons.explain`. That falls back to deriving
+    a sentence from the code's own letters, which turns an unmapped
+    code into confident-looking prose that nobody wrote. A code
+    nobody has explained stays visibly unexplained.
+    """
+    from app.agents.verification import reasons
+
     published = {"code": str(code)}
-    text = message or kyc_explain.field_message(code)
+    text = (message
+            or kyc_explain.field_message(code)
+            or reasons.CATALOGUE.get(str(code or "").upper()))
     if text:
         published["message"] = text
     return published
@@ -80,10 +97,27 @@ def verification_of(documents: list[dict[str, Any]]) -> dict[str, Any] | None:
             if code in seen:
                 continue
             seen.add(str(code))
-            issues.append({
+            # THE CODE HERE, THE SENTENCE IN THE COMPACT BLOCK.
+            # These reached a reader as bare enum names, and adding
+            # the sentence in both places put the same string in the
+            # response twice -- six hundred bytes of duplication on a
+            # two-document case, which the response-size guard caught.
+            # `_party_issues` explains them once, where they are read.
+            issue = {
                 "code": str(code),
                 "source_id": str(document.get("source_id") or ""),
-            })
+            }
+            # THE KIND OF DOCUMENT, where it is known. A reader is told
+            # "the bank statement could not be read", not
+            # "4b543335-47f4-41fb-9458-49fcaf27a983_4.pdf could not be
+            # read" -- and an upload named by a UUID is the normal
+            # case, not the exception. The file keeps its own field for
+            # traceability.
+            kind = str(document.get("type")
+                       or document.get("expected_type") or "").strip()
+            if kind:
+                issue["document_type"] = kind
+            issues.append(issue)
 
     return {
         "status": _worst([str(d.get("verification") or "") for d in documents]),
@@ -124,7 +158,15 @@ def _party_issues(role: str, section: dict[str, Any]) -> list[dict[str, Any]]:
 
     for source in (section.get("kyc") or {}, section.get("verification") or {}):
         for issue in source.get("issues") or []:
-            issues.append({"party": role, **issue})
+            # EXPLAINED HERE, ONCE. The party sections carry codes;
+            # this block is the one a frontend renders, so the
+            # sentence is attached as it is assembled rather than
+            # stored twice.
+            explained = _issue(str(issue.get("code") or ""),
+                               issue.get("message"))
+            rest = {key: value for key, value in issue.items()
+                    if key not in ("code", "message")}
+            issues.append({"party": role, **explained, **rest})
 
     return issues
 
@@ -136,7 +178,6 @@ def build(
     next_action: str,
     sections: dict[str, dict[str, Any]],
     documents: list[dict[str, Any]],
-    processing_ms: float,
 ) -> dict[str, Any]:
     """
     The application-level answer: what happened, and whose problem it is.
@@ -178,7 +219,13 @@ def build(
             # they match rather than have to trust it.
             "documents_received": len(documents),
             "documents_processed": len(documents),
-            "processing_ms": round(float(processing_ms or 0.0), 2),
+            # NO TIMING HERE. `processing_ms` is already published at
+            # the top level, and repeating it inside `overall` made an
+            # otherwise deterministic object volatile: two tests that
+            # compare whole responses for equality -- the same request
+            # with case memory off and on, and with the model on and
+            # off -- both broke on a millisecond difference in a figure
+            # they were not testing. One timing, one place.
         },
     }
 

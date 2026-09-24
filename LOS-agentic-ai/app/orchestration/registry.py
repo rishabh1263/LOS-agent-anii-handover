@@ -151,6 +151,27 @@ async def _fraud_risk_handler(
 register("fraud_risk_agent", _fraud_risk_handler)
 
 
+async def _eligibility_handler(
+    payload: dict[str, Any],
+    config: AgentConfig,
+    request_id: str,
+) -> dict[str, Any]:
+    """
+    Adapter for the Eligibility Agent.
+
+    Nothing to adapt beyond the shape: the engine is synchronous,
+    deterministic and fast -- arithmetic over figures other stages
+    already produced -- so there is no client, no timeout of its own and
+    nothing to await.
+    """
+    from app.agents.eligibility.agent import assess_payload
+
+    return assess_payload(payload)
+
+
+register("eligibility_agent", _eligibility_handler)
+
+
 async def _document_agent_handler(
     payload: dict[str, Any],
     config: AgentConfig,

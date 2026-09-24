@@ -35,6 +35,13 @@ ENVELOPE = {
     "document_highlights", "clarification_required",
     # conversation plumbing -- the caller carries it, this service does not
     "followed_up", "context",
+    # THE COMPACT BLOCKS, added for the frontend. Each is derived from
+    # fields already above it: `status` from the stage and application,
+    # `processing_queue` from the OCR jobs on the case, `grounded` from
+    # whether records answered, and `summary` from all of them. Listed
+    # here because this set is exact by design -- an unannounced field
+    # is as much a break as a missing one.
+    "summary", "status", "processing_queue", "grounded",
 }
 
 FOS_SCOPES = [

@@ -699,6 +699,11 @@ def compact_document(document: dict[str, Any]) -> dict[str, Any]:
     # and a caller who reads it as "genuine" has been misled by silence.
     if verification.get("authenticity"):
         compact["authenticity"] = verification["authenticity"]
+    # AND WHAT THE VERDICT RESTS ON, so "PASS" is read as "passed these
+    # checks" -- integrity, not issuance.
+    if verification.get("verification_scope"):
+        compact["verification_scope"] = verification["verification_scope"]
+        compact["issuer_verified"] = bool(verification.get("issuer_verified"))
 
     # Findings a reviewer should see that are NOT grounds to refuse the
     # document. Kept out of `reason_codes` on purpose: a code in that list

@@ -31,6 +31,18 @@ class SalarySlipResult(BaseModel):
     total_deductions: Decimal | None = None
     net_pay: Decimal | None = None
 
+    #: The basic pay line, read off the earnings table.
+    basic_salary: Decimal | None = None
+    #: Everything earned that is NOT basic pay -- gross minus basic.
+    #:
+    #: NOT A SUM OF LINES CALLED "ALLOWANCE". A real slip's earnings table
+    #: mixes HOUSE RENT ALLOWANCE with CONVEYANCE and SPECIAL PAY, and
+    #: adding only the lines carrying the word would under-report by
+    #: whatever the employer chose to call the rest. Subtracting basic
+    #: from the printed total is arithmetic over two figures that were
+    #: read, and it is present only when both of them were.
+    allowances: Decimal | None = None
+
     # Whether net_pay == gross_earnings - total_deductions. This is the one
     # check the slip cannot fake, the same role balance reconciliation plays
     # for a bank statement.

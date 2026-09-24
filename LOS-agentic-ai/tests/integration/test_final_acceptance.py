@@ -431,6 +431,19 @@ PUBLIC_TOP_LEVEL = {
     # next_action published above, beside each party's own reasons
     # tagged with whose they are. Additive -- nothing moved into it.
     "overall",
+    # -- stage results, each additive and each read by nothing that
+    # -- decides anything. `status`, `decision` and `next_action` are
+    # -- computed exactly as they were before any of these existed.
+    #
+    # Whether the salary slip and the bank statement agree about income.
+    "income_consistency",
+    # Whether the affordability policy is satisfied. NOT a lending
+    # decision: a PASS says the policy is satisfied on the evidence
+    # available, and approving a loan weighs risk, RCU and a human.
+    "eligibility",
+    # Risk signals, consuming the FOIR eligibility published rather than
+    # computing a second one.
+    "risk",
 }
 
 

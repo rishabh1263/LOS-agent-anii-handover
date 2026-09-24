@@ -68,6 +68,9 @@ _GROSS_CAPTIONS = (
     "Total Earnings", "Gross Earnings", "Total Salary", "Gross Salary",
     "Gross Earning", "Gross Wages",
 )
+_BASIC_CAPTIONS = (
+    "Basic Salary", "Basic Pay", "BASIC", "Basic Wages",
+)
 _DEDUCTIONS_CAPTIONS = (
     "Total Deductions", "Total Deduction", "Deductions, if any",
 )
@@ -282,6 +285,16 @@ def extract_salary_slip(path: str) -> SalarySlipResult:
     result.gross_earnings = _amount_after(lines, _GROSS_CAPTIONS)
     result.total_deductions = _amount_after(lines, _DEDUCTIONS_CAPTIONS)
     result.net_pay = _amount_after(lines, _NET_PAY_CAPTIONS)
+    result.basic_salary = _amount_after(lines, _BASIC_CAPTIONS)
+
+    # The rest of the earnings, where both figures were read and the
+    # subtraction makes sense. A basic line larger than the printed total
+    # means one of the two was misread, and reporting a negative
+    # allowance would publish that error as a figure.
+    if (result.gross_earnings is not None
+            and result.basic_salary is not None
+            and result.gross_earnings >= result.basic_salary):
+        result.allowances = result.gross_earnings - result.basic_salary
 
     # The one check a fabricated or misread slip cannot survive: net pay must
     # equal gross earnings minus deductions. Mirrors balance reconciliation
