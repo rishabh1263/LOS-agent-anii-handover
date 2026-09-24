@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useKycWizard } from '../../../runtime/api-tester'
 import { RequireAuth } from '../../auth'
+import { Chatbot } from '../../chatbot'
 import {
   BasicDetailsStep,
   DocumentUploadStep,
@@ -192,6 +193,9 @@ function ProcessPageContent() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* AI assistant — fixed bottom-right on every post-login step */}
+      <Chatbot />
     </div>
   )
 }
