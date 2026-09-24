@@ -1,0 +1,154 @@
+# ===========================================================================
+# ELIGIBILITY POLICY -- DEMONSTRATION VALUES
+# ===========================================================================
+#
+#   *** THIS IS A DEMO / DUMMY POLICY. IT IS NOT COMPANY LENDING POLICY. ***
+#
+# Every number below exists so the eligibility pipeline can be exercised end
+# to end -- through /api/v1/los/process, GET /api/v1/eligibility/{case_id}
+# and the Universal Copilot -- before the business team's real policy is
+# available. None of them has been approved by anyone, and none of them
+# should be read as a statement of what this lender will or will not lend.
+#
+# `status: DEMO_NON_PRODUCTION` says so IN THE DATA. It is carried into every
+# eligibility result and every Copilot answer that quotes a limit, so a demo
+# threshold can never reach an officer looking like a lending rule.
+#
+# ---------------------------------------------------------------------------
+# WHERE THE REAL POLICY WILL COME FROM
+# ---------------------------------------------------------------------------
+# The eligibility engine does not read this file. It asks a PolicyProvider
+# for a policy (app/agents/eligibility/policy.py), and the provider in use
+# is chosen by configuration:
+#
+#   ELIGIBILITY_POLICY_PROVIDER=config   this file (the default)
+#   ELIGIBILITY_POLICY_PROVIDER=api      the business team's policy service,
+#                                        once it exists -- see ApiPolicyProvider
+#
+# Swapping the source changes where the numbers come from and nothing about
+# how they are applied. A master Excel, a database table or a policy API can
+# each become a provider without touching the engine.
+#
+# ---------------------------------------------------------------------------
+# HOW A POLICY IS APPLIED
+# ---------------------------------------------------------------------------
+# A criterion set to null is NOT EVALUATED -- it is reported, never guessed.
+# A criterion that is evaluated and not met is a BREACH, and `breach_status`
+# decides what a breach does to the verdict. A demo policy sends breaches to
+# REVIEW: a person looks, rather than the system declaring someone
+# ineligible on numbers nobody signed off.
+#
+# Obligations are the one input this system cannot verify on its own. A
+# DECLARED figure is accepted here, for the demonstration, and the result
+# always says the obligations were declared. A real policy decides whether
+# a declared figure is enough.
+# ===========================================================================
+
+#: Which provider serves policies. Overridden by ELIGIBILITY_POLICY_PROVIDER.
+provider: config
+
+policies:
+
+  PERSONAL_LOAN:
+    policy_id: PL_DUMMY_V1
+    version: "1.0"
+    product: PERSONAL_LOAN
+
+    #: DEMO_NON_PRODUCTION until a real policy replaces this one.
+    status: DEMO_NON_PRODUCTION
+
+    #: What a policy breach does to the verdict: REVIEW or FAIL.
+    breach_status: REVIEW
+
+    income:
+      # Which figure is "income". NET_PAY, matching income_policy.yaml's
+      # `compare_against` -- two stages disagreeing about which figure is
+      # income would produce two different FOIRs for one applicant.
+      basis: NET_PAY
+      minimum_monthly_income: 25000
+      # Income evidence the income stage itself flagged for review is used
+      # for the ratio, and the verdict is capped at REVIEW.
+      on_income_review: REVIEW
+
+    foir:
+      maximum_percent: 50
+      # A band above which a breach fails rather than reviews. null = none.
+      fail_above_percent: null
+
+    loan:
+      minimum_amount: 50000
+      maximum_amount: 1000000
+
+    tenure:
+      minimum_months: 6
+      maximum_months: 60
+
+    interest:
+      # The product rate the instalment is priced at. When null, the rate
+      # captured on the application is used instead, and the result says so.
+      annual_rate_percent: 14.0
+
+    employment:
+      allowed:
+        - SALARIED
+        - SELF_EMPLOYED
+
+    obligations:
+      # Sources whose obligation figure may be used in the ratio.
+      accepted_sources:
+        - DECLARED
+
+    ltv:
+      # A personal loan is UNSECURED: there is no property to measure the
+      # loan against, so LTV is reported as NOT_APPLICABLE.
+      enabled: false
+
+  # -------------------------------------------------------------------------
+  # HOME LOAN -- also a demonstration policy, and the product where LTV is
+  # exercised. Every number is invented for the demo.
+  # -------------------------------------------------------------------------
+  HOME_LOAN:
+    policy_id: HL_DUMMY_V1
+    version: "1.0"
+    product: HOME_LOAN
+    status: DEMO_NON_PRODUCTION
+    breach_status: REVIEW
+
+    income:
+      basis: NET_PAY
+      minimum_monthly_income: 25000
+      on_income_review: REVIEW
+
+    foir:
+      maximum_percent: 50
+      fail_above_percent: null
+
+    loan:
+      minimum_amount: 500000
+      maximum_amount: 10000000
+
+    tenure:
+      minimum_months: 12
+      maximum_months: 360
+
+    interest:
+      annual_rate_percent: 8.5
+
+    employment:
+      allowed:
+        - SALARIED
+        - SELF_EMPLOYED
+
+    obligations:
+      accepted_sources:
+        - DECLARED
+
+    ltv:
+      enabled: true
+      # Loan amount over property value, as a percentage.
+      maximum_percent: 80
+      # Where the property value may come from. DECLARED for the demo; a
+      # real policy would name a VALUATION report. A sale deed's
+      # consideration price is never accepted -- it is not a valuation.
+      accepted_value_sources:
+        - DECLARED

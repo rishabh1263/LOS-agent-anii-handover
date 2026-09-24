@@ -270,7 +270,60 @@ def _check_pan(fields: dict[str, Any]) -> list[tuple[str, str, str]]:
                 f"the printed name.",
             ))
 
+    # ---- CONSISTENCY, NOT AUTHENTICITY ---------------------------------
+    #
+    # Each rule below compares things the card itself says. None of them
+    # can show the card is genuine, and none tries: they catch a card whose
+    # fields contradict each other, or a read that assigned text to the
+    # wrong field. REVIEW by default -- a person looks -- because a
+    # contradiction is evidence something is wrong, not proof of what.
+    father = str(fields.get("father_name") or "").strip().upper()
+
+    # THE HOLDER TYPE MUST FIT THE CARD. Position four says who holds the
+    # PAN; only an individual's card ("P") prints a father's name. A card
+    # whose number says company, firm or trust while carrying a father's
+    # name contradicts itself.
+    if (PAN_STRUCTURE.match(number) and father and number[3] != "P"
+            and _rule_on("PAN", "holder_type_consistency")):
+        findings.append((
+            _severity("PAN", "holder_type_consistency", "review"),
+            "PAN_HOLDER_TYPE_INCONSISTENT",
+            f"The PAN's fourth character ({number[3]}) is not an "
+            f"individual's, but the card prints a father's name, which "
+            f"only an individual's card carries.",
+        ))
+
+    # THE HOLDER AND THE FATHER ARE TWO PEOPLE. The same name in both is
+    # what a read looks like when one line was assigned to both fields --
+    # the failure behind a real card published under the wrong name.
+    if (name and father and _letters(name) == _letters(father)
+            and _rule_on("PAN", "name_father_distinct")):
+        findings.append((
+            _severity("PAN", "name_father_distinct", "review"),
+            "PAN_NAME_FATHER_IDENTICAL",
+            "The holder's name and the father's name were read as the same "
+            "name, so at least one of them was not read correctly.",
+        ))
+
+    # A SERIAL THAT IS NEVER ISSUED. Positions six to nine are a serial
+    # that runs from 0001, so a structurally valid number with 0000 there
+    # is a sample, a test document or a misread. (The familiar specimen
+    # ABCDE1234F needs no rule of its own: "D" is not a holder type, so
+    # the structure rule above already fails it.)
+    if (PAN_STRUCTURE.match(number) and number[5:9] == "0000"
+            and _rule_on("PAN", "serial_issued")):
+        findings.append((
+            _severity("PAN", "serial_issued", "review"),
+            "PAN_SERIAL_UNISSUED",
+            "This PAN's serial is 0000, which is never issued to a holder.",
+        ))
+
     return findings
+
+
+def _letters(value: str) -> str:
+    """A name reduced to its letters, so spacing and punctuation do not count."""
+    return re.sub(r"[^A-Z]", "", value.upper())
 
 
 # ==========================================================================
@@ -320,7 +373,11 @@ def _check_dates(document_class: str, fields: dict[str, Any]) -> list[tuple[str,
                     "The date of birth implies the holder is under 18.",
                 ))
 
-    valid_till = _parse_date(fields.get("valid_till"))
+    # A licence calls it `valid_till`, a passport `date_of_expiry`. Reading
+    # only the first let an expired passport through: the rule existed, it
+    # just never saw the passport's field.
+    valid_till = _parse_date(fields.get("valid_till")
+                             or fields.get("date_of_expiry"))
     if valid_till and valid_till < today:
         findings.append((
             "FAIL", "DOCUMENT_EXPIRED",
@@ -359,8 +416,111 @@ def _check_required_fields(
 
 
 #: document class -> its own rule function.
+# ==========================================================================
+# DRIVING LICENCE, VOTER ID, PASSPORT
+#
+# ONE CONTRACT, NOT ONE ALGORITHM. Every class returns (verdict, code,
+# detail) findings the same way and is folded into the verdict the same
+# way; what each checks is its own, because what a licence can contradict
+# is not what a voter card can. Like the PAN rules: consistency between
+# the document's own fields, REVIEW by default, never a claim of
+# authenticity.
+# ==========================================================================
+
+#: The two-letter state and union-territory codes a licence number opens
+#: with, including the retired ones (OR, UA) still on older cards.
+DL_STATE_CODES = frozenset({
+    "AN", "AP", "AR", "AS", "BR", "CG", "CH", "DD", "DL", "DN", "GA", "GJ",
+    "HP", "HR", "JH", "JK", "KA", "KL", "LA", "LD", "MH", "ML", "MN", "MP",
+    "MZ", "NL", "OD", "OR", "PB", "PY", "RJ", "SK", "TN", "TR", "TS", "UK",
+    "UA", "UP", "WB",
+})
+
+#: The youngest age at which any licence is issued.
+DL_MINIMUM_AGE_YEARS = 16
+
+_MODERN_DL = re.compile(r"^[A-Z]{2}[-\s]?\d")
+
+
+def _same_person(first: Any, second: Any) -> bool:
+    a, b = _letters(str(first or "")), _letters(str(second or ""))
+    return bool(a) and a == b
+
+
+def _check_driving_licence(fields: dict[str, Any]) -> list[tuple[str, str, str]]:
+    findings: list[tuple[str, str, str]] = []
+    number = str(fields.get("dl_number") or "").strip().upper()
+
+    # THE STATE CODE. A modern number opens with the issuing state's code;
+    # a legacy one ("39712/NLG/1997") does not, and is not judged on it.
+    if (_MODERN_DL.match(number) and number[:2] not in DL_STATE_CODES
+            and _rule_on("DRIVING_LICENCE", "state_code")):
+        findings.append((
+            _severity("DRIVING_LICENCE", "state_code", "review"),
+            "DL_STATE_CODE_UNKNOWN",
+            f"The licence number begins with {number[:2]}, which is not an "
+            f"Indian state or union-territory code.",
+        ))
+
+    dob = _parse_date(fields.get("date_of_birth"))
+    issued = _parse_date(fields.get("date_of_issue"))
+    valid_till = _parse_date(fields.get("valid_till"))
+
+    if (dob and issued and _rule_on("DRIVING_LICENCE", "issue_age")
+            and (issued - dob).days / 365.25 < DL_MINIMUM_AGE_YEARS):
+        findings.append((
+            _severity("DRIVING_LICENCE", "issue_age", "review"),
+            "DL_ISSUED_BEFORE_ELIGIBLE_AGE",
+            f"The licence was issued before the holder turned "
+            f"{DL_MINIMUM_AGE_YEARS}, the youngest age at which any licence "
+            f"is issued.",
+        ))
+
+    if (issued and valid_till and valid_till <= issued
+            and _rule_on("DRIVING_LICENCE", "validity_order")):
+        findings.append((
+            _severity("DRIVING_LICENCE", "validity_order", "review"),
+            "DL_DATES_INCONSISTENT",
+            "The licence's validity ends on or before the date it was issued.",
+        ))
+
+    if (_same_person(fields.get("name"), fields.get("guardian_name"))
+            and _rule_on("DRIVING_LICENCE", "name_guardian_distinct")):
+        findings.append((
+            _severity("DRIVING_LICENCE", "name_guardian_distinct", "review"),
+            "DL_NAME_GUARDIAN_IDENTICAL",
+            "The holder's name and the guardian's name were read as the same "
+            "name, so at least one of them was not read correctly.",
+        ))
+    return findings
+
+
+#: An Indian passport number: one letter, seven digits.
+_INDIAN_PASSPORT = re.compile(r"^[A-Z]\d{7}$")
+
+
+def _check_passport(fields: dict[str, Any]) -> list[tuple[str, str, str]]:
+    findings: list[tuple[str, str, str]] = []
+    country = str(fields.get("issuing_country") or "").strip().upper()
+    number = str(fields.get("passport_number") or "").strip().upper()
+
+    # ONLY FOR INDIA'S OWN FORMAT. Another country's numbering is its own,
+    # and judging it by India's would refuse a valid foreign passport.
+    if (country == "IND" and number and not _INDIAN_PASSPORT.match(number)
+            and _rule_on("PASSPORT", "number_format")):
+        findings.append((
+            _severity("PASSPORT", "number_format", "review"),
+            "PASSPORT_NUMBER_FORMAT_INVALID",
+            "The passport number is not in the Indian format of one letter "
+            "followed by seven digits.",
+        ))
+    return findings
+
+
 _CLASS_RULES = {
     "PAN": _check_pan,
+    "DRIVING_LICENCE": _check_driving_licence,
+    "PASSPORT": _check_passport,
 }
 
 
@@ -390,8 +550,9 @@ def apply(
     detail: dict[str, Any] = {}
     document_class = (document_class or "").upper()
 
-    is_identity = document_class in {"PAN", "DRIVING_LICENCE", "VOTER_ID",
-                                     "PASSPORT", "AADHAAR"}
+    from app.agents.verification.authenticity import IDENTITY_CLASSES
+
+    is_identity = document_class in IDENTITY_CLASSES
 
     if is_identity:
         # Stated on every identity document, at every verdict. Under

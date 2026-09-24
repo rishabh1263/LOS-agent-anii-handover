@@ -29,6 +29,10 @@ from app.agents.applicant.intents import Intent
 class QueryCategory(str, Enum):
     CASE_ONLY = "CASE_ONLY"
     KNOWLEDGE_ONLY = "KNOWLEDGE_ONLY"
+    #: How a named LOS stage works. Distinct from KNOWLEDGE_ONLY, which
+    #: is the FOS handbook: this is answered from the stage guides and
+    #: a reader needs to know which of the two replied.
+    PROCESS_KNOWLEDGE = "PROCESS_KNOWLEDGE"
     MIXED = "MIXED"
     DOWNSTREAM = "DOWNSTREAM"
     UNSUPPORTED = "UNSUPPORTED"
@@ -61,6 +65,8 @@ def category_for(intent: Intent) -> QueryCategory:
     """The category an intent belongs to."""
     if intent is Intent.OUT_OF_SCOPE:
         return QueryCategory.DOWNSTREAM
+    if intent is Intent.STAGE_PROCESS:
+        return QueryCategory.PROCESS_KNOWLEDGE
     if intent is Intent.FOS_KNOWLEDGE:
         return QueryCategory.KNOWLEDGE_ONLY
     if intent is Intent.MIXED:
@@ -89,6 +95,13 @@ RELEVANT_FIELDS: dict[Intent, tuple[str, ...]] = {
     Intent.DOCUMENTS_UPLOADED: ("documents",),
     # The explanation is the findings; the application says which case.
     Intent.CASE_HISTORY: ("application", "stage", "case_memory"),
+    Intent.INCOME_EVIDENCE: ("application", "case_memory"),
+    Intent.ELIGIBILITY: ("application", "case_memory"),
+    # The application says which case; the answer carries the value. NOT
+    # case memory: that block holds every finding on the case, and a
+    # question about one PAN has no reason to carry the rest.
+    Intent.DOCUMENT_DETAILS: ("application",),
+    Intent.CASE_PORTFOLIO: ("applications",),
     Intent.DOCUMENTS_REQUIRED: ("checklist", "required_documents"),
     # The explanation IS the policy block, so the answer would be
     # unsupportable without it.
@@ -107,6 +120,8 @@ RELEVANT_FIELDS: dict[Intent, tuple[str, ...]] = {
     # A knowledge answer carries NO case fields. It did not read a record and
     # attaching one would imply the answer came from it.
     Intent.FOS_KNOWLEDGE: (),
+    # No case fields: a stage guide describes the stage, not the case.
+    Intent.STAGE_PROCESS: (),
 
     # A routed question carries nothing either -- and this one matters. A
     # credit question that comes back with the applicant record and every

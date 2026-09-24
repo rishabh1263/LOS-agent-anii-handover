@@ -244,6 +244,32 @@ class DocumentsInput(BaseModel):
     extracted: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
+class EligibilityInput(BaseModel):
+    """
+    What the Eligibility stage already decided, handed to Risk.
+
+    ONE FOIR PER APPLICANT, COMPUTED ONCE. Eligibility owns affordability
+    and publishes the percentage; this carries it here so the FOIR rule
+    can BAND it -- how worrying is this number -- without recomputing it
+    from inputs it would have to re-assemble itself. Two calculations
+    over one applicant is a defect this service has already had, and it
+    produced a review on an arithmetic artefact.
+
+    Absent on a request that never ran eligibility, in which case the
+    rule falls back to computing its own as it always did.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    status: str | None = None
+    foir_pct: float | None = None
+    #: Published by eligibility for a secured product; banded, never recomputed.
+    ltv_pct: float | None = None
+    proposed_emi: float | None = None
+    income_used: float | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+
+
 class FraudRiskRequest(BaseModel):
     """
     Agent 2 input contract.
@@ -263,6 +289,9 @@ class FraudRiskRequest(BaseModel):
     references: list[ReferenceCheck] = Field(default_factory=list, max_length=20)
     dedupe: DedupeResult | None = None
     documents: DocumentsInput = Field(default_factory=DocumentsInput)
+
+    #: The affordability verdict, where the journey ran one.
+    eligibility: EligibilityInput | None = None
 
     # Free-form passthrough for existing LOS fields not modelled above.
     los_data: dict[str, Any] = Field(default_factory=dict)

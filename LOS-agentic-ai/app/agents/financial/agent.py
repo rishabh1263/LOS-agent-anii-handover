@@ -158,6 +158,7 @@ def _from_bank_statement(path: str) -> FinancialResult:
     elif raw.balance_reconciles is False:
         note = "movements do not reconcile with the running balance"
 
+    from app.agents.bank_statement import income as bank_income
     from app.agents.bank_statement import signals as bank_signals
 
     return FinancialResult(
@@ -172,6 +173,7 @@ def _from_bank_statement(path: str) -> FinancialResult:
         name=raw.account_holder,
         account_number_masked=raw.account_number_masked,
         evidence=bank_signals.derive(raw) or None,
+        income_evidence=bank_income.income_evidence(raw),
         period_start=raw.period.start,
         period_end=raw.period.end,
         signals=IncomeSignals(

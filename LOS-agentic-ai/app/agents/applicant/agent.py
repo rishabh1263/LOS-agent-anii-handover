@@ -29,15 +29,23 @@ from app.agents.applicant import (
     config,
     counters,
     facts,
+    document_facts,
+    eligibility_facts,
     grounding,
+    income_facts,
     knowledge_answer,
     permissions,
     routing,
 )
-from app.agents.applicant.answer import deterministic_answer, generate_answer
+from app.agents.applicant.answer import (
+    NOTHING_AVAILABLE,
+    deterministic_answer,
+    generate_answer,
+)
 from app.agents.applicant import followup
 from app.agents.applicant.query_types import QueryType, clarification_for, type_for
 from app.agents.applicant.intents import (
+    Classification,
     Intent,
     SIMPLE_INTENTS,
     WRITE_INTENTS,
@@ -59,12 +67,35 @@ class AgentError(Exception):
         self.http_status = http_status
 
 
+def _executed(step: dict[str, Any],
+              caller: "permissions.Caller | None") -> bool:
+    """
+    Whether a traced tool actually ran.
+
+    A tool the caller's scope did not cover was refused BEFORE running and
+    is traced as a failure. It is told apart by asking the same check that
+    refused it, so the trace itself keeps its shape.
+    """
+    if step.get("ok") or caller is None:
+        return True
+    try:
+        permissions.check_tool(caller, step["tool"])
+    except permissions.PermissionDenied:
+        return False
+    return True
+
+
 async def _call_tools(
     plan: tuple[str, ...],
     *,
     applicant_id: str | None,
     case_id: str | None,
     document_type: str | None,
+    # WHO IS ASKING, so each capability can be checked against the scope
+    # its own contract declares. Optional so an internal caller that has
+    # already established authorisation another way is unaffected; every
+    # request path supplies it.
+    caller: "permissions.Caller | None" = None,
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], list[dict[str, str]]]:
     """
     Run the planned tools.
@@ -73,6 +104,12 @@ async def _call_tools(
     request down: its failure is recorded and the answer is built from what
     did come back, because a partial answer with a named gap is more useful to
     a FOS than a 500.
+
+    A TOOL THE CALLER MAY NOT USE IS REFUSED, NOT RUN, and refused the
+    same way a failure is handled: recorded and skipped. The request has
+    already passed the capability check for the KIND of work it is; a
+    plan that reaches one capability beyond the caller's scopes should
+    cost that capability, not the whole answer.
     """
     from app.mcp import applicant as tools
 
@@ -86,6 +123,15 @@ async def _call_tools(
             errors.append({"code": "UNKNOWN_TOOL",
                            "message": f"No such capability: {capability}."})
             continue
+
+        if caller is not None:
+            try:
+                permissions.check_tool(caller, capability)
+            except permissions.PermissionDenied as denied:
+                errors.append({"code": denied.code, "message": denied.message})
+                trace.append({"tool": capability, "ok": False,
+                              "processing_ms": 0.0})
+                continue
 
         if capability == "applicant.get":
             envelope = await handler(applicant_id)
@@ -165,6 +211,79 @@ def _proposed_action(
     }
 
 
+def _case_qualifier(case_id: str | None, party_id: str | None) -> str:
+    """
+    What the CASE concluded, when that differs from the documents.
+
+    Empty when nothing was recorded, and empty when the recorded
+    decision is not a review -- a case that is progressing needs no
+    caveat, and adding one to every answer would train a reader to
+    skip the sentence that matters.
+    """
+    if not case_id:
+        return ""
+
+    try:
+        memory = case_memory_facts.case_memory(case_id, party_id)
+        decisions = memory.get("decisions") or []
+        if not decisions:
+            return ""
+
+        latest = decisions[-1]
+        decision = str(latest.get("decision") or "").upper()
+        if decision not in {"REVIEW", "REJECT"}:
+            return ""
+
+        # THE REASON, NOT THE CASE-HISTORY SENTENCE.
+        #
+        # This used to borrow `explain`, whose first sentence names the
+        # processing status as well -- "recorded as PARTIAL with a
+        # REVIEW decision" -- and a reader given both took PARTIAL for
+        # the decision. PARTIAL is how far processing got; REVIEW is
+        # what was decided. Here only the decision and its reason are
+        # wanted, because the sentence in front of this one has already
+        # said what the documents did.
+        clause, _ = case_memory_facts.review_reason(memory)
+        if not clause:
+            return ""
+
+        verb = ("was declined" if decision == "REJECT"
+                else "is under review")
+        return f"However, your application {verb} because {clause}."
+    except Exception:
+        return ""
+
+
+def _portfolio_answer(results: dict[str, Any]) -> str:
+    """
+    The applicant's applications, counted and listed separately.
+
+    NEVER MERGED. Two cases are two answers; a sentence that blended
+    them would report a status no single case holds -- and a reviewer
+    acting on "the application is in review" would not know which one.
+    The count leads, then each case is named with its own status.
+
+    Deterministic: the rows come from `applications.list`, which is
+    scoped to one applicant_id at the tool, and nothing here is
+    inferred or summarised by a model.
+    """
+    payload = (results.get("applications.list") or {})
+    applications = payload.get("applications") or []
+    total = int(payload.get("count") or len(applications))
+
+    if not total:
+        return "No applications are on file for this applicant."
+
+    lines = []
+    for record in applications:
+        case_id = str(record.get("case_id") or "unknown")
+        status = str(record.get("status") or "UNKNOWN")
+        lines.append(f"{case_id} ({status})")
+
+    noun = "case" if total == 1 else "cases"
+    return f"Across {total} {noun}: " + "; ".join(lines) + "."
+
+
 async def answer_question(
     *,
     message: str,
@@ -178,6 +297,20 @@ async def answer_question(
     party_id: str | None = None,
     concise: bool = True,
     context: dict[str, Any] | None = None,
+    # WHEN THE CALLER ALREADY KNOWS WHAT WAS ASKED.
+    #
+    # A dropdown action is not a question: the client picked
+    # "Document checklist" from a list this service published, so the
+    # intent is already decided and classifying an English sentence back
+    # into it can only lose. It did, repeatedly -- every routing defect
+    # found in review was a pattern-ordering bug in a regex ladder that
+    # a named action never needed to enter.
+    #
+    # EVERYTHING ELSE IS UNCHANGED. Capability check, ownership check,
+    # the tool plan, the deterministic answer, the audit record and the
+    # response shape are the ones a typed question gets. This skips the
+    # inference step and nothing else.
+    intent_override: Intent | None = None,
 ) -> dict[str, Any]:
     """
     One FOS question, answered.
@@ -274,7 +407,14 @@ async def answer_question(
         message, followup.Context.from_payload(context))
     message = resolution.message
 
-    classification = classify(message)
+    if intent_override is not None:
+        # No follow-up resolution either: a named action carries no
+        # pronoun to resolve and no previous turn to resolve it against.
+        classification = Classification(
+            intent_override, confidence="high", matched_on="action")
+    else:
+        classification = classify(message)
+
     intent = classification.intent
 
     # ---- out of scope, before anything is read -------------------------
@@ -381,6 +521,40 @@ async def answer_question(
                      message=message, detail=exc.code)
         raise AgentError(exc.code, exc.message, http_status=403) from exc
 
+    # ---- how a named stage works ---------------------------------------
+    #
+    # RETURNS BEFORE THE READ PATH, and must. No MCP tool answers "what
+    # does RCU check", so `plan_for` returns nothing for it -- and the
+    # read path treats an empty plan as an empty RESULT, replying "No
+    # data is available for this request." with the default CASE_ONLY
+    # category. A process question is not a case question that failed.
+    #
+    # AFTER THE OWNERSHIP CHECK, THOUGH IT READS NO CASE. A stage
+    # guide describes a desk and nothing on this path can reach an
+    # applicant record -- but the request still names a case, and a
+    # caller who does not hold that case is refused before anything
+    # answers them. Ownership is a property of the request, not a
+    # question about which branch happens to need the data.
+    #
+    # THE ANSWER IS LEFT EMPTY ON PURPOSE. The text comes from the
+    # indexed stage guide, retrieved and phrased by the caller that has
+    # a vector store -- this module has no retrieval of its own, and a
+    # deterministic sentence invented here would be a second answer
+    # competing with the real one.
+    if intent is Intent.STAGE_PROCESS:
+        audit.record(request_id=request_id, subject=caller.subject,
+                     applicant_id=applicant_id, case_id=case_id,
+                     intent=intent.value, tools=[], status="OK",
+                     message=message)
+        return envelope(
+            intent=intent.value,
+            answer="",
+            category=routing.QueryCategory.PROCESS_KNOWLEDGE.value,
+            query_type=QueryType.PROCESS_KNOWLEDGE.value,
+            followed_up=resolution.public(),
+            response_source=routing.ResponseSource.STRUCTURED.value,
+        )
+
     # ---- writes are proposed, never performed here ---------------------
     if intent in WRITE_INTENTS:
         action = _proposed_action(classification, applicant_id, case_id)
@@ -403,6 +577,10 @@ async def answer_question(
         applicant_id=applicant_id,
         case_id=case_id,
         document_type=classification.document_type,
+        # Each capability is checked against the scope its own contract
+        # declares, in addition to the capability check this request has
+        # already passed.
+        caller=caller,
     )
 
     if not results:
@@ -440,20 +618,90 @@ async def answer_question(
     case_memory_block = None
     case_sources: list[dict[str, Any]] = []
 
-    if intent is Intent.CASE_HISTORY:
+    # WHAT THE CASE ITSELF RECORDED, read once before anything phrases
+    # an answer, because its presence decides who does the phrasing.
+    recorded = (_case_qualifier(case_id, party_id)
+                if intent in (Intent.DOCUMENT_VERIFICATION,
+                              Intent.APPLICATION_STATUS)
+                else "")
+
+    if intent is Intent.CASE_PORTFOLIO:
+        answer = _portfolio_answer(results)
+        source, llm_ms = "deterministic", 0.0
+
+    elif intent is Intent.ELIGIBILITY:
+        # READ, NOT COMPUTED, and no model on this path at any setting.
+        # A FOIR is the one figure in this system most likely to be
+        # repeated back confidently and wrongly: it is a percentage, it
+        # sounds like arithmetic anyone could redo, and redoing it from
+        # a chat turn's context would produce a second answer for one
+        # applicant.
+        memory = case_memory_facts.case_memory(case_id or "", party_id)
+        answer, case_sources = eligibility_facts.answer(memory)
+        case_memory_block = memory
+        source, llm_ms = "deterministic", 0.0
+
+    elif intent is Intent.DOCUMENT_DETAILS:
+        # QUOTED FROM THE RECORD, for the applicant who was asked about.
+        # Scoped to that party -- in a two-party case "my PAN" is the
+        # applicant's own, never the co-applicant's -- and to the case,
+        # whose ownership the check above has already cleared.
+        answer, case_sources = document_facts.answer(
+            case_id or "", party_id or applicant_id, message)
+        source, llm_ms = "deterministic", 0.0
+
+    elif intent is Intent.INCOME_EVIDENCE:
+        # THE SAME PLACE THE REST OF THE CASE'S CONCLUSIONS COME FROM,
+        # and no model on this path at any setting. Income is the one
+        # subject where a plausible sentence is most tempting and least
+        # acceptable: "your salary is 50,000" reads perfectly and is a
+        # figure nobody recorded.
+        memory = case_memory_facts.case_memory(case_id or "", party_id)
+        answer, case_sources = income_facts.answer(memory)
+        case_memory_block = memory
+        source, llm_ms = "deterministic", 0.0
+
+    elif intent is Intent.CASE_HISTORY:
         memory = case_memory_facts.case_memory(case_id or "", party_id)
         answer, case_sources = case_memory_facts.explain(memory)
         case_memory_block = memory
         source, llm_ms = "deterministic", 0.0
 
     elif intent is Intent.MIXED:
-        answer = deterministic_answer(answering_intent, results)
+        # THE CASE HALF IS ANSWERED THE WAY THAT HALF IS ANSWERED.
+        #
+        # A mixed question whose case half is a history question --
+        # "why is this case not ready AND what does the bank statement
+        # show" -- was sent to `deterministic_answer`, which has no
+        # case-history branch, so it returned "No answer is available
+        # for this request." and the handbook paragraph was appended
+        # underneath it. The explanation was in case memory all along,
+        # which is where the same question asked alone reads it from.
+        if answering_intent is Intent.CASE_HISTORY:
+            memory = case_memory_facts.case_memory(case_id or "", party_id)
+            answer, case_sources = case_memory_facts.explain(memory)
+            case_memory_block = memory
+        else:
+            answer = deterministic_answer(answering_intent, results)
         source, llm_ms = "deterministic", 0.0
     else:
         use_llm = config.llm_enabled() and (
             answering_intent not in SIMPLE_INTENTS
             or config.llm_for_simple_intents()
         )
+
+        # AND WHERE THERE IS ONE, NOTHING PARAPHRASES IT.
+        #
+        # Asked for the status of a case recorded as REVIEW with
+        # NAME_MISMATCH, the model wrote "there wasn't enough matching
+        # information to make a decision" -- a generalisation of a
+        # finding that names two people. The reason is a recorded
+        # fact, and a fact is reported rather than rewritten. The
+        # model keeps every answer where the case recorded nothing
+        # specific, which is most of them.
+        if recorded:
+            use_llm = False
+
         if use_llm:
             answer, source, llm_ms = await generate_answer(
                 message, answering_intent, results,
@@ -461,6 +709,23 @@ async def answer_question(
         else:
             answer = deterministic_answer(answering_intent, results)
             source, llm_ms = "deterministic", 0.0
+
+    # A DOCUMENT VERDICT IS NOT THE CASE'S VERDICT.
+    #
+    # "No documents currently have verification issues" is true of the
+    # documents and misleading about the application: this case had
+    # both documents passing and a recorded REVIEW, because the name
+    # on the PAN and the name on the bank account belong to different
+    # people. A reader told only the first half walks away believing
+    # the case is clear.
+    #
+    # THE QUALIFIER IS RECORDED, NOT REASONED. It is the decision and
+    # the reason codes the pipeline wrote down, phrased by the same
+    # function the case-history answer uses. Nothing new is concluded
+    # here.
+    if intent in (Intent.DOCUMENT_VERIFICATION, Intent.APPLICATION_STATUS):
+        if recorded:
+            answer = answer.rstrip() + " " + recorded
 
     knowledge_block = None
     category = routing.category_for(intent)
@@ -490,13 +755,35 @@ async def answer_question(
         )
         knowledge_block = _public_knowledge(detail)
         if detail["confident"]:
-            answer = answer.rstrip() + "\n\n" + text
+            # NEVER A REFUSAL IN FRONT OF AN ANSWER. Where the case
+            # half genuinely has nothing to say, prefixing the
+            # knowledge half with "No answer is available" tells the
+            # reader the service failed at the moment it succeeded.
+            settled = answer.rstrip()
+            if settled == NOTHING_AVAILABLE:
+                settled = ""
+            joined = "\n\n".join(p for p in (settled, text) if p)
+            answer = joined
             response_source = routing.ResponseSource.MIXED.value
         else:
             # Only the store contributed, so say so.
             category = routing.QueryCategory.CASE_ONLY
 
     payload = _shape(results)
+
+    # WHAT IS STILL BEING WORKED ON. A document queued for background
+    # reading is neither finished nor forgotten, and an officer asking
+    # about the case has no way to tell those apart unless the answer
+    # says so.
+    if case_id:
+        try:
+            from app.store import get_repository, ocr_queue
+
+            queued = ocr_queue.jobs_for_case(get_repository(), case_id)
+            if queued:
+                payload["processing_queue"] = queued
+        except Exception:
+            pass
     response = envelope(
         intent=intent.value,
         # The kind of request, resolved from the intent the classifier
@@ -519,6 +806,11 @@ async def answer_question(
         # existing response grows a key.
         **({"case_memory": case_memory_block} if case_memory_block else {}),
         **({"sources": case_sources} if case_sources else {}),
+        # THE TOOLS THAT ACTUALLY RAN, in order. A refused tool never ran
+        # and is absent. Case-memory reads are not tools and are not
+        # listed as if they were.
+        tools_invoked=[step["tool"] for step in trace
+                       if _executed(step, caller)],
         errors=errors,
         **payload,
     )

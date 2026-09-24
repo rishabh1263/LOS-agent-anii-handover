@@ -998,6 +998,56 @@ def _kyc_rank_of(payload: dict[str, Any] | None) -> int:
     return _rank(payload.get("status"))
 
 
+def _public_risk(envelope: dict[str, Any]) -> dict[str, Any]:
+    """The primary applicant's risk assessment."""
+    risk = envelope.get("party_risk") or {}
+    applicant_id = envelope.get("applicant_id")
+
+    if applicant_id and applicant_id in risk:
+        return risk[applicant_id]
+
+    return next(iter(risk.values()), {})
+
+
+def _public_eligibility(envelope: dict[str, Any]) -> dict[str, Any]:
+    """
+    The primary applicant's affordability verdict.
+
+    Per party for the same reason income consistency is: a co-applicant
+    has their own income, their own obligations and their own
+    affordability, and assessing one against the other's figures is the
+    two-party defect cross-document KYC already learned once.
+    """
+    eligibility = envelope.get("party_eligibility") or {}
+    applicant_id = envelope.get("applicant_id")
+
+    if applicant_id and applicant_id in eligibility:
+        return eligibility[applicant_id]
+
+    return next(iter(eligibility.values()), {})
+
+
+def _public_income_consistency(envelope: dict[str, Any]) -> dict[str, Any]:
+    """
+    The primary applicant's income comparison.
+
+    THE PRIMARY'S, AND SAID SO. A co-applicant's slip must never be
+    compared against the applicant's statement -- that is the two-party
+    defect cross-document KYC already learned -- so each party's
+    comparison is computed over their own documents only. This response
+    publishes the primary's; a co-applicant's is computed and held in
+    the envelope, and publishing it belongs with the work that gives
+    each party section its own income block.
+    """
+    income = envelope.get("party_income") or {}
+    applicant_id = envelope.get("applicant_id")
+
+    if applicant_id and applicant_id in income:
+        return income[applicant_id]
+
+    return next(iter(income.values()), {"status": "SKIPPED", "reason_codes": []})
+
+
 def _public_cross_document(
     envelope: dict[str, Any], kyc: dict[str, Any],
 ) -> dict[str, Any]:
@@ -1208,6 +1258,252 @@ def _released_for_matching(
         })
 
     return released
+
+
+def _income_consistency_for(documents: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Whether one party's statement supports the salary their slip states.
+
+    A SEPARATE CHECK FROM IDENTITY KYC, deliberately. Name, date of
+    birth, PAN, father's name and address decide whether the documents
+    describe one person. This decides whether they tell one story about
+    income, which is a different question with a different policy file
+    and its own reason codes. It contributes nothing to the KYC verdict
+    and nothing to the case decision -- it is a signal a reviewer reads.
+
+    THE SAME GATE, A FOURTH CONSUMER. `_released_for_matching` is what
+    profile matching and cross-document KYC already use, so a figure
+    withheld from the caller is withheld from this comparison too.
+    """
+    from app.agents.income import consistency
+
+    bank_evidence = None
+    salary_slip = None
+
+    for result in _released_for_matching(documents):
+        document_type = str(
+            (result.get("document") or {}).get("type") or "").upper()
+        fields = (result.get("extraction") or {}).get("fields") or {}
+
+        if document_type == "BANK_STATEMENT" and bank_evidence is None:
+            bank_evidence = fields.get("income_evidence")
+        elif document_type == "SALARY_SLIP" and salary_slip is None:
+            signals = fields.get("signals") or {}
+            detail = fields.get("detail") or {}
+            # THE SLIP'S OWN FIGURES, under the names this project
+            # already gives them. `net_pay` and `gross_earnings` reach
+            # the response through `signals`, where the financial layer
+            # normalises every document's income fields into one shape.
+            salary_slip = {
+                "net_pay": signals.get("monthly_net_salary"),
+                "gross_earnings": signals.get("monthly_gross_salary"),
+                "pay_period": detail.get("pay_period"),
+            }
+            if not any(salary_slip.values()):
+                salary_slip = {}
+
+    return consistency.check(
+        bank_evidence=bank_evidence, salary_slip=salary_slip)
+
+
+def _eligibility_inputs(
+    income: dict[str, Any], application: Any,
+) -> "EligibilityInputs":
+    """
+    What affordability is assessed from, assembled and nothing more.
+
+    THE INCOME IS THE INCOME PIPELINE'S, NOT A NEW ONE. It comes out of
+    the income consistency result, which itself read only figures the
+    released-extraction gate allowed and the income policy accepted. The
+    salary slip's stated net pay is preferred where there is one: an
+    employer stating a salary is a stronger claim than credits nobody
+    labelled, and where only the credits exist the provenance says so.
+
+    THE LOAN TERMS ARE THE APPLICATION'S. Absent ones stay absent --
+    parsing is the engine's job and a missing tenure is a missing tenure.
+    """
+    from app.agents.eligibility.schemas import (
+        EligibilityInputs, IncomeSource, ObligationsSource, PropertyValueSource,
+    )
+
+    slip = (income or {}).get("salary_slip") or {}
+    bank = (income or {}).get("bank_statement") or {}
+
+    monthly_income = None
+    source = IncomeSource.NONE
+
+    if slip.get("amount"):
+        monthly_income = slip["amount"]
+        source = (IncomeSource.SALARY_SLIP_GROSS
+                  if "GROSS" in str(slip.get("figure") or "")
+                  else IncomeSource.SALARY_SLIP_NET)
+    elif bank.get("estimated_monthly_amount"):
+        monthly_income = bank["estimated_monthly_amount"]
+        source = IncomeSource.BANK_RECURRING_CREDIT
+
+    # DECLARED OBLIGATIONS ARE PASSED AS DECLARED, and whether a declared
+    # figure may be used at all is decided by eligibility_policy.yaml,
+    # which does not accept one by default. Capturing a number and using
+    # a number are separate decisions and this is only the first.
+    declared = getattr(application, "declared_monthly_obligations", None)
+    # `application` is None on a case's first pass; getattr covers it and
+    # every field below reads as absent, which is what it is.
+
+    return EligibilityInputs(
+        monthly_income=_as_number(monthly_income),
+        income_source=source,
+        income_consistency_status=(income or {}).get("status"),
+        monthly_obligations=_as_number(declared),
+        obligations_source=(ObligationsSource.DECLARED if declared
+                            else ObligationsSource.NONE),
+        loan_amount=_as_number(getattr(application, "loan_amount", None)),
+        tenure_months=_as_int(getattr(application, "tenure_months", None)),
+        interest_rate_pct=_as_number(
+            getattr(application, "interest_rate_pct", None)),
+        product=getattr(application, "product", None),
+        # Captured on the application at intake; the policy decides
+        # whether it is a criterion at all.
+        employment_type=getattr(application, "employment_type", None),
+        # Declared at intake; the policy decides whether LTV applies at all
+        # and whether a declared value is an accepted source.
+        property_value=_as_number(getattr(application, "property_value", None)),
+        property_value_source=(
+            PropertyValueSource.DECLARED
+            if getattr(application, "property_value", None)
+            else PropertyValueSource.NONE),
+    )
+
+
+def _as_number(value: Any) -> float | None:
+    """A captured figure as a number, or nothing. Never a default."""
+    if value is None:
+        return None
+    try:
+        return float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_int(value: Any) -> int | None:
+    number = _as_number(value)
+    return int(number) if number is not None else None
+
+
+async def _eligibility_for(
+    income: dict[str, Any], case_id: str | None,
+) -> dict[str, Any] | None:
+    """
+    One party's affordability verdict, through the registered agent.
+
+    ROUTED THROUGH `run_agent` RATHER THAN CALLED DIRECTLY, the same way
+    the specialist capabilities are: the agent is then configurable,
+    disableable and audited exactly like every other one, and an
+    eligibility verdict produced inside a document pipeline is the same
+    verdict as one produced by calling the agent on its own.
+
+    ASSESSED EVEN WITH NO APPLICATION RECORD, and this is deliberate.
+    `/api/v1/los/process` writes the application row AFTER the pipeline
+    runs, so on a case's first pass there is nothing to read -- and
+    returning None there made the stage vanish from that response
+    entirely, while the same case processed a second time reported it.
+    One case, two different answers, decided by whether anyone had
+    uploaded to it before.
+
+    An absent application means absent loan terms, which the engine
+    already handles: it reports LOAN_AMOUNT_MISSING and
+    EMI_INPUTS_MISSING and assesses nothing. That is the truth about
+    the case, and it is available on the first pass as well as the
+    second.
+    """
+    from app.orchestration.graph import run_agent
+
+    application = None
+    if case_id:
+        try:
+            from app.store import get_repository
+
+            application = get_repository().get_application(case_id)
+        except Exception:
+            application = None
+
+    inputs = _eligibility_inputs(income, application)
+
+    state = await run_agent(
+        agent_id="eligibility_agent",
+        payload=inputs.model_dump(mode="json"),
+        request_id=f"elig_{case_id}",
+    )
+    result = (state or {}).get("result") or {}
+    return result.get("eligibility")
+
+
+def _risk_for(
+    eligibility: dict[str, Any], case_id: str | None,
+) -> dict[str, Any] | None:
+    """
+    The risk assessment, reading the affordability verdict just produced.
+
+    THE FOIR IS NOT RECOMPUTED HERE. It is handed over in
+    `eligibility`, and the FOIR rule bands the published percentage
+    instead of assembling its own inputs. One applicant, one FOIR,
+    whichever response a reviewer is reading.
+
+    DETERMINISTIC ENGINE ONLY on this path (`use_llm=False`). The risk
+    agent's summary is a model call, and a document pipeline that waits
+    on one to return a document verdict has made the model part of the
+    critical path. The narrated summary remains available on the agent's
+    own route, where a caller asked for it.
+
+    NEVER RAISES, and never changes a verdict: the result is published
+    beside the others and read by nothing that decides anything.
+    """
+    if not eligibility:
+        return None
+
+    try:
+        from app.agents.fraud_risk.agent import FraudRiskAgent
+        from app.agents.fraud_risk.config import enabled as risk_enabled
+        from app.agents.fraud_risk.schemas import FraudRiskRequest
+
+        if not risk_enabled():
+            return None
+
+        inputs = eligibility.get("inputs") or {}
+        # THE CASE IS NAMED ONCE, AT THE TOP OF THE RESPONSE.
+        #
+        # `application_id` echoed the case id inside the risk block, and
+        # the same request against two cases then differed in a field
+        # that says nothing a reader did not already have. The risk
+        # agent's own route still sets it from what its caller sent.
+        request = FraudRiskRequest(
+            eligibility={
+                "status": eligibility.get("status"),
+                "foir_pct": (eligibility.get("foir") or {}).get("value_pct"),
+                "ltv_pct": (eligibility.get("ltv") or {}).get("value_pct"),
+                "proposed_emi": inputs.get("proposed_emi"),
+                "income_used": inputs.get("monthly_income"),
+                "reason_codes": list(eligibility.get("reason_codes") or []),
+            },
+        )
+        response = FraudRiskAgent(use_llm=False).assess(request)
+
+        # THE COMPACT VIEW, AND THE AGENT'S OWN RULE FOR IT: "never drop
+        # audit data to make a payload smaller -- only stop returning
+        # it." `assess` has already written the full record, data gaps
+        # and all, to the risk audit trail. What a document response
+        # needs is the verdict and which rules fired; on an intake-grade
+        # case the full record was 2.5 KB, nearly half of it a list of
+        # rules that had nothing to evaluate.
+        #
+        # The FOIR figure is not lost: it is published once, in
+        # `eligibility.metrics`, which is where it was computed.
+        from app.agents.fraud_risk.schemas import FraudRiskCompactResponse
+
+        return FraudRiskCompactResponse.from_full(response).model_dump(
+            mode="json")
+    except Exception as exc:
+        logger.warning("Risk assessment unavailable for %s: %r", case_id, exc)
+        return None
 
 
 def _stored_profile_for(party_id: str):
@@ -1431,6 +1727,52 @@ async def process_application(
         for party, owned in kyc_parties
     }
 
+    # INCOME CONSISTENCY, PER PARTY.
+    #
+    # Under the same `cross_document_checks` guard as KYC, because it is
+    # the same kind of claim: a statement about how two documents relate
+    # to each other, which the FOS stage has no authority to make. A FOS
+    # upload produces no income comparison at all rather than a SKIPPED
+    # one -- SKIPPED is a verdict, and not running is not.
+    #
+    # IT CHANGES NO VERDICT. Nothing below reads it: `status`, the
+    # decision and `next_action` are computed exactly as they were. It
+    # travels to the response as a signal and stops there.
+    party_income: dict[str, dict[str, Any]] = {}
+    if cross_document_checks:
+        for party, owned in kyc_parties:
+            party_income[party.party_id] = _income_consistency_for(owned)
+
+    # AFFORDABILITY, PER PARTY, AFTER THE EVIDENCE IT READS.
+    #
+    # Under the same `cross_document_checks` guard as KYC and income: a
+    # FOS upload verifies documents and has no authority to say anything
+    # about whether a loan is affordable.
+    #
+    # IT CHANGES NO VERDICT. Nothing below reads it -- `status`, the
+    # decision and `next_action` are computed exactly as they were. It
+    # travels to the response as a stage result and stops there, because
+    # deciding a loan weighs risk, RCU and a human, none of which this
+    # stage can see.
+    party_eligibility: dict[str, dict[str, Any]] = {}
+    party_risk: dict[str, dict[str, Any]] = {}
+    if cross_document_checks and party_income:
+        for party, _owned in kyc_parties:
+            try:
+                verdict = await _eligibility_for(
+                    party_income.get(party.party_id) or {}, case_id)
+            except Exception as exc:
+                # An affordability failure must not take a document
+                # pipeline down with it.
+                logger.warning("Eligibility unavailable for %s: %r",
+                               party.party_id, exc)
+                verdict = None
+            if verdict:
+                party_eligibility[party.party_id] = verdict
+                risk = _risk_for(verdict, case_id)
+                if risk:
+                    party_risk[party.party_id] = risk
+
     # ---------------------------------------------------------------
     # Overall verdict: the worst of every document and the KYC result.
     # ---------------------------------------------------------------
@@ -1507,6 +1849,13 @@ async def process_application(
         **({"party_kyc": party_kyc} if party_kyc else {}),
         # Each party's own roll-up, published on their section.
         **({"party_status": party_status} if party_status else {}),
+        # Income consistency, per party. Internal: the response
+        # publishes the primary applicant's.
+        **({"party_income": party_income} if party_income else {}),
+        # Affordability, per party. Same arrangement.
+        **({"party_eligibility": party_eligibility}
+           if party_eligibility else {}),
+        **({"party_risk": party_risk} if party_risk else {}),
         "summary": "",
         "processing": processing,
         "errors": errors,
@@ -1626,6 +1975,31 @@ def _public_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
         # derived from it -- it is simply no longer a separate public key
         # saying the same thing a second time.
         "cross_document": _public_cross_document(envelope, kyc),
+        # WHETHER THE INCOME DOCUMENTS AGREE. Present only when this
+        # stage ran the comparison, for the same reason `kyc` is: the
+        # absence of a check and a check that found nothing comparable
+        # are different answers.
+        #
+        # NOT PART OF `cross_document`, which is identity. A reviewer
+        # reading a name mismatch and a salary difference in one list
+        # would reasonably take them for the same kind of finding, and
+        # only one of them is about who the applicant is.
+        **({"income_consistency": _public_income_consistency(envelope)}
+           if envelope.get("party_income") else {}),
+        # AFFORDABILITY, AND NOT A LENDING DECISION. Present only when
+        # this stage ran it. A PASS means the affordability policy is
+        # satisfied on the evidence available; it does not mean the loan
+        # is approved, and `decision` above is computed without reading
+        # a single field of it.
+        **({"eligibility": _public_eligibility(envelope)}
+           if envelope.get("party_eligibility") else {}),
+        # RISK SIGNALS, READ BY NOTHING ABOVE. The risk agent has always
+        # existed and has never been reachable from this journey; it is
+        # now, consuming the FOIR eligibility published rather than
+        # computing a second one. `decision` and `next_action` are
+        # unchanged and do not read it.
+        **({"risk": _public_risk(envelope)}
+           if envelope.get("party_risk") else {}),
         # A word, not an object. The reasons behind it are already carried by
         # kyc.reason_codes and the cross-document checks, and repeating them
         # here made the same codes appear three times in one response.
@@ -1656,7 +2030,6 @@ def _public_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
         next_action=public["next_action"],
         sections=sections,
         documents=documents,
-        processing_ms=processing.get("total_ms") or 0.0,
     )
 
     # KYC, ONLY WHERE A STAGE ACTUALLY RAN IT.

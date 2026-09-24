@@ -328,12 +328,29 @@ def test_the_endpoint_requires_a_token(repo):
     assert response.status_code in (401, 403)
 
 
-def test_a_case_id_is_required(client, repo):
+def test_a_case_question_without_a_case_does_not_guess_one(client, repo):
+    """
+    CHANGED DELIBERATELY. `case_id` used to be required, so this was a
+    422 -- which also made an applicant-level question ("how many cases
+    does this applicant have?") unaskable. It is optional now.
+
+    THE PROPERTY THAT REPLACES IT IS STRONGER. A question about "this
+    case", asked without naming one, must NOT be answered from whatever
+    case happens to be lying around: the applicant here owns exactly
+    one, and picking it would be a guess that reads as a fact. The
+    request is accepted and the answer cites nothing.
+    """
     seed(repo)
 
-    response = client.post(ENDPOINT, json={"message": "Why is this in review?"})
+    response = client.post(ENDPOINT, json={
+        "message": "Why is this in review?", "applicant_id": "APP-1"})
 
-    assert response.status_code == 422
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["case_id"] is None
+    assert body["sources"] == []
+    assert "CASE-1" not in body["answer"]
 
 
 # ==========================================================================
@@ -353,7 +370,9 @@ def test_the_response_carries_only_the_published_keys(client, repo):
         # Which LOS desk this answer was scoped to, and where that came
         # from. `status` carries CAPABILITY_UNAVAILABLE for a stage with
         # nothing registered; it is null on an answered question.
-        "stage", "stage_resolution", "status"}
+        "stage", "stage_resolution", "status",
+        # Whether retrieved evidence backed the answer.
+        "grounded"}
 
 
 def test_no_payload_or_internals_reach_the_caller(client, repo):
@@ -402,8 +421,17 @@ def test_the_applicant_agent_surface_is_untouched():
 def test_the_routing_categories_are_unchanged():
     from app.agents.applicant.routing import QueryCategory
 
+    # PROCESS_KNOWLEDGE WAS ADDED DELIBERATELY, and this guard is
+    # updated rather than relaxed: it still pins the exact set, so the
+    # next category to appear without a reason fails here too.
+    #
+    # It exists because "what does RCU check" is answered from the
+    # stage guides, and KNOWLEDGE_ONLY already means the FOS handbook.
+    # A reader of the response has to be able to tell which of the two
+    # replied, and the five categories below could not say it.
     assert {c.value for c in QueryCategory} == {
-        "CASE_ONLY", "KNOWLEDGE_ONLY", "MIXED", "DOWNSTREAM", "UNSUPPORTED"}
+        "CASE_ONLY", "KNOWLEDGE_ONLY", "MIXED", "DOWNSTREAM", "UNSUPPORTED",
+        "PROCESS_KNOWLEDGE"}
 
 
 def test_case_history_is_a_case_only_question():

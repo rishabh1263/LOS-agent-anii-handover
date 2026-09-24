@@ -37,6 +37,10 @@ RECONCILIATION_INCONCLUSIVE = "BANK_STATEMENT_RECONCILIATION_INCONCLUSIVE"
 RECONCILIATION_FAILED = "BANK_STATEMENT_RECONCILIATION_FAILED"
 TIMEOUT = "VERIFICATION_TIMEOUT"
 REQUIRES_OCR = "DOCUMENT_REQUIRES_OCR"
+#: A DIGITAL statement too long to read inside the upload. Queued exactly as
+#: a scan is; worded as what it is. It is not a scan and nothing is wrong
+#: with it.
+QUEUED = "DOCUMENT_QUEUED_FOR_PROCESSING"
 NO_TRANSACTIONS = "BANK_STATEMENT_NO_TRANSACTIONS"
 PERIOD_MISSING = "REQUIRED_FIELD_MISSING"
 
@@ -76,13 +80,18 @@ def checks_for(result: Any) -> list[Check]:
     # cannot read is a limit of this service, not a finding against the
     # document, and it routes to a person or to the OCR queue.
     if status == "REQUIRES_OCR":
+        digital = source in ("DIGITAL", "MIXED")
         checks.append(Check(
             name="readable", outcome=Outcome.UNKNOWN, weight=3.0,
             hard_gate=True, gate_verdict="REVIEW",
-            reason_code=REQUIRES_OCR,
-            reason=("This bank statement is a scan that could not be read "
-                    "automatically. It needs to be re-uploaded as a clearer "
-                    "scan or reviewed manually."),
+            reason_code=QUEUED if digital else REQUIRES_OCR,
+            reason=(("This bank statement is too long to read within the "
+                     "upload. It has been queued and is read in full in the "
+                     "background; nothing is wrong with the document.")
+                    if digital else
+                    ("This bank statement is a scan that could not be read "
+                     "automatically. It needs to be re-uploaded as a clearer "
+                     "scan or reviewed manually.")),
         ))
         return checks
 
@@ -152,6 +161,34 @@ def checks_for(result: Any) -> list[Check]:
     # accusation about the customer's statement.
     if reconciles is True:
         integrity = Check(name="integrity", outcome=Outcome.OK, weight=3.0)
+    elif reconciles is False and source == "SCANNED":
+        # THE SAME ARITHMETIC, ON EVIDENCE WE READ OURSELVES.
+        #
+        # "On complete evidence" is the condition below, and a scan does
+        # not meet it: the rows came from OCR, which demonstrably drops
+        # an amount here and there on a 200 dpi page. Sums that do not
+        # add up then say something about our reading, not about the
+        # customer's statement -- and calling that a failure is exactly
+        # the accusation the note above warns against.
+        #
+        # UNKNOWN, so the gate resolves to REVIEW, and with a code that
+        # says which kind of doubt this is: a person opening the
+        # document needs to know the numbers were read by machine from
+        # a scan before they start looking for fraud.
+        integrity = Check(
+            name="integrity", outcome=Outcome.UNKNOWN, weight=3.0,
+            hard_gate=True, gate_verdict="FAIL",
+            reason_code=RECONCILIATION_INCONCLUSIVE,
+            # DELIBERATELY NOT PHRASED AS ARITHMETIC. "The transactions
+            # do not add up" is an accusation, and on a scan the more
+            # likely explanation is that we misread a figure. The
+            # sentence says what is true: it could not be confirmed.
+            reason=("The figures on this scanned statement were read "
+                    "automatically and could not be confirmed against its "
+                    "closing balance, so it needs a person to check it. "
+                    "This is a limit of reading a scan, not a finding "
+                    "about the document."),
+        )
     elif reconciles is False:
         # CONCLUSIVE arithmetic inconsistency, on complete evidence. The
         # existing integrity policy stands: this is a hard gate and it fails.

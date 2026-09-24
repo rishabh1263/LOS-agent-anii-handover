@@ -66,12 +66,23 @@ _DOCUMENT_STATUS = frozenset({
 _POLICY_REQUIREMENT = frozenset({
     Intent.DOCUMENTS_REQUIRED,
     Intent.DOCUMENTS_MISSING,
-    Intent.DOCUMENTS_PENDING,
     Intent.POLICY_EXPLANATION,
 })
 
 #: Intents answered purely from stored records and derived state.
 _CASE_FACT = frozenset({
+    # WHAT IS PENDING IS A FACT ABOUT THIS CASE, not a rule about
+    # the product. It sat with the policy intents and was published
+    # as POLICY_REQUIREMENT, which tells a client the answer came
+    # from the handbook -- it comes from the documents on the case
+    # and the state each of them is in. The answer itself never
+    # changed; only what the response called it.
+    #
+    # DOCUMENTS_REQUIRED AND DOCUMENTS_MISSING STAY WHERE THEY ARE.
+    # "What is required for a personal loan" is a rule, and the
+    # missing-documents answer carries the policy block a client
+    # renders beside it.
+    Intent.DOCUMENTS_PENDING,
     Intent.APPLICANT_DETAILS,
     Intent.APPLICANT_MISSING_INFO,
     Intent.APPLICATION_STATUS,
@@ -87,6 +98,15 @@ _CASE_FACT = frozenset({
     # POLICY_REQUIREMENT either -- nothing here is a rule the officer is
     # about to act on, it is what was already found.
     Intent.CASE_HISTORY,
+    # What the documents recorded about income is a stored record.
+    Intent.INCOME_EVIDENCE,
+    # And so is what affordability concluded.
+    Intent.ELIGIBILITY,
+    # And so is what a document was read to say.
+    Intent.DOCUMENT_DETAILS,
+    # The applicant's applications are stored records too -- about the
+    # person rather than one case, but facts either way.
+    Intent.CASE_PORTFOLIO,
 })
 
 
@@ -104,7 +124,7 @@ def type_for(intent: Intent) -> QueryType:
         return QueryType.ACTION_REQUEST
     if intent is Intent.OUT_OF_SCOPE:
         return QueryType.DOWNSTREAM
-    if intent is Intent.FOS_KNOWLEDGE:
+    if intent in (Intent.FOS_KNOWLEDGE, Intent.STAGE_PROCESS):
         return QueryType.PROCESS_KNOWLEDGE
     if intent is Intent.MIXED:
         return QueryType.MIXED

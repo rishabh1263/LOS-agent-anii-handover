@@ -98,6 +98,7 @@ from app.api.routes.document_extraction_api import router as document_extraction
 from app.api.routes.document_agent_api import router as document_agent_router
 from app.api.routes.financial_api import router as financial_router
 from app.api.routes.fos_api import router as fos_router
+from app.api.routes.eligibility_api import router as eligibility_router
 from app.api.routes.los_api import router as los_router
 from app.api.routes.ops import router as ops_router
 from app.api.routes.verification_api import router as verification_router
@@ -108,6 +109,58 @@ from app.security.auth import auth_health, require_jwt, validate_auth_configurat
 # caller obtains a token in the first place, so protecting it with the
 # thing it issues would be circular.
 from app.api.routes.auth_api import router as auth_router
+
+
+def _prepare_demo() -> None:
+    """
+    The demonstration corpus, put where the API will look for it.
+
+    WHY THIS IS AT STARTUP AND NOT IN A SCRIPT. The demo runs Qdrant
+    embedded, which keeps its storage in a directory and takes an
+    exclusive lock on it. A second process cannot index into it while
+    the API is running, and the previous arrangement -- index from a
+    script, answer from the API -- was worse than locked: with no
+    `QDRANT_PATH` at all, each process got its own `:memory:`
+    database, so the API searched an empty one and every process
+    question came back with no evidence.
+
+    BOTH HALVES OR NEITHER. Seeded cases with no index answers
+    nothing, and an index over an unseeded store cites cases the API
+    cannot read. Each half has its own flag, both default off, and
+    what actually happened is printed rather than assumed.
+
+    NEVER IN PRODUCTION. Both flags off is the default and this
+    prints one line saying so.
+    """
+    from app.knowledge import indexing
+    from app.store import demo_seed
+
+    if not (demo_seed.enabled() or indexing.demo_index_enabled()):
+        print("demo corpus        : disabled")
+        return
+
+    try:
+        from app.knowledge.vector_store import get_vector_store
+        from app.store import get_repository
+
+        repository = get_repository()
+
+        if demo_seed.enabled():
+            summary = demo_seed.seed(repository)
+            print(f"demo seed          : {summary}")
+
+        if indexing.demo_index_enabled():
+            store = get_vector_store()
+            mode = store.health().get("mode")
+            indexed = indexing.ensure_demo_index(repository, store)
+            print(f"demo index         : {mode}  "
+                  f"{indexed if indexed else 'already indexed'}")
+    except Exception as exc:
+        # A DEMO FIXTURE MUST NOT TAKE THE SERVICE DOWN. Said loudly,
+        # because a demo that silently did not load looks exactly like
+        # a retrieval bug -- which is the failure this whole path
+        # exists to stop.
+        print(f"DEMO PREPARE FAILED: {type(exc).__name__}: {exc}")
 
 
 @asynccontextmanager
@@ -226,6 +279,22 @@ async def lifespan(app: FastAPI):
     else:
         print("applicant agent    : disabled")
 
+    _prepare_demo()
+
+    # WORK THAT OUTLIVES A REQUEST NEEDS SOMETHING TO DO IT. A scanned
+    # statement is queued by the upload path; without this nothing ever
+    # picks the job up, which is the state the "asynchronous extraction
+    # queue" message described for months. Off by default.
+    try:
+        from app.store import ocr_queue
+
+        if ocr_queue.start_worker():
+            print("OCR worker        : running")
+        else:
+            print("OCR worker        : disabled")
+    except Exception as exc:
+        print(f"OCR WORKER FAILED  : {type(exc).__name__}: {exc}")
+
     if not signed:
         print("-" * 58)
         print("WARNING: risk policy is NOT signed off.")
@@ -247,6 +316,16 @@ async def lifespan(app: FastAPI):
     print("=" * 58 + "\n")
 
     yield
+
+    # The worker holds a thread and a claimed job. Asked to stop, it
+    # finishes the iteration it is in and leaves the job PROCESSING,
+    # which the next start picks up again.
+    try:
+        from app.store import ocr_queue
+
+        ocr_queue.stop_worker()
+    except Exception:
+        pass
 
     print("\nLOS Agentic AI shutting down.\n")
 
@@ -377,6 +456,14 @@ app.include_router(
 # keeps its own routes for existing callers.
 app.include_router(
     fos_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+)
+
+# The recorded eligibility verdict, read-only. Evaluation happens in the LOS
+# pipeline; this and the Universal Copilot read what it recorded.
+app.include_router(
+    eligibility_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
 )

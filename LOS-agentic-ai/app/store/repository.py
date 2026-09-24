@@ -32,6 +32,40 @@ from app.store.models import (
 )
 
 
+def _slot(finding: CaseFinding) -> tuple[str, str, str, str]:
+    """
+    Which logical finding a row is.
+
+    One LOS run writes at most one row per slot: one verification and one
+    extraction per document, one KYC per party (or per case), one income
+    and one eligibility result -- the last two told apart by source type.
+    A later row in the same slot is a later run's answer to the same
+    question.
+    """
+    kind = getattr(finding.finding_kind, "value", str(finding.finding_kind))
+    return (kind, finding.source_type or "", finding.party_id or "",
+            finding.source_id or "")
+
+
+def current_findings(findings: list[CaseFinding]) -> list[CaseFinding]:
+    """
+    The latest-written row of each logical finding, oldest-written first.
+
+    LATEST BY LAST WRITE, NOT FIRST WRITE. A re-run that reaches a
+    conclusion an earlier run already recorded updates that row, whose
+    `created_at` stays where it was; `updated_at` is what moves. Rows
+    written before that column existed fall back to `created_at`. Ties
+    keep the order the store returned them in, which is insertion order.
+    """
+    def written(finding: CaseFinding):
+        return finding.updated_at or finding.created_at
+
+    latest: dict[tuple[str, str, str, str], CaseFinding] = {}
+    for finding in sorted(findings, key=written):
+        latest[_slot(finding)] = finding
+    return sorted(latest.values(), key=written)
+
+
 class RepositoryError(RuntimeError):
     """
     The storage backend could not serve the request.
@@ -151,6 +185,24 @@ class Repository(ABC):
         the case. It never widens beyond the case.
         """
         return []
+
+    def get_current_findings(
+        self,
+        case_id: str,
+        party_id: str | None = None,
+        kind: FindingKind | str | None = None,
+    ) -> list[CaseFinding]:
+        """
+        The findings that describe the case NOW, oldest-written first.
+
+        `get_case_findings` is the history: every run's conclusions. A case
+        processed twice keeps both, and a reader that took the first
+        mismatch it met reported a PAN name the pipeline had since
+        corrected. This keeps, for each logical finding, only the most
+        recently written row -- see `current_findings`.
+        """
+        return current_findings(
+            self.get_case_findings(case_id, party_id=party_id, kind=kind))
 
     def save_document_version(self, version: DocumentVersion) -> DocumentVersion:
         """Record one upload of one document."""

@@ -279,6 +279,11 @@ _HOLDER_STOPWORDS = frozenset({
     "OPENING", "CLOSING", "TRANSACTION", "TRANSACTIONS", "NOMINEE",
     "REGISTERED", "CURRENCY", "ACTIVE", "TYPE", "CODE", "NAME", "BANK",
     "LIMITED", "LTD", "INDIA", "RUPEE", "TOTAL", "PAGE",
+    # Office furniture in the literal sense. "MS OFFICE" on a header
+    # line matched the honorific rule and produced a holder called
+    # OFFICE; none of these is ever somebody's name.
+    "OFFICE", "CENTER", "CENTRE", "ROAD", "NAGAR", "CITY", "STATE",
+    "PIN", "POWERHOUSE", "BUILDING", "FLOOR",
 })
 
 
@@ -341,6 +346,60 @@ def detect_account_holder(text: str) -> str | None:
                 if holder:
                     return holder
                 break
+
+    # NO CAPTION ANYWHERE. Some statements print the holder in the
+    # address block with nothing but an honorific in front of it --
+    # "MS PRIYANKA ROHAN MORE" on one HDFC layout, between the branch
+    # address and the city. That is still the statement saying this
+    # line is a person, which is the one thing the unlabelled Kotak
+    # case lacks, so it is read as a last resort.
+    return _honorific_holder(lines)
+
+
+#: MR / MRS / MS / MISS / SHRI / SMT / DR, with or without a full stop,
+#: at the start of a line and followed by a name.
+#:
+#: WHY THIS IS NOT THE GUESS THE KOTAK CASE REFUSES. There the holder
+#: was simply the second line of the page, indistinguishable in shape
+#: from a branch, a city or a note -- and a wrong name that happens to
+#: match is a false PASS on somebody else's account. An honorific is
+#: an explicit marker: no bank prints "MS" in front of its branch.
+_HONORIFIC_RE = re.compile(
+    r"^\s*(?:MR|MRS|MS|MISS|SHRI|SMT|DR)\.?\s+"
+    r"([A-Za-z][A-Za-z .'\-]{2,69})\s*$",
+    re.IGNORECASE,
+)
+
+
+def _honorific_holder(lines: list[str]) -> str | None:
+    """
+    The first honorific-prefixed name in the header, or None.
+
+    THE FIRST ONE, AND ONLY FROM THE HEADER. A statement names the
+    account holder before it names anybody else; a nominee or a payee
+    appears later, and the exclusions that keep branches and nominees
+    out are applied here exactly as they are above.
+    """
+    for line in lines[:40]:
+        # STOP AT THE TABLE. Everything below the column captions is
+        # transactions, and a UPI narration names the OTHER party:
+        # "UPI-MR ROHAN MRUTYUNJAY" sits in the rows of the very
+        # statement this rule was written for. Reading a payee as the
+        # account holder is precisely the false PASS on somebody
+        # else's account that the labelled-only rule exists to avoid.
+        if find_header([line]):
+            break
+
+        if _NOT_HOLDER_RE.match(line):
+            continue
+
+        match = _HONORIFIC_RE.match(line.strip())
+        if not match:
+            continue
+
+        holder = _holder_candidate(match.group(1))
+        if holder:
+            return holder
 
     return None
 

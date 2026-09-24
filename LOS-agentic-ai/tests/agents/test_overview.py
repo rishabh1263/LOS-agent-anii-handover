@@ -36,10 +36,10 @@ def section(status="SUCCESS", verification=None, kyc=None):
 
 
 def build(sections, status="PARTIAL", decision="REVIEW",
-          next_action="MANUAL_REVIEW", documents=None, ms=1234.5):
+          next_action="MANUAL_REVIEW", documents=None):
     return overview.build(
         status=status, decision=decision, next_action=next_action,
-        sections=sections, documents=documents or [{}, {}], processing_ms=ms)
+        sections=sections, documents=documents or [{}, {}])
 
 
 # ==========================================================================
@@ -73,12 +73,21 @@ def test_nothing_is_invented_for_missing_items():
 
 
 def test_the_processing_counts_come_from_the_documents():
-    built = build({"primary_applicant": section()},
-                  documents=[{}, {}, {}], ms=42.0)
+    built = build({"primary_applicant": section()}, documents=[{}, {}, {}])
 
     assert built["processing_summary"] == {
-        "documents_received": 3, "documents_processed": 3,
-        "processing_ms": 42.0}
+        "documents_received": 3, "documents_processed": 3}
+
+
+def test_no_timing_is_repeated_inside_overall():
+    """
+    `processing_ms` is published once, at the top level. Repeating it
+    here made an otherwise deterministic object volatile, and two tests
+    comparing whole responses for equality broke on a millisecond.
+    """
+    built = build({"primary_applicant": section()})
+
+    assert "processing_ms" not in built["processing_summary"]
 
 
 # ==========================================================================

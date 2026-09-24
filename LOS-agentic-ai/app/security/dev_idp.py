@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -38,6 +39,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException, status
 from jwt.algorithms import RSAAlgorithm
+
+logger = logging.getLogger(__name__)
 
 _KEY_ID = "los-dev-key-1"
 
@@ -65,13 +68,75 @@ def _keypair() -> _DevKeyPair:
     return _DevKeyPair()
 
 
+#: The keypair checked into `auth_keys/`, which `make_fos_token.py`
+#: signs with and `auth_provider_dev.py` serves. Its key id is fixed
+#: by those two and is not ours to choose.
+_SHARED_KEY_ID = os.getenv("JWT_KEY_ID", "los-rs256-1")
+_SHARED_PUBLIC_KEY = Path(
+    os.getenv("JWT_PUBLIC_KEY_PATH")
+    or Path(__file__).resolve().parents[2] / "auth_keys"
+    / "jwt_signing_public.pem"
+)
+
+
+def _shared_jwk() -> dict[str, Any] | None:
+    """
+    The on-disk development public key, as a JWK. None if absent.
+
+    WHY THIS IS PUBLISHED HERE. Two things in this repository mint
+    development tokens and they were signing with different keys.
+    `make_fos_token.py` uses `auth_keys/jwt_signing_private.pem`,
+    stamped `los-rs256-1`; this module generates a fresh RSA key in
+    memory every time the process starts, stamped `los-dev-key-1`.
+    The verifier resolves a key BY `kid` from whatever JWKS it is
+    pointed at, so a token from the script hit an API serving only
+    the in-memory key and came back "Unable to resolve JWT signing
+    key" -- correct behaviour, from a configuration that could not
+    work.
+
+    Publishing both is the smallest fix that makes them agree. A
+    JWKS is a SET of keys and `kid` selects one, so nothing is
+    weakened: each token is still verified against the one public
+    key matching the private key that signed it, and an unknown kid
+    is still refused.
+
+    PUBLIC KEY ONLY. The private half is never read here -- this
+    module signs with its own in-memory key and nothing else.
+
+    ABSENT IS FINE. A checkout without `auth_keys/` publishes just
+    the in-memory key, exactly as before.
+    """
+    try:
+        pem = _SHARED_PUBLIC_KEY.read_bytes()
+    except OSError:
+        return None
+
+    try:
+        jwk = json.loads(RSAAlgorithm.to_jwk(
+            serialization.load_pem_public_key(pem)))
+    except Exception:                                # pragma: no cover
+        logger.warning("Could not read the development public key at %s.",
+                       _SHARED_PUBLIC_KEY.name)
+        return None
+
+    jwk["kid"] = _SHARED_KEY_ID
+    jwk["use"] = "sig"
+    jwk["alg"] = "RS256"
+    return jwk
+
+
 def get_jwks() -> dict[str, Any]:
     """The JWKS document that JWT_JWKS_URL should resolve to."""
     jwk = json.loads(RSAAlgorithm.to_jwk(_keypair().public_key))
     jwk["kid"] = _KEY_ID
     jwk["use"] = "sig"
     jwk["alg"] = "RS256"
-    return {"keys": [jwk]}
+
+    keys = [jwk]
+    shared = _shared_jwk()
+    if shared and shared["kid"] != _KEY_ID:
+        keys.append(shared)
+    return {"keys": keys}
 
 
 def issue_access_token(

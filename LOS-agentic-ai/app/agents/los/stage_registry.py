@@ -1,17 +1,19 @@
 """
 What each LOS stage can actually do.
 
-THE REGISTRY REFLECTS REALITY, WHICH IS MOSTLY EMPTY. FOS has a
-knowledge corpus, an agent and an authorised set of MCP tools. The other
-six stages have none of those yet -- no corpus, no capability, no tools.
-That is recorded here as emptiness rather than papered over, because a
-registry that promised a CPA capability would produce a Copilot
-confidently answering CPA questions out of the FOS handbook.
+THE REGISTRY REFLECTS REALITY, WHICH IS UNEVEN. FOS has a knowledge
+corpus, an agent and an authorised set of MCP tools. The other six have
+a DEMONSTRATION STAGE GUIDE and nothing else: they can answer "how does
+this stage work" and cannot read a case. Recording the corpus without
+the capabilities is the honest description -- promising a CPA
+capability would produce a Copilot confidently answering CPA case
+questions out of the FOS handbook.
 
 RCU IS THE ONE WORTH SPELLING OUT. `FindingKind.RCU` exists in case
-memory, so a reader could reasonably conclude RCU is supported. Nothing
-writes those findings -- there is no RCU producer -- so the stage is
-registered as unsupported. An enum member is not a capability.
+memory, so a reader could reasonably conclude RCU cases are supported.
+Nothing writes those findings -- there is no RCU producer -- so the
+stage carries a guide and no case capability. An enum member is not a
+capability.
 
 A DICT, NOT A CHAIN OF `if stage is ...`. Adding a stage's capabilities
 is one entry; the lookups below never branch on a stage name, so the
@@ -69,6 +71,13 @@ class StageCapabilities:
 
 _NOT_BUILT = "No Copilot capability has been built for this stage yet."
 
+#: A stage with demonstration guidance and nothing else. It can answer
+#: "how does this stage work"; it cannot read a case at this stage.
+_GUIDE_ONLY = (
+    "A demonstration stage guide is indexed for this stage. No case "
+    "capability or MCP access has been built for it yet."
+)
+
 #: Stage -> what it can do. THE SIX EMPTY ENTRIES ARE THE POINT: they are
 #: registered, so the Copilot knows the stage exists and can say
 #: precisely that nothing is available -- as opposed to treating it as an
@@ -89,17 +98,32 @@ REGISTRY: dict[LosStage, StageCapabilities] = {
         }),
         uses_mcp=True,
     ),
-    LosStage.CPA: StageCapabilities(note=_NOT_BUILT),
-    LosStage.CREDIT: StageCapabilities(note=_NOT_BUILT),
+    # THE OTHER SIX GAINED A CORPUS, AND ONLY A CORPUS. B4 indexed a
+    # stage guide for every stage, so a process question about CPA or
+    # RCU now has something real to answer from -- marked DEMO PROCESS
+    # KNOWLEDGE, in the indexed text itself.
+    #
+    # They still have no `capabilities` and no MCP access: nothing
+    # reads a CPA case the way the applicant agent reads a FOS one.
+    # Registering the corpus without the capabilities is the honest
+    # description of what exists.
+    LosStage.CPA: StageCapabilities(knowledge_corpus="CPA", note=_GUIDE_ONLY),
+    LosStage.CREDIT: StageCapabilities(knowledge_corpus="CREDIT",
+                                       note=_GUIDE_ONLY),
     LosStage.RCU: StageCapabilities(
+        knowledge_corpus="RCU",
         note=(
-            "FindingKind.RCU exists in case memory, but nothing produces "
-            "those findings and no RCU capability is registered."
+            "A demonstration stage guide is indexed. FindingKind.RCU also "
+            "exists in case memory, but nothing produces those findings "
+            "and no RCU case capability is registered."
         ),
     ),
-    LosStage.BOPS: StageCapabilities(note=_NOT_BUILT),
-    LosStage.HOPS: StageCapabilities(note=_NOT_BUILT),
-    LosStage.DISBURSEMENT: StageCapabilities(note=_NOT_BUILT),
+    LosStage.BOPS: StageCapabilities(knowledge_corpus="BOPS",
+                                     note=_GUIDE_ONLY),
+    LosStage.HOPS: StageCapabilities(knowledge_corpus="HOPS",
+                                     note=_GUIDE_ONLY),
+    LosStage.DISBURSEMENT: StageCapabilities(knowledge_corpus="DISBURSEMENT",
+                                             note=_GUIDE_ONLY),
 }
 
 #: Every stage is registered. A stage missing from the registry would

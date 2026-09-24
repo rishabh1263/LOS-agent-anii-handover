@@ -64,12 +64,60 @@ class Intent(str, Enum):
     CREATE_APPLICATION = "CREATE_APPLICATION"
     MARK_FOR_REUPLOAD = "MARK_FOR_REUPLOAD"
 
+    # -- HOW A STAGE WORKS, as opposed to what happened on a case
+    #
+    # "What does RCU check?" asks about the process. It is not a
+    # question about this case, and it is not a request to do
+    # something downstream -- but it contains the word RCU, which the
+    # out-of-scope rule routes away on sight. That rule exists so the
+    # FOS stage never answers a FRAUD question out of the FOS
+    # handbook, and it is right to. This intent is matched BEFORE it,
+    # narrowly enough that "is this case fraudulent" still routes
+    # downstream while "what does RCU check" is answered from the
+    # stage guide.
+    STAGE_PROCESS = "STAGE_PROCESS"
+
+    # -- the APPLICANT, across all their cases
+    #
+    # Every other intent answers about ONE case. This one answers about
+    # the person: how many applications they have and where each stands.
+    # It is the only read that runs without a case_id, and it is still
+    # scoped -- `applications.list` takes an applicant_id and returns
+    # that applicant's own rows.
+    CASE_PORTFOLIO = "CASE_PORTFOLIO"
+
     # -- what was FOUND, as opposed to what is true now
     #
     # "Why is this case in review?" is not answerable from current state:
     # the state says REVIEW, not why. The reasons were recorded by the LOS
     # pipeline at the time and read back from case memory.
     CASE_HISTORY = "CASE_HISTORY"
+
+    # -- what the documents SAY about income, and what they EVIDENCE
+    #
+    # "Is my salary verified?" has three honest answers depending on
+    # what was uploaded: a salary slip STATES a figure, a bank statement
+    # EVIDENCES credits arriving, and only where both exist is there a
+    # comparison to report. None of the three is "your salary is X",
+    # which is the answer a model would reach for.
+    INCOME_EVIDENCE = "INCOME_EVIDENCE"
+
+    # -- whether the loan asked for is affordable on the evidence
+    #
+    # READ, NEVER COMPUTED. The verdict, the FOIR and the instalment were
+    # produced by the Eligibility stage and recorded; this intent reads
+    # them back. A chat answer that worked out its own FOIR would give
+    # one applicant two percentages.
+    ELIGIBILITY = "ELIGIBILITY"
+
+    # -- what ONE DOCUMENT on this case says
+    #
+    # "What is the name on my PAN?" had no case route at all: it fell
+    # through to the knowledge base and came back with a handbook
+    # paragraph about PAN cards. The answer is a recorded value, read
+    # from that applicant's released extraction of that document type --
+    # and from no other document.
+    DOCUMENT_DETAILS = "DOCUMENT_DETAILS"
 
     # -- knowledge, not case data
     #
@@ -112,6 +160,11 @@ SIMPLE_INTENTS = frozenset({
     Intent.APPLICATION_STAGE,
     Intent.POLICY_EXPLANATION,
     Intent.CASE_HISTORY,
+    Intent.CASE_PORTFOLIO,
+    Intent.STAGE_PROCESS,
+    # A recorded value is quoted, never phrased: a paraphrased name is a
+    # different name.
+    Intent.DOCUMENT_DETAILS,
 })
 
 #: Intents that change stored data. Every one needs a write scope and an
@@ -267,10 +320,192 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
 
 _DOC_TYPES = (
     r"(pan|aadhaar|aadhar|driving\s*licence|driving\s*license|dl|voter\s*id|"
-    r"voter|passport|bank\s*statement|address\s*proof)"
+    r"voter|passport|bank\s*statement|bank\s*account|bank\s*details|"
+    r"account\s*statement|address\s*proof)"
 )
 
+#: The seven stage names as a question writes them. Kept here rather
+#: than imported so the classifier has no dependency on the stage
+#: model, and spelled with the long forms an officer actually types.
+_STAGE_WORDS = {
+    "FOS": ("fos", "field officer", "field stage"),
+    "CPA": ("cpa", "central processing"),
+    "CREDIT": ("credit",),
+    "RCU": ("rcu", "risk containment"),
+    "BOPS": ("bops", "back office", "back-office"),
+    "HOPS": ("hops", "head office", "head-office"),
+    "DISBURSEMENT": ("disbursement", "disbursal", "disburse"),
+}
+
+#: Asking HOW something works, rather than what happened on a case.
+_PROCESS_VERB = (r"(check|checks|checked|verify|verifies|verified|"
+                 r"validate|validates|validated|do|does|done|"
+                 r"happen|happens|happened|require|requires|required|"
+                 r"involve|involves|involved|mean|means|"
+                 r"review|reviews|reviewed|cover|covers|covered|"
+                 r"entail|entails|perform|performs|performed)")
+
+#: "what does RCU check", "what happens at CPA", "what is verified in
+#: CREDIT". BOTH ORDERS, because both are natural and a question that
+#: matched only one would look arbitrary to whoever typed the other.
+_STAGE_PROCESS = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in (
+        r"\b(what|which|how)\b[^?]{0,40}\b(%s)\b[^?]{0,40}\b%s\b"
+        % ("|".join(w for words in _STAGE_WORDS.values() for w in words),
+           _PROCESS_VERB),
+        r"\b(what|which|how)\b[^?]{0,30}\b%s\b[^?]{0,40}\b(%s)\b"
+        % (_PROCESS_VERB,
+           "|".join(w for words in _STAGE_WORDS.values() for w in words)),
+    )
+)
+
+
+def stage_in(message: str) -> str | None:
+    """
+    The stage a question NAMES, or None.
+
+    EXPLICIT ONLY. This reads the words the user typed; it never
+    infers a stage from similarity or from the case. A process
+    question that names no stage returns None, and the caller falls
+    back to the case's own stage rather than guessing.
+    """
+    lowered = (message or "").lower()
+    for stage, words in _STAGE_WORDS.items():
+        for word in words:
+            if re.search(r"\b" + re.escape(word) + r"\b", lowered):
+                return stage
+    return None
+
+
+#: Words that make a question about THIS CASE. A message carrying
+#: one of them is asking what happened here, not how a desk works --
+#: "what happened to this case from FOS to RCU" names two stages and
+#: a process verb, and is a case journey question. Answering it from
+#: a stage guide would describe the process to somebody who asked
+#: about their file.
+_CASE_DEIXIS = re.compile(
+    r"\b(this|my|the|our)\s+(case|application|applicant|file|loan|"
+    r"customer)\b|\bcase[ _-]?id \b", re.IGNORECASE)
+
+
+def looks_like_stage_process(message: str) -> bool:
+    """Whether this is a question about how a stage works."""
+    text = (message or "").strip()
+    if _CASE_DEIXIS.search(text):
+        # ASKED ABOUT A CASE. "What happened to this case from FOS to
+        # RCU" names two stages and a process verb and is still a
+        # question about a file, not about a desk. Answering it from a
+        # stage guide would describe the process to somebody who asked
+        # what happened to them. It keeps its existing case route --
+        # MIXED when it asks both things, which answers the case half
+        # from records and the rest from knowledge.
+        return False
+    return any(pattern.search(text) for pattern in _STAGE_PROCESS)
+
+
+def _asks_how_a_stage_works(message: str) -> bool:
+    """
+    The phrasing alone, WITHOUT the case test.
+
+    Used only to decide whether the out-of-scope rule should stand
+    aside. See `classify`.
+    """
+    return any(pattern.search((message or "").strip())
+               for pattern in _STAGE_PROCESS)
+
+
 _PATTERNS: list[tuple[str, Intent]] = [
+    # -- about the PERSON, not about one case ----------------------------
+    #
+    # FIRST, because "how many cases do I have" also matches the generic
+    # status patterns, and answering it from the current case reports one
+    # case's status to somebody who asked about all of them.
+    (r"\bhow\s+many\b.{0,20}\b(cases?|applications?|loans?)\b",
+     Intent.CASE_PORTFOLIO),
+    # PLURAL, OR AN EXPLICIT MULTI-CASE WORD. A bare "my" was too
+    # greedy: "what is the status of my application?" is a question
+    # about THE case in front of the officer, and routing it here
+    # answered with a list of every application the person has.
+    (r"\b(all|other|previous|past)\s+(of\s+)?(my\s+)?(cases?|applications?)\b",
+     Intent.CASE_PORTFOLIO),
+    (r"\bmy\s+(cases|applications)\b", Intent.CASE_PORTFOLIO),
+    (r"\bacross\b.{0,20}\b(cases?|applications?)\b", Intent.CASE_PORTFOLIO),
+    (r"\b(list|show)\b.{0,20}\b(cases?|applications?)\b",
+     Intent.CASE_PORTFOLIO),
+    # AFFORDABILITY, BEFORE INCOME AND BEFORE VERIFICATION.
+    #
+    # "Why is my eligibility under review" contains "review" and would
+    # otherwise reach the case-history patterns, which answer from the
+    # KYC findings -- a real answer to a different question.
+    (r"\beligib\w*\b", Intent.ELIGIBILITY),
+    (r"\bfoir\b", Intent.ELIGIBILITY),
+    (r"\b(afford|affordab\w+)\b", Intent.ELIGIBILITY),
+    (r"\b(emi|instal?ment)\b[^?]{0,30}"
+     r"\b(proposed|calculated|computed|what|how\s+much)\b"
+     r"|\b(what|how\s+much)\b[^?]{0,20}\b(emi|instal?ment)\b",
+     Intent.ELIGIBILITY),
+    (r"\b(obligations?|liabilit\w+)\b[^?]{0,30}"
+     r"\b(considered|counted|used|recorded|captured)\b",
+     Intent.ELIGIBILITY),
+    (r"\bwhat\s+income\b[^?]{0,30}\b(used|considered|counted)\b",
+     Intent.ELIGIBILITY),
+
+    # WHAT ONE DOCUMENT SAYS, before income and verification.
+    #
+    # "What is my PAN name?", "which name is on my PAN?", "what name was
+    # extracted from my PAN?", "the account holder name on my bank
+    # statement". A field AND a document, in the case's own voice.
+    # NEVER A COMPARISON: anything asking whether two things match is a
+    # finding, answered from the recorded KYC comparison below -- hence
+    # the guard at the front of each pattern. And never a definition:
+    # "what does PAN name mismatch mean" has reached the handbook before
+    # these are tried.
+    (r"^(?!.*\b(mis)?match)(?!.*\bdiffer).*\b(my|the|this|his|her|their)\s+(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|bank\s*account|driving\s*licen[cs]e|voter\s*id|passport|aadhaa?r)\s+(card\s+)?(name|number|dob|date\s+of\s+birth)\b",
+     Intent.DOCUMENT_DETAILS),
+    (r"^(?!.*\b(mis)?match)(?!.*\bdiffer).*"
+     r"\b(name|father'?s?\s*name|date\s+of\s+birth|dob|birth\s*date|"
+     r"pan\s*(number|no)|employer|account\s*holder)\b[^?]{0,40}"
+     r"\b(on|in|from|of)\s+(my|the|this|his|her|their)?\s*(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|bank\s*account|driving\s*licen[cs]e|voter\s*id|passport|aadhaa?r)\b",
+     Intent.DOCUMENT_DETAILS),
+    (r"\bwho\s+is\s+the\s+(bank\s+)?account\s+holder\b",
+     Intent.DOCUMENT_DETAILS),
+
+    # INCOME, BEFORE THE VERIFICATION PATTERNS.
+    #
+    # "Is my salary verified?" matches the generic
+    # <thing> + verified pattern, which answers from document
+    # verification -- a statement that the salary slip is a readable,
+    # coherent document, which is not what was asked. What the slip
+    # states and what the statement evidences are recorded separately,
+    # and the difference between them is the answer.
+    (r"\b(salary|income|pay|earnings)\b[^?]{0,40}"
+     r"\b(shown|stated|state|says?|on)\b[^?]{0,25}"
+     r"\b(salary\s*slip|slip|payslip|pay\s*slip)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\b(salary|income|credits?)\b[^?]{0,40}"
+     r"\b(bank\s*statement|statement|account)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\b(bank\s*statement|statement)\b[^?]{0,30}"
+     r"\b(support|match\w*|confirm\w*|back\s*up)\b[^?]{0,25}"
+     r"\b(salary|income|pay)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\b(salary\s*slip|payslip|pay\s*slip)\b[^?]{0,30}"
+     r"\b(match\w*|agree\w*|consistent|compare\w*)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\b(income|salary)\b[^?]{0,20}\bmismatch\b"
+     r"|\bmismatch\b[^?]{0,20}\b(income|salary)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\bwhy\b[^?]{0,30}\b(income|salary)\b[^?]{0,30}"
+     r"\b(review|checked|flagged|pending)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\b(how\s+much|what)\b[^?]{0,30}"
+     r"\b(monthly\s+)?(income|salary|earnings)\b[^?]{0,30}"
+     r"\b(evidenc\w+|observ\w+|support\w+|verified|shown)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\bis\b[^?]{0,15}\b(my|the|his|her|their)\s+"
+     r"(salary|income)\b[^?]{0,20}\b(verified|confirmed|checked)\b",
+     Intent.INCOME_EVIDENCE),
+
     # -- why is it like this? --------------------------------------------
     #
     # FIRST, because "why is this case in review" also matches the generic
@@ -279,11 +514,104 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\bwhy\b.{0,40}\b(in\s+)?(review|pending|rejected|failed|flagged)\b",
      Intent.CASE_HISTORY),
     (r"\bwhy\b.{0,30}\b(this\s+)?case\b", Intent.CASE_HISTORY),
+    # WHAT THE MISMATCH ACTUALLY IS, on this case.
+    #
+    # "What exactly is the mismatch in my documents?" routed to the
+    # knowledge base and came back with a definition of the word -- to
+    # an officer looking at a case whose PAN and bank statement name two
+    # different people, with both names already recorded. The question
+    # has a specific, recorded answer and it is in case memory.
+    #
+    # THE DEFINITIONAL GUARD ABOVE IS WHAT KEEPS THIS HONEST. "What is a
+    # document mismatch" reaches the handbook before these patterns are
+    # tried, so widening the case route did not narrow the generic one.
+    (r"\bwhat\b[^?]{0,20}\bis\b[^?]{0,20}\bthe\s+mismatch\b",
+     Intent.CASE_HISTORY),
+    (r"\bmismatch\b[^?]{0,30}\b(in|on|with|for)\b[^?]{0,20}"
+     r"\b(my|our|his|her|their|this|the)\b[^?]{0,20}"
+     r"\b(documents?|case|application|file)\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhy\b[^?]{0,40}\b(is|are|was|were)\b[^?]{0,30}\bmismatch\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhat\s+mismatch\b[^?]{0,30}\b(was|were|is|are)\b[^?]{0,20}"
+     r"\b(found|detected|identified|recorded|reported)\b",
+     Intent.CASE_HISTORY),
+    # WHICH ONES DISAGREE. "Which details don't match?" and "which names
+    # don't match?" name the field, and the recorded finding names the
+    # values -- which is the whole of what is being asked.
+    (r"\b(which|what)\b[^?]{0,20}"
+     r"\b(details?|names?|fields?|values?|dates?)\b[^?]{0,25}"
+     r"\b(do\s*n.?t|do\s+not|does\s*n.?t|does\s+not|mismatch\w*|"
+     r"disagree\w*|differ\w*)\b",
+     Intent.CASE_HISTORY),
+    # ANYTHING WRONG WITH THE CASE ITSELF, as opposed to with one
+    # document -- the document pattern further down keeps that.
+    (r"\bwhat\b[^?]{0,15}\b(is|are)\b[^?]{0,15}\bwrong\b[^?]{0,20}"
+     r"\b(with|on|in)\b[^?]{0,20}"
+     r"\b(my|our|his|her|their|this|the)\b[^?]{0,20}"
+     r"\b(case|application|file|documents?)\b",
+     Intent.CASE_HISTORY),
+    # WHAT WAS FOUND. "What issue was found in my documents?" is asking
+    # for the finding, which is recorded; answered from the checklist it
+    # would list every document instead.
+    (r"\b(what|which)\b[^?]{0,20}"
+     r"\b(issues?|problems?|errors?|discrepanc\w+|concerns?)\b[^?]{0,30}"
+     r"\b(found|detected|identified|raised|recorded|reported)\b",
+     Intent.CASE_HISTORY),
     (r"\bwhat\s+(findings?|reasons?)\b", Intent.CASE_HISTORY),
+    # DO TWO IDENTITY DOCUMENTS AGREE? The recorded KYC comparison is the
+    # answer, naming both values; neither document alone is.
+    (r"\b(does|do|is|are)\b[^?]{0,20}"
+     r"\b(pan|aadhaa?r|driving\s*licen[cs]e|voter\s*id|passport)\b"
+     r"[^?]{0,20}\b(match\w*|agree\w*|same)\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhich\s+documents?\b[^?]{0,30}"
+     r"\b(mismatch\w*|do\s*n.?t\s+match|does\s*n.?t\s+match|differ\w*)\b",
+     Intent.CASE_HISTORY),
+    # THE RECORDED DECISION -- what the pipeline concluded, which is not
+    # the loan decision the out-of-scope rule keeps downstream.
+    (r"\b(current|latest|recorded)\s+decision\b", Intent.CASE_HISTORY),
     (r"\b(findings?|reasons?)\b.{0,30}\b(caused|led\s+to|behind)\b",
      Intent.CASE_HISTORY),
     (r"\bwhat\s+happened\b.{0,30}\b(with|to)\b", Intent.CASE_HISTORY),
     (r"\bcase\s+history\b", Intent.CASE_HISTORY),
+    # ANYTHING WRONG WITH A PARTICULAR DOCUMENT. Kept to documents
+    # deliberately: "what is wrong with this case" is a findings
+    # question, and the case history above already answers it.
+    (r"\b(issues?|problems?|wrong|errors?|concerns?)\b[^?]{0,40}"
+     r"\b(bank|account|statement|document|pan|deed)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    # WHAT IS ON FILE -- the document list, not the findings.
+    (r"\b(what|which|any)\b[^?]{0,30}\bdocuments?\b[^?]{0,40}"
+     r"\b(available|uploaded|submitted|on\s+file|received|do\s+we\s+have|are\s+there)\b",
+     Intent.DOCUMENTS_UPLOADED),
+    # WHAT A DOCUMENT ESTABLISHED. "Which bank details were
+    # verified" and "was the bank statement verified" are asking
+    # about a verification outcome, and fell to UNKNOWN -- answered
+    # with a menu of other questions. Routed to the verification
+    # intent, they are answered from what verification actually
+    # recorded, which is a status and a reason, never the account
+    # number: extracted identity values are deliberately not
+    # indexed and cannot be retrieved by a question.
+    (r"\b(bank|account|statement|salary|income)\b[^?]{0,40}"
+     r"\b(verified|verif\w+|checked|confirmed|validated)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    (r"\b(verified|verif\w+|checked|confirmed)\b[^?]{0,40}"
+     r"\b(bank|account|statement)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    # WHICH DOCUMENTS CAUSED IT is a question about the findings,
+    # not about the document list. Answered from the checklist it
+    # would name every document on the case, including the ones
+    # that passed -- and the two or three that did not are the
+    # whole of what was asked.
+    (r"\b(which|what)\s+documents?\b[^?]{0,40}"
+     r"\b(caus\w+|led\s+to|trigger\w*|responsible|behind|flagg\w+)\b",
+     Intent.CASE_HISTORY),
+    # "What happened BEFORE this reached Credit" is a question about
+    # the trail, and the trail is recorded. Without this it fell to
+    # UNKNOWN and was answered with a menu of other questions.
+    (r"\bwhat\s+happened\b.{0,40}\b(before|prior|earlier|leading)\b",
+     Intent.CASE_HISTORY),
     # writes, before the reads they resemble
     (r"\b(create|add|register)\s+(a\s+)?(new\s+)?applicant\b", Intent.CREATE_APPLICANT),
     (r"\b(create|start|open)\s+(a\s+)?(new\s+)?application\b", Intent.CREATE_APPLICATION),
@@ -292,7 +620,7 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\b(mark|flag|request)\b.{0,30}\b(re-?upload|reupload|again)\b", Intent.MARK_FOR_REUPLOAD),
 
     # composite summary
-    (r"\b(complete|full|entire|overall)\s+(applicant\s+)?(summary|overview|picture|status)\b",
+    (r"\b(complete|full|entire|overall)\s+(applicant\s+|case\s+)?(summary|overview|picture|status)\b",
      Intent.FULL_SUMMARY),
     (r"\b(summari[sz]e|briefing|brief\s+me|overview\s+of\s+(this\s+)?(case|applicant))\b",
      Intent.FULL_SUMMARY),
@@ -334,7 +662,8 @@ _PATTERNS: list[tuple[str, Intent]] = [
     # "is", but also "has ... been", "was", "were", "have". A field officer
     # asks the same question five ways and none of them is unusual; matching
     # only "is the PAN verified" sent "has the PAN been verified" to UNKNOWN.
-    (rf"\b(is|are|was|were|has|have)\s+(the\s+)?{_DOC_TYPES}\b"
+    # "Is MY PAN verified?" too -- the possessive sent it to UNKNOWN.
+    (rf"\b(is|are|was|were|has|have)\s+(the\s+|my\s+|his\s+|her\s+|their\s+)?{_DOC_TYPES}\b"
      rf".{{0,24}}\b(verified|ok|okay|valid|done|fine|passed|cleared)\b",
      Intent.DOCUMENT_VERIFICATION),
     (rf"\bwhy\b.{{0,40}}\b{_DOC_TYPES}\b.{{0,30}}\b(fail|failed|review|rejected)\b",
@@ -416,7 +745,12 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\b(which|what)\s+documents?\s+(have\s+been\s+)?(uploaded|collected|received|submitted)\b",
      Intent.DOCUMENTS_UPLOADED),
     (r"\b(show|list)\s+.{0,20}\bdocuments?\b", Intent.DOCUMENTS_UPLOADED),
-    (r"\b(which|what)\s+documents?\s+(are\s+)?(pending|processing|under\s+review|in\s+review)\b",
+    # AN ADVERB DOES NOT CHANGE THE QUESTION. "What documents are
+    # STILL pending" fell through this pattern to UNKNOWN and was
+    # answered out of the handbook -- policy text, about no case,
+    # to somebody asking what is outstanding on the one in front
+    # of them.
+    (r"\b(which|what)\s+documents?\s+(are\s+)?(still\s+|currently\s+|yet\s+to\s+be\s+)?(pending|processing|outstanding|awaited|under\s+review|in\s+review)\b",
      Intent.DOCUMENTS_PENDING),
     (r"\ball\s+required\s+documents?\s+(available|uploaded|there)\b", Intent.DOCUMENTS_MISSING),
 
@@ -431,6 +765,27 @@ _PATTERNS: list[tuple[str, Intent]] = [
 
     # application
     (r"\b(application|case)\s+(status|state)\b", Intent.APPLICATION_STATUS),
+    # THE SAME QUESTION, WORDED THE WAY PEOPLE WORD IT.
+    #
+    # The pattern above needs "application status" side by side, so
+    # "what is the status OF MY application" missed it, fell to
+    # UNKNOWN, and was handed to the knowledge base -- which
+    # answered confidently, out of the handbook, about no case in
+    # particular. An officer asking what is happening with a file
+    # got a paragraph of process documentation.
+    (r"\b(status|state|progress|update)\b[^?]{0,30}\b(of|on|for|with)\b[^?]{0,20}\b(my|the|this|his|her|their)?\s*(application|case|loan|file)\b",
+     Intent.APPLICATION_STATUS),
+    (r"\bwhat\s+(is|\'s)\s+happening\b[^?]{0,30}\b(application|case|loan|file)\b",
+     Intent.APPLICATION_STATUS),
+    # A BARE "what is the status?" IS ABOUT THE CASE IN HAND. The
+    # request carries an applicant and a case; there is nothing
+    # else it could be asking about.
+    (r"^\s*what\s+(is|\'s)\s+the\s+(current\s+)?(status|state)\s*\??\s*$",
+     Intent.APPLICATION_STATUS),
+    # "Are my documents verified" is a question about the documents
+    # on this case, not about what verification means.
+    (r"\b(are|is|have|has)\b[^?]{0,20}\bdocuments?\b[^?]{0,20}\b(verified|verif\w+|checked|cleared|passed)\b",
+     Intent.DOCUMENT_VERIFICATION),
     (r"\bwhat('?s| is)\s+the\s+(application|case)\s+status\b", Intent.APPLICATION_STATUS),
     (r"\b(current\s+)?stage\b", Intent.APPLICATION_STAGE),
     (r"\bwhere\s+is\s+(this|the)\s+application\b", Intent.APPLICATION_STAGE),
@@ -462,6 +817,14 @@ _DOC_ALIASES = {
     "voter id": "VOTER_ID", "voter": "VOTER_ID",
     "passport": "PASSPORT",
     "bank statement": "BANK_STATEMENT",
+    # THE STATEMENT IS THE ONLY BANK EVIDENCE THERE IS. "Which bank
+    # account details were verified" names no document, and without
+    # these it was answered from the whole case -- which is how a
+    # question about a statement that passed came back saying the
+    # bank details were not verified.
+    "bank account": "BANK_STATEMENT",
+    "bank details": "BANK_STATEMENT",
+    "account statement": "BANK_STATEMENT",
     "address proof": "ADDRESS_PROOF",
 }
 
@@ -496,17 +859,73 @@ def _write_fields(message: str) -> dict[str, str]:
     return fields
 
 
+#: Asking what something MEANS, rather than what happened.
+#:
+#: WHY THIS IS A GUARD AND NOT JUST PATTERN ORDER. The case patterns
+#: below deliberately catch "what is the mismatch in my documents", and
+#: a rule that catches that will catch "what is a document mismatch"
+#: unless something stands in the way. The two questions differ by one
+#: article and by everything else: one wants this applicant's PAN and
+#: bank statement, the other wants the handbook.
+_DEFINITION_RE = re.compile(
+    r"\bwhat\s+(do(es)?|did)\b[^?]{0,40}\bmean\b"
+    r"|\bwhat\s+(is|are)\s+(a|an)\b"
+    r"|\bhow\s+do(es)?\b[^?]{0,40}\bwork\b"
+    r"|\bdefinition\s+of\b"
+    r"|\bmeaning\s+of\b"
+    # A BARE TERM. "What is FOIR?" and "what is eligibility?" ask what
+    # the word means; "what is my eligibility?" asks about this case and
+    # does not match -- nothing may stand between the verb and the term.
+    r"|^\s*what\s+(is|are)\s+(pan|kyc|foir|ltv|emi|eligibility|"
+    r"affordability|aadhaa?r|income\s+consistency|"
+    r"(pan\s+)?name\s+mismatch)\s*\??\s*$",
+    re.IGNORECASE,
+)
+
+
+def asks_for_a_definition(text: str) -> bool:
+    """Whether this asks what a thing is, rather than what happened here."""
+    return bool(_DEFINITION_RE.search(text or ""))
+
+
 def classify(message: str) -> Classification:
     """Decide what the message is asking for. Deterministic; no model."""
     text = (message or "").strip()
     if not text:
         return Classification(Intent.UNKNOWN, confidence="low")
 
-    for pattern, route in _COMPILED_OOS:
-        if pattern.search(text):
-            return Classification(
-                Intent.OUT_OF_SCOPE, route_to=route, matched_on=pattern.pattern[:60]
-            )
+    # BEFORE THE OUT-OF-SCOPE RULE, and only just. That rule routes
+    # anything containing "rcu" or "fraud" downstream so the FOS stage
+    # cannot answer a fraud question from the FOS handbook -- correct,
+    # and it would also swallow "what does RCU check", which is a
+    # question about the process rather than about this case. The
+    # match below requires BOTH a stage name and process phrasing, so
+    # "is this case fraudulent" is untouched.
+    if looks_like_stage_process(text):
+        return Classification(Intent.STAGE_PROCESS, matched_on="stage")
+
+    # AND THE SAME QUESTION ASKED ABOUT A CASE KEEPS ITS CASE ROUTE.
+    #
+    # "Why is this case under review and what does the RCU stage
+    # check?" is a case question with a process clause -- the MIXED
+    # route below is exactly what answers it. The out-of-scope rule
+    # would take it first, on the word "rcu" alone, and reply that a
+    # downstream process handles it.
+    #
+    # NARROW ON PURPOSE. Standing aside requires what/which/how, a
+    # stage name AND a process verb. "Is this case fraudulent" and
+    # "analyse the bank transactions on this case" have none of that
+    # shape and still route downstream, so the boundary that keeps FOS
+    # out of fraud analysis is untouched.
+    asks_process = _asks_how_a_stage_works(text)
+
+    if not asks_process:
+        for pattern, route in _COMPILED_OOS:
+            if pattern.search(text):
+                return Classification(
+                    Intent.OUT_OF_SCOPE, route_to=route,
+                    matched_on=pattern.pattern[:60],
+                )
 
     # A STRONG knowledge marker outranks the case patterns.
     #
@@ -516,6 +935,13 @@ def classify(message: str) -> Classification:
     # the case, which is a different question and a different answer.
     if _STRONG_KNOWLEDGE.search(text):
         return Classification(Intent.FOS_KNOWLEDGE, matched_on="product")
+
+    # A DEFINITION IS A HANDBOOK QUESTION, whatever it is a definition
+    # of. "What does document mismatch mean" is answered from the
+    # knowledge base; "what exactly is the mismatch in my documents" is
+    # answered from the case, and the patterns below take it.
+    if asks_for_a_definition(text):
+        return Classification(Intent.FOS_KNOWLEDGE, matched_on="definition")
 
     for pattern, intent in _COMPILED:
         if pattern.search(text):
@@ -615,7 +1041,20 @@ def plan_for(
     # Case history is read from case memory, not from a tool. The
     # application is still fetched so the answer can name the case it is
     # about rather than answering into the void.
-    if classification.intent is Intent.CASE_HISTORY:
+    # The applicant's own applications. NO `has_case` guard: this is the
+    # one read that is about the person rather than a case, and it is
+    # scoped by applicant_id at the tool.
+    # A stage guide is retrieved, not fetched with a tool.
+    if classification.intent is Intent.STAGE_PROCESS:
+        return ()
+
+    if classification.intent is Intent.CASE_PORTFOLIO:
+        return ("applications.list",)
+
+    if classification.intent in (Intent.CASE_HISTORY,
+                                 Intent.INCOME_EVIDENCE,
+                                 Intent.ELIGIBILITY,
+                                 Intent.DOCUMENT_DETAILS):
         return ("application.get",) if has_case else ()
 
     # A mixed question needs the case data its case half would have needed.

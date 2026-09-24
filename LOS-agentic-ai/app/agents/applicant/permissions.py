@@ -73,6 +73,18 @@ _READ_REQUIREMENT = {
     # that reading verification needs. A caller who may not see a verdict
     # may not see the reasons behind it either.
     Intent.CASE_HISTORY: "verification",
+    # Income evidence is verification output too: what a document was
+    # found to state, and whether two documents agree about it.
+    Intent.INCOME_EVIDENCE: "verification",
+    # Affordability is verification output too: figures other stages
+    # verified, compared against a configured policy.
+    Intent.ELIGIBILITY: "verification",
+    # What a document says is document data: the scope that reads
+    # documents is the one that may read what they say.
+    Intent.DOCUMENT_DETAILS: "documents",
+    # Reads application records, so it needs the scope that reading an
+    # application needs -- the same one APPLICATION_STATUS requires.
+    Intent.CASE_PORTFOLIO: "application",
     Intent.PENDING_ITEMS: "pending_items",
     Intent.NEXT_ACTION: "next_action",
     Intent.READINESS: "next_action",
@@ -116,6 +128,64 @@ def check_capability(caller: Caller, intent: Intent) -> None:
     # can see everything should still not be able to change anything without
     # being given the write scope explicitly.
     if intent not in WRITE_INTENTS and config.read_all_scope() in caller.scopes:
+        return
+
+    if scope not in caller.scopes:
+        raise PermissionDenied(
+            "INSUFFICIENT_SCOPE",
+            f"This action requires the '{scope}' scope.",
+            required_scope=scope,
+        )
+
+
+def check_tool(caller: Caller, name: str) -> None:
+    """
+    Whether this caller may invoke this capability.
+
+    THE SCOPE COMES FROM THE TOOL'S OWN CONTRACT. `ToolContract.scope_key`
+    was declared on all sixteen tools, published by GET /api/v1/fos/tools
+    as the scope a client needs -- and read by nothing else. Runtime
+    authorisation asked a SECOND map, intent -> scope, in this module.
+    Two lists of what a caller must hold, one of them enforced and one of
+    them documentation, and nothing to keep them in step: a tool added to
+    an intent's plan inherited that intent's scope regardless of what its
+    own contract said.
+
+    NOT A REPLACEMENT FOR `check_capability`. That still runs first and
+    still decides whether this KIND of work is permitted at all; this
+    decides whether each capability the plan reaches is covered. A
+    request refused there is refused whole, as it always was.
+
+    FAILS CLOSED. A tool with no contract, or a contract whose scope key
+    resolves to nothing, is refused rather than run. An unresolvable
+    scope is a configuration error, and the safe reading of a
+    configuration error is that the caller is not authorised.
+    """
+    if not config.permissions_enforced():
+        return
+
+    from app.mcp import contracts
+
+    contract = contracts.CONTRACTS.get(name)
+    if contract is None:
+        raise PermissionDenied(
+            "INSUFFICIENT_SCOPE",
+            f"'{name}' declares no contract and cannot be authorised.",
+        )
+
+    scope = contracts.required_scope(name)
+    if scope is None:
+        raise PermissionDenied(
+            "INSUFFICIENT_SCOPE",
+            f"'{name}' declares a scope that is not configured.",
+            required_scope=contract.scope_key,
+        )
+
+    # The same rule `check_capability` applies, for the same reason: a
+    # read-all scope satisfies reads and never writes, so a service
+    # account that can see everything still cannot change anything
+    # without being given the write scope explicitly.
+    if not contract.writes and config.read_all_scope() in caller.scopes:
         return
 
     if scope not in caller.scopes:
@@ -176,5 +246,5 @@ def check_ownership(applicant_id: str, case_id: str | None) -> None:
 
 __all__ = [
     "Caller", "PermissionDenied", "check_capability", "check_not_denied",
-    "check_ownership", "required_scope",
+    "check_ownership", "check_tool", "required_scope",
 ]

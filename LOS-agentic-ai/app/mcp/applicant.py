@@ -396,6 +396,33 @@ async def readiness_get(case_id: str) -> ToolEnvelope:
     return await _envelope("workflow.readiness", run)
 
 
+async def eligibility_get(case_id: str) -> ToolEnvelope:
+    """
+    The affordability verdict recorded for this case.
+
+    READS, AND ONLY READS. If no eligibility result was ever recorded
+    the envelope says so -- `recorded: false` -- rather than assessing
+    one now. A verdict produced to answer a question would be computed
+    from whatever happened to be available at the moment somebody asked,
+    which is not the same thing the pipeline concluded.
+    """
+
+    async def run() -> dict[str, Any]:
+        from app.agents.applicant import case_memory_facts
+
+        cid = _require(case_id, "case_id")
+        memory = case_memory_facts.case_memory(cid)
+
+        for finding in memory.get("findings") or []:
+            recorded = finding.get("eligibility")
+            if isinstance(recorded, dict) and recorded:
+                return {"eligibility": recorded, "recorded": True}
+
+        return {"eligibility": None, "recorded": False}
+
+    return await _envelope("eligibility.get", run)
+
+
 async def applicant_360(case_id: str) -> ToolEnvelope:
     """
     The whole FOS-stage picture for one case, in one call.
@@ -517,6 +544,16 @@ async def application_create(
     loan_amount: str | None = None,
     case_id: str | None = None,
     employment_type: str | None = None,
+    # -- affordability inputs, every one optional -----------------------
+    #
+    # KEYWORD-ONLY BY POSITION AND OPTIONAL BY DEFAULT, so every existing
+    # caller of this tool keeps working unchanged. An application created
+    # without them is one whose affordability check reports which input
+    # it did not have.
+    tenure_months: str | None = None,
+    interest_rate_pct: str | None = None,
+    declared_monthly_obligations: str | None = None,
+    property_value: str | None = None,
 ) -> ToolEnvelope:
     """Create an application for an existing applicant."""
 
@@ -539,6 +576,11 @@ async def application_create(
             case_id=cid, applicant_id=aid,
             product=(product or None), loan_amount=(loan_amount or None),
             employment_type=((employment_type or "").strip().upper() or None),
+            tenure_months=(tenure_months or None),
+            interest_rate_pct=(interest_rate_pct or None),
+            declared_monthly_obligations=(
+                declared_monthly_obligations or None),
+            property_value=(property_value or None),
         )
         _pin_policy(record)
         repo.save_application(record)
@@ -552,6 +594,10 @@ async def application_update(
     product: str | None = None,
     loan_amount: str | None = None,
     employment_type: str | None = None,
+    tenure_months: str | None = None,
+    interest_rate_pct: str | None = None,
+    declared_monthly_obligations: str | None = None,
+    property_value: str | None = None,
 ) -> ToolEnvelope:
     """Update basic application information."""
 
@@ -572,6 +618,19 @@ async def application_update(
         if employment_type is not None and str(employment_type).strip():
             record.employment_type = str(employment_type).strip().upper()
             changed.append("employment_type")
+
+        # AFFORDABILITY INPUTS. Set only when supplied and non-empty, the
+        # same rule the fields above follow: an update that does not
+        # mention a tenure must not erase the one already captured.
+        for name, supplied in (
+            ("tenure_months", tenure_months),
+            ("interest_rate_pct", interest_rate_pct),
+            ("declared_monthly_obligations", declared_monthly_obligations),
+            ("property_value", property_value),
+        ):
+            if supplied is not None and str(supplied).strip():
+                setattr(record, name, str(supplied).strip())
+                changed.append(name)
 
         # A case opened before its product was chosen has nothing to pin to.
         # Pin now, on the first update that gives it a product.
@@ -638,6 +697,7 @@ READ_TOOLS = {
     "workflow.pending_items": pending_items_get,
     "workflow.next_action": next_action_get,
     "workflow.readiness": readiness_get,
+    "eligibility.get": eligibility_get,
     "applicant.360": applicant_360,
 }
 

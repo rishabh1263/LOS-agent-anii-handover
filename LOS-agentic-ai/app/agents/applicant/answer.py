@@ -30,6 +30,29 @@ _ACRONYMS = frozenset({"PAN", "ITR", "DL", "KYC", "NOC", "GST", "CPA",
                        "FORM_16"})
 
 
+#: What a deterministic answer says when it has nothing. Named so
+#: the mixed path can recognise it rather than pattern-matching a
+#: sentence, and so there is one place to change the wording.
+NOTHING_AVAILABLE = "No answer is available for this request."
+
+
+def _explained(code: str | None) -> str:
+    """
+    One reason code, as a sentence a person reads.
+
+    THE CATALOGUE, NOT A TRANSFORMATION. `reasons.CATALOGUE` is
+    hand-written text for the codes somebody has explained; a code
+    nobody has explained keeps the readable form of its own name
+    rather than getting prose invented for it.
+    """
+    from app.agents.verification import reasons
+
+    written = reasons.CATALOGUE.get(str(code or "").upper())
+    if written:
+        return written
+    return _readable(code).rstrip(".") + "."
+
+
 def _readable(value: str | None) -> str:
     raw = str(value or "")
     if raw.upper() in _ACRONYMS:
@@ -38,6 +61,20 @@ def _readable(value: str | None) -> str:
         word.upper() if word.upper() in _ACRONYMS else word.title()
         for word in raw.replace("_", " ").split()
     )
+
+
+def _document_phrase(value: str | None) -> str:
+    """A document type inside a sentence: an acronym shouts, a noun does not."""
+    return " ".join(
+        word.upper() if word.upper() in _ACRONYMS else word.lower()
+        for word in str(value or "").replace("_", " ").split()
+    )
+
+
+def _and_list(items: list[str]) -> str:
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
 
 
 def _doc_line(document: dict[str, Any]) -> str:
@@ -127,6 +164,12 @@ def _explain_policy(policy: dict[str, Any] | None,
 # ==========================================================================
 # DETERMINISTIC
 # ==========================================================================
+
+#: What "verified" means in a Copilot answer, stated where it is said. The
+#: checks establish document integrity; no issuer has confirmed anything.
+INTEGRITY_ONLY = ("These are document checks; the issuing authority has not "
+                  "confirmed the document.")
+
 
 def deterministic_answer(
     intent: Intent,
@@ -267,15 +310,38 @@ def deterministic_answer(
             status = payload.get("status")
             codes = payload.get("reason_codes") or []
             sentence = f"{name} is {status}."
+            if str(status).upper() in {"VERIFIED", "PASS"}:
+                sentence += " " + INTEGRITY_ONLY
             if codes:
-                sentence += (" Reason: "
-                             + ", ".join(_readable(c) for c in codes) + ".")
+                # WRITTEN WORDING WHERE SOMEBODY WROTE IT. Title-casing
+                # produced "Reason: Document Requires Ocr.", which is
+                # an enum wearing a hat. The verification catalogue
+                # has a sentence for the codes that matter; the rest
+                # fall back to the readable form rather than inventing
+                # one.
+                sentence += " Reason: " + " ".join(
+                    _explained(code) for code in codes)
             return sentence
         documents = _get(results, "documents.get", "documents") or []
         flagged = [d for d in documents
                    if d.get("status") in {"REVIEW", "REJECTED"}]
         if not flagged:
-            return "No documents currently have verification issues."
+            # NAME WHAT PASSED. "No documents currently have
+            # verification issues" is a double negative about an
+            # unnamed set, and on a case in review for a
+            # cross-document mismatch it was the whole answer. Naming
+            # the documents makes the sentence that follows it -- the
+            # case's own verdict -- read as the qualification it is.
+            names = []
+            for document in documents:
+                phrase = _document_phrase(document.get("document_type"))
+                if phrase and phrase not in names:
+                    names.append(phrase)
+            if not names:
+                return "No documents currently have verification issues."
+            lead = "Both your" if len(names) == 2 else "Your"
+            return (f"{lead} {_and_list(names)} passed document "
+                    f"verification. {INTEGRITY_ONLY}")
         return ("Needing attention: "
                 + "; ".join(_doc_line(d) for d in flagged) + ".")
 
@@ -302,7 +368,7 @@ def deterministic_answer(
     if intent is Intent.FULL_SUMMARY:
         return _summary_text(_result(results, "applicant.360") or {})
 
-    return "No answer is available for this request."
+    return NOTHING_AVAILABLE
 
 
 def _summary_text(view: dict[str, Any]) -> str:
@@ -314,7 +380,12 @@ def _summary_text(view: dict[str, Any]) -> str:
     action = view.get("next_action") or {}
 
     name = applicant.get("full_name") or applicant.get("applicant_id") or "This applicant"
-    lines = [f"{name} — application {application.get('case_id')} is at "
+    # THE CASE ID IS NOT PROSE. It was printed here -- "AUDIT DEMO
+    # APPLICANT - application CASE-AUDIT-001 is at Basic Document
+    # Verification" -- and an identifier in a sentence is noise to
+    # the officer reading it and a leak in any transcript. It stays
+    # in the response, as a field, where a frontend can use it.
+    lines = [f"{name} — the application is at "
              f"{_readable(view.get('stage'))}."]
 
     verified = [d for d in documents if d.get("status") == "VERIFIED"]

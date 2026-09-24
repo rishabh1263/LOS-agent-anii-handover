@@ -204,6 +204,25 @@ class ProcessedDocument(BaseModel):
         description=AUTHENTICITY_DESCRIPTION,
         examples=["NOT_ESTABLISHED"],
     )
+    verification_scope: str | None = Field(
+        None,
+        description=(
+            "What the verdict rests on -- document integrity checks such as "
+            "format, field consistency or balance reconciliation. Never "
+            "issuance: see `issuer_verified`."
+        ),
+        examples=["DOCUMENT_STRUCTURE_AND_FIELD_CONSISTENCY",
+                  "DOCUMENT_STRUCTURE_AND_BALANCE_RECONCILIATION"],
+    )
+    issuer_verified: bool | None = Field(
+        None,
+        description=(
+            "Whether the issuing authority (government, bank, employer) "
+            "confirmed the document. Always false: no issuer source is "
+            "configured in this service."
+        ),
+        examples=[False],
+    )
     advisories: list[str] | None = Field(
         None,
         description=(
@@ -577,6 +596,63 @@ class CrossDocumentCheck(BaseModel):
     )
 
 
+class IncomeConsistency(BaseModel):
+    """
+    Whether the income documents tell one story.
+
+    A SIGNAL, NOT A VERDICT ON THE APPLICANT. A salary slip states what
+    an employer says it paid; a bank statement shows what arrived. They
+    differ for ordinary reasons -- a mid-month joining, reimbursements
+    paid separately, a deduction at source, a revision between the two
+    months, a second account. So a difference is REVIEW, meaning a
+    person should look, and never FRAUD, FAKE or REJECT.
+
+    SEPARATE FROM IDENTITY KYC and unable to affect it. Nothing here
+    changes the NAME, DATE_OF_BIRTH, PAN, FATHER_NAME or ADDRESS
+    verdicts, the KYC score, the case decision or the next action.
+    """
+
+    status: str = Field(
+        ...,
+        description=(
+            "PASS the stated and observed figures agree within the "
+            "configured tolerance. REVIEW they differ, or the evidence "
+            "is too thin to compare. SKIPPED one of the two documents "
+            "is absent or carries no figure -- which is NOT a failure."
+        ),
+        examples=["PASS", "REVIEW", "SKIPPED"],
+    )
+    reason_codes: list[str] = Field(
+        default_factory=list,
+        examples=[["INCOME_CONSISTENT"], ["INCOME_AMOUNT_MISMATCH"]],
+    )
+    bank_statement: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "What the statement evidenced: the recurring credit type, "
+            "the estimated monthly amount, how many months were observed "
+            "and how far the evidence can be relied on. Never a salary "
+            "figure -- a statement records money arriving, not why."
+        ),
+    )
+    salary_slip: dict[str, Any] | None = Field(
+        None,
+        description="The figure the slip states, and which figure it is.",
+    )
+    difference: str | None = Field(
+        None,
+        description=(
+            "Stated minus observed, absolute, as a decimal string. Present "
+            "only when both figures were. A STRING, like every other money "
+            "figure in this response: a float would round it."
+        ),
+        examples=["1500.00"],
+    )
+    tolerance: float | None = Field(
+        None, description="The configured tolerance this comparison applied."
+    )
+
+
 class CrossDocument(BaseModel):
     """
     Agreement between documents.
@@ -762,7 +838,6 @@ class ProcessingSummary(BaseModel):
             "so a reader can see that rather than trust it."
         ),
     )
-    processing_ms: float
 
 
 class ApplicationOverview(BaseModel):
@@ -908,6 +983,42 @@ class LosProcessResponse(BaseModel):
     documents: list[ProcessedDocument]
     kyc: KycSummary
     cross_document: CrossDocument
+    income_consistency: IncomeConsistency | None = Field(
+        None,
+        description=(
+            "Whether the salary slip and the bank statement agree about "
+            "income. Absent when the caller's stage did not run the "
+            "comparison -- a FOS upload verifies documents and has no "
+            "authority to say anything about income."
+        ),
+    )
+    # Typed loosely on purpose. Each stage owns its own schema --
+    # `app.agents.eligibility.schemas.EligibilityResult` and
+    # `app.agents.fraud_risk.schemas.FraudRiskResponse` -- and restating
+    # them here would be a second definition to keep in step with the
+    # first. This documents that the keys exist and what they mean.
+    eligibility: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Whether the affordability policy is satisfied on the "
+            "evidence available: status, reason codes, and the figures "
+            "behind them (income used and its source, obligations and "
+            "their source, proposed EMI, FOIR, threshold).\n\n"
+            "**NOT A LENDING DECISION.** A PASS says the affordability "
+            "policy is satisfied; approving a loan weighs risk, RCU and "
+            "a human. `decision` is computed without reading this. "
+            "Absent when the caller's stage did not run it."
+        ),
+    )
+    risk: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Risk signals from the deterministic risk engine. The FOIR "
+            "rule BANDS the percentage `eligibility` published and does "
+            "not compute a second one. `decision` is computed without "
+            "reading this. Absent when the caller's stage did not run it."
+        ),
+    )
     decision: str = Field(
         ...,
         description=(

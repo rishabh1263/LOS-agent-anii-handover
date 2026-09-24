@@ -741,3 +741,105 @@ def test_persistence_failure_never_propagates(_store, monkeypatch):
 
     monkeypatch.setattr(ingest, "_persist", explode)
     assert ingest.persist_los_result({"applicant_id": "A", "case_id": "C"}) is None
+
+
+# ==========================================================================
+# A RECORDED REASON REACHES THE OFFICER UNREWRITTEN
+# ==========================================================================
+
+async def test_a_recorded_reason_is_not_handed_to_the_model(_store, monkeypatch):
+    """
+    Asked for the status of a case recorded as REVIEW with
+    NAME_MISMATCH, the live answer came back as "there wasn't enough
+    matching information to make a decision" -- a generalisation of a
+    finding that names two people, and useless to whoever has to
+    decide whether those two people are one.
+
+    THE MODEL IS NOT CONSULTED WHEN THE CASE ALREADY SAID IT. Phrasing
+    is the model's job only where the service has nothing precise of
+    its own; a recorded reason is a fact, and a fact is reported.
+    """
+    from app.agents.applicant import agent, case_memory_facts
+
+    seed(_store, documents=[("PAN", "PASS", [])])
+
+    monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "true")
+    monkeypatch.setenv("APPLICANT_AGENT_LLM_FOR_SIMPLE_INTENTS", "true")
+    agent_config.reload()
+
+    monkeypatch.setattr(case_memory_facts, "case_memory", lambda *_a, **_k: {
+        "findings": [{
+            "finding_kind": "KYC", "status": "REVIEW",
+            "reason_codes": ["NAME_MISMATCH"],
+            # The public shape `case_memory` returns: the failed
+            # comparison and what each document said.
+            "comparisons": [{
+                "field": "NAME",
+                "sources": [
+                    {"document_type": "PAN", "value": "RISHABH AJIT SINGH"},
+                    {"document_type": "BANK_STATEMENT",
+                     "value": "PRIYANKAROHANMORE"},
+                ],
+            }],
+        }],
+        "decisions": [{"decision": "REVIEW", "status": "PARTIAL",
+                       "reason_codes": ["NAME_MISMATCH"]}],
+        "events": [],
+    })
+
+    consulted: list[str] = []
+
+    async def _never(message, *_a, **_k):
+        consulted.append(message)
+        return ("Your application is under review because there wasn't "
+                "enough matching information to make a decision.",
+                "llm", 1.0)
+
+    monkeypatch.setattr(agent, "generate_answer", _never)
+
+    response = await agent.answer_question(
+        message="What is the current status of my application?",
+        applicant_id="APP-TEST", case_id="CASE-TEST",
+        claims={"sub": "fos", "scope": " ".join(FULL_SCOPES)},
+    )
+    said = response["answer"]
+
+    assert consulted == [], "a recorded reason was handed to the model"
+    assert "enough matching information" not in said.lower()
+    assert "RISHABH AJIT SINGH" in said
+    assert "PRIYANKAROHANMORE" in said
+
+
+async def test_the_model_still_phrases_a_case_with_nothing_recorded(
+        _store, monkeypatch):
+    """
+    Suppression applies to the recorded reason and to nothing else --
+    a case that recorded no finding is phrased as it always was.
+    """
+    from app.agents.applicant import agent, case_memory_facts
+
+    seed(_store, documents=[("PAN", "PASS", [])])
+
+    monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "true")
+    monkeypatch.setenv("APPLICANT_AGENT_LLM_FOR_SIMPLE_INTENTS", "true")
+    agent_config.reload()
+
+    monkeypatch.setattr(case_memory_facts, "case_memory",
+                        lambda *_a, **_k: {"findings": [], "decisions": [],
+                                           "events": []})
+
+    consulted: list[str] = []
+
+    async def _phrase(message, *_a, **_k):
+        consulted.append(message)
+        return ("The application is progressing.", "llm", 1.0)
+
+    monkeypatch.setattr(agent, "generate_answer", _phrase)
+
+    await agent.answer_question(
+        message="What is the current status of my application?",
+        applicant_id="APP-TEST", case_id="CASE-TEST",
+        claims={"sub": "fos", "scope": " ".join(FULL_SCOPES)},
+    )
+
+    assert consulted, "the model was cut out of an answer it should phrase"

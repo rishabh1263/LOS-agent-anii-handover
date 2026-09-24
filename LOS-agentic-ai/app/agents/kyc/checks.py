@@ -471,11 +471,14 @@ def check_pan(documents: list[SourceDocument]) -> CheckResult:
 # ---------------------------------------------------------------------------
 
 _BASIS = (
-    "Monthly figures are annualised at {months} months. Bank credits are NOT "
-    "guaranteed salary: an average monthly credit includes transfers, refunds "
-    "and reimbursements, so it is expected to sit ABOVE declared salary rather "
-    "than equal it. Read a positive variance against the bank figure as "
-    "consistent, not as undeclared income."
+    "Monthly figures are annualised at {months} months. The bank figure is "
+    "the RECURRING CREDIT evidence the income policy released -- credits of "
+    "a similar size arriving in several different months -- and not the "
+    "average of every credit, which includes transfers, refunds and "
+    "reimbursements. A statement with no recurring credit evidence carries "
+    "no income figure at all, so the check reports a single source rather "
+    "than a variance. A recurring credit is still NOT guaranteed salary "
+    "unless the bank itself labelled it payroll."
 )
 
 

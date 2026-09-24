@@ -427,7 +427,7 @@ def signature_ink_threshold() -> float:
         return 0.02
 
 
-def _verdict_from_text(
+def _verdict_from_text_ungated(
     text: str,
     requested_class: str | None,
     started: float,
@@ -598,6 +598,217 @@ def _verdict_from_text(
     )
 
 
+# ==========================================================================
+# PAN DOCUMENT IDENTITY
+#
+# THE FALSE POSITIVE THIS CLOSES. A handwritten page reading "Permanent
+# Account Number ERIPG2112G" was verified as a PAN: PASS. The class came from
+# that one caption -- scored twice, since "ACCOUNTNUMBER" sits inside
+# "PERMANENTACCOUNTNUMBER" -- and the identifier matched the PAN format. A
+# PAN-shaped string is ONE piece of evidence; it says nothing about whether
+# the page is a PAN card.
+#
+# SO IDENTITY IS ESTABLISHED SEPARATELY, from what a PAN card itself carries,
+# each anchor counted once:
+#
+#     issuer          INCOME TAX DEPARTMENT      (required)
+#     government      GOVT. OF INDIA
+#     number caption  PERMANENT ACCOUNT NUMBER
+#     signature       the SIGNATURE caption
+#     field labels    FATHER'S NAME / DATE OF BIRTH
+#     date of birth   a date -- never a camera's gallery timestamp
+#
+# and the page must be CARD-SIZED: a card carries 120-170 characters of text
+# (measured on every PAN in the sample corpus); a letter or a return that
+# quotes a PAN carries over a thousand.
+#
+# Calibrated on the real cards: every one carries the issuer and at least
+# two other anchors. None of this is authenticity -- a genuine-looking card
+# still reports authenticity NOT_ESTABLISHED.
+# ==========================================================================
+
+_PAN_ANCHORS: dict[str, tuple[str, ...]] = {
+    "issuer": ("INCOMETAXDEPARTMENT",),
+    "government": ("GOVTOFINDIA",),
+    "number_caption": ("PERMANENTACCOUNTNUMBER",),
+    "signature": ("SIGNATURE",),
+    "field_labels": ("FATHERSNAME", "DATEOFBIRTH"),
+}
+
+#: A card's text, with headroom for noisy OCR and a photo overlay.
+PAN_CARD_MAX_CHARS = 450
+
+#: Anchors beyond the issuer that establish identity.
+PAN_MIN_SUPPORTING_ANCHORS = 2
+
+_CARD_DATE = re.compile(r"\b\d{2}[/.\-]\d{2}[/.\-](?:19|20)\d{2}\b(?!\s*\d{1,2}:\d{2})")
+
+ESTABLISHED = "ESTABLISHED"
+
+#: How close an OCR-damaged caption must be: about two character errors in
+#: an eleven-letter caption ("GOVTOFINDLA" for "GOVTOFINDIA" is 0.91).
+_NEAR_RATIO = 0.82
+
+
+def _near(caption: str, compact: str) -> bool:
+    """Whether some window of the text is within a couple of OCR errors of it."""
+    from difflib import SequenceMatcher
+
+    width = len(caption)
+    if width < 8 or len(compact) < width - 1:
+        return False
+    for start in range(0, max(1, len(compact) - width + 2)):
+        window = compact[start:start + width]
+        if SequenceMatcher(None, caption, window).ratio() >= _NEAR_RATIO:
+            return True
+    return False
+
+
+def pan_identity(text: str) -> tuple[str, str | None, list[str], int]:
+    """
+    Whether this text is a PAN CARD, not merely a page with a PAN on it.
+
+    Returns (outcome, reason_code, anchors_found, characters). Outcome is
+    ESTABLISHED, NOT_PAN (FAIL: nothing a card carries beyond the number and
+    at most its caption) or NOT_ESTABLISHED (REVIEW: some evidence, not
+    enough).
+    """
+    upper = (text or "").upper()
+    compact = re.sub(r"[^A-Z0-9]", "", upper)
+    fuzzy_text = compact[:FUZZY_WINDOW]
+    index = build_index(fuzzy_text)
+    characters = len(compact)
+    card_sized = characters <= PAN_CARD_MAX_CHARS
+
+    # TOLERANT ON A CARD, EXACT ON ANYTHING LONGER. A photocopied card reads
+    # "GOVT OF INDLA" and "INOOME TAXDEPARTMENT"; demanding exact captions
+    # there reviewed a genuine card. Only a card-sized page is searched
+    # tolerantly -- a longer one can never be established as a card anyway,
+    # and searching it that way would only cost time.
+    def found(caption: str) -> bool:
+        if caption_matches(caption, compact, fuzzy_text=fuzzy_text, index=index):
+            return True
+        return card_sized and _near(caption, compact)
+
+    anchors = [
+        name for name, captions in _PAN_ANCHORS.items()
+        if any(found(c) for c in captions)
+    ]
+    if _CARD_DATE.search(upper):
+        anchors.append("date_of_birth")
+    supporting = [a for a in anchors if a != "issuer"]
+
+    if "issuer" in anchors and len(supporting) >= PAN_MIN_SUPPORTING_ANCHORS:
+        if card_sized:
+            return ESTABLISHED, None, anchors, characters
+        # The captions of a card, in the text of a longer document.
+        return "NOT_ESTABLISHED", "PAN_DOCUMENT_STRUCTURE_INVALID", anchors, characters
+
+    if "issuer" not in anchors and "government" not in anchors and set(anchors) <= {"number_caption"}:
+        # A PAN-shaped number with, at most, the words "Permanent Account
+        # Number" beside it: nothing a card carries.
+        return "NOT_PAN", "DOCUMENT_NOT_PAN", anchors, characters
+
+    return "NOT_ESTABLISHED", "PAN_DOCUMENT_IDENTITY_NOT_ESTABLISHED", anchors, characters
+
+
+_VERDICT_RANK = {"PASS": 0, "REVIEW": 1, "FAIL": 2}
+
+
+#: PAN-shaped -- five letters, four digits, a letter -- whatever the holder
+#: type in position four.
+_PAN_SHAPED = re.compile(r"^[A-Z]{5}\d{4}[A-Z]$")
+
+#: How sure OCR must be of a character before it may FAIL a card on it.
+_MALFORMED_MIN_CONFIDENCE = 0.95
+
+
+def _malformed_pan(text: str, tokens) -> str | None:
+    """
+    A PAN-shaped number that is structurally NOT a PAN, read with certainty.
+
+    From a PDF's own text layer the characters are exact. From OCR only a
+    whole token read at 0.95 or better counts: below that, "D" for "P" is a
+    misread as likely as a malformed card, and a misread is REVIEW's to
+    catch, not FAIL's.
+    """
+    from app.agents.verification.rules import PAN_STRUCTURE
+
+    if tokens is None:
+        candidates = re.findall(r"\b[A-Z]{5}\d{4}[A-Z]\b", (text or "").upper())
+    else:
+        candidates = [
+            re.sub(r"[^A-Z0-9]", "", str(getattr(t, "text", "") or "").upper())
+            for t in tokens
+            if float(getattr(t, "confidence", 0.0) or 0.0) >= _MALFORMED_MIN_CONFIDENCE
+        ]
+    for candidate in candidates:
+        if _PAN_SHAPED.match(candidate) and not PAN_STRUCTURE.match(candidate):
+            return candidate
+    return None
+
+
+def _gate_pan(result: "QuickVerification", text: str,
+              tokens=None) -> "QuickVerification":
+    """Apply the identity gate to a PAN verdict. Only ever downgrades."""
+    if result.document_class is not DocumentClass.PAN:
+        return result
+
+    outcome, code, anchors, characters = pan_identity(text)
+    result.checks.append(QuickCheck(
+        name="pan_document_identity",
+        passed=outcome == ESTABLISHED,
+        detail=(f"anchors: {', '.join(anchors) or 'none'}; "
+                f"{characters} characters of text"),
+    ))
+    if outcome != ESTABLISHED:
+        if code and code not in result.reason_codes:
+            result.reason_codes.append(code)
+        floor = "FAIL" if outcome == "NOT_PAN" else "REVIEW"
+        if _VERDICT_RANK.get(floor, 0) > _VERDICT_RANK.get(result.status, 0):
+            result.status = floor
+    elif result.identifier_found is None:
+        # A PAN CARD WHOSE NUMBER IS NOT A PAN. With no valid identifier on
+        # an established card, a PAN-shaped number read with certainty but
+        # breaking the structure (an invalid holder type in position four)
+        # is a malformed card -- FAIL, not a request to look again.
+        malformed = _malformed_pan(text, tokens)
+        if malformed:
+            result.checks.append(QuickCheck(
+                name="pan_structure_valid", passed=False,
+                detail=f"{malformed} is PAN-shaped but not a valid PAN"))
+            if "PAN_STRUCTURE_INVALID" not in result.reason_codes:
+                result.reason_codes.append("PAN_STRUCTURE_INVALID")
+            result.status = "FAIL"
+    result.confidence = round(
+        sum(1 for c in result.checks if c.passed) / max(1, len(result.checks)), 4)
+    return result
+
+
+def quick_verify_from_tokens(
+    tokens,
+    image=None,
+    requested_class: str | None = None,
+    classification: "tuple[DocumentClass, float] | None" = None,
+) -> "QuickVerification":
+    """The structural verdict, with PAN identity established separately."""
+    result = _quick_verify_from_tokens(
+        tokens, image=image, requested_class=requested_class,
+        classification=classification)
+    text = " ".join(str(getattr(t, "text", "") or "") for t in (tokens or []))
+    return _gate_pan(result, text, tokens or [])
+
+
+def _verdict_from_text(
+    text: str,
+    requested_class: str | None,
+    started: float,
+) -> "QuickVerification":
+    """The text-layer verdict, with PAN identity established separately."""
+    return _gate_pan(
+        _verdict_from_text_ungated(text, requested_class, started), text)
+
+
 class QuickCheck(BaseModel):
     name: str
     passed: bool
@@ -732,7 +943,7 @@ def _pdf_head_text(
         return ""
 
 
-def quick_verify_from_tokens(
+def _quick_verify_from_tokens(
     tokens,
     image=None,
     requested_class: str | None = None,
@@ -1781,7 +1992,11 @@ def quick_verify(
             "poor scan, send it to POST /verify/{type} instead."
         )
 
-    return QuickVerification(
+    # THE SAME PAN IDENTITY GATE as the other two verdict paths. This path
+    # owns its OCR and repeats the verdict logic inline, so it has to apply
+    # the gate itself -- it is the /api/v1/verify path that returned PASS
+    # for a handwritten page.
+    return _gate_pan(QuickVerification(
         document_class=detected,
         requested_class=requested_class,
         retry_hint=hint,
@@ -1798,7 +2013,8 @@ def quick_verify(
             * 1000,
             2,
         ),
-    )
+    ), " ".join(str(getattr(t, "text", "") or "") for t in (tokens or [])),
+        tokens or [])
 
 
 __all__ = [
