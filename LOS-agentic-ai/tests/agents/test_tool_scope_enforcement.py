@@ -181,6 +181,10 @@ def store(tmp_path):
         date_of_birth="1990-01-01", address="Mumbai"))
     repository.save_application(Application(
         case_id="C", applicant_id="A", product="PERSONAL_LOAN"))
+    # The officer who opened this case owns it (app/security/access.py);
+    # the tests below ask as that officer.
+    for subject in ("fos", "test", "test-subject"):
+        repository.grant_access(subject, "APPLICANT", "A")
     yield repository
     set_repository(None)
 

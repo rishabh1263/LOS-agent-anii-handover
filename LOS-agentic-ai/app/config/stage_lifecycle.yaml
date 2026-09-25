@@ -1,0 +1,58 @@
+# LOS STAGE LIFECYCLE -- which stage a case may move to next.
+#
+# Read by app/agents/los/stage_lifecycle.py, the one service that changes a
+# case's stage. Nothing else writes a stage: not the Copilot, not the
+# language model, not document processing, not demo seeding.
+#
+# UNCONFIRMED. The route below is the lifecycle order the stage vocabulary
+# already documents (app/agents/los/stages.py ORDER). No business policy in
+# this repository confirms it -- in particular which stages a product may
+# SKIP, whether a case may be SENT BACK, and what must be true before a
+# handoff. Those are left as switches, all off, rather than invented.
+policy_id: LOS_STAGE_LIFECYCLE
+policy_version: "0.1.0"
+status: UNCONFIRMED
+
+# The stage a case is in before anything has transitioned it.
+initial_stage: FOS
+
+# A move to an earlier stage is refused unless that edge is listed under
+# the stage's `next` below. UNCONFIRMED: no send-back route is defined.
+allow_backward: false
+
+# Where a case may be WITHIN its stage. A workflow status, never a decision.
+stage_statuses: [IN_PROGRESS, READY_FOR_HANDOFF, ON_HOLD]
+
+# Who may drive a transition, by kind. Recorded on every transition.
+sources: [WORKFLOW, LOS_INTEGRATION, OPERATOR]
+
+# The scope a token needs to call the transition endpoint. The write-all
+# service scope (permissions.write_all_scope, los.write) also qualifies.
+# Ordinary FOS / applicant tokens carry neither.
+transition_scope: "los.stage:write"
+
+stages:
+  FOS:
+    next: [CPA]
+    # PREDICATE, OFF. When set, the case must be at this stage status
+    # (e.g. READY_FOR_HANDOFF) before it may leave the stage.
+    # UNCONFIRMED: no handoff criterion is confirmed by business policy.
+    requires_stage_status: null
+  CPA:
+    next: [CREDIT]
+    requires_stage_status: null
+  CREDIT:
+    next: [RCU]
+    requires_stage_status: null
+  RCU:
+    next: [BOPS]
+    requires_stage_status: null
+  BOPS:
+    next: [HOPS]
+    requires_stage_status: null
+  HOPS:
+    next: [DISBURSEMENT]
+    requires_stage_status: null
+  DISBURSEMENT:
+    next: []
+    requires_stage_status: null

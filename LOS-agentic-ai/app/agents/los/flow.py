@@ -511,16 +511,21 @@ async def _process_one(
             await _run_specialist(document, agent_id, request_id)
         )
 
+    from app.agents.verification import authenticity as _authenticity
+
     try:
-        result = await process_document(
-            file_bytes=document.content,
-            filename=document.filename,
-            operation=operation,
-            requested_class=document.expected_type,
-            request_id=f"{request_id}:{document.source_id}",
-            include_detail=False,
-            include_signals=financial_analysis,
-        )
+        # The authenticity hold is applied after the issuer is asked, by the
+        # issuer layer in process_application -- see authenticity.deferred.
+        with _authenticity.deferred():
+            result = await process_document(
+                file_bytes=document.content,
+                filename=document.filename,
+                operation=operation,
+                requested_class=document.expected_type,
+                request_id=f"{request_id}:{document.source_id}",
+                include_detail=False,
+                include_signals=financial_analysis,
+            )
     except ValueError as exc:
         # Rejected input (bad type, empty, oversized). One bad file must not
         # fail the whole application.
@@ -1643,6 +1648,23 @@ async def process_application(
         if upload.party is not None:
             result["party_id"] = upload.party.party_id
             result["party_role"] = upload.party.party_role.value
+
+    # ---------------------------------------------------------------
+    # FRAUD SIGNALS, THEN ISSUER AUTHENTICITY -- additional layers.
+    #
+    # The deterministic verdict above stays authoritative for validity.
+    # Forensics only flags (and, if configured, holds for REVIEW);
+    # issuer verification records whether a trusted source confirmed the
+    # document. Both run BEFORE KYC, so a document an issuer contradicts
+    # is failed before its fields could be compared with anything.
+    # ---------------------------------------------------------------
+    from app.agents.verification import forensics as _forensics
+    from app.agents.verification import issuer as _issuer
+
+    for upload, result in zip(every_upload, documents):
+        _forensics.apply(result, upload.content, upload.filename)
+        _issuer.apply(result, case_id=case_id, applicant_id=applicant_id,
+                      request_id=request_id)
 
     # ---------------------------------------------------------------
     # KYC. Consumes only what the agents already released: a document

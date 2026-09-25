@@ -33,6 +33,8 @@ the lender's decision; the default remains STRUCTURAL_PASS.
 
 from __future__ import annotations
 
+import contextvars
+from contextlib import contextmanager
 from typing import Any
 
 NOT_ESTABLISHED = "NOT_ESTABLISHED"
@@ -69,6 +71,29 @@ def scope(document_class: Any) -> dict[str, Any]:
     }
 
 
+#: Set by the LOS flow around the Document Agent. There the ISSUER LAYER
+#: applies the authenticity hold -- after asking the issuer -- so the agent
+#: must not apply it first: its hold discards the extracted fields, leaving a
+#: provider nothing to verify and a confirmation nothing to release. Direct
+#: callers of the agent never set this and keep the hold exactly as before.
+_DEFERRED: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "authenticity_deferred", default=False)
+
+
+@contextmanager
+def deferred():
+    """Leave the authenticity hold to the issuer layer, for this context only."""
+    token = _DEFERRED.set(True)
+    try:
+        yield
+    finally:
+        _DEFERRED.reset(token)
+
+
+def is_deferred() -> bool:
+    return _DEFERRED.get()
+
+
 def required() -> bool:
     """Whether authenticity evidence is required for a PASS."""
     from app.agents.verification.rules import authenticity_policy
@@ -86,6 +111,8 @@ def cap(document_class: Any, status: str,
     established".
     """
     codes = list(reason_codes or [])
+    if is_deferred():
+        return status, codes
     if (applies_to(document_class) and required()
             and not ISSUER_VERIFICATION_AVAILABLE
             and str(status).upper() == "PASS"):

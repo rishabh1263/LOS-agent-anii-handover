@@ -71,6 +71,10 @@ def _store(tmp_path, monkeypatch):
         document_type="PAN", status=status_for_verdict("PASS"),
         verification_status="PASS", source_id="pan.jpg",
     ))
+    # The officer who opened this case owns it (app/security/access.py);
+    # the tests below ask as that officer.
+    for subject in ("fos-test", "test-subject"):
+        repository.grant_access(subject, "APPLICANT", "APP-R")
 
     yield repository
     set_repository(None)

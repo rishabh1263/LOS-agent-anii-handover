@@ -13,6 +13,9 @@ Routing is resolved from agents.yaml through the registry.
 
 from __future__ import annotations
 
+from fastapi import Depends as _Depends
+from app.security.access import require_any_scope as _require_any_scope
+
 import importlib
 import logging
 import uuid
@@ -269,6 +272,7 @@ async def list_agents() -> list[AgentDescriptor]:
 @router.post(
     "/execute",
     response_model=AgentExecutionResponse,
+    dependencies=[_Depends(_require_any_scope('agents:execute', write=True))],
     response_model_exclude_none=True,
     summary="Execute an agent through LangGraph",
 )

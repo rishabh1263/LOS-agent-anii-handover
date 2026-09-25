@@ -396,6 +396,12 @@ def _seed_events(repository, case_id, applicant_id, case) -> int:
     to assign, so the timeline reads the same on every seed -- and so
     the LAST event carries the case's current stage, which is what
     `stages.resolve()` reads.
+
+    DEMO FIXTURES, NOT A STAGE TRANSITION. These events place a fixture
+    case at a stage for demonstration; they write no stage record and no
+    stage history, and they are not how a real case moves. A real case
+    changes stage only through `app.agents.los.stage_lifecycle`, whose
+    stage record `stages.resolve()` reads ahead of this timeline.
     """
     written = 0
 

@@ -83,6 +83,9 @@ class Requirement:
     applicable_conditions: tuple[str, ...] = ()
     #: UNCONFIRMED while the policy file says its numbers are placeholders.
     policy_status: str = "UNCONFIRMED"
+    #: The LOS stage whose rules added this slot. None for the product
+    #: policy's own (FOS) requirements, which is every slot before stages.
+    stage: str | None = None
 
     @property
     def mandatory(self) -> bool:
@@ -108,6 +111,8 @@ class Requirement:
         }
         if self.applicable_conditions:
             entry["applicable_conditions"] = list(self.applicable_conditions)
+        if self.stage:
+            entry["stage"] = self.stage
         return entry
 
 
@@ -158,6 +163,11 @@ class PolicyResolution:
     loan_amount: Decimal | None = None
     #: Document-level evidence requirements, keyed by document type.
     evidence: Mapping[str, Any] = field(default_factory=dict)
+    #: The LOS stage the requirements were resolved FOR, when stage rules
+    #: contributed; and the stage policy that supplied them.
+    stage: str | None = None
+    stage_policy: str | None = None
+    stage_policy_status: str | None = None
 
     def checklist(self) -> list[dict[str, Any]]:
         return [r.as_checklist_entry() for r in self.requirements]
@@ -192,6 +202,11 @@ class PolicyResolution:
             "applied_rules": list(self.applied_rules),
             "unevaluated_rules": [u.public() for u in self.unevaluated_rules],
             "conflicts": [c.public() for c in self.conflicts],
+            # Present only when stage rules contributed, so a FOS answer's
+            # provenance is exactly what it was.
+            **({"stage": self.stage, "stage_policy": self.stage_policy,
+                "stage_policy_status": self.stage_policy_status}
+               if self.stage else {}),
         }
 
     def explain(self, slot: str) -> dict[str, Any] | None:
@@ -367,6 +382,17 @@ class _Accumulator:
             current["accepts"] = tuple(
                 dict.fromkeys(current["accepts"] + accepts))
 
+    def seed(self, requirement: "Requirement") -> None:
+        """Start from a requirement another step already resolved."""
+        self._order.append(requirement.slot)
+        self._slots[requirement.slot] = {
+            "accepts": tuple(requirement.accepts),
+            "requirement": requirement.requirement,
+            "rule_ids": list(requirement.rule_ids),
+            "reason": requirement.reason,
+            "conditions": list(requirement.applicable_conditions),
+        }
+
     def build(self) -> tuple[Requirement, ...]:
         return tuple(
             Requirement(
@@ -421,6 +447,156 @@ def _legacy(product: str | None) -> PolicyResolution:
     )
 
 
+# ==========================================================================
+# STAGE RULES -- what each LOS stage adds
+# ==========================================================================
+
+_REQUIREMENT_TYPES = {"ONE_OF", "ALL_OF", "OPTIONAL", "CONDITIONAL"}
+
+
+def stages_through(stage: str | None) -> list[tuple[str, list[Mapping[str, Any]]]]:
+    """
+    Every configured stage up to and including `stage`, in lifecycle order,
+    with its rules. Empty for an unknown stage: an unconfigured stage adds
+    nothing and is never guessed a position in the lifecycle.
+    """
+    wanted = str(stage or "").strip().upper()
+    policy = loader.stage_policy()
+    # `enabled: false` in the stage file withdraws every stage rule: the
+    # product policy alone applies, exactly as before stages existed.
+    if policy.get("enabled") is False:
+        return []
+    configured = policy.get("stages") or {}
+    if not wanted or not isinstance(configured, Mapping):
+        return []
+    names = [str(k).strip().upper() for k in configured]
+    if wanted not in names:
+        return []
+    out = []
+    for name, rules in configured.items():
+        key = str(name).strip().upper()
+        out.append((key, [r for r in (rules or []) if isinstance(r, Mapping)]))
+        if key == wanted:
+            break
+    return out
+
+
+def _stage_entries(rule: Mapping[str, Any]) -> tuple[list[dict[str, Any]], str]:
+    """A stage rule in the engine's own terms: slots, and how strongly."""
+    from app.agents.verification import taxonomy
+
+    kind = str(rule.get("requirement_type") or "ONE_OF").strip().upper()
+    if kind not in _REQUIREMENT_TYPES:
+        logger.error("Stage rule %s has unknown requirement_type %s; "
+                     "treated as ONE_OF", rule.get("rule_id"), kind)
+        kind = "ONE_OF"
+    section = taxonomy.section_key(rule.get("section") or "")
+    accepted = [str(a).strip().upper()
+                for a in (rule.get("accepted_documents") or [])]
+    # A rule that names only a section takes the section's documents from
+    # the lender's taxonomy -- the one list of what can evidence it.
+    accepted = accepted or list(taxonomy.accepted_for(section))
+    reason = str(rule.get("reason") or "").strip()
+    if not section or not accepted:
+        return [], REQUIRED
+    if kind == "ALL_OF":
+        entries = [{"slot": a, "accepts": [a], "reason": reason}
+                   for a in accepted]
+    else:
+        # ONE_OF: ONE slot, any accepted document satisfies it. The
+        # alternatives are never separately missing.
+        entries = [{"slot": section, "accepts": accepted, "reason": reason}]
+    if kind == "OPTIONAL":
+        strength = OPTIONAL
+    elif kind == "CONDITIONAL" or rule.get("when"):
+        strength = CONDITIONAL
+    else:
+        strength = REQUIRED
+    return entries, strength
+
+
+def _with_stage(resolution: "PolicyResolution", stage: str | None,
+                product: str | None,
+                attributes: Mapping[str, Any]) -> "PolicyResolution":
+    """
+    The product's requirements plus every stage's up to the current one.
+
+    RULES ADD, THEY DO NOT REMOVE -- the engine's third rule, kept: a later
+    stage can ask for more, or narrow a slot, never drop an earlier slot.
+    A stage with no rules (FOS, and any stage configured empty) returns the
+    resolution unchanged.
+    """
+    from dataclasses import replace
+
+    chain = stages_through(stage)
+    if not any(rules for _, rules in chain):
+        return resolution
+
+    facts = {str(k).lower(): v for k, v in (attributes or {}).items()}
+    if product and "product" not in facts:
+        facts["product"] = str(product).upper()
+
+    accumulator = _Accumulator(resolution.policy_status)
+    for requirement in resolution.requirements:
+        accumulator.seed(requirement)
+    added_by: dict[str, str] = {}
+    applied = list(resolution.applied_rules)
+    unevaluated = list(resolution.unevaluated_rules)
+
+    for stage_name, rules in chain:
+        for rule in rules:
+            rule_id = str(rule.get("rule_id") or f"{stage_name}_RULE")
+            entries, strength = _stage_entries(rule)
+            if not entries:
+                continue
+            when = rule.get("when") or {}
+            conditions: tuple[str, ...] = ()
+            if isinstance(when, Mapping) and when:
+                missing = [str(k).lower() for k in when
+                           if facts.get(str(k).lower()) in (None, "")]
+                if missing:
+                    unevaluated.append(UnevaluatedRule(
+                        rule_id=rule_id, missing_attributes=tuple(missing),
+                        reason=(f"{rule_id} depends on {', '.join(missing)}, "
+                                f"which the case has not captured, so the "
+                                f"rule was not applied."),
+                        would_require=tuple(e["slot"] for e in entries)))
+                    continue
+                if not all(_matches(expected, facts.get(str(key).lower()))
+                           for key, expected in when.items()):
+                    continue
+                conditions = tuple(f"{str(k).lower()}={facts.get(str(k).lower())}"
+                                   for k in when)
+            applied.append(rule_id)
+            for entry in entries:
+                if entry["slot"] not in {r.slot for r in resolution.requirements}:
+                    added_by.setdefault(entry["slot"], stage_name)
+                accumulator.add(entry, rule_id=rule_id, strength=strength,
+                                conditions=conditions)
+
+    # A STAGE RULE'S STATUS TRAVELS WITH WHAT IT ADDED. The stage file is
+    # UNCONFIRMED; a slot it introduced says so on its own row, rather than
+    # borrowing the product policy's status.
+    policy = loader.stage_policy()
+    stage_status = str(policy.get("status") or "UNCONFIRMED").upper()
+    requirements = tuple(
+        replace(r, stage=added_by.get(r.slot), policy_status=stage_status)
+        if r.slot in added_by else r
+        for r in accumulator.build()
+    )
+    return replace(
+        resolution,
+        requirements=requirements,
+        applied_rules=tuple(dict.fromkeys(applied)),
+        unevaluated_rules=tuple(unevaluated),
+        conflicts=tuple(resolution.conflicts) + tuple(accumulator.conflicts),
+        stage=str(stage).upper(),
+        stage_policy=(f"{policy.get('policy_id') or 'STAGE_POLICY'} "
+                      f"v{policy.get('policy_version') or 'unversioned'}"),
+        stage_policy_status=stage_status,
+    )
+
+
 def vocabulary_for(product: str | None) -> tuple[frozenset[str], frozenset[str]]:
     """
     Every slot and document type this product's policy can ever produce.
@@ -464,6 +640,10 @@ def resolve(
     *,
     loan_amount: Any = None,
     attributes: Mapping[str, Any] | None = None,
+    # THE CASE'S CURRENT LOS STAGE, read from the case record by the caller
+    # (app/agents/los/stages.py). None keeps the product policy alone --
+    # which is exactly what every caller received before stages existed.
+    stage: str | None = None,
 ) -> PolicyResolution:
     """
     The document requirements for one case.
@@ -474,7 +654,7 @@ def resolve(
     """
     policy = loader.policy_for(product)
     if policy is None:
-        return _legacy(product)
+        return _with_stage(_legacy(product), stage, product, attributes or {})
 
     attributes = {str(k).lower(): v for k, v in (attributes or {}).items()}
     policy_status = str(policy.get("status") or "UNCONFIRMED").upper()
@@ -564,7 +744,7 @@ def resolve(
                 for k, v in (policy.get("documents") or {}).items()
                 if isinstance(v, Mapping)}
 
-    return PolicyResolution(
+    return _with_stage(PolicyResolution(
         product=str(product).upper() if product else None,
         policy_id=str(policy.get("policy_id") or "UNNAMED_POLICY"),
         policy_version=str(policy.get("policy_version") or "unversioned"),
@@ -576,12 +756,12 @@ def resolve(
         conflicts=tuple(accumulator.conflicts),
         loan_amount=amount,
         evidence=evidence,
-    )
+    ), stage, product, attributes)
 
 
 __all__ = [
     "CONDITIONAL", "LEGACY_POLICY_ID", "LEGACY_SOURCE", "LEGACY_VERSION",
     "NOT_APPLICABLE", "OPTIONAL", "REQUIRED", "PolicyConflict",
     "PolicyResolution", "Requirement", "UnevaluatedRule", "parse_amount",
-    "resolve",
+    "resolve", "stages_through",
 ]

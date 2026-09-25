@@ -108,7 +108,7 @@ def process(make_token, path, declared, case_id):
     import main
 
     client = TestClient(main.app)
-    client.headers.update({"Authorization": f"Bearer {make_token(scopes=['los.read'])}"})
+    client.headers.update({"Authorization": f"Bearer {make_token(scopes=['los.read', 'los.write'])}"})
     response = client.post("/api/v1/los/process", data={
         "operation": "PROCESS", "applicant_id": "APP-S", "case_id": case_id,
         "expected_types": declared},

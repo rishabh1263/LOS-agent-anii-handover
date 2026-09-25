@@ -84,6 +84,10 @@ def seed(repository, *, documents=None, product="PERSONAL_LOAN",
     application = Application(case_id=case_id, applicant_id=applicant_id,
                               product=product, loan_amount="100000")
     repository.save_application(application)
+    # The officer who opened this case owns it (app/security/access.py);
+    # the tests below ask as that officer.
+    for subject in ("fos-test", "fos", "test-subject"):
+        repository.grant_access(subject, "APPLICANT", applicant_id)
 
     for doc_type, verdict, codes in (documents or []):
         repository.save_document(Document(

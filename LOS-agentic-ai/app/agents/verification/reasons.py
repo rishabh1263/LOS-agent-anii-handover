@@ -128,6 +128,42 @@ CATALOGUE: dict[str, str] = {
         "The passport number is not in the Indian format of one letter and "
         "seven digits. It needs to be reviewed."
     ),
+    "ISSUER_MISMATCH": (
+        "The issuing authority's records do not match the details on this "
+        "document."
+    ),
+    "ISSUER_PROVIDER_NOT_CONFIGURED": (
+        "No issuer verification is configured for this document type, so its "
+        "authenticity has not been established."
+    ),
+    "ISSUER_VERIFICATION_NOT_AVAILABLE": (
+        "No trusted issuer source exists for this kind of document, so its "
+        "authenticity cannot be established automatically."
+    ),
+    "ISSUER_PROVIDER_NOT_REGISTERED": (
+        "The configured issuer verification provider is not available in "
+        "this deployment."
+    ),
+    "ISSUER_PROVIDER_TIMEOUT": (
+        "The issuer verification service did not answer in time, so "
+        "authenticity has not been established."
+    ),
+    "ISSUER_PROVIDER_ERROR": (
+        "The issuer verification service could not be reached, so "
+        "authenticity has not been established."
+    ),
+    "ISSUER_CONFIRMATION_INCOMPLETE": (
+        "The issuer verification answer could not be traced to a provider "
+        "reference, so it was not accepted as evidence."
+    ),
+    "ISSUER_VERIFICATION_NOT_ATTEMPTED": (
+        "Issuer verification was not attempted because the document did not "
+        "pass its own checks."
+    ),
+    "FORENSIC_SIGNAL_REVIEW": (
+        "The file shows signs of having been edited in image-editing "
+        "software. It needs to be reviewed."
+    ),
     "DOCUMENT_NOT_PAN": (
         "This is not a PAN card. It carries a PAN-shaped number, but none of "
         "what a PAN card prints -- the Income Tax Department header, the "

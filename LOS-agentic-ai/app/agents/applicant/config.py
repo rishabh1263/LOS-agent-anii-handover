@@ -65,6 +65,13 @@ def reload() -> None:
     with _LOCK:
         _CACHE = None
     try:
+        from app.agents.applicant import normalize, semantic
+
+        normalize.reload()
+        semantic.reload()
+    except Exception:  # pragma: no cover - import failure
+        logger.exception("Could not reload the normalisation tables")
+    try:
         from app.agents.policy import loader as policy_loader
 
         policy_loader.reload()
@@ -105,8 +112,11 @@ def llm_for_simple_intents() -> bool:
 
 
 def temperature() -> float:
+    """`chatbot.llm.temperature` when set, else `agent.temperature`."""
+    raw = chatbot("llm").get("temperature",
+                             _section("agent").get("temperature", 0.1))
     try:
-        return float(_section("agent").get("temperature", 0.1))
+        return float(raw)
     except (TypeError, ValueError):
         return 0.1
 
@@ -265,6 +275,11 @@ def read_all_scope() -> str:
     return str(_section("permissions").get("read_all_scope") or "los.read")
 
 
+def write_all_scope() -> str:
+    """The service scope that may read AND write any case (`los.write`)."""
+    return str(_section("permissions").get("write_all_scope") or "los.write")
+
+
 def read_scopes() -> dict[str, str]:
     return dict(_section("permissions").get("read", {}) or {})
 
@@ -299,7 +314,98 @@ def tool_timeout_seconds() -> float:
 
 
 def llm_timeout_seconds() -> float:
+    """`chatbot.llm.timeout_seconds` when set, else `timeouts.llm_seconds`.
+    The environment override APPLICANT_AGENT_LLM_SECONDS still wins."""
+    if os.getenv("APPLICANT_AGENT_LLM_SECONDS") is None:
+        raw = chatbot("llm").get("timeout_seconds")
+        if raw is not None:
+            try:
+                return max(0.1, float(raw))
+            except (TypeError, ValueError):
+                pass
     return _seconds("llm_seconds", 1.5)
+
+
+# -- universal copilot ------------------------------------------------------
+
+def chatbot(section: str) -> dict[str, Any]:
+    """One subsection of `chatbot:`. Empty when absent, never None."""
+    value = (_section("chatbot") or {}).get(section) or {}
+    return value if isinstance(value, dict) else {}
+
+
+def _chatbot_flag(section: str, name: str, default: bool) -> bool:
+    value = chatbot(section).get(name, default)
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "on"}
+    return bool(value)
+
+
+def _chatbot_int(section: str, name: str, default: int) -> int:
+    try:
+        return int(chatbot(section).get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def max_output_tokens() -> int:
+    return max(16, _chatbot_int("llm", "max_output_tokens", 96))
+
+
+def max_sentences() -> int:
+    return max(1, _chatbot_int("response", "max_sentences", 3))
+
+
+def max_characters() -> int:
+    return max(40, _chatbot_int("response", "max_characters", 700))
+
+
+def expose_internal_ids() -> bool:
+    return _chatbot_flag("grounding", "expose_internal_ids", False)
+
+
+def expose_internal_reason_codes() -> bool:
+    return _chatbot_flag("grounding", "expose_internal_reason_codes", False)
+
+
+def validation(name: str, default: bool = True) -> bool:
+    """A `chatbot.validation` switch; `enabled: false` turns every one off."""
+    if not _chatbot_flag("validation", "enabled", True):
+        return False
+    return _chatbot_flag("validation", name, default)
+
+
+def regenerate_attempts() -> int:
+    return max(0, min(2, _chatbot_int("validation", "regenerate_attempts", 0)))
+
+
+def fallback(kind: str) -> str:
+    """Only `structured_answer` exists; anything else is treated as it."""
+    return str(chatbot("fallback").get(kind) or "structured_answer")
+
+
+def stage_label(stage: str | None) -> str:
+    """How a stage is named in an answer: configured label, else its name."""
+    key = str(stage or "").upper()
+    labels = chatbot("stages").get("labels") or {}
+    return str(labels.get(key) or key.replace("_", " ").title() or "unknown")
+
+
+def jev_enabled() -> bool:
+    """JEV_ENABLED in the environment wins over `chatbot.jev.enabled`."""
+    override = (os.getenv("JEV_ENABLED") or "").strip().lower()
+    if override in {"true", "1", "yes", "on"}:
+        return True
+    if override in {"false", "0", "no", "off"}:
+        return False
+    return _chatbot_flag("jev", "enabled", False)
+
+
+def jev_timeout_seconds() -> float:
+    try:
+        return max(0.05, float(chatbot("jev").get("timeout_seconds", 1.0)))
+    except (TypeError, ValueError):
+        return 1.0
 
 
 def total_timeout_seconds() -> float:
@@ -319,6 +425,12 @@ def snapshot() -> dict[str, Any]:
         "routes": sorted(routing_table()),
         "tool_timeout_seconds": tool_timeout_seconds(),
         "llm_timeout_seconds": llm_timeout_seconds(),
+        "llm_max_output_tokens": max_output_tokens(),
+        "response_max_sentences": max_sentences(),
+        "response_max_characters": max_characters(),
+        "validation_enabled": validation("enabled"),
+        "regenerate_attempts": regenerate_attempts(),
+        "jev_enabled": jev_enabled(),
     }
 
 

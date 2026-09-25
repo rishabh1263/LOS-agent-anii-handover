@@ -15,7 +15,9 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.agents.los.flow import (
     PROCESS,
@@ -26,7 +28,13 @@ from app.agents.los.flow import (
 )
 from app.agents.los.schemas import LosProcessResponse
 from app.agents.document_agent.workflow import MAX_UPLOAD_BYTES
+from app.security import access
 from app.store.ingest import persist_los_result
+
+#: /los/process WRITES a case: the document-processing write scope, the FOS
+#: upload scope, or the service write scope (los.write).
+_PROCESS_SCOPE = access.require_any_scope("documents:write", "upload_document",
+                                          write=True)
 
 logger = logging.getLogger(__name__)
 
@@ -391,6 +399,7 @@ async def process(
     co_applicant_pan: str | None = Form(default=None),
     co_applicant_father_name: str | None = Form(default=None),
     co_applicant_address: str | None = Form(default=None),
+    claims: dict[str, Any] = Depends(_PROCESS_SCOPE),
 ):
     request_id = f"los_{uuid.uuid4().hex}"
 
@@ -467,6 +476,20 @@ async def process(
                 ),
             },
         )
+
+    # THE CALLER MAY WRITE TO WHAT IT NAMES. An existing applicant or case
+    # must be the caller's own (or the caller a service principal); a new
+    # one becomes the caller's when it is persisted below.
+    try:
+        access.authorize_claims(
+            claims, applicant_id=_party_or_none(applicant_id),
+            case_id=_party_or_none(case_id), write=True, creating=True)
+        if _party_or_none(co_applicant_id):
+            access.authorize_claims(
+                claims, applicant_id=_party_or_none(co_applicant_id),
+                write=True, creating=True)
+    except access.AccessDenied as denied:
+        raise access.http_denied(denied, request_id) from None
 
     async def build(
         incoming: list[UploadFile],
@@ -570,6 +593,18 @@ async def process(
 
         persist_los_result(result)
 
+        # WHAT THIS CALLER CREATED, THIS CALLER OWNS.
+        from app.security.auth import get_subject
+
+        access.record_ownership(
+            get_subject(claims),
+            applicant_id=str(result.get("applicant_id") or "") or None,
+            case_id=str(result.get("case_id") or "") or None)
+        co_id = str(result.get("co_applicant_id") or "") or _party_or_none(
+            co_applicant_id)
+        if co_id:
+            access.record_ownership(get_subject(claims), applicant_id=co_id)
+
         return result
 
     except ValueError as exc:
@@ -592,3 +627,91 @@ async def process(
                 "message": "Application processing failed unexpectedly.",
             },
         ) from exc
+
+
+# ==========================================================================
+# STAGE TRANSITION -- a workflow operation, not a chatbot action
+# ==========================================================================
+
+from pydantic import BaseModel, Field  # noqa: E402
+
+from app.agents.los import stage_lifecycle  # noqa: E402
+from app.security.auth import get_subject  # noqa: E402
+
+#: Only a token carrying the stage-write scope (stage_lifecycle.yaml
+#: `transition_scope`) or the service write scope (los.write) may move a
+#: case. Ordinary FOS / applicant tokens carry neither.
+_STAGE_SCOPE = access.require_any_scope(stage_lifecycle.transition_scope(),
+                                        write=True)
+
+
+class StageTransitionRequest(BaseModel):
+    """Move a case to `target_stage`, or change its status within a stage."""
+
+    target_stage: str = Field(..., max_length=40,
+                              description="FOS, CPA, CREDIT, RCU, BOPS, HOPS "
+                                          "or DISBURSEMENT.")
+    reason: str = Field(..., min_length=1, max_length=200,
+                        description="Why -- recorded on the history as given, "
+                                    "e.g. FOS_HANDOFF.")
+    stage_status: str | None = Field(
+        default=None, max_length=40,
+        description="IN_PROGRESS, READY_FOR_HANDOFF or ON_HOLD. With the "
+                    "current stage as target, changes only the status.")
+    expected_stage: str | None = Field(
+        default=None, max_length=40,
+        description="The stage the caller believes the case is in. When it "
+                    "has since moved on, the request is refused as STALE_STAGE "
+                    "instead of overwriting the newer stage.")
+    idempotency_key: str | None = Field(
+        default=None, max_length=64,
+        description="Retrying with the same key returns the transition "
+                    "already made (REPLAYED) instead of making another.")
+    source: str = Field(default="WORKFLOW", max_length=40,
+                        description="WORKFLOW, LOS_INTEGRATION or OPERATOR.")
+    correlation_id: str | None = Field(default=None, max_length=128)
+
+
+@router.post(
+    "/cases/{case_id}/stage",
+    summary="Transition a case's LOS stage (workflow / service only)",
+    description=(
+        "The one way a case changes stage. Validates the move against the "
+        "configured lifecycle (app/config/stage_lifecycle.yaml), writes the "
+        "new stage and an append-only history entry atomically, and returns "
+        "the case's stage state.\n\n"
+        "Requires the stage-write scope or the service write scope, and the "
+        "caller must be allowed to write this case. Idempotent: the current "
+        "stage as target is NO_CHANGE; a repeated idempotency key is "
+        "REPLAYED. `expected_stage` guards against a stale read."
+    ),
+)
+async def transition_stage(
+    case_id: str,
+    body: StageTransitionRequest,
+    claims: dict[str, Any] = Depends(_STAGE_SCOPE),
+):
+    request_id = f"stg_{uuid.uuid4().hex}"
+
+    try:
+        access.authorize_claims(claims, case_id=case_id, write=True)
+    except access.AccessDenied as exc:
+        raise access.http_denied(exc, request_id) from None
+
+    try:
+        result = stage_lifecycle.transition(
+            case_id, body.target_stage,
+            reason=body.reason, actor=get_subject(claims), source=body.source,
+            stage_status=body.stage_status, expected_stage=body.expected_stage,
+            idempotency_key=body.idempotency_key, request_id=request_id,
+            correlation_id=body.correlation_id,
+        )
+    except stage_lifecycle.StageTransitionError as exc:
+        logger.info("stage_transition result=REFUSED case_id=%s code=%s "
+                    "request_id=%s", case_id, exc.code, request_id)
+        raise HTTPException(
+            status_code=exc.http_status,
+            detail={"request_id": request_id, **exc.public()},
+        ) from None
+
+    return {"request_id": request_id, **result}

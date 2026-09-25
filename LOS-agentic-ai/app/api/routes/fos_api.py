@@ -631,6 +631,12 @@ async def create_case(
         _raise_from(request_id, application)
     case_id = application.result["application"]["case_id"]
 
+    # WHAT THIS CALLER CREATED, THIS CALLER OWNS -- the grant every later
+    # read and write of this applicant and case is checked against.
+    from app.security import access as _access
+    _access.record_ownership(caller.subject, applicant_id=applicant_id,
+                             case_id=case_id)
+
     # Read the opened case back through the same tool the copilot uses, so the
     # state returned here is the state a subsequent query will report.
     view = await tools.applicant_360(case_id)
@@ -977,7 +983,37 @@ async def _run_action(
     compatibility endpoint cannot drift into answering the same question
     two ways -- which is the defect that made this refactor worth doing
     in the first place.
+
+    A REFUSAL IS AN HTTP STATUS HERE TOO. The REST reads call this
+    directly, and an AgentError (403 for a case the caller may not access)
+    escaped them as an unhandled error -- a 500 instead of a refusal.
     """
+    try:
+        result = await _answer_action(
+            action, applicant_id=applicant_id, case_id=case_id, claims=claims,
+            request_id=request_id, message=message, context=context)
+    except AgentError as exc:
+        raise HTTPException(exc.http_status, detail={
+            "request_id": request_id, "error": exc.code,
+            "code": "CASE_ACCESS_DENIED" if exc.http_status == 403
+            and exc.code in {"CASE_NOT_ACCESSIBLE", "CASE_STORE_UNAVAILABLE"}
+            else exc.code,
+            "message": exc.message,
+        }) from exc
+    return result
+
+
+async def _answer_action(
+    action: FosAction,
+    *,
+    applicant_id: str | None,
+    case_id: str | None,
+    claims: dict[str, Any],
+    request_id: str,
+    message: str | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The body of `_run_action`, before refusals become HTTP statuses."""
     result = await answer_question(
         message=(message if message is not None
                  else _ACTION_PHRASE.get(action, action.value)),
@@ -1129,7 +1165,8 @@ async def _copilot_upload(
     caller = Caller.from_claims(claims)
     try:
         permissions.check_capability(caller, _Intent.MARK_FOR_REUPLOAD)  # upload_document
-        permissions.check_ownership(applicant_id, case_id)
+        permissions.check_ownership(applicant_id, case_id, caller=caller,
+                                    write=True)
     except PermissionDenied as exc:
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
@@ -1239,6 +1276,8 @@ async def _copilot_upload(
             # confirmed the document.
             "verification_scope": document.get("verification_scope"),
             "issuer_verified": bool(document.get("issuer_verified")),
+            "issuer_verification": document.get("issuer_verification"),
+            "fraud_signals": document.get("fraud_signals") or [],
         }
         for document in (los.get("documents") or [])
     ]
@@ -1266,7 +1305,8 @@ async def _copilot_upload(
             k: outcomes[0][k] for k in
             ("document_type", "verification", "status", "reason_codes",
              "extraction_released", "expected_type",
-             "authenticity", "verification_scope", "issuer_verified")
+             "authenticity", "verification_scope", "issuer_verified",
+             "issuer_verification", "fraud_signals")
         })
 
     audit.record(request_id=request_id, subject=caller.subject,

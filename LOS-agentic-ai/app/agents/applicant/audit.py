@@ -18,6 +18,7 @@ value ever reaches this file.
 from __future__ import annotations
 
 import json
+import re
 import logging
 import os
 import threading
@@ -31,6 +32,24 @@ _LOCK = threading.Lock()
 
 #: The message is kept only as far as is useful for recognising the request.
 _MESSAGE_CHARS = 120
+
+#: Identifiers a person may type into a question, and what replaces them in
+#: the audit excerpt. The excerpt exists to show WHAT KIND of question was
+#: asked; the values themselves are in the case store, behind authorisation.
+_REDACTIONS = (
+    (re.compile(r"\b[A-Za-z]{5}\d{4}[A-Za-z]\b"), "[PAN]"),
+    (re.compile(r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b"), "[AADHAAR]"),
+    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"), "[EMAIL]"),
+    (re.compile(r"(?<!\d)(?:\+?91[\s-]?)?[6-9]\d{9}(?!\d)"), "[PHONE]"),
+    (re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+"), "[TOKEN]"),
+)
+
+
+def redact(text: str) -> str:
+    """The text with personal identifiers and bearer tokens masked."""
+    for pattern, replacement in _REDACTIONS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 def audit_enabled() -> bool:
@@ -83,7 +102,9 @@ def record(
     if detail:
         entry["detail"] = str(detail)[:200]
     if message:
-        entry["message_excerpt"] = str(message)[:_MESSAGE_CHARS]
+        # REDACTED, THEN TRIMMED: trimming first could cut an identifier
+        # in half and leave a fragment the pattern no longer recognises.
+        entry["message_excerpt"] = redact(str(message))[:_MESSAGE_CHARS]
 
     try:
         path = audit_path()
@@ -96,4 +117,4 @@ def record(
         logger.warning("Applicant Agent audit write failed: %r", exc)
 
 
-__all__ = ["audit_enabled", "audit_path", "record"]
+__all__ = ["audit_enabled", "audit_path", "record", "redact"]

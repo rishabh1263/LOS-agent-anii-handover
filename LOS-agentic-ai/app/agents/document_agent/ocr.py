@@ -905,13 +905,17 @@ async def run_ocr(
     """
 
     import asyncio
+    import contextvars
+    import functools
 
     loop = asyncio.get_running_loop()
 
+    # The caller's context travels with the work, as asyncio.to_thread does:
+    # run_in_executor alone drops context variables at the thread boundary.
+    context = contextvars.copy_context()
     return await loop.run_in_executor(
         get_ocr_executor(),
-        func,
-        *args,
+        functools.partial(context.run, func, *args),
     )
 
 
@@ -928,13 +932,18 @@ async def run_document(
     """
 
     import asyncio
+    import contextvars
+    import functools
 
     loop = asyncio.get_running_loop()
 
+    # The caller's context travels with the work, as asyncio.to_thread does:
+    # run_in_executor alone drops context variables at the thread boundary,
+    # and the LOS flow's authenticity deferral is one.
+    context = contextvars.copy_context()
     return await loop.run_in_executor(
         get_document_executor(),
-        func,
-        *args,
+        functools.partial(context.run, func, *args),
     )
 
 

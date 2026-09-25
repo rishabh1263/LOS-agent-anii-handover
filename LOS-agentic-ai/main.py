@@ -582,7 +582,25 @@ def custom_openapi() -> dict[str, Any]:
 
 
 # Login + JWKS: unauthenticated by design -- this is how a token is obtained.
-app.include_router(auth_router)
+#
+# A DEVELOPMENT IDENTITY PROVIDER, and only mounted as one. It issues signed
+# tokens from inside the resource server; a production deployment must get
+# its tokens from the real IdP (JWT_JWKS_URL) and must not expose these
+# routes at all. `dev_idp_enabled` needs an explicit LOS_DEV_IDP_ENABLED=true
+# AND a development ENVIRONMENT -- anything else leaves them unmounted (404).
+def mount_dev_identity_provider(target: FastAPI) -> bool:
+    from app.security.dev_idp import dev_idp_enabled
+
+    if not dev_idp_enabled():
+        logger.info("Development identity provider not mounted.")
+        return False
+    target.include_router(auth_router)
+    logger.warning("Development identity provider MOUNTED (/api/v1/auth/*, "
+                   "JWKS). Never enable this in production.")
+    return True
+
+
+mount_dev_identity_provider(app)
 
 
 app.openapi = custom_openapi

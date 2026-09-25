@@ -217,9 +217,12 @@ def check_not_denied(intent: Intent) -> None:
         return
 
 
-def check_ownership(applicant_id: str, case_id: str | None) -> None:
+def check_ownership(applicant_id: str, case_id: str | None,
+                    caller: "Caller | None" = None, *,
+                    write: bool = False, creating: bool = False) -> None:
     """
-    Whether this case belongs to this applicant.
+    Whether this case belongs to this applicant -- and, given the caller,
+    whether THIS CALLER may access it (app/security/access.py).
 
     Asked of the repository through the MCP layer's own accessor, so the
     answer comes from stored data rather than from anything the caller sent.
@@ -227,21 +230,31 @@ def check_ownership(applicant_id: str, case_id: str | None) -> None:
     else", because confirming that a case exists under another applicant is
     itself a disclosure.
     """
-    if not case_id:
-        return
+    if case_id:
+        from app.store import RepositoryError, get_repository
 
-    from app.store import RepositoryError, get_repository
+        try:
+            repository = get_repository()
+        except RepositoryError as exc:
+            raise PermissionDenied("CASE_STORE_UNAVAILABLE", str(exc)) from exc
 
-    try:
-        repository = get_repository()
-    except RepositoryError as exc:
-        raise PermissionDenied("CASE_STORE_UNAVAILABLE", str(exc)) from exc
+        if not repository.applicant_owns_case(applicant_id, case_id):
+            raise PermissionDenied(
+                "CASE_NOT_ACCESSIBLE",
+                f"Case {case_id} is not accessible for applicant {applicant_id}.",
+            )
 
-    if not repository.applicant_owns_case(applicant_id, case_id):
-        raise PermissionDenied(
-            "CASE_NOT_ACCESSIBLE",
-            f"Case {case_id} is not accessible for applicant {applicant_id}.",
-        )
+    # THE CALLER, BOUND TO THE RESOURCE. Without this, the check above only
+    # proved that two ids the caller chose agree with each other.
+    if caller is not None and (case_id or applicant_id):
+        from app.security import access
+
+        try:
+            access.authorize(caller.subject, caller.scopes,
+                             applicant_id=applicant_id or None,
+                             case_id=case_id, write=write, creating=creating)
+        except access.AccessDenied as denied:
+            raise PermissionDenied(denied.code, denied.message) from None
 
 
 __all__ = [

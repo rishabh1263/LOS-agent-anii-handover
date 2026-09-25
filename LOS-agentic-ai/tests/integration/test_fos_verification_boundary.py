@@ -167,7 +167,7 @@ def test_a_review_withholds_from_the_store_and_the_copilot(client, store):
     assert extractions(store, case_id) == []
 
     body = ask(client, applicant_id, case_id, "What is my PAN name?")
-    assert "REVIEW" in body["answer"]
+    assert "under review" in body["answer"]  # the recorded REVIEW, in words
     assert not any(n in body["answer"] for n in pipeline_names(PAN_DOB_UNREADABLE))
 
 
@@ -197,7 +197,9 @@ def test_the_los_route_applies_the_same_gate(make_token, store):
     import main
 
     c = TestClient(main.app)
-    c.headers.update({"Authorization": f"Bearer {make_token(scopes=['los.read'])}"})
+    # /los/process writes a case: the service writer scope, not read-only.
+    c.headers.update({"Authorization":
+                      f"Bearer {make_token(scopes=['los.read', 'los.write'])}"})
 
     def process(path, case_id):
         response = c.post("/api/v1/los/process", data={

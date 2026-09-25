@@ -12,6 +12,9 @@ on verification when it is enabled.
 
 from __future__ import annotations
 
+from fastapi import Depends as _Depends
+from app.security.access import require_any_scope as _require_any_scope
+
 import logging
 import tempfile
 import time
@@ -64,7 +67,8 @@ def _to_temp(data: bytes) -> Path:
 
 
 @router.post("/verify", response_model=VerificationResult,
-             summary="Verify a financial document")
+             summary="Verify a financial document",
+             dependencies=[_Depends(_require_any_scope('documents:write', 'upload_document', write=True))])
 async def verify_financial(
     response: Response,
     file: UploadFile = File(
@@ -97,6 +101,7 @@ async def verify_financial(
 
 @router.post(
     "/extract", response_model=FinancialResult,
+    dependencies=[_Depends(_require_any_scope('documents:write', 'upload_document', write=True))],
     response_model_exclude_none=True,
     summary="Extract a financial document",
 )

@@ -218,7 +218,8 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
 #: model's reasoning, a tool payload or a path.
 _DOCUMENT_PAYLOAD_KEYS = (
     "type", "expected_type", "has_extracted_fields", "authenticity",
-    "verification_scope", "issuer_verified",
+    "verification_scope", "issuer_verified", "issuer_verification",
+    "fraud_signals",
 )
 
 #: KYC field keys worth keeping. The published shape, minus prose.

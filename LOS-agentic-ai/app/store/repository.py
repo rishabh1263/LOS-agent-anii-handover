@@ -26,6 +26,8 @@ from app.store.models import (
     CaseDecision,
     CaseEvent,
     CaseFinding,
+    CaseStage,
+    StageTransition,
     Document,
     DocumentVersion,
     FindingKind,
@@ -152,6 +154,27 @@ class Repository(ABC):
         application = self.get_application(case_id)
         return application is not None and application.applicant_id == applicant_id
 
+    # -- who may access what ------------------------------------------------
+    #
+    # A GRANT BINDS AN AUTHENTICATED SUBJECT (the JWT `sub`) to an applicant
+    # or a case. It is written when that subject creates the resource, and
+    # read before any case data is served (app/security/access.py).
+    #
+    # FAIL CLOSED BY DEFAULT. A backend that does not implement grants
+    # records none and grants nothing: every non-service caller is refused
+    # rather than silently allowed.
+
+    def grant_access(self, subject: str, resource_type: str,
+                     resource_id: str) -> None:
+        """Record that `subject` may access this APPLICANT or CASE."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not record access grants")
+
+    def has_access(self, subject: str, resource_type: str,
+                   resource_id: str) -> bool:
+        """Whether `subject` holds a grant on this APPLICANT or CASE."""
+        return False
+
 
     # -- case memory -------------------------------------------------------
     #
@@ -232,6 +255,38 @@ class Repository(ABC):
         written inside one request and can share a millisecond.
         """
         return []
+
+    # -- stage lifecycle -----------------------------------------------------
+    #
+    # ADDITIVE, AND FAIL CLOSED FOR WRITES. A backend without a stage record
+    # reports none (so its cases resolve exactly as before) and refuses to
+    # transition anything rather than pretending it did.
+
+    def get_case_stage(self, case_id: str) -> CaseStage | None:
+        """The case's authoritative stage record, or None if never set."""
+        return None
+
+    def get_stage_transitions(self, case_id: str) -> list[StageTransition]:
+        """The case's stage history, oldest first."""
+        return []
+
+    def get_stage_transition(self, transition_id: str) -> StageTransition | None:
+        """One recorded transition, by id."""
+        return None
+
+    def apply_stage_transition(self, expected_version: int, state: CaseStage,
+                               transition: StageTransition,
+                               event: CaseEvent) -> bool:
+        """
+        Write a transition ATOMICALLY: the new stage record, its history
+        row and its timeline event, or none of them.
+
+        COMPARE-AND-SET. Applied only while the stored record is still at
+        `expected_version` (0 = no record yet); returns False, writing
+        nothing, when another writer got there first.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not record stage transitions")
 
 
 __all__ = ["Repository", "RepositoryError"]

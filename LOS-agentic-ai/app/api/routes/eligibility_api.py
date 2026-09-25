@@ -67,7 +67,7 @@ async def get_eligibility(
 
     try:
         permissions.check_tool(caller, _CAPABILITY)
-        permissions.check_ownership(applicant_id, case_id)
+        permissions.check_ownership(applicant_id, case_id, caller=caller)
     except PermissionDenied as exc:
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,

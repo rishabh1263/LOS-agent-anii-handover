@@ -46,7 +46,11 @@ _READABLE = {
     "PAN_MISMATCH": "the PAN differs across documents",
     "FATHER_NAME_MISMATCH": "the father's name differs across documents",
     "ADDRESS_MISMATCH": "the address differs across documents",
-    "INSUFFICIENT_SOURCES": "there was only one document to compare",
+    # What it means for the officer first, then the recorded fact behind
+    # it -- the status answer says the same "more documents are needed".
+    "INSUFFICIENT_SOURCES": ("more documents are needed for verification: "
+                             "there was only one document to compare"),
+    "INCOME_SINGLE_SOURCE": "income is evidenced by only one document",
     "VERIFICATION_INCONCLUSIVE": "verification could not reach a conclusion",
     "PROFILE_MISMATCH": "a declared detail did not match the documents",
     # The two a scanned statement produces. Without them the fallback
@@ -179,6 +183,11 @@ def _public_finding(finding: Any) -> dict[str, Any]:
             row[name] = value
     if finding.reason_codes:
         row["reason_codes"] = list(finding.reason_codes)
+    # WHICH DOCUMENT a document-level finding is about, by its own recorded
+    # type -- so a follow-up's "the document" can name it.
+    document_type = (getattr(finding, "payload", None) or {}).get("type")
+    if document_type and row["finding_kind"] in {"VERIFICATION", "EXTRACTION"}:
+        row["document_type"] = str(document_type).upper()
 
     comparisons = _failed_comparisons(getattr(finding, "payload", None))
     if comparisons:
@@ -286,6 +295,12 @@ def _public_decision(decision: Any) -> dict[str, Any]:
         value = getattr(decision, name, None)
         if value:
             row[name] = value
+    # WHEN it was decided, so a decision made at an earlier stage is never
+    # reported as the current stage's.
+    recorded = getattr(decision, "created_at", None)
+    if recorded is not None:
+        row["recorded_at"] = (recorded.isoformat()
+                              if hasattr(recorded, "isoformat") else str(recorded))
     return {k: v for k, v in row.items() if v is not None}
 
 
@@ -453,9 +468,22 @@ def explain(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
             [],
         )
 
-    head = _verdict_sentence(decisions[-1] if decisions else {})
+    latest = decisions[-1] if decisions else {}
     clause, sources = review_reason(memory)
 
+    # A HOLD IS SAID AS ONE SENTENCE WITH ITS REASON: "Your application is
+    # under review because the name on the PAN, X, does not match ...".
+    # The internal words -- PARTIAL, a REVIEW "decision" -- are how the
+    # pipeline records it, not how a person is told it.
+    held = _HELD.get(str(latest.get("decision") or "").upper())
+    if held:
+        if not clause:
+            return (f"Your application {held}. No individual findings "
+                    f"were recorded against it.",
+                    _sources(decisions=decisions))
+        return f"Your application {held} because {clause}.", sources
+
+    head = _verdict_sentence(latest)
     if not clause:
         return (
             f"{head} No individual findings were recorded against it.",
@@ -465,17 +493,27 @@ def explain(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     return f"{head} {clause[0].upper()}{clause[1:]}.", sources
 
 
-def _verdict_sentence(verdict: dict[str, Any]) -> str:
-    decision = verdict.get("decision")
-    status = verdict.get("status")
+#: A recorded decision that holds the application, as it is said.
+_HELD = {"REVIEW": "is under review", "REJECT": "was declined"}
 
-    if decision and status:
-        return f"This case was recorded as {status} with a {decision} decision."
+#: A recorded decision or processing status, in words.
+_DECISION_WORDS = {"PASS": "passed its checks", "FAIL": "did not pass its checks"}
+_STATUS_WORDS = {"SUCCESS": "fully processed", "PARTIAL": "partly processed",
+                 "FAILED": "not processed"}
+
+
+def _verdict_sentence(verdict: dict[str, Any]) -> str:
+    decision = str(verdict.get("decision") or "").upper()
+    status = str(verdict.get("status") or "").upper()
+
+    if decision in _DECISION_WORDS:
+        return f"Your application {_DECISION_WORDS[decision]}."
     if decision:
-        return f"This case was recorded with a {decision} decision."
+        return f"Your application is recorded as {decision.lower()}."
     if status:
-        return f"This case was recorded as {status}."
-    return "This case has recorded findings."
+        return (f"Your application was "
+                f"{_STATUS_WORDS.get(status, status.lower())}.")
+    return "Your application has recorded findings."
 
 
 def _sources(

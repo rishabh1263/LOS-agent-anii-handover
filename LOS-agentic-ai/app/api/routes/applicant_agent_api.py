@@ -308,8 +308,9 @@ async def applicant_360(
 
     request_id = f"aa_{uuid.uuid4().hex}"
     try:
-        permissions.check_capability(Caller.from_claims(claims), Intent.FULL_SUMMARY)
-        permissions.check_ownership(applicant_id, case_id)
+        caller = Caller.from_claims(claims)
+        permissions.check_capability(caller, Intent.FULL_SUMMARY)
+        permissions.check_ownership(applicant_id, case_id, caller=caller)
     except PermissionDenied as exc:
         raise HTTPException(
             status_code=403,
@@ -356,6 +357,12 @@ async def _write(
 
     try:
         permissions.check_capability(caller, intent)
+        permissions.check_tool(caller, capability)
+        # A NEW CASE GOES ONLY UNDER AN APPLICANT THE CALLER HOLDS.
+        if intent is Intent.CREATE_APPLICATION:
+            permissions.check_ownership(
+                str(arguments.get("applicant_id") or ""), None,
+                caller=caller, write=True)
     except PermissionDenied as exc:
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=arguments.get("applicant_id"),
@@ -382,7 +389,16 @@ async def _write(
                     "error": error.code if error else "FAILED",
                     "message": error.message if error else "Failed."},
         )
-    return {"request_id": request_id, **(envelope.result or {})}
+
+    # WHAT THE CALLER CREATED, THE CALLER OWNS.
+    from app.security import access
+
+    result = envelope.result or {}
+    access.record_ownership(
+        caller.subject,
+        applicant_id=(result.get("applicant") or {}).get("applicant_id"),
+        case_id=(result.get("application") or {}).get("case_id"))
+    return {"request_id": request_id, **result}
 
 
 __all__ = ["router"]

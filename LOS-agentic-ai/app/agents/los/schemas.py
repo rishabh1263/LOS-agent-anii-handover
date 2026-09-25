@@ -217,11 +217,29 @@ class ProcessedDocument(BaseModel):
     issuer_verified: bool | None = Field(
         None,
         description=(
-            "Whether the issuing authority (government, bank, employer) "
-            "confirmed the document. Always false: no issuer source is "
-            "configured in this service."
+            "Whether the issuing authority (government, bank, employer), "
+            "through a trusted provider, confirmed the document. True ONLY "
+            "on a real provider confirmation -- never for OCR confidence, a "
+            "valid format, an MRZ checksum or a clean-looking file."
         ),
         examples=[False],
+    )
+    issuer_verification: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "The issuer's answer: status (ISSUER_CONFIRMED, ISSUER_MISMATCH "
+            "or NOT_ESTABLISHED), provider, reference_id, consent_id, "
+            "verified_at, verified_fields, mismatched_fields, reason_codes. "
+            "Field NAMES only, never values."
+        ),
+    )
+    fraud_signals: list[dict[str, Any]] | None = Field(
+        None,
+        description=(
+            "Image/PDF forensic signals (code, severity, detail). Signals "
+            "only: they can flag or hold a document, never establish that "
+            "it is genuine."
+        ),
     )
     advisories: list[str] | None = Field(
         None,

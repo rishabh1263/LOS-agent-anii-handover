@@ -150,6 +150,11 @@ permissions:
   # service accounts; it grants no write.
   read_all_scope: "los.read"
 
+  # The service scope that may read and write ANY applicant's case. Every
+  # other caller reaches only the applicants and cases its own subject
+  # created (app/security/access.py).
+  write_all_scope: "los.write"
+
   read:
     applicant: "read_applicant"
     application: "read_application"
@@ -216,3 +221,282 @@ timeouts:
   llm_seconds: 3.0
 
   total_seconds: 30.0
+
+# -----------------------------------------------------------------------------
+# UNIVERSAL COPILOT
+#
+# How the conversational layer understands, composes and checks an answer.
+# Every key below is read at request time by app/agents/applicant/config.py
+# (`chatbot()` and the typed accessors beside it); nothing here is decorative.
+#
+# THE ORDER OF AUTHORITY IS FIXED IN CODE, NOT HERE: case records, then tool
+# results, then specialist-agent results, then knowledge. The model only ever
+# phrases facts already established -- it cannot change a status, a decision
+# or a verdict, and the validator below rejects any answer that tries.
+# -----------------------------------------------------------------------------
+chatbot:
+  llm:
+    # provider/model are resolved by app/llm/provider.py (OLLAMA_* env);
+    # named here so the configuration says what it runs against.
+    provider: ollama
+    model: qwen2.5:3b
+    # Override agent.temperature and timeouts.llm_seconds when set.
+    temperature: 0.1
+    timeout_seconds: 3.0
+    max_output_tokens: 180
+
+  response:
+    max_sentences: 3
+    max_characters: 500
+
+  grounding:
+    expose_internal_ids: false
+    expose_internal_reason_codes: false
+
+  validation:
+    enabled: true
+    reject_hallucination: true          # unsupported numbers / statuses / names
+    reject_missing_required_facts: true # the reason, the names, the pending document
+    reject_internal_id_leak: true
+    reject_status_change: true          # a hold the record states must be stated
+    # One constrained retry after a rejection, told what was wrong. Off by
+    # default: each attempt costs a model call on an interactive request.
+    regenerate_attempts: 0
+
+  fallback:
+    # What replaces a model answer that failed or was rejected. Only
+    # `structured_answer` is supported: the deterministic answer built from
+    # the records is always computed first.
+    llm_failure: structured_answer
+    validation_failure: structured_answer
+    rag_failure: case_or_structured_answer
+
+  # The display name of each LOS stage, in answers. A stage added to the
+  # stage registry and named here needs no chatbot change.
+  stages:
+    labels:
+      FOS: FOS
+      CPA: CPA
+      CREDIT: Credit
+      RCU: RCU
+      BOPS: BOPS
+      HOPS: HOPS
+      DISBURSEMENT: Disbursement
+
+    # WHAT EACH STAGE CAN ANSWER. Read by app/agents/los/stage_registry.py
+    # on every request. A capability is honoured only if this build has a
+    # provider for it (stage_registry.PROVIDERS); any other name is ignored
+    # and logged, so configuration can switch a capability off but can never
+    # claim one that does not exist. `not_available` names stage-specific
+    # information nothing produces yet -- the Copilot says so plainly.
+    # `enabled: false` withdraws every capability from a stage.
+    capabilities:
+      FOS:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge, eligibility,
+                       case_facts, checklist, readiness]
+      CPA:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge]
+        not_available: [CPA assessment details]
+      CREDIT:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge, eligibility]
+        not_available: [credit decision details]
+      RCU:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge]
+        not_available: [RCU investigation findings]
+      BOPS:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge]
+        not_available: [BOPS processing details]
+      HOPS:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge]
+        not_available: [HOPS approval details]
+      DISBURSEMENT:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge]
+        not_available: [disbursement details]
+
+    # Which capability each case question needs. A question whose
+    # capability the current stage lacks is answered with the stage and a
+    # plain "not available for this stage" -- never with another stage's
+    # answer. Intents not listed need no stage capability.
+    intent_capabilities:
+      READINESS: readiness
+      COMPLETENESS: readiness
+      ELIGIBILITY: eligibility
+      DOCUMENTS_REQUIRED: document_requirements
+      DOCUMENTS_MISSING: pending_items
+      DOCUMENTS_PENDING: pending_items
+      PENDING_ITEMS: pending_items
+      NEXT_ACTION: next_action
+      CASE_HISTORY: case_history
+
+  # Short forms, abbreviations, common misspellings and Hinglish, rewritten to
+  # full words BEFORE classification. Whole words only, longest first. A word
+  # that is not here but is close to a vocabulary word (or to a configured
+  # document type or checklist slot) is corrected by similarity -- see
+  # app/agents/applicant/normalize.py.
+  normalization:
+    enabled: true
+    fuzzy: true
+    synonyms:
+      docs: documents
+      doc: document
+      dox: documents
+      documnts: documents
+      app: application
+      appln: application
+      applicaton: application
+      stmt: statement
+      stmnt: statement
+      statemnt: statement
+      bank stmt: bank statement
+      acct: account
+      a/c: account
+      addr: address
+      add proof: address proof
+      address doc: address proof
+      pan card: pan
+      aadhar card: aadhaar
+      aadhaar card: aadhaar
+      aadhar: aadhaar
+      dl: driving licence
+      driving license: driving licence
+      sal slip: salary slip
+      salary slips: salary slip
+      payslip: salary slip
+      pay slip: salary slip
+      verfied: verified
+      varified: verified
+      r: are
+      u: you
+      ur: your
+      pls: please
+      plz: please
+      wat: what
+      wats: what is
+      whats: what is
+      what's: what is
+      hows: how is
+      where's: where is
+      y: why
+      # Hinglish
+      mera: my
+      meri: my
+      mere: my
+      kya: what
+      kyu: why
+      kyun: why
+      kyon: why
+      kaunsa: which
+      konsa: which
+      kaun sa: which
+      kab: when
+      hai: is
+      chahiye: needed
+      ka: ""
+      ki: ""
+      ke: ""
+    vocabulary:
+      - application
+      - applications
+      - document
+      - documents
+      - pending
+      - verified
+      - verification
+      - status
+      - statement
+      - review
+      - address
+      - proof
+      - salary
+      - slip
+      - licence
+      - passport
+      - missing
+      - required
+      - upload
+      - uploaded
+      - eligibility
+      - aadhaar
+      - rejected
+      - mismatch
+      - checklist
+      - approved
+      - income
+      - account
+
+  # Intent examples for the semantic fallback, used ONLY when no rule
+  # matched. Add an intent's natural phrasings here -- a stage or specialist
+  # agent contributes its own intents by adding entries -- and the Copilot
+  # recognises them without a code change. Keys are Intent names.
+  intents:
+    min_score: 0.5
+    examples:
+      APPLICATION_STATUS:
+        - what is my application status
+        - where does my application stand
+        - how far along is my application
+        - what is happening with my loan
+        - any update on my loan
+        - what is the progress of my case
+      APPLICATION_STAGE:
+        - which stage is my application in
+        - what stage am i at
+      CASE_HISTORY:
+        - why is my application under review
+        - what is wrong with my application
+        - what exactly is wrong
+        - what is the problem with my case
+        - why is my case delayed
+        - why is my case stuck
+        - what went wrong
+        - what do i need to fix
+        - what happened to my application
+      DOCUMENTS_PENDING:
+        - which documents are pending
+        - which document is pending
+        - what documents are still outstanding
+      DOCUMENTS_MISSING:
+        - what documents do i need
+        - what document do i need
+        - what do i need to upload
+        - what should i upload
+        - which document is missing
+      DOCUMENT_VERIFICATION:
+        - is my document verified
+        - what is wrong with my document
+        - what is the status of my document
+        - has my document been checked
+      NEXT_ACTION:
+        - what should i do next
+        - what is my next step
+        - what do i do now
+        - what do i need to do
+
+  # Optional semantic annotation layer. Additive only: it may add notes the
+  # composer can use, and it never overrides a deterministic result. Off, or
+  # enabled with no provider registered, the Copilot behaves exactly the same.
+  # JEV_ENABLED in the environment overrides this.
+  jev:
+    enabled: false
+    timeout_seconds: 1.0

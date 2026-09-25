@@ -251,7 +251,7 @@ def test_p8_the_recorded_kyc_finding_explains_the_review(client, repo):
 
     assert "RISHABH AJIT SINGH" in body["answer"]
     assert "VENKATESH GOUD MARAGOUNI" in body["answer"]
-    assert "REVIEW" in body["answer"]
+    assert "under review" in body["answer"]  # the recorded REVIEW, in words
     kinds = {s.get("kind") for s in body["sources"]}
     assert {"case_finding", "case_decision"} <= kinds
     assert body["grounded"] is True
@@ -303,7 +303,7 @@ def test_p12_the_recorded_decision(client, repo):
     body = answered(client, "What is the current decision?")
 
     assert body["intent"] == "CASE_HISTORY"
-    assert "REVIEW" in body["answer"]
+    assert "under review" in body["answer"]  # the recorded REVIEW, in words
     assert body["grounded"] is True
 
 
@@ -311,6 +311,8 @@ def test_p13_case_360_aggregates_the_stored_records(make_token, repo):
     import main
 
     processed()
+    # The officer who opened the case owns it (app/security/access.py).
+    repo.grant_access("test-subject", "APPLICANT", "APP-A")
     c = TestClient(main.app)
     c.headers.update({"Authorization": f"Bearer {make_token(scopes=FOS_SCOPES)}"})
 
@@ -471,6 +473,36 @@ def test_n5_a_model_phrased_answer_says_so(client, repo, monkeypatch):
 
     processed()
 
+    # A COMPLETE phrasing: the answer validator rejects one that drops
+    # the recorded hold or the names behind it (see the test below).
+    phrased = ("Your application is at Basic Document Verification and is "
+               "under review: the PAN says RISHABH AJIT SINGH but the salary "
+               "slip says VENKATESH GOUD MARAGOUNI.")
+
+    async def phrase(*args, **kwargs):
+        return phrased
+
+    monkeypatch.setattr(copilot_api.grounding, "gather",
+                        lambda *a, **k: _Confident())
+    monkeypatch.setattr(grounding, "_generate", phrase)
+
+    body = answered(client, "What is my application status?")
+
+    assert body["answer"] == phrased
+    assert body["response_source"] == "LLM"
+
+
+def test_n5b_a_half_answer_is_replaced_by_the_record(client, repo, monkeypatch):
+    """
+    "Your application is currently being processed" is true and leaves out
+    the review and its reason. The validator rejects it, the structured
+    answer is published, and the response says STRUCTURED -- not LLM.
+    """
+    from app.api.routes import copilot_api
+    from app.knowledge import grounding
+
+    processed()
+
     async def phrase(*args, **kwargs):
         return "Your application is currently being processed."
 
@@ -480,8 +512,9 @@ def test_n5_a_model_phrased_answer_says_so(client, repo, monkeypatch):
 
     body = answered(client, "What is my application status?")
 
-    assert body["answer"] == "Your application is currently being processed."
-    assert body["response_source"] == "LLM"
+    assert "under review" in body["answer"]
+    assert "RISHABH AJIT SINGH" in body["answer"]
+    assert body["response_source"] == "STRUCTURED"
 
 
 def test_n7_a_case_that_does_not_exist_is_not_answered(client, repo):
@@ -513,8 +546,11 @@ def test_n9_a_pan_that_failed_is_reported_not_quoted(client, repo):
 
     body = answered(client, "What is my PAN name?")
 
-    assert "FAIL" in body["answer"]
-    assert "PAN_STRUCTURE_INVALID" in body["answer"]
+    # The recorded FAIL and its reason, in words -- the code itself stays
+    # in the structured response, never in the sentence.
+    assert "did not pass verification" in body["answer"]
+    assert "not structurally valid" in body["answer"]
+    assert "PAN_STRUCTURE_INVALID" not in body["answer"]
     assert "RISHABH" not in body["answer"]
     assert "VENKATESH" not in body["answer"]
 

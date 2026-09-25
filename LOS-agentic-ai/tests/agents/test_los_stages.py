@@ -192,11 +192,13 @@ def test_a_claimed_stage_is_used_only_when_the_record_is_silent():
 def test_the_response_says_the_stage_was_only_claimed():
     """A reader must be able to tell a claim from the case record."""
     assert resolve(claimed="CPA").public() == {
-        "stage": "CPA", "stage_resolution": "CALLER_SUPPLIED"}
+        "stage": "CPA", "stage_resolution": "CALLER_SUPPLIED",
+        "stage_source": "CALLER"}
 
 
 def test_an_unresolved_stage_publishes_no_stage_at_all():
-    assert resolve().public() == {"stage_resolution": "UNRESOLVED"}
+    assert resolve().public() == {"stage_resolution": "UNRESOLVED",
+                                  "stage_source": "NONE"}
 
 
 def test_a_nonsense_claimed_stage_is_not_a_stage():
@@ -248,26 +250,30 @@ def test_fos_reaches_the_live_mcp_registry_rather_than_a_copy():
 
 
 @pytest.mark.parametrize("stage", UNBUILT)
-def test_a_guide_only_stage_claims_a_corpus_and_nothing_else(stage):
+def test_every_stage_serves_what_its_records_support_and_no_more(stage):
     """
-    CHANGED WHEN THE GUIDES WERE INDEXED. These six used to claim
-    nothing at all. B4 indexed a demonstration stage guide for every
-    stage, so each can now answer "how does this stage work" -- and
-    still cannot read a case at that stage.
+    CHANGED BY THE UNIVERSAL COPILOT MILESTONE. These six used to claim
+    a stage guide and nothing else. Every stage now serves what records
+    that exist at every stage support -- its status and history (the
+    timeline), its document requirements, pending items and next action
+    (the stage-aware policy engine), document status and case history --
+    and each of those has a provider in `stage_registry.PROVIDERS`.
 
-    Registering the corpus without the capabilities is the honest
-    description. Leaving the corpus unregistered would have made the
-    Copilot refuse a question it could answer.
+    STILL NOT CLAIMED: FOS case facts, CPA-handoff readiness and the
+    downstream routing table, which belong to FOS; and every stage's own
+    assessment, which nothing produces -- named in `not_available`.
     """
     registered = stage_registry.capabilities_for(stage)
 
     assert registered.knowledge_corpus == stage.value
     assert registered.answers_knowledge()
-
-    # No case capability, no MCP: nothing reads a case at this stage.
-    assert registered.capabilities == frozenset()
+    assert {"stage_status", "pending_items", "next_action",
+            "document_requirements", "case_history"} <= registered.capabilities
+    assert registered.capabilities <= set(stage_registry.PROVIDERS)
+    assert "case_facts" not in registered.capabilities
+    assert "readiness" not in registered.capabilities
     assert not registered.answers_downstream()
-    assert stage_registry.mcp_tools(stage) == ()
+    assert registered.not_available
 
 
 def test_rcu_has_no_case_capability_despite_having_a_finding_kind():
@@ -281,9 +287,10 @@ def test_rcu_has_no_case_capability_despite_having_a_finding_kind():
     registered = stage_registry.capabilities_for(LosStage.RCU)
 
     assert FindingKind.RCU.value == "RCU"
-    assert registered.capabilities == frozenset()
+    # Nothing RCU-specific is claimed: no provider produces RCU findings.
+    assert not any("rcu" in c for c in registered.capabilities)
     assert not registered.answers_downstream()
-    assert "no RCU case capability" in registered.note
+    assert "RCU investigation findings" in registered.note
 
 
 @pytest.mark.parametrize("stage", UNBUILT)

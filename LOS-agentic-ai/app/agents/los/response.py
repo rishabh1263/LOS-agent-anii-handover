@@ -704,6 +704,15 @@ def compact_document(document: dict[str, Any]) -> dict[str, Any]:
     if verification.get("verification_scope"):
         compact["verification_scope"] = verification["verification_scope"]
         compact["issuer_verified"] = bool(verification.get("issuer_verified"))
+    # THE ISSUER'S ANSWER, and the FRAUD SIGNALS -- kept apart from the
+    # validity verdict and from each other. `issuer_verified` is true only
+    # when a trusted provider confirmed the document.
+    if verification.get("issuer_verification"):
+        compact["issuer_verification"] = verification["issuer_verification"]
+        compact["issuer_verified"] = bool(
+            verification["issuer_verification"].get("issuer_verified"))
+    if verification.get("fraud_signals"):
+        compact["fraud_signals"] = list(verification["fraud_signals"])
 
     # Findings a reviewer should see that are NOT grounds to refuse the
     # document. Kept out of `reason_codes` on purpose: a code in that list
