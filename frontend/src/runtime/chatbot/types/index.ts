@@ -28,6 +28,9 @@ export interface ChatMessage {
   isStreaming?: boolean
   error?: string
   suggestedQuestions?: string[]
+  /** Copilot routed this question to another stage (e.g. CREDIT) */
+  routeTo?: string | null
+  grounded?: boolean
 }
 
 export interface Conversation {

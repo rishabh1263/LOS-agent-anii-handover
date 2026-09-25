@@ -2,9 +2,10 @@ import { Check } from 'lucide-react'
 
 const STEPS = [
   { id: 'details', label: 'Details', n: 1 },
-  { id: 'party', label: 'Party', n: 2 },
-  { id: 'documents', label: 'Documents', n: 3 },
-  { id: 'report', label: 'Report', n: 4 },
+  { id: 'application', label: 'Application', n: 2 },
+  { id: 'party', label: 'Party', n: 3 },
+  { id: 'documents', label: 'Documents', n: 4 },
+  { id: 'report', label: 'Report', n: 5 },
 ] as const
 
 export type WizardProgressStep = (typeof STEPS)[number]['id']

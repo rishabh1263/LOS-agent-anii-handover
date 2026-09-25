@@ -34,12 +34,16 @@ export function ChatMessages({
   }, [messages, status])
 
   if (messages.length === 0) {
-    return <QuickActions actions={quickActions} onSelect={onQuickAction} />
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <QuickActions actions={quickActions} onSelect={onQuickAction} />
+      </div>
+    )
   }
 
   return (
     <div
-      className="flex-1 overflow-y-auto py-2"
+      className="min-h-0 flex-1 overflow-y-auto py-2"
       role="log"
       aria-live="polite"
       aria-relevant="additions"

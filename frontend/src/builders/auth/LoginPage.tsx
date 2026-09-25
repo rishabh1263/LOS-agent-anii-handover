@@ -1,17 +1,19 @@
 import React, { useState } from 'react'
 import { AlertCircle, Eye, EyeOff, KeyRound, Loader2, Lock, User } from 'lucide-react'
-import { useAuth, AuthApiError } from '../../runtime/auth'
+import { useAuth, AuthApiError, AUTH_STAGES, type AuthStage } from '../../runtime/auth'
 
 export function LoginPage() {
   const { login, isLoading } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [stage, setStage] = useState<AuthStage>('FOS')
   const [showPassword, setShowPassword] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const handleFillDemo = () => {
     setUsername('AniketDev')
     setPassword('Dev@123')
+    setStage('FOS')
     setErrorMessage(null)
   }
 
@@ -28,11 +30,16 @@ export function LoginPage() {
       setErrorMessage('Please enter your password.')
       return
     }
+    if (!stage) {
+      setErrorMessage('Please select a stage.')
+      return
+    }
 
     try {
       await login({
         username: trimmedUsername,
         password,
+        stage,
       })
     } catch (err) {
       if (err instanceof AuthApiError) {
@@ -85,6 +92,31 @@ export function LoginPage() {
                   className="input pl-9"
                 />
               </div>
+            </div>
+
+            {/* Stage */}
+            <div>
+              <label htmlFor="login-stage" className="label">
+                Stage
+              </label>
+              <select
+                id="login-stage"
+                name="stage"
+                value={stage}
+                disabled={isLoading}
+                onChange={(e) => setStage(e.target.value as AuthStage)}
+                className="input"
+                required
+              >
+                {AUTH_STAGES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[12px] text-content-secondary">
+                Selects workflow context (FOS, CPA, HOPS, BOPS, Credit).
+              </p>
             </div>
 
             {/* Password Field */}

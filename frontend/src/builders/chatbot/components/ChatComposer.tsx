@@ -69,7 +69,7 @@ export function ChatComposer({
     !disabled && !isGenerating && !isListening && (!!value.trim() || attachments.length > 0)
 
   return (
-    <div className="shrink-0 border-t border-line bg-surface px-3 pb-3 pt-2">
+    <div className="shrink-0 border-t border-line bg-surface px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       {/* Attachments preview */}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
@@ -137,13 +137,13 @@ export function ChatComposer({
           className="mb-2 flex items-start gap-2.5 rounded-sm border border-ember/30 bg-ember-subtle px-3 py-2.5"
           aria-live="polite"
         >
-          <span className="mt-1.5 flex h-2 w-2 shrink-0">
-            <span className="absolute h-2 w-2 animate-ping rounded-full bg-ember opacity-60" />
+          <span className="relative mt-1.5 flex h-2 w-2 shrink-0">
+            <span className="absolute inset-0 animate-ping rounded-full bg-ember opacity-60" />
             <span className="relative h-2 w-2 rounded-full bg-ember" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="font-sans text-[13px] font-semibold text-ember-text">Listening…</div>
-            <div className="mt-0.5 font-sans text-[12px] leading-snug text-content-secondary">
+            <div className="mt-0.5 break-words font-sans text-[12px] leading-snug text-content-secondary">
               {interimTranscript || 'Speak clearly — transcript appears here'}
             </div>
           </div>
@@ -158,7 +158,7 @@ export function ChatComposer({
       )}
 
       <div
-        className={`flex items-end gap-1.5 rounded-md border bg-surface px-2 py-2 transition-colors focus-within:border-ember ${
+        className={`flex min-w-0 items-end gap-1 rounded-xl border bg-surface px-1.5 py-1.5 transition-colors focus-within:border-ember ${
           isListening ? 'border-ember' : 'border-line'
         }`}
       >
@@ -167,7 +167,7 @@ export function ChatComposer({
           aria-label="Attach file"
           onClick={() => fileRef.current?.click()}
           disabled={disabled || isListening}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-content-secondary transition-colors hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-content-secondary transition-colors hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40"
         >
           <Paperclip className="h-[18px] w-[18px]" strokeWidth={2} />
         </button>
@@ -191,7 +191,7 @@ export function ChatComposer({
           placeholder={isListening ? 'Listening…' : 'Ask anything…'}
           rows={1}
           disabled={disabled || isListening}
-          className="max-h-[140px] min-h-[40px] flex-1 resize-none bg-transparent py-2 font-sans text-[15px] leading-[22px] text-content placeholder:text-content-disabled focus:outline-none disabled:opacity-60"
+          className="max-h-[140px] min-h-[36px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent py-2 font-sans text-[15px] leading-[22px] text-content placeholder:text-content-disabled focus:outline-none disabled:opacity-60"
           aria-label="Message input"
         />
 
@@ -203,7 +203,7 @@ export function ChatComposer({
             onClick={isListening ? onStopListen : onStartListen}
             disabled={disabled || isGenerating}
             title={isListening ? 'Stop listening' : 'Voice input'}
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40 ${
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40 ${
               isListening
                 ? 'bg-ember text-oncolor shadow-sm'
                 : 'text-content-secondary hover:bg-raised hover:text-content'
@@ -222,7 +222,7 @@ export function ChatComposer({
             type="button"
             aria-label="Stop generating"
             onClick={onStop}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-ink text-on-ink transition-colors hover:bg-ink-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink text-on-ink transition-colors hover:bg-ink-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
           >
             <Square className="h-3.5 w-3.5 fill-current" strokeWidth={0} />
           </button>
@@ -232,13 +232,13 @@ export function ChatComposer({
             aria-label="Send message"
             onClick={onSend}
             disabled={!canSend}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-ink text-on-ink transition-colors hover:bg-ink-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:bg-ink-disabled disabled:text-surface"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink text-on-ink transition-colors hover:bg-ink-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:bg-ink-disabled disabled:text-surface"
           >
             <Send className="h-[16px] w-[16px]" strokeWidth={2.2} />
           </button>
         )}
       </div>
-      <p className="mt-1.5 text-center font-sans text-[11px] text-content-disabled">
+      <p className="mt-1.5 truncate text-center font-sans text-[11px] text-content-disabled">
         {isListening
           ? 'Tap Stop or the mic when you are done speaking'
           : sendWithEnter

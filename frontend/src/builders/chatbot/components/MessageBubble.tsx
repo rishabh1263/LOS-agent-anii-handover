@@ -1,14 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import {
-  Check,
-  Copy,
-  MoreHorizontal,
-  RefreshCw,
-  ThumbsDown,
-  ThumbsUp,
-  Volume2,
-  VolumeX,
-} from 'lucide-react'
+import { Check, Copy, RefreshCw, Volume2, VolumeX } from 'lucide-react'
 import type { ChatMessage } from '../../../runtime/chatbot'
 import { formatTime } from '../../../runtime/chatbot'
 
@@ -44,7 +35,7 @@ function ActionBtn({
   )
 }
 
-/** Very light markdown-ish renderer for demo (bold, code, lists) */
+/** Lightweight markdown renderer (bold, code fences, lists). */
 function renderContent(text: string) {
   const lines = text.split('\n')
   const nodes: ReactNode[] = []
@@ -193,6 +184,14 @@ export function MessageBubble({
           ) : (
             <div className="space-y-0.5">{renderContent(message.content)}</div>
           )}
+          {message.routeTo && (
+            <p className="mt-2 rounded-sm bg-warning-subtle px-2 py-1 text-[12px] font-medium text-warning-text">
+              Route to {message.routeTo}
+            </p>
+          )}
+          {message.grounded === false && !message.routeTo && (
+            <p className="mt-1 text-[11px] text-content-secondary">Limited evidence</p>
+          )}
           {message.isStreaming && (
             <span className="mt-1 inline-block h-3.5 w-1.5 animate-pulse rounded-xs bg-ember" />
           )}
@@ -231,15 +230,6 @@ export function MessageBubble({
           </ActionBtn>
           <ActionBtn label="Regenerate" onClick={() => onRegenerate?.()}>
             <RefreshCw className="h-3.5 w-3.5" strokeWidth={2} />
-          </ActionBtn>
-          <ActionBtn label="Like" onClick={() => {}}>
-            <ThumbsUp className="h-3.5 w-3.5" strokeWidth={2} />
-          </ActionBtn>
-          <ActionBtn label="Dislike" onClick={() => {}}>
-            <ThumbsDown className="h-3.5 w-3.5" strokeWidth={2} />
-          </ActionBtn>
-          <ActionBtn label="More" onClick={() => {}}>
-            <MoreHorizontal className="h-3.5 w-3.5" strokeWidth={2} />
           </ActionBtn>
         </div>
       )}

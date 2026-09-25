@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
+import { motion, useReducedMotion } from 'motion/react'
 import '@google/model-viewer'
 
 interface RobotButtonProps {
@@ -9,29 +16,81 @@ interface RobotButtonProps {
 }
 
 const DEFAULT_MODEL_URL = new URL('../assets/mini_bot.glb', import.meta.url).href
+const STORAGE_KEY = 'chatbot-fab-pos'
+const SIZE = 88
+const MARGIN = 12
+const DRAG_THRESHOLD = 6
+
+type FabPos = { x: number; y: number }
+
+function clampPos(x: number, y: number): FabPos {
+  const maxX = Math.max(MARGIN, window.innerWidth - SIZE - MARGIN)
+  const maxY = Math.max(MARGIN, window.innerHeight - SIZE - MARGIN)
+  return {
+    x: Math.min(maxX, Math.max(MARGIN, x)),
+    y: Math.min(maxY, Math.max(MARGIN, y)),
+  }
+}
+
+function defaultPos(): FabPos {
+  if (typeof window === 'undefined') return { x: 24, y: 24 }
+  return clampPos(
+    window.innerWidth - SIZE - 24,
+    window.innerHeight - SIZE - 24,
+  )
+}
+
+function loadPos(): FabPos {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const p = JSON.parse(raw) as FabPos
+      if (typeof p.x === 'number' && typeof p.y === 'number') return clampPos(p.x, p.y)
+    }
+  } catch {
+    /* ignore */
+  }
+  return defaultPos()
+}
+
+function savePos(p: FabPos) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(p))
+  } catch {
+    /* ignore */
+  }
+}
 
 /**
- * Floating 3D robot launcher using mini_bot.glb (@google/model-viewer).
- * Transparent chrome — only the mini bot + its GLB animation are shown.
- * Click opens the chat window.
+ * Draggable floating 3D robot launcher.
+ * Drag to reposition (saved); click/tap opens chat.
  */
 export function RobotButton({ onClick, visible, modelUrl }: RobotButtonProps) {
+  const reduceMotion = useReducedMotion()
+  const [pos, setPos] = useState<FabPos>(() =>
+    typeof window !== 'undefined' ? loadPos() : { x: 24, y: 24 },
+  )
   const [hover, setHover] = useState(false)
-  const [reduceMotion, setReduceMotion] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const [modelError, setModelError] = useState(false)
   const viewerRef = useRef<HTMLElement | null>(null)
+  const dragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+    moved: boolean
+  } | null>(null)
 
   const src = modelUrl ?? DEFAULT_MODEL_URL
 
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    setReduceMotion(mq.matches)
-    const fn = () => setReduceMotion(mq.matches)
-    mq.addEventListener('change', fn)
-    return () => mq.removeEventListener('change', fn)
+    const onResize = () => setPos((p) => clampPos(p.x, p.y))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  // Custom elements fire native events — React onError often doesn't bind.
   useEffect(() => {
     const el = viewerRef.current
     if (!el) return
@@ -40,30 +99,103 @@ export function RobotButton({ onClick, visible, modelUrl }: RobotButtonProps) {
     return () => el.removeEventListener('error', onErr)
   }, [src, modelError])
 
-  if (!visible) return null
+  const onPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLButtonElement>) => {
+      if (e.button !== 0) return
+      e.currentTarget.setPointerCapture(e.pointerId)
+      dragRef.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        originX: pos.x,
+        originY: pos.y,
+        moved: false,
+      }
+    },
+    [pos.x, pos.y],
+  )
+
+  const onPointerMove = useCallback((e: ReactPointerEvent<HTMLButtonElement>) => {
+    const d = dragRef.current
+    if (!d || e.pointerId !== d.pointerId) return
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (!d.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+    d.moved = true
+    setDragging(true)
+    setPos(clampPos(d.originX + dx, d.originY + dy))
+  }, [])
+
+  const endDrag = useCallback(
+    (e: ReactPointerEvent<HTMLButtonElement>) => {
+      const d = dragRef.current
+      if (!d || e.pointerId !== d.pointerId) return
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId)
+      } catch {
+        /* ignore */
+      }
+      dragRef.current = null
+      setDragging(false)
+      if (d.moved) {
+        setPos((p) => {
+          const next = clampPos(p.x, p.y)
+          savePos(next)
+          return next
+        })
+      } else {
+        onClick()
+      }
+    },
+    [onClick],
+  )
 
   return (
-    <div className="fixed z-[60] bottom-4 right-4 md:bottom-6 md:right-6">
-      {/* Tooltip */}
+    <motion.div
+      className="fixed z-[60] touch-none"
+      style={{ left: pos.x, top: pos.y, width: SIZE, height: SIZE }}
+      initial={false}
+      animate={{
+        opacity: visible ? 1 : 0,
+        scale: visible ? 1 : 0.7,
+        pointerEvents: visible ? 'auto' : 'none',
+      }}
+      transition={{
+        type: 'spring',
+        stiffness: 420,
+        damping: 28,
+        mass: 0.7,
+      }}
+      aria-hidden={!visible}
+    >
+      {/* Soft glow */}
       <div
-        className={`pointer-events-none absolute bottom-full right-0 mb-2 transition-all duration-150 ${
-          hover ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0'
-        }`}
-      >
-        <div className="whitespace-nowrap rounded-sm border border-line bg-surface px-3 py-1.5 font-sans text-[13px] font-medium text-content shadow-md">
-          Ask AI
+        className="pointer-events-none absolute inset-2 rounded-full bg-ember/20 blur-xl"
+        style={{ opacity: hover || dragging ? 0.9 : 0.45 }}
+      />
+
+      {!dragging && hover && (
+        <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2">
+          <div className="whitespace-nowrap rounded-full border border-line/80 bg-surface/95 px-3 py-1.5 font-sans text-[12px] font-medium text-content shadow-lg backdrop-blur-md">
+            Drag to move · Tap to chat
+          </div>
         </div>
-      </div>
+      )}
 
       <button
         type="button"
-        onClick={onClick}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
-        aria-label="Open AI Assistant"
-        className={`group relative flex h-20 w-20 items-center justify-center bg-transparent transition-all duration-180 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-canvas md:h-24 md:w-24 ${
-          hover ? 'scale-110' : ''
-        } ${reduceMotion ? '' : 'animate-[botFloat_3.2s_ease-in-out_infinite]'}`}
+        aria-label="Open AI Assistant. Drag to reposition."
+        className={`relative flex h-full w-full cursor-grab items-center justify-center bg-transparent active:cursor-grabbing focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+          dragging ? 'scale-105' : hover ? 'scale-110' : 'scale-100'
+        } transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          !reduceMotion && !dragging ? 'animate-[botFloat_3.2s_ease-in-out_infinite]' : ''
+        }`}
       >
         {!modelError ? (
           <model-viewer
@@ -80,14 +212,14 @@ export function RobotButton({ onClick, visible, modelUrl }: RobotButtonProps) {
             disable-pan
             interaction-prompt="none"
             touch-action="none"
-            shadow-intensity="0.8"
+            shadow-intensity="0.85"
             exposure="1.1"
             camera-orbit="0deg 75deg 105%"
             camera-target="0m 0.05m 0m"
             field-of-view="30deg"
-            auto-rotate={!reduceMotion || undefined}
+            auto-rotate={!reduceMotion && !dragging ? true : undefined}
             auto-rotate-delay={0}
-            rotation-per-second={reduceMotion ? '0deg' : '18deg'}
+            rotation-per-second={reduceMotion || dragging ? '0deg' : '18deg'}
             style={{
               width: '100%',
               height: '100%',
@@ -129,18 +261,13 @@ export function RobotButton({ onClick, visible, modelUrl }: RobotButtonProps) {
       <style>{`
         @keyframes botFloat {
           0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-4px); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .animate-\\[botFloat_3\\.2s_ease-in-out_infinite\\] {
-            animation: none !important;
-          }
+          50% { transform: translateY(-5px); }
         }
         model-viewer {
           --progress-bar-color: transparent;
           --progress-mask: transparent;
         }
       `}</style>
-    </div>
+    </motion.div>
   )
 }

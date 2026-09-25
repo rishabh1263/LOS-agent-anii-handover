@@ -62,53 +62,83 @@ function DocTypeChip({
 }
 
 function DocRow({ doc, onRemove }: { doc: VerifiedDoc; onRemove: () => void }) {
-  const statusIcon =
-    doc.status === 'uploading' || doc.status === 'verifying' || doc.status === 'extracting' ? (
-      <Loader2 className="h-4 w-4 animate-spin text-ember" />
-    ) : doc.status === 'success' ? (
-      <CheckCircle2 className="h-4 w-4 text-success" />
-    ) : doc.status === 'type_mismatch' ? (
-      <AlertTriangle className="h-4 w-4 text-warning" />
-    ) : doc.status === 'error' ? (
-      <AlertCircle className="h-4 w-4 text-danger" />
-    ) : (
-      <FileText className="h-4 w-4 text-content-secondary" />
-    )
+  const busy =
+    doc.status === 'uploading' || doc.status === 'verifying' || doc.status === 'extracting'
+  const progress = Math.min(100, Math.max(0, doc.progress ?? (busy ? 20 : 100)))
 
-  const statusText =
-    doc.status === 'verifying' || doc.status === 'uploading'
-      ? 'VERIFY…'
-      : doc.status === 'extracting'
-        ? 'EXTRACT…'
-        : doc.status === 'success'
-          ? doc.detectedType
-            ? `OK · ${doc.detectedType}`
-            : 'OK'
-          : doc.status === 'type_mismatch'
-            ? doc.error || 'Type mismatch'
-            : doc.error || 'Failed'
+  const statusIcon = busy ? (
+    <Loader2 className="h-4 w-4 animate-spin text-ember" />
+  ) : doc.status === 'success' ? (
+    <CheckCircle2 className="h-4 w-4 text-success" />
+  ) : doc.status === 'review' || doc.status === 'type_mismatch' ? (
+    <AlertTriangle className="h-4 w-4 text-warning" />
+  ) : doc.status === 'error' ? (
+    <AlertCircle className="h-4 w-4 text-danger" />
+  ) : (
+    <FileText className="h-4 w-4 text-content-secondary" />
+  )
+
+  const statusText = busy
+    ? doc.status === 'extracting'
+      ? `EXTRACT… ${progress}%`
+      : `VERIFY… ${progress}%`
+    : doc.status === 'success'
+      ? doc.detectedType
+        ? `OK · ${doc.detectedType}`
+        : 'OK'
+      : doc.status === 'review'
+        ? doc.error || 'REVIEW — process blocked'
+        : doc.status === 'type_mismatch'
+          ? doc.error || 'Type mismatch'
+          : doc.error || 'Failed'
+
+  const barColor =
+    doc.status === 'success'
+      ? 'bg-success'
+      : doc.status === 'error'
+        ? 'bg-danger'
+        : doc.status === 'review' || doc.status === 'type_mismatch'
+          ? 'bg-warning'
+          : 'bg-ember'
 
   return (
-    <div className="flex items-center gap-3 rounded-sm border border-line bg-raised/40 px-3 py-2.5">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xs bg-raised">
-        {statusIcon}
+    <div className="overflow-hidden rounded-md border border-line bg-surface shadow-xs">
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-sm bg-raised">
+          {statusIcon}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-sans text-[13px] font-medium text-content">
+            {doc.item.file.name}
+          </p>
+          <p className="mt-0.5 truncate text-[11px] text-content-secondary">
+            {doc.item.expectedType} · {formatBytes(doc.item.file.size)} · {statusText}
+          </p>
+        </div>
+        {!busy && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-sm p-1.5 text-content-secondary hover:bg-raised hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            aria-label={`Remove ${doc.item.file.name}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-sans text-[13px] font-medium text-content">{doc.item.file.name}</p>
-        <p className="text-[11px] text-content-secondary">
-          Selected: {doc.item.expectedType} · {formatBytes(doc.item.file.size)} · {statusText}
-        </p>
+      <div
+        className="h-1 w-full bg-raised"
+        role="progressbar"
+        aria-valuenow={progress}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Document processing progress"
+      >
+        <div
+          className={`h-full transition-[width] duration-300 ease-out ${barColor}`}
+          style={{ width: `${progress}%` }}
+        />
       </div>
-      {doc.status !== 'uploading' && (
-        <button
-          type="button"
-          onClick={onRemove}
-          className="rounded-xs p-1.5 text-content-secondary hover:bg-raised hover:text-danger"
-          aria-label={`Remove ${doc.item.file.name}`}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      )}
     </div>
   )
 }
@@ -324,13 +354,25 @@ export function DocumentUploadStep({
         <button
           type="button"
           className="btn btn-primary min-w-[160px]"
-          disabled={!canRunVerification || verifying}
+          disabled={!canRunVerification || verifying || loading}
           onClick={onRunVerification}
+          title={
+            loading
+              ? 'Wait until all documents finish VERIFY / EXTRACT'
+              : !canRunVerification
+                ? 'Upload at least one accepted document'
+                : undefined
+          }
         >
           {verifying ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
               Running verification…
+            </>
+          ) : loading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Processing docs…
             </>
           ) : (
             <span>Run verification</span>
