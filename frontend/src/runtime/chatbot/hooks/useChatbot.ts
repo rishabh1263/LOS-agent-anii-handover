@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import {
+  queryChat,
+  formatChatAnswer,
+  ChatApiError,
+  type ChatApiConfig,
+} from '../api'
+
 import type {
   AiStatus,
   ChatAttachment,
@@ -8,17 +15,38 @@ import type {
   ChatSettings,
   Conversation,
 } from '../types'
-
 import { DEFAULT_SETTINGS } from '../types'
-
 import { uid } from '../utils'
 
-const DEMO_REPLIES = [
-  "I can help you with documents, KYC checks, application status, and more. What would you like to do?",
-  "Based on the context available, here's a concise summary of the key points.\n\n• Primary applicant verified\n• Co-applicant documents pending\n• Cross-document name match: 94%\n\nWould you like me to dig deeper into any section?",
-  "Here's what I found:\n\n```json\n{\n  \"status\": \"PASS\",\n  \"score\": 0.92,\n  \"checks\": 12\n}\n```\n\nEverything looks good. You can proceed to the next step.",
-  "I've analyzed the uploaded file. The document appears valid and matches the applicant profile. Let me know if you need an extraction of specific fields.",
-]
+/** Context + optional API config — only this needs changing in another project. */
+export interface ChatbotContext {
+  caseId?: string
+  applicantId?: string
+  partyId?: string
+  stage?: string
+  accessToken?: string
+  /** Override default `/api/v1/copilot` */
+  apiBaseUrl?: string
+  /** Override default `/query` */
+  apiQueryPath?: string
+}
+
+/** Minimal SpeechRecognition shape for browsers that expose it (incl. webkit prefix). */
+interface SpeechRecognitionLike {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onresult: ((event: SpeechRecognitionResultEvent) => void) | null
+  onerror: ((event: { error: string }) => void) | null
+  onend: (() => void) | null
+  start: () => void
+  stop: () => void
+}
+
+interface SpeechRecognitionResultEvent {
+  resultIndex: number
+  results: ArrayLike<{ isFinal: boolean; 0?: { transcript: string } }>
+}
 
 const QUICK_ACTIONS = [
   { id: 'summarize', label: 'Summarize a document', icon: 'FileText' },
@@ -29,52 +57,62 @@ const QUICK_ACTIONS = [
   { id: 'report', label: 'Generate a report', icon: 'BarChart3' },
 ]
 
-function createWelcomeConversation(): Conversation {
-  const now = Date.now()
+function createConversation(): Conversation {
   return {
     id: uid('conv'),
     title: 'New conversation',
-    updatedAt: now,
+    updatedAt: Date.now(),
     messages: [],
   }
 }
 
-export function useChatbot() {
+function getSpeechRecognitionCtor(): (new () => SpeechRecognitionLike) | undefined {
+  if (typeof window === 'undefined') return undefined
+  const w = window as unknown as Record<string, unknown>
+  return (w.SpeechRecognition || w.webkitSpeechRecognition) as
+    | (new () => SpeechRecognitionLike)
+    | undefined
+}
+
+function mapMicError(code: string): string {
+  switch (code) {
+    case 'not-allowed':
+    case 'permission-denied':
+    case 'PermissionDeniedError':
+    case 'NotAllowedError':
+      return 'Microphone access denied. Allow mic permission in your browser settings, then try again.'
+    case 'service-not-allowed':
+      return 'Microphone blocked by the browser or site policy. Check site permissions and try again.'
+    case 'audio-capture':
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'No microphone found. Connect a mic and try again.'
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return 'Microphone is in use by another app. Close it and try again.'
+    case 'OverconstrainedError':
+      return 'Could not access this microphone. Try a different device.'
+    case 'SecurityError':
+    case 'insecure':
+      return 'Microphone requires a secure connection (HTTPS). Open the app over HTTPS and try again.'
+    case 'network':
+      return 'Network error during voice input. Check your connection and try again.'
+    case 'no-speech':
+      return 'No speech detected. Click the mic and speak clearly.'
+    case 'aborted':
+      return ''
+    case 'language-not-supported':
+      return 'Speech recognition is not available for this language.'
+    case 'unsupported':
+      return 'Voice input is not supported in this browser. Try Chrome or Edge.'
+    default:
+      return 'Voice input failed. Check microphone access and try again.'
+  }
+}
+
+export function useChatbot(context: ChatbotContext = {}) {
   const [mode, setMode] = useState<ChatPanelMode>('closed')
-  const [conversations, setConversations] = useState<Conversation[]>(() => [
-    {
-      id: 'conv_demo_1',
-      title: 'Document KYC',
-      updatedAt: Date.now() - 3600000,
-      pinned: true,
-      messages: [
-        {
-          id: 'm1',
-          role: 'user',
-          content: 'Can you check the KYC status for this application?',
-          timestamp: Date.now() - 3700000,
-        },
-        {
-          id: 'm2',
-          role: 'assistant',
-          content:
-            'I reviewed the latest KYC run.\n\n**Result:** PASS\n**Score:** 0.94\n\nAll primary documents verified. Co-applicant PAN is still pending upload.',
-          timestamp: Date.now() - 3600000,
-          suggestedQuestions: [
-            'Show me the failed checks',
-            'What documents are missing?',
-            'Summarize in simple terms',
-          ],
-        },
-      ],
-    },
-    {
-      id: 'conv_demo_2',
-      title: 'Loan Analysis',
-      updatedAt: Date.now() - 90000000,
-      messages: [],
-    },
-  ])
+  const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [status, setStatus] = useState<AiStatus>('online')
   const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS)
@@ -82,24 +120,51 @@ export function useChatbot() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [isListening, setIsListening] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [interimTranscript, setInterimTranscript] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const [showSidebar, setShowSidebar] = useState(false)
   const [confirmNew, setConfirmNew] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+
   const stopRef = useRef(false)
-  const replyIndex = useRef(0)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
+  const speakTextRef = useRef<(text: string, messageId?: string) => void>(() => {})
+  const contextRef = useRef(context)
+  contextRef.current = context
+  const conversationApiIdRef = useRef<string | null>(null)
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
     [conversations, activeId],
   )
-
   const messages = activeConversation?.messages ?? []
+
+  const teardownVoice = useCallback(() => {
+    try {
+      recognitionRef.current?.stop()
+    } catch {
+      /* ignore */
+    }
+    recognitionRef.current = null
+    try {
+      window.speechSynthesis?.cancel()
+    } catch {
+      /* ignore */
+    }
+    setIsListening(false)
+    setInterimTranscript('')
+    setIsSpeaking(false)
+    setSpeakingMessageId(null)
+  }, [])
 
   const open = useCallback(() => {
     setMode((m) => (m === 'closed' ? 'panel' : m))
     if (!activeId) {
-      const conv = createWelcomeConversation()
+      const conv = createConversation()
       setConversations((prev) => [conv, ...prev])
       setActiveId(conv.id)
     }
@@ -109,15 +174,17 @@ export function useChatbot() {
     setMode('closed')
     setShowSettings(false)
     setShowSidebar(false)
-  }, [])
+    teardownVoice()
+    setStatus('online')
+  }, [teardownVoice])
 
   const toggleExpand = useCallback(() => {
     setMode((m) => (m === 'expanded' ? 'panel' : 'expanded'))
   }, [])
 
   const minimize = useCallback(() => {
-    setMode('closed')
-  }, [])
+    close()
+  }, [close])
 
   const updateSettings = useCallback((patch: Partial<ChatSettings>) => {
     setSettings((s) => ({ ...s, ...patch }))
@@ -133,38 +200,42 @@ export function useChatbot() {
       setConfirmNew(true)
       return
     }
-    const conv = createWelcomeConversation()
+    const conv = createConversation()
+    conversationApiIdRef.current = null
     setConversations((prev) => [conv, ...prev])
     setActiveId(conv.id)
     setConfirmNew(false)
+    setShowSettings(false)
   }, [messages.length])
 
   const confirmNewConversation = useCallback(() => {
-    const conv = createWelcomeConversation()
+    const conv = createConversation()
+    conversationApiIdRef.current = null
     setConversations((prev) => [conv, ...prev])
     setActiveId(conv.id)
     setConfirmNew(false)
+    setShowSettings(false)
   }, [])
 
   const deleteConversation = useCallback(
     (id: string) => {
       setConversations((prev) => prev.filter((c) => c.id !== id))
-      if (activeId === id) {
-        setActiveId(null)
-      }
+      if (activeId === id) setActiveId(null)
     },
     [activeId],
   )
 
   const addAttachment = useCallback((file: File) => {
-    const att: ChatAttachment = {
-      id: uid('att'),
-      name: file.name,
-      size: file.size,
-      type: file.type || 'application/octet-stream',
-      progress: 100,
-    }
-    setAttachments((prev) => [...prev, att])
+    setAttachments((prev) => [
+      ...prev,
+      {
+        id: uid('att'),
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+        progress: 100,
+      },
+    ])
   }, [])
 
   const removeAttachment = useCallback((id: string) => {
@@ -179,7 +250,7 @@ export function useChatbot() {
 
       let convId = activeId
       if (!convId) {
-        const conv = createWelcomeConversation()
+        const conv = createConversation()
         setConversations((prev) => [conv, ...prev])
         setActiveId(conv.id)
         convId = conv.id
@@ -197,11 +268,14 @@ export function useChatbot() {
         prev.map((c) =>
           c.id === convId
             ? {
-              ...c,
-              title: c.messages.length === 0 ? content.slice(0, 40) || 'New conversation' : c.title,
-              updatedAt: Date.now(),
-              messages: [...c.messages, userMsg],
-            }
+                ...c,
+                title:
+                  c.messages.length === 0
+                    ? content.slice(0, 40) || 'New conversation'
+                    : c.title,
+                updatedAt: Date.now(),
+                messages: [...c.messages, userMsg],
+              }
             : c,
         ),
       )
@@ -210,76 +284,120 @@ export function useChatbot() {
       setStatus('thinking')
       stopRef.current = false
 
-      await new Promise((r) => setTimeout(r, 600))
-      if (stopRef.current) {
-        setStatus('online')
-        return
-      }
-
-      setStatus('generating')
-      const replyText = DEMO_REPLIES[replyIndex.current % DEMO_REPLIES.length]
-      replyIndex.current += 1
-
       const assistantId = uid('msg')
-      const streamingMsg: ChatMessage = {
-        id: assistantId,
-        role: 'assistant',
-        content: '',
-        timestamp: Date.now(),
-        isStreaming: true,
-      }
-
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === convId
-            ? { ...c, updatedAt: Date.now(), messages: [...c.messages, streamingMsg] }
-            : c,
-        ),
-      )
-
-      // Simulate streaming
-      for (let i = 0; i < replyText.length; i += 4) {
-        if (stopRef.current) break
-        await new Promise((r) => setTimeout(r, 28))
-        const slice = replyText.slice(0, i + 4)
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                ...c,
-                messages: c.messages.map((m) =>
-                  m.id === assistantId ? { ...m, content: slice } : m,
-                ),
-              }
-              : c,
-          ),
-        )
-      }
-
       setConversations((prev) =>
         prev.map((c) =>
           c.id === convId
             ? {
-              ...c,
-              messages: c.messages.map((m) =>
-                m.id === assistantId
-                  ? {
-                    ...m,
-                    content: stopRef.current ? m.content : replyText,
-                    isStreaming: false,
-                    suggestedQuestions: settings.showSuggestedQuestions
-                      ? ['Explain in simple terms', 'Show key risks', 'What next?']
-                      : undefined,
-                  }
-                  : m,
-              ),
-            }
+                ...c,
+                updatedAt: Date.now(),
+                messages: [
+                  ...c.messages,
+                  {
+                    id: assistantId,
+                    role: 'assistant',
+                    content: '',
+                    timestamp: Date.now(),
+                    isStreaming: true,
+                  },
+                ],
+              }
             : c,
         ),
       )
-      setStatus('online')
+      setStatus('generating')
+
+      try {
+        const ctx = contextRef.current
+        const apiConfig: ChatApiConfig = {
+          baseUrl: ctx.apiBaseUrl,
+          queryPath: ctx.apiQueryPath,
+        }
+        const res = await queryChat(
+          {
+            message: content,
+            case_id: ctx.caseId,
+            applicant_id: ctx.applicantId,
+            party_id: ctx.partyId,
+            stage: ctx.stage,
+            conversation_id: conversationApiIdRef.current || convId,
+          },
+          ctx.accessToken,
+          apiConfig,
+        )
+
+        if (stopRef.current) {
+          setStatus('online')
+          return
+        }
+
+        if (res.conversation_id) {
+          conversationApiIdRef.current = String(res.conversation_id)
+        }
+
+        const formatted = formatChatAnswer(res)
+        const answer = formatted.text
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === convId
+              ? {
+                  ...c,
+                  updatedAt: Date.now(),
+                  messages: c.messages.map((m) =>
+                    m.id === assistantId
+                      ? {
+                          ...m,
+                          content: answer,
+                          isStreaming: false,
+                          suggestedQuestions:
+                            settingsRef.current.showSuggestedQuestions
+                              ? formatted.suggestedQuestions
+                              : undefined,
+                          routeTo: formatted.routed,
+                          grounded: formatted.grounded,
+                        }
+                      : m,
+                  ),
+                }
+              : c,
+          ),
+        )
+        setStatus('online')
+
+        if (settingsRef.current.autoReadResponses && answer) {
+          setTimeout(() => speakTextRef.current(answer, assistantId), 80)
+        }
+      } catch (err) {
+        if (stopRef.current) {
+          setStatus('online')
+          return
+        }
+        let message = 'Failed to get a response from the AI assistant.'
+        if (err instanceof ChatApiError) {
+          message =
+            err.body.message || err.body.detail || err.body.error || `Error ${err.status}`
+        } else if (err instanceof Error) {
+          message = err.message
+        }
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === convId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === assistantId
+                      ? { ...m, content: '', isStreaming: false, error: message }
+                      : m,
+                  ),
+                }
+              : c,
+          ),
+        )
+        setStatus('error')
+        setTimeout(() => setStatus('online'), 1500)
+      }
     },
-    [input, attachments, activeId, status, settings.showSuggestedQuestions],
+    [input, attachments, activeId, status],
   )
 
   const stopGenerating = useCallback(() => {
@@ -294,7 +412,7 @@ export function useChatbot() {
       if (!conv) return
       const idx = conv.messages.findIndex((m) => m.id === messageId)
       if (idx < 0) return
-      // Find previous user message
+
       let userContent = ''
       for (let i = idx - 1; i >= 0; i--) {
         if (conv.messages[i].role === 'user') {
@@ -302,7 +420,7 @@ export function useChatbot() {
           break
         }
       }
-      // Remove the assistant message and resend
+
       setConversations((prev) =>
         prev.map((c) =>
           c.id === activeId
@@ -315,43 +433,197 @@ export function useChatbot() {
     [activeId, conversations, sendMessage],
   )
 
-  const startListening = useCallback(() => {
-    if (!settings.voiceInput) return
-    setIsListening(true)
-    setStatus('listening')
-    // Dummy: after 2s insert sample text
-    setTimeout(() => {
-      setInput((prev) => (prev ? prev + ' ' : '') + 'Check KYC status for the current application')
-      setIsListening(false)
-      setStatus('online')
-    }, 2000)
-  }, [settings.voiceInput])
-
-  const stopListening = useCallback(() => {
-    setIsListening(false)
-    setStatus('online')
+  const stopSpeaking = useCallback(() => {
+    try {
+      window.speechSynthesis?.cancel()
+    } catch {
+      /* ignore */
+    }
+    setIsSpeaking(false)
+    setSpeakingMessageId(null)
+    setStatus((s) => (s === 'speaking' ? 'online' : s))
   }, [])
 
-  const toggleSpeak = useCallback(
-    (text: string) => {
-      if (isSpeaking) {
+  const speakText = useCallback(
+    (text: string, messageId?: string) => {
+      const trimmed = text.replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim()
+      if (!trimmed) return
+      if (typeof window === 'undefined' || !window.speechSynthesis) return
+
+      try {
+        window.speechSynthesis.cancel()
+      } catch {
+        /* ignore */
+      }
+
+      const rate = settingsRef.current.speechSpeed || 1
+      const utterance = new SpeechSynthesisUtterance(trimmed)
+      utterance.rate = Math.min(2, Math.max(0.5, rate))
+      utterance.onend = () => {
         setIsSpeaking(false)
-        setStatus('online')
-        return
+        setSpeakingMessageId(null)
+        setStatus((s) => (s === 'speaking' ? 'online' : s))
+      }
+      utterance.onerror = () => {
+        setIsSpeaking(false)
+        setSpeakingMessageId(null)
+        setStatus((s) => (s === 'speaking' ? 'online' : s))
       }
       setIsSpeaking(true)
+      setSpeakingMessageId(messageId ?? null)
       setStatus('speaking')
-      // Dummy TTS duration based on length
-      const ms = Math.min(8000, Math.max(1500, text.length * 40))
-      setTimeout(() => {
-        setIsSpeaking(false)
-        setStatus('online')
-      }, ms)
+      window.speechSynthesis.speak(utterance)
     },
-    [isSpeaking],
+    [],
+  )
+  speakTextRef.current = speakText
+
+  const stopListening = useCallback(() => {
+    const rec = recognitionRef.current
+    if (rec) {
+      try {
+        rec.onresult = null
+        rec.onerror = null
+        rec.onend = null
+        rec.stop()
+      } catch {
+        /* ignore */
+      }
+      recognitionRef.current = null
+    }
+    setInterimTranscript('')
+    setIsListening(false)
+    setStatus((s) => (s === 'listening' ? 'online' : s))
+  }, [])
+
+  const ensureMicAccess = useCallback(async (): Promise<string | null> => {
+    if (typeof window === 'undefined') return mapMicError('unsupported')
+    if (!window.isSecureContext) return mapMicError('insecure')
+
+    try {
+      if (navigator.permissions?.query) {
+        const status = await navigator.permissions.query({
+          name: 'microphone' as PermissionName,
+        })
+        if (status.state === 'denied') return mapMicError('not-allowed')
+      }
+    } catch {
+      /* some browsers reject microphone permission queries */
+    }
+
+    if (navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        stream.getTracks().forEach((t) => t.stop())
+        return null
+      } catch (err) {
+        const name =
+          err && typeof err === 'object' && 'name' in err
+            ? String((err as { name: string }).name)
+            : 'not-allowed'
+        return mapMicError(name)
+      }
+    }
+
+    return null
+  }, [])
+
+  const startListening = useCallback(async () => {
+    if (!settings.voiceInput || isListening) return
+    setVoiceError(null)
+    setInterimTranscript('')
+    stopSpeaking()
+
+    const SpeechRecognitionCtor = getSpeechRecognitionCtor()
+    if (!SpeechRecognitionCtor) {
+      setVoiceError(mapMicError('unsupported'))
+      return
+    }
+
+    const accessError = await ensureMicAccess()
+    if (accessError) {
+      setVoiceError(accessError)
+      return
+    }
+
+    try {
+      const recognition = new SpeechRecognitionCtor()
+      recognition.continuous = false
+      recognition.interimResults = true
+      recognition.lang =
+        typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US'
+
+      recognition.onresult = (event: SpeechRecognitionResultEvent) => {
+        let interim = ''
+        let finalText = ''
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i]
+          const transcript = result[0]?.transcript ?? ''
+          if (result.isFinal) finalText += transcript
+          else interim += transcript
+        }
+        if (finalText) {
+          setInterimTranscript('')
+          setInput((prev) => {
+            const base = prev.trim()
+            return base ? `${base} ${finalText.trim()}` : finalText.trim()
+          })
+        } else {
+          setInterimTranscript(interim.trim())
+        }
+      }
+
+      recognition.onerror = (event: { error: string }) => {
+        const message = mapMicError(event.error)
+        if (message) setVoiceError(message)
+        recognitionRef.current = null
+        setInterimTranscript('')
+        setIsListening(false)
+        setStatus((s) => (s === 'listening' ? 'online' : s))
+      }
+
+      recognition.onend = () => {
+        recognitionRef.current = null
+        setInterimTranscript('')
+        setIsListening(false)
+        setStatus((s) => (s === 'listening' ? 'online' : s))
+      }
+
+      recognitionRef.current = recognition
+      setIsListening(true)
+      setStatus('listening')
+      recognition.start()
+    } catch (err) {
+      const name =
+        err && typeof err === 'object' && 'name' in err
+          ? String((err as { name: string }).name)
+          : 'unsupported'
+      setVoiceError(mapMicError(name === 'InvalidStateError' ? 'unsupported' : name))
+      recognitionRef.current = null
+      setIsListening(false)
+      setStatus((s) => (s === 'listening' ? 'online' : s))
+    }
+  }, [settings.voiceInput, isListening, stopSpeaking, ensureMicAccess])
+
+  const toggleSpeak = useCallback(
+    (text: string, messageId?: string) => {
+      if (isSpeaking && (messageId == null || speakingMessageId === messageId)) {
+        stopSpeaking()
+        return
+      }
+      speakText(text, messageId)
+    },
+    [isSpeaking, speakingMessageId, stopSpeaking, speakText],
   )
 
-  // Responsive mode hint (consumer can override with media queries)
+  const dismissVoiceError = useCallback(() => setVoiceError(null), [])
+
+  useEffect(() => {
+    return () => {
+      teardownVoice()
+    }
+  }, [teardownVoice])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && mode !== 'closed') {
@@ -395,8 +667,13 @@ export function useChatbot() {
     isListening,
     startListening,
     stopListening,
+    interimTranscript,
+    voiceError,
+    dismissVoiceError,
     isSpeaking,
+    speakingMessageId,
     toggleSpeak,
+    stopSpeaking,
     showSettings,
     setShowSettings,
     showSidebar,

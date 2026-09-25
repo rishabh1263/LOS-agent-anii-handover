@@ -9,8 +9,6 @@ export type AiStatus =
   | 'offline'
   | 'error'
 
-export type ThemeMode = 'system' | 'light' | 'dark'
-
 export interface ChatAttachment {
   id: string
   name: string
@@ -30,6 +28,9 @@ export interface ChatMessage {
   isStreaming?: boolean
   error?: string
   suggestedQuestions?: string[]
+  /** Copilot routed this question to another stage (e.g. CREDIT) */
+  routeTo?: string | null
+  grounded?: boolean
 }
 
 export interface Conversation {
@@ -41,7 +42,6 @@ export interface Conversation {
 }
 
 export interface ChatSettings {
-  theme: ThemeMode
   voiceInput: boolean
   autoReadResponses: boolean
   speechSpeed: number
@@ -52,7 +52,6 @@ export interface ChatSettings {
 }
 
 export const DEFAULT_SETTINGS: ChatSettings = {
-  theme: 'system',
   voiceInput: true,
   autoReadResponses: false,
   speechSpeed: 1,

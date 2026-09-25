@@ -6,8 +6,9 @@ import { QuickActions } from './QuickActions'
 interface ChatMessagesProps {
   messages: ChatMessage[]
   showTimestamps: boolean
-  isSpeaking: boolean
-  onListen: (text: string) => void
+  /** Message id currently being spoken, if any */
+  speakingMessageId?: string | null
+  onListen: (text: string, messageId: string) => void
   onRegenerate: (id: string) => void
   onSuggested: (q: string) => void
   quickActions: { id: string; label: string; icon: string }[]
@@ -18,7 +19,7 @@ interface ChatMessagesProps {
 export function ChatMessages({
   messages,
   showTimestamps,
-  isSpeaking,
+  speakingMessageId = null,
   onListen,
   onRegenerate,
   onSuggested,
@@ -33,12 +34,16 @@ export function ChatMessages({
   }, [messages, status])
 
   if (messages.length === 0) {
-    return <QuickActions actions={quickActions} onSelect={onQuickAction} />
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <QuickActions actions={quickActions} onSelect={onQuickAction} />
+      </div>
+    )
   }
 
   return (
     <div
-      className="flex-1 overflow-y-auto py-2"
+      className="min-h-0 flex-1 overflow-y-auto py-2"
       role="log"
       aria-live="polite"
       aria-relevant="additions"
@@ -48,8 +53,8 @@ export function ChatMessages({
           key={m.id}
           message={m}
           showTimestamp={showTimestamps}
-          isSpeaking={isSpeaking}
-          onListen={() => onListen(m.content)}
+          isSpeaking={speakingMessageId === m.id}
+          onListen={() => onListen(m.content, m.id)}
           onRegenerate={() => onRegenerate(m.id)}
           onSuggested={onSuggested}
         />

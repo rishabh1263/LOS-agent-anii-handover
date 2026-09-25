@@ -1,1 +1,1 @@
-export { Chatbot } from './Chatbot'
+export { Chatbot, type ChatbotProps } from './Chatbot'

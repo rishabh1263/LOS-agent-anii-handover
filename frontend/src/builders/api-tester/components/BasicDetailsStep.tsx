@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ArrowRight, Plus, Trash2 } from 'lucide-react'
 import type { ProfileField } from '../../../runtime/api-tester'
+import { validateProfileFields } from '../../../runtime/api-tester'
 
 export interface BasicDetailsStepProps {
   fields: ProfileField[]
@@ -23,12 +24,28 @@ export function BasicDetailsStep({
 }: BasicDetailsStepProps) {
   const [newLabel, setNewLabel] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [touched, setTouched] = useState(false)
+
+  const issues = useMemo(() => validateProfileFields(fields), [fields])
+  const issueByKey = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const i of issues) {
+      if (i.id && !map[i.id]) map[i.id] = i.message
+    }
+    return map
+  }, [issues])
 
   const handleAdd = () => {
     if (!newLabel.trim()) return
     onAddField(newLabel)
     setNewLabel('')
     setShowAdd(false)
+  }
+
+  const handleContinue = () => {
+    setTouched(true)
+    if (!canContinue) return
+    onContinue()
   }
 
   return (
@@ -44,36 +61,63 @@ export function BasicDetailsStep({
       </div>
 
       <div className="grid gap-3.5 sm:grid-cols-2">
-        {fields.map((f) => (
-          <div key={f.key} className={f.key === 'name' ? 'sm:col-span-2' : undefined}>
-            <label htmlFor={`pf-${f.key}`} className="label flex items-center justify-between gap-2">
-              <span>
-                {f.label}
-                {f.key === 'name' && <span className="text-danger"> *</span>}
-              </span>
-              {!f.builtin && (
-                <button
-                  type="button"
-                  onClick={() => onRemoveField(f.key)}
-                  className="text-content-secondary hover:text-danger"
-                  aria-label={`Remove ${f.label}`}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+        {fields.map((f) => {
+          const required = ['full_name', 'mobile', 'email', 'date_of_birth', 'address'].includes(
+            f.key,
+          )
+          const wide = f.key === 'full_name' || f.key === 'address'
+          const fieldError = touched ? issueByKey[f.key] : undefined
+          return (
+            <div key={f.key} className={wide ? 'sm:col-span-2' : undefined}>
+              <label
+                htmlFor={`pf-${f.key}`}
+                className="label flex items-center justify-between gap-2"
+              >
+                <span>
+                  {f.label}
+                  {required && <span className="text-danger"> *</span>}
+                </span>
+                {!f.builtin && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveField(f.key)}
+                    className="text-content-secondary hover:text-danger"
+                    aria-label={`Remove ${f.label}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </label>
+              <input
+                id={`pf-${f.key}`}
+                className={`input ${fieldError ? 'border-danger focus:border-danger' : ''}`}
+                type={f.inputType || 'text'}
+                value={f.value}
+                onChange={(e) => onChange(f.key, e.target.value)}
+                onBlur={() => setTouched(true)}
+                placeholder={
+                  f.key === 'date_of_birth' || f.key === 'dob'
+                    ? 'YYYY-MM-DD'
+                    : f.key === 'pan'
+                      ? 'ABCDE1234F'
+                      : f.key === 'mobile'
+                        ? '9876543210'
+                        : f.key === 'email'
+                          ? 'name@example.com'
+                          : f.label
+                }
+                autoComplete="off"
+                aria-invalid={Boolean(fieldError)}
+                aria-describedby={fieldError ? `pf-err-${f.key}` : undefined}
+              />
+              {fieldError && (
+                <p id={`pf-err-${f.key}`} className="mt-1 text-[12px] text-danger-text">
+                  {fieldError}
+                </p>
               )}
-            </label>
-            <input
-              id={`pf-${f.key}`}
-              className="input"
-              value={f.value}
-              onChange={(e) => onChange(f.key, e.target.value)}
-              placeholder={
-                f.key === 'dob' ? 'YYYY-MM-DD' : f.key === 'pan' ? 'ABCDE1234F' : f.label
-              }
-              autoComplete="off"
-            />
-          </div>
-        ))}
+            </div>
+          )
+        })}
       </div>
 
       {showAdd ? (
@@ -122,18 +166,28 @@ export function BasicDetailsStep({
         </button>
       )}
 
-      {error && (
-        <div role="alert" className="rounded-sm border border-danger/30 bg-danger-subtle p-3 text-[13px] text-danger-text">
-          {error}
+      {(error || (touched && issues.length > 0)) && (
+        <div
+          role="alert"
+          className="rounded-sm border border-danger/30 bg-danger-subtle p-3 text-[13px] text-danger-text"
+        >
+          {error || (
+            <ul className="list-disc space-y-1 pl-4">
+              {issues.map((i) => (
+                <li key={i.id || i.message}>{i.message}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
       <div className="flex justify-end pt-1">
         <button
           type="button"
-          className="group btn btn-primary min-w-[140px]"
-          disabled={!canContinue}
-          onClick={onContinue}
+          className={`group btn btn-primary min-w-[140px] ${
+            !canContinue ? 'opacity-80' : ''
+          }`}
+          onClick={handleContinue}
         >
           <span>Continue</span>
           <ArrowRight className="h-4 w-4 opacity-75 transition-transform group-hover:translate-x-0.5" />

@@ -75,12 +75,13 @@ export function ConversationSidebar({
                           onDelete(c.id)
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
                             e.stopPropagation()
                             onDelete(c.id)
                           }
                         }}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xs opacity-0 transition-opacity hover:bg-error-subtle hover:text-danger-text group-hover:opacity-100"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xs opacity-0 transition-opacity hover:bg-danger-subtle hover:text-danger-text group-hover:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
                       >
                         <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
                       </span>

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { ArrowLeft } from 'lucide-react'
-import type { ChatSettings, ThemeMode } from '../../../runtime/chatbot'
+import type { ChatSettings } from '../../../runtime/chatbot'
 
 interface SettingsProps {
   settings: ChatSettings
@@ -59,12 +59,6 @@ function Toggle({
   )
 }
 
-const THEMES: { value: ThemeMode; label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-]
-
 export function Settings({ settings, onChange, onBack }: SettingsProps) {
   return (
     <div className="flex h-full flex-col bg-surface">
@@ -89,25 +83,6 @@ export function Settings({ settings, onChange, onBack }: SettingsProps) {
             Appearance
           </h3>
           <div className="rounded-md border border-line bg-surface px-3">
-            <Row label="Theme" description="System follows OS preference">
-              <div className="flex gap-1 rounded-sm bg-raised p-0.5">
-                {THEMES.map((t) => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    onClick={() => onChange({ theme: t.value })}
-                    className={`rounded-xs px-2.5 py-1 font-sans text-[12px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${
-                      settings.theme === t.value
-                        ? 'bg-surface text-content shadow-sm'
-                        : 'text-content-secondary hover:text-content'
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </Row>
-            <div className="border-t border-divider" />
             <Row label="Compact mode">
               <Toggle
                 checked={settings.compactMode}

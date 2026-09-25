@@ -1,5 +1,14 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { processDocuments, LosApiError } from '../api'
+import {
+  processDocuments,
+  LosApiError,
+  createApplicant,
+  getApplicant,
+  getChecklist,
+  extractIds,
+  FosApiError,
+} from '../api'
+import type { FosChecklistItem, FosResponse } from '../api'
 import type {
   DocumentTypeHint,
   LosProcessResponse,
@@ -8,12 +17,23 @@ import type {
 } from '../types'
 import type {
   ActiveParty,
+  ApplicationDetails,
   PartySelection,
   ProfileField,
   VerifiedDoc,
   WizardStep,
 } from '../types/wizard'
-import { DEFAULT_PROFILE_FIELDS, isDocTypeMatch } from '../types/wizard'
+import {
+  DEFAULT_APPLICATION,
+  DEFAULT_PROFILE_FIELDS,
+  isDocTypeMatch,
+} from '../types/wizard'
+import {
+  isRejectDecision,
+  isReviewDecision,
+  normalizeDecision,
+  validateProfileFields,
+} from '../utils/validation'
 import { useAuth } from '../../auth'
 
 function makeId() {
@@ -26,11 +46,20 @@ function makePartyId(role: PartyRole) {
 }
 
 function errorMessage(err: unknown): string {
-  if (err instanceof LosApiError) {
+  if (err instanceof LosApiError || err instanceof FosApiError) {
     return err.body.message || err.body.detail || err.body.error || `Error ${err.status}`
   }
   if (err instanceof Error) return err.message
   return 'Request failed'
+}
+
+function fieldValue(fields: ProfileField[], key: string): string {
+  return fields.find((f) => f.key === key)?.value.trim() || ''
+}
+
+function toNumber(value: string, fallback = 0): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
 }
 
 /** Find the document result that best matches this upload (by type / latest). */
@@ -70,6 +99,9 @@ export function useKycWizard() {
   const [profileFields, setProfileFields] = useState<ProfileField[]>(() =>
     DEFAULT_PROFILE_FIELDS.map((f) => ({ ...f })),
   )
+  const [application, setApplication] = useState<ApplicationDetails>(() => ({
+    ...DEFAULT_APPLICATION,
+  }))
   const [partySelection, setPartySelection] = useState<PartySelection>({
     applicant: true,
     coApplicant: false,
@@ -78,9 +110,15 @@ export function useKycWizard() {
   const [applicantId, setApplicantId] = useState('')
   const [coApplicantId, setCoApplicantId] = useState('')
   const [caseId, setCaseId] = useState('')
+  /** Document checklist from FOS (POST create or GET checklist) */
+  const [fosChecklist, setFosChecklist] = useState<FosChecklistItem[]>([])
+  const [requiredDocuments, setRequiredDocuments] = useState<string[]>([])
+  const [fosStage, setFosStage] = useState<string | null>(null)
+  const [lastFosResponse, setLastFosResponse] = useState<FosResponse | null>(null)
   const [verifiedDocs, setVerifiedDocs] = useState<VerifiedDoc[]>([])
   const [inFlightCount, setInFlightCount] = useState(0)
   const [verifying, setVerifying] = useState(false)
+  const [submittingApplicant, setSubmittingApplicant] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<LosProcessResponse | null>(null)
   const [showOtherPartyPrompt, setShowOtherPartyPrompt] = useState(false)
@@ -117,23 +155,154 @@ export function useKycWizard() {
     setProfileFields((prev) => prev.filter((f) => f.key !== key || f.builtin))
   }, [])
 
-  const canProceedFromDetails = useMemo(() => {
-    const name = profileFields.find((f) => f.key === 'name')?.value.trim()
-    return Boolean(name)
-  }, [profileFields])
+  const profileIssues = useMemo(
+    () => validateProfileFields(profileFields),
+    [profileFields],
+  )
+
+  const canProceedFromDetails = profileIssues.length === 0
+
+  const canProceedFromApplication = useMemo(() => {
+    return (
+      Boolean(application.product.trim()) &&
+      Boolean(application.employment_type.trim()) &&
+      toNumber(application.loan_amount) > 0 &&
+      toNumber(application.tenure_months) > 0 &&
+      toNumber(application.interest_rate_pct) > 0
+    )
+  }, [application])
 
   const canProceedFromParty = partySelection.applicant || partySelection.coApplicant
 
-  const goToParty = useCallback(() => {
-    if (!canProceedFromDetails) {
-      setError('Enter full name to continue.')
+  const updateApplicationField = useCallback((key: keyof ApplicationDetails, value: string) => {
+    setApplication((prev) => ({ ...prev, [key]: value }))
+  }, [])
+
+  const goToApplication = useCallback(() => {
+    const issues = validateProfileFields(profileFields)
+    if (issues.length > 0) {
+      setError(issues[0].message)
       return
     }
     setError(null)
-    if (!applicantId) setApplicantId(makePartyId('PRIMARY_APPLICANT'))
-    if (!coApplicantId) setCoApplicantId(makePartyId('CO_APPLICANT'))
-    setStep('party')
-  }, [canProceedFromDetails, applicantId, coApplicantId])
+    setStep('application')
+  }, [profileFields])
+
+  /**
+   * Create FOS applicant (POST), then fetch record (GET) to lock applicant_id / case_id.
+   */
+  const submitApplicantAndContinue = useCallback(async () => {
+    if (!canProceedFromApplication) {
+      setError('Fill product, loan amount, employment type, tenure, and interest rate.')
+      return
+    }
+    if (!token.trim()) {
+      await logout()
+      return
+    }
+
+    setSubmittingApplicant(true)
+    setError(null)
+
+    try {
+      const applicantPayload: Record<string, string> = {
+        full_name: fieldValue(profileFields, 'full_name'),
+        mobile: fieldValue(profileFields, 'mobile'),
+        email: fieldValue(profileFields, 'email'),
+        date_of_birth: fieldValue(profileFields, 'date_of_birth'),
+        address: fieldValue(profileFields, 'address'),
+      }
+      // Include extra profile fields (e.g. pan, custom)
+      for (const f of profileFields) {
+        if (applicantPayload[f.key] !== undefined) continue
+        if (f.value.trim()) applicantPayload[f.key] = f.value.trim()
+      }
+
+      const created = await createApplicant(
+        {
+          applicant: applicantPayload,
+          application: {
+            product: application.product.trim(),
+            loan_amount: toNumber(application.loan_amount),
+            employment_type: application.employment_type.trim(),
+            tenure_months: toNumber(application.tenure_months),
+            interest_rate_pct: toNumber(application.interest_rate_pct),
+            declared_monthly_obligations: toNumber(application.declared_monthly_obligations),
+            property_value: toNumber(application.property_value),
+          },
+        },
+        token,
+      )
+
+      setLastFosResponse(created)
+      let { applicantId: applicantIdFromApi, caseId: caseIdFromApi } = extractIds(created)
+      if (!applicantIdFromApi) applicantIdFromApi = applicantId
+      if (!caseIdFromApi) caseIdFromApi = caseId
+
+      if (created.checklist?.length) setFosChecklist(created.checklist)
+      if (created.required_documents?.length) {
+        setRequiredDocuments(created.required_documents)
+      }
+      if (created.stage) setFosStage(String(created.stage))
+
+      if (applicantIdFromApi) {
+        try {
+          const record = await getApplicant(applicantIdFromApi, token, {
+            case_id: caseIdFromApi || undefined,
+          })
+          setLastFosResponse(record)
+          const ids = extractIds(record)
+          if (ids.applicantId) applicantIdFromApi = ids.applicantId
+          if (ids.caseId) caseIdFromApi = ids.caseId
+        } catch {
+          // POST succeeded; GET is best-effort
+        }
+      }
+
+      // Refresh checklist from dedicated endpoint when we have a case_id
+      if (caseIdFromApi) {
+        try {
+          const checklistRes = await getChecklist(caseIdFromApi, token, {
+            applicant_id: applicantIdFromApi || undefined,
+          })
+          setLastFosResponse(checklistRes)
+          if (checklistRes.checklist?.length) setFosChecklist(checklistRes.checklist)
+          if (checklistRes.required_documents?.length) {
+            setRequiredDocuments(checklistRes.required_documents)
+          }
+          if (checklistRes.stage) setFosStage(String(checklistRes.stage))
+        } catch {
+          // Checklist is optional enrichment
+        }
+      }
+
+      if (!applicantIdFromApi) {
+        applicantIdFromApi = makePartyId('PRIMARY_APPLICANT')
+      }
+      if (!coApplicantId) setCoApplicantId(makePartyId('CO_APPLICANT'))
+
+      setApplicantId(applicantIdFromApi)
+      if (caseIdFromApi) setCaseId(caseIdFromApi)
+      setStep('party')
+    } catch (err) {
+      if (err instanceof FosApiError && err.status === 401) {
+        await logout()
+        return
+      }
+      setError(errorMessage(err))
+    } finally {
+      setSubmittingApplicant(false)
+    }
+  }, [
+    canProceedFromApplication,
+    token,
+    logout,
+    profileFields,
+    application,
+    applicantId,
+    caseId,
+    coApplicantId,
+  ])
 
   const goToDocuments = useCallback(() => {
     if (!canProceedFromParty) {
@@ -175,10 +344,10 @@ export function useKycWizard() {
 
   /**
    * On upload:
-   * 1) VERIFY — document authenticity (real vs not)
-   * 2) EXTRACT — field extraction (only if VERIFY passes)
-   * Parallel uploads allowed; each file runs its own VERIFY → EXTRACT chain.
-   * Final report uses PROCESS (see runVerification).
+   * 1) VERIFY — document authenticity
+   * 2) EXTRACT — only when VERIFY is not FAIL / REJECTED / REVIEW
+   *    (decision === "REVIEW" skips EXTRACT)
+   * Parallel uploads allowed. Final report uses PROCESS (see runVerification).
    */
   const uploadAndVerify = useCallback(
     async (file: File, expectedType: DocumentTypeHint, partyRole: PartyRole) => {
@@ -199,93 +368,150 @@ export function useKycWizard() {
         partyRole,
       }
 
-      setVerifiedDocs((prev) => [...prev, { item, status: 'verifying' }])
+      const patchDoc = (
+        id: string,
+        patch: Partial<(typeof verifiedDocs)[number]>,
+      ) => {
+        setVerifiedDocs((prev) => prev.map((d) => (d.item.id === id ? { ...d, ...patch } : d)))
+      }
+
+      setVerifiedDocs((prev) => [
+        ...prev,
+        { item, status: 'verifying', progress: 15 },
+      ])
       setInFlightCount((n) => n + 1)
       setError(null)
 
       try {
-        // --- Step 1: VERIFY (authenticity only; no extracted fields released) ---
+        // --- Step 1: VERIFY ---
+        patchDoc(item.id, { status: 'verifying', progress: 35 })
         const verifyRes = await processDocuments(singleFileParams(item, 'VERIFY'))
         applyIdsFromResponse(verifyRes)
 
         const verifyDoc = findDocResult(verifyRes, expectedType, partyRole)
         const detectedType = verifyDoc?.type ?? verifyDoc?.expected_type ?? null
-        const verifyStatus = String(verifyDoc?.verification ?? verifyDoc?.status ?? verifyRes.status).toUpperCase()
+        const verifyCode = normalizeDecision(
+          verifyDoc?.specialist?.decision,
+          verifyDoc?.verification,
+          verifyDoc?.status,
+          verifyRes.decision,
+          verifyRes.status,
+        )
+        const reasonOf = (doc: typeof verifyDoc, res: typeof verifyRes, fallback: string) =>
+          doc?.reasons?.[0] || doc?.reason_codes?.[0] || res.summary || fallback
 
         if (expectedType !== 'AUTO' && detectedType && !isDocTypeMatch(expectedType, detectedType)) {
-          setVerifiedDocs((prev) =>
-            prev.map((d) =>
-              d.item.id === item.id
-                ? {
-                    ...d,
-                    status: 'type_mismatch' as const,
-                    detectedType,
-                    verifyResponse: verifyRes,
-                    response: verifyRes,
-                    error: `Type mismatch: selected ${expectedType}, detected ${detectedType}. File not accepted.`,
-                  }
-                : d,
-            ),
-          )
+          patchDoc(item.id, {
+            status: 'type_mismatch',
+            progress: 100,
+            detectedType,
+            verifyResponse: verifyRes,
+            response: verifyRes,
+            error: `Type mismatch: selected ${expectedType}, detected ${detectedType}. File not accepted.`,
+          })
           setError(`Type mismatch: selected ${expectedType}, detected ${detectedType}.`)
           return
         }
 
-        if (verifyStatus === 'FAIL' || verifyStatus === 'FAILED' || verifyStatus === 'REJECTED') {
-          const reason =
-            verifyDoc?.reasons?.[0] ||
-            verifyDoc?.reason_codes?.[0] ||
-            verifyRes.summary ||
-            'Document verification failed.'
-          setVerifiedDocs((prev) =>
-            prev.map((d) =>
-              d.item.id === item.id
-                ? {
-                    ...d,
-                    status: 'error' as const,
-                    detectedType,
-                    verifyResponse: verifyRes,
-                    response: verifyRes,
-                    error: reason,
-                  }
-                : d,
-            ),
-          )
+        if (isRejectDecision(verifyCode)) {
+          const reason = reasonOf(verifyDoc, verifyRes, 'Document verification failed.')
+          patchDoc(item.id, {
+            status: 'error',
+            progress: 100,
+            detectedType,
+            verifyResponse: verifyRes,
+            response: verifyRes,
+            error: reason,
+          })
           setError(reason)
           return
         }
 
-        // --- Step 2: EXTRACT (fields for profile match later) ---
-        setVerifiedDocs((prev) =>
-          prev.map((d) => (d.item.id === item.id ? { ...d, status: 'extracting' as const } : d)),
-        )
+        if (isReviewDecision(verifyCode)) {
+          const reviewMsg = reasonOf(
+            verifyDoc,
+            verifyRes,
+            'Document marked for review — extraction skipped.',
+          )
+          patchDoc(item.id, {
+            status: 'review',
+            progress: 100,
+            detectedType,
+            verifyResponse: verifyRes,
+            response: verifyRes,
+            error: reviewMsg,
+          })
+          return
+        }
 
+        // --- Step 2: EXTRACT ---
+        patchDoc(item.id, { status: 'extracting', progress: 65 })
         const extractRes = await processDocuments(singleFileParams(item, 'EXTRACT'))
         applyIdsFromResponse(extractRes)
 
         const extractDoc = findDocResult(extractRes, expectedType, partyRole)
         const extractDetected = extractDoc?.type ?? extractDoc?.expected_type ?? detectedType
-
-        setVerifiedDocs((prev) =>
-          prev.map((d) =>
-            d.item.id === item.id
-              ? {
-                  ...d,
-                  status: 'success' as const,
-                  detectedType: extractDetected,
-                  verifyResponse: verifyRes,
-                  extractResponse: extractRes,
-                  response: extractRes,
-                }
-              : d,
-          ),
+        const extractCode = normalizeDecision(
+          extractDoc?.specialist?.decision,
+          extractDoc?.verification,
+          extractDoc?.status,
+          extractRes.decision,
+          extractRes.status,
         )
+
+        if (isRejectDecision(extractCode)) {
+          const reason = reasonOf(extractDoc, extractRes, 'Extraction rejected this document.')
+          patchDoc(item.id, {
+            status: 'error',
+            progress: 100,
+            detectedType: extractDetected,
+            verifyResponse: verifyRes,
+            extractResponse: extractRes,
+            response: extractRes,
+            error: reason,
+          })
+          setError(reason)
+          return
+        }
+
+        if (isReviewDecision(extractCode)) {
+          const reviewMsg = reasonOf(
+            extractDoc,
+            extractRes,
+            'Extraction marked for review — cannot run full process yet.',
+          )
+          patchDoc(item.id, {
+            status: 'review',
+            progress: 100,
+            detectedType: extractDetected,
+            verifyResponse: verifyRes,
+            extractResponse: extractRes,
+            response: extractRes,
+            error: reviewMsg,
+          })
+          setError(reviewMsg)
+          return
+        }
+
+        patchDoc(item.id, {
+          status: 'success',
+          progress: 100,
+          detectedType: extractDetected,
+          verifyResponse: verifyRes,
+          extractResponse: extractRes,
+          response: extractRes,
+          error: undefined,
+        })
 
         const hasPrimary = docsRef.current.some(
-          (d) => d.item.partyRole === 'PRIMARY_APPLICANT' && (d.status === 'success' || d.item.id === item.id),
+          (d) =>
+            d.item.partyRole === 'PRIMARY_APPLICANT' &&
+            (d.status === 'success' || d.item.id === item.id),
         )
         const hasCo = docsRef.current.some(
-          (d) => d.item.partyRole === 'CO_APPLICANT' && (d.status === 'success' || d.item.id === item.id),
+          (d) =>
+            d.item.partyRole === 'CO_APPLICANT' &&
+            (d.status === 'success' || d.item.id === item.id),
         )
         if (
           partySelection.applicant &&
@@ -341,9 +567,20 @@ export function useKycWizard() {
    * Response drives profile match and cross-document checks.
    */
   const runVerification = useCallback(async () => {
+    if (inFlightCount > 0) {
+      setError('Wait until all documents finish VERIFY / EXTRACT before running verification.')
+      return
+    }
+    const blocked = docsRef.current.filter(
+      (d) => d.status === 'review' || d.status === 'error' || d.status === 'type_mismatch',
+    )
     const docs = docsRef.current.filter((d) => d.status === 'success')
     if (docs.length === 0) {
-      setError('Upload at least one accepted document before running verification.')
+      setError(
+        blocked.length > 0
+          ? 'No accepted documents. REVIEW / REJECT docs cannot be processed until resolved.'
+          : 'Upload at least one accepted document before running verification.',
+      )
       return
     }
     if (!token.trim()) {
@@ -391,19 +628,25 @@ export function useKycWizard() {
     } finally {
       setVerifying(false)
     }
-  }, [token, logout, applicantId, coApplicantId, caseId, applyIdsFromResponse])
+  }, [token, logout, applicantId, coApplicantId, caseId, applyIdsFromResponse, inFlightCount])
 
   const reset = useCallback(() => {
     setStep('details')
     setProfileFields(DEFAULT_PROFILE_FIELDS.map((f) => ({ ...f })))
+    setApplication({ ...DEFAULT_APPLICATION })
     setPartySelection({ applicant: true, coApplicant: false })
     setActiveParty('PRIMARY_APPLICANT')
     setApplicantId('')
     setCoApplicantId('')
     setCaseId('')
+    setFosChecklist([])
+    setRequiredDocuments([])
+    setFosStage(null)
+    setLastFosResponse(null)
     setVerifiedDocs([])
     setInFlightCount(0)
     setVerifying(false)
+    setSubmittingApplicant(false)
     setError(null)
     setResult(null)
     setShowOtherPartyPrompt(false)
@@ -430,6 +673,12 @@ export function useKycWizard() {
     addCustomField,
     removeProfileField,
     canProceedFromDetails,
+    application,
+    updateApplicationField,
+    canProceedFromApplication,
+    submittingApplicant,
+    submitApplicantAndContinue,
+    goToApplication,
     partySelection,
     setPartySelection,
     canProceedFromParty,
@@ -440,6 +689,10 @@ export function useKycWizard() {
     coApplicantId,
     setCoApplicantId,
     caseId,
+    fosChecklist,
+    requiredDocuments,
+    fosStage,
+    lastFosResponse,
     verifiedDocs,
     primaryDocs,
     coDocs,
@@ -453,7 +706,6 @@ export function useKycWizard() {
     result,
     showOtherPartyPrompt,
     profileSnapshot,
-    goToParty,
     goToDocuments,
     uploadAndVerify,
     removeDoc,

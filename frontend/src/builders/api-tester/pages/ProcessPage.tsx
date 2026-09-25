@@ -1,8 +1,10 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useKycWizard } from '../../../runtime/api-tester'
+import { useAuth } from '../../../runtime/auth'
 import { RequireAuth } from '../../auth'
 import { Chatbot } from '../../chatbot'
 import {
+  ApplicationDetailsStep,
   BasicDetailsStep,
   DocumentUploadStep,
   PartySelectStep,
@@ -14,7 +16,8 @@ import {
 const FADE = { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const }
 
 /**
- * Login → Basic details → Party → Documents (verify on upload) → Run verification → Report
+ * Login (stage) → Basic details → Application → POST/GET FOS applicant →
+ * Party → Documents → Report. Chatbot uses copilot query with case context.
  */
 export function ProcessPage() {
   return (
@@ -25,6 +28,7 @@ export function ProcessPage() {
 }
 
 function ProcessPageContent() {
+  const { user, accessToken } = useAuth()
   const {
     step,
     setStep,
@@ -33,11 +37,20 @@ function ProcessPageContent() {
     addCustomField,
     removeProfileField,
     canProceedFromDetails,
+    application,
+    updateApplicationField,
+    canProceedFromApplication,
+    submittingApplicant,
+    submitApplicantAndContinue,
+    goToApplication,
     partySelection,
     setPartySelection,
     canProceedFromParty,
     activeParty,
     setActiveParty,
+    applicantId,
+    coApplicantId,
+    caseId,
     verifiedDocs,
     primaryDocs,
     coDocs,
@@ -49,7 +62,6 @@ function ProcessPageContent() {
     result,
     showOtherPartyPrompt,
     profileSnapshot,
-    goToParty,
     goToDocuments,
     uploadAndVerify,
     removeDoc,
@@ -60,20 +72,32 @@ function ProcessPageContent() {
     addMoreDocuments,
   } = useKycWizard()
 
+  const partyId =
+    activeParty === 'CO_APPLICANT' ? coApplicantId || undefined : applicantId || undefined
+
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
       <div className="card space-y-4">
         <div>
           <p className="font-display text-[12px] font-semibold uppercase tracking-[0.09em] text-content-secondary">
             Document verification
+            {user?.stage ? ` · ${user.stage}` : ''}
           </p>
           <h1 className="mt-2 font-display text-[24px] font-bold tracking-tight text-content sm:text-[28px]">
             KYC verification
           </h1>
           <p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-content-secondary">
-            Enter profile details, select party, upload documents. Each upload runs VERIFY then
-            EXTRACT. Run verification executes PROCESS for the full report.
+            Enter applicant and application details, create the FOS record, select party, then
+            upload documents. Each upload runs VERIFY then EXTRACT. Run verification executes
+            PROCESS for the full report.
           </p>
+          {(applicantId || caseId) && (
+            <p className="mt-2 font-mono text-[12px] text-content-secondary">
+              {applicantId && <span>Applicant: {applicantId}</span>}
+              {applicantId && caseId && <span className="mx-2 text-content-disabled">·</span>}
+              {caseId && <span>Case: {caseId}</span>}
+            </p>
+          )}
         </div>
         <WizardProgress current={step === 'report' ? 'report' : step} />
       </div>
@@ -92,8 +116,31 @@ function ProcessPageContent() {
               onChange={updateProfileField}
               onAddField={addCustomField}
               onRemoveField={removeProfileField}
-              onContinue={goToParty}
+              onContinue={goToApplication}
               canContinue={canProceedFromDetails}
+              error={error}
+            />
+          </motion.div>
+        )}
+
+        {step === 'application' && (
+          <motion.div
+            key="application"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={FADE}
+          >
+            <ApplicationDetailsStep
+              values={application}
+              onChange={updateApplicationField}
+              onBack={() => {
+                setError(null)
+                setStep('details')
+              }}
+              onContinue={() => void submitApplicantAndContinue()}
+              canContinue={canProceedFromApplication}
+              submitting={submittingApplicant}
               error={error}
             />
           </motion.div>
@@ -115,7 +162,7 @@ function ProcessPageContent() {
               }}
               onBack={() => {
                 setError(null)
-                setStep('details')
+                setStep('application')
               }}
               onContinue={goToDocuments}
               canContinue={canProceedFromParty}
@@ -165,9 +212,7 @@ function ProcessPageContent() {
             transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
             className="space-y-4"
           >
-            {/* 1. Profile / system data match */}
             <ProfileMatchPanel profile={profileSnapshot} result={result} />
-            {/* 2–3. KYC, cross-document, decision — from API response only */}
             <ResultsPanel
               result={result}
               onReset={reset}
@@ -194,8 +239,13 @@ function ProcessPageContent() {
         )}
       </AnimatePresence>
 
-      {/* AI assistant — fixed bottom-right on every post-login step */}
-      <Chatbot />
+      <Chatbot
+        caseId={caseId || undefined}
+        applicantId={applicantId || undefined}
+        partyId={partyId}
+        stage={user?.stage}
+        accessToken={accessToken || undefined}
+      />
     </div>
   )
 }

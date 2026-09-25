@@ -1,8 +1,17 @@
 import type { DocumentTypeHint, LosProcessResponse, PartyRole, UploadFileItem } from './los'
 
-export type WizardStep = 'details' | 'party' | 'documents' | 'report'
+export type WizardStep = 'details' | 'application' | 'party' | 'documents' | 'report'
 
-export type ProfileFieldKey = 'name' | 'dob' | 'pan' | string
+export type ProfileFieldKey =
+  | 'full_name'
+  | 'mobile'
+  | 'email'
+  | 'date_of_birth'
+  | 'address'
+  | 'name'
+  | 'dob'
+  | 'pan'
+  | string
 
 export interface ProfileField {
   key: ProfileFieldKey
@@ -10,7 +19,43 @@ export interface ProfileField {
   value: string
   /** Built-in fields cannot be removed */
   builtin?: boolean
+  /** HTML input type hint */
+  inputType?: 'text' | 'email' | 'tel' | 'date'
 }
+
+export interface ApplicationDetails {
+  product: string
+  loan_amount: string
+  employment_type: string
+  tenure_months: string
+  interest_rate_pct: string
+  declared_monthly_obligations: string
+  property_value: string
+}
+
+export const DEFAULT_APPLICATION: ApplicationDetails = {
+  product: 'PERSONAL_LOAN',
+  loan_amount: '',
+  employment_type: 'SALARIED',
+  tenure_months: '',
+  interest_rate_pct: '',
+  declared_monthly_obligations: '',
+  property_value: '',
+}
+
+export const PRODUCT_OPTIONS = [
+  { value: 'PERSONAL_LOAN', label: 'Personal Loan' },
+  { value: 'HOME_LOAN', label: 'Home Loan' },
+  { value: 'BUSINESS_LOAN', label: 'Business Loan' },
+  { value: 'LAP', label: 'Loan Against Property' },
+] as const
+
+export const EMPLOYMENT_OPTIONS = [
+  { value: 'SALARIED', label: 'Salaried' },
+  { value: 'SELF_EMPLOYED', label: 'Self Employed' },
+  { value: 'PROFESSIONAL', label: 'Professional' },
+  { value: 'OTHER', label: 'Other' },
+] as const
 
 export interface PartySelection {
   applicant: boolean
@@ -24,6 +69,7 @@ export type DocVerifyStatus =
   | 'verifying'
   | 'extracting'
   | 'success'
+  | 'review'
   | 'error'
   | 'type_mismatch'
 
@@ -31,6 +77,8 @@ export interface VerifiedDoc {
   item: UploadFileItem
   status: DocVerifyStatus
   error?: string
+  /** 0–100 pipeline progress for UI bar */
+  progress?: number
   /** Detected type from API response when available */
   detectedType?: string | null
   /** VERIFY response (authenticity) */
@@ -41,8 +89,11 @@ export interface VerifiedDoc {
 }
 
 export const DEFAULT_PROFILE_FIELDS: ProfileField[] = [
-  { key: 'name', label: 'Full name', value: '', builtin: true },
-  { key: 'dob', label: 'Date of birth', value: '', builtin: true },
+  { key: 'full_name', label: 'Full name', value: '', builtin: true },
+  { key: 'mobile', label: 'Mobile', value: '', builtin: true, inputType: 'tel' },
+  { key: 'email', label: 'Email', value: '', builtin: true, inputType: 'email' },
+  { key: 'date_of_birth', label: 'Date of birth', value: '', builtin: true, inputType: 'date' },
+  { key: 'address', label: 'Address', value: '', builtin: true },
   { key: 'pan', label: 'PAN', value: '', builtin: true },
 ]
 
