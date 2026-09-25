@@ -39,7 +39,19 @@ _DUMMY_USERNAME = os.getenv("DUMMY_USERNAME", "AniketDev")
 #   python -m app.security.generate_password_hash
 _DUMMY_PASSWORD_HASH = os.getenv("DUMMY_PASSWORD_HASH", "")
 
-_DEFAULT_SCOPES = ["los.read", "los.write"]
+_DEFAULT_SCOPES = [
+    "read_applicant",
+    "read_application",
+    "read_documents",
+    "read_verification",
+    "read_pending_items",
+    "read_next_action",
+    "create_applicant",
+    "update_applicant",
+    "create_application",
+    "upload_document",
+    "modify_application",
+]
 _DEFAULT_ROLES = ["los-service"]
 
 

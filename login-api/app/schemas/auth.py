@@ -12,11 +12,23 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1, examples=["Dev@123"])
 
 
-class LoginResponse(BaseModel):
+class TokenResponse(BaseModel):
+    """Matches frontend TokenResponse shape."""
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
-    expires_in_minutes: int
+    expires_in: int  # seconds
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=1)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=1)
 
 
 class MeResponse(BaseModel):
     username: str
+    role: str | None = None
+    scope: str | None = None
