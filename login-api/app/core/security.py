@@ -39,7 +39,6 @@ def create_access_token(
     scope: str | None = None,
 ) -> str:
     """
-<<<<<<< HEAD
     Creates an RS256-signed JWT matching the LOS token shape:
 
     Header:  { "alg": "RS256", "kid": "...", "typ": "JWT" }
@@ -49,14 +48,6 @@ def create_access_token(
     expire = now + timedelta(minutes=settings.access_token_expire_minutes)
     iat = int(now.timestamp())
     jti = f"{subject}-{iat}"
-=======
-    Creates an RS256-signed JWT with sub, iss, aud, iat, nbf, exp, jti,
-    scope and role claims, and a `kid` header.
-    """
-    now = datetime.now(timezone.utc)
-    iat = int(now.timestamp())
-    exp = int((now + timedelta(minutes=settings.access_token_expire_minutes)).timestamp())
->>>>>>> dev/aniket
 
     payload = {
         "sub": subject,
@@ -64,7 +55,6 @@ def create_access_token(
         "aud": settings.jwt_audience,
         "iat": iat,
         "nbf": iat,
-<<<<<<< HEAD
         "exp": int(expire.timestamp()),
         "jti": jti,
         "scope": scope if scope is not None else settings.jwt_default_scope,
@@ -93,19 +83,6 @@ def create_refresh_token(subject: str, settings: Settings) -> str:
         "exp": int(exp.timestamp()),
     }
     return token
-=======
-        "exp": exp,
-        "jti": f"{settings.dummy_role}-{iat}",
-        "scope": settings.dummy_scope,
-        "role": settings.dummy_role,
-    }
-    return jwt.encode(
-        payload,
-        settings.private_key,
-        algorithm=settings.jwt_algorithm,
-        headers={"kid": settings.jwt_kid},  # "typ": "JWT" PyJWT khud add karta hai
-    )
->>>>>>> dev/aniket
 
 
 def rotate_refresh_token(old_token: str, settings: Settings) -> tuple[str, str] | None:

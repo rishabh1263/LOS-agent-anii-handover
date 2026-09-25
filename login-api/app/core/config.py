@@ -18,16 +18,11 @@ class Settings(BaseModel):
     app_name: str = os.getenv("APP_NAME", "Login Service")
     env: str = os.getenv("ENV", "development")
 
-<<<<<<< HEAD
     # JWT — RS256 (asymmetric): sign with private key, verify with public key
-=======
-    # JWT (RS256)
->>>>>>> dev/aniket
     jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "RS256")
     jwt_kid: str = os.getenv("JWT_KID", "los-rs256-1")
     jwt_issuer: str = os.getenv("JWT_ISSUER", "los-local")
     jwt_audience: str = os.getenv("JWT_AUDIENCE", "los-agentic-ai")
-<<<<<<< HEAD
     # Prefer full PEM content from env; fall back to file paths
     jwt_private_key: str = os.getenv("JWT_PRIVATE_KEY", "")
     jwt_public_key: str = os.getenv("JWT_PUBLIC_KEY", "")
@@ -44,11 +39,6 @@ class Settings(BaseModel):
         "read_pending_items read_next_action create_applicant update_applicant "
         "create_application upload_document modify_application",
     )
-=======
-    jwt_private_key_path: str = os.getenv("JWT_PRIVATE_KEY_PATH", "keys/private.pem")
-    jwt_public_key_path: str = os.getenv("JWT_PUBLIC_KEY_PATH", "keys/public.pem")
-    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 120))
->>>>>>> dev/aniket
 
     # Dummy user credentials (temporary, until real user DB is added)
     dummy_username: str = os.getenv("DUMMY_USERNAME", "")
