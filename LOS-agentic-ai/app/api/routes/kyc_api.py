@@ -9,6 +9,9 @@ for the same inputs.
 
 from __future__ import annotations
 
+from fastapi import Depends as _Depends
+from app.security.access import require_any_scope as _require_any_scope
+
 import logging
 import uuid
 
@@ -31,6 +34,7 @@ async def kyc_configuration() -> dict:
 @router.post(
     "",
     response_model=KycResult,
+    dependencies=[_Depends(_require_any_scope('kyc:read', 'read_verification', write=False))],
     summary="Cross-check one applicant's documents",
     description=(
         "Compares name, date of birth, address, PAN and income across the "

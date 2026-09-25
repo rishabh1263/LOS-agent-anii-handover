@@ -86,9 +86,51 @@ def _load_all() -> dict[str, dict[str, Any]]:
 
 def reload() -> None:
     """Drop the cache. For tests, and for an explicit reconfiguration."""
-    global _CACHE
+    global _CACHE, _STAGE_CACHE
     with _LOCK:
         _CACHE = None
+        _STAGE_CACHE = None
+
+
+# -- stage requirements ------------------------------------------------------
+#
+# NOT A PRODUCT POLICY, so not in the policies directory (every file there is
+# loaded as one). It says what each LOS stage asks for on top of the stages
+# before it; see config/stage_requirements.yaml.
+
+_STAGE_DEFAULT = (Path(__file__).resolve().parents[2] / "config"
+                  / "stage_requirements.yaml")
+_STAGE_CACHE: dict[str, Any] | None = None
+
+
+def stage_requirements_path() -> Path:
+    return Path(os.getenv("LOS_STAGE_REQUIREMENTS_PATH") or _STAGE_DEFAULT)
+
+
+def stage_policy() -> dict[str, Any]:
+    """The stage requirements document. Empty -- never an error -- when absent."""
+    global _STAGE_CACHE
+    if _STAGE_CACHE is not None:
+        return _STAGE_CACHE
+    with _LOCK:
+        if _STAGE_CACHE is not None:
+            return _STAGE_CACHE
+        path = stage_requirements_path()
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except FileNotFoundError:
+            document = {}
+        except (yaml.YAMLError, OSError) as exc:
+            # A broken stage file must not take the service down, and must
+            # not invent requirements: no stage rules apply, and it is logged.
+            logger.error("Stage requirements %s unusable: %s", path, exc)
+            document = {}
+        if not isinstance(document, dict):
+            logger.error("Stage requirements %s is not a mapping; ignored", path)
+            document = {}
+        document.setdefault("source_file", path.name)
+        _STAGE_CACHE = document
+        return _STAGE_CACHE
 
 
 def known_products() -> list[str]:
@@ -110,4 +152,5 @@ def policy_for(product: str | None) -> dict[str, Any] | None:
     return _load_all().get(key)
 
 
-__all__ = ["known_products", "policies_dir", "policy_for", "reload"]
+__all__ = ["known_products", "policies_dir", "policy_for", "reload",
+           "stage_policy", "stage_requirements_path"]

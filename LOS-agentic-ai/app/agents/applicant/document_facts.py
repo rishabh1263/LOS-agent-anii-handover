@@ -143,11 +143,20 @@ def answer(
     verification_source = _source(verification, document_type)
 
     if status != "PASS":
-        codes = ", ".join(verification.reason_codes or [])
-        because = f" ({codes})" if codes else ""
-        return (f"Your {words} was recorded with verification status "
-                f"{status}{because}. Its details are not confirmed, so no "
-                f"{label} from it is reported.",
+        # THE RECORDED VERDICT AND REASONS, IN WORDS. The status and the
+        # reason codes stay in `sources`; the sentence says what they mean
+        # -- "under review", and the catalogue's text for each code --
+        # rather than printing REVIEW (REQUIRED_FIELD_MISSING).
+        from app.agents.applicant.answer import _explained
+
+        held = {"REVIEW": "is under review", "FAIL": "did not pass verification"}
+        verb = held.get(status, f"was recorded as {status.lower()}")
+        reasons = " ".join(_explained(code)
+                           for code in (verification.reason_codes or [])[:2])
+        return (f"Your {words} {verb}."
+                + (f" {reasons}" if reasons else "")
+                + f" Its details are not confirmed, so no {label} from it "
+                  f"is reported.",
                 [verification_source])
 
     extraction = next(

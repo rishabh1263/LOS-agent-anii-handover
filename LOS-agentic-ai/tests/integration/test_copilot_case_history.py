@@ -116,7 +116,7 @@ def test_the_answer_names_the_recorded_finding(client, repo):
     body = ask(client).json()
 
     assert "not the type it was declared as" in body["answer"]
-    assert "REVIEW" in body["answer"]
+    assert "under review" in body["answer"]  # the recorded REVIEW, in words
 
 
 def test_several_findings_are_all_reported(client, repo):
@@ -300,6 +300,8 @@ def test_the_verification_scope_is_sufficient(make_token, repo):
     import main
 
     seed(repo)
+    # The officer who opened the case owns it (app/security/access.py).
+    repo.grant_access("test-subject", "APPLICANT", "APP-1")
     client = TestClient(main.app)
     client.headers.update(
         {"Authorization": f"Bearer {make_token(scopes=['read_verification'])}"})
@@ -372,7 +374,12 @@ def test_the_response_carries_only_the_published_keys(client, repo):
         # nothing registered; it is null on an answered question.
         "stage", "stage_resolution", "status",
         # Whether retrieved evidence backed the answer.
-        "grounded"}
+        "grounded",
+        # The follow-up block to send back, and what a follow-up was
+        # taken to mean (additive; null when there was none).
+        "context", "followed_up",
+        # Where the stage came from, and where the case is within it.
+        "stage_source", "stage_status"}
 
 
 def test_no_payload_or_internals_reach_the_caller(client, repo):

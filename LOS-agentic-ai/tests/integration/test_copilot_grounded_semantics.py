@@ -144,6 +144,9 @@ def client(tmp_path, monkeypatch, make_token):
     repository.save_application(Application(case_id="CASE-G", applicant_id="APP-G",
                                             product="PERSONAL_LOAN"))
     persist_los_result(RESULT)
+    # The officer who opened this case owns it (app/security/access.py);
+    # the tests below ask as that officer.
+    repository.grant_access("test-subject", "APPLICANT", "APP-G")
 
     c = TestClient(main.app)
     c.headers.update({"Authorization": f"Bearer {make_token(scopes=SCOPES)}"})

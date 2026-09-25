@@ -421,6 +421,61 @@ class CaseEvent:
     sequence: int = 0
 
 
+@dataclass
+class CaseStage:
+    """
+    WHERE A CASE IS IN THE LOS LIFECYCLE -- the one authoritative record.
+
+    Written only by `app.agents.los.stage_lifecycle`, inside the same
+    transaction as the `StageTransition` that explains it. A case with no
+    row has never been transitioned: its stage is still derived the way it
+    always was (the timeline, then the application status -- FOS).
+
+    Kept apart from `Application.status` on purpose: REVIEW, PASS and
+    READY_FOR_CPA are application statuses, never stages.
+    """
+
+    case_id: str
+    stage: str
+    #: IN_PROGRESS, READY_FOR_HANDOFF, ON_HOLD -- where the case is WITHIN
+    #: its stage. A workflow status, never a decision.
+    stage_status: str
+    stage_started_at: datetime = field(default_factory=utcnow)
+    updated_at: datetime = field(default_factory=utcnow)
+    #: Bumped by every write. A writer names the version it read, so a
+    #: stale read can never overwrite a newer stage.
+    version: int = 0
+
+
+@dataclass
+class StageTransition:
+    """
+    One recorded change to a case's stage or stage status. APPEND-ONLY:
+    the store refuses UPDATE and DELETE on this history.
+    """
+
+    transition_id: str
+    case_id: str
+    #: The `CaseStage.version` this transition produced.
+    version: int
+    #: STAGE_ENTERED or STAGE_STATUS_CHANGED.
+    kind: str
+    to_stage: str
+    to_status: str
+    from_stage: str | None = None
+    from_status: str | None = None
+    #: When the stage being left was entered, where known.
+    previous_stage_started_at: datetime | None = None
+    #: WORKFLOW, LOS_INTEGRATION, OPERATOR -- who drove it, by kind.
+    source: str = "WORKFLOW"
+    #: The authenticated subject that requested it.
+    actor: str | None = None
+    reason: str | None = None
+    request_id: str | None = None
+    correlation_id: str | None = None
+    created_at: datetime = field(default_factory=utcnow)
+
+
 __all__ = [
     "ACTIONABLE_STATUSES",
     "Applicant",
@@ -429,11 +484,13 @@ __all__ = [
     "CaseDecision",
     "CaseEvent",
     "CaseFinding",
+    "CaseStage",
     "Document",
     "DocumentStatus",
     "DocumentVersion",
     "FindingKind",
     "SATISFYING_STATUSES",
+    "StageTransition",
     "VERDICT_TO_STATUS",
     "status_for_verdict",
     "utcnow",

@@ -19,6 +19,7 @@ action the FOS has to confirm, and only the confirmation carries out the work.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from typing import Any
@@ -36,6 +37,7 @@ from app.agents.applicant import (
     knowledge_answer,
     permissions,
     routing,
+    status_facts,
 )
 from app.agents.applicant.answer import (
     NOTHING_AVAILABLE,
@@ -49,8 +51,10 @@ from app.agents.applicant.intents import (
     Intent,
     SIMPLE_INTENTS,
     WRITE_INTENTS,
+    asks_about_own_case,
     classify,
     plan_for,
+    understand,
 )
 from app.agents.applicant.permissions import Caller, PermissionDenied
 
@@ -157,6 +161,16 @@ async def _call_tools(
     return results, trace, errors
 
 
+#: Write intent -> the ONE tool that may carry it out. The proposal names it
+#: and the confirmation is refused if the caller sends any other.
+_WRITE_TOOL_FOR = {
+    Intent.CREATE_APPLICANT: "applicant.create",
+    Intent.CREATE_APPLICATION: "application.create",
+    Intent.UPDATE_APPLICANT: "applicant.update",
+    Intent.MARK_FOR_REUPLOAD: "documents.mark_for_reupload",
+}
+
+
 def _proposed_action(
     classification,
     applicant_id: str | None,
@@ -185,12 +199,7 @@ def _proposed_action(
         ),
     }
 
-    tool = {
-        Intent.CREATE_APPLICANT: "applicant.create",
-        Intent.CREATE_APPLICATION: "application.create",
-        Intent.UPDATE_APPLICANT: "applicant.update",
-        Intent.MARK_FOR_REUPLOAD: "documents.mark_for_reupload",
-    }[intent]
+    tool = _WRITE_TOOL_FOR[intent]
 
     arguments: dict[str, Any] = dict(fields)
     if intent in (Intent.UPDATE_APPLICANT,):
@@ -211,7 +220,8 @@ def _proposed_action(
     }
 
 
-def _case_qualifier(case_id: str | None, party_id: str | None) -> str:
+def _case_qualifier(case_id: str | None, party_id: str | None,
+                    since: str | None = None) -> str:
     """
     What the CASE concluded, when that differs from the documents.
 
@@ -225,9 +235,13 @@ def _case_qualifier(case_id: str | None, party_id: str | None) -> str:
 
     try:
         memory = case_memory_facts.case_memory(case_id, party_id)
-        decisions = memory.get("decisions") or []
+        # ONLY THIS STAGE'S HOLD. A review decided at FOS is not the hold on
+        # a case now at CREDIT; `since` is when the current stage began.
+        decisions = [d for d in memory.get("decisions") or []
+                     if status_facts.during_stage(d, since)]
         if not decisions:
             return ""
+        memory = {**memory, "decisions": decisions}
 
         latest = decisions[-1]
         decision = str(latest.get("decision") or "").upper()
@@ -254,6 +268,131 @@ def _case_qualifier(case_id: str | None, party_id: str | None) -> str:
         return ""
 
 
+#: The second question in a mixed message, and what it asks.
+_SECOND_HALF = re.compile(
+    r"\b(?:and|also|plus)\s+(what|which|how|who|can|could|should|tell\s+me|"
+    r"explain)\b|,\s*(?:and\s+)?(what|which|how)\b", re.IGNORECASE)
+_WHAT_TO_DO = re.compile(
+    r"\b(upload|submit|provide|collect|send|pending|missing|outstanding|"
+    r"need|needed|required|do\s+next|should\s+i\s+do|next\s+step|"
+    r"what\s+(do|should)\s+i\s+do)\b", re.IGNORECASE)
+
+
+def _second_half(message: str) -> str:
+    match = _SECOND_HALF.search(message or "")
+    return message[match.start():] if match else ""
+
+
+def _asks_what_to_do(text: str) -> bool:
+    return bool(text) and bool(_WHAT_TO_DO.search(text))
+
+
+def _pending_and_next(results: dict[str, Any]) -> str:
+    """What this case still needs, from its own checklist and next action."""
+    view = results.get("applicant.360") or {}
+    pending = status_facts.pending_documents(view.get("checklist"))
+    if pending:
+        listed = case_memory_facts._and_list(pending)
+        one = len(pending) == 1
+        return (f"{listed} {'is' if one else 'are'} also pending; please "
+                f"upload {'it' if one else 'them'} to continue.")
+    detail = (view.get("next_action") or {}).get("detail")
+    return f"Next step: {detail}" if detail else ""
+
+
+def _named_pending(document_type: str, results: dict[str, Any]) -> str:
+    """
+    Whether ONE named document is pending, from the checklist -- then what
+    else is still to collect. Empty when the checklist does not name it.
+
+    "addr proof pending?" was answered "Pending -- not yet collected: Bank
+    Statement.": true, and silent on the one document that was asked about.
+    """
+    from app.agents.applicant.answer import _readable
+
+    checklist = (results.get("documents.checklist") or {}).get("checklist") or []
+    wanted = str(document_type).upper()
+    entry = next((e for e in checklist if isinstance(e, dict) and (
+        str(e.get("slot") or "").upper() == wanted
+        or wanted in {str(a).upper() for a in e.get("accepts") or []})), None)
+    if entry is None:
+        return ""
+
+    name = _readable(entry.get("slot"))
+    status = str(entry.get("status") or "").upper()
+    if status == "MISSING":
+        said = f"{name} is still pending."
+    elif status == "VERIFIED":
+        said = f"{name} is not pending: it has been received and verified."
+    else:
+        said = f"{name} has been received and is {_readable(status).lower()}."
+
+    others = [_readable(e.get("slot")) for e in _missing_required(checklist)
+              if e is not entry]
+    if others:
+        said += f" Still to collect: {case_memory_facts._and_list(others)}."
+    return said
+
+
+#: A document status filter, as the answer says it.
+_STATUS_PHRASE = {"VERIFIED": "verified", "REVIEW": "under review",
+                  "REJECTED": "rejected"}
+
+
+def _documents_in_status(status: str, results: dict[str, Any]) -> str:
+    """The uploaded documents in ONE status, read from documents.get."""
+    from app.agents.applicant.answer import _readable
+
+    documents = (results.get("documents.get") or {}).get("documents") or []
+    phrase = _STATUS_PHRASE.get(status, status.lower())
+    matching = [d for d in documents
+                if str(d.get("status") or "").upper() == status]
+    if not documents:
+        return "No documents have been uploaded for this case yet."
+    if not matching:
+        return f"No documents are {phrase}."
+    kinds = list(dict.fromkeys(_readable(d.get("document_type")) for d in matching))
+    verb = "is" if len(kinds) == 1 else "are"
+    return f"{case_memory_facts._and_list(kinds)} {verb} {phrase}."
+
+
+def _missing_required(checklist: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Required checklist entries with nothing uploaded."""
+    return [e for e in checklist if isinstance(e, dict)
+            and e.get("mandatory", True)
+            and str(e.get("status") or "").upper() == "MISSING"]
+
+
+def _plain_knowledge(text: str) -> str:
+    """A handbook passage fit for a sentence: codes in words, no tables."""
+    from app.agents.applicant.validate import _CODE
+    from app.knowledge.grounding import _in_words
+
+    said = _in_words(text or "")
+    sentences = re.split(r"(?<=[.!?])\s+|\n+", said)
+    kept = [s.strip() for s in sentences
+            if s.strip() and "|" not in s and not _CODE.search(s)]
+    return " ".join(kept).strip()
+
+
+def _stage_ctx(stage_context: Any, case_id: str | None) -> Any:
+    """The caller's stage context, else the case record's (stages.resolve)."""
+    if stage_context is not None or not case_id:
+        return stage_context
+    try:
+        from app.agents.los import stages
+
+        return stages.resolve(case_id)
+    except Exception:
+        return None
+
+
+def _stage_of(stage_context: Any, case_id: str | None) -> str | None:
+    """The stage name the case record establishes, or None."""
+    stage = getattr(_stage_ctx(stage_context, case_id), "stage", None)
+    return getattr(stage, "value", stage)
+
+
 def _portfolio_answer(results: dict[str, Any]) -> str:
     """
     The applicant's applications, counted and listed separately.
@@ -274,11 +413,18 @@ def _portfolio_answer(results: dict[str, Any]) -> str:
     if not total:
         return "No applications are on file for this applicant."
 
+    # NO CASE IDS IN THE SENTENCE. Each case is told apart by position,
+    # product and status; the ids stay in the structured `applications`
+    # list for any caller that needs to act on one.
+    from app.agents.applicant.answer import _readable
+
     lines = []
-    for record in applications:
-        case_id = str(record.get("case_id") or "unknown")
-        status = str(record.get("status") or "UNKNOWN")
-        lines.append(f"{case_id} ({status})")
+    for number, record in enumerate(applications, start=1):
+        status = _readable(str(record.get("status") or "UNKNOWN"))
+        product = record.get("product")
+        what = (f"{_readable(str(product))} application" if product
+                else "application")
+        lines.append(f"{number}) {what}, {status}")
 
     noun = "case" if total == 1 else "cases"
     return f"Across {total} {noun}: " + "; ".join(lines) + "."
@@ -311,6 +457,11 @@ async def answer_question(
     # response shape are the ones a typed question gets. This skips the
     # inference step and nothing else.
     intent_override: Intent | None = None,
+    # WHICH LOS STAGE THE CASE IS IN, as the caller already resolved it
+    # (stages.StageContext). Optional: without it the stage is read from
+    # the case record when an answer needs it. Never taken from the words
+    # of the question.
+    stage_context: Any = None,
 ) -> dict[str, Any]:
     """
     One FOS question, answered.
@@ -413,7 +564,15 @@ async def answer_question(
         classification = Classification(
             intent_override, confidence="high", matched_on="action")
     else:
+        # NORMALISED, CLASSIFIED, AND ONLY THEN THE SEMANTIC FALLBACK --
+        # see intents.understand. A WRITE is classified on the words as
+        # typed: normalisation rewrites short words, and a name or an
+        # address being saved must reach the store exactly as given.
         classification = classify(message)
+        if classification.intent not in WRITE_INTENTS:
+            classification = understand(message, has_case=bool(case_id))
+            if classification.normalized:
+                message = classification.normalized
 
     intent = classification.intent
 
@@ -467,9 +626,18 @@ async def answer_question(
         # it with a paragraph about document states. A message that only
         # means something in context, and whose context did not resolve,
         # goes straight to the clarification.
+        #
+        # NOR A QUESTION ABOUT THIS CASE. "Where does my application
+        # stand" asked against a case is about that case; the handbook
+        # has nothing to say about it, and retrieval scoring it
+        # confident published a paragraph of policy as FOS_KNOWLEDGE,
+        # with no tool run, in place of the case's recorded status. A
+        # case question this service did not understand gets the
+        # clarification, never policy text.
         bare = followup.is_bare(message)
+        own_case = bool(case_id) and asks_about_own_case(message)
         text, source, detail = (
-            ("", "", {"confident": False}) if bare
+            ("", "", {"confident": False}) if bare or own_case
             else await _knowledge_reply(message)
         )
         if detail["confident"]:
@@ -512,8 +680,12 @@ async def answer_question(
     # ---- authorisation, before any tool runs ---------------------------
     try:
         permissions.check_capability(caller, intent)
-        if intent not in WRITE_INTENTS or intent is not Intent.CREATE_APPLICANT:
-            permissions.check_ownership(applicant_id or "", case_id)
+        if intent is not Intent.CREATE_APPLICANT:
+            # THE CALLER, not just the pair of ids it sent: see
+            # app/security/access.py for the ownership model.
+            permissions.check_ownership(applicant_id or "", case_id,
+                                        caller=caller,
+                                        write=intent in WRITE_INTENTS)
     except PermissionDenied as exc:
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
@@ -620,7 +792,10 @@ async def answer_question(
 
     # WHAT THE CASE ITSELF RECORDED, read once before anything phrases
     # an answer, because its presence decides who does the phrasing.
-    recorded = (_case_qualifier(case_id, party_id)
+    recorded = (_case_qualifier(
+                    case_id, party_id,
+                    since=getattr(_stage_ctx(stage_context, case_id),
+                                  "hold_since", None))
                 if intent in (Intent.DOCUMENT_VERIFICATION,
                               Intent.APPLICATION_STATUS)
                 else "")
@@ -702,13 +877,76 @@ async def answer_question(
         if recorded:
             use_llm = False
 
+        # A STATUS QUESTION IS ANSWERED FROM THE STATUS, IN ONE OR TWO
+        # SENTENCES: the stage, whether a recorded decision holds it and
+        # why, and the required documents still missing. No identifier,
+        # no creation date, no product. See status_facts.py.
+        status_view = None
+        if intent is Intent.APPLICATION_STATUS:
+            status_view = status_facts.answer(
+                (results.get("application.get") or {}).get("application") or {},
+                (results.get("documents.checklist") or {}).get("checklist"),
+                case_memory_facts.case_memory(case_id, party_id)
+                if case_id else {},
+                stage=_stage_of(stage_context, case_id),
+                since=getattr(_stage_ctx(stage_context, case_id),
+                              "hold_since", None),
+            )
+            if status_view[2]:
+                # A recorded decision holds the application; its reason
+                # is reported, never rephrased.
+                use_llm = False
+
         if use_llm:
             answer, source, llm_ms = await generate_answer(
                 message, answering_intent, results,
+                identifiers=(case_id, applicant_id),
+                structured=status_view[0] if status_view is not None else None,
             )
+            if status_view is not None and status_facts.names_an_identifier(
+                    answer, case_id, applicant_id):
+                answer, source = status_view[0], "deterministic"
+        elif status_view is not None:
+            answer, case_sources = status_view[0], status_view[1]
+            source, llm_ms = "deterministic", 0.0
+        elif intent is Intent.APPLICATION_STAGE:
+            # The stage the case record establishes, and where in it.
+            view = results.get("applicant.360") or {}
+            if classification.matched_on == "stage_history":
+                # Where it HAS BEEN -- the recorded history, never inferred.
+                answer = status_facts.stage_history_answer(
+                    message, _stage_ctx(stage_context, case_id))
+            else:
+                answer = status_facts.stage_answer(
+                    view.get("application") or {"status": view.get("stage")},
+                    _stage_of(stage_context, case_id))
+            source, llm_ms = "deterministic", 0.0
+        elif (intent is Intent.DOCUMENTS_PENDING
+              and classification.document_type
+              and _named_pending(classification.document_type, results)):
+            # "Address proof pending?" is answered about Address Proof.
+            answer = _named_pending(classification.document_type, results)
+            source, llm_ms = "deterministic", 0.0
+        elif (intent in (Intent.DOCUMENTS_UPLOADED, Intent.DOCUMENTS_PENDING)
+              and classification.status_filter):
+            # "Which documents are verified / under review / rejected?"
+            answer = _documents_in_status(classification.status_filter,
+                                          results)
+            source, llm_ms = "deterministic", 0.0
         else:
             answer = deterministic_answer(answering_intent, results)
             source, llm_ms = "deterministic", 0.0
+
+        # NO INTERNAL IDENTIFIER IN A SENTENCE. A model answer that names
+        # the case or applicant id is replaced by the deterministic one,
+        # whatever else it got right. The ids stay in the structured
+        # fields, where a caller that needs them reads them.
+        if (source == "llm" and not config.expose_internal_ids()
+                and status_facts.names_an_identifier(answer, case_id,
+                                                     applicant_id)):
+            answer = (status_view[0] if status_view is not None
+                      else deterministic_answer(answering_intent, results))
+            source = "deterministic"
 
     # A DOCUMENT VERDICT IS NOT THE CASE'S VERDICT.
     #
@@ -723,7 +961,9 @@ async def answer_question(
     # the reason codes the pipeline wrote down, phrased by the same
     # function the case-history answer uses. Nothing new is concluded
     # here.
-    if intent in (Intent.DOCUMENT_VERIFICATION, Intent.APPLICATION_STATUS):
+    # A status answer states its own hold (status_facts), so the
+    # qualifier is appended to the document-verification answer only.
+    if intent is Intent.DOCUMENT_VERIFICATION:
         if recorded:
             answer = answer.rstrip() + " " + recorded
 
@@ -741,6 +981,19 @@ async def answer_question(
         response_source = routing.ResponseSource.STRUCTURED.value
 
     if intent is Intent.MIXED:
+        # NO HALF ANSWERS. "What is wrong with my application AND what
+        # should I upload?" was answered with the problem and a handbook
+        # table of reason codes -- while the case record already said
+        # Address Proof was missing. What to upload, what is pending and
+        # what to do next are facts about THIS case, so the case half
+        # answers them from its records; the handbook half below adds the
+        # general rule, labelled as such.
+        second = _second_half(message)
+        if _asks_what_to_do(second):
+            todo = _pending_and_next(results)
+            if todo:
+                answer = f"{answer.rstrip()} {todo}".strip()
+
         # The knowledge half, appended -- never substituted. If retrieval is
         # not confident the case answer still stands on its own; a question
         # the handbook cannot help with is not a question the case facts
@@ -750,9 +1003,19 @@ async def answer_question(
         # for a sentence nobody reads differently. Trimmed too: the handbook
         # section behind it is a numbered list, and a chat reply is not the
         # place for it.
+        # THE HANDBOOK IS STILL CONSULTED for the general half -- a mixed
+        # question is answered from both, and says which part is which.
         text, knowledge_source, detail = await _knowledge_reply(
             message, allow_model=False, max_sentences=2,
         )
+        # CLEAN, AND LABELLED AS GENERAL. Codes become words, a table or a
+        # code list is dropped, and what remains is marked as general so it
+        # cannot be read as a fact about this case.
+        text = _plain_knowledge(text)
+        if not text:
+            detail = {**detail, "confident": False}
+        elif detail["confident"]:
+            text = f"In general: {text}"
         knowledge_block = _public_knowledge(detail)
         if detail["confident"]:
             # NEVER A REFUSAL IN FRONT OF AN ANSWER. Where the case
@@ -1031,10 +1294,45 @@ async def confirm_action(
     handler = tools.WRITE_TOOLS.get(capability)
     if handler is None:
         raise AgentError("INVALID_ACTION", f"Unknown capability: {capability}", 400)
+    # THE TOOL IS THE INTENT'S, OR NOTHING. The action is caller-supplied;
+    # a confirmation typed UPDATE_APPLICANT must not run some other write.
+    if _WRITE_TOOL_FOR.get(intent) != capability:
+        raise AgentError("INVALID_ACTION",
+                         "That tool does not carry out this action.", 400)
 
     arguments = {k: v for k, v in (action.get("arguments") or {}).items()
                  if v is not None}
+
+    # PER-TOOL SCOPE AND OWNERSHIP, checked again here: the confirmation is
+    # a separate request and may carry a different token.
+    try:
+        permissions.check_tool(caller, capability)
+        if intent is not Intent.CREATE_APPLICANT:
+            permissions.check_ownership(
+                str(arguments.get("applicant_id") or ""),
+                arguments.get("case_id") or None,
+                caller=caller, write=True)
+    except PermissionDenied as exc:
+        audit.record(request_id=request_id, subject=caller.subject,
+                     applicant_id=str(arguments.get("applicant_id") or ""),
+                     case_id=str(arguments.get("case_id") or ""),
+                     intent=intent.value, tools=[], write=True,
+                     confirmed=True, status="DENIED", detail=exc.code)
+        raise AgentError(exc.code, exc.message, http_status=403) from exc
+
     envelope = await handler(**arguments)
+
+    # WHAT THE CALLER CREATED, THE CALLER OWNS.
+    if envelope.ok and intent in (Intent.CREATE_APPLICANT,
+                                  Intent.CREATE_APPLICATION):
+        from app.security import access
+
+        result = envelope.result or {}
+        access.record_ownership(
+            caller.subject,
+            applicant_id=((result.get("applicant") or {}).get("applicant_id")
+                          or arguments.get("applicant_id")),
+            case_id=(result.get("application") or {}).get("case_id"))
 
     audit.record(
         request_id=request_id, subject=caller.subject,

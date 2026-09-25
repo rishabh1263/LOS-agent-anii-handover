@@ -58,7 +58,7 @@ def client(make_token) -> TestClient:
 
     c = TestClient(main.app)
     c.headers.update(
-        {"Authorization": f"Bearer {make_token(scopes=['los.read'])}"})
+        {"Authorization": f"Bearer {make_token(scopes=['los.read', 'los.write'])}"})
     return c
 
 

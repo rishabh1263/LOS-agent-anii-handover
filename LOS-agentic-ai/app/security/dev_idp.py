@@ -125,6 +125,35 @@ def _shared_jwk() -> dict[str, Any] | None:
     return jwk
 
 
+#: Environments in which a development identity provider may ever run.
+_DEV_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
+
+
+def dev_idp_enabled() -> bool:
+    """
+    Whether this service may mount its built-in login / token endpoints.
+
+    BOTH CONDITIONS, AND FAIL CLOSED:
+      LOS_DEV_IDP_ENABLED=true   an explicit opt-in (default: off)
+      ENVIRONMENT in development/dev/local/test
+                                 an unset ENVIRONMENT counts as production
+
+    A production deployment that sets the flag by mistake still gets no
+    token issuer: the environment check refuses it, and says so in the log.
+    """
+    flag = (os.getenv("LOS_DEV_IDP_ENABLED") or "").strip().lower()
+    if flag not in {"1", "true", "yes", "on"}:
+        return False
+    environment = (os.getenv("ENVIRONMENT") or "production").strip().lower()
+    if environment not in _DEV_ENVIRONMENTS:
+        logging.getLogger(__name__).error(
+            "LOS_DEV_IDP_ENABLED is set but ENVIRONMENT=%s is not a "
+            "development environment; the development identity provider "
+            "stays disabled.", environment)
+        return False
+    return True
+
+
 def get_jwks() -> dict[str, Any]:
     """The JWKS document that JWT_JWKS_URL should resolve to."""
     jwk = json.loads(RSAAlgorithm.to_jwk(_keypair().public_key))

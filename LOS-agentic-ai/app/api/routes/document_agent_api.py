@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from fastapi import Depends as _Depends
+from app.security.access import require_any_scope as _require_any_scope
+
 from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
@@ -16,6 +19,7 @@ router = APIRouter(
 @router.post(
     "",
     summary="Process a document",
+    dependencies=[_Depends(_require_any_scope('documents:write', 'upload_document', write=True))],
     description=(
         "Single entry point for document OCR, classification, "
         "extraction, verification and future KYC processing."

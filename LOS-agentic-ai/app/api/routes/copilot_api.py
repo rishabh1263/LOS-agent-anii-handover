@@ -23,13 +23,15 @@ guess. Everything else routes exactly as it already did.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.agents.applicant import intents, routing
+from app.agents.applicant import followup, intents, routing
+from app.agents.applicant.validate import check_composed
 from app.agents.applicant.agent import AgentError, answer_question
 from app.agents.applicant.grounded import supported_by_case_evidence
 from app.agents.los import stage_registry, stages
@@ -105,6 +107,19 @@ class CopilotQueryRequest(BaseModel):
             "otherwise would invite a client to rely on one."
         ),
     )
+    context: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "The `context` block from the previous response, sent back "
+            "unchanged, so a follow-up such as *\"why?\"* or *\"what about "
+            "the document?\"* is understood. **Untrusted and advisory**: it "
+            "can only rewrite the message into another question, which is "
+            "then classified and authorised like any other. It never "
+            "selects a case, a stage or a tool."
+        ),
+        examples=[{"last_query_type": "CASE_FACT",
+                   "last_intent": "CASE_HISTORY", "last_slot": "PAN"}],
+    )
 
 
 class CopilotSource(BaseModel):
@@ -153,6 +168,17 @@ class CopilotQueryResponse(BaseModel):
     applicant_id: str | None = None
     party_id: str | None = None
     conversation_id: str | None = None
+    context: dict[str, Any] | None = Field(
+        None,
+        description="Send this back as `context` with the next question.",
+    )
+    followed_up: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Present when a follow-up was rewritten using `context`: what "
+            "was typed and what it was taken to mean."
+        ),
+    )
 
     stage: str | None = Field(
         None,
@@ -172,6 +198,25 @@ class CopilotQueryResponse(BaseModel):
             "offered one), or `UNRESOLVED`."
         ),
         examples=["CASE_TIMELINE"],
+    )
+    stage_source: str | None = Field(
+        None,
+        description=(
+            "`CASE_STATE` when the case record decided the stage, `CALLER` "
+            "when only the caller did, `NONE` when nothing did. Never the "
+            "question's wording and never a model."
+        ),
+        examples=["CASE_STATE"],
+    )
+    stage_status: str | None = Field(
+        None,
+        description=(
+            "Where the case is WITHIN its stage -- `IN_PROGRESS`, or "
+            "`READY_FOR_HANDOFF` for a FOS case ready for CPA. A workflow "
+            "status, kept apart from the application status (`status` on a "
+            "status question), document statuses and decisions."
+        ),
+        examples=["IN_PROGRESS"],
     )
 
     category: str = Field(
@@ -209,13 +254,14 @@ class CopilotQueryResponse(BaseModel):
     status: str | None = Field(
         None,
         description=(
-            "Present only when the request could not be served as asked. "
-            "`CAPABILITY_UNAVAILABLE` means this stage has no registered "
-            "capability for this kind of question -- which is neither an "
-            "authorisation failure, nor missing case data, nor an "
-            "unrecognised question."
+            "On a status or stage question, the application status the "
+            "case record holds. Otherwise present only when the request "
+            "could not be served as asked: `CAPABILITY_UNAVAILABLE` means "
+            "this stage has no registered capability for this kind of "
+            "question -- which is neither an authorisation failure, nor "
+            "missing case data, nor an unrecognised question."
         ),
-        examples=["CAPABILITY_UNAVAILABLE"],
+        examples=["UNDER_REVIEW", "CAPABILITY_UNAVAILABLE"],
     )
     errors: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -286,6 +332,65 @@ _RETRIEVES = {"CASE_ONLY", "KNOWLEDGE_ONLY", "MIXED", "PROCESS_KNOWLEDGE"}
 #: Agent refusals that mean "not your case". Published in the same
 #: shape as the retrieval layer's, so a client sees one outcome.
 _ACCESS_DENIED = {"CASE_NOT_ACCESSIBLE", "CASE_STORE_UNAVAILABLE"}
+
+
+#: A stage capability, as an answer names what is not available.
+_CAPABILITY_WORDS = {
+    "readiness": "Readiness for the CPA handoff",
+    "eligibility": "Eligibility information",
+    "document_requirements": "Document requirement information",
+    "pending_items": "Pending-item information",
+    "next_action": "Next-action information",
+    "case_history": "Case history",
+}
+
+
+def _not_served_at_stage(context: stages.StageContext,
+                         envelope: dict[str, Any]) -> str | None:
+    """
+    The answer for a case question whose capability this stage lacks, or
+    None when the stage can serve it. The capability each intent needs is
+    configuration (`chatbot.stages.intent_capabilities`); what each stage
+    can serve is the stage registry. Neither is inferred from the question.
+    """
+    if context.stage is None:
+        return None
+    from app.agents.applicant import config as agent_config
+
+    needed_by = agent_config.chatbot("stages").get("intent_capabilities") or {}
+    intent = str(envelope.get("base_intent") or envelope.get("intent") or "")
+    needed = needed_by.get(intent.upper())
+    if not needed:
+        return None
+    registered = stage_registry.capabilities_for(context.stage)
+    if str(needed).lower() in registered.capabilities:
+        return None
+    label = agent_config.stage_label(context.stage.value)
+    what = _CAPABILITY_WORDS.get(str(needed).lower(), "This information")
+    return (f"Your application is currently at the {label} stage. {what} "
+            f"is not available for the {label} stage.")
+
+
+#: A sentence saying the service could not answer from evidence.
+_NO_EVIDENCE_RE = re.compile(
+    r"\b(do\s+not|don't|does\s+not|doesn't)\s+have\s+enough\b"
+    r"|\bnot\s+enough\s+(verified\s+)?information\b"
+    r"|\bno\s+(verified\s+)?(information|evidence)\s+(is\s+)?available\b",
+    re.IGNORECASE)
+
+
+def _says_no_evidence(answer: object) -> bool:
+    return bool(_NO_EVIDENCE_RE.search(str(answer or "")))
+
+
+def _understood(request: CopilotQueryRequest) -> intents.Classification:
+    """The question as the agent understood it -- normalised, same rules."""
+    return intents.understand(request.message,
+                              has_case=bool(request.case_id))
+
+
+#: Intents whose response carries the application's recorded status.
+_STATUS_INTENTS = {"APPLICATION_STATUS", "APPLICATION_STAGE"}
 
 
 #: Intents whose answer quotes recorded values and is never rephrased.
@@ -365,7 +470,7 @@ async def _grounded(
     # of them about the bank statement -- and concluded the bank
     # details were not verified. Narrowing first is what stops broad
     # case context from answering a document-level question.
-    focus = intents.classify(request.message).document_type
+    focus = _understood(request).document_type
     if focus:
         gathered = _focused(gathered, focus)
 
@@ -386,16 +491,42 @@ async def _grounded(
         return gathered, gathered.grounded
 
     structured = str(envelope.get("answer") or "")
+    facts = _facts(envelope, context)
     answer, grounded = await grounding.answer(
         request.message, structured=structured,
-        facts=_facts(envelope), context=gathered,
+        facts=facts, context=gathered,
     )
+
+    # CHECKED BEFORE IT IS PUBLISHED. A composed answer that leaks an id,
+    # drops the recorded reason or a pending document, invents a hold or
+    # a name, or runs long is replaced by the structured answer -- which
+    # is then what `response_source` truthfully reports.
+    if structured and answer.strip() != grounding._readable(structured).strip():
+        accepted, checked = check_composed(
+            answer, structured=grounding._readable(structured),
+            identifiers=(request.case_id, request.applicant_id,
+                         envelope.get("case_id"), envelope.get("applicant_id")),
+            evidence=" ".join(item.text for item in gathered.case.evidence),
+            stage=context.stage.value if context.stage else None,
+        )
+        if not accepted:
+            logger.info("Composed answer rejected (%s); published the "
+                        "structured answer", checked)
+            answer = grounding._readable(structured)
+        else:
+            answer = checked
     envelope["answer"] = answer
 
-    # WHO WROTE THE SENTENCE. A model-phrased case answer was published
-    # as STRUCTURED, which says no model touched it.
-    if (category == "CASE_ONLY"
-            and answer.strip() != grounding._readable(structured).strip()):
+    # WHO WROTE THE SENTENCE. A model-phrased answer was published as
+    # STRUCTURED (a case answer) or KNOWLEDGE (a handbook or stage-guide
+    # answer), which says no model touched it. `LLM` is defined as "a model
+    # phrased it" -- the facts still came from the records or the retrieved
+    # evidence -- so it is what every category reports when the published
+    # sentence is the model's.
+    model_wrote = (bool(answer.strip())
+                   and answer.strip() != grounding._readable(structured).strip()
+                   and answer.strip() != grounding.NO_EVIDENCE)
+    if model_wrote:
         envelope["response_source"] = routing.ResponseSource.LLM.value
 
     # WHAT THE ANSWER WAS ACTUALLY BUILT FROM.
@@ -409,7 +540,7 @@ async def _grounded(
     # ONLY THIS CATEGORY. The others already report a source the
     # agent computed, and overwriting those would claim retrieval
     # decided an answer the records decided.
-    if category == "PROCESS_KNOWLEDGE" and grounded:
+    if category == "PROCESS_KNOWLEDGE" and grounded and not model_wrote:
         envelope["response_source"] = routing.ResponseSource.KNOWLEDGE.value
 
     return gathered, grounded
@@ -617,7 +748,8 @@ def _normalised(sources: list[dict[str, Any]], *, case_id: str | None,
     return filled
 
 
-def _facts(envelope: dict[str, Any]) -> dict[str, Any]:
+def _facts(envelope: dict[str, Any],
+           context: stages.StageContext | None = None) -> dict[str, Any]:
     """
     The structured facts the model may see. AN ALLOWLIST.
 
@@ -631,11 +763,31 @@ def _facts(envelope: dict[str, Any]) -> dict[str, Any]:
     # opened, the response states both ids at the top level, and
     # neither helps answer a question.
     #
-    # WHAT THE MODEL NEEDS IS THE VERDICT AND THE EVIDENCE, and it now
-    # gets the verdict as `established`. This stays as the one place
-    # structured facts could be added back, deliberately empty rather
-    # than deleted.
-    return {}
+    # WHAT THE MODEL NEEDS IS THE VERDICT AND THE EVIDENCE, and it gets
+    # the verdict as `established`. Beside it: the stage the case is in
+    # (a label, never an id), and -- only when JEV is on -- its notes,
+    # labelled as annotations that settle nothing.
+    facts: dict[str, Any] = {}
+    if context is not None and context.stage is not None:
+        from app.agents.applicant import config as agent_config
+
+        # THE STAGE IS GIVEN, NEVER ASKED FOR: the model is told where the
+        # case is and must not describe it anywhere else (the validator
+        # rejects an answer naming a stage the records do not).
+        facts["current_stage"] = agent_config.stage_label(context.stage.value)
+        if context.status:
+            facts["stage_status"] = context.status.replace("_", " ").lower()
+    from app.agents.applicant import jev
+
+    if jev.active():
+        notes = jev.annotate({
+            "question": str(envelope.get("intent") or ""),
+            "stage": facts.get("current_stage"),
+            "established": str(envelope.get("answer") or ""),
+        })
+        if notes:
+            facts["annotations_not_authoritative"] = notes
+    return facts
 
 
 @router.post(
@@ -689,6 +841,10 @@ async def query(
             party_id=request.party_id,
             claims=claims,
             request_id=request_id,
+            context=request.context,
+            # The stage the case record established above -- so a case at
+            # CPA is answered as a CPA case, never as a FOS one.
+            stage_context=context,
         )
     except NotOwned:
         # A REFUSAL, NOT AN ERROR, AND NOT A DISCLOSURE. Phrased
@@ -740,14 +896,25 @@ async def query(
     if blocked is not None:
         return blocked
 
+    # A CASE QUESTION THE CURRENT STAGE CANNOT SERVE. Checked AFTER the
+    # agent, so ownership has been established before anything about the
+    # case -- even its stage -- is said. "Is it ready for CPA?" on a case
+    # at CREDIT is answered with the stage and a plain "not available",
+    # never with a FOS readiness answer.
+    gated = _not_served_at_stage(context, envelope)
+
     # EVIDENCE, BESIDE THE STRUCTURED ANSWER -- never instead of it.
     # The agent has already answered from authoritative records; this
     # adds retrieved context and lets the model phrase the two
     # together. A retrieval failure costs the phrasing and nothing
     # else, because `structured` is what comes back.
     try:
-        evidence, grounded = await _grounded(request, envelope, context,
-                                             request_id)
+        if gated is not None:
+            envelope["answer"] = gated
+            evidence, grounded = grounding.GroundedContext(), False
+        else:
+            evidence, grounded = await _grounded(request, envelope, context,
+                                                 request_id)
     except NotOwned:
         # THE RETRIEVAL OWNERSHIP RE-CHECK, surfaced. It fires for a
         # caller the agent's own check let through -- or when the
@@ -760,6 +927,15 @@ async def query(
                     "code": "CASE_ACCESS_DENIED",
                     "message": "You are not authorized to access this case."},
         ) from None
+    except Exception as exc:
+        # RETRIEVAL OR PHRASING FAILED IN A WAY IT DID NOT ANTICIPATE. The
+        # structured answer the agent built from the records is already in
+        # the envelope and is published as it is: a knowledge outage must
+        # never cost a case question its answer.
+        logger.warning("Copilot grounding failed request_id=%s (%s); "
+                       "publishing the structured answer",
+                       request_id, type(exc).__name__)
+        evidence, grounded = grounding.GroundedContext(), False
 
     # A PROCESS QUESTION CARRIES NO STRUCTURED ANSWER, by design: its
     # text comes from the retrieved stage guide. When retrieval could
@@ -777,10 +953,19 @@ async def query(
     # recorded KYC finding and decision -- and citing both -- published
     # `grounded: false`. Evaluated on the agent's own envelope, before
     # retrieval's sources are merged in below.
-    published["grounded"] = bool(
-        grounded or supported_by_case_evidence(envelope))
+    # AN ANSWER THAT SAYS IT HAS NO EVIDENCE IS NOT GROUNDED, however much
+    # was retrieved: the published sentence rests on nothing.
+    published["grounded"] = (bool(grounded or supported_by_case_evidence(envelope))
+                             and gated is None
+                             and not _says_no_evidence(envelope.get("answer")))
+    if gated is not None:
+        published["status"] = "CAPABILITY_UNAVAILABLE"
     published["party_id"] = request.party_id
     published["conversation_id"] = request.conversation_id
+    # THE NEXT TURN'S CONTEXT, built from this answer, and what a
+    # follow-up was taken to mean when one was resolved.
+    published["context"] = followup.context_from_response(envelope)
+    published["followed_up"] = envelope.get("followed_up")
     # The case-memory sources the agent already cites, plus whatever
     # retrieval found. Both are pointers into records the caller can
     # already reach.
@@ -792,11 +977,19 @@ async def query(
             stage=context.stage.value if context.stage else None,
             documents=_document_types(envelope),
         ),
-        intents.classify(request.message).document_type,
+        _understood(request).document_type,
     )
     # WHAT ACTUALLY RAN, as the agent recorded it. Read from a `trace`
     # key the agent never set, this was empty on every answer.
     published["tool_invoked"] = list(envelope.get("tools_invoked") or [])
+    # A STATUS QUESTION PUBLISHES THE STATUS IT ANSWERED FROM -- the value
+    # on the application record the tool read, never one phrased or
+    # inferred. Only for these intents: elsewhere `status` keeps its one
+    # existing meaning, and `_unavailable_for` has already returned.
+    if str(envelope.get("intent") or "").upper() in _STATUS_INTENTS:
+        recorded = (envelope.get("application") or {}).get("status")
+        if recorded:
+            published["status"] = str(recorded)
 
     return CopilotQueryResponse(**published)
 
