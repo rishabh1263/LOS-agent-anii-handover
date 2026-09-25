@@ -603,6 +603,8 @@ def mount_dev_identity_provider(target: FastAPI) -> bool:
 mount_dev_identity_provider(app)
 
 
+app.include_router(auth_router)
+
 app.openapi = custom_openapi
 
 
