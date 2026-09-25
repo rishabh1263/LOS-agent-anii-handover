@@ -9,6 +9,8 @@ export type AiStatus =
   | 'offline'
   | 'error'
 
+export type SpeechGender = 'female' | 'male' | 'any'
+
 export interface ChatAttachment {
   id: string
   name: string
@@ -28,7 +30,6 @@ export interface ChatMessage {
   isStreaming?: boolean
   error?: string
   suggestedQuestions?: string[]
-  /** Copilot routed this question to another stage (e.g. CREDIT) */
   routeTo?: string | null
   grounded?: boolean
 }
@@ -45,6 +46,9 @@ export interface ChatSettings {
   voiceInput: boolean
   autoReadResponses: boolean
   speechSpeed: number
+  /** BCP-47 tag from system voices, e.g. en-IN, hi-IN */
+  speechLanguage: string
+  speechGender: SpeechGender
   sendWithEnter: boolean
   showTimestamps: boolean
   compactMode: boolean
@@ -55,6 +59,8 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   voiceInput: true,
   autoReadResponses: false,
   speechSpeed: 1,
+  speechLanguage: 'hi-IN',
+  speechGender: 'female',
   sendWithEnter: true,
   showTimestamps: true,
   compactMode: false,

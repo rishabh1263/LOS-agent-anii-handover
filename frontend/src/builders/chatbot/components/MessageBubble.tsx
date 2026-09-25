@@ -17,10 +17,12 @@ function ActionBtn({
   label,
   onClick,
   children,
+  active,
 }: {
   label: string
   onClick: () => void
   children: ReactNode
+  active?: boolean
 }) {
   return (
     <button
@@ -28,7 +30,12 @@ function ActionBtn({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="flex h-8 w-8 items-center justify-center rounded-xs text-content-secondary transition-colors hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+      aria-pressed={active}
+      className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${
+        active
+          ? 'bg-ember-tint text-ember'
+          : 'text-content-secondary hover:bg-raised hover:text-content'
+      }`}
     >
       {children}
     </button>
@@ -173,27 +180,38 @@ export function MessageBubble({
         )}
 
         <div
-          className={`rounded-md border px-3.5 py-2.5 font-sans text-[15px] ${
+          className={`rounded-md border px-3.5 py-2.5 font-sans text-[15px] transition-shadow duration-300 ${
             isUser
               ? 'border-line bg-raised text-content'
-              : 'border-line bg-surface text-content'
+              : isSpeaking
+                ? 'border-ember/40 bg-surface text-content shadow-[0_0_0_3px_rgba(var(--ember-rgb,200,80,40),0.12)] ring-1 ring-ember/30'
+                : 'border-line bg-surface text-content'
           }`}
         >
           {message.error ? (
             <p className="text-danger-text">{message.error}</p>
           ) : (
-            <div className="space-y-0.5">{renderContent(message.content)}</div>
+            <div className="space-y-0.5">
+              {message.content ? (
+                renderContent(message.content)
+              ) : message.isStreaming ? (
+                <span className="text-content-secondary">…</span>
+              ) : null}
+              {message.isStreaming && (
+                <span
+                  className="ml-0.5 inline-block h-[1.1em] w-[2px] translate-y-[2px] animate-pulse bg-ember align-text-bottom"
+                  aria-hidden
+                />
+              )}
+            </div>
           )}
-          {message.routeTo && (
+          {!message.isStreaming && message.routeTo && (
             <p className="mt-2 rounded-sm bg-warning-subtle px-2 py-1 text-[12px] font-medium text-warning-text">
               Route to {message.routeTo}
             </p>
           )}
-          {message.grounded === false && !message.routeTo && (
+          {!message.isStreaming && message.grounded === false && !message.routeTo && (
             <p className="mt-1 text-[11px] text-content-secondary">Limited evidence</p>
-          )}
-          {message.isStreaming && (
-            <span className="mt-1 inline-block h-3.5 w-1.5 animate-pulse rounded-xs bg-ember" />
           )}
         </div>
       </div>
@@ -221,9 +239,14 @@ export function MessageBubble({
           <ActionBtn
             label={isSpeaking ? 'Stop reading' : 'Read aloud'}
             onClick={() => onListen?.()}
+            active={isSpeaking}
           >
             {isSpeaking ? (
-              <VolumeX className="h-3.5 w-3.5 text-ember" strokeWidth={2} />
+              <span className="relative flex h-8 w-8 items-center justify-center">
+                <span className="absolute inset-0 animate-ping rounded-full bg-ember/30" />
+                <span className="absolute inset-1 animate-pulse rounded-full bg-ember/20" />
+                <VolumeX className="relative h-3.5 w-3.5 text-ember" strokeWidth={2} />
+              </span>
             ) : (
               <Volume2 className="h-3.5 w-3.5" strokeWidth={2} />
             )}

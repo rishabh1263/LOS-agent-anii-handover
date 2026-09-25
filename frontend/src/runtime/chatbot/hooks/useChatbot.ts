@@ -16,7 +16,15 @@ import type {
   Conversation,
 } from '../types'
 import { DEFAULT_SETTINGS } from '../types'
-import { uid } from '../utils'
+import {
+  uid,
+  ensureVoicesLoaded,
+  pickBestVoice,
+  textForSpeech,
+  naturalSpeechParams,
+  speakUtterance,
+  translateForSpeech,
+} from '../utils'
 
 /** Context + optional API config — only this needs changing in another project. */
 export interface ChatbotContext {
@@ -129,6 +137,7 @@ export function useChatbot(context: ChatbotContext = {}) {
   const [isDragging, setIsDragging] = useState(false)
 
   const stopRef = useRef(false)
+  const speakGenRef = useRef(0)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const settingsRef = useRef(settings)
   settingsRef.current = settings
@@ -337,34 +346,93 @@ export function useChatbot(context: ChatbotContext = {}) {
 
         const formatted = formatChatAnswer(res)
         const answer = formatted.text
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                  ...c,
-                  updatedAt: Date.now(),
-                  messages: c.messages.map((m) =>
-                    m.id === assistantId
-                      ? {
-                          ...m,
-                          content: answer,
-                          isStreaming: false,
-                          suggestedQuestions:
-                            settingsRef.current.showSuggestedQuestions
-                              ? formatted.suggestedQuestions
-                              : undefined,
-                          routeTo: formatted.routed,
-                          grounded: formatted.grounded,
-                        }
-                      : m,
-                  ),
-                }
-              : c,
-          ),
-        )
-        setStatus('online')
+        const meta = {
+          suggestedQuestions: settingsRef.current.showSuggestedQuestions
+            ? formatted.suggestedQuestions
+            : undefined,
+          routeTo: formatted.routed,
+          grounded: formatted.grounded,
+        }
 
-        if (settingsRef.current.autoReadResponses && answer) {
+        // Typing animation — reveal answer character-by-character
+        const total = answer.length
+        if (total === 0) {
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === convId
+                ? {
+                    ...c,
+                    updatedAt: Date.now(),
+                    messages: c.messages.map((m) =>
+                      m.id === assistantId
+                        ? { ...m, content: '', isStreaming: false, ...meta }
+                        : m,
+                    ),
+                  }
+                : c,
+            ),
+          )
+          setStatus('online')
+        } else {
+          // ~28–45 chars/sec; faster for long answers
+          const step = total > 400 ? 4 : total > 180 ? 3 : 2
+          const delay = total > 400 ? 12 : 16
+          let i = 0
+          await new Promise<void>((resolve) => {
+            const tick = () => {
+              if (stopRef.current) {
+                setConversations((prev) =>
+                  prev.map((c) =>
+                    c.id === convId
+                      ? {
+                          ...c,
+                          messages: c.messages.map((m) =>
+                            m.id === assistantId
+                              ? { ...m, content: answer, isStreaming: false, ...meta }
+                              : m,
+                          ),
+                        }
+                      : c,
+                  ),
+                )
+                resolve()
+                return
+              }
+              i = Math.min(total, i + step)
+              const slice = answer.slice(0, i)
+              const done = i >= total
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === convId
+                    ? {
+                        ...c,
+                        updatedAt: Date.now(),
+                        messages: c.messages.map((m) =>
+                          m.id === assistantId
+                            ? {
+                                ...m,
+                                content: slice,
+                                isStreaming: !done,
+                                ...(done ? meta : {}),
+                              }
+                            : m,
+                        ),
+                      }
+                    : c,
+                ),
+              )
+              if (done) {
+                resolve()
+                return
+              }
+              window.setTimeout(tick, delay)
+            }
+            tick()
+          })
+          setStatus('online')
+        }
+
+        if (settingsRef.current.autoReadResponses && answer && !stopRef.current) {
           setTimeout(() => speakTextRef.current(answer, assistantId), 80)
         }
       } catch (err) {
@@ -434,6 +502,7 @@ export function useChatbot(context: ChatbotContext = {}) {
   )
 
   const stopSpeaking = useCallback(() => {
+    speakGenRef.current += 1
     try {
       window.speechSynthesis?.cancel()
     } catch {
@@ -444,39 +513,73 @@ export function useChatbot(context: ChatbotContext = {}) {
     setStatus((s) => (s === 'speaking' ? 'online' : s))
   }, [])
 
-  const speakText = useCallback(
-    (text: string, messageId?: string) => {
-      const trimmed = text.replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim()
-      if (!trimmed) return
-      if (typeof window === 'undefined' || !window.speechSynthesis) return
+  const speakText = useCallback((text: string, messageId?: string) => {
+    const cleaned = textForSpeech(text)
+    if (!cleaned) return
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
 
+    const gen = ++speakGenRef.current
+
+    try {
+      window.speechSynthesis.cancel()
+    } catch {
+      /* ignore */
+    }
+
+    // Mark active immediately so UI animates while translating
+    setIsSpeaking(true)
+    setSpeakingMessageId(messageId ?? null)
+    setStatus('speaking')
+
+    const finish = () => {
+      if (speakGenRef.current !== gen) return
+      setIsSpeaking(false)
+      setSpeakingMessageId(null)
+      setStatus((st) => (st === 'speaking' ? 'online' : st))
+    }
+
+    void (async () => {
+      const s = settingsRef.current
+      const lang = s.speechLanguage || 'hi-IN'
+      const gender = s.speechGender || 'any'
+
+      let speakBody = cleaned
       try {
-        window.speechSynthesis.cancel()
+        speakBody = await translateForSpeech(cleaned, lang)
       } catch {
-        /* ignore */
+        speakBody = cleaned
       }
 
-      const rate = settingsRef.current.speechSpeed || 1
-      const utterance = new SpeechSynthesisUtterance(trimmed)
-      utterance.rate = Math.min(2, Math.max(0.5, rate))
-      utterance.onend = () => {
-        setIsSpeaking(false)
-        setSpeakingMessageId(null)
-        setStatus((s) => (s === 'speaking' ? 'online' : s))
+      if (speakGenRef.current !== gen) return
+
+      const voices = await ensureVoicesLoaded()
+      if (speakGenRef.current !== gen) return
+
+      const utterance = new SpeechSynthesisUtterance(speakBody)
+      utterance.lang = lang
+
+      const voice = pickBestVoice(voices, { lang, gender })
+      if (voice) {
+        utterance.voice = voice
+        if (voice.lang) utterance.lang = voice.lang
       }
-      utterance.onerror = () => {
-        setIsSpeaking(false)
-        setSpeakingMessageId(null)
-        setStatus((s) => (s === 'speaking' ? 'online' : s))
-      }
-      setIsSpeaking(true)
-      setSpeakingMessageId(messageId ?? null)
-      setStatus('speaking')
-      window.speechSynthesis.speak(utterance)
-    },
-    [],
-  )
+
+      const params = naturalSpeechParams(s.speechSpeed || 1, gender)
+      utterance.rate = params.rate
+      utterance.pitch = params.pitch
+      utterance.volume = params.volume
+      utterance.onend = finish
+      utterance.onerror = finish
+
+      speakUtterance(utterance)
+    })()
+  }, [])
   speakTextRef.current = speakText
+
+  // Preload voices so the first speak is not delayed / robotic default
+  useEffect(() => {
+    void ensureVoicesLoaded()
+  }, [])
 
   const stopListening = useCallback(() => {
     const rec = recognitionRef.current
@@ -551,7 +654,9 @@ export function useChatbot(context: ChatbotContext = {}) {
       recognition.continuous = false
       recognition.interimResults = true
       recognition.lang =
-        typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US'
+        settingsRef.current.speechLanguage ||
+        (typeof navigator !== 'undefined' ? navigator.language : undefined) ||
+        'en-IN'
 
       recognition.onresult = (event: SpeechRecognitionResultEvent) => {
         let interim = ''

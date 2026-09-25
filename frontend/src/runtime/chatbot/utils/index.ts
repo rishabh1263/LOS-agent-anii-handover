@@ -36,3 +36,19 @@ export function groupConversationsByDate(conversations: { id: string; title: str
 export function uid(prefix = 'id'): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
 }
+
+export {
+  ensureVoicesLoaded,
+  pickBestVoice,
+  textForSpeech,
+  naturalSpeechParams,
+  listAvailableLanguages,
+  listIndianLanguages,
+  languageLabel,
+  speakUtterance,
+  INDIAN_SPEECH_LOCALES,
+  type SpeechGender,
+  type VoicePickOptions,
+} from './speech'
+
+export { translateForSpeech, isEnglishLang, looksLikeLatin } from './translate'

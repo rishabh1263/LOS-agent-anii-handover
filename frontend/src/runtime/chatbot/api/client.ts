@@ -133,7 +133,7 @@ export function formatChatAnswer(res: ChatQueryResponse): {
 
   let text = answer
   if (res.grounded === false) {
-    text += '\n\n_Note: evidence for this answer may be incomplete._'
+    text += '\n\n Note: evidence for this answer may be incomplete.'
   }
 
   return {
