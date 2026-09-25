@@ -13,12 +13,7 @@ import type {
   VerifiedDoc,
   WizardStep,
 } from '../types/wizard'
-import {
-  DEFAULT_PROFILE_FIELDS,
-  buildTypeMismatchError,
-  isDocTypeMatch,
-} from '../types/wizard'
-import { matchProfileToExtraction } from '../utils/profileMatch'
+import { DEFAULT_PROFILE_FIELDS, isDocTypeMatch } from '../types/wizard'
 import { useAuth } from '../../auth'
 
 function makeId() {
@@ -90,11 +85,9 @@ export function useKycWizard() {
   const [result, setResult] = useState<LosProcessResponse | null>(null)
   const [showOtherPartyPrompt, setShowOtherPartyPrompt] = useState(false)
 
-  // Latest refs for concurrent uploads (avoid stale closures)
+  // Keep latest docs for concurrent uploads without stale closures
   const docsRef = useRef<VerifiedDoc[]>([])
   docsRef.current = verifiedDocs
-  const profileRef = useRef(profileFields)
-  profileRef.current = profileFields
 
   const primaryDocs = useMemo(
     () => verifiedDocs.filter((d) => d.item.partyRole === 'PRIMARY_APPLICANT'),
@@ -152,19 +145,18 @@ export function useKycWizard() {
     setStep('documents')
   }, [canProceedFromParty, partySelection.applicant])
 
-  // Stable ids for concurrent uploads without stale closures
-  const idsRef = useRef({ applicantId, coApplicantId, caseId, token })
-  idsRef.current = { applicantId, coApplicantId, caseId, token }
-
   const applyIdsFromResponse = useCallback((res: LosProcessResponse) => {
-    if (res.case_id) setCaseId((prev) => prev || res.case_id || '')
-    if (res.applicant_id) setApplicantId((prev) => prev || res.applicant_id || '')
-    if (res.co_applicant_id) setCoApplicantId((prev) => prev || res.co_applicant_id || '')
+    setCaseId((prev) => prev || res.case_id || '')
+    setApplicantId((prev) => prev || res.applicant_id || '')
+    setCoApplicantId((prev) => prev || res.co_applicant_id || '')
   }, [])
 
+  /** Build LOS params for a single file under the correct party field. */
   const singleFileParams = useCallback(
-    (item: UploadFileItem, operation: 'VERIFY' | 'EXTRACT' | 'PROCESS') => {
-      const { applicantId: aid, coApplicantId: cid, caseId: csid, token: tok } = idsRef.current
+    (
+      item: UploadFileItem,
+      operation: 'VERIFY' | 'EXTRACT' | 'PROCESS',
+    ) => {
       const isCo = item.partyRole === 'CO_APPLICANT'
       return {
         files: isCo ? [] : [item.file],
@@ -172,62 +164,70 @@ export function useKycWizard() {
         coApplicantFiles: isCo ? [item.file] : [],
         coApplicantExpectedTypes: isCo ? [item.expectedType] : [],
         operation,
-        applicantId: aid.trim() || undefined,
-        coApplicantId: isCo ? cid.trim() || undefined : undefined,
-        caseId: csid.trim() || undefined,
-        token: tok.trim(),
+        applicantId: applicantId.trim() || undefined,
+        coApplicantId: isCo ? coApplicantId.trim() || undefined : undefined,
+        caseId: caseId.trim() || undefined,
+        token: token.trim(),
       }
     },
-    [],
+    [applicantId, coApplicantId, caseId, token],
   )
 
-  // VERIFY → EXTRACT per file (2 network RTTs). Parallel uploads share no lock.
+  /**
+   * On upload:
+   * 1) VERIFY — document authenticity (real vs not)
+   * 2) EXTRACT — field extraction (only if VERIFY passes)
+   * Parallel uploads allowed; each file runs its own VERIFY → EXTRACT chain.
+   * Final report uses PROCESS (see runVerification).
+   */
   const uploadAndVerify = useCallback(
     async (file: File, expectedType: DocumentTypeHint, partyRole: PartyRole) => {
-      if (!idsRef.current.token.trim()) {
+      if (!token.trim()) {
         await logout()
         return
       }
-      if (partyRole === 'CO_APPLICANT' && !idsRef.current.coApplicantId.trim()) {
+
+      if (partyRole === 'CO_APPLICANT' && !coApplicantId.trim()) {
         setError('Co-applicant ID is required when co-applicant documents are uploaded.')
         return
       }
 
-      const item: UploadFileItem = { id: makeId(), file, expectedType, partyRole }
-      const patch = (id: string, next: Partial<VerifiedDoc>) =>
-        setVerifiedDocs((prev) => {
-          const i = prev.findIndex((d) => d.item.id === id)
-          if (i < 0) return prev
-          const copy = prev.slice()
-          copy[i] = { ...copy[i], ...next }
-          return copy
-        })
+      const item: UploadFileItem = {
+        id: makeId(),
+        file,
+        expectedType,
+        partyRole,
+      }
 
-      // One paint: start VERIFY (skip separate "uploading" tick)
-      setVerifiedDocs((prev) => [...prev, { item, status: 'verifying', progress: 15 }])
+      setVerifiedDocs((prev) => [...prev, { item, status: 'verifying' }])
       setInFlightCount((n) => n + 1)
       setError(null)
 
       try {
+        // --- Step 1: VERIFY (authenticity only; no extracted fields released) ---
         const verifyRes = await processDocuments(singleFileParams(item, 'VERIFY'))
         applyIdsFromResponse(verifyRes)
 
         const verifyDoc = findDocResult(verifyRes, expectedType, partyRole)
         const detectedType = verifyDoc?.type ?? verifyDoc?.expected_type ?? null
-        const verifyStatus = String(
-          verifyDoc?.verification ?? verifyDoc?.status ?? verifyRes.status,
-        ).toUpperCase()
+        const verifyStatus = String(verifyDoc?.verification ?? verifyDoc?.status ?? verifyRes.status).toUpperCase()
 
         if (expectedType !== 'AUTO' && detectedType && !isDocTypeMatch(expectedType, detectedType)) {
-          const msg = buildTypeMismatchError('VERIFY', expectedType, detectedType)
-          patch(item.id, {
-            status: 'type_mismatch',
-            progress: 100,
-            detectedType,
-            response: verifyRes,
-            error: msg,
-          })
-          setError(msg)
+          setVerifiedDocs((prev) =>
+            prev.map((d) =>
+              d.item.id === item.id
+                ? {
+                    ...d,
+                    status: 'type_mismatch' as const,
+                    detectedType,
+                    verifyResponse: verifyRes,
+                    response: verifyRes,
+                    error: `Type mismatch: selected ${expectedType}, detected ${detectedType}. File not accepted.`,
+                  }
+                : d,
+            ),
+          )
+          setError(`Type mismatch: selected ${expectedType}, detected ${detectedType}.`)
           return
         }
 
@@ -237,68 +237,60 @@ export function useKycWizard() {
             verifyDoc?.reason_codes?.[0] ||
             verifyRes.summary ||
             'Document verification failed.'
-          patch(item.id, {
-            status: 'error',
-            progress: 100,
-            detectedType,
-            response: verifyRes,
-            error: reason,
-          })
+          setVerifiedDocs((prev) =>
+            prev.map((d) =>
+              d.item.id === item.id
+                ? {
+                    ...d,
+                    status: 'error' as const,
+                    detectedType,
+                    verifyResponse: verifyRes,
+                    response: verifyRes,
+                    error: reason,
+                  }
+                : d,
+            ),
+          )
           setError(reason)
           return
         }
 
-        // EXTRACT — second RTT; one paint at start of extract
-        patch(item.id, { status: 'extracting', progress: 55 })
+        // --- Step 2: EXTRACT (fields for profile match later) ---
+        setVerifiedDocs((prev) =>
+          prev.map((d) => (d.item.id === item.id ? { ...d, status: 'extracting' as const } : d)),
+        )
+
         const extractRes = await processDocuments(singleFileParams(item, 'EXTRACT'))
         applyIdsFromResponse(extractRes)
 
         const extractDoc = findDocResult(extractRes, expectedType, partyRole)
         const extractDetected = extractDoc?.type ?? extractDoc?.expected_type ?? detectedType
 
-        if (
-          expectedType !== 'AUTO' &&
-          extractDetected &&
-          !isDocTypeMatch(expectedType, extractDetected)
-        ) {
-          const msg = buildTypeMismatchError('EXTRACT', expectedType, extractDetected)
-          patch(item.id, {
-            status: 'type_mismatch',
-            progress: 100,
-            detectedType: extractDetected,
-            extractResponse: extractRes,
-            response: extractRes,
-            error: msg,
-          })
-          setError(msg)
-          return
-        }
+        setVerifiedDocs((prev) =>
+          prev.map((d) =>
+            d.item.id === item.id
+              ? {
+                  ...d,
+                  status: 'success' as const,
+                  detectedType: extractDetected,
+                  verifyResponse: verifyRes,
+                  extractResponse: extractRes,
+                  response: extractRes,
+                }
+              : d,
+          ),
+        )
 
-        // System profile vs this document EXTRACT — right after extraction
-        const extraction =
-          (extractDoc?.extraction as Record<string, unknown> | null | undefined) ?? null
-        const profileMatches = matchProfileToExtraction(profileRef.current, extraction)
-
-        patch(item.id, {
-          status: 'success',
-          progress: 100,
-          detectedType: extractDetected,
-          profileMatches,
-          extractResponse: extractRes,
-          response: extractRes,
-        })
-
-        const ok = (role: PartyRole) =>
-          docsRef.current.some(
-            (d) =>
-              d.item.partyRole === role &&
-              (d.status === 'success' || d.item.id === item.id),
-          )
+        const hasPrimary = docsRef.current.some(
+          (d) => d.item.partyRole === 'PRIMARY_APPLICANT' && (d.status === 'success' || d.item.id === item.id),
+        )
+        const hasCo = docsRef.current.some(
+          (d) => d.item.partyRole === 'CO_APPLICANT' && (d.status === 'success' || d.item.id === item.id),
+        )
         if (
           partySelection.applicant &&
           partySelection.coApplicant &&
-          ((ok('PRIMARY_APPLICANT') && !ok('CO_APPLICANT')) ||
-            (!ok('PRIMARY_APPLICANT') && ok('CO_APPLICANT')))
+          ((hasPrimary && !hasCo) || (!hasPrimary && hasCo))
         ) {
           setShowOtherPartyPrompt(true)
         }
@@ -309,12 +301,24 @@ export function useKycWizard() {
         }
         const message = errorMessage(err)
         setError(message)
-        patch(item.id, { status: 'error', progress: 100, error: message })
+        setVerifiedDocs((prev) =>
+          prev.map((d) =>
+            d.item.id === item.id ? { ...d, status: 'error' as const, error: message } : d,
+          ),
+        )
       } finally {
         setInFlightCount((n) => Math.max(0, n - 1))
       }
     },
-    [logout, singleFileParams, partySelection.applicant, partySelection.coApplicant, applyIdsFromResponse],
+    [
+      token,
+      logout,
+      coApplicantId,
+      singleFileParams,
+      partySelection.applicant,
+      partySelection.coApplicant,
+      applyIdsFromResponse,
+    ],
   )
 
   const removeDoc = useCallback((id: string) => {

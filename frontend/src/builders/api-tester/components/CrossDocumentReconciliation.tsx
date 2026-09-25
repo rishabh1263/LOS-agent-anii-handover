@@ -108,7 +108,7 @@ function kycFieldKey(field: string): string {
   if (u === 'NAME' || u === 'FULL_NAME') return 'NAME'
   if (u === 'DATE_OF_BIRTH' || u === 'DOB') return 'DOB'
   if (u === 'FATHER_NAME' || u === 'GUARDIAN_NAME') return 'FATHER_NAME'
-  // if (u === 'ADDRESS' || u === 'RESIDENTIAL_ADDRESS') return 'ADDRESS'
+  if (u === 'ADDRESS' || u === 'RESIDENTIAL_ADDRESS') return 'ADDRESS'
   if (u === 'PAN_NUMBER' || u === 'PAN') return 'DOCUMENT_ID'
   if (u === 'INCOME') return 'INCOME'
   return u
@@ -383,6 +383,7 @@ export function CrossDocumentReconciliation({
     const st = nameCheck?.status || kycName?.status
     rows.push({
       field: 'Full Name',
+      sublabel: 'Applicant Identity',
       values: nameValues,
       status: st === 'PASS' ? 'PASS' : st === 'FAIL' ? 'FAIL' : st === 'REVIEW' ? 'REVIEW' : 'SINGLE_SOURCE',
       statusText:
@@ -405,6 +406,7 @@ export function CrossDocumentReconciliation({
     const st = dobCheck?.status || kycDob?.status
     rows.push({
       field: 'Date of Birth',
+      sublabel: 'DOB Verification',
       values: dobValues,
       status: st === 'PASS' ? 'PASS' : st === 'FAIL' ? 'FAIL' : st === 'REVIEW' ? 'REVIEW' : 'SINGLE_SOURCE',
       statusText:
@@ -433,6 +435,7 @@ export function CrossDocumentReconciliation({
       const isMulti = nonNulls.length >= 2
       rows.push({
         field: 'Father / Guardian',
+        sublabel: 'Secondary Lineage',
         values: parentValues,
         status:
           st === 'PASS'
@@ -471,6 +474,7 @@ export function CrossDocumentReconciliation({
     const kycPan = kycByKey.get('DOCUMENT_ID')
     rows.push({
       field: 'Document Number',
+      sublabel: 'Official Identifier',
       values: idValues,
       status: 'SINGLE_SOURCE',
       statusText: 'Extracted',
@@ -482,112 +486,116 @@ export function CrossDocumentReconciliation({
   }
 
   // 5. Address
-  // {
-  //   const addrValues: { [sourceId: string]: string | null } = {}
-  //   let hasAddress = false
-  //   documents.forEach((d) => {
-  //     const v = getFieldFromDoc('ADDRESS', d)
-  //     if (v) hasAddress = true
-  //     addrValues[d.source_id] = v
-  //   })
-  //   if (hasAddress) {
-  //     const addrCheck = checkStatusMap.get('ADDRESS')
-  //     const kycAddr = kycByKey.get('ADDRESS')
-  //     const st = addrCheck?.status || kycAddr?.status
-  //     rows.push({
-  //       field: 'Residential Address',
-  //       values: addrValues,
-  //       status:
-  //         st === 'PASS'
-  //           ? 'PASS'
-  //           : st === 'FAIL'
-  //             ? 'FAIL'
-  //             : st === 'SKIPPED'
-  //               ? 'SKIPPED'
-  //               : 'SINGLE_SOURCE',
-  //       statusText:
-  //         st === 'PASS'
-  //           ? 'Matched'
-  //           : st === 'FAIL'
-  //             ? 'Mismatch'
-  //             : addrCheck?.reason_codes?.includes('ADDRESS_SINGLE_SOURCE')
-  //               ? 'Single Source'
-  //               : 'Extracted',
-  //       matchScore: kycAddr?.match_score ?? null,
-  //       confidence: kycAddr?.confidence ?? null,
-  //       reason: kycAddr?.reason ?? null,
-  //       reasonCode: kycAddr?.reason_code ?? null,
-  //     })
-  //   }
-  // }
+  {
+    const addrValues: { [sourceId: string]: string | null } = {}
+    let hasAddress = false
+    documents.forEach((d) => {
+      const v = getFieldFromDoc('ADDRESS', d)
+      if (v) hasAddress = true
+      addrValues[d.source_id] = v
+    })
+    if (hasAddress) {
+      const addrCheck = checkStatusMap.get('ADDRESS')
+      const kycAddr = kycByKey.get('ADDRESS')
+      const st = addrCheck?.status || kycAddr?.status
+      rows.push({
+        field: 'Residential Address',
+        sublabel: 'Address Proof',
+        values: addrValues,
+        status:
+          st === 'PASS'
+            ? 'PASS'
+            : st === 'FAIL'
+              ? 'FAIL'
+              : st === 'SKIPPED'
+                ? 'SKIPPED'
+                : 'SINGLE_SOURCE',
+        statusText:
+          st === 'PASS'
+            ? 'Matched'
+            : st === 'FAIL'
+              ? 'Mismatch'
+              : addrCheck?.reason_codes?.includes('ADDRESS_SINGLE_SOURCE')
+                ? 'Single Source'
+                : 'Extracted',
+        matchScore: kycAddr?.match_score ?? null,
+        confidence: kycAddr?.confidence ?? null,
+        reason: kycAddr?.reason ?? null,
+        reasonCode: kycAddr?.reason_code ?? null,
+      })
+    }
+  }
 
   // 6. Validity
-  // {
-  //   const validityValues: { [sourceId: string]: string | null } = {}
-  //   let hasValidity = false
-  //   documents.forEach((d) => {
-  //     const v = getFieldFromDoc('VALIDITY', d)
-  //     if (v) hasValidity = true
-  //     validityValues[d.source_id] = v
-  //   })
-  //   if (hasValidity) {
-  //     rows.push({
-  //       field: 'Validity & Expiry',
-  //       values: validityValues,
-  //       status: 'PASS',
-  //       statusText: 'Active',
-  //       matchScore: null,
-  //       confidence: null,
-  //       reason: null,
-  //       reasonCode: null,
-  //     })
-  //   }
-  // }
+  {
+    const validityValues: { [sourceId: string]: string | null } = {}
+    let hasValidity = false
+    documents.forEach((d) => {
+      const v = getFieldFromDoc('VALIDITY', d)
+      if (v) hasValidity = true
+      validityValues[d.source_id] = v
+    })
+    if (hasValidity) {
+      rows.push({
+        field: 'Validity & Expiry',
+        sublabel: 'Document Lifecycle',
+        values: validityValues,
+        status: 'PASS',
+        statusText: 'Active',
+        matchScore: null,
+        confidence: null,
+        reason: null,
+        reasonCode: null,
+      })
+    }
+  }
 
   // 7. Vehicle Classes
-  // {
-  //   const vehicleValues: { [sourceId: string]: string | null } = {}
-  //   let hasVehicle = false
-  //   documents.forEach((d) => {
-  //     const v = getFieldFromDoc('VEHICLE_CLASSES', d)
-  //     if (v) hasVehicle = true
-  //     vehicleValues[d.source_id] = v
-  //   })
-  //   if (hasVehicle) {
-  //     rows.push({
-  //       field: 'Vehicle Classes',
-  //       values: vehicleValues,
-  //       status: 'SINGLE_SOURCE',
-  //       statusText: 'Extracted (DL)',
-  //       matchScore: null,
-  //       confidence: null,
-  //       reason: null,
-  //       reasonCode: null,
-  //     })
-  //   }
-  // }
+  {
+    const vehicleValues: { [sourceId: string]: string | null } = {}
+    let hasVehicle = false
+    documents.forEach((d) => {
+      const v = getFieldFromDoc('VEHICLE_CLASSES', d)
+      if (v) hasVehicle = true
+      vehicleValues[d.source_id] = v
+    })
+    if (hasVehicle) {
+      rows.push({
+        field: 'Vehicle Classes',
+        sublabel: 'Authorised Categories',
+        values: vehicleValues,
+        status: 'SINGLE_SOURCE',
+        statusText: 'Extracted (DL)',
+        matchScore: null,
+        confidence: null,
+        reason: null,
+        reasonCode: null,
+      })
+    }
+  }
 
   // 8. Income
-  // {
-  //   const incomeCheck = checkStatusMap.get('INCOME')
-  //   const kycIncome = kycByKey.get('INCOME')
-  //   if (incomeCheck || kycIncome) {
-  //     const incValues: { [sourceId: string]: string | null } = {}
-  //     documents.forEach((d) => {
-  //       incValues[d.source_id] = getFieldFromDoc('INCOME', d)
-  //     })
-  //     rows.push({
-  //       field: 'Income & Earnings',
-  //       values: incValues,
-  //       status: 'SKIPPED',
-  //       statusText: 'Not provided',
-  //       matchScore: kycIncome?.match_score ?? null,
-  //       confidence: kycIncome?.confidence ?? null,
-  //       reason: kycIncome?.reason ?? null,
-  //       reasonCode: kycIncome?.reason_code ?? null,
-  //     })
-  //   }
-  // }
+  {
+    const incomeCheck = checkStatusMap.get('INCOME')
+    const kycIncome = kycByKey.get('INCOME')
+    if (incomeCheck || kycIncome) {
+      const incValues: { [sourceId: string]: string | null } = {}
+      documents.forEach((d) => {
+        incValues[d.source_id] = getFieldFromDoc('INCOME', d)
+      })
+      rows.push({
+        field: 'Income & Earnings',
+        sublabel: 'Financial Proof',
+        values: incValues,
+        status: 'SKIPPED',
+        statusText: 'Not provided',
+        matchScore: kycIncome?.match_score ?? null,
+        confidence: kycIncome?.confidence ?? null,
+        reason: kycIncome?.reason ?? null,
+        reasonCode: kycIncome?.reason_code ?? null,
+      })
+    }
+  }
 
   const totalChecks = checks.length
   // Prefer cross_document.checks when present; otherwise aggregate party verification_summary

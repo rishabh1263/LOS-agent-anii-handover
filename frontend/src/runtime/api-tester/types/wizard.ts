@@ -1,13 +1,14 @@
 import type { DocumentTypeHint, LosProcessResponse, PartyRole, UploadFileItem } from './los'
 
 export type WizardStep = 'details' | 'party' | 'documents' | 'report'
+
 export type ProfileFieldKey = 'name' | 'dob' | 'pan' | string
-export type ActiveParty = PartyRole
 
 export interface ProfileField {
   key: ProfileFieldKey
   label: string
   value: string
+  /** Built-in fields cannot be removed */
   builtin?: boolean
 }
 
@@ -26,24 +27,15 @@ export type DocVerifyStatus =
   | 'error'
   | 'type_mismatch'
 
-/** One field compared: system profile vs EXTRACT output */
-export interface ProfileFieldMatch {
-  key: string
-  label: string
-  entered: string
-  extracted: string | null
-  status: 'match' | 'mismatch' | 'missing'
-}
-
 export interface VerifiedDoc {
   item: UploadFileItem
   status: DocVerifyStatus
   error?: string
-  progress?: number // 0–100
+  /** Detected type from API response when available */
   detectedType?: string | null
-  /** Profile vs extraction (filled after successful EXTRACT) */
-  profileMatches?: ProfileFieldMatch[]
+  /** VERIFY response (authenticity) */
   verifyResponse?: LosProcessResponse | null
+  /** EXTRACT response (fields) */
   extractResponse?: LosProcessResponse | null
   response?: LosProcessResponse | null
 }
@@ -54,19 +46,24 @@ export const DEFAULT_PROFILE_FIELDS: ProfileField[] = [
   { key: 'pan', label: 'PAN', value: '', builtin: true },
 ]
 
+/** Single selectable document type in the upload grid */
 export interface DocTypeOption {
   value: DocumentTypeHint
   label: string
   short: string
 }
 
+/** Grouped document types for the upload step */
 export interface DocCategory {
   id: string
   label: string
   types: DocTypeOption[]
 }
 
-/** Production document catalogue grouped by purpose */
+/**
+ * Production document catalogue grouped by purpose.
+ * Values align with LOS DocumentTypeHint where possible.
+ */
 export const DOC_CATEGORIES: DocCategory[] = [
   {
     id: 'age_proof',
@@ -131,51 +128,37 @@ export const DOC_CATEGORIES: DocCategory[] = [
   },
 ]
 
+/** Flat list for lookups (legacy consumers) */
 export const WIZARD_DOC_TYPES: DocTypeOption[] = DOC_CATEGORIES.flatMap((c) => c.types)
 
-/** Normalize type strings (DRIVING_LICENCE ≈ DRIVING_LICENSE) */
+/**
+ * Normalize API / expected type strings for comparison.
+ * Treats DRIVING_LICENCE ≈ DRIVING_LICENSE, etc.
+ */
 export function normalizeDocType(type: string | null | undefined): string {
   if (!type) return ''
-  return type.toUpperCase().replace(/[\s-]+/g, '_').replace(/LICENCE/g, 'LICENSE')
+  return type
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_')
+    .replace(/LICENCE/g, 'LICENSE')
 }
 
-/** True when expected matches detected; AUTO / empty detected always pass */
+/**
+ * True when expected hint matches detected API type.
+ * AUTO always accepts. Empty detected type is treated as unknown (accept).
+ */
 export function isDocTypeMatch(
   expected: DocumentTypeHint | string,
   detected: string | null | undefined,
 ): boolean {
-  if (!expected || expected === 'AUTO' || !detected) return true
+  if (!expected || expected === 'AUTO') return true
+  if (!detected) return true
   const a = normalizeDocType(expected)
   const b = normalizeDocType(detected)
   if (a === b) return true
-  return a.replace(/_SIGNATURE$/, '') === b.replace(/_SIGNATURE$/, '')
+  // Signature variants may map back to base identity types
+  if (a.replace(/_SIGNATURE$/, '') === b.replace(/_SIGNATURE$/, '')) return true
+  return false
 }
 
-/** Human label for a type enum */
-export function formatDocTypeLabel(type: string | null | undefined): string {
-  if (!type) return 'Unknown'
-  const n = normalizeDocType(type)
-  const hit = WIZARD_DOC_TYPES.find(
-    (t) => normalizeDocType(t.value) === n || normalizeDocType(t.short) === n,
-  )
-  if (hit) return hit.label
-  return n
-    .replace(/_SIGNATURE$/i, ' (Signature)')
-    .split('_')
-    .filter(Boolean)
-    .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
-    .join(' ')
-}
-
-/** User-facing mismatch message for VERIFY or EXTRACT */
-export function buildTypeMismatchError(
-  stage: 'VERIFY' | 'EXTRACT',
-  selected: string,
-  detected: string,
-): string {
-  const sel = formatDocTypeLabel(selected)
-  const det = formatDocTypeLabel(detected)
-  const when =
-    stage === 'VERIFY' ? 'during authenticity check' : 'after field extraction'
-  return `Rejected ${when}: selected “${sel}”, system detected “${det}”. Remove and re-upload under the correct type.`
-}
+export type ActiveParty = PartyRole
