@@ -40,7 +40,10 @@ export function ChatPanel({ api }: ChatPanelProps) {
     isListening,
     startListening,
     stopListening,
-    isSpeaking,
+    interimTranscript,
+    voiceError,
+    dismissVoiceError,
+    speakingMessageId,
     toggleSpeak,
     showSettings,
     setShowSettings,
@@ -66,10 +69,10 @@ export function ChatPanel({ api }: ChatPanelProps) {
   const isMobile = mode === 'mobile'
 
   const panelClasses = isMobile
-    ? 'fixed inset-x-0 bottom-0 top-0 z-[70] flex flex-col rounded-t-2xl border border-line bg-surface shadow-lg'
+    ? 'fixed inset-x-0 bottom-0 top-0 z-[70] flex flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-lg pb-[env(safe-area-inset-bottom)]'
     : isExpanded
       ? 'fixed inset-5 z-[70] flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-lg'
-      : 'fixed bottom-6 right-6 z-[70] flex h-[min(720px,calc(100vh-48px))] w-[min(460px,calc(100vw-48px))] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-lg'
+      : 'fixed bottom-6 right-6 z-[70] flex h-[min(720px,calc(100vh-48px))] max-h-[calc(100vh-3rem)] w-[min(460px,calc(100vw-48px))] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-lg'
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault()
@@ -117,7 +120,7 @@ export function ChatPanel({ api }: ChatPanelProps) {
         )}
 
         <div
-          className={`relative flex min-w-0 flex-1 flex-col ${
+          className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
             settings.compactMode ? '[&_.py-2]:py-1.5 [&_.px-4]:px-3' : ''
           }`}
         >
@@ -144,8 +147,8 @@ export function ChatPanel({ api }: ChatPanelProps) {
               <ChatMessages
                 messages={messages}
                 showTimestamps={settings.showTimestamps}
-                isSpeaking={isSpeaking}
-                onListen={toggleSpeak}
+                speakingMessageId={speakingMessageId}
+                onListen={(text, id) => toggleSpeak(text, id)}
                 onRegenerate={regenerate}
                 onSuggested={(q) => void sendMessage(q)}
                 quickActions={quickActions}
@@ -162,6 +165,9 @@ export function ChatPanel({ api }: ChatPanelProps) {
                 isListening={isListening}
                 onStartListen={startListening}
                 onStopListen={stopListening}
+                interimTranscript={interimTranscript}
+                voiceError={voiceError}
+                onDismissVoiceError={dismissVoiceError}
                 attachments={attachments}
                 onAddFiles={(files) => Array.from(files).forEach((f) => addAttachment(f))}
                 onRemoveAttachment={removeAttachment}

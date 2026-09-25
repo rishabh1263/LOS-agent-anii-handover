@@ -219,7 +219,10 @@ export function MessageBubble({
               <Copy className="h-3.5 w-3.5" strokeWidth={2} />
             )}
           </ActionBtn>
-          <ActionBtn label={isSpeaking ? 'Stop' : 'Listen'} onClick={() => onListen?.()}>
+          <ActionBtn
+            label={isSpeaking ? 'Stop reading' : 'Read aloud'}
+            onClick={() => onListen?.()}
+          >
             {isSpeaking ? (
               <VolumeX className="h-3.5 w-3.5 text-ember" strokeWidth={2} />
             ) : (

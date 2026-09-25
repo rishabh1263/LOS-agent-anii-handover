@@ -13,6 +13,23 @@ import { DEFAULT_SETTINGS } from '../types'
 
 import { uid } from '../utils'
 
+/** Minimal SpeechRecognition shape for browsers that expose it (incl. webkit prefix). */
+interface SpeechRecognitionLike {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onresult: ((event: SpeechRecognitionResultEvent) => void) | null
+  onerror: ((event: { error: string }) => void) | null
+  onend: (() => void) | null
+  start: () => void
+  stop: () => void
+}
+
+interface SpeechRecognitionResultEvent {
+  resultIndex: number
+  results: ArrayLike<{ isFinal: boolean; 0?: { transcript: string } }>
+}
+
 const DEMO_REPLIES = [
   "I can help you with documents, KYC checks, application status, and more. What would you like to do?",
   "Based on the context available, here's a concise summary of the key points.\n\n• Primary applicant verified\n• Co-applicant documents pending\n• Cross-document name match: 94%\n\nWould you like me to dig deeper into any section?",
@@ -82,12 +99,21 @@ export function useChatbot() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [isListening, setIsListening] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showSidebar, setShowSidebar] = useState(false)
   const [confirmNew, setConfirmNew] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const stopRef = useRef(false)
   const replyIndex = useRef(0)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const listenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const speakTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
+  const speakTextRef = useRef<(text: string, messageId?: string) => void>(() => {})
+  const [interimTranscript, setInterimTranscript] = useState('')
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -109,6 +135,31 @@ export function useChatbot() {
     setMode('closed')
     setShowSettings(false)
     setShowSidebar(false)
+    // Tear down voice so mic/TTS don't keep running in background
+    try {
+      recognitionRef.current?.stop()
+    } catch {
+      /* ignore */
+    }
+    recognitionRef.current = null
+    try {
+      window.speechSynthesis?.cancel()
+    } catch {
+      /* ignore */
+    }
+    if (listenTimeoutRef.current) {
+      clearTimeout(listenTimeoutRef.current)
+      listenTimeoutRef.current = null
+    }
+    if (speakTimeoutRef.current) {
+      clearTimeout(speakTimeoutRef.current)
+      speakTimeoutRef.current = null
+    }
+    setIsListening(false)
+    setInterimTranscript('')
+    setIsSpeaking(false)
+    setSpeakingMessageId(null)
+    setStatus('online')
   }, [])
 
   const toggleExpand = useCallback(() => {
@@ -116,8 +167,8 @@ export function useChatbot() {
   }, [])
 
   const minimize = useCallback(() => {
-    setMode('closed')
-  }, [])
+    close()
+  }, [close])
 
   const updateSettings = useCallback((patch: Partial<ChatSettings>) => {
     setSettings((s) => ({ ...s, ...patch }))
@@ -256,6 +307,7 @@ export function useChatbot() {
         )
       }
 
+      const finalContent = stopRef.current ? undefined : replyText
       setConversations((prev) =>
         prev.map((c) =>
           c.id === convId
@@ -278,6 +330,11 @@ export function useChatbot() {
         ),
       )
       setStatus('online')
+
+      // Auto-read finished reply when enabled and not stopped mid-stream
+      if (finalContent && settingsRef.current.autoReadResponses) {
+        setTimeout(() => speakTextRef.current(finalContent, assistantId), 80)
+      }
     },
     [input, attachments, activeId, status, settings.showSuggestedQuestions],
   )
@@ -315,41 +372,319 @@ export function useChatbot() {
     [activeId, conversations, sendMessage],
   )
 
-  const startListening = useCallback(() => {
-    if (!settings.voiceInput) return
-    setIsListening(true)
-    setStatus('listening')
-    // Dummy: after 2s insert sample text
-    setTimeout(() => {
-      setInput((prev) => (prev ? prev + ' ' : '') + 'Check KYC status for the current application')
-      setIsListening(false)
-      setStatus('online')
-    }, 2000)
-  }, [settings.voiceInput])
-
-  const stopListening = useCallback(() => {
-    setIsListening(false)
-    setStatus('online')
+  const clearListenTimeout = useCallback(() => {
+    if (listenTimeoutRef.current) {
+      clearTimeout(listenTimeoutRef.current)
+      listenTimeoutRef.current = null
+    }
   }, [])
 
-  const toggleSpeak = useCallback(
-    (text: string) => {
-      if (isSpeaking) {
-        setIsSpeaking(false)
-        setStatus('online')
+  const clearSpeakTimeout = useCallback(() => {
+    if (speakTimeoutRef.current) {
+      clearTimeout(speakTimeoutRef.current)
+      speakTimeoutRef.current = null
+    }
+  }, [])
+
+  const stopSpeaking = useCallback(() => {
+    clearSpeakTimeout()
+    try {
+      window.speechSynthesis?.cancel()
+    } catch {
+      /* ignore */
+    }
+    setIsSpeaking(false)
+    setSpeakingMessageId(null)
+    setStatus((s) => (s === 'speaking' ? 'online' : s))
+  }, [clearSpeakTimeout])
+
+  const speakText = useCallback(
+    (text: string, messageId?: string) => {
+      const trimmed = text.replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim()
+      if (!trimmed) return
+
+      clearSpeakTimeout()
+      try {
+        window.speechSynthesis?.cancel()
+      } catch {
+        /* ignore */
+      }
+
+      const rate = settingsRef.current.speechSpeed || 1
+
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(trimmed)
+        utterance.rate = Math.min(2, Math.max(0.5, rate))
+        utterance.onend = () => {
+          setIsSpeaking(false)
+          setSpeakingMessageId(null)
+          setStatus((s) => (s === 'speaking' ? 'online' : s))
+        }
+        utterance.onerror = () => {
+          setIsSpeaking(false)
+          setSpeakingMessageId(null)
+          setStatus((s) => (s === 'speaking' ? 'online' : s))
+        }
+        setIsSpeaking(true)
+        setSpeakingMessageId(messageId ?? null)
+        setStatus('speaking')
+        window.speechSynthesis.speak(utterance)
         return
       }
+
+      // Fallback: timed status only (no audio)
       setIsSpeaking(true)
+      setSpeakingMessageId(messageId ?? null)
       setStatus('speaking')
-      // Dummy TTS duration based on length
-      const ms = Math.min(8000, Math.max(1500, text.length * 40))
-      setTimeout(() => {
+      const ms = Math.min(8000, Math.max(1200, trimmed.length * (40 / rate)))
+      speakTimeoutRef.current = setTimeout(() => {
         setIsSpeaking(false)
-        setStatus('online')
+        setSpeakingMessageId(null)
+        setStatus((s) => (s === 'speaking' ? 'online' : s))
+        speakTimeoutRef.current = null
       }, ms)
     },
-    [isSpeaking],
+    [clearSpeakTimeout],
   )
+  speakTextRef.current = speakText
+
+  const stopListening = useCallback(() => {
+    clearListenTimeout()
+    const rec = recognitionRef.current
+    if (rec) {
+      try {
+        rec.onresult = null
+        rec.onerror = null
+        rec.onend = null
+        rec.stop()
+      } catch {
+        /* ignore */
+      }
+      recognitionRef.current = null
+    }
+    setInterimTranscript('')
+    setIsListening(false)
+    setStatus((s) => (s === 'listening' ? 'online' : s))
+  }, [clearListenTimeout])
+
+  const mapMicError = useCallback((code: string): string => {
+    switch (code) {
+      case 'not-allowed':
+      case 'permission-denied':
+      case 'PermissionDeniedError':
+      case 'NotAllowedError':
+        return 'Microphone access denied. Allow mic permission in your browser settings, then try again.'
+      case 'service-not-allowed':
+        return 'Microphone blocked by the browser or site policy. Check site permissions and try again.'
+      case 'audio-capture':
+      case 'NotFoundError':
+      case 'DevicesNotFoundError':
+        return 'No microphone found. Connect a mic and try again.'
+      case 'NotReadableError':
+      case 'TrackStartError':
+        return 'Microphone is in use by another app. Close it and try again.'
+      case 'OverconstrainedError':
+        return 'Could not access this microphone. Try a different device.'
+      case 'SecurityError':
+        return 'Microphone requires a secure connection (HTTPS). Open the app over HTTPS and try again.'
+      case 'network':
+        return 'Network error during voice input. Check your connection and try again.'
+      case 'no-speech':
+        return 'No speech detected. Click the mic and speak clearly.'
+      case 'aborted':
+        return ''
+      case 'language-not-supported':
+        return 'Speech recognition is not available for this language.'
+      case 'unsupported':
+        return 'Voice input is not supported in this browser. Try Chrome or Edge.'
+      case 'insecure':
+        return 'Microphone requires HTTPS. Open the app on a secure origin and try again.'
+      default:
+        return 'Voice input failed. Check microphone access and try again.'
+    }
+  }, [])
+
+  /** Probe mic permission before starting recognition. Returns error message or null if OK. */
+  const ensureMicAccess = useCallback(async (): Promise<string | null> => {
+    if (typeof window === 'undefined') {
+      return mapMicError('unsupported')
+    }
+
+    // SpeechRecognition / getUserMedia require a secure context in modern browsers
+    if (!window.isSecureContext) {
+      return mapMicError('insecure')
+    }
+
+    // Permissions API (optional — not all browsers support microphone query)
+    try {
+      if (navigator.permissions?.query) {
+        const status = await navigator.permissions.query({
+          name: 'microphone' as PermissionName,
+        })
+        if (status.state === 'denied') {
+          return mapMicError('not-allowed')
+        }
+      }
+    } catch {
+      // Ignore — some browsers reject microphone permission queries
+    }
+
+    // getUserMedia is the most reliable pre-check for actual device access
+    if (navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        stream.getTracks().forEach((t) => t.stop())
+        return null
+      } catch (err) {
+        const name =
+          err && typeof err === 'object' && 'name' in err
+            ? String((err as { name: string }).name)
+            : 'not-allowed'
+        return mapMicError(name)
+      }
+    }
+
+    // No getUserMedia — still allow SpeechRecognition to try; it may prompt on its own
+    return null
+  }, [mapMicError])
+
+  const startListening = useCallback(async () => {
+    if (!settings.voiceInput || isListening) return
+    setVoiceError(null)
+    setInterimTranscript('')
+    stopSpeaking()
+
+    type SpeechRecognitionCtor = new () => SpeechRecognitionLike
+    const w = typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>) : null
+    const SpeechRecognitionCtor = (w?.SpeechRecognition || w?.webkitSpeechRecognition) as
+      | SpeechRecognitionCtor
+      | undefined
+
+    if (!SpeechRecognitionCtor) {
+      // Demo fallback only when API is missing (e.g. some automated environments)
+      setIsListening(true)
+      setStatus('listening')
+      setInterimTranscript('Listening…')
+      clearListenTimeout()
+      listenTimeoutRef.current = setTimeout(() => {
+        const sample = 'Check KYC status for the current application'
+        setInput((prev) => {
+          const base = prev.trim()
+          return base ? `${base} ${sample}` : sample
+        })
+        setInterimTranscript('')
+        setIsListening(false)
+        setStatus((s) => (s === 'listening' ? 'online' : s))
+        listenTimeoutRef.current = null
+      }, 2000)
+      return
+    }
+
+    // Pre-check mic access so we surface a clear error before recognition starts
+    const accessError = await ensureMicAccess()
+    if (accessError) {
+      setVoiceError(accessError)
+      setIsListening(false)
+      setStatus((s) => (s === 'listening' ? 'online' : s))
+      return
+    }
+
+    try {
+      const recognition = new SpeechRecognitionCtor()
+      recognition.continuous = false
+      recognition.interimResults = true
+      recognition.lang =
+        typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US'
+
+      recognition.onresult = (event: SpeechRecognitionResultEvent) => {
+        let interim = ''
+        let finalText = ''
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i]
+          const transcript = result[0]?.transcript ?? ''
+          if (result.isFinal) finalText += transcript
+          else interim += transcript
+        }
+        if (finalText) {
+          setInterimTranscript('')
+          setInput((prev) => {
+            const base = prev.trim()
+            return base ? `${base} ${finalText.trim()}` : finalText.trim()
+          })
+        } else {
+          setInterimTranscript(interim.trim())
+        }
+      }
+
+      recognition.onerror = (event: { error: string }) => {
+        const message = mapMicError(event.error)
+        if (message) setVoiceError(message)
+        recognitionRef.current = null
+        setInterimTranscript('')
+        setIsListening(false)
+        setStatus((s) => (s === 'listening' ? 'online' : s))
+      }
+
+      recognition.onend = () => {
+        recognitionRef.current = null
+        setInterimTranscript('')
+        setIsListening(false)
+        setStatus((s) => (s === 'listening' ? 'online' : s))
+      }
+
+      recognitionRef.current = recognition
+      setIsListening(true)
+      setStatus('listening')
+      recognition.start()
+    } catch (err) {
+      const name =
+        err && typeof err === 'object' && 'name' in err
+          ? String((err as { name: string }).name)
+          : 'unsupported'
+      setVoiceError(mapMicError(name === 'InvalidStateError' ? 'unsupported' : name))
+      recognitionRef.current = null
+      setIsListening(false)
+      setStatus((s) => (s === 'listening' ? 'online' : s))
+    }
+  }, [
+    settings.voiceInput,
+    isListening,
+    stopSpeaking,
+    clearListenTimeout,
+    ensureMicAccess,
+    mapMicError,
+  ])
+
+  const toggleSpeak = useCallback(
+    (text: string, messageId?: string) => {
+      if (isSpeaking && (messageId == null || speakingMessageId === messageId)) {
+        stopSpeaking()
+        return
+      }
+      speakText(text, messageId)
+    },
+    [isSpeaking, speakingMessageId, stopSpeaking, speakText],
+  )
+
+  const dismissVoiceError = useCallback(() => setVoiceError(null), [])
+
+  // Cleanup voice resources on unmount
+  useEffect(() => {
+    return () => {
+      clearListenTimeout()
+      clearSpeakTimeout()
+      try {
+        recognitionRef.current?.stop()
+      } catch {
+        /* ignore */
+      }
+      try {
+        window.speechSynthesis?.cancel()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [clearListenTimeout, clearSpeakTimeout])
 
   // Responsive mode hint (consumer can override with media queries)
   useEffect(() => {
@@ -395,8 +730,13 @@ export function useChatbot() {
     isListening,
     startListening,
     stopListening,
+    interimTranscript,
+    voiceError,
+    dismissVoiceError,
     isSpeaking,
+    speakingMessageId,
     toggleSpeak,
+    stopSpeaking,
     showSettings,
     setShowSettings,
     showSidebar,

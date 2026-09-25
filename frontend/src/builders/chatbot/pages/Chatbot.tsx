@@ -36,16 +36,6 @@ export function Chatbot({ modelUrl }: ChatbotProps = {}) {
     return () => mq.removeEventListener('change', apply)
   }, [api.mode, api.setMode])
 
-  // Apply theme from settings (demo — real app would use root data-theme)
-  useEffect(() => {
-    const root = document.documentElement
-    if (api.settings.theme === 'system') {
-      root.removeAttribute('data-theme')
-    } else {
-      root.setAttribute('data-theme', api.settings.theme)
-    }
-  }, [api.settings.theme])
-
   return (
     <>
       <RobotButton

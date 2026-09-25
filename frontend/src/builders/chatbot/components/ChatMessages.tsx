@@ -6,8 +6,9 @@ import { QuickActions } from './QuickActions'
 interface ChatMessagesProps {
   messages: ChatMessage[]
   showTimestamps: boolean
-  isSpeaking: boolean
-  onListen: (text: string) => void
+  /** Message id currently being spoken, if any */
+  speakingMessageId?: string | null
+  onListen: (text: string, messageId: string) => void
   onRegenerate: (id: string) => void
   onSuggested: (q: string) => void
   quickActions: { id: string; label: string; icon: string }[]
@@ -18,7 +19,7 @@ interface ChatMessagesProps {
 export function ChatMessages({
   messages,
   showTimestamps,
-  isSpeaking,
+  speakingMessageId = null,
   onListen,
   onRegenerate,
   onSuggested,
@@ -48,8 +49,8 @@ export function ChatMessages({
           key={m.id}
           message={m}
           showTimestamp={showTimestamps}
-          isSpeaking={isSpeaking}
-          onListen={() => onListen(m.content)}
+          isSpeaking={speakingMessageId === m.id}
+          onListen={() => onListen(m.content, m.id)}
           onRegenerate={() => onRegenerate(m.id)}
           onSuggested={onSuggested}
         />
