@@ -34,10 +34,12 @@ from app.store.models import (
     CaseDecision,
     CaseEvent,
     CaseFinding,
+    CaseStage,
     Document,
     DocumentStatus,
     DocumentVersion,
     FindingKind,
+    StageTransition,
     utcnow,
 )
 from app.store.repository import Repository, RepositoryError
@@ -224,6 +226,64 @@ CREATE INDEX IF NOT EXISTS idx_ocr_jobs_status
     ON ocr_jobs (status, created_at);
 CREATE INDEX IF NOT EXISTS idx_ocr_jobs_case
     ON ocr_jobs (case_id);
+
+-- WHO MAY ACCESS WHAT. One row per (subject, resource). Written when an
+-- authenticated subject creates an applicant or a case; read by
+-- app/security/access.py before any case data is served. No row, no
+-- access -- service principals (los.read / los.write) aside.
+CREATE TABLE IF NOT EXISTS access_grants (
+    subject       TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id   TEXT NOT NULL,
+    granted_at    TEXT NOT NULL,
+    PRIMARY KEY (subject, resource_type, resource_id)
+);
+CREATE INDEX IF NOT EXISTS idx_access_grants_resource
+    ON access_grants (resource_type, resource_id);
+
+-- WHERE A CASE IS IN THE LOS LIFECYCLE. One row per case, written only by
+-- the stage transition service (app/agents/los/stage_lifecycle.py) and
+-- only together with the stage_transitions row that explains it. No row:
+-- the case has never been transitioned and resolves as it always did.
+-- `version` is the compare-and-set guard against a stale writer.
+CREATE TABLE IF NOT EXISTS case_stage (
+    case_id          TEXT PRIMARY KEY,
+    stage            TEXT NOT NULL,
+    stage_status     TEXT NOT NULL,
+    stage_started_at TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    version          INTEGER NOT NULL,
+    FOREIGN KEY (case_id) REFERENCES applications (case_id)
+);
+
+-- THE STAGE HISTORY. Append-only: the triggers below refuse UPDATE and
+-- DELETE, so a recorded transition can never be rewritten. UNIQUE
+-- (case_id, version) means two writers can never both record version N.
+CREATE TABLE IF NOT EXISTS stage_transitions (
+    transition_id             TEXT PRIMARY KEY,
+    case_id                   TEXT NOT NULL,
+    version                   INTEGER NOT NULL,
+    kind                      TEXT NOT NULL,
+    from_stage                TEXT,
+    to_stage                  TEXT NOT NULL,
+    from_status               TEXT,
+    to_status                 TEXT NOT NULL,
+    previous_stage_started_at TEXT,
+    source                    TEXT NOT NULL,
+    actor                     TEXT,
+    reason                    TEXT,
+    request_id                TEXT,
+    correlation_id            TEXT,
+    created_at                TEXT NOT NULL,
+    UNIQUE (case_id, version),
+    FOREIGN KEY (case_id) REFERENCES applications (case_id)
+);
+CREATE TRIGGER IF NOT EXISTS stage_transitions_no_update
+    BEFORE UPDATE ON stage_transitions
+    BEGIN SELECT RAISE(ABORT, 'stage history is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS stage_transitions_no_delete
+    BEFORE DELETE ON stage_transitions
+    BEGIN SELECT RAISE(ABORT, 'stage history is append-only'); END;
 """
 
 
@@ -554,6 +614,29 @@ class SQLiteRepository(Repository):
         return [self._document(r) for r in rows]
 
     # -- plumbing ----------------------------------------------------------
+
+    # -- access grants -------------------------------------------------------
+
+    def grant_access(self, subject: str, resource_type: str,
+                     resource_id: str) -> None:
+        if not subject or not resource_id:
+            return
+        self._write(
+            "INSERT OR IGNORE INTO access_grants (subject, resource_type, "
+            "resource_id, granted_at) VALUES (?, ?, ?, ?)",
+            (str(subject), str(resource_type).upper(), str(resource_id),
+             _iso(utcnow())),
+        )
+
+    def has_access(self, subject: str, resource_type: str,
+                   resource_id: str) -> bool:
+        if not subject or not resource_id:
+            return False
+        return self._one(
+            "SELECT 1 FROM access_grants WHERE subject = ? AND "
+            "resource_type = ? AND resource_id = ?",
+            (str(subject), str(resource_type).upper(), str(resource_id)),
+        ) is not None
 
     def _one(self, sql: str, args: tuple) -> sqlite3.Row | None:
         self.initialise()
@@ -941,6 +1024,131 @@ class SQLiteRepository(Repository):
                 (case_id,),
             )
         ]
+
+    # -- stage lifecycle -----------------------------------------------------
+
+    def get_case_stage(self, case_id: str) -> CaseStage | None:
+        row = self._one("SELECT * FROM case_stage WHERE case_id = ?",
+                        (case_id,))
+        if row is None:
+            return None
+        return CaseStage(
+            case_id=row["case_id"], stage=row["stage"],
+            stage_status=row["stage_status"],
+            stage_started_at=_parse(row["stage_started_at"]),
+            updated_at=_parse(row["updated_at"]),
+            version=int(row["version"]),
+        )
+
+    def get_stage_transitions(self, case_id: str) -> list[StageTransition]:
+        return [self._transition(row) for row in self._all(
+            "SELECT * FROM stage_transitions WHERE case_id = ? "
+            "ORDER BY version", (case_id,))]
+
+    def get_stage_transition(self, transition_id: str) -> StageTransition | None:
+        row = self._one("SELECT * FROM stage_transitions "
+                        "WHERE transition_id = ?", (transition_id,))
+        return self._transition(row) if row is not None else None
+
+    def apply_stage_transition(self, expected_version: int, state: CaseStage,
+                               transition: StageTransition,
+                               event: CaseEvent) -> bool:
+        """
+        One IMMEDIATE transaction: the write lock is taken before the
+        version is read, so no other writer can slip between the check and
+        the write. Everything or nothing.
+        """
+        self.initialise()
+        conn = self._connect()
+        try:
+            if conn.in_transaction:
+                conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT version FROM case_stage WHERE case_id = ?",
+                (state.case_id,)).fetchone()
+            current = int(row["version"]) if row is not None else 0
+            if current != expected_version:
+                conn.rollback()
+                return False
+
+            conn.execute(
+                """
+                INSERT INTO case_stage (case_id, stage, stage_status,
+                    stage_started_at, updated_at, version)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(case_id) DO UPDATE SET
+                    stage = excluded.stage,
+                    stage_status = excluded.stage_status,
+                    stage_started_at = excluded.stage_started_at,
+                    updated_at = excluded.updated_at,
+                    version = excluded.version
+                """,
+                (state.case_id, state.stage, state.stage_status,
+                 _iso(state.stage_started_at), _iso(state.updated_at),
+                 state.version),
+            )
+            conn.execute(
+                """
+                INSERT INTO stage_transitions (transition_id, case_id,
+                    version, kind, from_stage, to_stage, from_status,
+                    to_status, previous_stage_started_at, source, actor,
+                    reason, request_id, correlation_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (transition.transition_id, transition.case_id,
+                 transition.version, transition.kind, transition.from_stage,
+                 transition.to_stage, transition.from_status,
+                 transition.to_status,
+                 _iso(transition.previous_stage_started_at)
+                 if transition.previous_stage_started_at else None,
+                 transition.source, transition.actor, transition.reason,
+                 transition.request_id, transition.correlation_id,
+                 _iso(transition.created_at)),
+            )
+            # THE SAME TRANSITION ON THE CASE TIMELINE, so every existing
+            # case-history view shows it. Sequenced inside the lock.
+            seq = conn.execute(
+                "SELECT COALESCE(MAX(sequence), 0) AS s FROM case_events "
+                "WHERE case_id = ?", (event.case_id,)).fetchone()
+            event.sequence = int((seq["s"] if seq else 0) or 0) + 1
+            conn.execute(
+                """
+                INSERT INTO case_events (event_id, case_id, party_id,
+                    event_type, stage, summary, ref_id, created_at, sequence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (event.event_id, event.case_id, event.party_id,
+                 event.event_type, event.stage, event.summary, event.ref_id,
+                 _iso(event.created_at), event.sequence),
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            # Another writer recorded this version (or this transition id)
+            # first. Nothing of ours was written.
+            conn.rollback()
+            return False
+        except sqlite3.Error as exc:
+            conn.rollback()
+            raise RepositoryError(f"Case store write failed: {exc}") from exc
+
+    @staticmethod
+    def _transition(row: "sqlite3.Row") -> StageTransition:
+        previous = _column(row, "previous_stage_started_at")
+        return StageTransition(
+            transition_id=row["transition_id"], case_id=row["case_id"],
+            version=int(row["version"]), kind=row["kind"],
+            from_stage=_column(row, "from_stage"), to_stage=row["to_stage"],
+            from_status=_column(row, "from_status"),
+            to_status=row["to_status"],
+            previous_stage_started_at=_parse(previous) if previous else None,
+            source=row["source"], actor=_column(row, "actor"),
+            reason=_column(row, "reason"),
+            request_id=_column(row, "request_id"),
+            correlation_id=_column(row, "correlation_id"),
+            created_at=_parse(row["created_at"]),
+        )
 
     # -- row mappers -------------------------------------------------------
 

@@ -68,6 +68,15 @@ _BARE_SUBJECT = re.compile(
 )
 
 
+#: "What about it?" -- too short for the subject pattern above, and only
+#: ever a reference back.
+_BARE_PRONOUN = re.compile(
+    r"^\s*(and|what\s+about|how\s+about)\s+()(it|that|this|that\s+one|"
+    r"this\s+one)\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
+
 @dataclass(frozen=True)
 class Context:
     """What the last exchange was about. Supplied by the caller."""
@@ -235,7 +244,25 @@ def resolve(message: str, context: Context | None) -> Resolution:
             reason="a bare follow-up asking for the next step",
         )
 
-    match = _BARE_SUBJECT.match(text)
+    match = _BARE_SUBJECT.match(text) or _BARE_PRONOUN.match(text)
+
+    # "WHAT ABOUT THE DOCUMENT?" -- a pronoun for the last answer's subject.
+    # Resolved only against a slot this service recognises (checked
+    # above), and phrased as a question the classifier already answers.
+    if match and slot and _refers_back(match.group(3)):
+        if context.last_intent in {"DOCUMENTS_PENDING", "DOCUMENTS_MISSING",
+                                   "DOCUMENTS_REQUIRED", "APPLICATION_STATUS"}:
+            return Resolution(
+                message=f"Is {_readable(slot)} still pending?",
+                rewritten_from=text,
+                reason=f"the previous answer was about {slot}",
+            )
+        return Resolution(
+            message=f"Has the {_readable(slot)} been verified?",
+            rewritten_from=text,
+            reason=f"the previous answer was about {slot}",
+        )
+
     if match and context.last_intent:
         subject = re.sub(r"[^A-Z0-9]+", "_",
                          match.group(3).upper()).strip("_")
@@ -256,6 +283,18 @@ def resolve(message: str, context: Context | None) -> Resolution:
             )
 
     return Resolution(message=text)
+
+
+#: Words that point back at the last answer's subject.
+_BACK_REFERENCES = frozenset({
+    "it", "that", "this", "document", "documents", "doc", "docs",
+    "that document", "this document", "that doc", "this doc", "that one",
+    "this one", "one", "same", "same document",
+})
+
+
+def _refers_back(subject: str) -> bool:
+    return " ".join(str(subject or "").lower().split()) in _BACK_REFERENCES
 
 
 def _is_known(subject: str) -> bool:
@@ -303,12 +342,45 @@ def context_from_response(envelope: Mapping[str, Any]) -> dict[str, Any]:
         if row:
             slot = row.get("slot")
             break
+    # NO CHECKLIST ON THIS ANSWER (a concise case-history reply carries
+    # none): the document the answer itself cited is what "the document"
+    # in the next question means.
+    if slot is None:
+        slot = _only_implicated_document(envelope)
 
     return {
         "last_query_type": envelope.get("query_type"),
         "last_intent": envelope.get("intent"),
         "last_slot": slot,
     }
+
+
+def _only_implicated_document(envelope: Mapping[str, Any]) -> str | None:
+    """
+    The one document the answer's recorded problem is about -- or None.
+
+    ONLY WHEN UNAMBIGUOUS. A name mismatch between the PAN and the bank
+    statement implicates two documents, and "the document" after it could
+    be either: resolving it to one would answer a question the officer may
+    not have asked, so it is left for the clarification to settle.
+    """
+    types: set[str] = set()
+    memory = envelope.get("case_memory") or {}
+    for finding in (memory.get("findings") or []) if isinstance(memory, Mapping) else []:
+        if not isinstance(finding, Mapping):
+            continue
+        if str(finding.get("status") or "").upper() in {"PASS", "SKIPPED"}:
+            continue
+        for field in finding.get("comparisons") or []:
+            for source in (field or {}).get("sources") or []:
+                if isinstance(source, Mapping) and source.get("document_type"):
+                    types.add(str(source["document_type"]).upper())
+        if finding.get("document_type"):
+            types.add(str(finding["document_type"]).upper())
+    for source in envelope.get("sources") or []:
+        if isinstance(source, Mapping) and source.get("document_type"):
+            types.add(str(source["document_type"]).upper())
+    return next(iter(types)) if len(types) == 1 else None
 
 
 __all__ = ["Context", "Resolution", "context_from_response", "is_bare",

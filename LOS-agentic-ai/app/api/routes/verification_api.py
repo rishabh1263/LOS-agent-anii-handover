@@ -11,6 +11,9 @@ are defined in one place rather than repeated per route.
 
 from __future__ import annotations
 
+from fastapi import Depends as _Depends
+from app.security.access import require_any_scope as _require_any_scope
+
 import logging
 import os
 import tempfile
@@ -69,6 +72,7 @@ async def verification_config() -> dict:
 @router.post(
     "",
     response_model=VerificationResult,
+    dependencies=[_Depends(_require_any_scope('documents:write', 'upload_document', write=True))],
     summary="Verify a document",
 )
 async def verify_document(

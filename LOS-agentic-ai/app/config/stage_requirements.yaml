@@ -1,0 +1,88 @@
+# =============================================================================
+# STAGE DOCUMENT REQUIREMENTS
+#
+# What each LOS stage asks for IN ADDITION to what the stages before it asked
+# for. Read by app/agents/policy/engine.py, which applies every stage up to
+# and including the case's CURRENT stage (read from the case record by
+# app/agents/los/stages.py -- never from a question, never from a model).
+#
+# THE TAXONOMY IS NOT THE CHECKLIST. app/agents/verification/taxonomy.py
+# lists what COULD evidence each section (the lender's 23 rows). This file
+# says which sections a stage NEEDS, and when. A rule that names only a
+# `section` accepts that section's concrete documents from the taxonomy.
+#
+# FOS HAS NO ENTRY HERE ON PURPOSE. The FOS checklist is the product policy
+# (config/policies/*.yaml, or applicant_agent.yaml for a product without
+# one) and is unchanged by this file.
+#
+# requirement_type
+#   ONE_OF       one slot, satisfied by ANY accepted document
+#   ALL_OF       one slot per accepted document, each required
+#   OPTIONAL     one slot, offered, never blocks
+#   CONDITIONAL  as ONE_OF, but only when `when` matches the case
+#                (a `when` on any other type makes it conditional too)
+#
+# `when` keys are case attributes: product, employment_type. A rule whose
+# attribute the case has not captured is NOT applied and is reported as
+# unevaluated -- a customer is never asked for a document on a guess.
+#
+# STATUS: UNCONFIRMED. Like personal_loan.yaml, these are placeholders built
+# from the lender's taxonomy and the evidence the downstream checks already
+# consume (income consistency and eligibility read salary slips, ITRs and
+# bank statements; signature checks read the Signature Verification section).
+# They must be confirmed by the business before production use.
+# =============================================================================
+
+policy_id: LOS_STAGE_DOCUMENTS
+policy_version: "0.1.0-DEMO"
+status: UNCONFIRMED
+
+# One switch for every rule below. `false` leaves each case with its product
+# policy alone -- the checklist every case had before stages existed. Every
+# requirement these rules add carries policy_status UNCONFIRMED on its own
+# checklist row until the business confirms them.
+enabled: true
+
+# Stages in lifecycle order. The order is what makes requirements cumulative.
+stages:
+  FOS: []
+
+  CPA:
+    - rule_id: CPA_INCOME
+      section: INCOME_PROOF
+      requirement_type: ONE_OF
+      accepted_documents: [SALARY_SLIP, ITR]
+      reason: CPA assesses income; a salary slip or an income tax return evidences it.
+    - rule_id: CPA_INCOME_SELF_EMPLOYED
+      section: INCOME_PROOF
+      requirement_type: CONDITIONAL
+      accepted_documents: [ITR]
+      when: {employment_type: SELF_EMPLOYED}
+      reason: A self-employed applicant evidences income with an income tax return.
+    - rule_id: CPA_PROPERTY
+      section: PROPERTY_OWNERSHIP_PROOF
+      requirement_type: CONDITIONAL
+      when: {product: [HOME_LOAN, LOAN_AGAINST_PROPERTY]}
+      reason: A property-backed loan needs proof of ownership of the property.
+    - rule_id: CPA_BUSINESS
+      section: BUSINESS_PHOTOGRAPHS
+      requirement_type: ALL_OF
+      when: {employment_type: SELF_EMPLOYED}
+      reason: A business applicant's premises are evidenced by photographs.
+
+  CREDIT:
+    - rule_id: CREDIT_BANKING
+      section: BANK_STATEMENT
+      requirement_type: ONE_OF
+      accepted_documents: [BANK_STATEMENT]
+      reason: Credit assesses affordability from the applicant's banking.
+
+  RCU:
+    - rule_id: RCU_SIGNATURE
+      section: SIGNATURE_VERIFICATION
+      requirement_type: ONE_OF
+      reason: RCU verifies the applicant's signature against a signed document.
+
+  BOPS: []
+  HOPS: []
+  DISBURSEMENT: []

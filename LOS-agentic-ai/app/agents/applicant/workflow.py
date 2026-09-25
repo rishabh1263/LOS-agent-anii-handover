@@ -75,7 +75,25 @@ def resolution_for(application: Application | None):
         application.product if application else None,
         loan_amount=application.loan_amount if application else None,
         attributes=(application.policy_attributes() if application else {}),
+        # THE STAGE THE CASE RECORD ESTABLISHES. Every consumer of this
+        # resolution -- checklist, pending items, next action, readiness --
+        # becomes stage-aware here, in one place. A FOS case resolves
+        # exactly as before.
+        stage=_current_stage(application),
     )
+
+
+def _current_stage(application: Application | None) -> str | None:
+    """The case's authoritative stage (stages.resolve), or None."""
+    if application is None or not application.case_id:
+        return None
+    try:
+        from app.agents.los import stages
+
+        context = stages.resolve(application.case_id)
+    except Exception:
+        return None
+    return context.stage.value if context.stage is not None else None
 
 
 def build_checklist(
@@ -125,6 +143,10 @@ def _slot(
     }
     if requirement.applicable_conditions:
         row["applicable_conditions"] = list(requirement.applicable_conditions)
+    # Which LOS stage's rules added this slot; absent for the product
+    # policy's own (FOS) slots, so a FOS checklist row is unchanged.
+    if getattr(requirement, "stage", None):
+        row["stage"] = requirement.stage
 
     # WHAT HAS TO BE READABLE ON THE DOCUMENT, per accepted type.
     #
@@ -280,7 +302,10 @@ def pending_items(
 
 
 def _readable(slot: str) -> str:
-    return slot.replace("_", " ").title()
+    # "PAN", not "Pan": the answer module's rendering keeps acronyms.
+    from app.agents.applicant.answer import _readable as readable
+
+    return readable(slot)
 
 
 # ==========================================================================

@@ -353,6 +353,10 @@ def processed_case(tmp_path, monkeypatch):
     set_repository(repository)
 
     persist_los_result(SINGLE_APPLICANT_RESULT)
+    # The officer who opened this case owns it (app/security/access.py);
+    # the tests below ask as that officer.
+    repository.grant_access("fos", "APPLICANT",
+                            SINGLE_APPLICANT_RESULT["applicant_id"])
     yield repository
 
     set_repository(None)

@@ -9,6 +9,9 @@ The route stays thin: save, delegate, clean up.
 
 from __future__ import annotations
 
+from fastapi import Depends as _Depends
+from app.security.access import require_any_scope as _require_any_scope
+
 import logging
 import os
 import uuid
@@ -215,6 +218,7 @@ async def supported() -> dict:
 @router.post(
     "",
     response_model=DocumentExtractionResult,
+    dependencies=[_Depends(_require_any_scope('documents:write', 'upload_document', write=True))],
     summary="Upload an identity document and extract its fields",
     description=(
         "Upload an image or PDF. The document type is detected from the "
@@ -335,6 +339,7 @@ async def extract_document_upload(
 @router.post(
     "/batch",
     summary="Upload several documents at once",
+    dependencies=[_Depends(_require_any_scope('documents:write', 'upload_document', write=True))],
     description="Each file is extracted independently; one failure does not stop the rest.",
 )
 async def extract_documents_batch(

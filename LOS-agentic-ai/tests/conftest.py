@@ -31,6 +31,26 @@ from typing import Any, Callable
 for _flag in ("LOS_CASE_MEMORY_ENABLED", "LOS_OCR_WORKER_ENABLED"):
     os.environ[_flag] = "false"
 
+# THE SAME FOR RETRIEVAL. The deployment .env points at an embedded Qdrant
+# store and Ollama embeddings. The suite keeps the code defaults -- an
+# in-memory store and the local hashing embedder -- so it never takes the
+# embedded store's exclusive lock, never depends on a model server, and
+# never reads the demo corpus. A test that needs retrieval builds its own.
+for _name, _value in (("QDRANT_PATH", ""), ("EMBEDDING_PROVIDER", "hashing"),
+                      ("LOS_DEMO_INDEX_ENABLED", "false")):
+    os.environ[_name] = _value
+
+# AND THE CASE STORE. A test that does not build its own repository used the
+# default path -- the deployment's LIVE ./runtime/los_store.sqlite3 -- so the
+# suite wrote its fixtures (APP-E2E, CASE-DEFAULT ...) into real data, and
+# read back whatever the last run had left there. One temporary store and
+# document store per test session instead.
+import tempfile as _tempfile
+
+_SESSION_STORE = _tempfile.mkdtemp(prefix="los-tests-")
+os.environ["LOS_STORE_PATH"] = os.path.join(_SESSION_STORE, "los_store.sqlite3")
+os.environ["LOS_DOCUMENT_STORE_PATH"] = os.path.join(_SESSION_STORE, "documents")
+
 import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -109,6 +129,9 @@ def deterministic_summary_by_default(monkeypatch):
     # needs either sets it explicitly.
     monkeypatch.setenv("LOS_CASE_MEMORY_ENABLED", "false")
     monkeypatch.setenv("LOS_OCR_WORKER_ENABLED", "false")
+    monkeypatch.setenv("QDRANT_PATH", "")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "hashing")
+    monkeypatch.setenv("LOS_DEMO_INDEX_ENABLED", "false")
 
     from app.agents.los import config
     from app.llm import availability

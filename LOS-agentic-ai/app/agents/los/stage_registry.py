@@ -57,6 +57,10 @@ class StageCapabilities:
     #: so the reason reaches a reviewer rather than living in a commit.
     note: str | None = None
 
+    #: Stage-specific topics nothing in this build produces -- said plainly
+    #: ("... information is not currently available") rather than invented.
+    not_available: tuple[str, ...] = ()
+
     @property
     def supported(self) -> bool:
         """Whether this stage can answer anything at all yet."""
@@ -66,69 +70,124 @@ class StageCapabilities:
         return self.knowledge_corpus is not None
 
     def answers_downstream(self) -> bool:
-        return self.uses_mcp or bool(self.capabilities)
+        # The out-of-scope routing table is written for the FOS desk ("the
+        # lending decision is made downstream, after CPA"). Only a stage
+        # that serves FOS case facts routes with it; at any other stage a
+        # downstream request stays CAPABILITY_UNAVAILABLE, as it always was.
+        return "case_facts" in self.capabilities
 
 
-_NOT_BUILT = "No Copilot capability has been built for this stage yet."
-
-#: A stage with demonstration guidance and nothing else. It can answer
-#: "how does this stage work"; it cannot read a case at this stage.
-_GUIDE_ONLY = (
-    "A demonstration stage guide is indexed for this stage. No case "
-    "capability or MCP access has been built for it yet."
-)
-
-#: Stage -> what it can do. THE SIX EMPTY ENTRIES ARE THE POINT: they are
-#: registered, so the Copilot knows the stage exists and can say
-#: precisely that nothing is available -- as opposed to treating it as an
-#: unknown stage, which is a different failure with a different answer.
-REGISTRY: dict[LosStage, StageCapabilities] = {
-    LosStage.FOS: StageCapabilities(
-        # The scope `knowledge_answer` already retrieves from. Named here
-        # so the registry is honest about FOS being the only populated
-        # stage; retrieval itself still reads its own constant.
-        knowledge_corpus="FOS",
-        capabilities=frozenset({
-            "case_facts",
-            "document_status",
-            "checklist",
-            "readiness",
-            "case_history",
-            "process_knowledge",
-        }),
-        uses_mcp=True,
-    ),
-    # THE OTHER SIX GAINED A CORPUS, AND ONLY A CORPUS. B4 indexed a
-    # stage guide for every stage, so a process question about CPA or
-    # RCU now has something real to answer from -- marked DEMO PROCESS
-    # KNOWLEDGE, in the indexed text itself.
-    #
-    # They still have no `capabilities` and no MCP access: nothing
-    # reads a CPA case the way the applicant agent reads a FOS one.
-    # Registering the corpus without the capabilities is the honest
-    # description of what exists.
-    LosStage.CPA: StageCapabilities(knowledge_corpus="CPA", note=_GUIDE_ONLY),
-    LosStage.CREDIT: StageCapabilities(knowledge_corpus="CREDIT",
-                                       note=_GUIDE_ONLY),
-    LosStage.RCU: StageCapabilities(
-        knowledge_corpus="RCU",
-        note=(
-            "A demonstration stage guide is indexed. FindingKind.RCU also "
-            "exists in case memory, but nothing produces those findings "
-            "and no RCU case capability is registered."
-        ),
-    ),
-    LosStage.BOPS: StageCapabilities(knowledge_corpus="BOPS",
-                                     note=_GUIDE_ONLY),
-    LosStage.HOPS: StageCapabilities(knowledge_corpus="HOPS",
-                                     note=_GUIDE_ONLY),
-    LosStage.DISBURSEMENT: StageCapabilities(knowledge_corpus="DISBURSEMENT",
-                                             note=_GUIDE_ONLY),
+#: EVERY CAPABILITY THIS BUILD CAN ACTUALLY SERVE, and what serves it.
+#:
+#: Configuration (`chatbot.stages.capabilities` in applicant_agent.yaml)
+#: assigns capabilities to stages; a name that is not here is IGNORED and
+#: logged. Configuration can switch a real capability off for a stage. It
+#: cannot claim one the code does not have.
+PROVIDERS: dict[str, str] = {
+    "stage_status": "stages.resolve -- stage record (stage_lifecycle), then case timeline, then application status",
+    "stage_history": "stages.resolve -- stage_transitions history (stage_lifecycle), else STAGE_ENTERED timeline events",
+    "document_requirements": "policy engine + config/stage_requirements.yaml",
+    "pending_items": "workflow.pending_items over the stage-aware checklist",
+    "next_action": "workflow.next_action over the stage-aware checklist",
+    "document_status": "documents.get / documents.verification",
+    "case_history": "case memory -- recorded findings and decisions",
+    "process_knowledge": "the stage guide corpus",
+    "eligibility": "the recorded Eligibility result (eligibility_facts)",
+    "case_facts": "applicant and application records",
+    "checklist": "documents.checklist",
+    "readiness": "workflow.readiness -- FOS to CPA handoff",
 }
 
-#: Every stage is registered. A stage missing from the registry would
-#: fall to the empty default and look merely unsupported, hiding the fact
-#: that somebody added a stage and forgot it here.
+#: What every stage can serve from records that exist at every stage.
+_COMMON = ("stage_status", "stage_history", "document_requirements",
+           "pending_items", "next_action", "document_status", "case_history",
+           "process_knowledge")
+
+#: THE DEFAULTS, used when configuration names no entry for a stage. The
+#: same as the shipped configuration, so a deployment without it behaves
+#: identically.
+_DEFAULTS: dict[str, dict[str, object]] = {
+    "FOS": {"capabilities": _COMMON + ("eligibility", "case_facts",
+                                       "checklist", "readiness")},
+    "CPA": {"capabilities": _COMMON,
+            "not_available": ("CPA assessment details",)},
+    "CREDIT": {"capabilities": _COMMON + ("eligibility",),
+               "not_available": ("credit decision details",)},
+    "RCU": {"capabilities": _COMMON,
+            "not_available": ("RCU investigation findings",)},
+    "BOPS": {"capabilities": _COMMON,
+             "not_available": ("BOPS processing details",)},
+    "HOPS": {"capabilities": _COMMON,
+             "not_available": ("HOPS approval details",)},
+    "DISBURSEMENT": {"capabilities": _COMMON,
+                     "not_available": ("disbursement details",)},
+}
+
+
+def _configured(stage: LosStage) -> StageCapabilities:
+    """One stage's capabilities: configuration over the defaults, filtered
+    to what a provider in this build can actually serve."""
+    import logging
+
+    settings: dict[str, object] = dict(_DEFAULTS.get(stage.value, {}))
+    try:
+        from app.agents.applicant import config
+
+        override = (config.chatbot("stages").get("capabilities") or {}).get(
+            stage.value)
+        if isinstance(override, dict):
+            settings.update(override)
+    except Exception:  # pragma: no cover - configuration failure
+        pass
+
+    if settings.get("enabled") is False:
+        return StageCapabilities(
+            knowledge_corpus=None,
+            note=f"The {stage.value} stage is disabled in configuration.")
+
+    names: set[str] = set()
+    for name in settings.get("capabilities") or ():
+        key = str(name).strip().lower()
+        if key in PROVIDERS:
+            names.add(key)
+        else:
+            logging.getLogger(__name__).warning(
+                "Stage %s: capability %r has no provider in this build; "
+                "ignored", stage.value, name)
+
+    missing = tuple(str(t) for t in settings.get("not_available") or ())
+    return StageCapabilities(
+        knowledge_corpus=(stage.value if "process_knowledge" in names
+                          else None),
+        capabilities=frozenset(names),
+        # The MCP case tools read a case's own records, which exist at every
+        # stage; a stage that can serve case facts or document status may
+        # reach them.
+        uses_mcp=bool(names & {"case_facts", "document_status",
+                               "pending_items", "document_requirements"}),
+        not_available=missing,
+        note=(f"Not built for this stage: {', '.join(missing)}."
+              if missing else None),
+    )
+
+
+class _Registry(dict):
+    """Stage -> capabilities, read from configuration on every lookup so a
+    configuration reload takes effect without a restart."""
+
+    def get(self, stage, default=None):  # type: ignore[override]
+        if stage in set(LosStage):
+            return _configured(stage)
+        return default
+
+    def __getitem__(self, stage):
+        return _configured(stage)
+
+
+#: Every stage is registered; what each can serve comes from `_configured`.
+REGISTRY: dict[LosStage, StageCapabilities] = _Registry(
+    {stage: None for stage in LosStage})
+
 assert set(REGISTRY) == set(LosStage), "every LosStage needs a registry entry"
 
 _NONE = StageCapabilities(note="This stage is not registered.")
@@ -190,5 +249,5 @@ def unavailable(stage: LosStage | None) -> dict[str, str]:
     return published
 
 
-__all__ = ["REGISTRY", "StageCapabilities", "capabilities_for", "mcp_tools",
-           "supports", "unavailable"]
+__all__ = ["PROVIDERS", "REGISTRY", "StageCapabilities", "capabilities_for",
+           "mcp_tools", "supports", "unavailable"]

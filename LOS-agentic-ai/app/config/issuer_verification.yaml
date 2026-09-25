@@ -1,0 +1,106 @@
+# ---------------------------------------------------------------------------
+# ISSUER VERIFICATION -- the additional authenticity layer.
+#
+# A PDF or photograph can reproduce everything visible on a genuine document.
+# Only the ISSUER (or an authorised source acting for it) can confirm one.
+# This file says, per document type, which provider asks that question.
+#
+# NO REAL PROVIDER IS CONFIGURED IN THIS BUILD. Every type below uses
+# `none`: a stub that always answers NOT_ESTABLISHED, so `issuer_verified`
+# stays false and no document is ever reported as issuer-confirmed. A real
+# provider is added by registering it in code (issuer.register_provider) and
+# naming it here -- no verifier changes.
+#
+# `route` records the FUTURE trusted source for that type. It is
+# documentation for the integration, not a live connection.
+#
+# `mode`:
+#   issuer        the issuer (or its authorised source) can confirm the
+#                 document or its facts
+#   corroboration no issuer authenticates the document itself; independent
+#                 sources can only corroborate what it says (salary slips)
+#   none          no trusted source exists for this type; always
+#                 NOT_ESTABLISHED (generic categories, business photographs)
+#
+# THE POLICY that decides what NOT_ESTABLISHED does is NOT here: it is
+# `verification.rules.authenticity.policy` in documents.yaml (or env
+# VERIFICATION_AUTHENTICITY_POLICY / REQUIRE_EXTERNAL_ISSUER_VERIFICATION).
+# ---------------------------------------------------------------------------
+issuer_verification:
+  # How long one provider call may take before it is treated as
+  # NOT_ESTABLISHED. A provider outage never produces PASS.
+  timeout_seconds: 10
+
+  # Image/PDF forensics produce FRAUD SIGNALS only; they can never establish
+  # authenticity. Signals are always reported. Whether a HIGH signal (an
+  # image editor in a document's history) holds a document for REVIEW is
+  # this switch -- off until calibrated on the lender's own documents,
+  # because genuine PDFs routinely carry editing-tool metadata.
+  forensics:
+    review_on_high: false
+
+  documents:
+    PAN:
+      provider: none
+      mode: issuer
+      route: Authorised PAN verification service or DigiLocker
+    AADHAAR:
+      provider: none
+      mode: issuer
+      route: UIDAI-authorised e-KYC, or Aadhaar offline XML / secure QR with a validated UIDAI signature
+    DRIVING_LICENCE:
+      provider: none
+      mode: issuer
+      route: DigiLocker or authorised Parivahan/Sarathi provider
+    PASSPORT:
+      provider: none
+      mode: issuer
+      route: Authorised passport verification service
+    VOTER_ID:
+      provider: none
+      mode: issuer
+      route: Authorised electoral-roll verification provider, if one is available
+    BANK_STATEMENT:
+      provider: none
+      mode: issuer
+      route: Account Aggregator (consented), or a bank-signed e-statement whose signature is cryptographically validated
+    ITR:
+      provider: none
+      mode: issuer
+      route: Income Tax portal acknowledgement verification or an authorised intermediary
+    SALE_DEED:
+      provider: none
+      mode: issuer
+      route: Property registration authority, when an authorised integration exists
+    BANK_SIGNATURE:
+      provider: none
+      mode: issuer
+      route: eSign / digital signature, authorised bank specimen confirmation, or video KYC
+    SALARY_SLIP:
+      provider: none
+      mode: corroboration
+      route: Account Aggregator salary credits, EPFO employment data, Form 16 / 26AS / AIS (consented)
+    MARK_SHEET:
+      provider: none
+      mode: none
+      route: None until an authorised academic-issuer integration exists
+    GOVT_ISSUED_DOCUMENT:
+      provider: none
+      mode: none
+      route: Generic category -- verified through the specific document it turns out to be
+    ID_PROOF:
+      provider: none
+      mode: none
+      route: Generic category -- verified through the specific document it turns out to be
+    ADDRESS_PROOF:
+      provider: none
+      mode: none
+      route: Generic category (utility bill, bank correspondence ...) -- no issuer integration
+    BUSINESS_PROOF_1:
+      provider: none
+      mode: none
+      route: Business photographs have no issuer; image analysis gives fraud/quality signals only
+    BUSINESS_PROOF_2:
+      provider: none
+      mode: none
+      route: Business photographs have no issuer; image analysis gives fraud/quality signals only

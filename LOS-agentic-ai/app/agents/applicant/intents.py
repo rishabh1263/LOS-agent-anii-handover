@@ -187,6 +187,11 @@ class Classification:
     document_type: str | None = None
     matched_on: str | None = None
     fields: dict[str, str] = field(default_factory=dict)
+    #: The message as classified, when normalisation changed it.
+    normalized: str | None = None
+    #: "Which documents are verified / under review / rejected" -- the
+    #: document status the list is filtered to. None lists every document.
+    status_filter: str | None = None
 
     #: For MIXED, the case intent underneath it. The case half of a mixed
     #: question is answered from exactly the same tools and the same
@@ -321,7 +326,10 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
 _DOC_TYPES = (
     r"(pan|aadhaar|aadhar|driving\s*licence|driving\s*license|dl|voter\s*id|"
     r"voter|passport|bank\s*statement|bank\s*account|bank\s*details|"
-    r"account\s*statement|address\s*proof)"
+    r"account\s*statement|address\s*proof|"
+    # The lender's taxonomy: income, property and business evidence.
+    r"salary\s*slip|pay\s*slip|payslip|itr|income\s*tax\s*return|form\s*16|"
+    r"sale\s*deed|mark\s*sheet|marksheet|business\s*proof\s*[12])"
 )
 
 #: The seven stage names as a question writes them. Kept here rather
@@ -356,6 +364,17 @@ _STAGE_PROCESS = tuple(
         r"\b(what|which|how)\b[^?]{0,30}\b%s\b[^?]{0,40}\b(%s)\b"
         % (_PROCESS_VERB,
            "|".join(w for words in _STAGE_WORDS.values() for w in words)),
+        # A STAGE NAMED BARE. "What is RCU?" asks what the stage is; the
+        # out-of-scope rule refused it on the word "rcu" while "what does
+        # RCU mean" was answered from the stage guide.
+        r"^\s*what\s+(is|are)\s+(the\s+)?(%s)(\s+stage)?\s*\??\s*$"
+        % "|".join(w for words in _STAGE_WORDS.values() for w in words),
+        r"\bwhat\s+does\s+(%s)\s+stand\s+for\b"
+        % "|".join(w for words in _STAGE_WORDS.values() for w in words),
+        # "THIS STAGE" names no stage: the route answers it from the stage
+        # the case record establishes (stage_in returns None).
+        r"\b(what|how)\s+(does|do|is|happens)\b[^?]{0,20}\b(this|my|the\s+current|current)\s+stage\b"
+        r"|\bwhat\s+(is|does)\s+(this|my|the\s+current)\s+stage\s+(mean|about|for|involve)",
     )
 )
 
@@ -375,6 +394,43 @@ def stage_in(message: str) -> str | None:
             if re.search(r"\b" + re.escape(word) + r"\b", lowered):
                 return stage
     return None
+
+
+#: A QUESTION ABOUT WHERE THE CASE HAS BEEN, not where it is or how a
+#: stage works: "where was my application before CPA", "when did my
+#: application move to CPA", "why did it move to CPA", "stage history".
+#: Answered from the recorded stage history (status_facts.
+#: stage_history_answer) -- never inferred.
+_STAGE_HISTORY_ALWAYS = re.compile(
+    r"\bstage\s+history\b|\b(previous|prior|earlier|last)\s+stage\b"
+    r"|\bstages?\b[^?]{0,30}\b(been|gone|passed)\s+through\b",
+    re.IGNORECASE)
+_STAGE_HISTORY_BEFORE = re.compile(
+    r"\b(where|which|what)\b[^?]{0,50}\b(was|were)\b[^?]{0,40}\bbefore\b",
+    re.IGNORECASE)
+_STAGE_HISTORY_MOVE = re.compile(
+    r"\b(when|why)\b[^?]{0,50}\b(move|moved|go|went|sent|enter|entered|"
+    r"reach|reached|transfer\w*|shift\w*|hand\w*|promot\w*|advanc\w*|"
+    r"come|came|get|got)\b",
+    re.IGNORECASE)
+_STAGE_HISTORY_SUBJECT = re.compile(
+    r"\b(my|this|our|the)\s+(loan\s+)?(application|case|file|loan)\b|\bit\b",
+    re.IGNORECASE)
+
+
+def asks_stage_history(message: str) -> bool:
+    """Whether the question asks where the case HAS BEEN in the lifecycle."""
+    text = message or ""
+    if _STAGE_HISTORY_ALWAYS.search(text):
+        return True
+    names_stage = (stage_in(text) is not None
+                   or re.search(r"\bstage\b", text, re.IGNORECASE))
+    if not names_stage:
+        return False
+    if _STAGE_HISTORY_BEFORE.search(text):
+        return True
+    return bool(_STAGE_HISTORY_MOVE.search(text)
+                and _STAGE_HISTORY_SUBJECT.search(text))
 
 
 #: Words that make a question about THIS CASE. A message carrying
@@ -739,7 +795,7 @@ _PATTERNS: list[tuple[str, Intent]] = [
     # matches the generic show/list-documents pattern below, and whichever is
     # listed first wins -- so the more specific question has to be.
     (r"\b(document|documents)\s+checklist\b", Intent.DOCUMENTS_REQUIRED),
-    (r"\b(what|which)\s+documents?\s+(are\s+)?(required|needed|do\s+we\s+need)\b",
+    (r"\b(what|which)\s+documents?\s+(are\s+|is\s+)?(required|needed|do\s+(we|i)\s+need)\b",
      Intent.DOCUMENTS_REQUIRED),
     (r"\b(show|list)\s+.{0,25}\bchecklist\b", Intent.DOCUMENTS_REQUIRED),
     (r"\b(which|what)\s+documents?\s+(have\s+been\s+)?(uploaded|collected|received|submitted)\b",
@@ -750,9 +806,12 @@ _PATTERNS: list[tuple[str, Intent]] = [
     # answered out of the handbook -- policy text, about no case,
     # to somebody asking what is outstanding on the one in front
     # of them.
-    (r"\b(which|what)\s+documents?\s+(are\s+)?(still\s+|currently\s+|yet\s+to\s+be\s+)?(pending|processing|outstanding|awaited|under\s+review|in\s+review)\b",
+    (r"\b(which|what)\s+documents?\s+(are\s+|is\s+)?(still\s+|currently\s+|yet\s+to\s+be\s+)?(pending|processing|outstanding|awaited|under\s+review|in\s+review)\b",
      Intent.DOCUMENTS_PENDING),
     (r"\ball\s+required\s+documents?\s+(available|uploaded|there)\b", Intent.DOCUMENTS_MISSING),
+    (r"\bstatus\s+of\s+(all\s+)?(my|the|these|our)?\s*(documents|docs)\b", Intent.DOCUMENTS_UPLOADED),
+    (r"\b(what|which)\s+(documents|docs)\s+(have|has)\s+(i|we|been)\s+(submitted|uploaded|given|sent)\b",
+     Intent.DOCUMENTS_UPLOADED),
 
     # pending / next action
     (r"\bwhat\s+(should|do)\s+i\s+do\s+next\b", Intent.NEXT_ACTION),
@@ -782,6 +841,21 @@ _PATTERNS: list[tuple[str, Intent]] = [
     # else it could be asking about.
     (r"^\s*what\s+(is|\'s)\s+the\s+(current\s+)?(status|state)\s*\??\s*$",
      Intent.APPLICATION_STATUS),
+    # A DOCUMENT NAMED WITH A STATUS WORD, OR ALONE. "pan status",
+    # "bank statement status", "my pan?" -- the officer names the
+    # document and wants to know where it stands.
+    (r"^\s*(is\s+)?(my|the|this)?\s*%s(\s+card)?\s+(status|verified|verification)\b" % _DOC_TYPES,
+     Intent.DOCUMENT_VERIFICATION),
+    (r"^\s*(my|the|this)?\s*%s(\s+card)?\s*\??\s*$" % _DOC_TYPES,
+     Intent.DOCUMENT_VERIFICATION),
+    # "address proof pending?" -- is this document still outstanding.
+    (r"^\s*(is\s+)?(my|the)?\s*%s\s+(still\s+)?(pending|missing|outstanding)\b" % _DOC_TYPES,
+     Intent.DOCUMENTS_PENDING),
+    # "What exactly is wrong?" asked against a case is about that case.
+    (r"^\s*what\s+(exactly\s+)?(is|'s)\s+(wrong|the\s+(problem|issue))\s*\??\s*$",
+     Intent.CASE_HISTORY),
+    (r"\bwhat\s+(exactly\s+)?(is|'s)\s+wrong\s+with\s+(my|the|this)\s+documents?\b",
+     Intent.DOCUMENT_VERIFICATION),
     # "Are my documents verified" is a question about the documents
     # on this case, not about what verification means.
     (r"\b(are|is|have|has)\b[^?]{0,20}\bdocuments?\b[^?]{0,20}\b(verified|verif\w+|checked|cleared|passed)\b",
@@ -789,6 +863,29 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\bwhat('?s| is)\s+the\s+(application|case)\s+status\b", Intent.APPLICATION_STATUS),
     (r"\b(current\s+)?stage\b", Intent.APPLICATION_STAGE),
     (r"\bwhere\s+is\s+(this|the)\s+application\b", Intent.APPLICATION_STAGE),
+    # A STATUS QUESTION ABOUT ONE'S OWN CASE, IN THE REMAINING WORDINGS.
+    #
+    # "Where does my application stand", "what is my application's
+    # status", "where is my case", "how is my loan doing" matched none
+    # of the patterns above, fell to UNKNOWN, and the knowledge
+    # fallback answered them confidently out of the handbook -- a
+    # paragraph about policy versions, published as FOS_KNOWLEDGE with
+    # no tool run, to an officer asking where one case stands. Every
+    # pattern here needs an owner word (my / this / our / the) against
+    # application, case, loan or file, so a generic "what are
+    # application statuses" still goes to the handbook.
+    (r"\b(my|this|our|the)\s+(loan\s+)?(application|case|loan|file)(\s*['’]\s*s)?\s+(status|state|progress)\b",
+     Intent.APPLICATION_STATUS),
+    # "Where DOES my application STAND" asks for its status; "where IS my
+    # application" asks where it is -- the stage.
+    (r"\bwhere\s+(does|do)\s+(my|this|our|the)\s+(loan\s+)?(application|case|loan|file)\b",
+     Intent.APPLICATION_STATUS),
+    (r"\bwhere\s+is\s+(my|our)\s+(loan\s+)?(application|case|loan|file)\b",
+     Intent.APPLICATION_STAGE),
+    (r"\bhow\s+is\s+(my|this|our|the)\s+(loan\s+)?(application|case|loan|file)\s+(doing|going|progressing|coming\s+along)\b",
+     Intent.APPLICATION_STATUS),
+    (r"\b(has|have)\s+(my|this|our|the)\s+(loan\s+)?(application|case|loan|file)\s+(moved|progressed|advanced)\b",
+     Intent.APPLICATION_STATUS),
     (r"\b(loan\s+)?product\s+(selected|chosen|is)\b", Intent.APPLICATION_STATUS),
     (r"\bwhen\s+was\s+the\s+application\s+created\b", Intent.APPLICATION_STATUS),
 
@@ -826,6 +923,14 @@ _DOC_ALIASES = {
     "bank details": "BANK_STATEMENT",
     "account statement": "BANK_STATEMENT",
     "address proof": "ADDRESS_PROOF",
+    "salary slip": "SALARY_SLIP", "pay slip": "SALARY_SLIP",
+    "payslip": "SALARY_SLIP",
+    "itr": "ITR", "income tax return": "ITR",
+    "form 16": "FORM_16",
+    "sale deed": "SALE_DEED",
+    "mark sheet": "MARK_SHEET", "marksheet": "MARK_SHEET",
+    "business proof 1": "BUSINESS_PROOF_1", "business proof1": "BUSINESS_PROOF_1",
+    "business proof 2": "BUSINESS_PROOF_2", "business proof2": "BUSINESS_PROOF_2",
 }
 
 
@@ -871,6 +976,8 @@ _DEFINITION_RE = re.compile(
     r"\bwhat\s+(do(es)?|did)\b[^?]{0,40}\bmean\b"
     r"|\bwhat\s+(is|are)\s+(a|an)\b"
     r"|\bhow\s+do(es)?\b[^?]{0,40}\bwork\b"
+    r"|\bwhat\s+are\s+(the\s+)?(different|possible|various)?\s*"
+    r"[a-z ]{0,30}\b(statuses|stages|types|states)\b"
     r"|\bdefinition\s+of\b"
     r"|\bmeaning\s+of\b"
     # A BARE TERM. "What is FOIR?" and "what is eligibility?" ask what
@@ -888,6 +995,35 @@ def asks_for_a_definition(text: str) -> bool:
     return bool(_DEFINITION_RE.search(text or ""))
 
 
+#: "my application", "this case", "our loan file" -- the question names
+#: the case in hand as its subject.
+_OWN_CASE_RE = re.compile(
+    r"\b(my|this|our)\s+(loan\s+)?(application|case|loan|file)s?\b",
+    re.IGNORECASE,
+)
+
+
+def asks_about_own_case(text: str) -> bool:
+    """Whether the question is about the caller's own case, by its words."""
+    return bool(_OWN_CASE_RE.search(text or ""))
+
+
+_DOCUMENT_STATUS_LIST = re.compile(
+    r"\b(which|what|any|list|show)\b[^?]{0,12}\b(documents?|docs?)\b\s+"
+    r"(are|is|were|was|have\s+been|has\s+been|got)\s+(still\s+|currently\s+)?"
+    r"(?P<status>verified|approved|accepted|cleared|under\s+review|in\s+review|"
+    r"being\s+reviewed|rejected|declined|failed)\b",
+    re.IGNORECASE,
+)
+
+_STATUS_WORDS_TO_FILTER = {
+    "verified": "VERIFIED", "approved": "VERIFIED", "accepted": "VERIFIED",
+    "cleared": "VERIFIED",
+    "under review": "REVIEW", "in review": "REVIEW", "being reviewed": "REVIEW",
+    "rejected": "REJECTED", "declined": "REJECTED", "failed": "REJECTED",
+}
+
+
 def classify(message: str) -> Classification:
     """Decide what the message is asking for. Deterministic; no model."""
     text = (message or "").strip()
@@ -901,6 +1037,13 @@ def classify(message: str) -> Classification:
     # question about the process rather than about this case. The
     # match below requires BOTH a stage name and process phrasing, so
     # "is this case fraudulent" is untouched.
+    # WHERE THE CASE HAS BEEN. Before the stage-process and out-of-scope
+    # rules, which would otherwise take "when did it move to RCU" on the
+    # stage name alone. Answered from the recorded stage history.
+    if asks_stage_history(text):
+        return Classification(Intent.APPLICATION_STAGE,
+                              matched_on="stage_history")
+
     if looks_like_stage_process(text):
         return Classification(Intent.STAGE_PROCESS, matched_on="stage")
 
@@ -918,6 +1061,21 @@ def classify(message: str) -> Classification:
     # shape and still route downstream, so the boundary that keeps FOS
     # out of fraud analysis is untouched.
     asks_process = _asks_how_a_stage_works(text)
+
+    # WHICH DOCUMENTS ARE IN A STATUS. "Which documents were rejected?"
+    # is about uploads on this case, not a lending decision -- but the
+    # out-of-scope rule routes on the word "rejected" alone. Matched
+    # narrowly: a documents noun AND a document status.
+    listed = _DOCUMENT_STATUS_LIST.search(text)
+    if listed:
+        wanted = _STATUS_WORDS_TO_FILTER[
+            re.sub(r"\s+", " ", listed.group("status").lower())]
+        # A document in review is PENDING -- the long-standing contract for
+        # "which documents are under review" -- and is listed on its own.
+        return Classification(
+            Intent.DOCUMENTS_PENDING if wanted == "REVIEW"
+            else Intent.DOCUMENTS_UPLOADED,
+            matched_on="document_status_list", status_filter=wanted)
 
     if not asks_process:
         for pattern, route in _COMPILED_OOS:
@@ -974,6 +1132,47 @@ def classify(message: str) -> Classification:
     # which is a better judge than a list of phrasings somebody has to keep
     # extending. If retrieval is not confident, the agent says so.
     return Classification(Intent.UNKNOWN, confidence="low")
+
+
+def understand(message: str, *, has_case: bool = False) -> Classification:
+    """
+    What the message means, in three steps, the rules always first.
+
+      1. NORMALISE -- short forms, typos, Hinglish -> full words
+         (normalize.py, driven by `chatbot.normalization`).
+      2. CLASSIFY  -- the ordered rules above, unchanged.
+      3. SEMANTIC  -- only when the rules found nothing, a case is in hand,
+         and the question is not asking for a definition: the closest
+         configured intent example (semantic.py), if close enough.
+
+    Deterministic, no model. The result carries the normalised text when it
+    differs, so a caller can report what the question was taken to mean.
+    """
+    from app.agents.applicant import normalize, semantic
+
+    normalised = normalize.normalise(message)
+    text = normalised.text or (message or "").strip()
+    classification = classify(text)
+
+    if (classification.intent is Intent.UNKNOWN and has_case
+            and not asks_for_a_definition(text)):
+        match = semantic.best(text)
+        if match is not None:
+            try:
+                intent = Intent(match.intent)
+            except ValueError:
+                intent = None
+            if intent is not None and intent not in WRITE_INTENTS and intent not in (
+                    Intent.OUT_OF_SCOPE, Intent.UNKNOWN):
+                classification = Classification(
+                    intent, confidence="medium",
+                    document_type=_document_type(text),
+                    matched_on=f"semantic:{match.example}",
+                )
+
+    if normalised.changed:
+        classification.normalized = text
+    return classification
 
 
 #: Intent -> the tools that answer it. The planner reads this; it does not
@@ -1073,6 +1272,6 @@ def plan_for(
 
 __all__ = [
     "Classification", "Intent", "PLANS", "SIMPLE_INTENTS", "WRITE_INTENTS",
-    "looks_like_knowledge",
-    "classify", "plan_for",
+    "asks_about_own_case", "looks_like_knowledge",
+    "classify", "plan_for", "understand",
 ]

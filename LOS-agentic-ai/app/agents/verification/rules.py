@@ -121,6 +121,12 @@ def authenticity_policy() -> str:
     override = (os.getenv("VERIFICATION_AUTHENTICITY_POLICY") or "").strip().upper()
     if override in {"STRUCTURAL_PASS", "REQUIRE_EXTERNAL"}:
         return override
+    # The same switch, named for what it asks.
+    required = (os.getenv("REQUIRE_EXTERNAL_ISSUER_VERIFICATION") or "").strip().lower()
+    if required in {"true", "1", "yes", "on"}:
+        return "REQUIRE_EXTERNAL"
+    if required in {"false", "0", "no", "off"}:
+        return "STRUCTURAL_PASS"
     configured = str(
         (_rules_section().get("authenticity", {}) or {}).get("policy", "")
     ).strip().upper()
@@ -598,7 +604,10 @@ def apply(
         detail.setdefault("findings", []).append({"code": code, "detail": message})
 
     # Authenticity, last, so it is applied to whatever the rules concluded.
-    if is_identity and authenticity_policy() == "REQUIRE_EXTERNAL":
+    # Inside the LOS flow the issuer layer applies it, after asking.
+    from app.agents.verification.authenticity import is_deferred
+
+    if is_identity and authenticity_policy() == "REQUIRE_EXTERNAL" and not is_deferred():
         status = _worst(status, "REVIEW")
         if "AUTHENTICITY_NOT_ESTABLISHED" not in codes:
             codes.append("AUTHENTICITY_NOT_ESTABLISHED")
