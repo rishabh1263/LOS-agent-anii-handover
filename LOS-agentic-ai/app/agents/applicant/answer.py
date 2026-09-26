@@ -286,17 +286,20 @@ def deterministic_answer(
         items = _get(results, "workflow.pending_items", "pending_items") or []
         not_collected = [i for i in items if i.get("code") == "DOCUMENT_MISSING"]
 
-        clauses: list[str] = []
-        if awaiting:
-            clauses.append("awaiting verification: "
-                           + "; ".join(_doc_line(d) for d in awaiting))
+        # SAID AS A PERSON WOULD, every document still named: what has not
+        # been collected, then what is waiting on verification.
+        sentences: list[str] = []
         if not_collected:
-            clauses.append("not yet collected: "
-                           + ", ".join(_readable(i.get("slot"))
-                                       for i in not_collected))
-        if not clauses:
+            names = [_readable(i.get("slot")) for i in not_collected]
+            sentences.append(f"{_and_list(names)} "
+                             f"{'are' if len(names) > 1 else 'is'} still pending.")
+        if awaiting:
+            sentences.append(
+                f"{_and_list([_doc_line(d) for d in awaiting])} "
+                f"{'are' if len(awaiting) > 1 else 'is'} awaiting verification.")
+        if not sentences:
             return "No documents are pending."
-        return "Pending — " + "; ".join(clauses) + "."
+        return " ".join(sentences)
 
     if intent is Intent.DOCUMENT_VERIFICATION:
         payload = _result(results, "documents.verification")
@@ -349,12 +352,39 @@ def deterministic_answer(
             # Not "at the FOS stage": the checklist behind this is the
             # case's CURRENT stage's, whichever that is.
             return "Nothing is pending for this case."
-        return (f"{len(items)} item(s) pending: "
-                + "; ".join(str(i["detail"]).rstrip(".") for i in items) + ".")
+        # THE DOCUMENTS BY NAME, THE REST COUNTED: the structured
+        # `pending_items` carries every one; the sentence stays readable.
+        documents = [_readable(i.get("slot")) for i in items
+                     if i.get("code") == "DOCUMENT_MISSING" and i.get("slot")]
+        others = [str(i["detail"]).rstrip(".") for i in items
+                  if not (i.get("code") == "DOCUMENT_MISSING" and i.get("slot"))]
+        parts: list[str] = []
+        if documents:
+            parts.append(f"{_and_list(documents)} "
+                         f"{'are' if len(documents) > 1 else 'is'} still pending")
+        if others:
+            if len(others) <= 2:
+                parts.append(_and_list([o[0].lower() + o[1:] for o in others]))
+            else:
+                parts.append(f"{len(others)} application details still need "
+                             f"to be captured")
+        return (" and ".join(parts) + ".")[0].upper() + (" and ".join(parts) + ".")[1:]
 
     if intent is Intent.NEXT_ACTION:
         action = _get(results, "workflow.next_action", "next_action") or {}
-        return f"Next action: {action.get('detail', 'None.')}"
+        detail = str(action.get("detail") or "").strip()
+        if not detail or detail.rstrip(".").lower() == "none":
+            return "There is no next step recorded for your application yet."
+        # The recorded action, verbatim after the lead-in -- ONLY when it is
+        # one of the workflow's instructions. "Everything required at the FOS
+        # stage is complete. ..." and a MANUAL_REVIEW item's own detail are
+        # statements, and "Your next step is to everything ..." is not a
+        # sentence; those are published as recorded.
+        from app.agents.applicant.workflow import _ACTIONS
+
+        if any(detail.startswith(d.rstrip(".")) for _, _, d in _ACTIONS):
+            return f"Your next step is to {detail[0].lower()}{detail[1:]}"
+        return detail
 
     if intent in (Intent.READINESS, Intent.COMPLETENESS):
         readiness = _get(results, "workflow.readiness", "readiness") or {}
@@ -380,7 +410,9 @@ def _summary_text(view: dict[str, Any]) -> str:
     readiness = view.get("readiness") or {}
     action = view.get("next_action") or {}
 
-    name = applicant.get("full_name") or applicant.get("applicant_id") or "This applicant"
+    # NO IDENTIFIER STANDS IN FOR A NAME: an applicant with no recorded name
+    # is "This applicant", never their record id (the id stays a field).
+    name = applicant.get("full_name") or "This applicant"
     # THE CASE ID IS NOT PROSE. It was printed here -- "AUDIT DEMO
     # APPLICANT - application CASE-AUDIT-001 is at Basic Document
     # Verification" -- and an identifier in a sentence is noise to
@@ -424,7 +456,8 @@ _SYSTEM_PROMPT = (
     "You are a loan origination assistant answering a field officer's "
     "question from data that has ALREADY been decided. You are not deciding "
     "anything and you have no knowledge beyond the data given.\n"
-    "- Answer in at most 60 words of plain prose. No markup, no JSON.\n"
+    "- Answer in at most two sentences (about 60 words) of plain prose. "
+    "No markup, no JSON.\n"
     "- Use ONLY the values in the data. State no name, number, status, "
     "document or date that is not there.\n"
     "- If the data does not answer the question, say so plainly.\n"
@@ -535,14 +568,20 @@ def _messages(question: str, facts: dict[str, Any], *,
     # The question and the data are separated and both labelled, so the model
     # is never asked to work out which part is instruction. Record content
     # arriving inside `data` is data.
-    payload: dict[str, Any] = {"question": question, "data": facts}
+    from app.security import guardrails
+
+    # NEUTRALISED AS WELL AS LABELLED: an instruction inside a document
+    # value never reaches the model as one (app/security/guardrails.py).
+    payload: dict[str, Any] = {"question": question,
+                               "data": guardrails.untrusted(facts)}
     if rejected:
         # A CONSTRAINED RETRY: what was wrong, and the answer the records
         # give, which the rephrasing must keep every fact of.
         payload["previous_answer_rejected_because"] = rejected
         payload["must_keep_every_fact_of"] = must_say
     return [
-        Message(role="system", contents=[_SYSTEM_PROMPT]),
+        Message(role="system", contents=[
+            _SYSTEM_PROMPT + " " + guardrails.UNTRUSTED_NOTICE]),
         Message(role="user", contents=[
             json.dumps(payload, separators=(",", ":"), default=str)
         ]),
@@ -556,6 +595,7 @@ async def generate_answer(
     *,
     identifiers: tuple[str | None, ...] = (),
     structured: str | None = None,
+    stage_context: Any = None,
 ) -> tuple[str, str, float]:
     """
     Return (answer, source, llm_ms).
@@ -579,7 +619,11 @@ async def generate_answer(
     if intent in (Intent.OUT_OF_SCOPE, Intent.UNKNOWN):
         return fallback, "deterministic", 0.0
 
-    facts = _facts_for_model(intent, results)
+    # THE EVIDENCE BUILDER's packet: the tool results' compact view plus
+    # the authoritative stage. See app/agents/applicant/evidence.py.
+    from app.agents.applicant import evidence
+
+    facts = evidence.build(intent, results, stage_context=stage_context)
     started = time.perf_counter()
 
     try:

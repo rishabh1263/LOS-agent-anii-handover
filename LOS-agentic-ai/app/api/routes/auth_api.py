@@ -44,8 +44,8 @@ _DEFAULT_ROLES = ["los-service"]
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(..., examples=["AniketDev"])
-    password: str = Field(..., examples=["Dev@123"])
+    username: str = Field(..., examples=["local-dev-user"])
+    password: str = Field(..., examples=["<your local dev password>"])
 
 
 class TokenResponse(BaseModel):

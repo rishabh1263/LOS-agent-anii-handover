@@ -36,8 +36,6 @@ logger = logging.getLogger(__name__)
 MIN_SUMMARY_CHARS = 20
 MAX_SUMMARY_CHARS = 400
 
-_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-_NUMBER = re.compile(r"\d+(?:\.\d+)?")
 
 _VERDICTS = ("PASS", "REVIEW", "FAIL", "REJECTED", "SUCCESS", "PARTIAL", "FAILED")
 
@@ -337,28 +335,10 @@ def build_llm_payload(envelope: dict[str, Any]) -> dict[str, Any]:
 
 
 def _allowed_numbers(payload: dict[str, Any]) -> set[str]:
-    """Every numeric token the model is permitted to reproduce."""
-    allowed: set[str] = set()
+    """Every numeric token the model may reproduce (the unified primitive)."""
+    from app.security.output_validation import allowed_numbers
 
-    def walk(node: Any) -> None:
-        if isinstance(node, dict):
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, (list, tuple)):
-            for value in node:
-                walk(value)
-        elif isinstance(node, bool):
-            return
-        elif isinstance(node, (int, float)):
-            allowed.add(str(node))
-            if isinstance(node, float) and node.is_integer():
-                allowed.add(str(int(node)))
-        elif isinstance(node, str):
-            for token in _NUMBER.findall(node):
-                allowed.add(token)
-
-    walk(payload)
-    return allowed
+    return allowed_numbers(payload, counts=False)
 
 
 def validate_llm_summary(
@@ -371,71 +351,45 @@ def validate_llm_summary(
     Returns (accepted, cleaned_text_or_reason). A summary that fails for any
     reason is discarded whole; nothing is salvaged from it.
     """
-    if not isinstance(text, str):
-        return False, "summary was not a string"
+    from app.security import output_validation
 
-    cleaned = _THINK_BLOCK.sub("", text).strip().strip('"').strip()
+    payload: dict[str, Any] = {}
 
-    if len(cleaned) < MIN_SUMMARY_CHARS:
-        return False, "summary too short"
-    if len(cleaned) > MAX_SUMMARY_CHARS:
-        return False, "summary too long"
-    if cleaned.lstrip().startswith(("{", "[")):
-        return False, "summary returned structured data"
+    def truth() -> dict[str, Any]:
+        payload.update(build_llm_payload(envelope))
+        return payload
 
-    payload = build_llm_payload(envelope)
-    allowed = _allowed_numbers(payload)
+    def computed_verdicts(cleaned: str) -> str | None:
+        # The model must not assert an outcome other than the computed one --
+        # EVERY computed one, including the per-document statuses the model
+        # is shown as `document_statuses`: "one document was REJECTED" quotes
+        # the data. A verdict the pipeline did not produce is still refused.
+        upper = cleaned.upper()
+        computed = {
+            str(payload.get("status") or "").upper(),
+            str(payload.get("verification_status") or "").upper(),
+            str(payload.get("kyc_status") or "").upper(),
+        }
+        computed.update(str(status or "").upper()
+                        for status in (payload.get("document_statuses") or []))
+        for verdict in _VERDICTS:
+            if re.search(rf"\b{verdict}\b", upper) and verdict not in computed:
+                return f"summary asserted an uncomputed verdict: {verdict}"
+        return None
 
-    for token in _NUMBER.findall(cleaned):
-        variants = {token}
-        if "." in token:
-            variants.add(token.rstrip("0").rstrip("."))
-        if not (variants & allowed):
-            return False, f"summary contained unsupported number: {token}"
+    def whose(cleaned: str) -> str | None:
+        # ON A JOINT APPLICATION THE SENTENCE MUST SAY WHOSE: a reviewer has
+        # to know WHICH of two people needs attention. The deterministic
+        # sentence always says whose, so a generated one must too.
+        missing = _unnamed_parties(cleaned, envelope)
+        return f"summary did not identify: {', '.join(missing)}" if missing else None
 
-    # The model must not assert an outcome other than the computed one.
-    #
-    # EVERY computed one, which includes the per-document statuses. Those are
-    # in the payload the model is handed, as `document_statuses`, so a
-    # sentence saying "one document was REJECTED" is quoting the data rather
-    # than inventing a verdict -- and was being discarded for it. On a
-    # four-document bundle that false rejection fired 5 times in 8.
-    #
-    # This does not loosen the check. A verdict the deterministic pipeline
-    # did not produce is still refused; the set now simply matches what the
-    # pipeline actually computed and showed the model.
-    upper = cleaned.upper()
-    computed = {
-        str(payload.get("status") or "").upper(),
-        str(payload.get("verification_status") or "").upper(),
-        str(payload.get("kyc_status") or "").upper(),
-    }
-    computed.update(
-        str(status or "").upper()
-        for status in (payload.get("document_statuses") or [])
-    )
-    for verdict in _VERDICTS:
-        if re.search(rf"\b{verdict}\b", upper) and verdict not in computed:
-            return False, f"summary asserted an uncomputed verdict: {verdict}"
-
-    # ON A JOINT APPLICATION THE SENTENCE MUST SAY WHOSE.
-    #
-    # Everything above checks that the model did not INVENT anything. It
-    # cannot check that the model said enough, and on a two-party case
-    # "enough" is a contract requirement rather than a nicety: a reviewer
-    # has to know WHICH of two people needs attention before they can do
-    # anything. The model wrote "Loan officer review shows all documents
-    # except Kyc status as successful, with multiple Kyc reason codes
-    # noted" -- true, harmless, and useless for that.
-    #
-    # The deterministic sentence always says whose, so the bar here is
-    # simply that a generated one must too. A model that learns to name
-    # both parties and their outcomes is still allowed to win.
-    missing = _unnamed_parties(cleaned, envelope)
-    if missing:
-        return False, f"summary did not identify: {', '.join(missing)}"
-
-    return True, cleaned
+    # THE UNIFIED VALIDATOR (app/security/output_validation.py): guardrail,
+    # shape, decision language, numbers and dates, then this surface's own
+    # verdict and whose-outcome checks.
+    return output_validation.validate(
+        text, surface="los_summary", truth=truth,
+        extra=(computed_verdicts, whose)).pair()
 
 
 #: How each party is named in a sentence a reviewer reads.
@@ -540,8 +494,15 @@ def _messages(payload: dict[str, Any]) -> list[Any]:
 
     from agent_framework import Message
 
+    from app.security import guardrails
+
+    # DOCUMENT-DERIVED TEXT IS DATA: instruction-shaped spans are
+    # neutralised before the model sees them.
+    payload = guardrails.untrusted(payload)
+
     return [
-        Message(role="system", contents=[_SYSTEM_PROMPT]),
+        Message(role="system", contents=[_SYSTEM_PROMPT + " "
+                                           + guardrails.UNTRUSTED_NOTICE]),
         Message(role="user", contents=[
             json.dumps(payload, separators=(",", ":"), default=str)
         ]),

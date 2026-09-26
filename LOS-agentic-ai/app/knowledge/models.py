@@ -69,6 +69,19 @@ class RetrievalResult:
     def citations(self) -> list[str]:
         return [hit.chunk.citation() for hit in self.hits]
 
+    def versions(self) -> list[dict[str, Any]]:
+        """Which knowledge answered, and which version of it. Deduplicated."""
+        seen: dict[str, dict[str, Any]] = {}
+        for hit in self.hits:
+            meta = hit.chunk.metadata or {}
+            key = hit.chunk.source
+            if key in seen or not meta.get("version"):
+                continue
+            seen[key] = {k: meta.get(k) for k in (
+                "document", "knowledge_type", "version", "version_source",
+                "effective_date", "applies_to", "stage")}
+        return list(seen.values())
+
     def context(self, limit: int | None = None) -> str:
         """The retrieved passages, as text for a grounded answer."""
         hits = self.hits[:limit] if limit else self.hits

@@ -28,7 +28,7 @@ function signature.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 # ==========================================================================
@@ -68,6 +68,17 @@ class ToolContract:
     #: Downstream concerns this tool must never be extended to answer.
     #: Documentation with teeth: a test reads it.
     never: tuple[str, ...] = field(default_factory=tuple)
+    #: WHAT ACTUALLY ANSWERS THE CALL -- the store, service or engine behind
+    #: the tool. Set for every tool from PROVIDERS below; a tool without one
+    #: is a registry error, not a default.
+    provider: str = ""
+
+    @property
+    def output_schema(self) -> dict[str, Any]:
+        """Every tool answers with the same envelope (app.mcp.schemas)."""
+        from app.mcp.schemas import ToolEnvelope
+
+        return ToolEnvelope.model_json_schema()
 
     def public(self) -> dict[str, Any]:
         """The description an MCP client is given."""
@@ -380,6 +391,30 @@ CONTRACTS: dict[str, ToolContract] = {
 }
 
 
+#: tool -> what answers it. Recorded on every MCP trace.
+PROVIDERS: dict[str, str] = {
+    "applicant.get": "case_store",
+    "application.get": "case_store",
+    "applications.list": "case_store",
+    "documents.get": "case_store",
+    "documents.checklist": "policy_engine",
+    "documents.verification": "verification_findings",
+    "workflow.pending_items": "workflow",
+    "workflow.next_action": "workflow",
+    "workflow.readiness": "workflow",
+    "eligibility.get": "eligibility_record",
+    "applicant.360": "case_view",
+    "applicant.create": "case_store",
+    "applicant.update": "case_store",
+    "application.create": "case_store",
+    "application.update": "case_store",
+    "documents.mark_for_reupload": "case_store",
+}
+assert set(PROVIDERS) == set(CONTRACTS), "every tool must name its provider"
+CONTRACTS = {name: replace(contract, provider=PROVIDERS[name])
+             for name, contract in CONTRACTS.items()}
+
+
 def contract_for(name: str) -> ToolContract | None:
     return CONTRACTS.get(name)
 
@@ -406,5 +441,5 @@ def required_scope(name: str) -> str | None:
     return table.get(contract.scope_key)
 
 
-__all__ = ["CONTRACTS", "DOWNSTREAM_CONCERNS", "ToolContract", "catalogue",
+__all__ = ["CONTRACTS", "DOWNSTREAM_CONCERNS", "PROVIDERS", "ToolContract", "catalogue",
            "contract_for", "required_scope"]

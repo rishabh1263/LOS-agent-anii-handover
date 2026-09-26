@@ -33,6 +33,66 @@ logger = logging.getLogger(__name__)
 #: A markdown heading: capture level and text.
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*$", re.MULTILINE)
 
+#: Optional YAML front-matter at the top of a knowledge file:
+#:
+#:     ---
+#:     knowledge_type: HANDBOOK
+#:     version: "2025.1"
+#:     effective_date: 2025-04-01
+#:     applies_to: [personal_loan]
+#:     source: FOS Operations Handbook
+#:     ---
+_FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+#: Keys a knowledge file may declare. Anything else is ignored.
+_DECLARABLE = ("knowledge_type", "version", "effective_date", "applies_to",
+               "product", "source", "owner")
+
+
+def knowledge_metadata(stage: str, filename: str, text: str) -> tuple[dict, str]:
+    """
+    The metadata a knowledge file carries, and its body without front-matter.
+
+    HONEST VERSIONS. A declared `version` is used as written
+    (`version_source: DECLARED`). A file that declares none gets the hash of
+    its own content (`version_source: CONTENT_HASH`) -- it identifies exactly
+    which text answered, changes when the text changes, and claims no
+    release number nobody assigned. `effective_date` and applicability
+    exist only when declared; none is invented.
+
+    KNOWLEDGE, NEVER CASE STATE. Every chunk is marked `authoritative_for:
+    PROCESS` -- retrieved text explains how the process works; the live
+    state of an application always comes from the case records.
+    """
+    import hashlib
+
+    declared: dict = {}
+    body = text
+    match = _FRONT_MATTER.match(text or "")
+    if match:
+        try:
+            import yaml
+
+            parsed = yaml.safe_load(match.group(1)) or {}
+            if isinstance(parsed, dict):
+                declared = {k: parsed[k] for k in _DECLARABLE if k in parsed}
+        except Exception:  # malformed front-matter: ignored, never guessed
+            declared = {}
+        body = text[match.end():]
+    digest = hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:12]
+    applies = declared.get("applies_to", declared.get("product"))
+    return {
+        "knowledge_type": str(declared.get("knowledge_type") or "HANDBOOK").upper(),
+        "version": str(declared["version"]) if declared.get("version") else f"sha256:{digest}",
+        "version_source": "DECLARED" if declared.get("version") else "CONTENT_HASH",
+        "effective_date": str(declared["effective_date"]) if declared.get("effective_date") else None,
+        "applies_to": ([str(a) for a in applies] if isinstance(applies, list)
+                       else [str(applies)] if applies else None),
+        "document": str(declared.get("source") or filename),
+        "stage": stage,
+        "authoritative_for": "PROCESS",
+    }, body
+
 #: Headings at or below this level start a new chunk. Deeper headings stay
 #: inside the chunk they belong to, so a rule keeps its sub-points.
 _SPLIT_LEVEL = 2
@@ -74,7 +134,12 @@ class MarkdownKnowledgeRepository(KnowledgeRepository):
                     # One unreadable file must not empty the corpus.
                     logger.warning("Could not read %s: %s", path, exc)
                     continue
-                chunks.extend(self._chunk(stage, path.name, text))
+                meta, body = knowledge_metadata(stage, path.name, text)
+                chunks.extend(
+                    Chunk(chunk_id=c.chunk_id, stage=c.stage, source=c.source,
+                          heading=c.heading, text=c.text,
+                          metadata={**c.metadata, **meta})
+                    for c in self._chunk(stage, path.name, body))
 
             if chunks:
                 loaded[stage] = chunks

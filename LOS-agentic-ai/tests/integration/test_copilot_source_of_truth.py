@@ -466,21 +466,23 @@ def test_n5_a_model_cannot_replace_a_recorded_value(client, repo, monkeypatch,
     assert body["response_source"] == "STRUCTURED"
 
 
-def test_n5_a_model_phrased_answer_says_so(client, repo, monkeypatch):
-    """Where a model may phrase, the response says a model did."""
+def test_n5_a_recorded_hold_is_never_rephrased(client, repo, monkeypatch):
+    """
+    Slice 11: an answer quoting a recorded hold and the names behind it is
+    published as recorded -- the model is not asked, even with retrieval
+    confident. (Before, confident retrieval sent it to the model anyway,
+    past the recorded-values rule.) A model-phrased answer is labelled LLM:
+    test_universal_copilot::test_a_complete_model_answer_is_published_as_llm.
+    """
     from app.api.routes import copilot_api
     from app.knowledge import grounding
 
     processed()
-
-    # A COMPLETE phrasing: the answer validator rejects one that drops
-    # the recorded hold or the names behind it (see the test below).
-    phrased = ("Your application is at Basic Document Verification and is "
-               "under review: the PAN says RISHABH AJIT SINGH but the salary "
-               "slip says VENKATESH GOUD MARAGOUNI.")
+    called = []
 
     async def phrase(*args, **kwargs):
-        return phrased
+        called.append(True)
+        return "Your application is progressing nicely."
 
     monkeypatch.setattr(copilot_api.grounding, "gather",
                         lambda *a, **k: _Confident())
@@ -488,8 +490,9 @@ def test_n5_a_model_phrased_answer_says_so(client, repo, monkeypatch):
 
     body = answered(client, "What is my application status?")
 
-    assert body["answer"] == phrased
-    assert body["response_source"] == "LLM"
+    assert not called
+    assert "RISHABH AJIT SINGH" in body["answer"]
+    assert body["response_source"] != "LLM"
 
 
 def test_n5b_a_half_answer_is_replaced_by_the_record(client, repo, monkeypatch):

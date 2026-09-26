@@ -88,6 +88,17 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
         )
         return None
 
+    # THE SECOND PARTY, AS THE FLOW RESOLVED IT. The flow stamps every
+    # co-applicant document with the co-applicant's id; without it on the
+    # application, the case record itself did not say it had a second
+    # party, and anything reading "who is on this case" from the record
+    # found one. Recorded only when the flow resolved one, and never
+    # changed once set: a second, different id is a different case.
+    co_applicant_id = str(result.get("co_applicant_id") or "").strip()
+    if (co_applicant_id and co_applicant_id != applicant_id
+            and not getattr(application, "co_applicant_id", None)):
+        application.co_applicant_id = co_applicant_id
+
     # The application row goes in BEFORE its documents. Documents carry a
     # foreign key onto it, so writing them first fails the constraint and the
     # whole result is lost -- which is exactly what happened until a test

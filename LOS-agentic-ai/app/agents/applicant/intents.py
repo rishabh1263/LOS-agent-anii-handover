@@ -257,6 +257,10 @@ _COMPILED_KNOWLEDGE = [re.compile(p, re.IGNORECASE) for p in _KNOWLEDGE]
 #: case is still about the case.
 _STRONG_KNOWLEDGE = re.compile(
     r"\bfor\s+(a|an|any)\s+\w+[\s_-]*loan\b"
+    # A KIND OF APPLICANT is a general rule too: a case already has one.
+    r"|\bfor\s+(a|an|any)\s+(self[\s_-]*employed|salaried|business|"
+    r"professional|non[\s_-]*resident)\s+(applicant|customer|borrower|"
+    r"person|individual|case)s?\b"
     r"|\bin\s+general\b"
     r"|\bnormally\s+(required|needed|accepted)\b"
     r"|\bwhat\s+(is|are)\s+the\s+(fos|kyc)\s+(process|stage|workflow)\b",
@@ -289,7 +293,11 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
     # "Is KYC clear?" -- the adjective, not only the noun "clearance".
     (r"\b(full|complete|final)\s*kyc\b"
      r"|\bkyc\s*(decision|verdict|clearance|result|status)\b"
-     r"|\bis\s+(the\s+)?kyc\s+(clear|clean|done|ok|passed|complete)\b",
+     # "Is my KYC done?" is the same question as "is the KYC done?" -- the
+     # KYC decision is the downstream KYC process's, whoever's KYC it is.
+     r"|\bis\s+(the\s+|my\s+|our\s+)?kyc\s+(clear|clean|done|ok|passed|complete|"
+     r"completed|cleared|finished)\b"
+     r"|\bhas\s+(the\s+|my\s+|our\s+)?kyc\s+(been\s+)?(done|completed|cleared|passed)\b",
      "KYC_DECISION"),
     # ANY mention of fraud routes. Narrowing this to "fraud check" and
     # "fraud investigation" left "are there fraud concerns?" unmatched, and
@@ -373,10 +381,63 @@ _STAGE_PROCESS = tuple(
         % "|".join(w for words in _STAGE_WORDS.values() for w in words),
         # "THIS STAGE" names no stage: the route answers it from the stage
         # the case record establishes (stage_in returns None).
-        r"\b(what|how)\s+(does|do|is|happens)\b[^?]{0,20}\b(this|my|the\s+current|current)\s+stage\b"
-        r"|\bwhat\s+(is|does)\s+(this|my|the\s+current)\s+stage\s+(mean|about|for|involve)",
+        #
+        # A PROCESS VERB IS REQUIRED. "What IS my stage?" asks WHICH stage
+        # the case is at -- a case fact -- and an earlier form of this
+        # pattern accepted a bare "is", so the commonest wording of the
+        # current-stage question was answered with a stage guide while
+        # "where is my stage?" was answered from the case.
+        r"\b(what|how)\s+(does|do|happens)\b[^?]{0,20}\b(this|my|the\s+current|current)\s+stage\b"
+        r"|\bhow\s+is\s+(this|my|the\s+current|current)\s+stage\s+%s\b"
+        r"|\bwhat\s+happens\s+(in|at|during)\s+(this|my|the\s+current|current)\s+stage\b"
+        r"|\bwhat\s+(is|does)\s+(this|my|the\s+current)\s+stage\s+(mean|about|for|involve)" % _PROCESS_VERB,
     )
 )
+
+
+#: THE CURRENT-STAGE QUESTION, in its canonical English forms.
+#:
+#: Every language and short form reaches this after normalisation
+#: (language.py -> normalize.py): "mera stage kya hai", "main kis stage pe
+#: hu", "मेरा आवेदन किस चरण में है" all arrive as English words and are
+#: matched by the SAME rules as "what is my stage?". Matched before the
+#: stage-history and stage-process rules, which would otherwise take it on
+#: the word "stage". A named stage ("what is CPA?") or a process verb
+#: ("what does my stage involve?") never matches: the owner word is
+#: followed only by the stage noun and an optional "now".
+_STAGE_NOUN = r"(stage|step|phase)"
+_OWNER = r"(my|our|this|the)"
+_THING = r"(loan\s+)?(application|case|file|loan)"
+_CURRENT_STAGE = re.compile(
+    "|".join((
+        # what is my stage / where is my current stage / what's the stage now
+        rf"^\s*(what|where|which)\s+is\s+{_OWNER}\s+(current\s+|present\s+|"
+        rf"application\s+|case\s+)?{_STAGE_NOUN}(\s+(now|right\s+now|currently|"
+        rf"at\s+the\s+moment))?\s*[?.!]*\s*$",
+        # what stage am i in / which stage is my application at / what step
+        # is it on
+        rf"\b(what|which)\s+(current\s+)?{_STAGE_NOUN}\s+(am\s+i|are\s+we|is\s+"
+        rf"(it|{_OWNER}\s+{_THING}))\b(?!\s+(going|moving|headed)\b)",
+        # tell me my stage / show my current stage
+        rf"^\s*(tell|show|give)\s+(me\s+)?({_OWNER}\s+)?(current\s+)?{_STAGE_NOUN}"
+        rf"\s*[?.!]*\s*$",
+        # current stage? / my current stage? / my stage?
+        rf"^\s*({_OWNER}\s+)?(current\s+|present\s+)?{_STAGE_NOUN}\s*\??\s*$",
+        # where is my application in the process / at which stage is my case
+        rf"\bwhere\s+is\s+{_OWNER}\s+{_THING}\s+(in|on)\s+the\s+(process|"
+        rf"pipeline|journey|workflow|lifecycle)\b",
+        rf"\b(at|in|on)\s+(what|which)\s+{_STAGE_NOUN}\s+is\s+{_OWNER}\s+{_THING}\b",
+        rf"\bwhat\s+{_STAGE_NOUN}\s+is\s+{_OWNER}\s+{_THING}\s+(at|on|in)\b",
+    )),
+    re.IGNORECASE,
+)
+
+
+def asks_current_stage(message: str) -> bool:
+    """Whether this asks which stage the case is at now (a CASE question)."""
+    text = (message or "").strip()
+    return bool(text) and bool(_CURRENT_STAGE.search(text)) and (
+        stage_in(text) is None)
 
 
 def stage_in(message: str) -> str | None:
@@ -403,11 +464,16 @@ def stage_in(message: str) -> str | None:
 #: stage_history_answer) -- never inferred.
 _STAGE_HISTORY_ALWAYS = re.compile(
     r"\bstage\s+history\b|\b(previous|prior|earlier|last)\s+stage\b"
+    # "What changed?" is answered from the recorded stage history.
+    r"|^\s*what(\s+has|'s|\s+have)?\s+changed\b"
+    r"|\bwhere\s+was\s+(it|my|the|this|our)\b[^?]{0,30}\bbefore\b"
     r"|\bstages?\b[^?]{0,30}\b(been|gone|passed)\s+through\b",
     re.IGNORECASE)
 _STAGE_HISTORY_BEFORE = re.compile(
     r"\b(where|which|what)\b[^?]{0,50}\b(was|were)\b[^?]{0,40}\bbefore\b",
     re.IGNORECASE)
+_STAGE_HISTORY_AFTER = re.compile(
+    r"\bwhat\s+(has\s+)?happened\s+(after|since)\b", re.IGNORECASE)
 _STAGE_HISTORY_MOVE = re.compile(
     r"\b(when|why)\b[^?]{0,50}\b(move|moved|go|went|sent|enter|entered|"
     r"reach|reached|transfer\w*|shift\w*|hand\w*|promot\w*|advanc\w*|"
@@ -416,6 +482,24 @@ _STAGE_HISTORY_MOVE = re.compile(
 _STAGE_HISTORY_SUBJECT = re.compile(
     r"\b(my|this|our|the)\s+(loan\s+)?(application|case|file|loan)\b|\bit\b",
     re.IGNORECASE)
+
+
+#: WHAT FOLLOWS FROM A GAP: "what happens because this document is
+#: pending", "what if this isn't fixed". Answered from the workflow's own
+#: readiness record (what blocks the handoff) -- never from a model's idea
+#: of the consequence. Where no readiness is recorded for the stage, the
+#: stage gate says it is not available.
+_IMPACT = re.compile(
+    r"\bwhat\s+(happens|will\s+happen|would\s+happen|is\s+the\s+impact)\b"
+    r"[^?]{0,60}\b(pending|missing|not\s+(fixed|resolved|provided|submitted|"
+    r"uploaded)|isn'?t\s+(fixed|resolved|provided)|if\s+i\s+don'?t|if\s+not)\b"
+    r"|\b(impact|consequence|effect)s?\s+of\b[^?]{0,40}\b(pending|missing|"
+    r"issue|problem|document|mismatch)",
+    re.IGNORECASE)
+
+
+def asks_impact(message: str) -> bool:
+    return bool(_IMPACT.search(message or ""))
 
 
 def asks_stage_history(message: str) -> bool:
@@ -428,6 +512,17 @@ def asks_stage_history(message: str) -> bool:
     if not names_stage:
         return False
     if _STAGE_HISTORY_BEFORE.search(text):
+        return True
+    # "What happened after FOS?" -- PAST tense about a named stage is this
+    # case's journey; "what happens after CPA" (present) is how the process
+    # works, and stays with the stage guides.
+    if _STAGE_HISTORY_AFTER.search(text):
+        return True
+    # "Why is my case in RCU?" -- why it is AT a stage is why it moved there.
+    if (stage_in(text) is not None
+            and re.search(r"\bwhy\b[^?]{0,40}\b(in|at)\s+(the\s+)?\w+", text,
+                          re.IGNORECASE)
+            and _STAGE_HISTORY_SUBJECT.search(text)):
         return True
     return bool(_STAGE_HISTORY_MOVE.search(text)
                 and _STAGE_HISTORY_SUBJECT.search(text))
@@ -570,6 +665,22 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\bwhy\b.{0,40}\b(in\s+)?(review|pending|rejected|failed|flagged)\b",
      Intent.CASE_HISTORY),
     (r"\bwhy\b.{0,30}\b(this\s+)?case\b", Intent.CASE_HISTORY),
+    # "I uploaded it three times and it's STILL pending" -- a complaint that
+    # is a pending-documents question. Narrow: "still pending" said of it /
+    # them; "why is it still pending" is taken by the rule above.
+    (r"\b(it'?s|it\s+is|they'?re|they\s+are|is|are)\s+still\s+pending\b",
+     Intent.DOCUMENTS_PENDING),
+    # "Why hasn't my application moved?" -- the recorded reasons, and the
+    # delay explanation the agent attaches to a CASE_HISTORY delay question.
+    (r"\bwhy\b[^?]{0,40}\b(hasn'?t|has\s+not|isn'?t|is\s+not|not|didn'?t|did\s+not)"
+     r"\s+(it\s+|my\s+\w+\s+|this\s+\w+\s+)?(moved|moving|move|progress\w*|advanced|"
+     r"gone\s+ahead)\b", Intent.CASE_HISTORY),
+    # WHAT IS HOLDING IT UP. "What's causing the delay?", "why is my file
+    # on hold?", "what is holding up my case?" ask for the reason, which is
+    # recorded -- not for the status, which is what "file" alone suggested.
+    (r"\b(why|what)\b[^?]{0,30}\b(on\s+hold|held\s+up|delay\w*|stuck|"
+     r"holding\s+(up|back)|holding\b[^?]{0,20}\b(up|back))\b",
+     Intent.CASE_HISTORY),
     # WHAT THE MISMATCH ACTUALLY IS, on this case.
     #
     # "What exactly is the mismatch in my documents?" routed to the
@@ -615,6 +726,13 @@ _PATTERNS: list[tuple[str, Intent]] = [
      r"\b(found|detected|identified|raised|recorded|reported)\b",
      Intent.CASE_HISTORY),
     (r"\bwhat\s+(findings?|reasons?)\b", Intent.CASE_HISTORY),
+    # "Show me the important issues" -- the case's recorded problems, asked
+    # for without naming a document (a named one is a verification question
+    # further down).
+    (r"^(?![^?]*\b(bank|statement|documents?|docs?|pan|deed|passport|slip|"
+     r"licen[cs]e|aadhaa?r|voter)\b)"
+     r"[^?]*\b(show|list|what\s+are)\b[^?]{0,25}\b(issues|problems|concerns)\b",
+     Intent.CASE_HISTORY),
     # DO TWO IDENTITY DOCUMENTS AGREE? The recorded KYC comparison is the
     # answer, naming both values; neither document alone is.
     (r"\b(does|do|is|are)\b[^?]{0,20}"
@@ -704,6 +822,13 @@ _PATTERNS: list[tuple[str, Intent]] = [
      r".{0,30}\bnot\s+ready\b",
      Intent.READINESS),
     (r"\b(am\s+i|are\s+we)\s+ready\b", Intent.READINESS),
+    # "Can I proceed to the next stage?" asks whether the handoff is ready,
+    # not which stage the case is in -- the stage pattern below would take
+    # it on the word "stage".
+    (r"\bcan\s+(i|we|it|this|(my|this|the)\s+(case|application|file))\s+"
+     r"(proceed|move|go|progress|advance)\b[^?]{0,25}"
+     r"\b(next\s+stage|forward|ahead|further|cpa)\b",
+     Intent.READINESS),
     (r"\bcan\s+i\s+(submit|send|hand)\b", Intent.READINESS),
     (r"\b(send|move|hand)\s+(this\s+)?(to\s+)?cpa\b", Intent.READINESS),
 
@@ -739,7 +864,8 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\b(which|what)\s+documents?\b.{0,24}\b(verified|passed|cleared|"
      r"rejected|failed)\b",
      Intent.DOCUMENT_VERIFICATION),
-    (r"\bdocuments?\s+(issues?|problems?|need\s+attention)\b", Intent.DOCUMENT_VERIFICATION),
+    (r"\bdocuments?\s+(issues?|problems?|needs?\s+attention|requires?\s+attention"
+     r"|has\s+(an\s+)?(issue|problem))\b", Intent.DOCUMENT_VERIFICATION),
 
     # documents
     (r"\b(which|what)\s+documents?\s+(are\s+)?(missing|not\s+uploaded|left|remaining|still\s+needed)\b",
@@ -819,6 +945,9 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\bwhat\s+should\s+i\s+(ask|collect|complete)\b", Intent.NEXT_ACTION),
     (r"\bwhat('?s| is)\s+(pending|outstanding|left)\b", Intent.PENDING_ITEMS),
     (r"\bwhat\s+is\s+blocking\b", Intent.PENDING_ITEMS),
+    # "How can I complete this application?" -- what is still outstanding.
+    (r"\bhow\s+(can|do|should)\s+(i|we)\s+(complete|finish|finali[sz]e)\b",
+     Intent.PENDING_ITEMS),
     (r"\bpending\s+(items?|actions?|things?)\b", Intent.PENDING_ITEMS),
     (r"\bwhat('?s| is)\s+stopping\b", Intent.PENDING_ITEMS),
 
@@ -985,7 +1114,10 @@ _DEFINITION_RE = re.compile(
     # does not match -- nothing may stand between the verb and the term.
     r"|^\s*what\s+(is|are)\s+(pan|kyc|foir|ltv|emi|eligibility|"
     r"affordability|aadhaa?r|income\s+consistency|"
-    r"(pan\s+)?name\s+mismatch)\s*\??\s*$",
+    r"(pan\s+)?name\s+mismatch)\s*\??\s*$"
+    # A BARE DOCUMENT NAME. "What is address proof?" asks what the thing
+    # is; "what is my address proof status" has a word in between.
+    rf"|^\s*what\s+(is|are)\s+(an?\s+)?{_DOC_TYPES}(\s+card)?\s*\??\s*$",
     re.IGNORECASE,
 )
 
@@ -1024,6 +1156,55 @@ _STATUS_WORDS_TO_FILTER = {
 }
 
 
+#: "Why was my PAN rejected?" / "why did the bank statement fail?" -- a
+#: named document and a failure word.
+_DOCUMENT_REJECTED = re.compile(
+    rf"\bwhy\b.{{0,40}}\b{_DOC_TYPES}\b.{{0,30}}\b(rejected|declined|failed)\b",
+    re.IGNORECASE)
+#: ...unless it is the loan or application that was rejected.
+_LOAN_REJECTED = re.compile(
+    r"\b(loan|application|case|file)\s+(was\s+|is\s+|been\s+|got\s+)?"
+    r"(rejected|declined)\b", re.IGNORECASE)
+
+def _mixed_with_knowledge_tail(text: str) -> Classification | None:
+    """
+    MIXED, when the message is a case question AND a knowledge question.
+
+    STRUCTURAL, NOT A PHRASE LIST: the message is split at the clause the
+    MIXED tail marks ("and what ...", ", which ..."), the first clause is
+    classified by the same rules as any question, and the second must be
+    a knowledge question by the same knowledge rules. Neither half is
+    guessed: a first clause that is not a case question, or a second that
+    asks something downstream, leaves the message to the rules below.
+    """
+    match = _MIXED_TAIL.search(text)
+    if not match or match.start() == 0:
+        return None
+    head = text[:match.start()].strip(" ,;")
+    tail = re.sub(r"^[\s,;]*((and|also|plus)\s+)?", "", text[match.start():],
+                  flags=re.IGNORECASE)
+    if not head or not tail:
+        return None
+
+    # THE SECOND CLAUSE IS KNOWLEDGE, and not a downstream question
+    # dressed as one ("... and what is the KYC decision?").
+    knowledge = (asks_for_a_definition(tail) or looks_like_knowledge(tail)
+                 or bool(_STRONG_KNOWLEDGE.search(tail))
+                 or _asks_how_a_stage_works(tail))
+    if not knowledge:
+        return None
+    if not _asks_how_a_stage_works(tail) and any(
+            pattern.search(tail) for pattern, _ in _COMPILED_OOS):
+        return None
+
+    case = classify(head)
+    if case.intent not in _MIXED_BASES:
+        return None
+    return Classification(Intent.MIXED, document_type=case.document_type,
+                          matched_on=f"mixed:{case.matched_on}",
+                          base_intent=case.intent)
+
+
 def classify(message: str) -> Classification:
     """Decide what the message is asking for. Deterministic; no model."""
     text = (message or "").strip()
@@ -1040,9 +1221,21 @@ def classify(message: str) -> Classification:
     # WHERE THE CASE HAS BEEN. Before the stage-process and out-of-scope
     # rules, which would otherwise take "when did it move to RCU" on the
     # stage name alone. Answered from the recorded stage history.
+    # WHICH STAGE THE CASE IS AT NOW. First of the stage rules: the
+    # history and process rules below both key on the word "stage" and
+    # used to take "what is my stage?" as a question about how a stage
+    # works.
+    if asks_current_stage(text):
+        return Classification(Intent.APPLICATION_STAGE,
+                              matched_on="current_stage")
+
     if asks_stage_history(text):
         return Classification(Intent.APPLICATION_STAGE,
                               matched_on="stage_history")
+
+    # WHAT FOLLOWS FROM A GAP, from the recorded readiness.
+    if asks_impact(text):
+        return Classification(Intent.READINESS, matched_on="impact")
 
     if looks_like_stage_process(text):
         return Classification(Intent.STAGE_PROCESS, matched_on="stage")
@@ -1076,6 +1269,23 @@ def classify(message: str) -> Classification:
             Intent.DOCUMENTS_PENDING if wanted == "REVIEW"
             else Intent.DOCUMENTS_UPLOADED,
             matched_on="document_status_list", status_filter=wanted)
+
+    # A CASE QUESTION WITH A KNOWLEDGE CLAUSE ATTACHED. Before the rules
+    # below, which read the WHOLE message and would each take it on the
+    # second clause alone: "why is my application under review and what
+    # does KYC mean?" is a definition by its tail, and was answered from
+    # the handbook with the case's reason dropped.
+    split = _mixed_with_knowledge_tail(text)
+    if split is not None:
+        return split
+
+    # WHY ONE DOCUMENT FAILED. "Why was my PAN rejected?" is about a
+    # document on this case -- the out-of-scope rule would route it
+    # downstream as a loan decision, on the word "rejected" alone.
+    if _DOCUMENT_REJECTED.search(text) and not _LOAN_REJECTED.search(text):
+        return Classification(Intent.DOCUMENT_VERIFICATION,
+                              document_type=_document_type(text),
+                              matched_on="document_rejected")
 
     if not asks_process:
         for pattern, route in _COMPILED_OOS:
@@ -1154,8 +1364,14 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
     text = normalised.text or (message or "").strip()
     classification = classify(text)
 
+    from app.agents.applicant import followup
+
+    # A BARE "which document?" NAMES NOTHING. Unresolved by the follow-up
+    # context, it is a clarification -- the semantic layer would otherwise
+    # guess a document question about every document on the case.
     if (classification.intent is Intent.UNKNOWN and has_case
-            and not asks_for_a_definition(text)):
+            and not asks_for_a_definition(text)
+            and not followup.needs_context(text)):
         match = semantic.best(text)
         if match is not None:
             try:
@@ -1194,6 +1410,13 @@ PLANS: dict[Intent, tuple[str, ...]] = {
     Intent.COMPLETENESS: ("workflow.readiness", "workflow.pending_items"),
     Intent.FULL_SUMMARY: ("applicant.360",),
 }
+
+
+#: A case half the MIXED route can answer: an intent with a planned tool, or
+#: the recorded findings (agent.py answers MIXED from exactly these). Not a
+#: write, a refusal, a person-level read, or an intent the agent answers on
+#: a path of its own (eligibility, income, one document's values).
+_MIXED_BASES = frozenset(PLANS) | {Intent.CASE_HISTORY}
 
 
 #: Tools whose result already carries the checklist.

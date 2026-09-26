@@ -111,6 +111,8 @@ ALLOWED_PAYLOAD_KEYS = frozenset({
     "app_id", "case_id", "party_id", "party_role", "document_id",
     "document_type", "stage", "source_type", "chunk_type", "source_id",
     "created_at", "text", "chunk_index", "page",
+    # Knowledge metadata (process guides): what kind, and which version.
+    "knowledge_type", "version", "version_source",
 })
 
 
@@ -428,6 +430,14 @@ class QdrantVectorStore(VectorStore):
                 query_filter=self._filter(scope, collection=name),
                 limit=int(limit),
             ).points
+        except ValueError as exc:
+            # NOTHING INDEXED YET is an empty result, not an outage: the
+            # collection is created on first write.
+            if "not found" in str(exc).lower():
+                logger.debug("Collection %s does not exist yet; no hits", name)
+                return []
+            logger.warning("Search in %s failed: %s", name, type(exc).__name__)
+            raise VectorStoreError(f"Could not search {name}.") from None
         except Exception as exc:
             logger.warning("Search in %s failed: %s", name, type(exc).__name__)
             raise VectorStoreError(f"Could not search {name}.") from None

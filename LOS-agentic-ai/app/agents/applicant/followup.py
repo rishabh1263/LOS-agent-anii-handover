@@ -68,6 +68,15 @@ _BARE_SUBJECT = re.compile(
 )
 
 
+#: "Which document?", "which one?", "which ones?" -- asking the previous
+#: answer to name what it was about. Meaningless on its own.
+_BARE_WHICH = re.compile(
+    r"^\s*(and\s+)?(which|what)\s+(one|ones|document|documents|doc|docs)"
+    r"(\s+(is|was|were|are)\s+(it|that|they|this))?\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
+
 #: "What about it?" -- too short for the subject pattern above, and only
 #: ever a reference back.
 _BARE_PRONOUN = re.compile(
@@ -86,6 +95,10 @@ class Context:
     #: The checklist slot or document type the last answer was about, when
     #: it was about one.
     last_slot: str | None = None
+    #: The party ROLE the last answer was about (PRIMARY_APPLICANT,
+    #: CO_APPLICANT, BOTH). A label, never an id: the party is always read
+    #: from the case record.
+    last_subject: str | None = None
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any] | None) -> "Context":
@@ -107,6 +120,7 @@ class Context:
             return value or None
 
         slot = text("last_slot")
+        subject = (text("last_subject") or "").upper()
         return cls(
             last_query_type=text("last_query_type"),
             last_intent=text("last_intent"),
@@ -114,10 +128,14 @@ class Context:
             # "address proof" and one echoing "ADDRESS_PROOF" behave alike.
             last_slot=(re.sub(r"[^A-Z0-9]+", "_", slot.upper()).strip("_")
                        if slot else None),
+            last_subject=(subject if subject in {"PRIMARY_APPLICANT",
+                                                 "CO_APPLICANT", "BOTH"}
+                          else None),
         )
 
     def is_empty(self) -> bool:
-        return not (self.last_query_type or self.last_intent or self.last_slot)
+        return not (self.last_query_type or self.last_intent or self.last_slot
+                    or self.last_subject)
 
 
 @dataclass(frozen=True)
@@ -155,7 +173,18 @@ def _readable(slot: str) -> str:
 
 
 #: Every pattern that marks a message as unable to stand on its own.
-_BARE = (_BARE_WHY, _BARE_MORE, _BARE_WHAT_NOW, _BARE_SUBJECT)
+_BARE = (_BARE_WHY, _BARE_MORE, _BARE_WHAT_NOW, _BARE_SUBJECT, _BARE_WHICH)
+
+
+def needs_context(message: str) -> bool:
+    """
+    Whether this message names nothing and can only point back.
+
+    Narrower than `is_bare`: "which document?" has no subject at all, so no
+    rule or semantic example may guess one for it -- unresolved, it is a
+    clarification.
+    """
+    return bool(_BARE_WHICH.match((message or "").strip()))
 
 
 def is_bare(message: str) -> bool:
@@ -171,7 +200,9 @@ def is_bare(message: str) -> bool:
     clarification instead.
     """
     text = (message or "").strip()
-    return bool(text) and any(pattern.match(text) for pattern in _BARE)
+    # "Why this answer?" with nothing to explain is bare too.
+    return bool(text) and any(pattern.match(text)
+                              for pattern in (*_BARE, _WHY_ANSWER))
 
 
 def resolve(message: str, context: Context | None) -> Resolution:
@@ -244,6 +275,61 @@ def resolve(message: str, context: Context | None) -> Resolution:
             reason="a bare follow-up asking for the next step",
         )
 
+    # "WHICH DOCUMENT?" -- the previous answer, asked to name its document.
+    #
+    # ONE DOCUMENT, ONLY WHEN THE CONTEXT NAMES EXACTLY ONE (a mismatch
+    # between two documents names none, by design -- context_from_response).
+    # Otherwise the previous question is asked again for its documents, in a
+    # phrasing the classifier answers from the records: the answer lists
+    # what was recorded, and nothing is chosen for the officer.
+    if _BARE_WHICH.match(text):
+        pending_like = {"DOCUMENTS_PENDING", "DOCUMENTS_MISSING",
+                        "DOCUMENTS_REQUIRED", "PENDING_ITEMS"}
+        if slot:
+            if context.last_intent in pending_like:
+                return Resolution(
+                    message=f"Is {_readable(slot)} still pending?",
+                    rewritten_from=text,
+                    reason=f"the previous answer was about {slot}",
+                )
+            return Resolution(
+                message=f"Has the {_readable(slot)} been verified?",
+                rewritten_from=text,
+                reason=f"the previous answer was about {slot}",
+            )
+        narrowed = {
+            "CASE_HISTORY": "Which documents caused this?",
+            "APPLICATION_STATUS": "Which documents caused this?",
+            "DOCUMENT_VERIFICATION": "Which documents need attention?",
+            "DOCUMENTS_UPLOADED": "Which documents need attention?",
+        }.get(context.last_intent or "")
+        if narrowed is None and context.last_intent in pending_like:
+            narrowed = "Which documents are still pending?"
+        if narrowed:
+            return Resolution(
+                message=narrowed, rewritten_from=text,
+                reason="the previous answer was about more than one document",
+            )
+        return Resolution(message=text)
+
+    # "WHY THIS ANSWER?" -- the previous question, asked again from a fixed
+    # template (never free text from the context), so its provenance can be
+    # explained. The Copilot recognises EXPLAIN_REASON and answers with the
+    # explanation of that answer's sources (provenance.explain).
+    if _WHY_ANSWER.match(text):
+        again = _asked_again(context, slot)
+        return Resolution(message=again or text,
+                          rewritten_from=text, reason=EXPLAIN_REASON)
+
+    # "WHAT ABOUT MY CO-APPLICANT?" -- the previous question, asked about
+    # another party. Only a ROLE is carried forward: who holds it is read
+    # from the case record when the rewritten question is answered, so a
+    # context naming a co-applicant on a case that has none gets "there is
+    # no co-applicant", never an answer about somebody.
+    switched = _subject_switch(text, context)
+    if switched is not None:
+        return switched
+
     match = _BARE_SUBJECT.match(text) or _BARE_PRONOUN.match(text)
 
     # "WHAT ABOUT THE DOCUMENT?" -- a pronoun for the last answer's subject.
@@ -283,6 +369,101 @@ def resolve(message: str, context: Context | None) -> Resolution:
             )
 
     return Resolution(message=text)
+
+
+#: "Why this answer?", "how do you know that?" -- asking for the basis of the
+#: previous answer. Recognised by the Copilot through EXPLAIN_REASON.
+_WHY_ANSWER = re.compile(
+    r"^\s*(why\s+(this|that)\s+answer|why\s+(are|do)\s+you\s+(saying|say)\s+"
+    r"(this|that)|how\s+do\s+you\s+know(\s+(that|this))?|what\s+is\s+(this|"
+    r"that)\s+based\s+on|where\s+did\s+you\s+get\s+(this|that)(\s+from)?|"
+    r"what('?s|\s+is)\s+your\s+source)\s*[?.!]*\s*$",
+    re.IGNORECASE)
+
+EXPLAIN_REASON = "asked why the previous answer was given"
+
+#: The previous question, by its intent -- phrasings the classifier answers.
+_AGAIN = {
+    "CASE_HISTORY": "Why is my application under review?",
+    "APPLICATION_STATUS": "What is my application status?",
+    "APPLICATION_STAGE": "What stage am I in?",
+    "DOCUMENTS_PENDING": "What is pending?", "PENDING_ITEMS": "What is pending?",
+    "DOCUMENTS_MISSING": "What is pending?",
+    "DOCUMENT_VERIFICATION": "Which documents need attention?",
+    "DOCUMENTS_UPLOADED": "Which documents need attention?",
+    "NEXT_ACTION": "What should I do now?",
+    "READINESS": "Is my application ready for CPA?",
+}
+
+
+def _asked_again(context: Context, slot: str | None) -> str | None:
+    intent = context.last_intent or ""
+    if context.last_subject in _WHO:
+        who, who_s = _WHO[context.last_subject]
+        for intents_, template in _FOR_SUBJECT:
+            if intent in intents_:
+                return template.format(who=who, who_s=who_s)
+    if intent in ("DOCUMENT_VERIFICATION",) and slot:
+        return f"Has the {_readable(slot)} been verified?"
+    return _AGAIN.get(intent)
+
+
+#: "And her documents?", "what about his?" -- a pronoun for the last
+#: answer's PARTY. Resolved only against a party role the context carries.
+_BARE_PARTY_PRONOUN = re.compile(
+    r"^\s*(and|what\s+about|how\s+about)?\s*(his|her|their|him|them)"
+    r"(\s+(documents?|docs?|status|issues?|side|ones?))?\s*[?.!]*\s*$",
+    re.IGNORECASE)
+
+#: How each kind of previous question is asked about a named party. Each
+#: is a phrasing the classifier already answers; nothing here answers it.
+_FOR_SUBJECT = (
+    ({"CASE_HISTORY", "APPLICATION_STATUS", "FULL_SUMMARY"},
+     "What issues are recorded for {who}?"),
+    ({"DOCUMENTS_PENDING", "DOCUMENTS_MISSING", "PENDING_ITEMS",
+      "COMPLETENESS", "NEXT_ACTION"}, "What is pending for {who}?"),
+    ({"READINESS"}, "Is {who} ready for CPA?"),
+    ({"DOCUMENT_VERIFICATION", "DOCUMENTS_UPLOADED"},
+     "Are {who_s} documents verified?"),
+)
+
+_WHO = {"CO_APPLICANT": ("the co-applicant", "the co-applicant's"),
+        "PRIMARY_APPLICANT": ("the primary applicant",
+                              "the primary applicant's"),
+        "BOTH": ("both applicants", "both applicants'")}
+
+
+def _subject_switch(text: str, context: Context) -> Resolution | None:
+    from app.agents.applicant import subjects
+
+    match = _BARE_SUBJECT.match(text)
+    role = subjects.mentioned(match.group(3)) if match else None
+    if match and role is None and re.fullmatch(
+            r"\s*(me|myself|mine|the\s+applicant)\s*", match.group(3), re.I):
+        role = subjects.Kind.PRIMARY
+    pronoun = _BARE_PARTY_PRONOUN.match(text)
+    if role is None and pronoun \
+            and context.last_subject in ("CO_APPLICANT", "PRIMARY_APPLICANT"):
+        role = subjects.Kind(context.last_subject)
+    if role is None or not context.last_intent:
+        return None
+    # "AND HER DOCUMENTS?" asks about the documents, whatever the last
+    # question was: the noun the person typed outranks the question before.
+    noun = (pronoun.group(4) if pronoun else "") or ""
+    if noun.lower().startswith("doc"):
+        who, who_s = _WHO[role.value]
+        return Resolution(message=f"Are {who_s} documents verified?",
+                          rewritten_from=text,
+                          reason=f"asked about {who_s} documents")
+    for intents_, template in _FOR_SUBJECT:
+        if context.last_intent in intents_:
+            who, who_s = _WHO[role.value]
+            return Resolution(
+                message=template.format(who=who, who_s=who_s),
+                rewritten_from=text,
+                reason=f"the previous question, asked about {who}",
+            )
+    return None
 
 
 #: Words that point back at the last answer's subject.
@@ -348,10 +529,14 @@ def context_from_response(envelope: Mapping[str, Any]) -> dict[str, Any]:
     if slot is None:
         slot = _only_implicated_document(envelope)
 
+    subject = envelope.get("subject") or {}
     return {
         "last_query_type": envelope.get("query_type"),
         "last_intent": envelope.get("intent"),
         "last_slot": slot,
+        # The party role the answer was about, for "and her documents?".
+        "last_subject": (subject.get("kind")
+                         if isinstance(subject, Mapping) else None),
     }
 
 

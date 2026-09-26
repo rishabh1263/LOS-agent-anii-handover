@@ -163,9 +163,10 @@ def _embedder(provided: EmbeddingProvider | None) -> EmbeddingProvider:
     sign of why. Two providers is not a fallback, it is a silent
     mismatch.
     """
-    from app.knowledge.embeddings import get_embedder
+    from app.knowledge.embeddings import get_query_embedder
 
-    return provided or get_embedder()
+    # The same configured provider, behind a bounded question cache.
+    return provided or get_query_embedder()
 
 
 def _provenance(payload: dict[str, Any]) -> dict[str, Any]:

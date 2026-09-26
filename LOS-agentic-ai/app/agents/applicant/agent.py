@@ -18,6 +18,8 @@ action the FOS has to confirm, and only the confirmation carries out the work.
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import logging
 import re
 import time
@@ -38,6 +40,11 @@ from app.agents.applicant import (
     permissions,
     routing,
     status_facts,
+    subjects,
+    history,
+    ledger,
+    actions,
+    delay,
 )
 from app.agents.applicant.answer import (
     NOTHING_AVAILABLE,
@@ -57,6 +64,10 @@ from app.agents.applicant.intents import (
     understand,
 )
 from app.agents.applicant.permissions import Caller, PermissionDenied
+
+#: The intent a request refused by the input guardrail is published under.
+#: Not an Intent member: nothing is classified, planned or answered.
+GUARDRAIL_BLOCKED = "GUARDRAIL_BLOCKED"
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +111,10 @@ async def _call_tools(
     # already established authorisation another way is unaffected; every
     # request path supplies it.
     caller: "permissions.Caller | None" = None,
+    # Carried on each MCP call's trace; never decides anything.
+    request_id: str | None = None,
+    stage: str | None = None,
+    intent: str | None = None,
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], list[dict[str, str]]]:
     """
     Run the planned tools.
@@ -116,10 +131,54 @@ async def _call_tools(
     cost that capability, not the whole answer.
     """
     from app.mcp import applicant as tools
+    from app.mcp import runtime as mcp_runtime
 
     results: dict[str, dict[str, Any]] = {}
     trace: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
+
+    # PROTOCOL MODE: the read tools cross the MCP protocol (app/mcp/runtime),
+    # where the server re-authorises the caller. They are independent reads,
+    # so they are sent concurrently and collected in plan order.
+    if (mcp_runtime.mode() == "protocol" and caller is not None
+            and all(c in tools.READ_TOOLS for c in plan)):
+        allowed: list[str] = []
+        for capability in plan:
+            try:
+                permissions.check_tool(caller, capability)
+                allowed.append(capability)
+            except permissions.PermissionDenied as denied:
+                errors.append({"code": denied.code, "message": denied.message})
+                trace.append({"tool": capability, "ok": False,
+                              "processing_ms": 0.0})
+        calls = await asyncio.gather(*(
+            mcp_runtime.call(capability, applicant_id=applicant_id,
+                             case_id=case_id, document_type=document_type,
+                             caller=caller, request_id=request_id,
+                             stage=stage, intent=intent)
+            for capability in allowed))
+        for capability, (envelope, call_trace) in zip(allowed, calls):
+            trace.append({"tool": capability, "ok": envelope.ok,
+                          "processing_ms": envelope.processing_ms,
+                          "transport": call_trace["transport"],
+                          "provider": call_trace["provider"],
+                          "duration_ms": call_trace["duration_ms"],
+                          **{k: call_trace[k] for k in
+                             ("server_ms", "transport_ms", "timed_out",
+                              "fallback") if k in call_trace}})
+            if envelope.ok and envelope.result is not None:
+                results[capability] = envelope.result
+            elif envelope.error is not None:
+                errors.append({"code": envelope.error.code,
+                               "message": envelope.error.message})
+            # THE SERVER REFUSED THE CALLER. Not "no data": the MCP server
+            # authenticated and authorised this call itself and said no, and
+            # that is published as a refusal, never as an empty answer.
+            if not call_trace.get("authorized", True):
+                raise AgentError("CASE_NOT_ACCESSIBLE",
+                                 "You are not authorized to access this case.",
+                                 http_status=403)
+        return results, trace, errors
 
     for capability in plan:
         handler = tools.ALL_TOOLS.get(capability)
@@ -159,6 +218,29 @@ async def _call_tools(
                            "message": envelope.error.message})
 
     return results, trace, errors
+
+
+def _trace_entry(step: dict[str, Any]) -> dict[str, Any]:
+    """
+    How one tool was reached and what it cost: transport, provider, total
+    time and -- over the MCP protocol -- the server's share and the
+    transport's. Internal: published only as provenance and timings.
+    """
+    entry = {"tool": step["tool"], "ok": step.get("ok"),
+             "transport": step.get("transport", "in_process"),
+             "provider": step.get("provider") or _provider(step["tool"]),
+             "duration_ms": step.get("duration_ms", step.get("processing_ms"))}
+    for key in ("server_ms", "transport_ms", "timed_out", "fallback"):
+        if key in step:
+            entry[key] = step[key]
+    return entry
+
+
+def _provider(tool: str) -> str | None:
+    from app.mcp.contracts import CONTRACTS
+
+    contract = CONTRACTS.get(tool)
+    return contract.provider if contract else None
 
 
 #: Write intent -> the ONE tool that may carry it out. The proposal names it
@@ -371,7 +453,12 @@ def _plain_knowledge(text: str) -> str:
     said = _in_words(text or "")
     sentences = re.split(r"(?<=[.!?])\s+|\n+", said)
     kept = [s.strip() for s in sentences
-            if s.strip() and "|" not in s and not _CODE.search(s)]
+            if s.strip() and "|" not in s and not _CODE.search(s)
+            # A LIST HEADING OR MARKER IS NOT A SENTENCE: "Concretely:" and
+            # "1." survived as the whole general half of a live answer.
+            and not s.strip().endswith(":")
+            and not re.fullmatch(r"(\d+|[a-z])[.)]", s.strip(), re.I)
+            and len(s.split()) >= 4]
     return " ".join(kept).strip()
 
 
@@ -462,6 +549,10 @@ async def answer_question(
     # the case record when an answer needs it. Never taken from the words
     # of the question.
     stage_context: Any = None,
+    # ONE MODEL CALL PER QUESTION. The Universal Copilot phrases the answer
+    # itself from the evidence packet; it passes False so the agent does
+    # not spend a second model call on the same answer.
+    compose_with_model: bool = True,
 ) -> dict[str, Any]:
     """
     One FOS question, answered.
@@ -476,6 +567,8 @@ async def answer_question(
 
     def elapsed() -> float:
         return round((time.perf_counter() - started) * 1000, 2)
+
+    _routing_ms: list[float | None] = [None]
 
     def envelope(**overrides: Any) -> dict[str, Any]:
         base: dict[str, Any] = {
@@ -532,6 +625,11 @@ async def answer_question(
             "processing_ms": 0.0,
             "errors": [],
         }
+        # PER-STEP TIMINGS: routing always, plus whatever the path adds.
+        timings = {"routing_ms": _routing_ms[0]} if _routing_ms[0] is not None else {}
+        timings.update(overrides.pop("_timings", None) or {})
+        if timings:
+            base["_timings"] = timings
         base.update(overrides)
         base["processing_ms"] = elapsed()
         return base
@@ -547,6 +645,31 @@ async def answer_question(
                      "message": "The Applicant Agent is disabled."}],
         )
 
+    # THE INPUT GUARDRAIL, BEFORE ANYTHING RUNS. A request for the system's
+    # own code, files, secrets, prompts or tool payloads -- or an attempt to
+    # talk it out of its rules -- is refused here: no follow-up is resolved,
+    # nothing is classified, no tool runs and no record is read. The refusal
+    # is the same whoever asks and whatever case they name, so it discloses
+    # nothing about the case either. See app/security/guardrails.py.
+    from app.security import guardrails
+
+    screened = guardrails.check_input(message)
+    if not screened.allowed:
+        audit.record(request_id=request_id, subject=caller.subject,
+                     applicant_id=applicant_id, case_id=case_id,
+                     intent=GUARDRAIL_BLOCKED, tools=[], status="BLOCKED",
+                     message=message, detail=screened.category.value)
+        return envelope(
+            intent=GUARDRAIL_BLOCKED,
+            category=routing.QueryCategory.UNSUPPORTED.value,
+            query_type=QueryType.CLARIFICATION.value,
+            answer=guardrails.refusal(screened.category),
+            guardrail={"stage": "input", "action": "BLOCKED",
+                       "category": screened.category.value},
+            errors=[{"code": "REQUEST_NOT_ALLOWED",
+                     "message": "This request cannot be answered here."}],
+        )
+
     # A BARE FOLLOW-UP BECOMES A WHOLE QUESTION FIRST.
     #
     # The rewrite produces a MESSAGE, which is then classified by exactly
@@ -554,27 +677,57 @@ async def answer_question(
     # intent, reaches no tool and skips no check -- see
     # app/agents/applicant/followup.py for why that boundary is where it
     # is, given the context comes from the caller.
-    resolution = followup.resolve(
-        message, followup.Context.from_payload(context))
-    message = resolution.message
+    routing_started = time.perf_counter()
+    from app.observability.tracing import annotate as _annotate
+    from app.observability.tracing import span as _span
 
-    if intent_override is not None:
-        # No follow-up resolution either: a named action carries no
-        # pronoun to resolve and no previous turn to resolve it against.
-        classification = Classification(
-            intent_override, confidence="high", matched_on="action")
-    else:
-        # NORMALISED, CLASSIFIED, AND ONLY THEN THE SEMANTIC FALLBACK --
-        # see intents.understand. A WRITE is classified on the words as
-        # typed: normalisation rewrites short words, and a name or an
-        # address being saved must reach the store exactly as given.
-        classification = classify(message)
-        if classification.intent not in WRITE_INTENTS:
-            classification = understand(message, has_case=bool(case_id))
-            if classification.normalized:
-                message = classification.normalized
+    with _span("copilot.routing") as _routing_span:
+        resolution = followup.resolve(
+            message, followup.Context.from_payload(context))
+        message = resolution.message
 
+        named_subject = None
+        if intent_override is not None:
+            # No follow-up resolution either: a named action carries no
+            # pronoun to resolve and no previous turn to resolve it against.
+            classification = Classification(
+                intent_override, confidence="high", matched_on="action")
+        else:
+            # NORMALISED, CLASSIFIED, AND ONLY THEN THE SEMANTIC FALLBACK --
+            # see intents.understand. A WRITE is classified on the words as
+            # typed: normalisation rewrites short words, and a name or an
+            # address being saved must reach the store exactly as given.
+            classification = classify(message)
+            if classification.intent not in WRITE_INTENTS:
+                # WHO THE QUESTION IS ABOUT, read from its words (a role only --
+                # the person is read from the case record below). When a role is
+                # named, the question is classified with the subject phrase
+                # neutralised, so the ordinary rules decide WHAT is being asked
+                # (app/agents/applicant/subjects.py).
+                from app.agents.applicant import normalize
+
+                said = normalize.normalise(message).text or message
+                named_subject = (subjects.mentioned(said)
+                                 or subjects.mentioned(message))
+                # NEUTRALISED AS TYPED: normalisation's typo pass reads
+                # "co-applicant's" as "co-applicants" and loses the possessive
+                # that says a document noun follows. `understand` normalises
+                # the neutral text itself.
+                classification = understand(
+                    subjects.neutral(message) if named_subject else message,
+                    has_case=bool(case_id))
+                if named_subject:
+                    message = said
+                elif classification.normalized:
+                    message = classification.normalized
+
+        _annotate(_routing_span, intent=classification.intent.value,
+                  matched_on=(classification.matched_on or "")[:40],
+                  confidence=classification.confidence,
+                  normalized=bool(classification.normalized),
+                  followed_up=bool(getattr(resolution, "rewritten", False)))
     intent = classification.intent
+    _routing_ms[0] = round((time.perf_counter() - routing_started) * 1000, 2)
 
     # ---- out of scope, before anything is read -------------------------
     if intent is Intent.OUT_OF_SCOPE:
@@ -602,7 +755,10 @@ async def answer_question(
     # read: this path cannot reach case data, which is what stops a policy
     # answer from ever appearing to be a statement about an applicant.
     if intent is Intent.FOS_KNOWLEDGE:
-        text, source, detail = await _knowledge_reply(message)
+        # ONE MODEL CALL PER QUESTION: when the caller composes (the
+        # Universal Copilot), the passage is not phrased here first.
+        text, source, detail = await _knowledge_reply(
+            message, allow_model=compose_with_model)
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
                      intent=intent.value, tools=["knowledge.fos"],
@@ -614,6 +770,32 @@ async def answer_question(
                         followed_up=resolution.public(),
                         response_source=source,
                         knowledge=_public_knowledge(detail))
+
+    from app.agents.applicant import handoff as handoffs
+
+    # ANY LANGUAGE the handoff layer recognises ("talk to a human", "customer
+    # care", "kisi insaan se baat karni hai"), checked on the canonical words.
+    if intent is Intent.UNKNOWN and handoffs.asks_for_person(message):
+        # AN EXPLICIT REQUEST FOR A PERSON. Reported as a handoff signal a
+        # channel can act on -- no human desk exists in this service, so the
+        # answer does not claim anyone has been contacted. No case data.
+        audit.record(request_id=request_id, subject=caller.subject,
+                     applicant_id=applicant_id, case_id=case_id,
+                     intent="HUMAN_HANDOFF_REQUESTED", tools=[],
+                     status="HANDOFF_SIGNAL", message=message)
+        return envelope(
+            intent="HUMAN_HANDOFF_REQUESTED",
+            category=routing.QueryCategory.UNSUPPORTED.value,
+            query_type=QueryType.CLARIFICATION.value,
+            followed_up=resolution.public(),
+            answer=("I've marked that you'd like help from a person. Until "
+                    "then, I can answer questions about this application's "
+                    "documents, status and next steps."),
+            next_actions={"primary": None, "additional": [],
+                          "handoff": {"required": True,
+                                      "reason": "USER_REQUEST",
+                                      "priority": None}},
+        )
 
     if intent is Intent.UNKNOWN:
         # Not understood as a case question -- but the knowledge base gets a
@@ -638,7 +820,7 @@ async def answer_question(
         own_case = bool(case_id) and asks_about_own_case(message)
         text, source, detail = (
             ("", "", {"confident": False}) if bare or own_case
-            else await _knowledge_reply(message)
+            else await _knowledge_reply(message, allow_model=compose_with_model)
         )
         if detail["confident"]:
             audit.record(request_id=request_id, subject=caller.subject,
@@ -693,6 +875,74 @@ async def answer_question(
                      message=message, detail=exc.code)
         raise AgentError(exc.code, exc.message, http_status=403) from exc
 
+    # ---- which party the question is about -----------------------------
+    #
+    # AFTER OWNERSHIP, and from the RECORD. The caller has just been cleared
+    # for this case; the parties are read from its application, never from
+    # the question or the conversation. A `party_id` the case does not have
+    # is refused exactly as a case the caller does not hold is: whether it
+    # belongs to another case is not something this caller may learn.
+    parties_on_case = subjects.parties_of(case_id) if case_id else []
+    if party_id and case_id and not subjects.belongs(case_id, party_id):
+        audit.record(request_id=request_id, subject=caller.subject,
+                     applicant_id=applicant_id, case_id=case_id,
+                     intent=intent.value, tools=[], status="DENIED",
+                     message=message, detail="PARTY_NOT_ON_CASE")
+        raise AgentError("CASE_NOT_ACCESSIBLE",
+                         "You are not authorized to access this case.",
+                         http_status=403)
+
+    subject = subjects.resolve(named_subject, parties_on_case)
+    # A DOCUMENT QUESTION ON A TWO-PARTY CASE IS ANSWERED FOR EACH PARTY.
+    # "Is the PAN verified?" was answered from the latest PAN on the case,
+    # whoever it belonged to; with two people, that is one person's
+    # document reported as the other's.
+    if (subject is None and not party_id and len(parties_on_case) > 1
+            and intent is Intent.DOCUMENT_VERIFICATION):
+        subject = subjects.resolve(subjects.Kind.BOTH, parties_on_case)
+
+    if subject is not None and case_id:
+        answered = await _answer_for_subject(
+            subject, parties_on_case, classification, message,
+            applicant_id=applicant_id, case_id=case_id, caller=caller,
+            request_id=request_id, stage=_stage_of(stage_context, case_id))
+        if answered is None:
+            # ONE DOCUMENT'S RECORDED VALUES: the existing party-scoped path
+            # answers it, for the one party named.
+            if len(subject.parties) == 1:
+                party_id = subject.parties[0].party_id
+        else:
+            answer, results, trace, errors, memory = answered
+            audit.record(request_id=request_id, subject=caller.subject,
+                         applicant_id=applicant_id, case_id=case_id,
+                         intent=intent.value,
+                         tools=[t["tool"] for t in trace], status="OK",
+                         message=message, detail=subject.kind.value)
+            return envelope(
+                intent=intent.value,
+                query_type=type_for(intent).value,
+                followed_up=resolution.public(),
+                answer=answer,
+                subject=subject.public(),
+                documents=(results.get("documents.get") or {}).get(
+                    "documents") or [],
+                **({"case_memory": memory} if memory else {}),
+                **({"history": {"per_party": [
+                    {k: v for k, v in b.items() if k != "_events"}
+                    for b in results["_history"]["per_party"]]},
+                    "_history_events": [e for b in results["_history"]["per_party"]
+                                        for e in b["_events"]]}
+                   if results.get("_history") else {}),
+                tools_invoked=[step["tool"] for step in trace
+                               if _executed(step, caller)],
+                tool_trace=[_trace_entry(step) for step in trace],
+                # PER-PARTY ANSWERS ARE REPORTED, NEVER REPHRASED: a composer
+                # asked for two sentences is exactly how two people become
+                # "the applicant".
+                answer_is_quoted=True,
+                errors=errors,
+            )
+
     # ---- how a named stage works ---------------------------------------
     #
     # RETURNS BEFORE THE READ PATH, and must. No MCP tool answers "what
@@ -744,6 +994,15 @@ async def answer_question(
 
     # ---- read path -----------------------------------------------------
     plan = plan_for(classification, has_case=bool(case_id))
+    # "WHAT IS BLOCKING ME?" is answered from the pending items AND the next
+    # action (Slices 8-9), so both are read -- once, through the same tools.
+    asks_blocking = bool(case_id) and actions.asks_what_blocks(message) and         intent in (Intent.PENDING_ITEMS, Intent.READINESS, Intent.COMPLETENESS,
+                   Intent.NEXT_ACTION)
+    # "WHY IS IT DELAYED?" reads the same: findings, impacts, the next action.
+    asks_delay = bool(case_id) and intent is Intent.CASE_HISTORY and         delay.asks_about_delay(message)
+    if asks_blocking or asks_delay:
+        plan = tuple(dict.fromkeys(
+            plan + ("workflow.pending_items", "workflow.next_action")))
     results, trace, errors = await _call_tools(
         plan,
         applicant_id=applicant_id,
@@ -753,6 +1012,9 @@ async def answer_question(
         # declares, in addition to the capability check this request has
         # already passed.
         caller=caller,
+        request_id=request_id,
+        stage=_stage_of(stage_context, case_id),
+        intent=intent.value,
     )
 
     if not results:
@@ -799,10 +1061,59 @@ async def answer_question(
                 if intent in (Intent.DOCUMENT_VERIFICATION,
                               Intent.APPLICATION_STATUS)
                 else "")
+    # WHETHER THE ANSWER QUOTES A RECORDED VALUE -- a recorded reason, a
+    # hold, the names in a mismatch. Such an answer is reported, never
+    # rephrased, by the agent or by any composer downstream of it.
+    quoted = bool(recorded)
+    # "What changed": the structured changes behind the answer, when asked.
+    history_block = None
+    history_events = None
 
-    if intent is Intent.CASE_PORTFOLIO:
+    intelligence = None
+    delay_block = None
+    if case_id and (asks_blocking or asks_delay
+                    or intent is Intent.NEXT_ACTION):
+        # FACT -> EVIDENCE -> IMPACT -> NEXT BEST ACTION, all deterministic,
+        # all from the case's records; reported, never rephrased.
+        started_nba = time.perf_counter()
+        intelligence = _intelligence(case_id, results, stage_context, message)
+        nba_ms = round((time.perf_counter() - started_nba) * 1000, 2)
+
+    if intelligence is not None:
+        book, found, case_impacts, nba = intelligence
+        multi = len(book.parties) > 1
+        if asks_delay:
+            ctx = _stage_ctx(stage_context, case_id)
+            delay_block = delay.explain(
+                stage=_stage_of(stage_context, case_id),
+                since=getattr(ctx, "since", None), case_impacts=case_impacts,
+                nba=nba, events=book.events())
+            held = [i for i in case_impacts
+                    if i.get("effect") in delay.HOLDING_EFFECTS
+                    or i.get("blocking") is True]
+            answer = delay.answer(delay_block, held, nba, multi_party=multi)
+        elif asks_blocking:
+            from app.agents.applicant import config as _config
+
+            stage_code = _stage_of(stage_context, case_id)
+            answer = actions.blocking_answer(
+                case_impacts, nba, multi_party=multi,
+                stage_label=_config.stage_label(stage_code or "FOS"))
+        else:
+            from_workflow = nba["primary"]["source_rule"] == "workflow.next_action"
+            answer = actions.answer(
+                nba, multi_party=multi,
+                primary_sentence=(deterministic_answer(Intent.NEXT_ACTION, results)
+                                  if from_workflow else None))
+        source, llm_ms = "deterministic", 0.0
+        quoted = True
+
+    elif intent is Intent.CASE_PORTFOLIO:
         answer = _portfolio_answer(results)
         source, llm_ms = "deterministic", 0.0
+        # EACH CASE WITH ITS RECORDED STATUS -- a list of recorded values,
+        # never rephrased: a composed "a total of 3 cases" dropped them all.
+        quoted = True
 
     elif intent is Intent.ELIGIBILITY:
         # READ, NOT COMPUTED, and no model on this path at any setting.
@@ -860,7 +1171,7 @@ async def answer_question(
             answer = deterministic_answer(answering_intent, results)
         source, llm_ms = "deterministic", 0.0
     else:
-        use_llm = config.llm_enabled() and (
+        use_llm = compose_with_model and config.llm_enabled() and (
             answering_intent not in SIMPLE_INTENTS
             or config.llm_for_simple_intents()
         )
@@ -896,12 +1207,14 @@ async def answer_question(
                 # A recorded decision holds the application; its reason
                 # is reported, never rephrased.
                 use_llm = False
+                quoted = True
 
         if use_llm:
             answer, source, llm_ms = await generate_answer(
                 message, answering_intent, results,
                 identifiers=(case_id, applicant_id),
                 structured=status_view[0] if status_view is not None else None,
+                stage_context=_stage_ctx(stage_context, case_id),
             )
             if status_view is not None and status_facts.names_an_identifier(
                     answer, case_id, applicant_id):
@@ -912,7 +1225,19 @@ async def answer_question(
         elif intent is Intent.APPLICATION_STAGE:
             # The stage the case record establishes, and where in it.
             view = results.get("applicant.360") or {}
-            if classification.matched_on == "stage_history":
+            if (classification.matched_on == "stage_history" and case_id
+                    and history.asks_what_changed(message)):
+                # WHAT CHANGED: every recorded change -- stage, uploads,
+                # verification, findings, decisions -- from the case ledger,
+                # in order, in a defined window. Reported, never rephrased.
+                book = ledger.load(case_id)
+                truth = history.changes(book, message)
+                answer = history.answer(truth,
+                                        multi_party=len(book.parties) > 1)
+                history_block = history.public(truth)
+                history_events = truth["events"]
+                quoted = True
+            elif classification.matched_on == "stage_history":
                 # Where it HAS BEEN -- the recorded history, never inferred.
                 answer = status_facts.stage_history_answer(
                     message, _stage_ctx(stage_context, case_id))
@@ -1005,13 +1330,27 @@ async def answer_question(
         # place for it.
         # THE HANDBOOK IS STILL CONSULTED for the general half -- a mixed
         # question is answered from both, and says which part is which.
+        # RETRIEVED FOR THE CLAUSE THAT ASKED. The whole message carries the
+        # case half's words too: "why is my application under review and
+        # what does KYC mean?" retrieved the CPA-readiness section on
+        # "application" and "review". The knowledge clause is asked first;
+        # the whole message only when that clause alone finds nothing.
         text, knowledge_source, detail = await _knowledge_reply(
-            message, allow_model=False, max_sentences=2,
+            second or message, allow_model=False,
         )
+        if second and not detail.get("confident"):
+            text, knowledge_source, detail = await _knowledge_reply(
+                message, allow_model=False,
+            )
         # CLEAN, AND LABELLED AS GENERAL. Codes become words, a table or a
         # code list is dropped, and what remains is marked as general so it
         # cannot be read as a fact about this case.
-        text = _plain_knowledge(text)
+        # CLEANED BEFORE IT IS TRIMMED. Trimmed first, a section opening
+        # "Concretely: 1." spent both sentences on a heading and a list
+        # marker, the clean-up then removed both, and a confident handbook
+        # half was reported as no half at all.
+        text = " ".join(
+            re.split(r"(?<=[.!?])\s+", _plain_knowledge(text))[:2]).strip()
         if not text:
             detail = {**detail, "confident": False}
         elif detail["confident"]:
@@ -1074,6 +1413,19 @@ async def answer_question(
         # listed as if they were.
         tools_invoked=[step["tool"] for step in trace
                        if _executed(step, caller)],
+        # HOW EACH TOOL WAS REACHED -- in process, or over the MCP protocol
+        # and which transport -- and what answered it. Internal: the public
+        # surfaces publish it only as provenance (`answer_basis`).
+        tool_trace=[_trace_entry(step) for step in trace],
+        llm_ms=llm_ms,
+        answer_is_quoted=quoted,
+        **({"history": history_block} if history_block else {}),
+        **({"next_actions": actions.public(intelligence[3]),
+            # INTERNAL: the full result, for provenance (never published).
+            "_nba_internal": intelligence[3],
+            "_timings": {"nba_ms": nba_ms}} if intelligence else {}),
+        **({"delay": delay_block} if delay_block else {}),
+        **({"_history_events": history_events} if history_events else {}),
         errors=errors,
         **payload,
     )
@@ -1108,6 +1460,143 @@ async def answer_question(
                  intent=intent.value, tools=[t["tool"] for t in trace],
                  status="OK", message=message)
 
+    return response
+
+
+def _intelligence(case_id: str, results: dict[str, Any], stage_context: Any,
+                  message: str):
+    """
+    Evidence -> Impact -> Next Best Action for one case, from ONE ledger
+    read: (ledger, problems, impacts, next_actions). Impacts cover the
+    recorded problems (each its subject's) and the FOS workflow's pending
+    items (the case's). Nothing here calls a model.
+    """
+    from app.agents.applicant import impact
+
+    stage = _stage_of(stage_context, case_id)
+    hold_since = getattr(_stage_ctx(stage_context, case_id), "hold_since", None)
+    book = ledger.load(case_id)
+    found = book.evidence(since=hold_since, stage=stage)
+    pending = (results.get("workflow.pending_items") or {}).get("pending_items")
+    case_impacts = [p["impact"] for p in found] + impact.for_pending(pending, stage)
+    nba = actions.compute(
+        stage=stage,
+        workflow_next=(results.get("workflow.next_action") or {}).get("next_action"),
+        decisions=book.memory()["decisions"], hold_since=hold_since,
+        case_impacts=case_impacts,
+        user_asked_for_person=actions.asks_for_person(message))
+    return book, found, case_impacts, nba
+
+
+async def _answer_for_subject(
+    subject: "subjects.Subject",
+    parties_on_case: list["subjects.Party"],
+    classification: Classification,
+    message: str,
+    *,
+    applicant_id: str | None,
+    case_id: str,
+    caller: Caller,
+    request_id: str | None,
+    stage: str | None,
+) -> tuple[str, dict[str, Any], list[dict[str, Any]],
+           list[dict[str, str]], dict[str, Any] | None] | None:
+    """
+    A question about one party, or about each of them.
+
+    Returns (answer, results, trace, errors, case_memory), or None when the
+    question is about ONE DOCUMENT'S RECORDED VALUES -- which the existing
+    party-scoped path answers once it is given the party.
+
+    Every fact is the party's own: its stamped documents (governed tools)
+    and its recorded findings (case memory, whose ownership was cleared
+    before this runs). What the system keeps only for the application --
+    the checklist, readiness -- is said to be the application's.
+    """
+    intent = classification.intent
+    capability = subjects.capability_for(intent, message,
+                                         classification.document_type)
+
+    if subject.missing and subject.kind is subjects.Kind.CO:
+        return subject.missing, {}, [], [], None
+    if capability is subjects.Capability.DETAILS:
+        if len(subject.parties) == 1:
+            return None
+        lines = []
+        for party in subject.parties:
+            said, _ = document_facts.answer(case_id, party.party_id, message)
+            lines.append(f"For {party.label}: {said}")
+        return " ".join(lines), {}, [], [], None
+    if capability is None:
+        return subjects.clarification(subject), {}, [], [], None
+    if capability is subjects.Capability.HISTORY:
+        # EACH PARTY'S OWN RECORDED CHANGES -- never the other party's, and
+        # never the case's attributed to a person.
+        book = ledger.load(case_id)
+        lines, blocks = [], []
+        for party in subject.parties:
+            truth = history.changes(book, message, party_ids={party.party_id})
+            lines.append(history.answer(truth, multi_party=False,
+                                        subject_label=party.label))
+            blocks.append({"party_role": party.role.value,
+                           **history.public(truth),
+                           "_events": truth["events"]})
+        answer = " ".join(lines)
+        if subject.missing:
+            answer = f"{subject.missing} {answer}"
+        return answer, {"_history": {"per_party": blocks}}, [], [], None
+
+    results, trace, errors = await _call_tools(
+        subjects.PLANS[capability], applicant_id=applicant_id,
+        case_id=case_id, document_type=classification.document_type,
+        caller=caller, request_id=request_id, stage=stage,
+        intent=intent.value)
+    documents = (results.get("documents.get") or {}).get("documents") or []
+    memory = None
+
+    if capability is subjects.Capability.VERIFICATION:
+        answer = subjects.verification(subject, documents,
+                                       classification.document_type)
+    elif capability is subjects.Capability.PENDING:
+        answer = subjects.pending(
+            subject, documents,
+            (results.get("documents.checklist") or {}).get("checklist"))
+    elif capability is subjects.Capability.READINESS:
+        answer = subjects.readiness(
+            subject, documents,
+            deterministic_answer(Intent.READINESS, results))
+    else:
+        memory = case_memory_facts.case_memory(case_id)
+        answer = subjects.issues(subject, memory, documents, parties_on_case)
+
+    if subject.missing:
+        answer = f"{subject.missing} {answer}"
+    return answer, results, trace, errors, memory
+
+
+_answer_unguarded = answer_question
+
+
+@functools.wraps(_answer_unguarded)
+async def answer_question(**kwargs: Any) -> dict[str, Any]:
+    """
+    One FOS question, answered -- and THE LAST CHECK before any surface
+    publishes it. Every return above goes through here, so no answer path
+    (a deterministic answer, a handbook passage, a refusal) can publish
+    code, a path, a credential or a tool payload: the sentence carrying it
+    is dropped (guardrails.published), and a model-written answer never
+    reaches this point unvalidated.
+    """
+    from app.security import guardrails
+
+    response = await _answer_unguarded(**kwargs)
+    answer = response.get("answer")
+    if isinstance(answer, str) and answer:
+        cleaned, verdict = guardrails.published(answer)
+        if not verdict.allowed:
+            response["answer"] = cleaned
+            response["guardrail"] = {"stage": "output", "action": "REDACTED",
+                                     "category": verdict.category.value}
     return response
 
 
@@ -1169,8 +1658,19 @@ async def _knowledge_reply(
     # nothing about whether the sentence built from them kept their meaning,
     # and the live failure was exactly a reversed negation inside a relevant
     # passage.
+    passage = detail.pop("_passage", None) if isinstance(detail, dict) else None
     if source == "llm":
         verdict = grounding.validate(text, facts_for_product)
+        if verdict:
+            # THE UNIFIED VALIDATOR as well: no number, date or decision word
+            # the retrieved passage does not carry, and the common shape and
+            # leakage checks (app/security/output_validation.py).
+            from app.security import output_validation
+
+            unified = output_validation.validate(
+                text, surface="knowledge_phrase", truth=passage or "")
+            if not unified.accepted:
+                verdict = grounding.Verdict(False, [unified.value])
         if not verdict:
             logger.warning(
                 "FOS knowledge answer rejected by grounding (%s); using the "
@@ -1208,6 +1708,9 @@ def _public_knowledge(detail: dict[str, Any]) -> dict[str, Any]:
         "grounded": bool(detail.get("confident")),
         "sources": list(detail.get("citations") or []),
         "top_score": detail.get("top_score", 0.0),
+        # WHICH VERSION of the handbook answered: declared, or the content
+        # hash of the file -- never an invented release number.
+        "versions": list(detail.get("versions") or []),
     }
 
 

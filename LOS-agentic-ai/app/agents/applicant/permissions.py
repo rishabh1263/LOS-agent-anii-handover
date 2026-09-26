@@ -19,7 +19,7 @@ a different applicant.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.agents.applicant import config
@@ -45,6 +45,10 @@ class Caller:
     subject: str | None
     scopes: frozenset[str]
     roles: frozenset[str]
+    #: The signed token this caller authenticated with, when the request
+    #: carried one. Forwarded ONLY to the MCP server, which re-validates it
+    #: (app/mcp/runtime.py). Never printed, compared or logged.
+    credential: str | None = field(default=None, repr=False, compare=False)
 
     @classmethod
     def from_claims(cls, claims: dict[str, Any]) -> "Caller":
@@ -54,6 +58,7 @@ class Caller:
             subject=get_subject(claims),
             scopes=frozenset(get_scopes(claims)),
             roles=frozenset(get_roles(claims)),
+            credential=getattr(claims, "credential", None),
         )
 
 

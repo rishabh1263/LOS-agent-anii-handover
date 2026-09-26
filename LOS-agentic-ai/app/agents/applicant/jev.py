@@ -66,9 +66,12 @@ def annotate(packet: dict[str, Any]) -> list[str]:
     if not active():
         return []
     provider = _PROVIDER
+    from app.observability.tracing import span
+
     try:
-        future = _POOL.submit(provider.annotate, dict(packet))
-        raw = future.result(timeout=config.jev_timeout_seconds())
+        with span("jev.annotate", timeout_s=config.jev_timeout_seconds()):
+            future = _POOL.submit(provider.annotate, dict(packet))
+            raw = future.result(timeout=config.jev_timeout_seconds())
     except concurrent.futures.TimeoutError:
         logger.info("JEV annotation timed out; answering without it")
         return []
@@ -77,6 +80,10 @@ def annotate(packet: dict[str, Any]) -> list[str]:
                     type(exc).__name__)
         return []
 
+    return _clean(raw)
+
+
+def _clean(raw: Any) -> list[str]:
     if not isinstance(raw, (list, tuple)):
         return []
     notes = [" ".join(str(n).split())[:MAX_NOTE_CHARS]
@@ -84,4 +91,35 @@ def annotate(packet: dict[str, Any]) -> list[str]:
     return notes[:MAX_NOTES]
 
 
-__all__ = ["MAX_NOTES", "Provider", "active", "annotate", "register"]
+async def annotate_async(packet: dict[str, Any]) -> list[str]:
+    """
+    `annotate`, without blocking the event loop. The provider runs on the JEV
+    pool and is AWAITED with the configured timeout; a slow, failing or
+    malformed provider costs its notes and nothing else.
+    """
+    import asyncio
+
+    from app.agents.applicant import config
+    from app.observability.tracing import span
+
+    if not active():
+        return []
+    provider = _PROVIDER
+    loop = asyncio.get_running_loop()
+    try:
+        with span("jev.annotate", timeout_s=config.jev_timeout_seconds()):
+            raw = await asyncio.wait_for(
+                loop.run_in_executor(_POOL, provider.annotate, dict(packet)),
+                timeout=config.jev_timeout_seconds())
+    except asyncio.TimeoutError:
+        logger.info("JEV annotation timed out; answering without it")
+        return []
+    except Exception as exc:
+        logger.info("JEV annotation failed (%s); answering without it",
+                    type(exc).__name__)
+        return []
+    return _clean(raw)
+
+
+__all__ = ["MAX_NOTES", "Provider", "active", "annotate", "annotate_async",
+           "register"]

@@ -138,6 +138,18 @@ def normalise(message: str) -> Normalised:
 
     changes: list[tuple[str, str]] = []
 
+    # ANOTHER LANGUAGE FIRST. A question in Hindi, Marathi, Tamil, or in
+    # romanized Hindi is rewritten into canonical English words
+    # (language.py, configured in languages.yaml) and then goes through the
+    # same short forms, typo correction and rules as English. English input
+    # comes back unchanged.
+    from app.agents.applicant import language
+
+    canonical = language.canonicalise(text)
+    if canonical.changed:
+        changes.extend(canonical.changes)
+        text = canonical.text
+
     for pattern, replacement in _synonyms():
         def swap(match: re.Match[str]) -> str:
             changes.append((match.group(0), replacement))
