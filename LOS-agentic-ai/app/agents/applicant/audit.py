@@ -42,6 +42,14 @@ _REDACTIONS = (
     (re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"), "[EMAIL]"),
     (re.compile(r"(?<!\d)(?:\+?91[\s-]?)?[6-9]\d{9}(?!\d)"), "[PHONE]"),
     (re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+"), "[TOKEN]"),
+    # A CREDENTIAL PASTED INTO A QUESTION -- "is my api_key=sk-... valid" is
+    # refused by the input guardrail, and must not then be written to the
+    # audit trail that recorded the refusal.
+    (re.compile(r"\bBearer\s+[\w.~+/-]{12,}", re.IGNORECASE), "[TOKEN]"),
+    (re.compile(r"\b(sk|pk|rk)-[A-Za-z0-9]{16,}|\bAKIA[0-9A-Z]{16}\b"), "[KEY]"),
+    (re.compile(r"\b(api[_-]?key|secret|password|passwd|client_secret|"
+                r"access_token|refresh_token|token)\s*[:=]\s*\S+", re.IGNORECASE),
+     r"\1=[REDACTED]"),
 )
 
 
@@ -61,6 +69,25 @@ def audit_path() -> Path:
         os.getenv("APPLICANT_AGENT_AUDIT_PATH")
         or "./runtime/audit/applicant_agent.jsonl"
     )
+
+
+#: Request-level context every audit line of this request carries: the stage
+#: the case was resolved to, the channel, whether authentication was off
+#: (development only), and the detected language. Set once by the route
+#: (copilot_api) after ownership and stage resolution; codes only.
+from contextvars import ContextVar
+
+_CONTEXT: ContextVar[dict | None] = ContextVar("audit_context", default=None)
+
+_CONTEXT_KEYS = ("stage", "stage_source", "channel", "auth_mode", "language")
+
+
+def set_context(**values: Any) -> None:
+    """Attach request context to every audit line written in this request."""
+    current = dict(_CONTEXT.get() or {})
+    current.update({k: v for k, v in values.items()
+                    if k in _CONTEXT_KEYS and v is not None})
+    _CONTEXT.set(current)
 
 
 def record(
@@ -97,10 +124,16 @@ def record(
         "write": write,
         "status": status,
     }
+    context = _CONTEXT.get()
+    if context:
+        entry.update({k: str(v)[:40] for k, v in context.items()})
     if confirmed is not None:
         entry["confirmed"] = confirmed
     if detail:
-        entry["detail"] = str(detail)[:200]
+        # REDACTED TOO. `detail` carries route names and guardrail categories
+        # today, but it is free text, and free text is where an identifier
+        # or a credential eventually arrives.
+        entry["detail"] = redact(str(detail))[:200]
     if message:
         # REDACTED, THEN TRIMMED: trimming first could cut an identifier
         # in half and leave a fragment the pattern no longer recognises.
@@ -117,4 +150,4 @@ def record(
         logger.warning("Applicant Agent audit write failed: %r", exc)
 
 
-__all__ = ["audit_enabled", "audit_path", "record", "redact"]
+__all__ = ["audit_enabled", "audit_path", "record", "redact", "set_context"]

@@ -326,6 +326,118 @@ def llm_timeout_seconds() -> float:
     return _seconds("llm_seconds", 1.5)
 
 
+# -- mcp runtime ------------------------------------------------------------
+
+def _mcp(name: str, default: str) -> str:
+    override = (os.getenv(f"LOS_MCP_{name.upper()}") or "").strip()
+    return (override or str(_section("mcp").get(name) or default)).strip()
+
+
+def mcp_mode() -> str:
+    """in_process or protocol. Anything else is treated as in_process."""
+    mode = _mcp("mode", "in_process").lower()
+    return mode if mode in {"in_process", "protocol"} else "in_process"
+
+
+def mcp_transport() -> str:
+    transport = _mcp("transport", "memory").lower()
+    return transport if transport in {"memory", "stdio", "http"} else "memory"
+
+
+def mcp_server_url() -> str:
+    return _mcp("server_url", "http://127.0.0.1:8030/mcp")
+
+
+def mcp_fallback() -> str:
+    fallback = _mcp("fallback", "fail").lower()
+    return fallback if fallback in {"fail", "in_process"} else "fail"
+
+
+def _mcp_seconds(name: str, default: float) -> float:
+    try:
+        return max(0.1, float(_mcp(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def compose_case_answers() -> bool:
+    """Whether the Copilot has Qwen phrase structured case answers."""
+    return llm_enabled() and bool(chatbot("compose").get("case_answers", False))
+
+
+def compose_request_budget_seconds() -> float:
+    """
+    The whole request's budget for reaching a model: composition is skipped
+    when less than a second of it is left, and never waits past it.
+    """
+    try:
+        return max(1.0, float(chatbot("compose").get("request_budget_seconds", 8.0)))
+    except (TypeError, ValueError):
+        return 8.0
+
+
+def compose_timeout_seconds() -> float:
+    try:
+        return max(0.5, float(chatbot("compose").get("timeout_seconds", 6.0)))
+    except (TypeError, ValueError):
+        return 6.0
+
+
+def mcp_call_timeout_seconds() -> float:
+    return _mcp_seconds("call_timeout_seconds", 5.0)
+
+
+def mcp_max_result_bytes() -> int:
+    """The largest tool result the MCP boundary will carry, either way."""
+    try:
+        return max(1024, int(float(_mcp("max_result_bytes", "262144"))))
+    except (TypeError, ValueError):
+        return 262144
+
+
+def mcp_allowed_tools() -> frozenset[str] | None:
+    """
+    The tools the MCP server may expose, when configuration narrows them.
+    None: every READ contract. Never widens beyond the read contracts --
+    a name here that is not one is ignored, not registered.
+    """
+    raw = _section("mcp").get("allowed_tools")
+    override = (os.getenv("LOS_MCP_ALLOWED_TOOLS") or "").strip()
+    if override:
+        raw = [t.strip() for t in override.split(",")]
+    if not raw:
+        return None
+    return frozenset(str(t).strip() for t in raw if str(t).strip())
+
+
+def mcp_config_errors() -> list[str]:
+    """
+    What is WRONG with the MCP configuration, as written. `mcp_mode()` and
+    friends fall back to safe defaults so a typo can never widen anything;
+    this is what lets readiness say MISCONFIGURED instead of pretending the
+    fallback was intended.
+    """
+    problems = []
+    checks = (("mode", {"in_process", "protocol"}),
+              ("transport", {"memory", "stdio", "http"}),
+              ("fallback", {"fail", "in_process"}))
+    for name, allowed in checks:
+        raw = _mcp(name, "").lower()
+        if raw and raw not in allowed:
+            problems.append(f"mcp.{name}={raw!r} is not one of "
+                            f"{sorted(allowed)}")
+    if mcp_mode() == "protocol" and mcp_transport() == "http":
+        url = mcp_server_url()
+        if not url.lower().startswith(("http://", "https://")):
+            problems.append("mcp.server_url must be an http(s) URL for the "
+                            "http transport")
+    return problems
+
+
+def mcp_connect_timeout_seconds() -> float:
+    return _mcp_seconds("connect_timeout_seconds", 20.0)
+
+
 # -- universal copilot ------------------------------------------------------
 
 def chatbot(section: str) -> dict[str, Any]:
@@ -431,6 +543,12 @@ def snapshot() -> dict[str, Any]:
         "validation_enabled": validation("enabled"),
         "regenerate_attempts": regenerate_attempts(),
         "jev_enabled": jev_enabled(),
+        "compose_case_answers": compose_case_answers(),
+        "compose_timeout_seconds": compose_timeout_seconds(),
+        "mcp_mode": mcp_mode(),
+        "mcp_transport": mcp_transport(),
+        "mcp_fallback": mcp_fallback(),
+        "mcp_call_timeout_seconds": mcp_call_timeout_seconds(),
     }
 
 

@@ -192,6 +192,52 @@ routing:
   LOAN_DECISION:     { route_to: DECISION_AGENT, message: "The lending decision is made downstream, after CPA." }
 
 # -----------------------------------------------------------------------------
+# MCP RUNTIME -- how the Copilot reaches its case tools (app/mcp/runtime.py)
+# -----------------------------------------------------------------------------
+# mode:
+#   in_process -- await the capability coroutines directly (no MCP messages).
+#                 The safe local default: nothing to start.
+#   protocol   -- real MCP: JSON-RPC initialize / tools/call against the case
+#                 MCP server (app/mcp/case_server.py), which re-checks the
+#                 caller's scopes and case ownership itself.
+# transport (protocol mode only):
+#   memory -- the server in this process, over MCP in-memory streams
+#   stdio  -- the server as a child process (python -m app.mcp.case_server)
+#   http   -- a separately deployed server at server_url (streamable HTTP)
+# fallback: what protocol mode does when the MCP server cannot be reached.
+#   fail       -- the tool call fails (the answer names the gap). Production.
+#   in_process -- run the capability directly; the trace says so.
+# Environment overrides: LOS_MCP_MODE, LOS_MCP_TRANSPORT, LOS_MCP_SERVER_URL,
+# LOS_MCP_FALLBACK, LOS_MCP_MAX_RESULT_BYTES, LOS_MCP_ALLOWED_TOOLS.
+#
+# IDENTITY: every protocol call carries the caller's own signed JWT in
+# `_meta.authorization`; the server re-validates it (JWKS, issuer, audience,
+# expiry) and re-authorises scope and ownership itself. No identity the
+# client asserts is trusted. The server needs the same JWT_JWKS_URL,
+# JWT_ISSUER and JWT_AUDIENCE as the API.
+#
+# PRODUCTION PROFILE (set in the deployment environment, not here, so a
+# local checkout needs nothing running):
+#   LOS_MCP_MODE=protocol
+#   LOS_MCP_TRANSPORT=http          # server: python -m app.mcp.case_server --http
+#   LOS_MCP_SERVER_URL=https://<case-mcp-host>/mcp
+#   LOS_MCP_FALLBACK=fail           # never silently bypass the boundary
+# /ready reports the MCP path and returns 503 when protocol mode is
+# MISCONFIGURED or UNAVAILABLE without an explicit in_process fallback.
+mcp:
+  mode: in_process
+  transport: memory
+  server_url: "http://127.0.0.1:8030/mcp"
+  call_timeout_seconds: 5.0
+  connect_timeout_seconds: 20.0
+  fallback: fail
+  # The largest tool result carried either way; larger is refused.
+  max_result_bytes: 262144
+  # Narrow the server's tools (never widen past the read contracts).
+  # Empty: every read contract.
+  allowed_tools: []
+
+# -----------------------------------------------------------------------------
 # TIMEOUTS
 # -----------------------------------------------------------------------------
 timeouts:
@@ -245,8 +291,23 @@ chatbot:
     timeout_seconds: 3.0
     max_output_tokens: 180
 
+  # Phase 3: WHO PHRASES A CASE ANSWER when retrieval added nothing.
+  # case_answers: true -- Qwen phrases the structured answer from the
+  #   evidence packet, ONCE per question (the agent then skips its own model
+  #   call), and `check_composed` validates it; a rejected or late phrasing
+  #   falls back to the structured answer. Recorded values that are quoted
+  #   (review reasons, names) are never handed to the model.
+  # timeout_seconds -- measured on this deployment's qwen2.5:3b via Ollama:
+  #   ~4.8 s cold, 1.6-2.0 s warm. 6.0 covers a cold start.
+  compose:
+    case_answers: true
+    timeout_seconds: 6.0
+
   response:
-    max_sentences: 3
+    # Phase 3: at most TWO sentences by default. The character ceiling is a
+    # guard, not a target -- the prompts ask for ~350 -- because a hard
+    # count must never cost a required fact.
+    max_sentences: 2
     max_characters: 500
 
   grounding:
@@ -363,6 +424,13 @@ chatbot:
       dox: documents
       documnts: documents
       app: application
+      # THE CO-APPLICANT, however it is shortened. Longer than "app", so it
+      # is rewritten first and "co-app" never becomes "co-application".
+      co-app: co-applicant
+      co app: co-applicant
+      coapp: co-applicant
+      coapplicant: co-applicant
+      co-apps: co-applicants
       appln: application
       applicaton: application
       stmt: statement
@@ -398,6 +466,12 @@ chatbot:
       hows: how is
       where's: where is
       y: why
+      stg: stage
+      stge: stage
+      stgae: stage
+      satge: stage
+      curr: current
+      cur: current
       # Hinglish
       mera: my
       meri: my
@@ -412,11 +486,22 @@ chatbot:
       kab: when
       hai: is
       chahiye: needed
+      # "meri file kaha tak aayi" -> "my file status"
+      kaha tak: status
+      kahan tak: status
+      aayi: ""
+      aaya: ""
+      pahunchi: ""
+      pahuncha: ""
+      # "bank stmt ka kya hua" -> "bank statement status"
+      kya hua: status
       ka: ""
       ki: ""
       ke: ""
     vocabulary:
       - application
+      - stage
+      - current
       - applications
       - document
       - documents
@@ -454,6 +539,10 @@ chatbot:
     examples:
       APPLICATION_STATUS:
         - what is my application status
+        - what is my status
+        - what is my current status
+        - my file status
+        - why am i still waiting
         - where does my application stand
         - how far along is my application
         - what is happening with my loan
@@ -474,6 +563,10 @@ chatbot:
         - what happened to my application
       DOCUMENTS_PENDING:
         - which documents are pending
+        - which document is left
+        - what documents are left
+        - what do i still need to submit
+        - what is still remaining
         - which document is pending
         - what documents are still outstanding
       DOCUMENTS_MISSING:
@@ -484,6 +577,8 @@ chatbot:
         - which document is missing
       DOCUMENT_VERIFICATION:
         - is my document verified
+        - bank statement status
+        - document status
         - what is wrong with my document
         - what is the status of my document
         - has my document been checked
@@ -500,3 +595,31 @@ chatbot:
   jev:
     enabled: false
     timeout_seconds: 1.0
+
+  # TONE SIGNAL (app/agents/applicant/sentiment.py). Deterministic lexicon;
+  # it may add an empathetic opening line and recommend a handoff. It NEVER
+  # changes stage, status, verification, KYC, risk, eligibility, a decision
+  # or the next action. SENTIMENT_ENABLED in the environment overrides this.
+  sentiment:
+    enabled: true
+    adapt_tone: true
+    # Extra regex markers per family (added to the built-in ones):
+    frustration: []
+    anger: []
+    confusion: []
+    # Opening lines per level and language (override the defaults):
+    openers: {}
+
+  # HUMAN HANDOFF FOUNDATION (app/agents/applicant/handoff.py). A structured
+  # SIGNAL for a channel to act on -- this service contacts nobody.
+  # Required: a configured manual-review action, or an explicit request for a
+  # person. Recommended: repeated unresolved turns, or high frustration.
+  # HANDOFF_ENABLED in the environment overrides `enabled`.
+  handoff:
+    enabled: true
+    max_unresolved_turns: 3
+    recommend_on_high_frustration: true
+    # UNCONFIRMED BUSINESS RULE: no handoff priority has been agreed, so none
+    # is configured and `handoff_priority` is null. Example once agreed:
+    #   priorities: {USER_REQUEST: NORMAL, CONFIGURED_MANUAL_REVIEW: HIGH}
+    priorities: {}

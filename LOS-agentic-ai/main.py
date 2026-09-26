@@ -168,10 +168,59 @@ async def lifespan(app: FastAPI):
     """Validate configuration and load the OCR models before serving."""
 
     from app.agents.fraud_risk.config import get_policy
+    from app.security import auth as _auth
+
+    # NEVER SERVE UNAUTHENTICATED OUTSIDE DEVELOPMENT. AUTH_ENABLED=false in
+    # any other environment stops startup here; `require_jwt` separately
+    # ignores the flag outside development, so a missed startup cannot open
+    # the API either.
+    _auth.validate_auth_mode()
+
+    # THE JWT SETTINGS ARE CHECKED WHEN AUTHENTICATION IS ON. Outside
+    # development a missing JWKS URL / issuer / audience stops startup
+    # (fail closed) instead of failing every request later; in development
+    # it is reported and the service still starts.
+    if _auth.auth_enabled():
+        try:
+            validate_auth_configuration()
+        except RuntimeError as exc:
+            if _auth.environment() not in _auth._DEV_ENVIRONMENTS:
+                raise
+            print(f"auth configuration : INCOMPLETE ({exc}) -- development only")
+
+    # OPENTELEMETRY, when OTEL_ENABLED=true (OTLP or console export).
+    from app.observability import tracing as _tracing
+
+    _tracing.configure_tracing()
+
+    # RETRIEVAL WARMUP, in the background. The first Copilot request
+    # otherwise pays the vector store client's import and connection
+    # (~0.8 s measured locally) and the first question embedding. A daemon
+    # thread, so an unreachable embedding service can never delay startup.
+    # COPILOT_WARMUP=false skips it.
+    if (_os.getenv("COPILOT_WARMUP", "true") or "true").lower() == "true":
+        import threading as _threading
+
+        def _warm_retrieval() -> None:
+            try:
+                from app.knowledge.embeddings import get_query_embedder
+                from app.knowledge.vector_store import get_vector_store
+
+                get_vector_store()._connect()
+                get_query_embedder().embed("warmup")
+            except Exception as exc:
+                logger.info("Copilot retrieval warmup skipped (%s)",
+                            type(exc).__name__)
+
+        _threading.Thread(target=_warm_retrieval, name="copilot-warmup",
+                          daemon=True).start()
+        print("copilot warmup     : started (background)")
 
     print("\n" + "=" * 58)
     print("LOS AGENTIC AI")
     print("=" * 58)
+    print(f"authentication     : "
+          f"{'ON' if _auth.auth_enabled() else 'OFF (development only)'}")
 
     print(f"fraud & risk agent : {risk_enabled()}  (v{risk_version()})")
     print(f"policy file        : {policy_path()}")
@@ -255,7 +304,12 @@ async def lifespan(app: FastAPI):
     # behaviour rather than a failure.
     from app.agents.los import config as _los_config
 
-    if _los_config.llm_summary_enabled():
+    # THE COPILOT COMPOSER uses the same model: warmed too when it is on, so
+    # the first composed answer is not the one that falls back (measured:
+    # the only summary fallback in the Phase 3 benchmark was that cold start).
+    from app.agents.applicant import config as _composer_config
+
+    if _los_config.llm_summary_enabled() or _composer_config.llm_enabled():
         from app.agents.los.summary import warmup as _llm_warmup
 
         print(f"LLM warmup         : {await _llm_warmup():.0f} ms")
@@ -394,6 +448,27 @@ app = FastAPI(
     ),
     lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def _request_span(request, call_next):
+    """
+    One server span per request: method, route template and status code.
+    Never headers, query strings or bodies -- a JWT or a question has no
+    attribute to travel under.
+    """
+    from app.observability.tracing import annotate, span
+
+    with span("http.request", http_method=request.method) as current:
+        response = await call_next(request)
+        route = request.scope.get("route")
+        path = getattr(route, "path", None)
+        # A route with no path parameters is published as its full path; a
+        # templated one as its template -- never a concrete id.
+        annotate(current, http_route=(request.url.path if path and "{" not in path
+                                      else path),
+                 http_status_code=response.status_code)
+        return response
+
 
 # /health, /ready and /metrics all live in ops_router. Defining another
 # /health here would shadow the readiness contract the platform relies on.

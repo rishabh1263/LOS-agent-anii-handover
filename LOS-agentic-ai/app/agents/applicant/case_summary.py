@@ -246,17 +246,33 @@ async def _generate(state: dict[str, Any], timeout: float) -> str:
         from app.agents.applicant import config
         from app.llm import availability
         from app.llm.provider import create_ollama_client
+        from app.security import guardrails
 
         if not config.llm_enabled() or not availability.provider_reachable():
             return ""
+        # THE INPUT BOUNDARY, as for every composer.
+        if guardrails.context_issues(state):
+            logger.warning("Case summary context refused; using the computed text")
+            return ""
 
         client = create_ollama_client()
+        from app.agents.los.summary import keep_alive
+
+        # THE SAME BOUNDS AS EVERY COMPOSER: a short answer's token budget,
+        # the configured temperature, the model kept warm, and the
+        # composition timeout rather than a longer one of its own.
+        timeout = min(timeout, config.compose_timeout_seconds())
         response = await asyncio.wait_for(
             client.get_response(
-                [Message(role="system", contents=[_SYSTEM]),
+                [Message(role="system", contents=[
+                    _SYSTEM + " " + guardrails.UNTRUSTED_NOTICE]),
                  Message(role="user", contents=[
-                     json.dumps(state, separators=(",", ":"), default=str)])],
+                     json.dumps(guardrails.untrusted(state),
+                                separators=(",", ":"), default=str)])],
                 stream=False,
+                options={"max_tokens": config.max_output_tokens(),
+                         "temperature": config.temperature(),
+                         "keep_alive": keep_alive()},
             ),
             timeout=timeout,
         )
@@ -265,7 +281,25 @@ async def _generate(state: dict[str, Any], timeout: float) -> str:
                     type(exc).__name__)
         return ""
 
-    return _trimmed(_text_of(response))
+    return _validated(_trimmed(_text_of(response)), state)
+
+
+def _validated(written: str, state: dict[str, Any]) -> str:
+    """
+    THE SAME BOUNDARY AS EVERY OTHER COMPOSER: the output guardrail, and no
+    number, status or decision the state does not carry (validate_answer).
+    Empty -- so the caller publishes the computed summary -- when it fails.
+    """
+    from app.agents.applicant.validate import validate_answer
+
+    if not written:
+        return ""
+    accepted, value = validate_answer(written, state, surface="case_summary")
+    if not accepted:
+        logger.info("Case summary rejected (%s); using the computed text",
+                    value)
+        return ""
+    return value
 
 
 def _text_of(response: Any) -> str:

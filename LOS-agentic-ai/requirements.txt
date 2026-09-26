@@ -72,6 +72,23 @@ agent-framework-ollama==1.0.0b260813
 langgraph>=1.0,<2
 mcp>=1.12,<2
 
+# ── Retrieval (RAG) ──────────────────────────────────────────────────────────
+# Qdrant is the vector store for case-derived text and process knowledge
+# (app/knowledge/vector_store.py). It was imported but never declared: without
+# it every retrieval failed as "no evidence". Embedded / in-memory mode needs
+# no server; QDRANT_URL points at one.
+qdrant-client>=1.12,<2
+
+# ── Observability ────────────────────────────────────────────────────────────
+# OpenTelemetry is now runtime-wired (app/observability/tracing.py, called at
+# startup; spans for request, auth, MCP, RAG, JEV, Qwen, guardrail, validator).
+# Export is OTLP to an OTEL / ADOT collector (-> X-Ray / CloudWatch); off
+# unless OTEL_ENABLED=true. CloudWatch metrics use EMF log lines (no AWS SDK)
+# or, in CLOUDWATCH_MODE=api, boto3 -- installed only where deployed to AWS.
+opentelemetry-api>=1.27,<2
+opentelemetry-sdk>=1.27,<2
+opentelemetry-exporter-otlp-proto-grpc>=1.27,<2
+
 # ── OCR ──────────────────────────────────────────────────────────────────────
 # rapidocr-onnxruntime is the DEFAULT engine (DOCUMENT_OCR_ENGINE=rapidocr) and
 # was the single most serious omission from the previous file: without it the
@@ -109,11 +126,5 @@ pdf2image>=1.17,<2
 # agent-framework          -> replaced by agent-framework-core +
 #                             agent-framework-ollama (see above).
 #
-# opentelemetry-api        -> no module under app/ imports opentelemetry.
-# opentelemetry-sdk           app/observability/tracing.py only reads the
-#                             OTEL_ENABLED environment variable; there is no
-#                             exporter, provider or span in the codebase.
-#                             agent-framework-core still requires
-#                             opentelemetry-api, so it remains installed --
-#                             it is simply no longer claimed as a direct
-#                             dependency of this service.
+# (opentelemetry-api / -sdk were listed here as removed; they are direct
+#  dependencies again now that tracing is runtime-wired -- see Observability.)

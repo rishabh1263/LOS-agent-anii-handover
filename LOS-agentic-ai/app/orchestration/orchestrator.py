@@ -54,11 +54,22 @@ Return:
                 )
 
             final = outputs[-1]
+            text = final.text if hasattr(final, "text") else str(final)
 
-            if hasattr(final, "text"):
-                return final.text
+            # THE UNIFIED VALIDATOR applies to this model path too: no
+            # leakage, no decision language, no number or date the tool did
+            # not return. A rejected reply is replaced, never repaired.
+            from app.security import output_validation
 
-            return str(final)
+            checked = output_validation.validate(
+                text, surface="document_workflow",
+                truth={"prompt": prompt})
+            if not checked.accepted:
+                logger.warning("Document workflow reply rejected (%s)",
+                               checked.check)
+                return ("The document check could not be summarised safely. "
+                        "Please refer to the recorded verification result.")
+            return checked.value
 
     except Exception:
         logger.exception(

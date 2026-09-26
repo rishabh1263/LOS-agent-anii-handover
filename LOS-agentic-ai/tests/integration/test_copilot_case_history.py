@@ -379,7 +379,25 @@ def test_the_response_carries_only_the_published_keys(client, repo):
         # taken to mean (additive; null when there was none).
         "context", "followed_up",
         # Where the stage came from, and where the case is within it.
-        "stage_source", "stage_status"}
+        "stage_source", "stage_status",
+        # Phase 3, additive: the frontend-ready case view derived from
+        # records (never values), provenance, and per-step timings.
+        "stage_label", "problems", "pending_items", "next_action",
+        # Slice 4, additive: who the answer is about (null when case-level).
+        "subject",
+        # Phase 3 final, additive: language handling (detected / response
+        # language / localized), the channel echo, and the contract version
+        # an omnichannel adapter can pin to. Codes only -- no case values.
+        "language", "channel", "response_contract_version",
+        # Slice 7, additive: the structured changes behind "what changed".
+        "history",
+        # Slices 8-9, additive: next best action, handoff signal, and the
+        # (foundation-only, always null) sentiment slot.
+        "next_actions", "handoff", "sentiment",
+        # Slice 10, additive: the structured basis of a delay answer.
+        "delay",
+        "timeline", "answer_basis", "timings", "processing_ms",
+        "correlation_id"}
 
 
 def test_no_payload_or_internals_reach_the_caller(client, repo):

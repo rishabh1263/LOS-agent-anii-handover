@@ -22,16 +22,23 @@ guess. Everything else routes exactly as it already did.
 
 from __future__ import annotations
 
+import json
+import asyncio
 import logging
 import re
+import time
 import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.agents.applicant import followup, intents, routing
+from app.agents.applicant import followup, intents, language, normalize, routing, sentiment
+from app.agents.applicant import handoff as handoffs
+from app.observability import analytics, cloudwatch
 from app.agents.applicant.validate import check_composed
+from app.agents.applicant import config as _agent_config
+from app.observability.tracing import span, timed
 from app.agents.applicant.agent import AgentError, answer_question
 from app.agents.applicant.grounded import supported_by_case_evidence
 from app.agents.los import stage_registry, stages
@@ -107,6 +114,22 @@ class CopilotQueryRequest(BaseModel):
             "otherwise would invite a client to rely on one."
         ),
     )
+    language: str | None = Field(
+        None, max_length=16,
+        description=("The language to answer in (e.g. `en`, `hi`, `mr`, "
+                     "`hi-Latn`). Omitted: the language the question was "
+                     "written in. A recorded fact is localized only where a "
+                     "deterministic template exists for it; otherwise the "
+                     "English answer is returned and `language.localized` is "
+                     "false. The business truth never depends on it."),
+        examples=["en"])
+    channel: str | None = Field(
+        None, max_length=32,
+        description=("The channel the question came from: web, mobile, "
+                     "whatsapp, fos_app, agent_desktop or api. Echoed back "
+                     "and counted; it NEVER changes identity, authorization, "
+                     "tools, evidence or the answer."),
+        examples=["web"])
     context: dict[str, Any] | None = Field(
         None,
         description=(
@@ -265,6 +288,87 @@ class CopilotQueryResponse(BaseModel):
     )
     errors: list[dict[str, Any]] = Field(default_factory=list)
 
+    # -- the frontend-ready case view (additive; derived from records) ------
+    stage_label: str | None = Field(
+        None, description="The current stage, as a person reads it.")
+    delay: dict[str, Any] | None = Field(
+        None,
+        description="On a delay question: the current stage and since when, "
+                    "whether the records ESTABLISH a cause, what holds the "
+                    "case (finding, impact, subject), the recorded events in "
+                    "this stage and the next action -- codes only. No cause "
+                    "is inferred where the records establish none.")
+    subject: dict[str, Any] | None = Field(
+        None,
+        description="Who the answer is about, when the question named a "
+                    "party: `kind` (PRIMARY_APPLICANT, CO_APPLICANT or "
+                    "BOTH) and the case's `parties` it covers, each with "
+                    "`party_id` and `party_role`. Absent on a case-level "
+                    "answer.")
+    history: dict[str, Any] | None = Field(
+        None,
+        description="On a \"what changed\" answer: the `window` it used "
+                    "(label, kind, start), the recorded `changes` in order "
+                    "(event type, when, subject, source, previous -> "
+                    "current), how many recorded changes carried no time, "
+                    "and which kinds of change the store does not record.")
+    next_actions: dict[str, Any] | None = Field(
+        None,
+        description="The Next Best Action result (deterministic): `primary` "
+                    "and `additional` actions -- each with a language-neutral "
+                    "`action_code`, `owner`, `subject` (scope, party_role), "
+                    "`document`, `blocking`, `priority` and English `text` -- "
+                    "and the `handoff` signal. Read-only guidance: nothing "
+                    "is performed.")
+    handoff: dict[str, Any] | None = Field(
+        None,
+        description="Whether a person should take this case: `required`, "
+                    "`reason` (an action code, or USER_REQUEST), `priority` "
+                    "(null -- none is configured). Never set from sentiment.")
+    sentiment: dict[str, Any] | None = Field(
+        None,
+        description="The tone signal: `level` (neutral / confused / "
+                    "frustrated / high_frustration), `intensity`, the marker "
+                    "families that matched, and `affects: TONE_ONLY`. It may "
+                    "add an empathetic opening line and recommend a handoff; "
+                    "it never changes a business fact.")
+    language: dict[str, Any] | None = Field(
+        None,
+        description="Language handling: `detected`, `script`, `romanized`, "
+                    "`code_mixed`, `review_status` of the lexicon, "
+                    "`response_language`, and `localized` (whether the "
+                    "answer text is in that language).")
+    channel: str | None = Field(
+        None, description="The channel echoed back (channel-independent "
+                          "answer; see the request field).")
+    response_contract_version: str = Field(
+        "3.0", description="Version of this structured response contract.")
+    problems: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Recorded problems holding the case: type, message, the "
+                    "document and field each rests on. Never values.")
+    pending_items: list[str] = Field(
+        default_factory=list, description="What is still outstanding.")
+    next_action: str | None = Field(
+        None, description="The next action the workflow recorded.")
+    timeline: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="The recorded stage history: stage, when entered and "
+                    "left, from where, and the recorded reason.")
+    answer_basis: dict[str, Any] | None = Field(
+        None,
+        description="Why this answer: the governed tools (and MCP transport) "
+                    "the case facts came from, knowledge retrieved, whether a "
+                    "semantic layer contributed, and whether the published "
+                    "sentence was validated.")
+    timings: dict[str, float] = Field(
+        default_factory=dict,
+        description="Milliseconds per step: stage, agent (tools, model), "
+                    "rag, compose, total.")
+    processing_ms: float | None = None
+    correlation_id: str | None = Field(
+        None, description="Correlates this answer with its logs and spans.")
+
 
 #: What this surface publishes. AN ALLOWLIST, not a filter: the internal
 #: envelope carries the whole case for its other consumers, and a filter
@@ -383,6 +487,95 @@ def _says_no_evidence(answer: object) -> bool:
     return bool(_NO_EVIDENCE_RE.search(str(answer or "")))
 
 
+#: Channels a request may name. Anything else is published as "api".
+_CHANNELS = frozenset({"web", "mobile", "whatsapp", "fos_app",
+                       "agent_desktop", "api"})
+
+
+def _converse(request: "CopilotQueryRequest", envelope: dict[str, Any],
+              context: stages.StageContext, *, gated: Any) -> dict[str, Any]:
+    """
+    Language, tone and channel -- around the answer, never inside it.
+
+    Runs AFTER the agent, the stage gate, retrieval and composition have
+    settled every fact. It may replace the answer with a deterministic
+    localized sentence for an ESTABLISHED fact (the current stage, from
+    the stage resolver -- never from memory, retrieval or a model), and
+    may prepend an empathetic opening line. It never edits the facts.
+    """
+    detected = language.detect(request.message)
+    target = language.response_language(
+        request.language, detected,
+        preferred=(request.context or {}).get("language")
+        if isinstance(request.context, dict) else None,
+        text=request.message)
+    canonical = normalize.normalise(request.message).text
+    signal = sentiment.detect(request.message, canonical)
+    answer = str(envelope.get("answer") or "")
+    localized = target == "en"
+    template_used = None
+
+    if (target != "en" and gated is None and context.stage is not None
+            and str(envelope.get("intent") or "") == "APPLICATION_STAGE"
+            and _understood(request).matched_on == "current_stage"
+            and not envelope.get("guardrail")):
+        sentence = language.localized(
+            "current_stage", target,
+            stage=_agent_config.stage_label(context.stage.value))
+        if sentence:
+            envelope["answer_en"] = answer
+            answer = sentence
+            localized = True
+            template_used = "current_stage"
+    elif (target != "en" and gated is None
+            and str(envelope.get("intent") or "") == "DOCUMENTS_PENDING"
+            and str(envelope.get("category") or "") == "CASE_ONLY"
+            and not envelope.get("subject") and not envelope.get("guardrail")
+            and str(envelope.get("response_source") or "") == "STRUCTURED"):
+        # THE SAME TWO LISTS the English answer is built from (answer.py):
+        # documents not yet collected, and documents awaiting verification.
+        from app.agents.applicant import answer as answers
+
+        missing = [answers._readable(i.get("slot"))
+                   for i in envelope.get("pending_items") or []
+                   if isinstance(i, dict) and i.get("code") == "DOCUMENT_MISSING"]
+        awaiting = [answers._doc_line(d) for d in envelope.get("documents") or []
+                    if isinstance(d, dict)
+                    and d.get("status") in {"UPLOADED", "PROCESSING", "REVIEW"}]
+        sentence = language.localized_pending(target, missing, awaiting)
+        if sentence:
+            envelope["answer_en"] = answer
+            answer = sentence
+            localized = True
+            template_used = "pending_documents"
+    elif (target != "en"
+            and str(envelope.get("intent") or "") == "HUMAN_HANDOFF_REQUESTED"):
+        sentence = language.localized("handoff_acknowledged", target)
+        if sentence:
+            envelope["answer_en"] = answer
+            answer = sentence
+            localized = True
+            template_used = "handoff_acknowledged"
+
+    toned = sentiment.apply_tone(answer, signal, target if localized else "en")
+    tone_added = toned != answer
+    answer = toned
+    envelope["answer"] = answer
+    channel = str(request.channel or "api").strip().lower()
+    return {
+        "sentiment": signal,
+        "canonical": canonical,
+        "channel": channel if channel in _CHANNELS else "api",
+        "language": {**detected.public(), "response_language": target,
+                     "localized": localized},
+        # FOR THE AUDIT TRAIL (answer_basis.presentation): which deterministic
+        # template worded the answer, and whether a tone line was added.
+        "presentation": {"localized_template": template_used,
+                         "tone_opener_added": tone_added,
+                         "facts_changed": False},
+    }
+
+
 def _understood(request: CopilotQueryRequest) -> intents.Classification:
     """The question as the agent understood it -- normalised, same rules."""
     return intents.understand(request.message,
@@ -391,6 +584,119 @@ def _understood(request: CopilotQueryRequest) -> intents.Classification:
 
 #: Intents whose response carries the application's recorded status.
 _STATUS_INTENTS = {"APPLICATION_STATUS", "APPLICATION_STAGE"}
+
+
+#: Below this much of the request budget left, no model call is started.
+_MIN_COMPOSE_SECONDS = 1.0
+
+
+def _budget_left(envelope: dict[str, Any]) -> float:
+    """Seconds left of the request budget (`chatbot.compose.request_budget_seconds`)."""
+    from app.agents.applicant import config as agent_config
+
+    started = envelope.get("_request_started")
+    budget = agent_config.compose_request_budget_seconds()
+    if started is None:
+        return budget
+    return max(0.0, budget - (time.perf_counter() - started))
+
+
+def _composition_skip(envelope: dict[str, Any], category: str) -> str | None:
+    """
+    WHY NO MODEL IS CALLED -- or None when one should be.
+
+    ONE RULE FOR EVERY SURFACE: an intent the agent answers deterministically
+    (`SIMPLE_INTENTS`, unless `llm_for_simple_intents`) is answered
+    deterministically here too; so is anything that quotes recorded values,
+    names a party, states next actions or reports history. Knowledge answers
+    ARE phrased (once): condensing a handbook passage is what a composer adds.
+    """
+    from app.agents.applicant import config as agent_config
+    from app.agents.applicant.intents import SIMPLE_INTENTS, Intent
+
+    answered_by = str(envelope.get("base_intent")
+                      or envelope.get("intent") or "").upper()
+    if envelope.get("answer_is_quoted") or answered_by in _QUOTED:
+        return "RECORDED_VALUES"
+    if category == "MIXED" and str(envelope.get("response_source") or "")             == routing.ResponseSource.MIXED.value:
+        return "BOTH_HALVES_AS_BUILT"
+    if envelope.get("subject") or envelope.get("next_actions")             or envelope.get("history") or envelope.get("delay"):
+        return "DETERMINISTIC_ANSWER"
+    if category in ("KNOWLEDGE_ONLY", "PROCESS_KNOWLEDGE"):
+        return None
+    try:
+        intent = Intent(str(envelope.get("base_intent")
+                            or envelope.get("intent") or ""))
+    except ValueError:
+        intent = None
+    if intent in SIMPLE_INTENTS and not agent_config.llm_for_simple_intents():
+        return "SIMPLE_INTENT"
+    # CASE COMPOSITION IS A SWITCH OF ITS OWN (compose.case_answers, which
+    # also requires the model to be enabled); knowledge phrasing, as before,
+    # depends only on the model being reachable.
+    if not agent_config.compose_case_answers():
+        return "CASE_COMPOSITION_OFF"
+    return None
+
+
+def _whole_sentences(text: str, limit: int) -> str:
+    """At most `limit` whole sentences -- never a cut mid-sentence."""
+    said = " ".join(str(text or "").split())
+    parts = [p for p in re.split(r"(?<=[.!?])\s+", said) if p.strip()]
+    return " ".join(parts[:limit]) if len(parts) > limit else said
+
+
+#: Supplying a document -- supported whenever one is recorded as outstanding.
+_PROVIDE_VERBS = frozenset({"upload", "reupload", "re-upload", "provide",
+                            "submit", "resubmit", "collect", "bring"})
+
+#: Actions a composed answer might tell someone to take.
+_ACTION_VERBS = re.compile(
+    r"\b(re-?upload|upload|submit|provide|resubmit|collect|bring|sign|"
+    r"visit|call|pay|deposit)\b")
+
+
+def _accept_composed(text: str, *, structured: str, facts: dict[str, Any],
+                     identifiers: tuple[str | None, ...], evidence: str,
+                     stage: str | None) -> tuple[bool, str]:
+    """
+    Whether a composed sentence may be published: BOTH validators.
+
+    `check_composed` holds it to the structured answer (nothing dropped,
+    leaked, invented or too long). `validate_answer` holds it to what the
+    model was shown -- no downstream decision language ("approved",
+    "sanctioned", "disbursed") and no number the facts do not carry. Case
+    answers were phrased inside the agent, behind `validate_answer`, until
+    the Copilot took the phrasing over; the second check came with them.
+    """
+    from app.agents.applicant.validate import validate_answer
+
+    accepted, checked = check_composed(
+        text, structured=structured, identifiers=identifiers,
+        evidence=evidence, stage=stage)
+    if not accepted:
+        return accepted, checked
+    # AN ACTION OR A PARTY THE RECORDS DO NOT STATE. The model is told what
+    # is established; "please upload your PAN" where the recorded next step
+    # is a reviewer's, or "the primary applicant" where the finding is the
+    # co-applicant's, is a decision it was not given.
+    known = f"{structured} {json.dumps(facts, default=str)} {evidence}".lower()
+    # Providing a document the records say is pending or missing is the
+    # recorded gap, phrased as a step -- not a new action.
+    outstanding = bool(re.search(r"\b(pending|missing|outstanding|not\s+yet\s+"
+                                 r"(uploaded|collected)|re-?upload)\b", known))
+    for verb in _ACTION_VERBS.findall(checked.lower()):
+        if verb in _PROVIDE_VERBS and outstanding:
+            continue
+        if verb not in known:
+            return False, f"answer introduced an action not on record: {verb}"
+    for party in ("primary applicant", "co-applicant", "co applicant"):
+        if party in checked.lower() and party not in known:
+            return False, f"answer named a party not on record: {party}"
+    grounded_ok, reason = validate_answer(
+        checked, {"facts": facts, "structured": structured,
+                  "evidence": evidence}, surface="copilot_composer")
+    return (True, checked) if grounded_ok else (False, reason)
 
 
 #: Intents whose answer quotes recorded values and is never rephrased.
@@ -450,6 +756,16 @@ async def _grounded(
     # A PROCESS QUESTION HAS NO CASE SCOPE, because the stage guides
     # belong to no case. `gather` only builds a case search for the
     # categories that need one.
+    #
+    # ONE CASE, OR NONE. A case search without a case_id spans every case
+    # the applicant holds; that is only the question when it is about the
+    # applicant's cases as a whole (CASE_PORTFOLIO). Any other case
+    # question asked without a case gets no case evidence -- evidence from
+    # a sibling case is not evidence about the one being asked about.
+    answered = str(envelope.get("base_intent") or envelope.get("intent") or "").upper()
+    if (not request.case_id and category != "PROCESS_KNOWLEDGE"
+            and answered != "CASE_PORTFOLIO"):
+        applicant_id = ""
     try:
         scope = (Scope(app_id=applicant_id, case_id=request.case_id,
                        stages=() if category == "PROCESS_KNOWLEDGE"
@@ -458,8 +774,23 @@ async def _grounded(
     except UnscopedSearch:
         return grounding.GroundedContext(), False
 
-    gathered = grounding.gather(
-        request.message, category=category, scope=scope, stages=stage_set)
+    timings = envelope.setdefault("_timings", {})
+    with timed(timings, "rag", category=category):
+        # OFF THE EVENT LOOP. Retrieval embeds the question (a blocking
+        # HTTP call with an Ollama embedder) and queries the vector store
+        # synchronously; run inline it stalled every other request on the
+        # worker for its duration.
+        from app.knowledge.embeddings import EMBED_STATS
+
+        embed_stats: dict[str, Any] = {}
+        token = EMBED_STATS.set(embed_stats)
+        try:
+            gathered = await asyncio.to_thread(
+                grounding.gather, request.message, category=category,
+                scope=scope, stages=stage_set)
+        finally:
+            EMBED_STATS.reset(token)
+        timings.update(embed_stats)
 
     # A QUESTION ABOUT ONE DOCUMENT IS ANSWERED FROM THAT DOCUMENT.
     #
@@ -487,34 +818,101 @@ async def _grounded(
     # takes its latency off the questions that need it least.
     answered_by = str(envelope.get("base_intent")
                       or envelope.get("intent") or "").upper()
+    # WHY NO MODEL, recorded before any early return: every skip says why.
+    envelope["_composition"] = {
+        "called": False, "skipped": _composition_skip(envelope, category),
+        "language": getattr(request, "language", None) or "en"}
     if answered_by in _QUOTED:
         return gathered, gathered.grounded
+    # A PER-PARTY ANSWER IS PUBLISHED AS BUILT: a composer held to two
+    # sentences is how "the co-applicant's PAN" becomes "the PAN". So is a
+    # next-best-action answer: the action is established, not phrased.
+    if envelope.get("subject") or envelope.get("next_actions"):
+        return gathered, gathered.grounded
+    # A MIXED ANSWER WITH BOTH HALVES IS PUBLISHED AS BUILT. The agent wrote
+    # the case half from the records and the general half from the handbook,
+    # labelled apart; a composer held to two sentences keeps one of them,
+    # and nothing checks that the other survived.
+    if category == "MIXED" and str(envelope.get("response_source") or "") \
+            == routing.ResponseSource.MIXED.value:
+        return gathered, gathered.grounded
+    # WHETHER A MODEL IS WORTH CALLING AT ALL (Slice 11): ONE policy,
+    # the same simple-intent rule the agent applies. A deterministic answer
+    # that is already complete is published as it is -- no model, no wait.
+    skip = _composition_skip(envelope, category)
+    budget_left = _budget_left(envelope)
+    if skip is None and budget_left < _MIN_COMPOSE_SECONDS:
+        skip = "REQUEST_BUDGET"
+    composition = envelope.setdefault("_composition", {})
+    composition.update({"called": False, "skipped": skip})
 
     structured = str(envelope.get("answer") or "")
     facts = _facts(envelope, context)
-    answer, grounded = await grounding.answer(
-        request.message, structured=structured,
-        facts=facts, context=gathered,
-    )
+    await _annotate(envelope, facts, timings)
+    from app.agents.applicant import config as agent_config
+
+    stats: dict[str, Any] = {}
+    with timed(timings, "compose"):
+        answer, grounded = await grounding.answer(
+            request.message, structured=structured,
+            facts=facts, context=gathered,
+            compose_structured=skip is None,
+            # BOUNDED TWICE: the composer's own ceiling, and whatever is left
+            # of the request's budget.
+            timeout=min(agent_config.compose_timeout_seconds(), budget_left),
+            stats=stats,
+        )
+    composition.update({k: v for k, v in stats.items()
+                        if k in ("called", "qwen_ms", "error",
+                                 "composer_context_ms", "prompt_build_ms")})
 
     # CHECKED BEFORE IT IS PUBLISHED. A composed answer that leaks an id,
-    # drops the recorded reason or a pending document, invents a hold or
-    # a name, or runs long is replaced by the structured answer -- which
-    # is then what `response_source` truthfully reports.
+    # drops the recorded reason or a pending document, invents a hold, a
+    # name, an action or a party, or runs long is replaced by the structured
+    # answer -- which is then what `response_source` truthfully reports.
+    # NO RETRY: a rejected phrasing costs a second model call and a second
+    # wait for nothing the recorded answer does not already say.
+    def checked_composition(text: str) -> tuple[bool, str]:
+        from app.observability.tracing import annotate
+
+        with span("copilot.validator", surface="copilot_composer") as current:
+            verdict = _accept_composed(
+                text, structured=grounding._readable(structured), facts=facts,
+                identifiers=(request.case_id, request.applicant_id,
+                             envelope.get("case_id"), envelope.get("applicant_id")),
+                evidence=" ".join(item.text for item in gathered.case.evidence),
+                stage=context.stage.value if context.stage else None,
+            )
+            annotate(current, accepted=verdict[0])
+            return verdict
+
     if structured and answer.strip() != grounding._readable(structured).strip():
-        accepted, checked = check_composed(
-            answer, structured=grounding._readable(structured),
-            identifiers=(request.case_id, request.applicant_id,
-                         envelope.get("case_id"), envelope.get("applicant_id")),
-            evidence=" ".join(item.text for item in gathered.case.evidence),
-            stage=context.stage.value if context.stage else None,
-        )
+        started = time.perf_counter()
+        # WHOLE SENTENCES UP TO THE LIMIT, THEN VALIDATION: a correct answer
+        # that ran one sentence long is kept when every recorded fact
+        # survives the trim -- required_facts decides, so meaning is never
+        # silently dropped.
+        accepted, checked = checked_composition(
+            _whole_sentences(answer, agent_config.max_sentences()))
+        timings["validation_ms"] = round((time.perf_counter() - started) * 1000, 2)
         if not accepted:
             logger.info("Composed answer rejected (%s); published the "
                         "structured answer", checked)
             answer = grounding._readable(structured)
+            envelope["_validation"] = "REJECTED_FALLBACK"
+            composition["outcome"] = "REJECTED"
         else:
             answer = checked
+            envelope["_validation"] = "PASSED"
+            composition["outcome"] = "ACCEPTED"
+    elif composition.get("called"):
+        composition["outcome"] = "FALLBACK" if stats.get("error") else "UNCHANGED"
+    if composition.get("outcome") in ("REJECTED", "FALLBACK"):
+        # A FALLBACK IS A TRACED EVENT: why the recorded answer was published
+        # instead of the model's (codes only -- never the rejected text).
+        with span("copilot.fallback", outcome=composition.get("outcome"),
+                  model_error=stats.get("error")):
+            pass
     envelope["answer"] = answer
 
     # WHO WROTE THE SENTENCE. A model-phrased answer was published as
@@ -523,7 +921,12 @@ async def _grounded(
     # phrased it" -- the facts still came from the records or the retrieved
     # evidence -- so it is what every category reports when the published
     # sentence is the model's.
-    model_wrote = (bool(answer.strip())
+    # A MODEL WROTE IT only when one was actually called, answered, and its
+    # words are what is published -- never inferred from the text differing
+    # (a retrieved guide's own sentences, published when the model is down,
+    # differ from an empty structured answer and are nobody's phrasing).
+    model_wrote = (bool(stats.get("called")) and not stats.get("error")
+                   and bool(answer.strip())
                    and answer.strip() != grounding._readable(structured).strip()
                    and answer.strip() != grounding.NO_EVIDENCE)
     if model_wrote:
@@ -777,17 +1180,217 @@ def _facts(envelope: dict[str, Any],
         facts["current_stage"] = agent_config.stage_label(context.stage.value)
         if context.status:
             facts["stage_status"] = context.status.replace("_", " ").lower()
+    # THE EVIDENCE PACKET (app/agents/applicant/evidence.py): the recorded
+    # problems with their evidence chain, what is pending, the next action
+    # the workflow set, and -- for a stage question -- the stage history.
+    # Copied from records; the model phrases, it does not decide.
+    if "_evidence_packet" not in envelope:
+        envelope["_evidence_packet"] = _evidence(envelope, context)
+    facts.update(envelope["_evidence_packet"])
+    return facts
+
+
+async def _annotate(envelope: dict[str, Any], facts: dict[str, Any],
+                    timings: dict[str, float]) -> None:
+    """
+    OPTIONAL JEV notes for the composer -- additive, non-authoritative, and
+    awaited with a timeout so a slow provider never stalls other requests.
+    Runs only when a composition is actually going to happen.
+    """
     from app.agents.applicant import jev
 
-    if jev.active():
-        notes = jev.annotate({
-            "question": str(envelope.get("intent") or ""),
-            "stage": facts.get("current_stage"),
-            "established": str(envelope.get("answer") or ""),
-        })
-        if notes:
-            facts["annotations_not_authoritative"] = notes
-    return facts
+    if not jev.active():
+        return
+    started = time.perf_counter()
+    notes = await jev.annotate_async({
+        "question": str(envelope.get("intent") or ""),
+        "stage": facts.get("current_stage"),
+        "established": str(envelope.get("answer") or ""),
+    })
+    timings["jev_ms"] = round((time.perf_counter() - started) * 1000, 2)
+    if notes:
+        facts["annotations_not_authoritative"] = notes
+        envelope["_jev_notes"] = notes
+
+
+#: The categories whose answer is ABOUT THIS CASE, and so may carry its facts.
+#: A knowledge answer, a routed refusal and a clarification read no case
+#: record, and must not publish one -- or hand one to the model phrasing
+#: them -- because a case is open on the screen.
+_CASE_CATEGORIES = {"CASE_ONLY", "MIXED"}
+
+
+def _provenance(request: "CopilotQueryRequest", envelope: dict[str, Any],
+                context: Any, retrieved: Any, request_id: str
+                ) -> dict[str, Any] | None:
+    """
+    Build and validate the answer's provenance; answer "why this answer?"
+    from it. Never raises: provenance failing costs the explanation, never
+    the answer. Logged as ids, kinds and verdicts -- never values.
+    """
+    from app.agents.applicant import followup
+    from app.agents.applicant import provenance as chain
+    from app.security import guardrails
+
+    try:
+        built = chain.build(question=request.message, envelope=envelope,
+                            context=context,
+                            evidence_items=envelope.get("_evidence_items"),
+                            retrieved=retrieved)
+        chain.validate(built, envelope.get("_ledger"), context)
+    except Exception as exc:
+        logger.warning("Provenance unavailable request_id=%s (%s)", request_id,
+                       type(exc).__name__)
+        return None
+    logger.info("copilot_provenance request_id=%s validated=%s nodes=%s "
+                "problems=%s", request_id, built["validated"],
+                ",".join(f"{n['kind']}:{n.get('source_type')}:"
+                         f"{'ok' if n['verified'] else 'UNVERIFIED'}"
+                         for n in built["nodes"]),
+                ";".join(built["problems"]) or "-")
+    # "WHY THIS ANSWER?" -- the verified sources, in business words.
+    followed = envelope.get("followed_up") or {}
+    if followed.get("reason") == followup.EXPLAIN_REASON:
+        said, _ = guardrails.published(chain.explain(built))
+        envelope["answer"] = said
+        envelope["_explained"] = True
+    return built
+
+
+def _provenance_public(built: dict[str, Any] | None) -> dict[str, Any] | None:
+    from app.agents.applicant import provenance as chain
+
+    return chain.public(built) if built else None
+
+
+def _telemetry(request_id: str, envelope: dict[str, Any],
+               published: dict[str, Any]) -> None:
+    """
+    Analytics hooks, safe to ship: counts and codes, never values, names,
+    ids or text. (The OTel/CloudWatch slice attaches its exporter here.)
+    """
+    impacts = [p.get("impact") for p in envelope.get("_evidence_items") or []
+               if isinstance(p.get("impact"), dict)]
+    nba = envelope.get("next_actions") or {}
+    primary = nba.get("primary") or {}
+    logger.info(
+        "copilot_intelligence request_id=%s intent=%s impacts=%d "
+        "impact_codes=%s blocking=%s nba=%s nba_additional=%d handoff=%s "
+        "guardrail=%s", request_id, published.get("intent"), len(impacts),
+        ",".join(sorted({str(i.get("impact_code")) for i in impacts})) or "-",
+        any(i.get("blocking") is True for i in impacts),
+        primary.get("action_code") or "-", len(nba.get("additional") or []),
+        bool((nba.get("handoff") or {}).get("required")),
+        (envelope.get("guardrail") or {}).get("action", "PASSED"))
+
+
+def _routing_basis(request: CopilotQueryRequest, envelope: dict[str, Any],
+                   tools: list[dict[str, Any]],
+                   retrieved: "grounding.GroundedContext", *,
+                   gated: bool) -> dict[str, Any]:
+    """
+    WHICH ROUTE ANSWERED, AND WHAT IT CONSULTED -- read from what ran, never
+    from what the route was meant to do.
+
+        route        CASE_ONLY / KNOWLEDGE_ONLY / MIXED / PROCESS_KNOWLEDGE /
+                     DOWNSTREAM / UNSUPPORTED -- the published `category`
+        understood   rule | semantic | follow-up: how the question was read
+        consulted    case_tools (governed tools that answered),
+                     case_records (retrieved from THIS case's own records),
+                     knowledge (handbook / stage guide)
+    """
+    followed = envelope.get("followed_up") or {}
+    asked = str(followed.get("interpreted_as") or request.message)
+    matched = str(intents.understand(
+        asked, has_case=bool(request.case_id)).matched_on or "")
+    understood = ("follow-up" if followed
+                  else "semantic" if matched.startswith("semantic:")
+                  else "rule")
+
+    knowledge_used = bool((envelope.get("knowledge") or {}).get("grounded")) \
+        or bool(retrieved.process.evidence)
+    consulted = [name for name, used in (
+        ("case_tools", any(t.get("ok") for t in tools)),
+        ("case_records", bool(retrieved.case.evidence)
+         or bool(envelope.get("case_memory"))),
+        ("knowledge", knowledge_used),
+    ) if used and not gated]
+    return {
+        "route": str(envelope.get("category") or "UNSUPPORTED").upper(),
+        "understood": understood,
+        "consulted": consulted,
+    }
+
+
+def _impact_words(value: Any) -> str | None:
+    from app.agents.applicant import impact
+
+    return impact.text(value) if isinstance(value, dict) else None
+
+
+def _for_composer(problem: dict[str, Any]) -> dict[str, Any]:
+    """A problem as the model may see it: the verdict and the values behind
+    it, and no identifier of any kind -- a model shown an id prints it."""
+    return {k: v for k, v in {
+        "type": problem.get("type"), "message": problem.get("message"),
+        "finding": problem.get("finding"), "status": problem.get("status"),
+        "document": problem.get("document"),
+        "party_role": problem.get("party_role"),
+        # WHAT IT MEANS, by rule (Slice 8) -- words, never the rule reference.
+        "impact": (_impact_words(problem.get("impact"))),
+        "evidence": [{"source": e.get("source"), "field": e.get("field"),
+                      "value": e.get("value")}
+                     for e in problem.get("evidence") or []] or None,
+    }.items() if v}
+
+
+def _evidence(envelope: dict[str, Any], context) -> dict[str, Any]:
+    """The Evidence Builder's case half, for the composer and the response."""
+    from app.agents.applicant import case_memory_facts, evidence
+
+    if str(envelope.get("category") or "").upper() not in _CASE_CATEGORIES:
+        return {}
+    case_id = envelope.get("case_id")
+    packet: dict[str, Any] = {}
+    from app.agents.applicant import ledger
+
+    # THE CASE LEDGER (app/agents/applicant/ledger.py): the same records,
+    # normalised the same way, as "what changed" reads. The full chain --
+    # record ids included -- stays internal in `_evidence_items`; the
+    # composer is given it without any identifier, and the response
+    # without record ids or values.
+    started = time.perf_counter()
+    book = ledger.load(case_id) if case_id else None
+    envelope["_ledger"] = book
+    found = (book.evidence(
+        since=getattr(context, "hold_since", None),
+        party_id=envelope.get("party_id"),
+        stage=context.stage.value if getattr(context, "stage", None) else None)
+        if case_id else [])
+    envelope.setdefault("_timings", {})["evidence_ms"] = round(
+        (time.perf_counter() - started) * 1000, 2)
+    # A QUESTION ABOUT A PARTY CARRIES THAT PARTY'S EVIDENCE ONLY -- never
+    # the other party's, never the case's attributed to them (Slice 4/10).
+    subject = envelope.get("subject") or {}
+    named = {p.get("party_id") for p in subject.get("parties") or []
+             if p.get("party_id")}
+    if named:
+        found = [p for p in found if p.get("party_id") in named]
+    envelope["_evidence_items"] = found
+    if found:
+        packet["problems"] = [_for_composer(p)
+                              for p in found[:evidence.MAX_PROBLEMS]]
+    pending = [i.get("detail") or i.get("slot") for i in
+               envelope.get("pending_items") or [] if isinstance(i, dict)]
+    if pending:
+        packet["pending"] = pending
+    action = envelope.get("next_action")
+    if isinstance(action, dict) and action.get("detail"):
+        packet["next_action"] = action["detail"]
+    recorded = evidence.history(context)
+    if len(recorded) > 1:
+        packet["stage_history"] = recorded
+    return packet
 
 
 @router.post(
@@ -822,30 +1425,84 @@ async def query(
     question -- with the weaker one winning whenever they disagreed.
     """
     request_id = f"cp_{uuid.uuid4().hex}"
+    started = time.perf_counter()
+    timings: dict[str, float] = {}
+
+    # OWNERSHIP BEFORE ANYTHING ABOUT THE CASE IS READ OR SAID. The stage
+    # below is a fact about the case, and every response publishes it --
+    # including the ones the agent returns before its own ownership check
+    # (a clarification, a knowledge answer, a guardrail refusal). Resolving
+    # it first told a caller who does not hold a case which desk it sits
+    # at. The SAME check the agent runs (permissions.check_ownership), so
+    # there is still one answer to "may this caller see this case".
+    if request.case_id:
+        from app.agents.applicant import permissions
+        from app.security import access
+
+        caller = permissions.Caller.from_claims(claims)
+        try:
+            if request.applicant_id:
+                permissions.check_ownership(
+                    request.applicant_id, request.case_id, caller=caller,
+                    write=False)
+            else:
+                # No applicant named: the caller must still hold the case.
+                try:
+                    access.authorize(caller.subject, caller.scopes,
+                                     case_id=request.case_id, write=False)
+                except access.AccessDenied as denied:
+                    raise permissions.PermissionDenied(
+                        denied.code, denied.message) from None
+        except permissions.PermissionDenied:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"request_id": request_id,
+                        "code": "CASE_ACCESS_DENIED",
+                        "message": "You are not authorized to access "
+                                   "this case."},
+            ) from None
 
     # WHICH DESK THIS QUESTION BELONGS TO, read from the case rather than
     # taken from the caller. `resolve` prefers the case's own timeline,
     # then its application status, and only falls back to what the caller
     # said when the record establishes nothing.
-    context = stages.resolve(request.case_id, request.stage)
+    with timed(timings, "stage", request_id=request_id):
+        context = stages.resolve(request.case_id, request.stage)
+
+    # AUDIT CONTEXT for every line this request writes: stage, where it came
+    # from, channel, auth mode and language -- codes only.
+    from app.agents.applicant import audit as _audit
+
+    _audit.set_context(
+        stage=context.stage.value if context.stage else "UNRESOLVED",
+        stage_source=context.public().get("stage_resolution"),
+        channel=(request.channel or "api").strip().lower()
+        if (request.channel or "api").strip().lower() in _CHANNELS else "api",
+        auth_mode="DISABLED_DEV" if claims.get("auth_disabled") else "JWT",
+        language=language.detect(request.message).code)
 
     try:
-        envelope = await answer_question(
-            message=request.message,
-            applicant_id=request.applicant_id,
-            # None when the question is about the applicant rather than
-            # one case. `check_ownership` enforces case -> applicant
-            # when a case is given, and the applicant-level read is
-            # scoped by applicant_id at the tool.
-            case_id=request.case_id,
-            party_id=request.party_id,
-            claims=claims,
-            request_id=request_id,
-            context=request.context,
-            # The stage the case record established above -- so a case at
-            # CPA is answered as a CPA case, never as a FOS one.
-            stage_context=context,
-        )
+        with timed(timings, "agent", request_id=request_id,
+                   stage=context.stage.value if context.stage else None):
+            envelope = await answer_question(
+                message=request.message,
+                applicant_id=request.applicant_id,
+                # None when the question is about the applicant rather than
+                # one case. `check_ownership` enforces case -> applicant
+                # when a case is given, and the applicant-level read is
+                # scoped by applicant_id at the tool.
+                case_id=request.case_id,
+                party_id=request.party_id,
+                claims=claims,
+                request_id=request_id,
+                context=request.context,
+                # The stage the case record established above -- so a case at
+                # CPA is answered as a CPA case, never as a FOS one.
+                stage_context=context,
+                # One model call: when the Copilot phrases the answer, the
+                # agent does not.
+                compose_with_model=not _agent_config.compose_case_answers(),
+            )
     except NotOwned:
         # A REFUSAL, NOT AN ERROR, AND NOT A DISCLOSURE. Phrased
         # identically whether the case belongs to somebody else or
@@ -882,6 +1539,8 @@ async def query(
             detail={"request_id": request_id, "error": "COPILOT_FAILED",
                     "message": "The request could not be completed."},
         ) from exc
+
+    envelope["_request_started"] = started
 
     # A QUESTION THIS STAGE CANNOT ANSWER IS SAID SO, NOT ANSWERED.
     #
@@ -945,6 +1604,36 @@ async def query(
     if not str(envelope.get("answer") or "").strip():
         envelope["answer"] = grounding.NO_EVIDENCE
 
+    # THE CONVERSATION LAYER (language, tone, channel) -- AFTER every
+    # business fact is settled, and only around it. See _converse.
+    conversation = _converse(request, envelope, context, gated=gated)
+
+    # THE LAST CHECK ON THIS SURFACE. The agent guarded its answer; this
+    # surface may have replaced it since (a composed phrasing, a stage
+    # gate), so what is about to be published is checked once more. A
+    # composed answer that leaked was already discarded by its validator;
+    # what this can still catch is internal text in a record or passage.
+    from app.security import guardrails
+
+    guard_started = time.perf_counter()
+    with span("copilot.guardrail", phase="output") as guard_span:
+        final, screened = guardrails.published(str(envelope.get("answer") or ""))
+        from app.observability.tracing import annotate as _annotate
+
+        _annotate(guard_span, allowed=screened.allowed,
+                  category=None if screened.allowed else screened.category.value)
+    timings["guardrail_ms"] = round((time.perf_counter() - guard_started) * 1000, 2)
+    if not screened.allowed:
+        envelope["answer"] = final
+        envelope["guardrail"] = {"stage": "output", "action": "REDACTED",
+                                 "category": screened.category.value}
+
+    # PROVENANCE (Slice 10): the answer's chain, from what this request
+    # already holds, checked against the case's own records.
+    if gated is None and envelope.get("case_id") and             "_evidence_packet" not in envelope:
+        envelope["_evidence_packet"] = _evidence(envelope, context)
+    provenance = _provenance(request, envelope, context, evidence, request_id)
+
     published = {key: envelope.get(key) for key in _PUBLIC}
     published.update(context.public())
     # GROUNDED MEANS AUTHORITATIVE EVIDENCE SUPPORTS THE ANSWER: either
@@ -982,6 +1671,142 @@ async def query(
     # WHAT ACTUALLY RAN, as the agent recorded it. Read from a `trace`
     # key the agent never set, this was empty on every answer.
     published["tool_invoked"] = list(envelope.get("tools_invoked") or [])
+
+    # THE FRONTEND-READY CASE VIEW, from the same evidence packet the
+    # composer was given (built here when no composition ran). A gated
+    # answer carries none of it: the stage cannot serve that question.
+    from app.agents.applicant import config as agent_config
+    from app.agents.applicant import evidence as evidence_builder
+
+    packet = {}
+    if gated is None and (envelope.get("case_id") or request.case_id):
+        packet = envelope.get("_evidence_packet")
+        if packet is None:
+            packet = _evidence(envelope, context)
+    published["stage_label"] = (agent_config.stage_label(context.stage.value)
+                                if context.stage else None)
+    from app.agents.applicant import evidence as evidence_chain
+    from app.agents.applicant import ledger as case_ledger
+
+    # THE EVIDENCE CHAIN, frontend-ready: problem, subject, source type,
+    # the fields compared, when observed, and the Impact / Next Action
+    # placeholders later slices fill. Never a record id or a value.
+    published["problems"] = [
+        case_ledger.public_problem(p)
+        for p in (envelope.get("_evidence_items") or [])
+        [:evidence_chain.MAX_PROBLEMS]] if packet else []
+    # WHAT CHANGED, when that was asked: the structured changes the answer
+    # was built from, without record ids.
+    published["history"] = envelope.get("history")
+    # WHAT IS NEXT (Slice 9), when that was asked or computed: the primary
+    # action and the additional ones, each for its subject, and the handoff
+    # signal. Codes are language-neutral; `text` is the English phrasing.
+    published["next_actions"] = envelope.get("next_actions")
+    # WHY A CASE IS HELD, when that was asked: codes only (Slice 10).
+    published["delay"] = envelope.get("delay")
+    published["handoff"] = (envelope.get("next_actions") or {}).get("handoff")
+    # TONE ONLY (sentiment.py): computed from the user's message, after the
+    # answer; it never alters a business fact.
+    published["sentiment"] = conversation["sentiment"].public()
+    published["language"] = conversation["language"]
+    published["channel"] = conversation["channel"]
+    _telemetry(request_id, envelope, published)
+    published["subject"] = envelope.get("subject")
+    published["pending_items"] = [str(i) for i in packet.get("pending") or []]
+    published["next_action"] = packet.get("next_action")
+    # The case's stage HISTORY is a case fact too; the stage the answer was
+    # scoped to (`stage`) is published for every category, as before.
+    category = str(published.get("category") or "").upper()
+    published["timeline"] = (evidence_builder.history(context)
+                             if category in _CASE_CATEGORIES else [])
+
+    tools = list(envelope.get("tool_trace") or [])
+    knowledge = [str(src.get("title") or src.get("type"))
+                 for src in evidence.sources()
+                 if str(src.get("type") or "").upper() in
+                 {"PROCESS_KNOWLEDGE", "KNOWLEDGE", "POLICY", "STAGE_GUIDE"}]
+    validation = envelope.get("_validation") or (
+        "NOT_REQUIRED" if published.get("response_source") != "LLM" else "PASSED")
+    published["answer_basis"] = {
+        **evidence_builder.answer_basis(
+            packet or {}, tools=tools, knowledge_sources=knowledge,
+            semantic_sources=["JEV"] if (envelope.get("_jev_notes")) else [],
+            validated=validation in {"PASSED", "NOT_REQUIRED"},
+            response_source=str(published.get("response_source") or "")),
+        "validation": validation,
+        "routing": _routing_basis(request, envelope, tools, evidence,
+                                  gated=gated is not None),
+        # WHAT THE SECURITY BOUNDARY DID: PASSED, or which stage BLOCKED /
+        # REDACTED and under which category. Never what it matched.
+        "guardrail": envelope.get("guardrail") or {"action": "PASSED"},
+        # WHY THIS ANSWER -- business labels and codes; never an id, a rule
+        # reference or a tool. The internal chain stays internal.
+        "provenance": _provenance_public(provenance),
+        # WHETHER A MODEL WORDED THIS, AND WHY NOT when it did not: called,
+        # skipped (reason), outcome (ACCEPTED / REJECTED / FALLBACK). No
+        # prompt, no model output, no model name.
+        # HOW THE ANSWER WAS PRESENTED -- a deterministic localized template
+        # and/or an empathetic opening line. Never a change to a fact.
+        "presentation": conversation["presentation"],
+        "composition": {k: v for k, v in (envelope.get("_composition") or {
+            "called": False, "skipped": "NOT_REACHED"}).items()
+            if k in ("called", "skipped", "outcome", "language")},
+    }
+    timings.update(envelope.get("_timings") or {})
+    if getattr(claims, "auth_ms", None) is not None:
+        timings["auth_ms"] = claims.auth_ms
+    composition = envelope.get("_composition") or {"called": False,
+                                                   "skipped": "NOT_REACHED"}
+    timings["qwen_ms"] = float(composition.get("qwen_ms") or 0.0) +         float(envelope.get("llm_ms") or 0.0)
+    timings["qwen_calls"] = float(bool(composition.get("called"))) +         float(bool(envelope.get("llm_ms")))
+    timings["fallback_count"] = float(composition.get("outcome") in
+                                      ("REJECTED", "FALLBACK"))
+    for key in ("composer_context_ms", "prompt_build_ms"):
+        if composition.get(key) is not None:
+            timings[key] = composition[key]
+    timings["tools_ms"] = round(sum(float(t.get("duration_ms") or 0)
+                                    for t in tools), 2)
+    # MCP OVERHEAD, when the tools crossed the protocol: the calls' total
+    # time and the part of it the transport cost (serialisation, the hop,
+    # the session) as opposed to the tools themselves.
+    carried = [t for t in tools
+               if (t.get("transport") or "in_process") != "in_process"]
+    timings["mcp_ms"] = round(sum(float(t.get("duration_ms") or 0)
+                                  for t in carried), 2)
+    if carried:
+        timings["mcp_transport_ms"] = round(
+            sum(float(t.get("transport_ms") or 0) for t in carried), 2)
+    if envelope.get("llm_ms"):
+        timings["agent_llm_ms"] = float(envelope["llm_ms"])
+    timings["total_ms"] = round((time.perf_counter() - started) * 1000, 2)
+    published["timings"] = timings
+    published["processing_ms"] = timings["total_ms"]
+    # HANDOFF (handoff.py): the Slice 9 signal plus explicit requests and
+    # repeated unresolved turns; the counter travels in `context`.
+    published["handoff"] = handoffs.evaluate(
+        published, message=request.message,
+        canonical=conversation["canonical"],
+        sentiment_level=conversation["sentiment"].level,
+        context=request.context)
+    published["context"] = {
+        **(published.get("context") or {}),
+        # CONVERSATION STATE -- advisory, never authoritative: the next turn
+        # still resolves the stage, subject and facts from the records.
+        "language": conversation["language"]["response_language"],
+        "last_stage": published.get("stage"),
+        "unresolved_turns": published["handoff"].get("unresolved_turns", 0),
+    }
+    # AGGREGATE SIGNALS (no content) and the optional CloudWatch export.
+    # Neither can fail the request.
+    try:
+        analytics.record(published)
+        cloudwatch.publish(published)
+    except Exception as exc:  # pragma: no cover - observability never fails a request
+        logger.warning("Copilot analytics skipped (%s)", type(exc).__name__)
+    published["correlation_id"] = request_id
+    logger.info("copilot_timings request_id=%s stage=%s intent=%s %s",
+                request_id, published.get("stage"), published.get("intent"),
+                " ".join(f"{k}={v}" for k, v in timings.items()))
     # A STATUS QUESTION PUBLISHES THE STATUS IT ANSWERED FROM -- the value
     # on the application record the tool read, never one phrased or
     # inferred. Only for these intents: elsewhere `status` keeps its one

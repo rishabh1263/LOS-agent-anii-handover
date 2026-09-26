@@ -27,6 +27,8 @@ class ToolStatus(str, Enum):
     # The caller asked for something that is not reachable.
     NOT_FOUND = "NOT_FOUND"
     FORBIDDEN_PATH = "FORBIDDEN_PATH"
+    #: The caller is not authorised for this tool or this case.
+    FORBIDDEN = "FORBIDDEN"
 
     # The capability exists but has no backing service in this build.
     UNAVAILABLE = "UNAVAILABLE"

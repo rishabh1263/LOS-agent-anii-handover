@@ -321,8 +321,16 @@ def test_retrieval_never_returns_a_prompt_or_a_chunk_id_to_a_caller():
     _answer, _source, detail = ask("What does CPA readiness mean?")
     published = _public_knowledge(detail)
 
-    assert set(published) == {"stage", "grounded", "sources", "top_score"}
+    # `versions` (Phase 3 RAG hardening): which handbook file and which
+    # version of it answered -- metadata, never a chunk id or passage text.
+    assert set(published) == {"stage", "grounded", "sources", "top_score",
+                              "versions"}
     assert all(isinstance(s, str) for s in published["sources"])
+    for version in published["versions"]:
+        assert set(version) <= {"document", "knowledge_type", "version",
+                                "version_source", "effective_date",
+                                "applies_to", "stage"}
+        assert version["version_source"] in {"DECLARED", "CONTENT_HASH"}
 
 
 # ==========================================================================

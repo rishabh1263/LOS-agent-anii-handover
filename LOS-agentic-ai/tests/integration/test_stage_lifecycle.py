@@ -108,7 +108,8 @@ def officer(make_token) -> TestClient:
     return _client(make_token, scopes=["documents:read", "documents:write",
                                        "upload_document", "agents:execute",
                                        "read_applicant", "read_application",
-                                       "read_documents", "read_checklist"])
+                                       "read_documents", "read_verification",
+                                       "read_pending_items", "read_next_action"])
 
 
 def move(client, target, reason="WORKFLOW_HANDOFF", case_id=CASE, **extra):

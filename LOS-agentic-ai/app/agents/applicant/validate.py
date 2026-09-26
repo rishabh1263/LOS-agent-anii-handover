@@ -29,7 +29,6 @@ from typing import Any
 MIN_ANSWER_CHARS = 8
 MAX_ANSWER_CHARS = 700
 
-_NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 #: Status vocabulary the FOS stage uses. A status word in the answer must be
@@ -40,54 +39,15 @@ _STATUS_WORDS = {
     "BASIC_DOCUMENT_VERIFICATION", "PASS", "FAIL", "SKIPPED",
 }
 
-#: Language this agent must never produce, whatever the data says. These are
-#: downstream decisions; there is no grounded way to phrase one here.
-_FORBIDDEN = (
-    r"\bapproved?\b", r"\bsanction\w*\b", r"\bdisburs\w+\b",
-    r"\bcredit\s*score\b", r"\bcibil\b", r"\beligib\w+\s+for\s+\w+\s+loan\b",
-    r"\brecommend\w*\s+(approval|rejection)\b", r"\bcreditworth\w*\b",
-)
-_FORBIDDEN_RE = [re.compile(p, re.IGNORECASE) for p in _FORBIDDEN]
+#: Language this agent must never produce is defined ONCE, for every model
+#: surface: app/security/output_validation.DECISION_LANGUAGE.
 
 
 def _allowed_numbers(facts: Any) -> set[str]:
-    """Every numeric token the model is permitted to reproduce."""
-    allowed: set[str] = set()
+    """Every numeric token the model may reproduce (the unified primitive)."""
+    from app.security.output_validation import allowed_numbers
 
-    def walk(node: Any) -> None:
-        if isinstance(node, dict):
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, (list, tuple)):
-            for value in node:
-                walk(value)
-        elif isinstance(node, bool):
-            return
-        elif isinstance(node, (int, float)):
-            allowed.add(str(node))
-            if isinstance(node, float) and node.is_integer():
-                allowed.add(str(int(node)))
-        elif isinstance(node, str):
-            for token in _NUMBER.findall(node):
-                allowed.add(token)
-
-    walk(facts)
-
-    # Counts the model may legitimately state about what it was shown: "three
-    # documents", "2 items pending". Derived from the data's own shape, so
-    # they are facts rather than invention.
-    def counts(node: Any) -> None:
-        if isinstance(node, dict):
-            for value in node.values():
-                counts(value)
-        elif isinstance(node, list):
-            allowed.add(str(len(node)))
-            for value in node:
-                counts(value)
-
-    counts(facts)
-    allowed.add("0")
-    return allowed
+    return allowed_numbers(facts)
 
 
 def _allowed_statuses(facts: Any) -> set[str]:
@@ -111,57 +71,44 @@ def _allowed_statuses(facts: Any) -> set[str]:
     return found
 
 
-def validate_answer(text: str, facts: dict[str, Any]) -> tuple[bool, str]:
+def _guarded(text: str) -> str | None:
+    """The output guardrail's reason for refusing `text`, or None."""
+    from app.security import guardrails
+
+    verdict = guardrails.check_output(text)
+    return None if verdict.allowed else (
+        f"answer failed the output guardrail: {verdict.category.value}")
+
+
+def validate_answer(text: str, facts: dict[str, Any], *,
+                    surface: str = "applicant_answer") -> tuple[bool, str]:
     """
     Check a generated answer against the facts it was given.
 
-    Returns (accepted, cleaned_text_or_reason).
+    Returns (accepted, cleaned_text_or_reason). THE UNIFIED VALIDATOR runs
+    the common checks -- reasoning removed, shape, the output guardrail,
+    decision language, numbers, dates (app/security/output_validation.py) --
+    and this surface adds the FOS status vocabulary.
     """
-    if not isinstance(text, str):
-        return False, "answer was not a string"
+    from app.security import output_validation
 
-    cleaned = _THINK.sub("", text).strip().strip('"').strip()
+    def status_words(cleaned: str) -> str | None:
+        # STATUS TOKENS, not ordinary English.
+        #
+        # Checked against the answer as written rather than upper-cased,
+        # because almost every status word here is also a normal word: "the
+        # address is missing" and "documents under review" are prose, while
+        # "PAN is MISSING" is the model quoting a system status. The narrower
+        # rule still catches what matters: a model claiming a document is
+        # VERIFIED or REJECTED when the data says otherwise.
+        allowed = _allowed_statuses(facts)
+        for word in _STATUS_WORDS:
+            if re.search(rf"\b{re.escape(word)}\b", cleaned) and word not in allowed:
+                return f"answer asserted an unsupported status: {word}"
+        return None
 
-    if len(cleaned) < MIN_ANSWER_CHARS:
-        return False, "answer too short"
-    if len(cleaned) > MAX_ANSWER_CHARS:
-        return False, "answer too long"
-    if cleaned.lstrip().startswith(("{", "[")):
-        return False, "answer returned structured data"
-
-    for pattern in _FORBIDDEN_RE:
-        match = pattern.search(cleaned)
-        if match:
-            return False, f"answer used downstream decision language: {match.group(0)}"
-
-    allowed_numbers = _allowed_numbers(facts)
-    for token in _NUMBER.findall(cleaned):
-        variants = {token}
-        if "." in token:
-            variants.add(token.rstrip("0").rstrip("."))
-        if not (variants & allowed_numbers):
-            return False, f"answer contained unsupported number: {token}"
-
-    # STATUS TOKENS, not ordinary English.
-    #
-    # Checked against the answer as written rather than upper-cased, because
-    # almost every status word here is also a normal word: "the address is
-    # missing" and "documents under review" are prose, while "PAN is MISSING"
-    # is the model quoting a system status. Upper-casing the answer first made
-    # the first two indistinguishable from the third, and rejected correct
-    # sentences for using English.
-    #
-    # The narrower rule still catches what matters: a model claiming a
-    # document is VERIFIED or REJECTED when the data says otherwise. A
-    # lowercase paraphrase of a status it was not given is not caught here --
-    # it is bounded instead by the model only ever being shown true facts, by
-    # the number check above, and by the forbidden-language check before it.
-    allowed_statuses = _allowed_statuses(facts)
-    for word in _STATUS_WORDS:
-        if re.search(rf"\b{re.escape(word)}\b", cleaned) and word not in allowed_statuses:
-            return False, f"answer asserted an unsupported status: {word}"
-
-    return True, cleaned
+    return output_validation.validate(
+        text, surface=surface, truth=facts, extra=(status_words,)).pair()
 
 
 # ==========================================================================
@@ -280,6 +227,11 @@ def check_composed(
     if not isinstance(text, str):
         return False, "answer was not a string"
     cleaned = " ".join(_THINK.sub("", text).split()).strip().strip('"')
+    # THE SECURITY BOUNDARY IS NOT A VALIDATION SETTING: it holds even with
+    # `chatbot.validation.enabled` off.
+    guarded = _guarded(cleaned)
+    if guarded:
+        return False, guarded
     if not config.validation("enabled"):
         return True, cleaned
     if not cleaned:

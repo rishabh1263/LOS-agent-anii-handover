@@ -133,6 +133,7 @@ async def answer(
         "threshold": result.threshold if result else None,
         "confident": bool(result and result.confident),
         "citations": result.citations() if result else [],
+        "versions": result.versions() if result else [],
     }
 
     if result is None or not result.confident:
@@ -162,6 +163,10 @@ async def answer(
                 "deterministic", detail)
 
     detail["processing_ms"] = round((time.perf_counter() - started) * 1000, 2)
+    # WHAT THE MODEL WAS SHOWN, for the caller's unified validation (numbers,
+    # dates, decision words must come from the passage). Internal: the
+    # caller removes it before anything is published.
+    detail["_passage"] = result.context(limit=limit)
     return phrased, "llm", detail
 
 
@@ -193,6 +198,10 @@ async def _phrase(question: str, context: str) -> str | None:
 
         from app.llm import availability
         from app.llm.provider import create_ollama_client
+        from app.security import guardrails
+
+        # A RETRIEVED PASSAGE IS DATA, however it is worded.
+        context = guardrails.untrusted(context)
 
         budget = config.llm_timeout_seconds()
 
@@ -203,7 +212,8 @@ async def _phrase(question: str, context: str) -> str | None:
         response = await asyncio.wait_for(
             client.get_response(
                 [
-                    Message(role="system", contents=[_SYSTEM]),
+                    Message(role="system", contents=[
+                        _SYSTEM + " " + guardrails.UNTRUSTED_NOTICE]),
                     Message(role="user", contents=[
                         f"Reference material:\n\n{context}\n\n"
                         f"Question: {question}"

@@ -233,7 +233,8 @@ def test_the_next_action_is_stated_when_asked(client, repo):
 
     answer = ask(client, "what is my next action?")["answer"]
 
-    assert answer.startswith("Next action:")
+    # Phase 3: said as a person would, the recorded action verbatim after it.
+    assert answer.startswith("Your next step is to ")
 
 
 # ==========================================================================
@@ -649,6 +650,7 @@ def test_the_validator_limits_follow_configuration(monkeypatch):
     from app.agents.applicant import config
 
     text = "Address Proof is pending. Please upload it. Thank you."
+    monkeypatch.setattr(config, "max_sentences", lambda: 3)
     assert check_composed(text, structured="Address Proof is pending.")[0]
     monkeypatch.setattr(config, "max_sentences", lambda: 2)
     assert not check_composed(text, structured="Address Proof is pending.")[0]
@@ -690,8 +692,11 @@ def test_a_rejected_composition_publishes_the_record(client, repo,
     assert body["response_source"] == "STRUCTURED"
 
 
-def test_a_constrained_retry_is_used_when_configured(client, repo, model_on,
-                                                     monkeypatch):
+def test_a_rejected_phrasing_is_never_retried(client, repo, model_on,
+                                              monkeypatch):
+    # Slice 11 (no retries): even with a retry configured, a rejected
+    # phrasing costs ONE model call and falls back to the recorded answer --
+    # a second call is a second wait for nothing the record does not say.
     from app.agents.applicant import config
 
     monkeypatch.setattr(config, "regenerate_attempts", lambda: 1)
@@ -702,11 +707,9 @@ def test_a_constrained_retry_is_used_when_configured(client, repo, model_on,
 
     body = ask(client, "What is my application status?")
 
-    assert len(model.calls) == 2
-    retry = _text(model.calls[1]["messages"][-1])
-    assert "previous_answer_rejected_because" in retry
-    assert body["answer"] == good
-    assert body["response_source"] == "LLM"
+    assert len(model.calls) == 1
+    assert body["response_source"] != "LLM"
+    assert body["answer_basis"]["composition"]["outcome"] == "REJECTED"
 
 
 def test_without_retries_a_rejection_falls_back_at_once(client, repo,
@@ -777,14 +780,22 @@ def test_jev_notes_reach_the_composer_labelled_as_annotations(
     monkeypatch.setattr(copilot_api.grounding, "gather",
                         lambda *a, **k: _Confident())
     monkeypatch.setattr(grounding, "_generate", generate)
-    mismatch_case()
+    # A question a composer may phrase: the case summary quotes no recorded
+    # hold or names (Slice 11 never sends those to a model) -- with case
+    # composition switched ON, which the policy now respects on every path.
+    from app.agents.applicant import config as agent_config
 
-    body = ask(client, "What is my application status?")
+    monkeypatch.setattr(agent_config, "compose_case_answers", lambda: True)
+    mismatch_case()
+    expected = ask(client, "Give me a complete summary of this case")["answer"]
+    seen.clear()
+
+    body = ask(client, "Give me a complete summary of this case")
 
     assert seen["annotations_not_authoritative"] == ["the two names share no token"]
     assert seen["current_stage"] == "FOS"
     # The notes changed nothing the records established.
-    assert "under review because" in body["answer"]
+    assert body["answer"] == expected
 
 
 def test_a_failing_jev_changes_nothing(client, repo, monkeypatch,
@@ -901,7 +912,8 @@ def test_every_chatbot_setting_is_read_at_runtime():
                 "regenerate_attempts", "jev_enabled"):
         assert key in snapshot
     assert config.max_output_tokens() == 180
-    assert config.max_sentences() == 3
+    # Phase 3 default: at most two sentences.
+    assert config.max_sentences() == 2
     assert config.max_characters() == 500
     assert config.temperature() == 0.1
     assert config.fallback("llm_failure") == "structured_answer"

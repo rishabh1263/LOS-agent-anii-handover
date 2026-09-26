@@ -129,6 +129,14 @@ def validate(
     if not text.strip():
         return Verdict(False, ["the generated answer was empty"])
 
+    # THE SECURITY BOUNDARY FIRST (app/security/guardrails.py).
+    from app.security import guardrails
+
+    screened = guardrails.check_output(text)
+    if not screened.allowed:
+        return Verdict(False, [f"failed the output guardrail: "
+                               f"{screened.category.value}"])
+
     permitted = set(allow or ())
     reasons: list[str] = []
     unsupported: list[str] = []

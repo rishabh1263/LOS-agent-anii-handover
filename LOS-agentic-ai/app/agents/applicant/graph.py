@@ -110,6 +110,15 @@ async def knowledge_node(state: CopilotState) -> CopilotState:
 
     started = time.perf_counter()
     text, source, detail = await ka.answer(state["message"])
+    passage = detail.pop("_passage", None) if isinstance(detail, dict) else None
+    if source == "llm":
+        # THE SAME CHECKS AS THE AGENT'S KNOWLEDGE PATH: the unified
+        # validator against the passage the model was shown.
+        from app.security import output_validation
+
+        if not output_validation.validate(text, surface="knowledge_phrase",
+                                          truth=passage or "").accepted:
+            text, source = ka.retrieved_text_for(state["message"]), "deterministic"
 
     state["knowledge_answer"] = text
     state["knowledge_source"] = source

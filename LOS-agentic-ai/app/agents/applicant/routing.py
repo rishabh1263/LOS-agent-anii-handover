@@ -1,16 +1,33 @@
 """
 What kind of question this is, and therefore where the answer comes from.
 
-FOUR CATEGORIES, AND THEY DECIDE THE WHOLE REQUEST:
+THE CATEGORIES, AND THE CONTRACT EACH ONE HOLDS -- what it may consult:
 
-    CASE_ONLY       the store answers it. No retrieval, no model needed.
-    KNOWLEDGE_ONLY  the FOS handbook answers it. No case data is read.
-    MIXED           both, combined. Case facts first, policy second.
+                    case tools   this case's    handbook /    case facts in
+                                 own records*   stage guides  the response
+    CASE_ONLY       yes          yes            NO            yes
+    KNOWLEDGE_ONLY  NO           NO             yes           NO
+    PROCESS_KNOWL.  NO           NO             yes           NO
+    MIXED           yes          yes            yes           yes
+    DOWNSTREAM      NO           NO             NO            NO
+
+    * RETRIEVED DERIVED TEXT from the case's own findings, decisions and
+      events (app/knowledge/indexing.py), scoped to the owner and the case.
+      The Universal Copilot (copilot_api.py) retrieves it BESIDE the tool
+      answer as supporting evidence; it never replaces or overrides a tool
+      result, and never carries another case. The FOS agent surface does
+      not retrieve it at all. Neither surface reads the handbook for a
+      CASE_ONLY question.
+
+    CASE_ONLY       the store answers it; the case's records may support it.
+    KNOWLEDGE_ONLY  the FOS handbook answers it. No case data is read or
+                    published, even when a case is open.
+    MIXED           both, combined. Case facts first, policy second, both
+                    halves published -- never rephrased into one.
     DOWNSTREAM      neither. FOS does not own it, so it is routed.
 
-The category is what makes the latency targets reachable: a CASE_ONLY
-question must not pay for retrieval it does not use, and a KNOWLEDGE_ONLY
-question must not read records it has no business reading.
+Where the route came from (a rule, a semantic example, a follow-up) and
+what actually ran are published by the Copilot as `answer_basis.routing`.
 
 RESPONSE SOURCE IS NOT THE SAME QUESTION. The category says what was
 consulted; `response_source` says what the answer was actually built from.

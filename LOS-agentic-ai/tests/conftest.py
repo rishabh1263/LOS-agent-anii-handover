@@ -40,6 +40,16 @@ for _name, _value in (("QDRANT_PATH", ""), ("EMBEDDING_PROVIDER", "hashing"),
                       ("LOS_DEMO_INDEX_ENABLED", "false")):
     os.environ[_name] = _value
 
+# AND THE MCP RUNTIME. The deployment .env may select the MCP protocol; the
+# suite runs the capability layer in process unless a test selects protocol
+# mode itself (tests/integration/test_mcp_runtime.py does, over real
+# transports).
+os.environ["LOS_MCP_MODE"] = "in_process"
+
+# AND AUTHENTICATION: ON, explicitly, whatever a developer's .env says. A test
+# that exercises the local no-auth mode switches it off itself.
+os.environ["AUTH_ENABLED"] = "true"
+
 # AND THE CASE STORE. A test that does not build its own repository used the
 # default path -- the deployment's LIVE ./runtime/los_store.sqlite3 -- so the
 # suite wrote its fixtures (APP-E2E, CASE-DEFAULT ...) into real data, and

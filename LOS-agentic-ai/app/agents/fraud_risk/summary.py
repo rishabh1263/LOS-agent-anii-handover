@@ -120,38 +120,13 @@ def build_llm_payload(assessment: RiskAssessment) -> dict[str, Any]:
 # OUTPUT VALIDATION
 # ---------------------------------------------------------------------------
 
-_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-_NUMBER = re.compile(r"\d+(?:\.\d+)?")
 
 
 def _collect_allowed_numbers(payload: dict[str, Any]) -> set[str]:
-    """Every numeric token the LLM is permitted to reproduce."""
-    allowed: set[str] = set()
+    """Every numeric token the LLM may reproduce (the unified primitive)."""
+    from app.security.output_validation import allowed_numbers
 
-    def walk(node: Any) -> None:
-        if isinstance(node, dict):
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value)
-        elif isinstance(node, bool):
-            return
-        elif isinstance(node, (int, float)):
-            allowed.add(str(node))
-            allowed.add(str(int(node)) if float(node).is_integer() else str(node))
-            allowed.add(f"{float(node):.2f}")
-        elif isinstance(node, str):
-            for match in _NUMBER.findall(node):
-                allowed.add(match)
-
-    walk(payload)
-
-    normalised = set()
-    for value in allowed:
-        normalised.add(value)
-        normalised.add(value.rstrip("0").rstrip(".") if "." in value else value)
-    return normalised
+    return allowed_numbers(payload, counts=False, two_decimals=True)
 
 
 def validate_llm_summary(text: str, assessment: RiskAssessment) -> tuple[bool, str]:
@@ -162,37 +137,31 @@ def validate_llm_summary(text: str, assessment: RiskAssessment) -> tuple[bool, s
     states a number not present in the evidence. A rejected summary is
     discarded entirely — it is never partially merged.
     """
-    if not isinstance(text, str):
-        return False, "summary was not a string"
+    from app.security import output_validation
 
-    cleaned = _THINK_BLOCK.sub("", text).strip()
-    cleaned = cleaned.strip('"').strip()
+    payload: dict[str, Any] = {}
 
-    if len(cleaned) < MIN_SUMMARY_CHARS:
-        return False, "summary too short"
-    if len(cleaned) > MAX_SUMMARY_CHARS:
-        return False, "summary too long"
-    if cleaned.lstrip().startswith("{") or cleaned.lstrip().startswith("["):
-        return False, "summary returned structured data"
+    def truth() -> dict[str, Any]:
+        payload.update(build_llm_payload(assessment))
+        return payload
 
-    payload = build_llm_payload(assessment)
-    allowed = _collect_allowed_numbers(payload)
+    def computed_category(cleaned: str) -> str | None:
+        # The LLM must not assert a category or outcome other than the computed one.
+        upper = cleaned.upper()
+        for other in ("LOW", "MEDIUM", "HIGH"):
+            if other != assessment.risk_category.value and f"{other} RISK" in upper:
+                return f"summary asserted a different risk category: {other}"
+        for other in ("PASS", "REVIEW", "FAIL"):
+            if other != assessment.final_outcome.value and f"OUTCOME: {other}" in upper:
+                return f"summary asserted a different outcome: {other}"
+        return None
 
-    for token in _NUMBER.findall(cleaned):
-        candidates = {token, token.rstrip("0").rstrip(".") if "." in token else token}
-        if not (candidates & allowed):
-            return False, f"summary contained unsupported number: {token}"
-
-    # The LLM must not assert a category or outcome other than the computed one.
-    upper = cleaned.upper()
-    for other in ("LOW", "MEDIUM", "HIGH"):
-        if other != assessment.risk_category.value and f"{other} RISK" in upper:
-            return False, f"summary asserted a different risk category: {other}"
-    for other in ("PASS", "REVIEW", "FAIL"):
-        if other != assessment.final_outcome.value and f"OUTCOME: {other}" in upper:
-            return False, f"summary asserted a different outcome: {other}"
-
-    return True, cleaned
+    # THE UNIFIED VALIDATOR (app/security/output_validation.py): guardrail,
+    # shape, decision language, numbers and dates, then the computed
+    # risk category and outcome.
+    return output_validation.validate(
+        text, surface="fraud_summary", truth=truth,
+        extra=(computed_category,)).pair()
 
 
 # ---------------------------------------------------------------------------
@@ -240,11 +209,15 @@ class LLMSummaryGenerator:
         return self._extract(response.json())
 
     def _build_body(self, assessment: RiskAssessment) -> dict[str, Any]:
-        payload = build_llm_payload(assessment)
+        from app.security import guardrails
+
+        # Provider and document text is DATA, never an instruction.
+        payload = guardrails.untrusted(build_llm_payload(assessment))
         return {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": get_system_prompt(self.prompt_version)},
+                {"role": "system", "content": get_system_prompt(self.prompt_version)
+                 + " " + guardrails.UNTRUSTED_NOTICE},
                 {
                     "role": "user",
                     "content": build_summary_user_prompt(

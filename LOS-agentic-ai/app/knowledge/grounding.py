@@ -26,6 +26,7 @@ sees is the same derived text a reviewer can read in `sources`.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import re
@@ -63,8 +64,8 @@ _SYSTEM = (
     "If the evidence does not answer the question, say you do not have "
     "enough verified information. Never invent a document, a status, a "
     "finding, a date, a stage or an applicant detail. "
-    "WRITE FOR A PERSON: one to three sentences, under 80 words, plain "
-    "business English. Never output field names, codes, identifiers, "
+    "WRITE FOR A PERSON: at most two sentences, about 350 characters, plain "
+    "business English, like a helpful support agent. Never output field names, codes, identifiers, "
     "JSON, bullet lists, or words like CASE_EVENT, CASE_FINDING, "
     "PROCESS_KNOWLEDGE, STRUCTURED, MCP or embeddings. Put a reason "
     "code into plain words rather than printing the code itself. "
@@ -208,7 +209,13 @@ def _payload(question: str, facts: dict[str, Any],
     # reasoning from the only evidence it had.
     if established.strip():
         payload["established"] = established.strip()
-    return payload
+    # RETRIEVED CHUNKS, DOCUMENT VALUES AND THE QUESTION ARE DATA. An
+    # instruction found in any of them -- a chunk indexed from a document
+    # that says "ignore previous instructions" -- is neutralised here, before
+    # the model sees it (app/security/guardrails.py).
+    from app.security import guardrails
+
+    return guardrails.untrusted(payload)
 
 
 async def answer(
@@ -218,7 +225,32 @@ async def answer(
     facts: dict[str, Any],
     context: GroundedContext,
     timeout: float = 25.0,
+    compose_structured: bool = False,
+    stats: dict[str, Any] | None = None,
 ) -> tuple[str, bool]:
+    token = _STATS.set(stats)
+    try:
+        return await _answer(question, structured=structured, facts=facts,
+                             context=context, timeout=timeout,
+                             compose_structured=compose_structured)
+    finally:
+        _STATS.reset(token)
+
+
+def _called(generated: str | None) -> str | None:
+    """Record, where the call is MADE, that a composition was attempted and
+    whether it produced words -- whatever stands behind `_generate`."""
+    stats = _STATS.get()
+    if stats is not None:
+        stats["called"] = True
+        if not generated:
+            stats.setdefault("error", "EMPTY_OR_FAILED")
+    return generated
+
+
+async def _answer(question: str, *, structured: str, facts: dict[str, Any],
+                  context: GroundedContext, timeout: float,
+                  compose_structured: bool) -> tuple[str, bool]:
     """
     A grounded answer, and whether evidence backed it.
 
@@ -228,6 +260,19 @@ async def answer(
     nothing usable. A model failure costs the phrasing and nothing
     else.
     """
+    if not context.grounded and compose_structured and structured.strip():
+        # PHRASED FROM THE EVIDENCE PACKET (Phase 3). Retrieval added
+        # nothing, but the structured answer and the packet it came from
+        # are authoritative; the model rewords them for a person. The
+        # caller validates the result against the structured answer and
+        # falls back to it; `grounded` stays False -- retrieval did not
+        # back this, the records did.
+        generated = _called(await _generate(question, facts, context, timeout,
+                                            established=structured))
+        if generated and not _denies(generated, structured):
+            return _readable(generated), False
+        return _readable(structured.rstrip()), False
+
     if not context.grounded:
         # STRUCTURED FACTS ARE AUTHORITATIVE, so a complete answer is
         # NOT annotated as insufficient. "No applications are on file
@@ -239,8 +284,20 @@ async def answer(
         text = structured.rstrip()
         return _readable(text) if text else NO_EVIDENCE, False
 
-    generated = await _generate(question, facts, context, timeout,
-                                established=structured)
+    # NOT EVERY GROUNDED ANSWER IS WORTH A MODEL CALL: the caller's
+    # composition policy decides (copilot_api._composition_skip). Without its
+    # go-ahead the structured answer stands, grounded by what was retrieved.
+    if not compose_structured:
+        text = structured.rstrip() or _passage(context)
+        return (_readable(text) if text else NO_EVIDENCE), True
+
+    generated = _called(await _generate(question, facts, context, timeout,
+                                        established=structured))
+    if not generated and not structured.strip():
+        # NO STRUCTURED ANSWER (a process question) AND NO WORDING: the
+        # retrieved guide's own first sentences are the deterministic answer.
+        text = _passage(context)
+        return (_readable(text) if text else NO_EVIDENCE), True
 
     # THE COMPUTED VERDICT WINS. A generated sentence that denies what
     # the records establish is worse than a plain one: it is confident,
@@ -365,40 +422,118 @@ def _denies(generated: str, structured: str) -> bool:
     return bool(_DENIES.search(generated or ""))
 
 
+#: Where `_generate` records what happened (called, qwen_ms, error ...) for
+#: the caller of `answer` -- a context variable, so `_generate` keeps its
+#: signature and one request's stats never reach another's.
+_STATS: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "composer_stats", default=None)
+
+#: How much retrieved text the composer is given. Enough to phrase from;
+#: never the corpus. (Slice 11: compact context is security AND latency.)
+MAX_CASE_EVIDENCE, MAX_PROCESS_EVIDENCE, MAX_EVIDENCE_CHARS = 3, 2, 400
+
+
+def _compact(payload: dict[str, Any]) -> dict[str, Any]:
+    """The payload, bounded: a few retrieved passages, each trimmed."""
+    out = dict(payload)
+    for key, limit in (("case_evidence", MAX_CASE_EVIDENCE),
+                       ("process_evidence", MAX_PROCESS_EVIDENCE)):
+        out[key] = [str(t)[:MAX_EVIDENCE_CHARS] for t in (out.get(key) or [])][:limit]
+        if not out[key]:
+            out.pop(key)
+    return {k: v for k, v in out.items() if v not in (None, "", [], {})}
+
+
 async def _generate(question: str, facts: dict[str, Any],
                     context: GroundedContext, timeout: float,
                     established: str = "") -> str | None:
+    """
+    ONE bounded composition call, or none. Never raises; returns None on any
+    failure, and records what happened in `stats` (called, qwen_ms, error,
+    composer_context_ms, prompt_build_ms) -- never the prompt or the text.
+    """
     import asyncio
+    import time
 
+    stats = _STATS.get()
+    stats = stats if stats is not None else {}
     try:
         from agent_framework import Message
 
         from app.llm import availability
         from app.llm.provider import create_ollama_client
+        from app.security import guardrails
 
+        started = time.perf_counter()
+        payload = _compact(_payload(question, facts, context,
+                                    established=established))
+        stats["composer_context_ms"] = round(
+            (time.perf_counter() - started) * 1000, 2)
+        # THE INPUT BOUNDARY: a secret, a path, a URL, SQL, a tool payload or
+        # prompt text in anything about to be sent means NOTHING is sent.
+        # Output checks alone would let the model see it first.
+        issues = guardrails.context_issues(payload)
+        if issues:
+            stats["error"] = "CONTEXT_REJECTED"
+            logger.warning("Composer context refused: %s", ",".join(issues))
+            return None
         if not availability.provider_reachable():
+            stats["error"] = "MODEL_UNAVAILABLE"
             return None
 
+        started = time.perf_counter()
         client = create_ollama_client()
         messages = [
-            Message(role="system", contents=[_SYSTEM]),
+            Message(role="system", contents=[
+                _SYSTEM + " " + guardrails.UNTRUSTED_NOTICE]),
             Message(role="user", contents=[
-                json.dumps(_payload(question, facts, context,
-                                    established=established),
-                           separators=(",", ":"), default=str)
-            ]),
+                json.dumps(payload, separators=(",", ":"), default=str)]),
         ]
+        from app.agents.applicant import config as agent_config
+        from app.agents.los.summary import keep_alive
 
-        response = await asyncio.wait_for(
-            client.get_response(messages, stream=False), timeout=timeout)
+        options = {"max_tokens": agent_config.max_output_tokens(),
+                   "temperature": agent_config.temperature(),
+                   "keep_alive": keep_alive()}
+        stats["prompt_build_ms"] = round((time.perf_counter() - started) * 1000, 2)
+
+        called = time.perf_counter()
+        stats["called"] = True
+        from app.observability.tracing import span
+
+        try:
+            with span("llm.compose", surface="copilot_composer",
+                      timeout_s=round(float(timeout), 2),
+                      max_tokens=options.get("max_tokens")):
+                response = await asyncio.wait_for(
+                    client.get_response(messages, stream=False, options=options),
+                    timeout=timeout)
+        finally:
+            stats["qwen_ms"] = round((time.perf_counter() - called) * 1000, 2)
+    except asyncio.TimeoutError:
+        stats["error"] = "TIMEOUT"
+        logger.warning("Grounded generation timed out")
+        return None
     except Exception as exc:
         # By type: a provider error can carry a URL.
+        stats["error"] = type(exc).__name__
         logger.warning("Grounded generation unavailable: %s",
                        type(exc).__name__)
         return None
 
     text = _text_of(response)
+    if not text:
+        stats["error"] = "EMPTY"
     return text or None
+
+
+def _passage(context: GroundedContext, sentences: int = 2) -> str:
+    """The top retrieved stage-guide passage, as whole sentences, verbatim."""
+    evidence = list(getattr(context.process, "evidence", ()) or ())
+    if not evidence:
+        return ""
+    said = " ".join(str(evidence[0].text or "").split())
+    return " ".join(re.split(r"(?<=[.!?])\s+", said)[:sentences]).strip()
 
 
 def _text_of(response: Any) -> str:

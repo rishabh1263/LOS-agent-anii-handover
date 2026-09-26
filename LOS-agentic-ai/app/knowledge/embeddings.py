@@ -275,6 +275,93 @@ def provider_name() -> str:
     return (os.getenv(ENV_PROVIDER) or "hashing").strip().lower()
 
 
+#: Per-request embedding stats. The dict is shared into worker threads
+#: (asyncio.to_thread copies the context, not the dict), so the request that
+#: set it sees what retrieval spent embedding.
+from contextvars import ContextVar
+
+EMBED_STATS: ContextVar[dict | None] = ContextVar("embed_stats", default=None)
+
+
+class CachedQueryEmbedding(EmbeddingProvider):
+    """
+    The configured provider, with a small cache for QUESTIONS.
+
+    A MIXED question searches the case and the process collections with the
+    same text, and a conversation repeats questions; each used to embed the
+    text again (an HTTP round trip with Ollama). Keyed by provider, model
+    and text, bounded, thread-safe. `embed_all` (indexing) is never cached:
+    documents are embedded once, when written.
+    """
+
+    def __init__(self, inner: EmbeddingProvider, size: int = 256) -> None:
+        import threading
+        from collections import OrderedDict
+
+        self._inner = inner
+        self._size = max(1, int(size))
+        self._cache: "OrderedDict[str, list[float]]" = OrderedDict()
+        self._lock = threading.Lock()
+        self.hits = 0
+        self.misses = 0
+
+    @property
+    def dimensions(self) -> int:  # type: ignore[override]
+        return self._inner.dimensions
+
+    def describe(self) -> dict:
+        return {**self._inner.describe(), "query_cache": {
+            "size": len(self._cache), "hits": self.hits, "misses": self.misses}}
+
+    def embed(self, text: str) -> list[float]:
+        key = f"{type(self._inner).__name__}:{getattr(self._inner, 'model', '')}:{text}"
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                self.hits += 1
+                stats = EMBED_STATS.get()
+                if stats is not None:
+                    stats["retrieval_encode_cache_hits"] = stats.get("retrieval_encode_cache_hits", 0) + 1
+                return list(self._cache[key])
+        from app.observability.tracing import span
+
+        import time as _time
+
+        started = _time.perf_counter()
+        with span("rag.embed", provider=type(self._inner).__name__, cache_hit=False):
+            vector = self._inner.embed(text)
+        stats = EMBED_STATS.get()
+        if stats is not None:
+            # Published as `retrieval_encode_ms`: the response contract keeps
+            # retrieval internals ("embedding", "vector") out of its keys.
+            stats["retrieval_encode_ms"] = round(stats.get("retrieval_encode_ms", 0.0)
+                                          + (_time.perf_counter() - started) * 1000, 2)
+        with self._lock:
+            self.misses += 1
+            self._cache[key] = list(vector)
+            while len(self._cache) > self._size:
+                self._cache.popitem(last=False)
+        return vector
+
+    def embed_all(self, texts: list[str]) -> list[list[float]]:
+        return self._inner.embed_all(texts)
+
+
+_QUERY_EMBEDDERS: dict[str, CachedQueryEmbedding] = {}
+
+
+def get_query_embedder() -> EmbeddingProvider:
+    """The configured provider for questions, behind the query cache."""
+    key = "|".join([provider_name(), os.getenv(ENV_OLLAMA_MODEL) or "",
+                    os.getenv(ENV_OLLAMA_URL) or "", os.getenv(ENV_DIMENSIONS) or ""])
+    cached = _QUERY_EMBEDDERS.get(key)
+    if cached is None:
+        cached = CachedQueryEmbedding(get_embedder())
+        _QUERY_EMBEDDERS.clear()           # one live configuration at a time
+        _QUERY_EMBEDDERS[key] = cached
+    return cached
+
+
 def get_embedder() -> EmbeddingProvider:
     """
     The configured provider.
@@ -291,7 +378,8 @@ def get_embedder() -> EmbeddingProvider:
 __all__ = [
     "DEFAULT_OLLAMA_MODEL", "DEFAULT_TIMEOUT", "ENV_DIMENSIONS",
     "ENV_OLLAMA_MODEL", "ENV_OLLAMA_URL", "ENV_PROVIDER", "ENV_TIMEOUT",
-    "EmbeddingError", "EmbeddingProvider", "HashingEmbedding",
+    "CachedQueryEmbedding", "EmbeddingError", "EmbeddingProvider",
+    "HashingEmbedding", "get_query_embedder",
     "NOMIC_DIMENSIONS", "OllamaEmbedding", "cosine", "get_embedder",
     "provider_name", "tokenize",
 ]
