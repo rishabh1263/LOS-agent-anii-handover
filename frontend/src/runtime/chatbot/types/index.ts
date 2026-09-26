@@ -14,22 +14,11 @@ export type SpeechGender = 'female' | 'male' | 'any'
 /** Chatbot panel only — does not change the host app theme */
 export type ChatThemeId = 'light' | 'dark' | 'orange'
 
-export interface ChatAttachment {
-  id: string
-  name: string
-  size: number
-  type: string
-  url?: string
-  progress?: number
-  error?: string
-}
-
 export interface ChatMessage {
   id: string
   role: ChatRole
   content: string
   timestamp: number
-  attachments?: ChatAttachment[]
   isStreaming?: boolean
   error?: string
   suggestedQuestions?: string[]
@@ -41,7 +30,6 @@ export interface Conversation {
   id: string
   title: string
   updatedAt: number
-  pinned?: boolean
   messages: ChatMessage[]
 }
 

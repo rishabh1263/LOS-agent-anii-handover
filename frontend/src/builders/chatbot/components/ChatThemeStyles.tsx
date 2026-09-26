@@ -1,6 +1,6 @@
 /**
  * Chatbot-only themes (does not affect the rest of the app).
- * Light / Dark / Orange (WhatsApp-style accent).
+ * Clean professional palette — Light / Dark / Accent.
  */
 
 export type ChatThemeId = 'light' | 'dark' | 'orange'
@@ -9,20 +9,22 @@ const CSS = `
 .chatbot-shell {
   color-scheme: light;
   --cb-surface: #ffffff;
-  --cb-raised: #f0f2f5;
-  --cb-content: #111b21;
-  --cb-secondary: #667781;
-  --cb-disabled: #8696a0;
-  --cb-line: #e9edef;
-  --cb-divider: #f0f2f5;
-  --cb-accent: #25d366;
-  --cb-accent-text: #128c7e;
+  --cb-raised: #f7f7f8;
+  --cb-content: #0d0d0d;
+  --cb-secondary: #6b6b6b;
+  --cb-disabled: #a0a0a0;
+  --cb-line: #e5e5e5;
+  --cb-divider: #f0f0f0;
+  --cb-accent: #2563eb;
+  --cb-accent-text: #1d4ed8;
   --cb-on-accent: #ffffff;
-  --cb-bubble-user: #d9fdd3;
-  --cb-bubble-ai: #ffffff;
-  --cb-header: #f0f2f5;
-  --cb-danger: #ea0038;
-  --cb-warning: #b54708;
+  --cb-bubble-user: #2563eb;
+  --cb-bubble-user-text: #ffffff;
+  --cb-bubble-ai: #f4f4f5;
+  --cb-header: #ffffff;
+  --cb-danger: #dc2626;
+  --cb-warning: #b45309;
+  --cb-success: #16a34a;
   background-color: var(--cb-surface);
   color: var(--cb-content);
   border-color: var(--cb-line);
@@ -30,45 +32,44 @@ const CSS = `
 
 .chatbot-shell[data-chat-theme="dark"] {
   color-scheme: dark;
-  --cb-surface: #0b141a;
-  --cb-raised: #111b21;
-  --cb-content: #e9edef;
-  --cb-secondary: #8696a0;
-  --cb-disabled: #667781;
-  --cb-line: #2a3942;
-  --cb-divider: #1f2c33;
-  --cb-accent: #00a884;
-  --cb-accent-text: #00a884;
-  --cb-on-accent: #0b141a;
-  --cb-bubble-user: #005c4b;
-  --cb-bubble-ai: #202c33;
-  --cb-header: #202c33;
-  --cb-danger: #f15c6d;
-  --cb-warning: #e9c46a;
+  --cb-surface: #0f0f0f;
+  --cb-raised: #1a1a1a;
+  --cb-content: #f5f5f5;
+  --cb-secondary: #a3a3a3;
+  --cb-disabled: #737373;
+  --cb-line: #2a2a2a;
+  --cb-divider: #1f1f1f;
+  --cb-accent: #3b82f6;
+  --cb-accent-text: #60a5fa;
+  --cb-on-accent: #ffffff;
+  --cb-bubble-user: #2563eb;
+  --cb-bubble-user-text: #ffffff;
+  --cb-bubble-ai: #1c1c1c;
+  --cb-header: #141414;
+  --cb-danger: #f87171;
+  --cb-warning: #fbbf24;
+  --cb-success: #4ade80;
 }
 
 .chatbot-shell[data-chat-theme="orange"] {
   color-scheme: light;
-  --cb-surface: #fffaf5;
-  --cb-raised: #fff3e8;
-  --cb-content: #1c1410;
-  --cb-secondary: #8a6a55;
-  --cb-disabled: #b08f78;
-  --cb-line: #f0dcc8;
-  --cb-divider: #f7ebe0;
-  --cb-accent: #ff6b00;
-  --cb-accent-text: #e65c00;
+  --cb-surface: #fffdfb;
+  --cb-raised: #faf6f2;
+  --cb-content: #1a120e;
+  --cb-secondary: #7a6558;
+  --cb-disabled: #b09a8a;
+  --cb-line: #ede4db;
+  --cb-divider: #f5efe9;
+  --cb-accent: #ea580c;
+  --cb-accent-text: #c2410c;
   --cb-on-accent: #ffffff;
-  --cb-bubble-user: #ffe0c2;
-  --cb-bubble-ai: #ffffff;
-  --cb-header: #fff3e8;
-  --cb-danger: #d92d20;
-  --cb-warning: #b54708;
-}
-
-.chatbot-shell[data-chat-theme="dark"].chatbot-shell--orange-dark,
-.chatbot-shell[data-chat-theme="orange"][data-chat-dark="true"] {
-  /* reserved */
+  --cb-bubble-user: #ea580c;
+  --cb-bubble-user-text: #ffffff;
+  --cb-bubble-ai: #faf6f2;
+  --cb-header: #fffdfb;
+  --cb-danger: #dc2626;
+  --cb-warning: #b45309;
+  --cb-success: #16a34a;
 }
 
 /* Map common app utility classes inside chatbot only */
@@ -100,6 +101,7 @@ const CSS = `
 /* Composer / bubbles */
 .chatbot-shell [data-role="user-bubble"] {
   background-color: var(--cb-bubble-user) !important;
+  color: var(--cb-bubble-user-text) !important;
   border-color: transparent !important;
 }
 .chatbot-shell [data-role="ai-bubble"] {

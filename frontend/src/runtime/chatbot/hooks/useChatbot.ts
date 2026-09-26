@@ -9,7 +9,6 @@ import {
 
 import type {
   AiStatus,
-  ChatAttachment,
   ChatMessage,
   ChatPanelMode,
   ChatSettings,
@@ -64,12 +63,12 @@ interface SpeechRecognitionResultEvent {
 }
 
 const QUICK_ACTIONS = [
-  { id: 'summarize', label: 'Summarize a document', icon: 'FileText' },
+  { id: 'summarize', label: 'Summarize application', icon: 'FileText' },
   { id: 'explain', label: 'Explain something', icon: 'HelpCircle' },
-  { id: 'analyze', label: 'Analyze a file', icon: 'Search' },
   { id: 'status', label: 'Check application status', icon: 'ClipboardList' },
   { id: 'extract', label: 'Extract information', icon: 'Scan' },
   { id: 'report', label: 'Generate a report', icon: 'BarChart3' },
+  { id: 'help', label: 'How can you help?', icon: 'Search' },
 ]
 
 function createConversation(): Conversation {
@@ -132,7 +131,6 @@ export function useChatbot(context: ChatbotContext = {}) {
   const [status, setStatus] = useState<AiStatus>('online')
   const [settings, setSettings] = useState<ChatSettings>(() => loadSettings())
   const [input, setInput] = useState('')
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [isListening, setIsListening] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
@@ -140,9 +138,7 @@ export function useChatbot(context: ChatbotContext = {}) {
   const [voiceWarning, setVoiceWarning] = useState<string | null>(null)
   const [interimTranscript, setInterimTranscript] = useState('')
   const [showSettings, setShowSettings] = useState(false)
-  const [showSidebar, setShowSidebar] = useState(false)
   const [confirmNew, setConfirmNew] = useState(false)
-  const [isDragging, setIsDragging] = useState(false)
   const [hydrated, setHydrated] = useState(false)
 
   const stopRef = useRef(false)
@@ -156,12 +152,17 @@ export function useChatbot(context: ChatbotContext = {}) {
   contextRef.current = context
   const conversationApiIdRef = useRef<string | null>(null)
 
-  // Restore history + settings once on mount
+  // Restore history + settings once on mount (drop empty conversations)
   useEffect(() => {
     const { conversations: saved, activeId: savedActive } = loadConversations()
     if (saved.length) {
-      setConversations(saved)
-      setActiveId(savedActive && saved.some((c) => c.id === savedActive) ? savedActive : saved[0].id)
+      const nonEmpty = saved.filter((c) => c.messages.length > 0)
+      setConversations(nonEmpty)
+      setActiveId(
+        savedActive && nonEmpty.some((c) => c.id === savedActive)
+          ? savedActive
+          : nonEmpty[0]?.id ?? null,
+      )
     }
     setSettings(loadSettings())
     setHydrated(true)
@@ -226,7 +227,7 @@ export function useChatbot(context: ChatbotContext = {}) {
     setMode((m) => (m === 'closed' ? 'panel' : m))
     if (!activeId) {
       const conv = createConversation()
-      setConversations((prev) => [conv, ...prev])
+      setConversations((prev) => [conv, ...prev.filter((c) => c.messages.length > 0)])
       setActiveId(conv.id)
     }
   }, [activeId])
@@ -234,7 +235,6 @@ export function useChatbot(context: ChatbotContext = {}) {
   const close = useCallback(() => {
     setMode('closed')
     setShowSettings(false)
-    setShowSidebar(false)
     teardownVoice()
     setStatus('online')
   }, [teardownVoice])
@@ -261,10 +261,7 @@ export function useChatbot(context: ChatbotContext = {}) {
       setConfirmNew(true)
       return
     }
-    const conv = createConversation()
-    conversationApiIdRef.current = null
-    setConversations((prev) => [conv, ...prev])
-    setActiveId(conv.id)
+    // Already on an empty chat — nothing to do
     setConfirmNew(false)
     setShowSettings(false)
   }, [messages.length])
@@ -272,7 +269,8 @@ export function useChatbot(context: ChatbotContext = {}) {
   const confirmNewConversation = useCallback(() => {
     const conv = createConversation()
     conversationApiIdRef.current = null
-    setConversations((prev) => [conv, ...prev])
+    // Keep only conversations that have messages, plus the new empty one
+    setConversations((prev) => [conv, ...prev.filter((c) => c.messages.length > 0)])
     setActiveId(conv.id)
     setConfirmNew(false)
     setShowSettings(false)
@@ -286,33 +284,16 @@ export function useChatbot(context: ChatbotContext = {}) {
     [activeId],
   )
 
-  const addAttachment = useCallback((file: File) => {
-    setAttachments((prev) => [
-      ...prev,
-      {
-        id: uid('att'),
-        name: file.name,
-        size: file.size,
-        type: file.type || 'application/octet-stream',
-        progress: 100,
-      },
-    ])
-  }, [])
-
-  const removeAttachment = useCallback((id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id))
-  }, [])
-
   const sendMessage = useCallback(
     async (text?: string) => {
       const content = (text ?? input).trim()
-      if (!content && attachments.length === 0) return
+      if (!content) return
       if (status === 'generating' || status === 'thinking') return
 
       let convId = activeId
       if (!convId) {
         const conv = createConversation()
-        setConversations((prev) => [conv, ...prev])
+        setConversations((prev) => [conv, ...prev.filter((c) => c.messages.length > 0)])
         setActiveId(conv.id)
         convId = conv.id
       }
@@ -320,9 +301,8 @@ export function useChatbot(context: ChatbotContext = {}) {
       const userMsg: ChatMessage = {
         id: uid('msg'),
         role: 'user',
-        content: content || (attachments.length ? `Uploaded ${attachments.length} file(s)` : ''),
+        content,
         timestamp: Date.now(),
-        attachments: attachments.length ? [...attachments] : undefined,
       }
 
       setConversations((prev) =>
@@ -341,7 +321,6 @@ export function useChatbot(context: ChatbotContext = {}) {
         ),
       )
       setInput('')
-      setAttachments([])
       setStatus('thinking')
       stopRef.current = false
       abortRef.current?.abort()
@@ -522,7 +501,7 @@ export function useChatbot(context: ChatbotContext = {}) {
         setTimeout(() => setStatus('online'), 1500)
       }
     },
-    [input, attachments, activeId, status],
+    [input, activeId, status],
   )
 
   const stopGenerating = useCallback(() => {
@@ -822,13 +801,12 @@ export function useChatbot(context: ChatbotContext = {}) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && mode !== 'closed') {
         if (showSettings) setShowSettings(false)
-        else if (showSidebar) setShowSidebar(false)
         else close()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [mode, showSettings, showSidebar, close])
+  }, [mode, showSettings, close])
 
   return {
     mode,
@@ -846,9 +824,6 @@ export function useChatbot(context: ChatbotContext = {}) {
     updateSettings,
     input,
     setInput,
-    attachments,
-    addAttachment,
-    removeAttachment,
     sendMessage,
     stopGenerating,
     regenerate,
@@ -873,10 +848,6 @@ export function useChatbot(context: ChatbotContext = {}) {
     stopSpeaking,
     showSettings,
     setShowSettings,
-    showSidebar,
-    setShowSidebar,
-    isDragging,
-    setIsDragging,
     quickActions: QUICK_ACTIONS,
   }
 }

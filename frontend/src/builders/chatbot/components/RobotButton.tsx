@@ -15,9 +15,9 @@ interface RobotButtonProps {
   modelUrl?: string
 }
 
-const DEFAULT_MODEL_URL = new URL('../assets/mini_bot.glb', import.meta.url).href
+const DEFAULT_MODEL_URL = new URL('../assets/sbfc_bot.glb', import.meta.url).href
 const STORAGE_KEY = 'chatbot-fab-pos'
-const SIZE = 88
+const SIZE = 150
 const MARGIN = 12
 const DRAG_THRESHOLD = 6
 
@@ -215,9 +215,10 @@ export function RobotButton({ onClick, visible, modelUrl }: RobotButtonProps) {
             camera-orbit="0deg 75deg 105%"
             camera-target="0m 0.05m 0m"
             field-of-view="30deg"
-            auto-rotate={!reduceMotion && !dragging ? true : undefined}
+            auto-rotate={!reduceMotion && !dragging && !hover ? true : undefined}
             auto-rotate-delay={0}
-            rotation-per-second={reduceMotion || dragging ? '0deg' : '18deg'}
+            rotation-per-second={reduceMotion || dragging || hover ? '0deg' : '18deg'}
+
             style={{
               width: '100%',
               height: '100%',

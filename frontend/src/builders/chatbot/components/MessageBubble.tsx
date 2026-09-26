@@ -6,6 +6,7 @@ import { formatTime } from '../../../runtime/chatbot'
 interface MessageBubbleProps {
   message: ChatMessage
   showTimestamp?: boolean
+  showSuggestedQuestions?: boolean
   isSpeaking?: boolean
   onCopy?: () => void
   onListen?: () => void
@@ -31,10 +32,11 @@ function ActionBtn({
       aria-label={label}
       title={label}
       aria-pressed={active}
-      className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${active
-          ? 'bg-ember-tint text-ember'
+      className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${
+        active
+          ? 'bg-ember/10 text-ember'
           : 'text-content-secondary hover:bg-raised hover:text-content'
-        }`}
+      }`}
     >
       {children}
     </button>
@@ -48,7 +50,6 @@ function renderContent(text: string) {
   let i = 0
   while (i < lines.length) {
     const line = lines[i]
-    // Code fence
     if (line.startsWith('```')) {
       const lang = line.slice(3).trim()
       const code: string[] = []
@@ -58,14 +59,17 @@ function renderContent(text: string) {
         i++
       }
       nodes.push(
-        <div key={`c-${i}`} className="my-2 overflow-hidden rounded-sm border border-line bg-raised">
+        <div
+          key={`c-${i}`}
+          className="my-2 overflow-hidden rounded-lg border border-line bg-raised"
+        >
           <div className="flex items-center justify-between border-b border-line px-3 py-1.5">
             <span className="font-sans text-[11px] font-medium text-content-secondary">
               {lang || 'code'}
             </span>
             <button
               type="button"
-              className="font-sans text-[11px] text-link hover:underline"
+              className="font-sans text-[11px] text-ember hover:underline"
               onClick={() => navigator.clipboard?.writeText(code.join('\n'))}
             >
               Copy
@@ -79,7 +83,6 @@ function renderContent(text: string) {
       i++
       continue
     }
-    // Bullet
     if (line.startsWith('• ') || line.startsWith('- ')) {
       nodes.push(
         <li key={`li-${i}`} className="ml-4 list-disc">
@@ -89,7 +92,6 @@ function renderContent(text: string) {
       i++
       continue
     }
-    // Bold heading-ish
     if (line.startsWith('**') && line.endsWith('**') && line.length > 4) {
       nodes.push(
         <p key={`h-${i}`} className="mt-2 font-medium text-content">
@@ -100,10 +102,10 @@ function renderContent(text: string) {
       continue
     }
     if (line.trim() === '') {
-      nodes.push(<div key={`sp-${i}`} className="h-2" />)
+      nodes.push(<div key={`sp-${i}`} className="h-1.5" />)
     } else {
       nodes.push(
-        <p key={`p-${i}`} className="leading-[22px]">
+        <p key={`p-${i}`} className="leading-[1.55]">
           {inlineFormat(line)}
         </p>,
       )
@@ -114,7 +116,6 @@ function renderContent(text: string) {
 }
 
 function inlineFormat(text: string): ReactNode {
-  // **bold** and `code`
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
   return parts.map((p, i) => {
     if (p.startsWith('**') && p.endsWith('**')) {
@@ -126,7 +127,10 @@ function inlineFormat(text: string): ReactNode {
     }
     if (p.startsWith('`') && p.endsWith('`')) {
       return (
-        <code key={i} className="rounded-xs bg-raised px-1 py-0.5 font-mono text-[13px]">
+        <code
+          key={i}
+          className="rounded px-1 py-0.5 font-mono text-[13px] bg-black/5 dark:bg-white/10"
+        >
           {p.slice(1, -1)}
         </code>
       )
@@ -138,6 +142,7 @@ function inlineFormat(text: string): ReactNode {
 export function MessageBubble({
   message,
   showTimestamp = true,
+  showSuggestedQuestions = true,
   isSpeaking,
   onCopy,
   onListen,
@@ -151,7 +156,7 @@ export function MessageBubble({
   if (isSystem) {
     return (
       <div className="flex justify-center px-4 py-2">
-        <span className="rounded-xs bg-raised px-3 py-1 font-sans text-[12px] text-content-secondary">
+        <span className="rounded-full bg-raised px-3 py-1 font-sans text-[12px] text-content-secondary">
           {message.content}
         </span>
       </div>
@@ -166,26 +171,30 @@ export function MessageBubble({
   }
 
   return (
-    <div className={`flex flex-col gap-1 px-4 py-2 ${isUser ? 'items-end' : 'items-start'}`}>
-      <div className={`flex max-w-[88%] gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+    <div
+      className={`group flex flex-col gap-1 px-4 py-1.5 ${isUser ? 'items-end' : 'items-start'}`}
+    >
+      <div className={`flex max-w-[85%] gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
         {!isUser && (
-          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xs bg-raised text-content">
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden>
-              <rect x="4" y="6" width="16" height="13" rx="4" fill="currentColor" opacity="0.9" />
-              <circle cx="10" cy="12" r="1.3" fill="#4F5AC7" />
-              <circle cx="14" cy="12" r="1.3" fill="#4F5AC7" />
+          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-raised text-content-secondary">
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
+              <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"
+                fill="currentColor"
+              />
             </svg>
           </div>
         )}
 
         <div
           data-role={isUser ? 'user-bubble' : 'ai-bubble'}
-          className={`rounded-md border px-3.5 py-2.5 font-sans text-[15px] transition-shadow duration-300 ${isUser
-              ? 'border-line bg-raised text-content'
+          className={`rounded-2xl px-3.5 py-2.5 font-sans text-[14.5px] leading-[1.5] ${
+            isUser
+              ? 'rounded-br-md text-white'
               : isSpeaking
-                ? 'border-ember/40 bg-surface text-content shadow-[0_0_0_3px_rgba(var(--ember-rgb,200,80,40),0.12)] ring-1 ring-ember/30'
-                : 'border-line bg-surface text-content'
-            }`}
+                ? 'rounded-bl-md border border-ember/30 shadow-[0_0_0_3px_rgba(37,99,235,0.08)]'
+                : 'rounded-bl-md'
+          }`}
         >
           {message.error ? (
             <p className="text-danger-text">{message.error}</p>
@@ -198,38 +207,45 @@ export function MessageBubble({
               ) : null}
               {message.isStreaming && (
                 <span
-                  className="ml-0.5 inline-block h-[1.1em] w-[2px] translate-y-[2px] animate-pulse bg-ember align-text-bottom"
+                  className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[1px] animate-pulse bg-current align-text-bottom opacity-60"
                   aria-hidden
                 />
               )}
             </div>
           )}
           {!message.isStreaming && message.routeTo && (
-            <p className="mt-2 rounded-sm bg-warning-subtle px-2 py-1 text-[12px] font-medium text-warning-text">
+            <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[12px] font-medium text-amber-800">
               Route to {message.routeTo}
             </p>
           )}
           {!message.isStreaming && message.grounded === false && !message.routeTo && (
-            <p className="mt-1 text-[11px] text-content-secondary">Limited evidence</p>
+            <p className="mt-1 text-[11px] opacity-60">Limited evidence</p>
           )}
         </div>
       </div>
 
       {showTimestamp && (
         <span
-          className={`px-1 font-sans text-[12px] text-content-disabled ${isUser ? 'mr-0' : 'ml-9'
-            }`}
+          className={`px-1 font-sans text-[11px] text-content-disabled ${
+            isUser ? 'mr-0' : 'ml-9'
+          }`}
         >
           {formatTime(message.timestamp)}
         </span>
       )}
 
-      {/* AI actions */}
+      {/* AI actions — hover / focus / speaking only */}
       {!isUser && !message.isStreaming && (
-        <div className="ml-9 flex items-center gap-0.5">
+        <div
+          className={`ml-9 flex items-center gap-0.5 transition-opacity duration-150 ${
+            isSpeaking
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+          }`}
+        >
           <ActionBtn label={copied ? 'Copied' : 'Copy'} onClick={handleCopy}>
             {copied ? (
-              <Check className="h-3.5 w-3.5 text-success" strokeWidth={2.5} />
+              <Check className="h-3.5 w-3.5 text-emerald-500" strokeWidth={2.5} />
             ) : (
               <Copy className="h-3.5 w-3.5" strokeWidth={2} />
             )}
@@ -240,9 +256,8 @@ export function MessageBubble({
             active={isSpeaking}
           >
             {isSpeaking ? (
-              <span className="relative flex h-8 w-8 items-center justify-center">
-                <span className="absolute inset-0 animate-ping rounded-full bg-ember/30" />
-                <span className="absolute inset-1 animate-pulse rounded-full bg-ember/20" />
+              <span className="relative flex h-7 w-7 items-center justify-center">
+                <span className="absolute inset-0 animate-ping rounded-full bg-ember/20" />
                 <VolumeX className="relative h-3.5 w-3.5 text-ember" strokeWidth={2} />
               </span>
             ) : (
@@ -255,21 +270,22 @@ export function MessageBubble({
         </div>
       )}
 
-      {/* Suggested questions */}
-      {message.suggestedQuestions && message.suggestedQuestions.length > 0 && (
-        <div className="ml-9 mt-1 flex flex-wrap gap-2">
-          {message.suggestedQuestions.map((q) => (
-            <button
-              key={q}
-              type="button"
-              onClick={() => onSuggested?.(q)}
-              className="rounded-sm border border-line bg-surface px-3 py-1.5 font-sans text-[12px] font-medium text-content-secondary transition-colors hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-      )}
+      {showSuggestedQuestions &&
+        message.suggestedQuestions &&
+        message.suggestedQuestions.length > 0 && (
+          <div className="ml-9 mt-1.5 flex flex-wrap gap-1.5">
+            {message.suggestedQuestions.map((q) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => onSuggested?.(q)}
+                className="rounded-full border border-line bg-surface px-3 py-1.5 font-sans text-[12px] font-medium text-content-secondary transition-colors hover:border-ember/40 hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
     </div>
   )
 }

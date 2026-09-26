@@ -1,7 +1,5 @@
 import { useRef, type ChangeEvent, type KeyboardEvent } from 'react'
-import { AlertCircle, Mic, MicOff, Paperclip, Send, Square, X } from 'lucide-react'
-import type { ChatAttachment } from '../../../runtime/chatbot'
-import { formatFileSize } from '../../../runtime/chatbot'
+import { AlertCircle, Mic, MicOff, Send, Square } from 'lucide-react'
 
 interface ChatComposerProps {
   value: string
@@ -17,9 +15,6 @@ interface ChatComposerProps {
   /** Short error from last voice attempt */
   voiceError?: string | null
   onDismissVoiceError?: () => void
-  attachments: ChatAttachment[]
-  onAddFiles: (files: FileList | File[]) => void
-  onRemoveAttachment: (id: string) => void
   /** When true, Enter sends; Shift+Enter always inserts newline. */
   sendWithEnter?: boolean
   /** When false, mic button is hidden. */
@@ -39,14 +34,10 @@ export function ChatComposer({
   interimTranscript = '',
   voiceError,
   onDismissVoiceError,
-  attachments,
-  onAddFiles,
-  onRemoveAttachment,
   sendWithEnter = true,
   voiceInputEnabled = true,
   disabled,
 }: ChatComposerProps) {
-  const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -65,64 +56,38 @@ export function ChatComposer({
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`
   }
 
-  const canSend =
-    !disabled && !isGenerating && !isListening && (!!value.trim() || attachments.length > 0)
+  const canSend = !disabled && !isGenerating && !isListening && !!value.trim()
 
   return (
-    <div data-role="chat-composer" className="shrink-0 border-t border-line bg-surface px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-      {/* Attachments preview */}
-      {attachments.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {attachments.map((a) => (
-            <div
-              key={a.id}
-              className="flex max-w-[220px] items-center gap-2 rounded-sm border border-line bg-raised px-2.5 py-1.5"
-            >
-              <span className="truncate font-sans text-[12px] font-medium text-content">
-                {a.name}
-              </span>
-              <span className="shrink-0 font-sans text-[11px] text-content-secondary">
-                {formatFileSize(a.size)}
-              </span>
-              <button
-                type="button"
-                aria-label={`Remove ${a.name}`}
-                onClick={() => onRemoveAttachment(a.id)}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-xs text-content-secondary hover:bg-surface hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
-              >
-                <X className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Mic / voice error */}
+    <div
+      data-role="chat-composer"
+      className="shrink-0 border-t border-line px-3 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+    >
       {voiceError && !isListening && (
         <div
           role="alert"
-          className="mb-2 flex items-start gap-2.5 rounded-sm border border-danger/30 bg-danger-subtle px-3 py-2.5"
+          className="mb-2 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5"
         >
           <AlertCircle
-            className="mt-0.5 h-4 w-4 shrink-0 text-danger-text"
+            className="mt-0.5 h-4 w-4 shrink-0 text-red-600"
             strokeWidth={2}
             aria-hidden
           />
           <div className="min-w-0 flex-1">
-            <p className="font-sans text-[13px] leading-snug text-danger-text">{voiceError}</p>
+            <p className="font-sans text-[13px] leading-snug text-red-700">{voiceError}</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={onStartListen}
                 disabled={disabled || isGenerating}
-                className="rounded-sm bg-surface px-2.5 py-1 font-sans text-[12px] font-medium text-content shadow-sm ring-1 ring-line transition-colors hover:bg-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40"
+                className="rounded-md bg-white px-2.5 py-1 font-sans text-[12px] font-medium text-content shadow-sm ring-1 ring-line transition-colors hover:bg-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40"
               >
                 Try again
               </button>
               <button
                 type="button"
                 onClick={onDismissVoiceError}
-                className="rounded-sm px-2 py-1 font-sans text-[12px] font-medium text-danger-text hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+                className="rounded-md px-2 py-1 font-sans text-[12px] font-medium text-red-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
               >
                 Dismiss
               </button>
@@ -131,18 +96,17 @@ export function ChatComposer({
         </div>
       )}
 
-      {/* Listening banner with live interim text */}
       {isListening && (
         <div
-          className="mb-2 flex items-start gap-2.5 rounded-sm border border-ember/30 bg-ember-subtle px-3 py-2.5"
+          className="mb-2 flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5"
           aria-live="polite"
         >
           <span className="relative mt-1.5 flex h-2 w-2 shrink-0">
-            <span className="absolute inset-0 animate-ping rounded-full bg-ember opacity-60" />
-            <span className="relative h-2 w-2 rounded-full bg-ember" />
+            <span className="absolute inset-0 animate-ping rounded-full bg-blue-500 opacity-60" />
+            <span className="relative h-2 w-2 rounded-full bg-blue-500" />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="font-sans text-[13px] font-semibold text-ember-text">Listening…</div>
+            <div className="font-sans text-[13px] font-semibold text-blue-700">Listening…</div>
             <div className="mt-0.5 break-words font-sans text-[12px] leading-snug text-content-secondary">
               {interimTranscript || 'Speak clearly — transcript appears here'}
             </div>
@@ -150,7 +114,7 @@ export function ChatComposer({
           <button
             type="button"
             onClick={onStopListen}
-            className="shrink-0 rounded-sm px-2 py-1 font-sans text-[12px] font-medium text-ember-text hover:bg-ember/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            className="shrink-0 rounded-md px-2 py-1 font-sans text-[12px] font-medium text-blue-700 hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
           >
             Stop
           </button>
@@ -158,30 +122,10 @@ export function ChatComposer({
       )}
 
       <div
-        className={`flex min-w-0 items-end gap-1 rounded-xl border bg-surface px-1.5 py-1.5 transition-colors focus-within:border-ember ${isListening ? 'border-ember' : 'border-line'
-          }`}
+        className={`flex min-w-0 items-end gap-1 rounded-2xl border bg-raised px-2 py-1.5 transition-colors focus-within:border-ember/60 focus-within:bg-surface focus-within:ring-2 focus-within:ring-ember/10 ${
+          isListening ? 'border-blue-400' : 'border-line'
+        }`}
       >
-        <button
-          type="button"
-          aria-label="Attach file"
-          onClick={() => fileRef.current?.click()}
-          disabled={disabled || isListening}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-content-secondary transition-colors hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40"
-        >
-          <Paperclip className="h-[18px] w-[18px]" strokeWidth={2} />
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          multiple
-          className="hidden"
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,image/*"
-          onChange={(e) => {
-            if (e.target.files?.length) onAddFiles(e.target.files)
-            e.target.value = ''
-          }}
-        />
-
         <textarea
           ref={taRef}
           value={value}
@@ -190,7 +134,7 @@ export function ChatComposer({
           placeholder={isListening ? 'Listening…' : 'Ask anything…'}
           rows={1}
           disabled={disabled || isListening}
-          className="max-h-[140px] min-h-[36px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent py-2 font-sans text-[15px] leading-[22px] text-content placeholder:text-content-disabled focus:outline-none disabled:opacity-60"
+          className="max-h-[140px] min-h-[32px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1.5 font-sans text-[14.5px] leading-[1.45] text-content placeholder:text-content-disabled focus:outline-none disabled:opacity-60"
           aria-label="Message input"
         />
 
@@ -202,15 +146,16 @@ export function ChatComposer({
             onClick={isListening ? onStopListen : onStartListen}
             disabled={disabled || isGenerating}
             title={isListening ? 'Stop listening' : 'Voice input'}
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40 ${isListening
-                ? 'bg-ember text-oncolor shadow-sm'
-                : 'text-content-secondary hover:bg-raised hover:text-content'
-              }`}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40 ${
+              isListening
+                ? 'bg-blue-500 text-white shadow-sm'
+                : 'text-content-secondary hover:bg-surface hover:text-content'
+            }`}
           >
             {isListening ? (
-              <MicOff className="h-[18px] w-[18px]" strokeWidth={2} />
+              <MicOff className="h-4 w-4" strokeWidth={2} />
             ) : (
-              <Mic className="h-[18px] w-[18px]" strokeWidth={2} />
+              <Mic className="h-4 w-4" strokeWidth={2} />
             )}
           </button>
         )}
@@ -220,9 +165,9 @@ export function ChatComposer({
             type="button"
             aria-label="Stop generating"
             onClick={onStop}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink text-on-ink transition-colors hover:bg-ink-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-content text-surface transition-colors hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
           >
-            <Square className="h-3.5 w-3.5 fill-current" strokeWidth={0} />
+            <Square className="h-3 w-3 fill-current" strokeWidth={0} />
           </button>
         ) : (
           <button
@@ -230,9 +175,9 @@ export function ChatComposer({
             aria-label="Send message"
             onClick={onSend}
             disabled={!canSend}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink text-on-ink transition-colors hover:bg-ink-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:bg-ink-disabled disabled:text-surface"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-ember text-oncolor transition-colors hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-30"
           >
-            <Send className="h-[16px] w-[16px]" strokeWidth={2.2} />
+            <Send className="h-3.5 w-3.5" strokeWidth={2.2} />
           </button>
         )}
       </div>
