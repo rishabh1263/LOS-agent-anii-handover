@@ -53,6 +53,9 @@ class QueryCategory(str, Enum):
     MIXED = "MIXED"
     DOWNSTREAM = "DOWNSTREAM"
     UNSUPPORTED = "UNSUPPORTED"
+    #: Greetings, thanks, "what can you do": answered from nothing -- no
+    #: record, tool, retrieval or model (conversation.py).
+    CONVERSATION = "CONVERSATION"
 
 
 class ResponseSource(str, Enum):
@@ -76,6 +79,8 @@ class ResponseSource(str, Enum):
     LLM = "LLM"
     #: Routed downstream. No answer was produced at all.
     ROUTED = "ROUTED"
+    #: A conversational reply (greeting, thanks, help) -- no business fact.
+    CONVERSATION = "CONVERSATION"
 
 
 def category_for(intent: Intent) -> QueryCategory:
@@ -106,6 +111,7 @@ def category_for(intent: Intent) -> QueryCategory:
 RELEVANT_FIELDS: dict[Intent, tuple[str, ...]] = {
     Intent.APPLICANT_DETAILS: ("applicant",),
     Intent.APPLICANT_MISSING_INFO: ("applicant", "pending_items"),
+    Intent.APPLICANT_PROFILE: ("applicant", "application"),
     Intent.APPLICATION_STATUS: ("application", "stage"),
     Intent.APPLICATION_STAGE: ("application", "stage", "checklist",
                                "required_documents"),

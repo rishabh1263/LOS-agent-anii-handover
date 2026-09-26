@@ -72,6 +72,12 @@ agent-framework-ollama==1.0.0b260813
 langgraph>=1.0,<2
 mcp>=1.12,<2
 
+# ── Case store ───────────────────────────────────────────────────────────────
+# The repository layer (app/store/) runs on SQLite through the standard-library
+# sqlite3 module -- no package needed. It is Postgres-READY by interface
+# (app/store/repository.py), but no Postgres repository exists yet, so no
+# driver (psycopg / asyncpg) is listed: add one with that implementation.
+
 # ── Retrieval (RAG) ──────────────────────────────────────────────────────────
 # Qdrant is the vector store for case-derived text and process knowledge
 # (app/knowledge/vector_store.py). It was imported but never declared: without
@@ -84,10 +90,15 @@ qdrant-client>=1.12,<2
 # startup; spans for request, auth, MCP, RAG, JEV, Qwen, guardrail, validator).
 # Export is OTLP to an OTEL / ADOT collector (-> X-Ray / CloudWatch); off
 # unless OTEL_ENABLED=true. CloudWatch metrics use EMF log lines (no AWS SDK)
-# or, in CLOUDWATCH_MODE=api, boto3 -- installed only where deployed to AWS.
+# or, in CLOUDWATCH_MODE=api, boto3 (below).
 opentelemetry-api>=1.27,<2
 opentelemetry-sdk>=1.27,<2
 opentelemetry-exporter-otlp-proto-grpc>=1.27,<2
+# CloudWatch metrics in CLOUDWATCH_MODE=api (app/observability/cloudwatch.py,
+# imported lazily; the default `emf` mode needs no AWS SDK). Credentials come
+# only from the standard AWS chain (instance/task role, environment, profile)
+# -- never from this repository's configuration.
+boto3>=1.34,<2
 
 # ── OCR ──────────────────────────────────────────────────────────────────────
 # rapidocr-onnxruntime is the DEFAULT engine (DOCUMENT_OCR_ENGINE=rapidocr) and

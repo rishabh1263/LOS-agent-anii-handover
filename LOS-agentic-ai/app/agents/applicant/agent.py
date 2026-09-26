@@ -653,7 +653,10 @@ async def answer_question(
     # nothing about the case either. See app/security/guardrails.py.
     from app.security import guardrails
 
-    screened = guardrails.check_input(message)
+    # THE IDS THIS REQUEST IS AUTHORISED FOR. Any other case / applicant /
+    # party id named in the message is somebody else's (request_policy).
+    screened = guardrails.check_input(
+        message, allowed_ids=(case_id, applicant_id, party_id))
     if not screened.allowed:
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
@@ -669,6 +672,40 @@ async def answer_question(
             errors=[{"code": "REQUEST_NOT_ALLOWED",
                      "message": "This request cannot be answered here."}],
         )
+
+    # SMALL TALK AND "WHAT CAN YOU DO", ANSWERED FROM NOTHING. A greeting,
+    # thanks, goodbye or request for help -- or a question about what the
+    # Copilot can access, or about past conversations -- reads no record,
+    # runs no tool, retrieves nothing and calls no model (conversation.py).
+    # A request for a person is NOT small talk: it keeps its handoff path.
+    from app.agents.applicant import conversation as conversations
+    from app.agents.applicant import handoff as _handoffs
+    from app.security import request_policy
+
+    turn = None
+    if not _handoffs.asks_for_person(message):
+        turn = conversations.classify(message)
+        if turn is None and request_policy.asks_capability(message):
+            turn = conversations.Turn(conversations.CAPABILITIES)
+        if turn is None and request_policy.asks_own_history(message):
+            turn = conversations.Turn(conversations.HISTORY)
+    if turn is not None:
+        reply, reply_language = conversations.reply(turn.kind, turn.language)
+        audit.record(request_id=request_id, subject=caller.subject,
+                     applicant_id=applicant_id, case_id=case_id,
+                     intent=turn.kind, tools=[], status="CONVERSATION")
+        return envelope(
+            intent=turn.kind,
+            category=routing.QueryCategory.CONVERSATION.value,
+            query_type=QueryType.CLARIFICATION.value,
+            answer=reply,
+            response_source=routing.ResponseSource.CONVERSATION.value,
+            suggested_questions=list(conversations.SUGGESTIONS),
+            _presented_language=reply_language,
+        )
+
+    # A GREETING IN FRONT OF A QUESTION is courtesy, not a second clause.
+    message = conversations.without_greeting(message)
 
     # A BARE FOLLOW-UP BECOMES A WHOLE QUESTION FIRST.
     #
@@ -729,6 +766,21 @@ async def answer_question(
     intent = classification.intent
     _routing_ms[0] = round((time.perf_counter() - routing_started) * 1000, 2)
 
+    # "WHAT IS THIS BASED ON?" WITH NOTHING TO EXPLAIN: there was no previous
+    # answer in this conversation, so the honest reply says so (read nothing).
+    if intent is Intent.UNKNOWN and (
+            resolution.reason == followup.EXPLAIN_REASON
+            or followup._WHY_ANSWER.match(message or "")):
+        from app.agents.applicant import provenance as _chain
+
+        return envelope(
+            intent="ANSWER_BASIS",
+            category=routing.QueryCategory.CONVERSATION.value,
+            query_type=QueryType.CLARIFICATION.value,
+            answer=_chain.explain(None),
+            response_source=routing.ResponseSource.CONVERSATION.value,
+            followed_up=resolution.public())
+
     # ---- out of scope, before anything is read -------------------------
     if intent is Intent.OUT_OF_SCOPE:
         route = config.routing_table().get(classification.route_to or "", {})
@@ -775,7 +827,8 @@ async def answer_question(
 
     # ANY LANGUAGE the handoff layer recognises ("talk to a human", "customer
     # care", "kisi insaan se baat karni hai"), checked on the canonical words.
-    if intent is Intent.UNKNOWN and handoffs.asks_for_person(message):
+    asks_person_only = handoffs.asks_for_person(message) and len(message.split()) <= 6
+    if (intent is Intent.UNKNOWN or asks_person_only) and handoffs.asks_for_person(message):
         # AN EXPLICIT REQUEST FOR A PERSON. Reported as a handoff signal a
         # channel can act on -- no human desk exists in this service, so the
         # answer does not claim anyone has been contacted. No case data.
@@ -868,6 +921,14 @@ async def answer_question(
             permissions.check_ownership(applicant_id or "", case_id,
                                         caller=caller,
                                         write=intent in WRITE_INTENTS)
+            # A CUSTOMER-FACING DEPLOYMENT (access.conversation_service_access):
+            # a service scope does not open a case the caller does not own.
+            from app.security import access as _access
+
+            if (_access.conversation_service_access() == "deny"
+                    and _access.is_service(caller.scopes, write=False)
+                    and not _access.holds(caller.subject, case_id)):
+                raise PermissionDenied("CASE_NOT_ACCESSIBLE", "Not the caller's case.")
     except PermissionDenied as exc:
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
@@ -1251,6 +1312,20 @@ async def answer_question(
               and _named_pending(classification.document_type, results)):
             # "Address proof pending?" is answered about Address Proof.
             answer = _named_pending(classification.document_type, results)
+            source, llm_ms = "deterministic", 0.0
+        elif intent is Intent.APPLICANT_PROFILE:
+            # ONE RECORDED DETAIL, from the applicant / application record the
+            # tools just read for this case (profile.py). A co-applicant's
+            # form details are not served here: said so, never substituted.
+            from app.agents.applicant import profile as profiles
+
+            if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
+                answer = ("I can only show the primary applicant's recorded details here. "
+                          "Ask me about your co-applicant's documents or verification instead.")
+            else:
+                answer = profiles.answer(
+                    profiles.Question(classification.fields.get("field") or profiles.ALL),
+                    results)
             source, llm_ms = "deterministic", 0.0
         elif (intent in (Intent.DOCUMENTS_UPLOADED, Intent.DOCUMENTS_PENDING)
               and classification.status_filter):

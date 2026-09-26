@@ -144,6 +144,48 @@ def authorize(subject: str | None, scopes: Iterable[str], *,
         raise AccessDenied()
 
 
+def holds(subject: str | None, case_id: str) -> bool:
+    """Whether this subject OWNS the case (or its applicant) -- no service bypass."""
+    from app.store import get_repository
+
+    if not subject or not case_id:
+        return False
+    try:
+        repository = get_repository()
+        application = repository.get_application(case_id)
+    except Exception:
+        return False
+    if application is None:
+        return False
+    return (repository.has_access(subject, CASE, case_id)
+            or repository.has_access(subject, APPLICANT, application.applicant_id))
+
+
+def conversation_service_access() -> str:
+    """
+    `allow` or `deny`: may SERVICE scopes (los.read / los.write) open a case
+    in a Copilot CONVERSATION without owning it?
+
+    `allow` (default) keeps the staff-desk behaviour -- a CPA / credit / RCU
+    officer reviews cases they did not create. A CUSTOMER-FACING deployment
+    sets `deny` (COPILOT_SERVICE_SCOPE_ACCESS=deny, or
+    chatbot.access.service_scopes_in_conversation), and then only the case's
+    owner may converse about it. BUSINESS DECISION: which deployment this is.
+    """
+    import os
+
+    value = os.getenv("COPILOT_SERVICE_SCOPE_ACCESS")
+    if not value:
+        try:
+            from app.agents.applicant import config
+
+            value = str(config.chatbot("access").get("service_scopes_in_conversation")
+                        or "allow")
+        except Exception:
+            value = "allow"
+    return "deny" if str(value).strip().lower() == "deny" else "allow"
+
+
 def authorize_claims(claims: dict[str, Any], **kwargs: Any) -> None:
     """`authorize` for a request's JWT claims."""
     authorize(get_subject(claims), get_scopes(claims), **kwargs)

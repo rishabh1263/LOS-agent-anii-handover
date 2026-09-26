@@ -467,6 +467,13 @@ chatbot:
       where's: where is
       y: why
       stg: stage
+      shw: show
+      sho: show
+      al: all
+      custmer: customer
+      custmers: customers
+      costumer: customer
+      costumers: customers
       stge: stage
       stgae: stage
       satge: stage
@@ -615,6 +622,13 @@ chatbot:
   # Required: a configured manual-review action, or an explicit request for a
   # person. Recommended: repeated unresolved turns, or high frustration.
   # HANDOFF_ENABLED in the environment overrides `enabled`.
+  # WHO MAY CONVERSE ABOUT A CASE. `allow`: service scopes (los.read /
+  # los.write) may open any case, as staff desks do today. `deny`: a
+  # customer-facing Copilot -- only the case's owner. BUSINESS DECISION.
+  # COPILOT_SERVICE_SCOPE_ACCESS in the environment overrides this.
+  access:
+    service_scopes_in_conversation: allow
+
   handoff:
     enabled: true
     max_unresolved_turns: 3

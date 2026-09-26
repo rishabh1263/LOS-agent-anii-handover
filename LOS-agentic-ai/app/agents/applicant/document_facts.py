@@ -135,8 +135,10 @@ def answer(
         and str((f.payload or {}).get("type") or "").upper() == document_type
     ]
     if not verified:
-        return (f"No {words} has been recorded for this case, so there is "
-                f"no {label} from a {words} to report.", [])
+        # No document, so no value of any field: said without naming a field
+        # the question may not have asked for.
+        return (f"No {words} has been recorded for this case yet, so I "
+                f"don't have its details.", [])
 
     verification = verified[-1]
     status = str(verification.status or "").upper() or "UNKNOWN"

@@ -487,6 +487,24 @@ def _says_no_evidence(answer: object) -> bool:
     return bool(_NO_EVIDENCE_RE.search(str(answer or "")))
 
 
+def _answered_without_the_case(request: "CopilotQueryRequest") -> bool:
+    """A refused request or small talk: answered before any case read."""
+    from app.agents.applicant import conversation as conversations
+    from app.agents.applicant import handoff as _handoffs
+    from app.security import guardrails, request_policy
+
+    message = request.message
+    if not guardrails.check_input(
+            message, allowed_ids=(request.case_id, request.applicant_id,
+                                  request.party_id)).allowed:
+        return True
+    if _handoffs.asks_for_person(message):
+        return False
+    return bool(conversations.classify(message)
+                or request_policy.asks_capability(message)
+                or request_policy.asks_own_history(message))
+
+
 #: Channels a request may name. Anything else is published as "api".
 _CHANNELS = frozenset({"web", "mobile", "whatsapp", "fos_app",
                        "agent_desktop", "api"})
@@ -512,8 +530,8 @@ def _converse(request: "CopilotQueryRequest", envelope: dict[str, Any],
     canonical = normalize.normalise(request.message).text
     signal = sentiment.detect(request.message, canonical)
     answer = str(envelope.get("answer") or "")
-    localized = target == "en"
-    template_used = None
+    localized = target == "en" or envelope.get("_presented_language") == target
+    template_used = "conversation" if envelope.get("_presented_language") not in (None, "en") else None
 
     if (target != "en" and gated is None and context.stage is not None
             and str(envelope.get("intent") or "") == "APPLICATION_STAGE"
@@ -701,7 +719,7 @@ def _accept_composed(text: str, *, structured: str, facts: dict[str, Any],
 
 #: Intents whose answer quotes recorded values and is never rephrased.
 _QUOTED = {"CASE_HISTORY", "ELIGIBILITY", "INCOME_EVIDENCE",
-           "DOCUMENT_DETAILS"}
+           "DOCUMENT_DETAILS", "APPLICANT_PROFILE"}
 
 
 async def _grounded(
@@ -720,6 +738,13 @@ async def _grounded(
     """
     category = str(envelope.get("category") or "").upper()
     if category not in _RETRIEVES:
+        return grounding.GroundedContext(), False
+    # ONE RECORDED DETAIL IS ANSWERED FROM ITS RECORD ALONE: no retrieval,
+    # no model (it is quoted, never phrased). The applicant / application
+    # records on the envelope are what ground it.
+    if str(envelope.get("intent") or "").upper() == "APPLICANT_PROFILE":
+        envelope["_composition"] = {"called": False, "skipped": "RECORDED_VALUES",
+                                    "language": getattr(request, "language", None) or "en"}
         return grounding.GroundedContext(), False
 
     applicant_id = str(envelope.get("applicant_id")
@@ -1428,6 +1453,14 @@ async def query(
     started = time.perf_counter()
     timings: dict[str, float] = {}
 
+    # SECURITY AND SMALL TALK FIRST (decision order: 1. what kind of request
+    # is this, 2. is the caller allowed ...). A request the input policy
+    # refuses, or a greeting, is answered by the agent before any read -- so
+    # the route does not read the case for it either: no ownership lookup,
+    # no stage resolution, no evidence packet. The refusal says nothing
+    # about the case, so there is nothing to authorise.
+    early = _answered_without_the_case(request)
+
     # OWNERSHIP BEFORE ANYTHING ABOUT THE CASE IS READ OR SAID. The stage
     # below is a fact about the case, and every response publishes it --
     # including the ones the agent returns before its own ownership check
@@ -1435,7 +1468,7 @@ async def query(
     # it first told a caller who does not hold a case which desk it sits
     # at. The SAME check the agent runs (permissions.check_ownership), so
     # there is still one answer to "may this caller see this case".
-    if request.case_id:
+    if request.case_id and not early:
         from app.agents.applicant import permissions
         from app.security import access
 
@@ -1453,6 +1486,13 @@ async def query(
                 except access.AccessDenied as denied:
                     raise permissions.PermissionDenied(
                         denied.code, denied.message) from None
+            # A CUSTOMER-FACING DEPLOYMENT: service scopes do not open another
+            # customer's case in a conversation -- only ownership does.
+            if (access.conversation_service_access() == "deny"
+                    and access.is_service(caller.scopes, write=False)
+                    and not access.holds(caller.subject, request.case_id)):
+                raise permissions.PermissionDenied(
+                    "CASE_NOT_ACCESSIBLE", "Not the caller's case.")
         except permissions.PermissionDenied:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -1467,7 +1507,8 @@ async def query(
     # then its application status, and only falls back to what the caller
     # said when the record establishes nothing.
     with timed(timings, "stage", request_id=request_id):
-        context = stages.resolve(request.case_id, request.stage)
+        context = (stages.resolve(None, None) if early
+                   else stages.resolve(request.case_id, request.stage))
 
     # AUDIT CONTEXT for every line this request writes: stage, where it came
     # from, channel, auth mode and language -- codes only.
@@ -1630,7 +1671,9 @@ async def query(
 
     # PROVENANCE (Slice 10): the answer's chain, from what this request
     # already holds, checked against the case's own records.
-    if gated is None and envelope.get("case_id") and             "_evidence_packet" not in envelope:
+    if gated is None and envelope.get("case_id") and \
+            str(envelope.get("category") or "").upper() in _CASE_CATEGORIES and \
+            "_evidence_packet" not in envelope:
         envelope["_evidence_packet"] = _evidence(envelope, context)
     provenance = _provenance(request, envelope, context, evidence, request_id)
 
@@ -1679,7 +1722,8 @@ async def query(
     from app.agents.applicant import evidence as evidence_builder
 
     packet = {}
-    if gated is None and (envelope.get("case_id") or request.case_id):
+    if gated is None and (envelope.get("case_id") or request.case_id) and \
+            str(envelope.get("category") or "").upper() in _CASE_CATEGORIES:
         packet = envelope.get("_evidence_packet")
         if packet is None:
             packet = _evidence(envelope, context)
