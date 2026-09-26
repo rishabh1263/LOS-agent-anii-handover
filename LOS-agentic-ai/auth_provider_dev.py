@@ -40,10 +40,22 @@ REFRESH_TOKEN_TTL_SECONDS = int(
 )
 
 CLIENT_ID = os.getenv("AUTH_CLIENT_ID", "los-demo-client")
-CLIENT_SECRET = os.getenv(
-    "AUTH_CLIENT_SECRET",
-    "change-me-local-only",
-)
+# NO DEFAULT SECRET. A hard-coded fallback meant anyone who read this file
+# could obtain a `los.write` token from any running copy of it.
+CLIENT_SECRET = os.getenv("AUTH_CLIENT_SECRET") or None
+
+_DEV_ENVIRONMENTS = {"development", "dev", "local", "test"}
+
+
+def _refuse_outside_development() -> None:
+    """This server mints write-all tokens: development only, secret required."""
+    environment = (os.getenv("ENVIRONMENT") or "production").strip().lower()
+    if environment not in _DEV_ENVIRONMENTS:
+        raise SystemExit(
+            f"auth_provider_dev refuses to run with ENVIRONMENT={environment!r}; "
+            "it is a local development token server only.")
+    if not CLIENT_SECRET:
+        raise SystemExit("AUTH_CLIENT_SECRET must be set (there is no default).")
 
 
 def ensure_signing_keypair() -> None:
@@ -362,6 +374,7 @@ def health():
 
 
 if __name__ == "__main__":
+    _refuse_outside_development()
     uvicorn.run(
         "auth_provider_dev:app",
         host="127.0.0.1",

@@ -275,6 +275,29 @@ def stage_history_answer(message: str, context: Any) -> str:
                 return index
         return None
 
+    # WHAT CHANGED: the recorded moves, after the named stage (or all of
+    # them), each with when it happened. Findings are not re-derived here.
+    # "What happened after FOS?" is the same question in the past tense.
+    if re.search(r"\bchanged\b|\bhappened\s+(after|since)\b", text):
+        start = 0
+        if named:
+            visit = last_visit(named)
+            if visit is None:
+                return (f"Your application has not been at the "
+                        f"{label(named)} stage.")
+            start = visit
+        moves = history[start + 1:]
+        if not moves:
+            since = label(named or current)
+            return (f"Nothing has changed in your application's stage since it "
+                    f"entered the {since} stage; it is still at the "
+                    f"{label(current)} stage.")
+        parts = [f"to the {label(m['stage'])} stage"
+                 + (f" on {_when(m['started_at'])}" if m.get("started_at") else "")
+                 for m in moves[:3]]
+        return (f"Since the {label(history[start]['stage'])} stage, your "
+                f"application moved " + ", then ".join(parts) + ".")
+
     if re.search(r"\bbefore\b|\b(previous|prior|earlier|last)\s+stage\b", text):
         anchor = named or current
         index = last_visit(anchor)

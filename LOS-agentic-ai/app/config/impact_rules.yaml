@@ -1,0 +1,132 @@
+# =============================================================================
+# IMPACT + NEXT BEST ACTION RULES  (app/agents/applicant/impact.py, actions.py)
+# =============================================================================
+#
+# STATUS: DERIVED_FROM_CODE -- NOT CONFIRMED BUSINESS POLICY.
+#
+# Every rule below restates behaviour the service ALREADY enforces in code or
+# configuration; nothing here is new lending policy. `basis` names that
+# behaviour. The file exists so Impact and Next Best Action read one
+# declared table instead of re-deriving it, and so a business owner can
+# review, confirm or change it in one place.
+#
+# A finding code with NO rule here gets impact NOT_CONFIGURED and no action:
+# the Copilot says an issue is recorded and that no impact rule is configured
+# for it. It never invents one.
+#
+# `blocking` means: blocks the CURRENT STAGE'S HANDOFF under the readiness
+# rules. It is taken from the configuration that decides it, never restated:
+#   blocking_from: kyc_policy.<check>   -> kyc_policies.yaml <check>.blocking
+#   blocking_from: readiness.<rule>     -> applicant_agent.yaml readiness.<rule>
+# Readiness is configured for the FOS stage only; at any other stage a
+# readiness-derived `blocking` is null (not configured), never guessed.
+#
+# Codes (impact, effect, action) are LANGUAGE-NEUTRAL. What a person reads is
+# the `phrases` table, keyed by language -- English only today; another
+# language is added as a new key, with the same codes and the same truth.
+# =============================================================================
+
+version: "0.1.0-DERIVED"
+status: DERIVED_FROM_CODE
+confirmed: false
+
+# -- finding / pending-item code -> impact --------------------------------
+rules:
+  DOCUMENT_TYPE_MISMATCH:
+    impact: DOCUMENT_VERIFICATION_FAILED
+    effect: VERIFICATION_FAIL
+    blocking_from: readiness.require_documents_verified
+    action: REQUEST_CORRECT_DOCUMENT
+    basis: "an expected-type mismatch fails verification, holds the application at REVIEW and requests the correct document"
+
+  NAME_MISMATCH:        {impact: KYC_REVIEW, effect: CASE_REVIEW, blocking_from: kyc_policy.name, action: MANUAL_REVIEW,
+                         basis: "a non-blocking KYC disagreement caps the case at REVIEW for a reviewer"}
+  FATHER_NAME_MISMATCH: {impact: KYC_REVIEW, effect: CASE_REVIEW, blocking_from: kyc_policy.father_name, action: MANUAL_REVIEW,
+                         basis: "a non-blocking KYC disagreement caps the case at REVIEW for a reviewer"}
+  DOB_MISMATCH:         {impact: KYC_REVIEW, effect: CASE_REVIEW, blocking_from: kyc_policy.dob, action: MANUAL_REVIEW,
+                         basis: "a KYC date-of-birth disagreement is routed to a reviewer"}
+  ADDRESS_MISMATCH:     {impact: KYC_REVIEW, effect: CASE_REVIEW, blocking_from: kyc_policy.address, action: MANUAL_REVIEW,
+                         basis: "a non-blocking KYC disagreement caps the case at REVIEW for a reviewer"}
+  PAN_MISMATCH:         {impact: KYC_REVIEW, effect: CASE_REVIEW, blocking_from: kyc_policy.pan, action: MANUAL_REVIEW,
+                         basis: "a KYC PAN disagreement is routed to a reviewer"}
+  INCOME_INCONSISTENT:  {impact: KYC_REVIEW, effect: CASE_REVIEW, blocking_from: kyc_policy.income, action: MANUAL_REVIEW,
+                         basis: "a KYC income inconsistency is routed to a reviewer"}
+  INSUFFICIENT_SOURCES: {impact: KYC_REVIEW, effect: CASE_REVIEW, blocking: false, action: MANUAL_REVIEW,
+                         basis: "fewer sources than the KYC pass floor needs holds the case at REVIEW"}
+
+  RECONCILIATION_INCONCLUSIVE:
+    impact: DOCUMENT_REVIEW
+    effect: DOCUMENT_REVIEW
+    blocking_from: readiness.block_on_review
+    action: MANUAL_REVIEW
+    basis: "an inconclusive scanned-statement reconciliation resolves to REVIEW, not FAIL"
+
+  # -- pending items the FOS workflow computes from the checklist (case-level)
+  DOCUMENT_MISSING:      {impact: STAGE_READINESS_INCOMPLETE, effect: READINESS_INCOMPLETE, blocking_from: readiness.require_all_documents,
+                          action: COLLECT_DOCUMENT, basis: "a missing mandatory checklist slot is a blocking pending item"}
+  DOCUMENT_REJECTED:     {impact: STAGE_READINESS_INCOMPLETE, effect: READINESS_INCOMPLETE, blocking: true,
+                          action: REQUEST_CORRECT_DOCUMENT, basis: "a rejected mandatory document is a blocking pending item"}
+  DOCUMENT_UNDER_REVIEW: {impact: STAGE_READINESS_INCOMPLETE, effect: READINESS_INCOMPLETE, blocking_from: readiness.block_on_review,
+                          action: RESOLVE_DOCUMENT_REVIEW, basis: "a document in review blocks the handoff when block_on_review is set"}
+  DOCUMENT_NOT_VERIFIED: {impact: STAGE_READINESS_INCOMPLETE, effect: READINESS_INCOMPLETE, blocking_from: readiness.require_documents_verified,
+                          action: AWAIT_VERIFICATION, basis: "an unverified mandatory document is a blocking pending item"}
+
+# -- actions ----------------------------------------------------------------
+# `handoff: true` marks an action a PERSON must take on the case (a reviewer),
+# which is what the handoff signal reports. `owner` is who acts, as the
+# existing flows use it -- UNCONFIRMED, like everything in this file.
+actions:
+  REQUEST_CORRECT_DOCUMENT: {owner: APPLICANT, handoff: false}
+  REQUEST_VALID_DOCUMENT:   {owner: APPLICANT, handoff: false}
+  COLLECT_DOCUMENT:         {owner: FOS, handoff: false}
+  RESOLVE_DOCUMENT_REVIEW:  {owner: FOS, handoff: false}
+  AWAIT_VERIFICATION:       {owner: SYSTEM, handoff: false}
+  MANUAL_REVIEW:            {owner: REVIEWER, handoff: true}
+  CREATE_APPLICANT:         {owner: FOS, handoff: false}
+  CREATE_APPLICATION:       {owner: FOS, handoff: false}
+  CAPTURE_APPLICANT_INFORMATION:   {owner: FOS, handoff: false}
+  CAPTURE_APPLICATION_INFORMATION: {owner: FOS, handoff: false}
+  SUBMIT_TO_CPA:            {owner: FOS, handoff: false}
+  CONTINUE:                 {owner: SYSTEM, handoff: false}
+
+# THE ORDER ADDITIONAL ACTIONS ARE LISTED IN -- the precedence the LOS roll-up
+# already applies (agents/los/response.py next_action_from): a wrong document,
+# then an invalid one, then review; then the FOS workflow's own table order.
+# This orders a list; it never replaces the authoritative primary action.
+action_precedence:
+  - REQUEST_CORRECT_DOCUMENT
+  - REQUEST_VALID_DOCUMENT
+  - MANUAL_REVIEW
+  - CREATE_APPLICANT
+  - CREATE_APPLICATION
+  - CAPTURE_APPLICANT_INFORMATION
+  - CAPTURE_APPLICATION_INFORMATION
+  - COLLECT_DOCUMENT
+  - RESOLVE_DOCUMENT_REVIEW
+  - AWAIT_VERIFICATION
+  - SUBMIT_TO_CPA
+  - CONTINUE
+
+# -- what a person reads (language -> code -> template) ----------------------
+phrases:
+  en:
+    impact:
+      DOCUMENT_VERIFICATION_FAILED: "the {document} could not pass verification, so the correct document is needed"
+      KYC_REVIEW: "the details across documents disagree, so the case is held for a reviewer"
+      DOCUMENT_REVIEW: "the {document} needs a reviewer before it can count as verified"
+      STAGE_READINESS_INCOMPLETE: "the {document} is still outstanding, so the case is not ready for handoff"
+      NOT_CONFIGURED: "the system has recorded this issue, but no impact rule is configured for it"
+    action:
+      REQUEST_CORRECT_DOCUMENT: "upload the correct {document}"
+      REQUEST_VALID_DOCUMENT: "upload a clear, valid {document}"
+      COLLECT_DOCUMENT: "collect and upload the {document}"
+      RESOLVE_DOCUMENT_REVIEW: "resolve the review of the {document}"
+      AWAIT_VERIFICATION: "wait for the {document} to finish verification"
+      MANUAL_REVIEW: "wait for a reviewer to check the recorded issue"
+      SUBMIT_TO_CPA: "hand the case to CPA"
+      CREATE_APPLICANT: "create the applicant record"
+      CREATE_APPLICATION: "create the application"
+      CAPTURE_APPLICANT_INFORMATION: "capture the missing applicant details"
+      CAPTURE_APPLICATION_INFORMATION: "capture the missing application details"
+      CONTINUE: "continue with the next stage's processing"
+      NOT_CONFIGURED: "no next step is configured for the current stage"

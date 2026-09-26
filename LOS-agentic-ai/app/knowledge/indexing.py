@@ -26,6 +26,7 @@ this phase, deliberately.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Iterable
@@ -305,7 +306,14 @@ def derive_process_texts() -> list[DerivedText]:
             text=guide.text(),
             payload={"stage": guide.stage,
                      "source_type": process_knowledge.SOURCE_TYPE,
-                     "chunk_type": process_knowledge.CHUNK_TYPE},
+                     "chunk_type": process_knowledge.CHUNK_TYPE,
+                     # HONEST METADATA: these guides are demo process text
+                     # (process_knowledge.MARKER); the version is the hash of
+                     # the guide's own text, not a release number.
+                     "knowledge_type": "STAGE_GUIDE_DEMO",
+                     "version": "sha256:" + hashlib.sha256(
+                         guide.text().encode("utf-8")).hexdigest()[:12],
+                     "version_source": "CONTENT_HASH"},
         )
         for guide in process_knowledge.guides()
     ]

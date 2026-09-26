@@ -25,6 +25,7 @@ Environment:
 from __future__ import annotations
 
 import os
+import time
 from functools import lru_cache
 from typing import Any
 
@@ -278,8 +279,19 @@ def validate_token(
                 "verify_iat": True,
                 "verify_iss": True,
                 "verify_aud": True,
+                # PRESENT, NOT ONLY VALID WHEN PRESENT. `verify_exp` checks an
+                # `exp` that exists; without `require`, a signed token with no
+                # expiry was accepted forever, and one with no subject named
+                # nobody for ownership to bind to. Both IdPs this service
+                # knows issue both.
+                "require": ["exp", "sub"],
             },
         )
+
+    except jwt.MissingRequiredClaimError as exc:
+        raise unauthorized(
+            f"JWT is missing a required claim: {exc.claim}."
+        ) from exc
 
     except jwt.ExpiredSignatureError as exc:
         raise unauthorized(
@@ -325,8 +337,96 @@ def validate_token(
 
 
 # ============================================================================
+# AUTHENTICATION ON / OFF -- local testing only
+# ============================================================================
+#
+# AUTH_ENABLED=false lets a developer call the API without a token. It is
+# honoured ONLY when ENVIRONMENT is development / dev / local / test -- the
+# same convention the dev IdP uses, where an UNSET environment counts as
+# production. Anywhere else the flag is ignored and authentication stays ON
+# (fail closed), and startup refuses outright (`validate_auth_mode`).
+#
+# DISABLING AUTHENTICATION DISABLES NOTHING ELSE. The request still gets an
+# identity (`local_claims`: a subject and scopes, never a token), and
+# ownership, scope checks, the MCP server's re-authorisation and the
+# guardrails all run exactly as they do with a real token.
+# ============================================================================
+
+_DEV_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
+_FALSE = frozenset({"false", "0", "no", "off"})
+
+
+def environment() -> str:
+    return (os.getenv("ENVIRONMENT") or "production").strip().lower()
+
+
+def auth_disabled_requested() -> bool:
+    return (os.getenv("AUTH_ENABLED") or "true").strip().lower() in _FALSE
+
+
+def auth_enabled() -> bool:
+    """True unless AUTH_ENABLED=false AND this is a development environment."""
+    return not (auth_disabled_requested()
+                and environment() in _DEV_ENVIRONMENTS)
+
+
+def validate_auth_mode() -> None:
+    """Refuse to start when authentication is switched off outside dev."""
+    if auth_disabled_requested() and environment() not in _DEV_ENVIRONMENTS:
+        raise RuntimeError(
+            "AUTH_ENABLED=false is only permitted when ENVIRONMENT is one of "
+            f"{sorted(_DEV_ENVIRONMENTS)}; ENVIRONMENT={environment()!r}. "
+            "Refusing to start without authentication.")
+
+
+def local_claims() -> dict[str, Any]:
+    """
+    The identity a request carries when authentication is OFF (dev only).
+    A subject and scopes from configuration -- no token, no secret. Every
+    authorisation check still runs against them.
+    """
+    # READ-ONLY BY DEFAULT. `los.write` is the write-all service scope; a
+    # developer who needs writes with authentication off grants it explicitly
+    # (AUTH_LOCAL_SCOPES="los.read los.write") rather than getting it silently.
+    return {
+        "sub": (os.getenv("AUTH_LOCAL_SUBJECT") or "local-developer").strip(),
+        "scope": (os.getenv("AUTH_LOCAL_SCOPES") or "los.read").strip(),
+        "auth_disabled": True,
+    }
+
+
+# ============================================================================
 # PRIMARY AUTHENTICATION
 # ============================================================================
+
+class VerifiedClaims(dict):
+    """
+    The validated claims -- and, as an ATTRIBUTE, the credential they came
+    from.
+
+    WHY IT TRAVELS. The MCP server re-authenticates every call itself
+    (app/mcp/case_server.py): it is handed the caller's own signed token and
+    validates it with `validate_token`, rather than trusting an identity the
+    client asserts. So the token must reach the MCP client.
+
+    WHY AN ATTRIBUTE, NOT A KEY. Claims are logged, audited, copied and
+    serialised; a key would go wherever they go. An attribute is invisible
+    to json.dumps, to dict(), to `**claims` and to every `.items()` -- and a
+    copy simply loses it, which fails closed.
+    """
+
+    __slots__ = ("credential", "auth_ms")
+
+    def __init__(self, claims: dict[str, Any], credential: str | None = None,
+                 auth_ms: float | None = None):
+        super().__init__(claims)
+        self.credential = credential
+        #: How long authentication took (a timing, never a claim value).
+        self.auth_ms = auth_ms
+
+    def __repr__(self) -> str:  # never print the credential
+        return f"VerifiedClaims({dict.__repr__(self)})"
+
 
 def require_jwt(
     credentials: HTTPAuthorizationCredentials | None = Security(
@@ -334,19 +434,39 @@ def require_jwt(
     ),
 ) -> dict[str, Any]:
 
-    if credentials is None:
-        raise unauthorized(
-            "Missing Bearer token."
-        )
+    # AUTHENTICATION OFF (development only -- see `auth_enabled`): the
+    # configured local identity, and nothing else changes.
+    from app.observability.tracing import span
 
-    if credentials.scheme.lower() != "bearer":
-        raise unauthorized(
-            "Authorization scheme must be Bearer."
-        )
+    if not auth_enabled():
+        with span("auth.authenticate", auth_enabled=False, outcome="LOCAL_IDENTITY"):
+            return VerifiedClaims(local_claims(), credential=None)
 
-    return validate_token(
-        credentials.credentials
-    )
+    # The span carries the outcome only -- never the token, a header or a claim
+    # value (tracing.safe_attributes drops anything credential-shaped anyway).
+    auth_started = time.perf_counter()
+    with span("auth.authenticate", auth_enabled=True) as current:
+        if credentials is None:
+            current and current.set_attribute("outcome", "MISSING")
+            raise unauthorized(
+                "Missing Bearer token."
+            )
+
+        if credentials.scheme.lower() != "bearer":
+            current and current.set_attribute("outcome", "WRONG_SCHEME")
+            raise unauthorized(
+                "Authorization scheme must be Bearer."
+            )
+
+        try:
+            claims = validate_token(credentials.credentials)
+        except Exception:
+            current and current.set_attribute("outcome", "REJECTED")
+            raise
+        current and current.set_attribute("outcome", "VERIFIED")
+        return VerifiedClaims(
+            claims, credential=credentials.credentials,
+            auth_ms=round((time.perf_counter() - auth_started) * 1000, 2))
 
 
 # ============================================================================

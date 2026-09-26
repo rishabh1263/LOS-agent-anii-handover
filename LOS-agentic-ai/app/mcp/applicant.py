@@ -138,6 +138,8 @@ def _application_json(app) -> dict[str, Any]:
     return {
         "case_id": app.case_id,
         "applicant_id": app.applicant_id,
+        # The second party, when the case has one. Additive.
+        "co_applicant_id": getattr(app, "co_applicant_id", None),
         "status": app.status.value,
         "product": app.product,
         "loan_amount": app.loan_amount,
@@ -217,6 +219,10 @@ def _document_json(d) -> dict[str, Any]:
         "verification_status": d.verification_status,
         "reason_codes": list(d.reason_codes or []),
         "has_extracted_fields": bool(d.extracted_fields),
+        # WHOSE DOCUMENT THIS IS -- the stamped owner (Document.owner_id),
+        # so a party-scoped answer never has to guess. Additive.
+        "party_id": d.owner_id,
+        "party_role": d.party_role,
         "uploaded_at": d.uploaded_at.isoformat(),
         "updated_at": d.updated_at.isoformat(),
     }

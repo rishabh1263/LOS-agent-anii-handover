@@ -246,6 +246,9 @@ def test_a_composed_answer_naming_another_stage_is_rejected(client, demo,
     monkeypatch.setattr(copilot_api.grounding, "gather",
                         lambda *a, **k: _Confident())
     monkeypatch.setattr(grounding, "_generate", wrong_stage)
+    # FORCE a composition, so this proves the VALIDATOR: a status answer with
+    # a recorded hold is otherwise never sent to a model at all (Slice 11).
+    monkeypatch.setattr(copilot_api, "_composition_skip", lambda *a: None)
 
     body = ask(client, "What is my application status?", *demo["CREDIT"])
 

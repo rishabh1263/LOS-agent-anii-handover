@@ -1,0 +1,532 @@
+# ============================================================================
+# LANGUAGE UNDERSTANDING -- configuration for app/agents/applicant/language.py
+#
+# WHAT THIS IS. A question in any supported language is rewritten into the
+# canonical ENGLISH words the Copilot's rules already understand, BEFORE
+# classification. "मेरा आवेदन किस चरण में है?", "mera stage kya hai?" and
+# "What is my stage?" all reach the same intent, the same tools and the same
+# recorded answer. There is ONE set of business rules; a language adds words
+# here, never code.
+#
+# WHAT THIS IS NOT. It is not translation, and it decides nothing. It never
+# selects an intent, a stage, a status or an action -- it produces a message,
+# classified by the same rules as anything typed in English. A word it does
+# not know is left as it is, and a question it cannot map is answered exactly
+# as an unrecognised English question would be.
+#
+# REVIEW STATUS -- HONEST. These lexicons are a SEED written for the core
+# case vocabulary (stage, status, documents, pending, KYC, verification, next
+# step, co-applicant, why/what/where/which). They have NOT been reviewed by
+# native speakers. `review_status` says so per language, and the Copilot
+# publishes it; extend and correct the words here, not in code.
+#
+# Environment: MULTILINGUAL_ENABLED=false turns the whole layer off (English
+# and the existing Hinglish short forms in applicant_agent.yaml still work).
+# ============================================================================
+
+enabled: true
+
+# Languages answered with a localized sentence where a template exists
+# (below). Everything else is answered in English, and the response says so.
+default_response_language: en
+
+languages:
+  en:  {name: English,   script: Latin,      review_status: NATIVE}
+  hi:  {name: Hindi,     script: Devanagari, review_status: SEED_UNREVIEWED}
+  hi-Latn: {name: Hindi (Romanized / Hinglish), script: Latin, review_status: SEED_UNREVIEWED}
+  mr:  {name: Marathi,   script: Devanagari, review_status: SEED_UNREVIEWED}
+  bn:  {name: Bengali,   script: Bengali,    review_status: SEED_UNREVIEWED}
+  ta:  {name: Tamil,     script: Tamil,      review_status: SEED_UNREVIEWED}
+  te:  {name: Telugu,    script: Telugu,     review_status: SEED_UNREVIEWED}
+  gu:  {name: Gujarati,  script: Gujarati,   review_status: SEED_UNREVIEWED}
+  kn:  {name: Kannada,   script: Kannada,    review_status: SEED_UNREVIEWED}
+  ml:  {name: Malayalam, script: Malayalam,  review_status: SEED_UNREVIEWED}
+  pa:  {name: Punjabi,   script: Gurmukhi,   review_status: SEED_UNREVIEWED}
+  or:  {name: Odia,      script: Odia,       review_status: SEED_UNREVIEWED}
+  as:  {name: Assamese,  script: Bengali,    review_status: SEED_UNREVIEWED}
+  ur:  {name: Urdu,      script: Arabic,     review_status: SEED_UNREVIEWED}
+  kok: {name: Konkani,   script: Devanagari, review_status: SEED_UNREVIEWED}
+
+# Words that tell two languages sharing a script apart. Devanagari is Hindi
+# unless Marathi or Konkani markers appear; Bengali script is Bengali unless
+# an Assamese letter or marker appears.
+markers:
+  mr: [आहे, आहेत, माझं, माझा, माझी, माझे, कोणत्या, कोणता, मध्ये, सध्या, काय, झाले, झालं, तुमच्या]
+  kok: [म्हजो, म्हजी, म्हजें, कितें, आसा, खंयच्या, खंय]
+  as: [ৰ, ৱ, মোৰ, আছেনে, কিয়]
+  hi-Latn: [hai, hain, kya, kyu, kyun, kyon, mera, meri, mere, kis, kaha, kahan,
+            hu, hoon, hun, mujhe, batao, bataiye, abhi, baaki, baki, nahi, kaunsa,
+            kaunse, konsa, konse, karna, chahiye, hua, hui, hota, badla, pe, mein,
+            aur, bhi, kab, tak, raha, rahi, gaya, gayi, wala, wali]
+
+# ---------------------------------------------------------------------------
+# LEXICONS -- language word (or phrase) -> canonical English.
+#
+# Longest phrase first, whole tokens only. An inflected form is listed as its
+# own entry ("चरण में" -> "stage in") rather than guessed by stemming.
+# ---------------------------------------------------------------------------
+lexicon:
+  hi-Latn:
+    kya karna hai: what should i do next
+    kya karna chahiye: what should i do next
+    kya karu: what should i do next
+    kya karun: what should i do next
+    kya badla: what changed
+    kya change hua: what changed
+    kya hota hai: means what
+    kya hoti hai: means what
+    kya matlab hai: means what
+    ka matlab: means what
+    verify hua: verified
+    verify hui: verified
+    verify ho gaya: verified
+    verify ho gayi: verified
+    verified hai: verified
+    ho gaya: done
+    ho gayi: done
+    hua kya: done
+    kaha tak: status
+    kahan tak: status
+    main: i
+    mai: i
+    mein: in
+    me: in
+    mujhe: me
+    hu: am
+    hoon: am
+    hun: am
+    kis: which
+    kaunse: which
+    kaunsa: which
+    kaunsi: which
+    konse: which
+    konsa: which
+    konsi: which
+    pe: at
+    par: at
+    abhi: now
+    ab: now
+    batao: tell
+    bataiye: tell
+    bata do: tell
+    baaki: pending
+    baki: pending
+    bache: pending
+    bacha: pending
+    kya: what
+    hai: is
+    hain: is
+    kaha: where
+    kahan: where
+    kyu: why
+    kyun: why
+    kyon: why
+    mera: my
+    meri: my
+    mere: my
+    humara: our
+    hamara: our
+    aur: and
+    status: status
+    kagaz: documents
+    kagzat: documents
+    dastavez: documents
+    agla kadam: next step
+    ka: ""
+    ki: ""
+    ke: ""
+    ko: ""
+  hi:
+    अगला कदम: next step
+    क्या करना है: what should i do next
+    क्या करना चाहिए: what should i do next
+    क्या बदला: what changed
+    क्या होता है: means what
+    का मतलब: means what
+    सह-आवेदक: co-applicant
+    सह आवेदक: co-applicant
+    मेरा: my
+    मेरी: my
+    मेरे: my
+    हमारा: our
+    आवेदन: application
+    एप्लीकेशन: application
+    एप्लिकेशन: application
+    केस: case
+    फाइल: file
+    लोन: loan
+    ऋण: loan
+    अभी: now
+    किस: which
+    कौन: which
+    कौनसा: which
+    कौनसे: which
+    कौन से: which
+    चरण: stage
+    स्टेज: stage
+    स्तर: stage
+    में: in
+    पर: at
+    है: is
+    हैं: is
+    क्या: what
+    कहाँ: where
+    कहां: where
+    क्यों: why
+    स्थिति: status
+    स्टेटस: status
+    दस्तावेज़: documents
+    दस्तावेज: documents
+    डॉक्यूमेंट: documents
+    कागज़ात: documents
+    लंबित: pending
+    बाकी: pending
+    बाक़ी: pending
+    केवाईसी: kyc
+    सत्यापित: verified
+    वेरिफाई: verified
+    सत्यापन: verification
+    समीक्षा: review
+    रिव्यू: review
+    पैन: pan
+    आधार: aadhaar
+    अगला: next
+    बताओ: tell
+    बताइए: tell
+    मुझे: me
+    का: ""
+    की: ""
+    के: ""
+    को: ""
+  mr:
+    पुढची पायरी: next step
+    पुढे काय करायचे: what should i do next
+    काय करायचे: what should i do next
+    काय बदलले: what changed
+    म्हणजे काय: means what
+    सह-अर्जदार: co-applicant
+    माझं: my
+    माझा: my
+    माझी: my
+    माझे: my
+    आमचा: our
+    अर्ज: application
+    अर्जाची: application
+    अर्जाचा: application
+    अर्जाचे: application
+    माझ्या: my
+    ॲप्लिकेशन: application
+    सध्या: currently
+    आता: now
+    कोणत्या: which
+    कोणता: which
+    कोणती: which
+    टप्प्यात: stage in
+    टप्प्यावर: stage at
+    टप्पा: stage
+    मध्ये: in
+    वर: at
+    आहे: is
+    आहेत: is
+    काय: what
+    कुठे: where
+    का: why
+    स्थिती: status
+    कागदपत्रे: documents
+    दस्तऐवज: documents
+    प्रलंबित: pending
+    बाकी: pending
+    केवायसी: kyc
+    पडताळणी: verification
+    पडताळले: verified
+    चे: ""
+    ची: ""
+    चा: ""
+  kok:
+    म्हजो: my
+    म्हजी: my
+    म्हजें: my
+    अर्ज: application
+    खंयच्या: which
+    टप्प्यार: stage at
+    टप्पो: stage
+    आसा: is
+    कितें: what
+    खंय: where
+    कित्याक: why
+    स्थिती: status
+    कागदपत्रां: documents
+    बाकी: pending
+  bn:
+    পরবর্তী পদক্ষেপ: next step
+    কী করতে হবে: what should i do next
+    সহ-আবেদনকারী: co-applicant
+    আমার: my
+    আমাদের: our
+    আবেদন: application
+    আবেদনের: application
+    এখন: now
+    কোন: which
+    পর্যায়ে: stage in
+    পর্যায়: stage
+    ধাপে: stage in
+    আছে: is
+    কী: what
+    কি: what
+    কোথায়: where
+    কেন: why
+    অবস্থা: status
+    স্ট্যাটাস: status
+    নথি: documents
+    কাগজপত্র: documents
+    বাকি: pending
+    মুলতুবি: pending
+    কেওয়াইসি: kyc
+    যাচাই: verified
+  as:
+    মোৰ: my
+    আবেদন: application
+    এতিয়া: now
+    কোন: which
+    পৰ্যায়ত: stage in
+    পৰ্যায়: stage
+    আছে: is
+    কি: what
+    ক'ত: where
+    কিয়: why
+    অৱস্থা: status
+    নথি: documents
+    বাকী: pending
+  ta:
+    அடுத்த படி: next step
+    இணை விண்ணப்பதாரர்: co-applicant
+    என்: my
+    என்னுடைய: my
+    எனது: my
+    விண்ணப்பம்: application
+    விண்ணப்பத்தின்: application
+    இப்போது: now
+    எந்த: which
+    நிலையில்: stage in
+    கட்டத்தில்: stage in
+    நிலை: status
+    உள்ளது: is
+    இருக்கிறது: is
+    என்ன: what
+    எங்கே: where
+    ஏன்: why
+    ஆவணங்கள்: documents
+    நிலுவையில்: pending
+    கேஒய்சி: kyc
+    சரிபார்க்கப்பட்டது: verified
+  te:
+    తదుపరి దశ: next step
+    సహ దరఖాస్తుదారు: co-applicant
+    నా: my
+    దరఖాస్తు: application
+    దరఖాస్తుకు: application
+    ఇప్పుడు: now
+    ఏ: which
+    దశలో: stage in
+    దశ: stage
+    ఉంది: is
+    ఏమిటి: what
+    ఎక్కడ: where
+    ఎందుకు: why
+    స్థితి: status
+    పత్రాలు: documents
+    పెండింగ్: pending
+    కేవైసీ: kyc
+    ధృవీకరించబడింది: verified
+  gu:
+    આગળનું પગલું: next step
+    સહ-અરજદાર: co-applicant
+    મારી: my
+    મારો: my
+    મારું: my
+    અરજી: application
+    અરજીની: application
+    અરજીનું: application
+    હવે: now
+    કયા: which
+    કયું: which
+    તબક્કે: stage at
+    તબક્કામાં: stage in
+    તબક્કો: stage
+    છે: is
+    શું: what
+    ક્યાં: where
+    કેમ: why
+    સ્થિતિ: status
+    દસ્તાવેજો: documents
+    બાકી: pending
+    કેવાયસી: kyc
+    ચકાસાયેલ: verified
+  kn:
+    ಮುಂದಿನ ಹಂತ: next step
+    ನನ್ನ: my
+    ಅರ್ಜಿ: application
+    ಈಗ: now
+    ಯಾವ: which
+    ಹಂತದಲ್ಲಿದೆ: stage in is
+    ಹಂತದಲ್ಲಿ: stage in
+    ಹಂತ: stage
+    ಇದೆ: is
+    ಏನು: what
+    ಎಲ್ಲಿ: where
+    ಏಕೆ: why
+    ಸ್ಥಿತಿ: status
+    ದಾಖಲೆಗಳು: documents
+    ಬಾಕಿ: pending
+    ಕೆವೈಸಿ: kyc
+    ಪರಿಶೀಲಿಸಲಾಗಿದೆ: verified
+  ml:
+    അടുത്ത ഘട്ടം: next step
+    എന്റെ: my
+    അപേക്ഷ: application
+    ഇപ്പോൾ: now
+    ഏത്: which
+    ഘട്ടത്തിലാണ്: stage in is
+    ഘട്ടത്തിൽ: stage in
+    ഘട്ടം: stage
+    ആണ്: is
+    ഉണ്ട്: is
+    എന്താണ്: what is
+    എന്ത്: what
+    എവിടെ: where
+    എന്തുകൊണ്ട്: why
+    സ്ഥിതി: status
+    രേഖകൾ: documents
+    ബാക്കി: pending
+    കെവൈസി: kyc
+    പരിശോധിച്ചു: verified
+  pa:
+    ਅਗਲਾ ਕਦਮ: next step
+    ਮੇਰੀ: my
+    ਮੇਰਾ: my
+    ਅਰਜ਼ੀ: application
+    ਅਰਜੀ: application
+    ਹੁਣ: now
+    ਕਿਸ: which
+    ਕਿਹੜੇ: which
+    ਪੜਾਅ: stage
+    ਤੇ: at
+    ਵਿੱਚ: in
+    ਹੈ: is
+    ਕੀ: what
+    ਕਿੱਥੇ: where
+    ਕਿਉਂ: why
+    ਸਥਿਤੀ: status
+    ਦਸਤਾਵੇਜ਼: documents
+    ਬਾਕੀ: pending
+    ਕੇਵਾਈਸੀ: kyc
+    ਪ੍ਰਮਾਣਿਤ: verified
+  or:
+    ପରବର୍ତ୍ତୀ ପଦକ୍ଷେପ: next step
+    ମୋ: my
+    ମୋର: my
+    ଆବେଦନ: application
+    ବର୍ତ୍ତମାନ: now
+    କେଉଁ: which
+    ପର୍ଯ୍ୟାୟରେ: stage in
+    ପର୍ଯ୍ୟାୟ: stage
+    ଅଛି: is
+    କଣ: what
+    କେଉଁଠି: where
+    କାହିଁକି: why
+    ସ୍ଥିତି: status
+    ଦଲିଲ: documents
+    ବାକି: pending
+    କେୱାଇସି: kyc
+  ur:
+    اگلا قدم: next step
+    میری: my
+    میرا: my
+    میرے: my
+    درخواست: application
+    ابھی: now
+    کس: which
+    کون: which
+    مرحلے: stage
+    مرحلہ: stage
+    میں: in
+    پر: at
+    ہے: is
+    ہیں: is
+    کیا: what
+    کہاں: where
+    کیوں: why
+    حیثیت: status
+    دستاویزات: documents
+    باقی: pending
+    تصدیق: verified
+    کا: ""
+    کی: ""
+    کے: ""
+
+# ---------------------------------------------------------------------------
+# REWRITES -- word order, applied to the canonical English words.
+#
+# Most Indian languages put the question word at the END ("my stage what is",
+# "my application which stage in is"). These rules move it to the front so
+# the English rules read the question the way they read "what is my stage".
+# Structural only: each rule reorders words the user typed; none adds a fact.
+# Applied in order, first match wins, only to non-English input.
+# ---------------------------------------------------------------------------
+rewrites:
+  - {pattern: '\bwhat\s+should\s+i\s+do\s+next\b', replace: 'what should i do next', whole: true}
+  - {pattern: '^(?:(?:now|currently)\s+)?i\s+(?:(?:now|currently)\s+)?which\s+(stage|step|phase)\s+(?:at|in|on)\s+(?:am|is)\b.*$', replace: 'which \1 am i in'}
+  - {pattern: '^(?:(?:now|currently)\s+)?(?P<x>.+?)\s+(?:(?:now|currently)\s+)?which\s+(?P<n>stage|step|phase)\s+(?:at|in|on)(?:\s+is)?\s*[?.!]*$', replace: 'which \g<n> is \g<x> at'}
+  - {pattern: '^(?:(?:now|currently)\s+)?(?P<x>.+?)\s+(?:(?:now|currently)\s+)?which\s+(?P<n>stage|step|phase)(?:\s+(?:at|in|on))?\s+is\s*[?.!]*$', replace: 'which \g<n> is \g<x> at'}
+  - {pattern: '^(?P<x>.+?)\s+means\s+what(?:\s+is)?\s*[?.!]*$', replace: 'what does \g<x> mean'}
+  - {pattern: '^(?:me\s+)?(?P<x>.+?)\s+tell(?:\s+me)?\s*[?.!]*$', replace: 'tell me \g<x>'}
+  - {pattern: '^(?P<x>.+?)\s+verified(?:\s+(?:is|done))?(?:\s+what)?\s*[?.!]*$', replace: 'is \g<x> verified'}
+  - {pattern: '^(?P<x>.+?)\s+done(?:\s+what)?\s*[?.!]*$', replace: 'is \g<x> done'}
+  - {pattern: '^(?:now\s+)?(?P<x>.+?)\s+(?:currently\s+)?what\s+is\s*[?.!]*$', replace: 'what is \g<x>'}
+  - {pattern: '^(?:now\s+)?(?P<x>.+?)\s+what\s*[?.!]*$', replace: 'what is \g<x>'}
+  - {pattern: '^(?:now\s+)?(?P<x>.+?)\s+what\s+(?P<y>.+?)\s+is\s*[?.!]*$', replace: 'what is \g<x> \g<y>'}
+  - {pattern: '^(?:now\s+)?(?P<x>.+?)\s+(?:now\s+)?where\s+is\s*[?.!]*$', replace: 'where is \g<x>'}
+  - {pattern: '^(?:now\s+)?(?P<x>.+?)\s+why\s+is\s*[?.!]*$', replace: 'why is \g<x>'}
+  - {pattern: '^(?:now\s+)?(?P<x>.+?)\s+why\s*[?.!]*$', replace: 'why is \g<x>'}
+  - {pattern: '^(?:which\s+)?(?P<x>.+?)\s+pending\s+is\s*[?.!]*$', replace: 'which \g<x> are pending'}
+  - {pattern: '^what\s+(?P<x>documents?)\s+pending\s+is\s*[?.!]*$', replace: 'which \g<x> are pending'}
+
+# ---------------------------------------------------------------------------
+# LOCALIZED ANSWERS -- deterministic sentences for recorded facts.
+#
+# ONLY FACTS ALREADY ESTABLISHED are filled in: {stage} is the case's
+# authoritative stage label, never translated (it is a code the officer and
+# the system share). A (fact, language) pair with no template is answered in
+# English and the response says `localized: false`. No model writes these.
+# ---------------------------------------------------------------------------
+templates:
+  current_stage:
+    hi: "आपका आवेदन अभी {stage} चरण में है।"
+    hi-Latn: "Aapka application abhi {stage} stage mein hai."
+    mr: "तुमचा अर्ज सध्या {stage} टप्प्यात आहे."
+    kok: "तुमचो अर्ज सद्या {stage} टप्प्यार आसा."
+    bn: "আপনার আবেদন এখন {stage} পর্যায়ে আছে।"
+    as: "আপোনাৰ আবেদন এতিয়া {stage} পৰ্যায়ত আছে।"
+    ta: "உங்கள் விண்ணப்பம் தற்போது {stage} நிலையில் உள்ளது."
+    te: "మీ దరఖాస్తు ప్రస్తుతం {stage} దశలో ఉంది."
+    gu: "તમારી અરજી હાલમાં {stage} તબક્કે છે."
+    kn: "ನಿಮ್ಮ ಅರ್ಜಿ ಪ್ರಸ್ತುತ {stage} ಹಂತದಲ್ಲಿದೆ."
+    ml: "നിങ്ങളുടെ അപേക്ഷ ഇപ്പോൾ {stage} ഘട്ടത്തിലാണ്."
+    pa: "ਤੁਹਾਡੀ ਅਰਜ਼ੀ ਇਸ ਸਮੇਂ {stage} ਪੜਾਅ ਤੇ ਹੈ।"
+    or: "ଆପଣଙ୍କ ଆବେଦନ ବର୍ତ୍ତମାନ {stage} ପର୍ଯ୍ୟାୟରେ ଅଛି।"
+    ur: "آپ کی درخواست اس وقت {stage} مرحلے میں ہے۔"
+
+  # Pending documents: {missing} and {awaiting} are the SAME lists the English
+  # answer is built from (document labels and status codes untranslated),
+  # joined with `join`. Seeded for hi / hi-Latn / mr only; other languages
+  # get the English answer and `localized: false`.
+  pending_documents:
+    hi: {missing: "{missing} अभी बाकी है।", awaiting: "{awaiting} सत्यापन की प्रतीक्षा में है।", join: " और "}
+    hi-Latn: {missing: "{missing} abhi baaki hai.", awaiting: "{awaiting} verification ke intezaar mein hai.", join: " aur "}
+    mr: {missing: "{missing} अजून बाकी आहे.", awaiting: "{awaiting} पडताळणीच्या प्रतीक्षेत आहे.", join: " आणि "}
+
+  # A request for a person: acknowledged, never claiming anyone was contacted.
+  handoff_acknowledged:
+    hi: "मैंने नोट कर लिया है कि आप किसी व्यक्ति से मदद चाहते हैं। तब तक मैं इस आवेदन के दस्तावेज़, स्थिति और अगले कदम के बारे में बता सकता हूँ।"
+    hi-Latn: "Maine note kar liya hai ki aap kisi vyakti se madad chahte hain. Tab tak main is application ke documents, status aur agle kadam ke baare mein bata sakta hoon."
+    mr: "तुम्हाला एखाद्या व्यक्तीकडून मदत हवी आहे हे मी नोंदवले आहे. तोपर्यंत मी या अर्जाची कागदपत्रे, स्थिती आणि पुढील पायरी याबद्दल सांगू शकतो."
