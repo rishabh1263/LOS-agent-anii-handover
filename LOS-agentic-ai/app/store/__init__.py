@@ -7,8 +7,10 @@ replacing SQLite with PostgreSQL or with an adapter onto an existing LOS is a
 configuration change plus one new class -- not an edit to the Applicant Agent,
 the MCP tools or the orchestrator.
 
-    LOS_STORE_BACKEND   sqlite (default). The name of the implementation.
+    LOS_STORE_BACKEND   sqlite (default) or postgres. The implementation.
     LOS_STORE_PATH      ./runtime/los_store.sqlite3, for the sqlite backend.
+    LOS_STORE_DSN       Host=...;Port=5432;Database=...;Username=...;Password=...
+                        (or postgresql://user:password@host:5432/db), for postgres.
 
 To add a backend: implement Repository, register it in _BACKENDS, and set
 LOS_STORE_BACKEND. Nothing above this module changes.
@@ -45,15 +47,26 @@ def store_path() -> str:
     return (os.getenv("LOS_STORE_PATH") or "./runtime/los_store.sqlite3").strip()
 
 
+def store_dsn() -> str:
+    return (os.getenv("LOS_STORE_DSN") or "").strip()
+
+
 def _build_sqlite() -> Repository:
     from app.store.sqlite_repo import SQLiteRepository
 
     return SQLiteRepository(store_path())
 
 
+def _build_postgres() -> Repository:
+    from app.store.postgres_repo import PostgresRepository
+
+    return PostgresRepository(store_dsn())
+
+
 #: backend name -> factory. The seam a new storage technology plugs into.
 _BACKENDS: dict[str, Callable[[], Repository]] = {
     "sqlite": _build_sqlite,
+    "postgres": _build_postgres,
 }
 
 
@@ -120,5 +133,6 @@ __all__ = [
     "set_repository",
     "status_for_verdict",
     "store_backend",
+    "store_dsn",
     "store_path",
 ]

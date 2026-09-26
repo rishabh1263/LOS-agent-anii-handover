@@ -72,6 +72,11 @@ agent-framework-ollama==1.0.0b260813
 langgraph>=1.0,<2
 mcp>=1.12,<2
 
+# ── Case store ───────────────────────────────────────────────────────────────
+# Only used with LOS_STORE_BACKEND=postgres (app/store/postgres_repo.py). The
+# default sqlite backend is the standard library and needs nothing.
+psycopg[binary]>=3.1,<4
+
 # ── Retrieval (RAG) ──────────────────────────────────────────────────────────
 # Qdrant is the vector store for case-derived text and process knowledge
 # (app/knowledge/vector_store.py). It was imported but never declared: without
