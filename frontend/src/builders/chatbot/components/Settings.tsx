@@ -1,11 +1,18 @@
-import type { ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowLeft } from 'lucide-react'
-import type { ChatSettings } from '../../../runtime/chatbot'
+import type { ChatSettings, SpeechGender, ChatThemeId } from '../../../runtime/chatbot'
+import {
+  ensureVoicesLoaded,
+  listIndianLanguages,
+  languageLabel,
+} from '../../../runtime/chatbot'
 
 interface SettingsProps {
   settings: ChatSettings
   onChange: (patch: Partial<ChatSettings>) => void
   onBack: () => void
+  onTestVoice?: () => void
+  voiceWarning?: string | null
 }
 
 function Row({
@@ -18,11 +25,13 @@ function Row({
   children: ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-3">
-      <div className="min-w-0">
-        <div className="font-sans text-[14px] font-medium text-content">{label}</div>
+    <div className="flex items-center justify-between gap-4 py-3.5">
+      <div className="min-w-0 flex-1">
+        <div className="font-sans text-[13.5px] font-medium text-content">{label}</div>
         {description && (
-          <div className="mt-0.5 font-sans text-[12px] text-content-secondary">{description}</div>
+          <div className="mt-0.5 font-sans text-[12px] leading-snug text-content-secondary">
+            {description}
+          </div>
         )}
       </div>
       <div className="shrink-0">{children}</div>
@@ -46,12 +55,12 @@ function Toggle({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 shrink-0 overflow-hidden rounded-full p-0.5 transition-colors duration-140 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 ${
-        checked ? 'bg-ember' : 'bg-line-strong'
+      className={`relative h-7 w-12 shrink-0 overflow-hidden rounded-full p-0.5 transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 ${
+        checked ? 'bg-ember' : 'bg-neutral-300'
       }`}
     >
       <span
-        className={`block h-5 w-5 rounded-full bg-oncolor shadow-sm transition-transform duration-140 ${
+        className={`block h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150 ${
           checked ? 'translate-x-5' : 'translate-x-0'
         }`}
       />
@@ -59,30 +68,90 @@ function Toggle({
   )
 }
 
-export function Settings({ settings, onChange, onBack }: SettingsProps) {
+const selectClass =
+  'max-w-[11rem] h-9 rounded-lg border border-line bg-raised px-2.5 font-sans text-[13px] text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember'
+
+export function Settings({ settings, onChange, onBack, onTestVoice, voiceWarning }: SettingsProps) {
+  const [indianLangs, setIndianLangs] = useState<{ tag: string; hasVoice: boolean }[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    void ensureVoicesLoaded().then((voices) => {
+      if (cancelled) return
+      setIndianLangs(listIndianLanguages(voices))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const languageOptions = useMemo(() => {
+    const rows =
+      indianLangs.length > 0
+        ? indianLangs
+        : listIndianLanguages([]).map((x) => ({ ...x, hasVoice: false }))
+    return rows.map(({ tag }) => ({
+      value: tag,
+      label: languageLabel(tag),
+    }))
+  }, [indianLangs])
+
   return (
     <div className="flex h-full flex-col bg-surface">
-      <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2.5">
         <button
           type="button"
           onClick={onBack}
           aria-label="Back"
-          className="flex h-11 w-11 items-center justify-center rounded-sm text-content-secondary hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-content-secondary hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
         >
-          <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+          <ArrowLeft className="h-4 w-4" strokeWidth={2} />
         </button>
-        <h2 className="font-display text-[16px] font-semibold tracking-[-0.015em] text-content">
+        <h2 className="font-sans text-[14px] font-semibold tracking-[-0.01em] text-content">
           Settings
         </h2>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-2">
-        {/* Appearance */}
-        <section className="mb-4">
-          <h3 className="mb-1 font-sans text-[11px] font-semibold uppercase tracking-[0.08em] text-content-disabled">
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        <section className="mb-5">
+          <h3 className="mb-2 px-0.5 font-sans text-[11px] font-semibold uppercase tracking-[0.06em] text-content-disabled">
             Appearance
           </h3>
-          <div className="rounded-md border border-line bg-surface px-3">
+          <div className="rounded-xl border border-line bg-surface px-3.5">
+            <Row label="Theme" description="Chatbot only">
+              <div className="flex items-center gap-2" role="radiogroup" aria-label="Chat theme">
+                {(
+                  [
+                    { id: 'light', label: 'Light', swatch: '#ffffff', ring: '#2563eb' },
+                    { id: 'dark', label: 'Dark', swatch: '#0f0f0f', ring: '#3b82f6' },
+                    { id: 'orange', label: 'Orange', swatch: '#ea580c', ring: '#ea580c' },
+                  ] as const
+                ).map((t) => {
+                  const active = (settings.chatTheme || 'light') === t.id
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      aria-label={t.label}
+                      title={t.label}
+                      onClick={() => onChange({ chatTheme: t.id as ChatThemeId })}
+                      className={`relative h-8 w-8 rounded-full border-2 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${
+                        active ? 'scale-105 border-transparent' : 'border-line'
+                      }`}
+                      style={{
+                        background: t.swatch,
+                        boxShadow: active
+                          ? `0 0 0 2px var(--cb-surface, #fff), 0 0 0 4px ${t.ring}`
+                          : undefined,
+                      }}
+                    />
+                  )
+                })}
+              </div>
+            </Row>
+            <div className="border-t border-divider" />
             <Row label="Compact mode">
               <Toggle
                 checked={settings.compactMode}
@@ -93,12 +162,11 @@ export function Settings({ settings, onChange, onBack }: SettingsProps) {
           </div>
         </section>
 
-        {/* Voice */}
-        <section className="mb-4">
-          <h3 className="mb-1 font-sans text-[11px] font-semibold uppercase tracking-[0.08em] text-content-disabled">
+        <section className="mb-5">
+          <h3 className="mb-2 px-0.5 font-sans text-[11px] font-semibold uppercase tracking-[0.06em] text-content-disabled">
             Voice
           </h3>
-          <div className="rounded-md border border-line bg-surface px-3">
+          <div className="rounded-xl border border-line bg-surface px-3.5">
             <Row label="Voice input" description="Microphone in composer">
               <Toggle
                 checked={settings.voiceInput}
@@ -115,27 +183,70 @@ export function Settings({ settings, onChange, onBack }: SettingsProps) {
               />
             </Row>
             <div className="border-t border-divider" />
+            <Row label="Language" description="Indian languages only">
+              <select
+                value={settings.speechLanguage}
+                onChange={(e) => onChange({ speechLanguage: e.target.value })}
+                className={selectClass}
+                aria-label="Speech language"
+              >
+                {languageOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+            <div className="border-t border-divider" />
+            <Row label="Gender" description="Pitch adjusts if only one voice is installed">
+              <select
+                value={settings.speechGender}
+                onChange={(e) => onChange({ speechGender: e.target.value as SpeechGender })}
+                className={selectClass}
+                aria-label="Speech gender"
+              >
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+                <option value="any">Any</option>
+              </select>
+            </Row>
+            <div className="border-t border-divider" />
             <Row label="Speech speed">
               <select
                 value={settings.speechSpeed}
                 onChange={(e) => onChange({ speechSpeed: Number(e.target.value) })}
-                className="h-9 rounded-sm border border-line bg-surface px-2 font-sans text-[13px] text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+                className={selectClass}
+                aria-label="Speech speed"
               >
-                <option value={0.75}>0.75×</option>
+                <option value={0.85}>0.85×</option>
                 <option value={1}>1×</option>
-                <option value={1.25}>1.25×</option>
-                <option value={1.5}>1.5×</option>
+                <option value={1.15}>1.15×</option>
+                <option value={1.35}>1.35×</option>
               </select>
             </Row>
+            <div className="border-t border-divider" />
+            <div className="py-3.5">
+              <button
+                type="button"
+                onClick={() => onTestVoice?.()}
+                className="flex h-9 w-full items-center justify-center rounded-lg border border-line bg-raised font-sans text-[13px] font-medium text-content transition-colors hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+              >
+                Test voice
+              </button>
+              {voiceWarning && (
+                <p className="mt-2 text-[12px] text-warning-text" role="status">
+                  {voiceWarning}
+                </p>
+              )}
+            </div>
           </div>
         </section>
 
-        {/* Chat */}
         <section className="mb-4">
-          <h3 className="mb-1 font-sans text-[11px] font-semibold uppercase tracking-[0.08em] text-content-disabled">
+          <h3 className="mb-2 px-0.5 font-sans text-[11px] font-semibold uppercase tracking-[0.06em] text-content-disabled">
             Chat
           </h3>
-          <div className="rounded-md border border-line bg-surface px-3">
+          <div className="rounded-xl border border-line bg-surface px-3.5">
             <Row label="Send with Enter">
               <Toggle
                 checked={settings.sendWithEnter}

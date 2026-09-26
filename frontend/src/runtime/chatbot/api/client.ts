@@ -1,10 +1,4 @@
-/**
- * Standalone copilot HTTP client for the chatbot package.
- * Change endpoints here (or pass apiBase / queryPath via ChatbotContext) when porting.
- *
- * Default: POST /api/v1/copilot/query
- * Response shape matches CopilotQueryResponse from backend docs.
- */
+import { apiUrl, PATHS } from '../../config'
 
 export interface ChatApiErrorBody {
   message?: string
@@ -84,7 +78,7 @@ export interface ChatApiConfig {
   queryPath?: string
 }
 
-const DEFAULT_BASE = '/api/v1/copilot'
+const DEFAULT_BASE = apiUrl(PATHS.copilot)
 const DEFAULT_QUERY_PATH = '/query'
 
 /**
@@ -133,7 +127,7 @@ export function formatChatAnswer(res: ChatQueryResponse): {
 
   let text = answer
   if (res.grounded === false) {
-    text += '\n\n_Note: evidence for this answer may be incomplete._'
+    text += '\n\nNote: evidence for this answer may be incomplete.'
   }
 
   return {
@@ -152,6 +146,7 @@ export async function queryChat(
   payload: ChatQueryRequest,
   token?: string,
   config: ChatApiConfig = {},
+  signal?: AbortSignal,
 ): Promise<ChatQueryResponse> {
   const base = (config.baseUrl ?? DEFAULT_BASE).replace(/\/$/, '')
   const path = config.queryPath ?? DEFAULT_QUERY_PATH
@@ -173,6 +168,7 @@ export async function queryChat(
     method: 'POST',
     headers,
     body: JSON.stringify(body),
+    signal,
   })
 
   const text = await res.text()

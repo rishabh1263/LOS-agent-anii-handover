@@ -15,9 +15,9 @@ interface RobotButtonProps {
   modelUrl?: string
 }
 
-const DEFAULT_MODEL_URL = new URL('../assets/mini_bot.glb', import.meta.url).href
+const DEFAULT_MODEL_URL = new URL('../assets/sbfc_bot.glb', import.meta.url).href
 const STORAGE_KEY = 'chatbot-fab-pos'
-const SIZE = 88
+const SIZE = 150
 const MARGIN = 12
 const DRAG_THRESHOLD = 6
 
@@ -191,11 +191,9 @@ export function RobotButton({ onClick, visible, modelUrl }: RobotButtonProps) {
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
         aria-label="Open AI Assistant. Drag to reposition."
-        className={`relative flex h-full w-full cursor-grab items-center justify-center bg-transparent active:cursor-grabbing focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-          dragging ? 'scale-105' : hover ? 'scale-110' : 'scale-100'
-        } transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-          !reduceMotion && !dragging ? 'animate-[botFloat_3.2s_ease-in-out_infinite]' : ''
-        }`}
+        className={`relative flex h-full w-full cursor-grab items-center justify-center bg-transparent active:cursor-grabbing focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${dragging ? 'scale-105' : hover ? 'scale-110' : 'scale-100'
+          } transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${!reduceMotion && !dragging ? 'animate-[botFloat_3.2s_ease-in-out_infinite]' : ''
+          }`}
       >
         {!modelError ? (
           <model-viewer
@@ -217,9 +215,10 @@ export function RobotButton({ onClick, visible, modelUrl }: RobotButtonProps) {
             camera-orbit="0deg 75deg 105%"
             camera-target="0m 0.05m 0m"
             field-of-view="30deg"
-            auto-rotate={!reduceMotion && !dragging ? true : undefined}
+            auto-rotate={!reduceMotion && !dragging && !hover ? true : undefined}
             auto-rotate-delay={0}
-            rotation-per-second={reduceMotion || dragging ? '0deg' : '18deg'}
+            rotation-per-second={reduceMotion || dragging || hover ? '0deg' : '18deg'}
+
             style={{
               width: '100%',
               height: '100%',

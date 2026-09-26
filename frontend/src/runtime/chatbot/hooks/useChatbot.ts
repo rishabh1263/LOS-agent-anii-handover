@@ -9,14 +9,28 @@ import {
 
 import type {
   AiStatus,
-  ChatAttachment,
   ChatMessage,
   ChatPanelMode,
   ChatSettings,
   Conversation,
 } from '../types'
 import { DEFAULT_SETTINGS } from '../types'
-import { uid } from '../utils'
+import {
+  uid,
+  ensureVoicesLoaded,
+  pickBestVoice,
+  textForSpeech,
+  naturalSpeechParams,
+  speakUtterance,
+  translateForSpeech,
+  loadConversations,
+  saveConversations,
+  flushConversations,
+  loadSettings,
+  saveSettings,
+  prefersReducedMotion,
+  hasVoiceForLanguage,
+} from '../utils'
 
 /** Context + optional API config — only this needs changing in another project. */
 export interface ChatbotContext {
@@ -49,12 +63,12 @@ interface SpeechRecognitionResultEvent {
 }
 
 const QUICK_ACTIONS = [
-  { id: 'summarize', label: 'Summarize a document', icon: 'FileText' },
+  { id: 'summarize', label: 'Summarize application', icon: 'FileText' },
   { id: 'explain', label: 'Explain something', icon: 'HelpCircle' },
-  { id: 'analyze', label: 'Analyze a file', icon: 'Search' },
   { id: 'status', label: 'Check application status', icon: 'ClipboardList' },
   { id: 'extract', label: 'Extract information', icon: 'Scan' },
   { id: 'report', label: 'Generate a report', icon: 'BarChart3' },
+  { id: 'help', label: 'How can you help?', icon: 'Search' },
 ]
 
 function createConversation(): Conversation {
@@ -115,27 +129,75 @@ export function useChatbot(context: ChatbotContext = {}) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [status, setStatus] = useState<AiStatus>('online')
-  const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS)
+  const [settings, setSettings] = useState<ChatSettings>(() => loadSettings())
   const [input, setInput] = useState('')
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [isListening, setIsListening] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [voiceWarning, setVoiceWarning] = useState<string | null>(null)
   const [interimTranscript, setInterimTranscript] = useState('')
   const [showSettings, setShowSettings] = useState(false)
-  const [showSidebar, setShowSidebar] = useState(false)
   const [confirmNew, setConfirmNew] = useState(false)
-  const [isDragging, setIsDragging] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
 
   const stopRef = useRef(false)
+  const speakGenRef = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const settingsRef = useRef(settings)
   settingsRef.current = settings
-  const speakTextRef = useRef<(text: string, messageId?: string) => void>(() => {})
+  const speakTextRef = useRef<(text: string, messageId?: string) => void>(() => { })
   const contextRef = useRef(context)
   contextRef.current = context
   const conversationApiIdRef = useRef<string | null>(null)
+
+  // Restore history + settings once on mount (drop empty conversations)
+  useEffect(() => {
+    const { conversations: saved, activeId: savedActive } = loadConversations()
+    if (saved.length) {
+      const nonEmpty = saved.filter((c) => c.messages.length > 0)
+      setConversations(nonEmpty)
+      setActiveId(
+        savedActive && nonEmpty.some((c) => c.id === savedActive)
+          ? savedActive
+          : nonEmpty[0]?.id ?? null,
+      )
+    }
+    setSettings(loadSettings())
+    setHydrated(true)
+  }, [])
+
+  // Persist conversations
+  useEffect(() => {
+    if (!hydrated) return
+    saveConversations(conversations, activeId)
+  }, [conversations, activeId, hydrated])
+
+  // Persist settings
+  useEffect(() => {
+    if (!hydrated) return
+    saveSettings(settings)
+  }, [settings, hydrated])
+
+  // Warn when selected language has no system voice
+  useEffect(() => {
+    let cancelled = false
+    void ensureVoicesLoaded().then((voices) => {
+      if (cancelled) return
+      const lang = settings.speechLanguage || 'hi-IN'
+      if (!hasVoiceForLanguage(lang, voices)) {
+        setVoiceWarning(
+          `No system voice found for ${lang}. Speech may fall back or stay silent. Install a voice for this language in OS / browser settings.`,
+        )
+      } else {
+        setVoiceWarning(null)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [settings.speechLanguage])
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -165,7 +227,7 @@ export function useChatbot(context: ChatbotContext = {}) {
     setMode((m) => (m === 'closed' ? 'panel' : m))
     if (!activeId) {
       const conv = createConversation()
-      setConversations((prev) => [conv, ...prev])
+      setConversations((prev) => [conv, ...prev.filter((c) => c.messages.length > 0)])
       setActiveId(conv.id)
     }
   }, [activeId])
@@ -173,7 +235,6 @@ export function useChatbot(context: ChatbotContext = {}) {
   const close = useCallback(() => {
     setMode('closed')
     setShowSettings(false)
-    setShowSidebar(false)
     teardownVoice()
     setStatus('online')
   }, [teardownVoice])
@@ -200,10 +261,7 @@ export function useChatbot(context: ChatbotContext = {}) {
       setConfirmNew(true)
       return
     }
-    const conv = createConversation()
-    conversationApiIdRef.current = null
-    setConversations((prev) => [conv, ...prev])
-    setActiveId(conv.id)
+    // Already on an empty chat — nothing to do
     setConfirmNew(false)
     setShowSettings(false)
   }, [messages.length])
@@ -211,7 +269,8 @@ export function useChatbot(context: ChatbotContext = {}) {
   const confirmNewConversation = useCallback(() => {
     const conv = createConversation()
     conversationApiIdRef.current = null
-    setConversations((prev) => [conv, ...prev])
+    // Keep only conversations that have messages, plus the new empty one
+    setConversations((prev) => [conv, ...prev.filter((c) => c.messages.length > 0)])
     setActiveId(conv.id)
     setConfirmNew(false)
     setShowSettings(false)
@@ -225,33 +284,16 @@ export function useChatbot(context: ChatbotContext = {}) {
     [activeId],
   )
 
-  const addAttachment = useCallback((file: File) => {
-    setAttachments((prev) => [
-      ...prev,
-      {
-        id: uid('att'),
-        name: file.name,
-        size: file.size,
-        type: file.type || 'application/octet-stream',
-        progress: 100,
-      },
-    ])
-  }, [])
-
-  const removeAttachment = useCallback((id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id))
-  }, [])
-
   const sendMessage = useCallback(
     async (text?: string) => {
       const content = (text ?? input).trim()
-      if (!content && attachments.length === 0) return
+      if (!content) return
       if (status === 'generating' || status === 'thinking') return
 
       let convId = activeId
       if (!convId) {
         const conv = createConversation()
-        setConversations((prev) => [conv, ...prev])
+        setConversations((prev) => [conv, ...prev.filter((c) => c.messages.length > 0)])
         setActiveId(conv.id)
         convId = conv.id
       }
@@ -259,49 +301,50 @@ export function useChatbot(context: ChatbotContext = {}) {
       const userMsg: ChatMessage = {
         id: uid('msg'),
         role: 'user',
-        content: content || (attachments.length ? `Uploaded ${attachments.length} file(s)` : ''),
+        content,
         timestamp: Date.now(),
-        attachments: attachments.length ? [...attachments] : undefined,
       }
 
       setConversations((prev) =>
         prev.map((c) =>
           c.id === convId
             ? {
-                ...c,
-                title:
-                  c.messages.length === 0
-                    ? content.slice(0, 40) || 'New conversation'
-                    : c.title,
-                updatedAt: Date.now(),
-                messages: [...c.messages, userMsg],
-              }
+              ...c,
+              title:
+                c.messages.length === 0
+                  ? content.slice(0, 40) || 'New conversation'
+                  : c.title,
+              updatedAt: Date.now(),
+              messages: [...c.messages, userMsg],
+            }
             : c,
         ),
       )
       setInput('')
-      setAttachments([])
       setStatus('thinking')
       stopRef.current = false
+      abortRef.current?.abort()
+      const ac = new AbortController()
+      abortRef.current = ac
 
       const assistantId = uid('msg')
       setConversations((prev) =>
         prev.map((c) =>
           c.id === convId
             ? {
-                ...c,
-                updatedAt: Date.now(),
-                messages: [
-                  ...c.messages,
-                  {
-                    id: assistantId,
-                    role: 'assistant',
-                    content: '',
-                    timestamp: Date.now(),
-                    isStreaming: true,
-                  },
-                ],
-              }
+              ...c,
+              updatedAt: Date.now(),
+              messages: [
+                ...c.messages,
+                {
+                  id: assistantId,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: Date.now(),
+                  isStreaming: true,
+                },
+              ],
+            }
             : c,
         ),
       )
@@ -324,9 +367,10 @@ export function useChatbot(context: ChatbotContext = {}) {
           },
           ctx.accessToken,
           apiConfig,
+          ac.signal,
         )
 
-        if (stopRef.current) {
+        if (stopRef.current || ac.signal.aborted) {
           setStatus('online')
           return
         }
@@ -337,38 +381,98 @@ export function useChatbot(context: ChatbotContext = {}) {
 
         const formatted = formatChatAnswer(res)
         const answer = formatted.text
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
+        const meta = {
+          suggestedQuestions: settingsRef.current.showSuggestedQuestions
+            ? formatted.suggestedQuestions
+            : undefined,
+          routeTo: formatted.routed,
+          grounded: formatted.grounded,
+        }
+
+        // Typing animation (skipped when user prefers reduced motion)
+        const total = answer.length
+        const reduceMotion = prefersReducedMotion()
+        if (total === 0 || reduceMotion) {
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === convId
+                ? {
                   ...c,
                   updatedAt: Date.now(),
                   messages: c.messages.map((m) =>
                     m.id === assistantId
-                      ? {
-                          ...m,
-                          content: answer,
-                          isStreaming: false,
-                          suggestedQuestions:
-                            settingsRef.current.showSuggestedQuestions
-                              ? formatted.suggestedQuestions
-                              : undefined,
-                          routeTo: formatted.routed,
-                          grounded: formatted.grounded,
-                        }
+                      ? { ...m, content: answer, isStreaming: false, ...meta }
                       : m,
                   ),
                 }
-              : c,
-          ),
-        )
-        setStatus('online')
+                : c,
+            ),
+          )
+          setStatus('online')
+        } else {
+          const step = total > 400 ? 4 : total > 180 ? 3 : 2
+          const delay = total > 400 ? 12 : 16
+          let i = 0
+          await new Promise<void>((resolve) => {
+            const tick = () => {
+              if (stopRef.current) {
+                setConversations((prev) =>
+                  prev.map((c) =>
+                    c.id === convId
+                      ? {
+                        ...c,
+                        messages: c.messages.map((m) =>
+                          m.id === assistantId
+                            ? { ...m, content: answer, isStreaming: false, ...meta }
+                            : m,
+                        ),
+                      }
+                      : c,
+                  ),
+                )
+                resolve()
+                return
+              }
+              i = Math.min(total, i + step)
+              const slice = answer.slice(0, i)
+              const done = i >= total
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === convId
+                    ? {
+                      ...c,
+                      updatedAt: Date.now(),
+                      messages: c.messages.map((m) =>
+                        m.id === assistantId
+                          ? {
+                            ...m,
+                            content: slice,
+                            isStreaming: !done,
+                            ...(done ? meta : {}),
+                          }
+                          : m,
+                      ),
+                    }
+                    : c,
+                ),
+              )
+              if (done) {
+                resolve()
+                return
+              }
+              window.setTimeout(tick, delay)
+            }
+            tick()
+          })
+          setStatus('online')
+        }
 
-        if (settingsRef.current.autoReadResponses && answer) {
-          setTimeout(() => speakTextRef.current(answer, assistantId), 80)
+        // Speak only after typing finishes (sync)
+        if (settingsRef.current.autoReadResponses && answer && !stopRef.current) {
+          setTimeout(() => speakTextRef.current(answer, assistantId), 120)
         }
       } catch (err) {
-        if (stopRef.current) {
+        if (stopRef.current || (err instanceof DOMException && err.name === 'AbortError')) {
           setStatus('online')
           return
         }
@@ -383,13 +487,13 @@ export function useChatbot(context: ChatbotContext = {}) {
           prev.map((c) =>
             c.id === convId
               ? {
-                  ...c,
-                  messages: c.messages.map((m) =>
-                    m.id === assistantId
-                      ? { ...m, content: '', isStreaming: false, error: message }
-                      : m,
-                  ),
-                }
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: '', isStreaming: false, error: message }
+                    : m,
+                ),
+              }
               : c,
           ),
         )
@@ -397,11 +501,17 @@ export function useChatbot(context: ChatbotContext = {}) {
         setTimeout(() => setStatus('online'), 1500)
       }
     },
-    [input, attachments, activeId, status],
+    [input, activeId, status],
   )
 
   const stopGenerating = useCallback(() => {
     stopRef.current = true
+    try {
+      abortRef.current?.abort()
+    } catch {
+      /* ignore */
+    }
+    abortRef.current = null
     setStatus('online')
   }, [])
 
@@ -434,6 +544,7 @@ export function useChatbot(context: ChatbotContext = {}) {
   )
 
   const stopSpeaking = useCallback(() => {
+    speakGenRef.current += 1
     try {
       window.speechSynthesis?.cancel()
     } catch {
@@ -444,39 +555,77 @@ export function useChatbot(context: ChatbotContext = {}) {
     setStatus((s) => (s === 'speaking' ? 'online' : s))
   }, [])
 
-  const speakText = useCallback(
-    (text: string, messageId?: string) => {
-      const trimmed = text.replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim()
-      if (!trimmed) return
-      if (typeof window === 'undefined' || !window.speechSynthesis) return
+  const speakText = useCallback((text: string, messageId?: string) => {
+    const cleaned = textForSpeech(text)
+    if (!cleaned) return
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
 
+    const gen = ++speakGenRef.current
+
+    try {
+      window.speechSynthesis.cancel()
+    } catch {
+      /* ignore */
+    }
+
+    // Mark active immediately so UI animates while translating
+    setIsSpeaking(true)
+    setSpeakingMessageId(messageId ?? null)
+    setStatus('speaking')
+
+    const finish = () => {
+      if (speakGenRef.current !== gen) return
+      setIsSpeaking(false)
+      setSpeakingMessageId(null)
+      setStatus((st) => (st === 'speaking' ? 'online' : st))
+    }
+
+    void (async () => {
+      const s = settingsRef.current
+      const lang = s.speechLanguage || 'hi-IN'
+      const gender = s.speechGender || 'any'
+
+      let speakBody = cleaned
       try {
-        window.speechSynthesis.cancel()
+        speakBody = await translateForSpeech(
+          cleaned,
+          lang,
+          contextRef.current.accessToken,
+        )
       } catch {
-        /* ignore */
+        speakBody = cleaned
       }
 
-      const rate = settingsRef.current.speechSpeed || 1
-      const utterance = new SpeechSynthesisUtterance(trimmed)
-      utterance.rate = Math.min(2, Math.max(0.5, rate))
-      utterance.onend = () => {
-        setIsSpeaking(false)
-        setSpeakingMessageId(null)
-        setStatus((s) => (s === 'speaking' ? 'online' : s))
+      if (speakGenRef.current !== gen) return
+
+      const voices = await ensureVoicesLoaded()
+      if (speakGenRef.current !== gen) return
+
+      const utterance = new SpeechSynthesisUtterance(speakBody)
+      utterance.lang = lang
+
+      const voice = pickBestVoice(voices, { lang, gender })
+      if (voice) {
+        utterance.voice = voice
+        if (voice.lang) utterance.lang = voice.lang
       }
-      utterance.onerror = () => {
-        setIsSpeaking(false)
-        setSpeakingMessageId(null)
-        setStatus((s) => (s === 'speaking' ? 'online' : s))
-      }
-      setIsSpeaking(true)
-      setSpeakingMessageId(messageId ?? null)
-      setStatus('speaking')
-      window.speechSynthesis.speak(utterance)
-    },
-    [],
-  )
+
+      const params = naturalSpeechParams(s.speechSpeed || 1, gender)
+      utterance.rate = params.rate
+      utterance.pitch = params.pitch
+      utterance.volume = params.volume
+      utterance.onend = finish
+      utterance.onerror = finish
+
+      speakUtterance(utterance)
+    })()
+  }, [])
   speakTextRef.current = speakText
+
+  // Preload voices so the first speak is not delayed / robotic default
+  useEffect(() => {
+    void ensureVoicesLoaded()
+  }, [])
 
   const stopListening = useCallback(() => {
     const rec = recognitionRef.current
@@ -551,7 +700,9 @@ export function useChatbot(context: ChatbotContext = {}) {
       recognition.continuous = false
       recognition.interimResults = true
       recognition.lang =
-        typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US'
+        settingsRef.current.speechLanguage ||
+        (typeof navigator !== 'undefined' ? navigator.language : undefined) ||
+        'en-IN'
 
       recognition.onresult = (event: SpeechRecognitionResultEvent) => {
         let interim = ''
@@ -617,9 +768,31 @@ export function useChatbot(context: ChatbotContext = {}) {
   )
 
   const dismissVoiceError = useCallback(() => setVoiceError(null), [])
+  const dismissVoiceWarning = useCallback(() => setVoiceWarning(null), [])
+
+  /** Settings “Test voice” — short sample in current language/gender. */
+  const testVoice = useCallback(() => {
+    const lang = settingsRef.current.speechLanguage || 'hi-IN'
+    const primary = lang.split('-')[0].toLowerCase()
+    const samples: Record<string, string> = {
+      hi: 'नमस्ते, मैं आपका सहायक हूँ। आवाज़ सही से काम कर रही है।',
+      mr: 'नमस्कार, मी तुमचा सहाय्यक आहे. आवाज व्यवस्थित काम करत आहे.',
+      bn: 'নমস্কার, আমি আপনার সহায়ক। কণ্ঠস্বর ঠিকভাবে কাজ করছে।',
+      ta: 'வணக்கம், நான் உங்கள் உதவியாளர். குரல் சரியாக வேலை செய்கிறது.',
+      te: 'నమస్కారం, నేను మీ సహాయకుడిని. వాయిస్ సరిగ్గా పని చేస్తోంది.',
+      gu: 'નમસ્તે, હું તમારો સહાયક છું. અવાજ સારી રીતે કામ કરે છે.',
+      kn: 'ನಮಸ್ಕಾರ, ನಾನು ನಿಮ್ಮ ಸಹಾಯಕ. ಧ್ವನಿ ಸರಿಯಾಗಿ ಕೆಲಸ ಮಾಡುತ್ತಿದೆ.',
+      ml: 'നമസ്കാരം, ഞാൻ നിങ്ങളുടെ സഹായി. ശബ്ദം ശരിയായി പ്രവർത്തിക്കുന്നു.',
+      pa: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਮੈਂ ਤੁਹਾਡਾ ਸਹਾਇਕ ਹਾਂ। ਆਵਾਜ਼ ਠੀਕ ਕੰਮ ਕਰ ਰਹੀ ਹੈ।',
+      en: 'Hello, I am your assistant. The voice is working correctly.',
+    }
+    const sample = samples[primary] || samples.en
+    speakText(sample)
+  }, [speakText])
 
   useEffect(() => {
     return () => {
+      flushConversations()
       teardownVoice()
     }
   }, [teardownVoice])
@@ -628,13 +801,12 @@ export function useChatbot(context: ChatbotContext = {}) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && mode !== 'closed') {
         if (showSettings) setShowSettings(false)
-        else if (showSidebar) setShowSidebar(false)
         else close()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [mode, showSettings, showSidebar, close])
+  }, [mode, showSettings, close])
 
   return {
     mode,
@@ -652,9 +824,6 @@ export function useChatbot(context: ChatbotContext = {}) {
     updateSettings,
     input,
     setInput,
-    attachments,
-    addAttachment,
-    removeAttachment,
     sendMessage,
     stopGenerating,
     regenerate,
@@ -670,16 +839,15 @@ export function useChatbot(context: ChatbotContext = {}) {
     interimTranscript,
     voiceError,
     dismissVoiceError,
+    voiceWarning,
+    dismissVoiceWarning,
+    testVoice,
     isSpeaking,
     speakingMessageId,
     toggleSpeak,
     stopSpeaking,
     showSettings,
     setShowSettings,
-    showSidebar,
-    setShowSidebar,
-    isDragging,
-    setIsDragging,
     quickActions: QUICK_ACTIONS,
   }
 }

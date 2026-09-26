@@ -1,4 +1,5 @@
 import type { LoginRequest, TokenResponse, RefreshRequest, LogoutRequest } from './types'
+import { apiUrl, PATHS } from '../config'
 
 export class AuthApiError extends Error {
   status: number
@@ -44,7 +45,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export async function loginApi(payload: LoginRequest): Promise<TokenResponse> {
-  const res = await fetch('/api/v1/auth/login', {
+  const res = await fetch(apiUrl(PATHS.authLogin), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -57,7 +58,7 @@ export async function loginApi(payload: LoginRequest): Promise<TokenResponse> {
 
 export async function refreshApi(refreshToken: string): Promise<TokenResponse> {
   const payload: RefreshRequest = { refresh_token: refreshToken }
-  const res = await fetch('/api/v1/auth/refresh', {
+  const res = await fetch(apiUrl(PATHS.authRefresh), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -70,7 +71,7 @@ export async function refreshApi(refreshToken: string): Promise<TokenResponse> {
 
 export async function logoutApi(refreshToken: string): Promise<void> {
   const payload: LogoutRequest = { refresh_token: refreshToken }
-  const res = await fetch('/api/v1/auth/logout', {
+  const res = await fetch(apiUrl(PATHS.authLogout), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
