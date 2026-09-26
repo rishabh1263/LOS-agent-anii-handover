@@ -454,9 +454,14 @@ def test_the_routing_categories_are_unchanged():
     # stage guides, and KNOWLEDGE_ONLY already means the FOS handbook.
     # A reader of the response has to be able to tell which of the two
     # replied, and the five categories below could not say it.
+    #
+    # CONVERSATION WAS ADDED DELIBERATELY TOO (Phase 3 refinement): a
+    # greeting, thanks or "what can you do" reads nothing and is neither a
+    # case, a knowledge nor an unsupported question -- calling it
+    # UNSUPPORTED would count every "thanks" as an unresolved turn.
     assert {c.value for c in QueryCategory} == {
         "CASE_ONLY", "KNOWLEDGE_ONLY", "MIXED", "DOWNSTREAM", "UNSUPPORTED",
-        "PROCESS_KNOWLEDGE"}
+        "PROCESS_KNOWLEDGE", "CONVERSATION"}
 
 
 def test_case_history_is_a_case_only_question():

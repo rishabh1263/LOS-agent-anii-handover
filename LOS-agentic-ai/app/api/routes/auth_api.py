@@ -39,8 +39,18 @@ _DUMMY_USERNAME = os.getenv("DUMMY_USERNAME", "AniketDev")
 #   python -m app.security.generate_password_hash
 _DUMMY_PASSWORD_HASH = os.getenv("DUMMY_PASSWORD_HASH", "")
 
-_DEFAULT_SCOPES = ["los.read", "los.write"]
-_DEFAULT_ROLES = ["los-service"]
+#: WHAT A DEV LOGIN MAY DO. It used to be the SERVICE scopes (los.read /
+#: los.write), which read and write EVERY customer's case -- so a person
+#: testing the FOS app or the Copilot through this login could open any
+#: other customer's case by id. A person gets the FOS customer scopes:
+#: reads and writes on the applicants and cases their own subject created
+#: (ownership, app/security/access.py). Service scopes remain available for
+#: back-office testing, explicitly: DEV_IDP_SCOPES="los.read los.write".
+_CUSTOMER_SCOPES = ("read_applicant read_application read_documents read_verification "
+                    "read_pending_items read_next_action create_applicant update_applicant "
+                    "create_application upload_document")
+_DEFAULT_SCOPES = (os.getenv("DEV_IDP_SCOPES") or _CUSTOMER_SCOPES).split()
+_DEFAULT_ROLES = (os.getenv("DEV_IDP_ROLES") or "los-fos-user").split()
 
 
 class LoginRequest(BaseModel):

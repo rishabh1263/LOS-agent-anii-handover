@@ -292,8 +292,12 @@ def test_how_do_you_know_that_explains_a_stage_answer(case, client):
 
 def test_without_a_previous_answer_nothing_is_explained(case, client):
     body = ask(client, "Why this answer?")
-    assert body["intent"] == "UNKNOWN"
-    assert body["problems"] == []
+    # An honest reply (Phase 3 refinement) instead of a generic clarification:
+    # there is no previous answer, so nothing is explained -- and nothing
+    # about the case is read or published.
+    assert body["intent"] == "ANSWER_BASIS"
+    assert "once I have given one" in body["answer"]
+    assert body["problems"] == [] and body["tool_invoked"] == []
 
 
 def test_another_callers_case_cannot_be_explained(case, make_token):
