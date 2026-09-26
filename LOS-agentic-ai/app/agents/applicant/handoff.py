@@ -45,6 +45,10 @@ _ASKS_PERSON_MORE = re.compile(
     r"\b(customer\s+(care|support|service)|call\s+centre|call\s+center|"
     r"helpline|human\s+agent|real\s+human|talk\s+to\s+(someone|somebody)|"
     r"speak\s+to\s+(someone|somebody)|call\s+me\s+back|callback)\b"
+    r"|\b(need|want|require|get)\s+(a\s+|some\s+)?(human|real\s+person|live\s+person)"
+    r"(\s+(help|support|assistance))?\b|\bhuman\s+(help|support|assistance)\b"
+    r"|\b(connect|transfer|put)\s+me\s+(to|through\s+to|with)\s+(an?\s+)?(agent|person|"
+    r"human|someone|representative|executive)\b"
     r"|\b(insaan|kisi\s+(se|insaan))\b[^?]{0,20}\bbaat\b"
     r"|\bbaat\s+karni\s+hai\b|\bbaat\s+karwao\b|\bbaat\s+karao\b",
     re.IGNORECASE)

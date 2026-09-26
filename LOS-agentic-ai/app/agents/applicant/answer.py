@@ -200,10 +200,19 @@ def deterministic_answer(
     if intent is Intent.APPLICANT_MISSING_INFO:
         applicant = _get(results, "applicant.get", "applicant") or {}
         missing = applicant.get("missing_fields") or []
-        if not missing:
-            return "All required applicant information has been captured."
-        return ("Still to capture: "
-                + ", ".join(_readable(m) for m in missing) + ".")
+        items = _get(results, "workflow.pending_items", "pending_items") or []
+        documents = [_readable(i.get("slot")) for i in items
+                     if isinstance(i, dict) and i.get("code") == "DOCUMENT_MISSING"
+                     and i.get("slot")]
+        said = ("All required applicant information has been captured."
+                if not missing else
+                "Still to capture: " + ", ".join(_readable(m) for m in missing) + ".")
+        # WHAT ELSE IS MISSING, from the same pending-items record: a person
+        # asking "what details are still missing?" means the documents too.
+        if documents:
+            said += (f" {_and_list(documents)} "
+                     f"{'are' if len(documents) > 1 else 'is'} still to be uploaded.")
+        return said
 
     if intent is Intent.APPLICATION_STATUS:
         # The stage, and the required documents still missing -- never
@@ -229,8 +238,22 @@ def deterministic_answer(
         documents = _get(results, "documents.get", "documents") or []
         if not documents:
             return "No documents have been uploaded for this case yet."
-        return (f"{len(documents)} document(s) uploaded: "
-                + "; ".join(_doc_line(d) for d in documents) + ".")
+        # IN WORDS, whose and in what state: "the PAN is verified", "the
+        # co-applicant's PAN is rejected" -- never "PAN — REJECTED".
+        states = {"VERIFIED": "verified", "PASS": "verified", "REVIEW": "under review",
+                  "REJECTED": "rejected", "FAIL": "rejected", "UPLOADED": "uploaded",
+                  "PROCESSING": "being processed", "MISSING": "not uploaded"}
+        lines = []
+        for d in documents:
+            owner = ("the co-applicant's " if str(d.get("party_role") or "").upper()
+                     == "CO_APPLICANT" else "the ")
+            state = states.get(str(d.get("status") or "").upper(),
+                               str(d.get("status") or "recorded").replace("_", " ").lower())
+            lines.append(f"{owner}{_readable(d.get('document_type'))} is {state}")
+        count = len(documents)
+        said = (f"{count} document{'s are' if count > 1 else ' is'} on your application: "
+                + _and_list(lines) + ".")
+        return said[0].upper() + said[1:]
 
     if intent in (Intent.DOCUMENTS_REQUIRED, Intent.DOCUMENTS_MISSING):
         payload = _result(results, "documents.checklist") or {}
@@ -244,8 +267,9 @@ def deterministic_answer(
                                 and e.get("mandatory", True)]
             if not required_missing:
                 return "No required documents are missing for this case."
-            return ("Missing: "
-                    + ", ".join(_readable(m) for m in required_missing) + ".")
+            names = [_readable(m) for m in required_missing]
+            return (f"{_and_list(names)} {'are' if len(names) > 1 else 'is'} "
+                    f"still missing.")
 
         # Required and optional are counted separately. Reporting "5 required
         # document(s)" when two of them are optional overstates what the case

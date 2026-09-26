@@ -66,6 +66,7 @@ class Caller:
 _READ_REQUIREMENT = {
     Intent.APPLICANT_DETAILS: "applicant",
     Intent.APPLICANT_MISSING_INFO: "applicant",
+    Intent.APPLICANT_PROFILE: "applicant",
     Intent.APPLICATION_STATUS: "application",
     Intent.APPLICATION_STAGE: "application",
     Intent.DOCUMENTS_UPLOADED: "documents",

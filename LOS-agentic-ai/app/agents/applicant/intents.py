@@ -29,6 +29,11 @@ class Intent(str, Enum):
     # -- applicant
     APPLICANT_DETAILS = "APPLICANT_DETAILS"
     APPLICANT_MISSING_INFO = "APPLICANT_MISSING_INFO"
+    # ONE recorded detail from the FOS form -- "what loan amount did I
+    # enter?", "which mobile is registered?" -- answered from the applicant /
+    # application record (profile.py). `fields["field"]` names it; ALL means
+    # "what have I submitted".
+    APPLICANT_PROFILE = "APPLICANT_PROFILE"
 
     # -- application
     APPLICATION_STATUS = "APPLICATION_STATUS"
@@ -148,6 +153,7 @@ class Intent(str, Enum):
 #: What is left on the model path is the prose that genuinely reads better for
 #: it: the applicant narrative and the case briefing.
 SIMPLE_INTENTS = frozenset({
+    Intent.APPLICANT_PROFILE,
     Intent.DOCUMENT_VERIFICATION,
     Intent.NEXT_ACTION,
     Intent.READINESS,
@@ -611,7 +617,7 @@ _PATTERNS: list[tuple[str, Intent]] = [
     # the guard at the front of each pattern. And never a definition:
     # "what does PAN name mismatch mean" has reached the handbook before
     # these are tried.
-    (r"^(?!.*\b(mis)?match)(?!.*\bdiffer).*\b(my|the|this|his|her|their)\s+(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|bank\s*account|driving\s*licen[cs]e|voter\s*id|passport|aadhaa?r)\s+(card\s+)?(name|number|dob|date\s+of\s+birth)\b",
+    (r"^(?!.*\b(mis)?match)(?!.*\bdiffer).*\b(my|the|this|his|her|their)\s+(full\s+|complete\s+|entire\s+)?(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|bank\s*account|driving\s*licen[cs]e|voter\s*id|passport|aadhaa?r)\s+(card\s+)?(name|number|dob|date\s+of\s+birth)\b",
      Intent.DOCUMENT_DETAILS),
     (r"^(?!.*\b(mis)?match)(?!.*\bdiffer).*"
      r"\b(name|father'?s?\s*name|date\s+of\s+birth|dob|birth\s*date|"
@@ -665,6 +671,10 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\bwhy\b.{0,40}\b(in\s+)?(review|pending|rejected|failed|flagged)\b",
      Intent.CASE_HISTORY),
     (r"\bwhy\b.{0,30}\b(this\s+)?case\b", Intent.CASE_HISTORY),
+    # "Summarise this document / my documents" -- the case's documents and
+    # where each stands (one named document: its verification).
+    (r"\bsumm?ar(y|i[sz]e|i[sz]ing)\b[^?]{0,25}\b(this|the|my|these|all|uploaded)?\s*"
+     r"(documents?|docs?|files?|uploads?|papers?)\b", Intent.DOCUMENTS_UPLOADED),
     # "I uploaded it three times and it's STILL pending" -- a complaint that
     # is a pending-documents question. Narrow: "still pending" said of it /
     # them; "why is it still pending" is taken by the rule above.
@@ -1295,6 +1305,22 @@ def classify(message: str) -> Classification:
                     matched_on=pattern.pattern[:60],
                 )
 
+    # THE CALLER'S OWN RECORDED DETAILS: one field from the FOS form, or
+    # "what have I submitted". Before the knowledge rules, which took "what
+    # name did I provide?" as a question about name matching, and before the
+    # generic case patterns, which took "what's my loan amount?" as status.
+    # A document named ("the name on my PAN") is left to DOCUMENT_DETAILS.
+    from app.agents.applicant import profile
+
+    if _document_type(text) is None:
+        if profile.COMPLETENESS.search(text):
+            return Classification(Intent.APPLICANT_MISSING_INFO,
+                                  matched_on="basic_details_complete")
+        asked = profile.detect(text)
+        if asked is not None:
+            return Classification(Intent.APPLICANT_PROFILE, matched_on="profile",
+                                  fields={"field": asked.field})
+
     # A STRONG knowledge marker outranks the case patterns.
     #
     # "What documents are required for a personal loan?" names a product, so
@@ -1396,6 +1422,7 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
 PLANS: dict[Intent, tuple[str, ...]] = {
     Intent.APPLICANT_DETAILS: ("applicant.get",),
     Intent.APPLICANT_MISSING_INFO: ("applicant.get", "workflow.pending_items"),
+    Intent.APPLICANT_PROFILE: ("applicant.get", "application.get"),
     Intent.APPLICATION_STATUS: ("application.get",),
     Intent.APPLICATION_STAGE: ("applicant.360",),
     Intent.DOCUMENTS_UPLOADED: ("documents.get",),
@@ -1472,6 +1499,11 @@ def plan_for(
 
     if classification.intent is Intent.CASE_PORTFOLIO:
         return ("applications.list",)
+
+    # One recorded detail needs its two records and nothing else -- no
+    # checklist, no documents (minimum necessary).
+    if classification.intent is Intent.APPLICANT_PROFILE:
+        return PLANS[Intent.APPLICANT_PROFILE] if has_case else ()
 
     if classification.intent in (Intent.CASE_HISTORY,
                                  Intent.INCOME_EVIDENCE,

@@ -63,6 +63,16 @@ class Category(str, Enum):
     UNAUTHORIZED_DATA = "UNAUTHORIZED_DATA"
     UNSUPPORTED_FACT = "UNSUPPORTED_FACT"
     UNSUPPORTED_DECISION = "UNSUPPORTED_DECISION"
+    # -- request policy (app/security/request_policy.py): what KIND of request
+    CROSS_CUSTOMER_DATA = "CROSS_CUSTOMER_DATA"
+    BULK_DATA = "BULK_DATA"
+    DATA_EXPORT = "DATA_EXPORT"
+    TOOL_ABUSE = "TOOL_ABUSE"
+    AUTHORITY_CLAIM = "AUTHORITY_CLAIM"
+    SQL_INJECTION = "SQL_INJECTION"
+    OTHER_CONVERSATION = "OTHER_CONVERSATION"
+    UNAUTHORIZED_SUBJECT = "UNAUTHORIZED_SUBJECT"
+    RAW_INTERNAL_DATA = "RAW_INTERNAL_DATA"
 
 
 @dataclass(frozen=True)
@@ -179,11 +189,34 @@ _INPUT_WITH_ASK = (
 )
 
 
-def check_input(message: str) -> Verdict:
-    """Whether this message may be answered at all."""
+def check_input(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Verdict:
+    """
+    Whether this message may be answered at all.
+
+    Two layers, both before anything runs: requests for the system itself
+    (the rules below), then the REQUEST POLICY -- other customers' data, bulk
+    and export requests, tool abuse, authority claims, SQL injection, other
+    conversations, identifiers the request is not authorised for
+    (app/security/request_policy.py). `allowed_ids` are the case / applicant
+    / party ids this request is authorised for; any other named id is
+    somebody else's.
+    """
     text = " ".join(str(message or "").split())
     if not text:
         return ALLOWED
+    verdict = _check_system_request(text)
+    if not verdict.allowed:
+        return verdict
+    from app.security import request_policy
+
+    decision = request_policy.classify(text, allowed_ids=allowed_ids)
+    if decision is not None:
+        return _blocked("input", Category(decision.category), decision.rule)
+    return ALLOWED
+
+
+def _check_system_request(text: str) -> Verdict:
+    """A request for the system's own code, files, secrets, prompts or tools."""
     for category, rules in _INPUT_ALWAYS:
         for name, pattern in rules:
             if pattern.search(text):
@@ -290,6 +323,12 @@ def published(text: str, *, fallback: str = SAFE_FALLBACK) -> tuple[str, Verdict
     A MODEL-written answer is never salvaged this way: its validator
     discards it whole (see validate.py).
     """
+    # MINIMUM NECESSARY DISCLOSURE: a PAN, Aadhaar or account number in an
+    # answer is masked per the field-sensitivity policy (sensitivity.py),
+    # whichever record or passage it came from.
+    from app.security import sensitivity
+
+    text = sensitivity.mask_identifiers(str(text or ""))
     verdict = check_output(text)
     if verdict.allowed:
         return text, verdict
@@ -348,7 +387,10 @@ def untrusted(value: Any) -> Any:
         if isinstance(node, str):
             cleaned, hit = neutralise(node)
             found = found or hit
-            return cleaned
+            # A model is never shown a full PAN / Aadhaar / account number.
+            from app.security import sensitivity
+
+            return sensitivity.mask_identifiers(cleaned)
         if isinstance(node, dict):
             return {key: walk(item) for key, item in node.items()}
         if isinstance(node, list):
@@ -402,6 +444,9 @@ def context_issues(payload: Any) -> list[str]:
 # REFUSALS -- what a blocked request is told
 # ==========================================================================
 
+_OWN_ONLY = ("I can help with your own authorised application information, but "
+             "I can't provide other customers' private data or internal system details.")
+
 _REFUSALS = {
     Category.CODE_LEAK: ("I can explain how a check works in business terms, "
                          "but I can't share internal code or system files."),
@@ -421,6 +466,26 @@ _REFUSALS = {
     Category.SECURITY: ("I can't change how access or security works, and I "
                         "can only help with the application you are "
                         "authorised to see."),
+    # One answer for every request about other people's data -- it never says
+    # whether such a person, case or record exists.
+    Category.CROSS_CUSTOMER_DATA: _OWN_ONLY,
+    Category.UNAUTHORIZED_SUBJECT: _OWN_ONLY,
+    Category.BULK_DATA: ("I can only help with your own application, so I can't "
+                         "list or search other customers' records."),
+    Category.DATA_EXPORT: ("I can't export or re-encode data, but I'm happy to "
+                           "answer questions about your application in plain words."),
+    Category.TOOL_ABUSE: ("I can't run tools or queries on request. Ask me about "
+                          "your application and I'll look up what's needed."),
+    Category.AUTHORITY_CLAIM: ("I can't change access based on a message. I can help "
+                               "with the application you're signed in for."),
+    Category.SQL_INJECTION: ("That doesn't look like a question I can help with. "
+                             "Ask me about your application, documents or next steps."),
+    Category.OTHER_CONVERSATION: ("I can't share anything from other people's "
+                                  "conversations. I can help with your own application."),
+    Category.RAW_INTERNAL_DATA: ("I can't share raw system data or internal identifiers, "
+                                 "but I can explain your application in plain words."),
+    Category.PROMPT_INJECTION: ("I can't take on a different role or set aside my "
+                                "rules, but I'm happy to help with your application."),
 }
 
 
