@@ -69,31 +69,6 @@ export function LoginPage() {
               </div>
             )}
 
-            {/* Username Field */}
-            <div>
-              <label htmlFor="login-username" className="label flex items-center justify-between">
-                <span>Username</span>
-              </label>
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-content-secondary">
-                  <User className="h-4 w-4" />
-                </div>
-                <input
-                  id="login-username"
-                  name="username"
-                  type="text"
-                  autoComplete="username"
-                  autoFocus
-                  required
-                  disabled={isLoading}
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. AniketDev"
-                  className="input pl-9"
-                />
-              </div>
-            </div>
-
             {/* Stage */}
             <div>
               <label htmlFor="login-stage" className="label">
@@ -117,6 +92,31 @@ export function LoginPage() {
               <p className="mt-1 text-[12px] text-content-secondary">
                 Selects workflow context (FOS, CPA, HOPS, BOPS, Credit).
               </p>
+            </div>
+
+            {/* Username Field */}
+            <div>
+              <label htmlFor="login-username" className="label flex items-center justify-between">
+                <span>Username</span>
+              </label>
+              <div className="relative">
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-content-secondary">
+                  <User className="h-4 w-4" />
+                </div>
+                <input
+                  id="login-username"
+                  name="username"
+                  type="text"
+                  autoComplete="username"
+                  autoFocus
+                  required
+                  disabled={isLoading}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="e.g. AniketDev"
+                  className="input pl-9"
+                />
+              </div>
             </div>
 
             {/* Password Field */}
@@ -178,26 +178,24 @@ export function LoginPage() {
             </div>
           </form>
 
-          {/* Quick Demo Credential Autofill */}
-          <div className="mt-6 border-t border-line-divider pt-4">
-            <div className="flex items-center justify-between">
-              <span className="text-[12px] text-content-secondary">
-                Test environment credentials:
-              </span>
-              <button
-                type="button"
-                onClick={handleFillDemo}
-                className="chip hover:bg-raised-hover hover:text-content transition-colors cursor-pointer text-[11px]"
-                title="Fill dummy username & password"
-              >
-                Auto-fill Demo
-              </button>
+          {/* Demo autofill — development builds only */}
+          {import.meta.env.DEV && (
+            <div className="mt-6 border-t border-line-divider pt-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] text-content-secondary">
+                  Test environment credentials:
+                </span>
+                <button
+                  type="button"
+                  onClick={handleFillDemo}
+                  className="chip hover:bg-raised-hover hover:text-content transition-colors cursor-pointer text-[11px]"
+                  title="Fill demo username & password (dev only)"
+                >
+                  Auto-fill Demo
+                </button>
+              </div>
             </div>
-            <div className="mt-2 flex items-center justify-between rounded-xs bg-raised px-3 py-1.5 font-mono text-[12px] text-content-secondary">
-              <span>AniketDev</span>
-              <span className="text-content-disabled">• • • • • • •</span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

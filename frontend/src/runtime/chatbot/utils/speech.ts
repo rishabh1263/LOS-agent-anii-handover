@@ -234,3 +234,15 @@ export function speakUtterance(utterance: SpeechSynthesisUtterance): void {
 export function isVoicesReady(): boolean {
   return voicesReady
 }
+
+/** Whether the device has any voice matching this language family. */
+export function hasVoiceForLanguage(
+  lang: string,
+  voices?: SpeechSynthesisVoice[],
+): boolean {
+  const list =
+    voices ??
+    (typeof window !== 'undefined' ? window.speechSynthesis?.getVoices() : []) ??
+    []
+  return list.some((v) => langMatches(v.lang, lang))
+}

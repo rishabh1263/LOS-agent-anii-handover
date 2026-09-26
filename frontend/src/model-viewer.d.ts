@@ -44,4 +44,4 @@ declare module 'react' {
   }
 }
 
-export {}
+export { }

@@ -4,8 +4,9 @@
  */
 
 import type { ApiErrorBody } from '../types'
+import { apiUrl, PATHS } from '../../config'
 
-const FOS_BASE = '/api/v1/fos'
+const FOS_BASE = apiUrl(PATHS.fos)
 
 export class FosApiError extends Error {
   status: number

@@ -31,11 +31,10 @@ function ActionBtn({
       aria-label={label}
       title={label}
       aria-pressed={active}
-      className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${
-        active
+      className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${active
           ? 'bg-ember-tint text-ember'
           : 'text-content-secondary hover:bg-raised hover:text-content'
-      }`}
+        }`}
     >
       {children}
     </button>
@@ -180,13 +179,13 @@ export function MessageBubble({
         )}
 
         <div
-          className={`rounded-md border px-3.5 py-2.5 font-sans text-[15px] transition-shadow duration-300 ${
-            isUser
+          data-role={isUser ? 'user-bubble' : 'ai-bubble'}
+          className={`rounded-md border px-3.5 py-2.5 font-sans text-[15px] transition-shadow duration-300 ${isUser
               ? 'border-line bg-raised text-content'
               : isSpeaking
                 ? 'border-ember/40 bg-surface text-content shadow-[0_0_0_3px_rgba(var(--ember-rgb,200,80,40),0.12)] ring-1 ring-ember/30'
                 : 'border-line bg-surface text-content'
-          }`}
+            }`}
         >
           {message.error ? (
             <p className="text-danger-text">{message.error}</p>
@@ -218,9 +217,8 @@ export function MessageBubble({
 
       {showTimestamp && (
         <span
-          className={`px-1 font-sans text-[12px] text-content-disabled ${
-            isUser ? 'mr-0' : 'ml-9'
-          }`}
+          className={`px-1 font-sans text-[12px] text-content-disabled ${isUser ? 'mr-0' : 'ml-9'
+            }`}
         >
           {formatTime(message.timestamp)}
         </span>

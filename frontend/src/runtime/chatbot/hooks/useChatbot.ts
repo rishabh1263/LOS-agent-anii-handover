@@ -24,6 +24,13 @@ import {
   naturalSpeechParams,
   speakUtterance,
   translateForSpeech,
+  loadConversations,
+  saveConversations,
+  flushConversations,
+  loadSettings,
+  saveSettings,
+  prefersReducedMotion,
+  hasVoiceForLanguage,
 } from '../utils'
 
 /** Context + optional API config — only this needs changing in another project. */
@@ -123,28 +130,73 @@ export function useChatbot(context: ChatbotContext = {}) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [status, setStatus] = useState<AiStatus>('online')
-  const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS)
+  const [settings, setSettings] = useState<ChatSettings>(() => loadSettings())
   const [input, setInput] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [isListening, setIsListening] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [voiceWarning, setVoiceWarning] = useState<string | null>(null)
   const [interimTranscript, setInterimTranscript] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const [showSidebar, setShowSidebar] = useState(false)
   const [confirmNew, setConfirmNew] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
 
   const stopRef = useRef(false)
   const speakGenRef = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const settingsRef = useRef(settings)
   settingsRef.current = settings
-  const speakTextRef = useRef<(text: string, messageId?: string) => void>(() => {})
+  const speakTextRef = useRef<(text: string, messageId?: string) => void>(() => { })
   const contextRef = useRef(context)
   contextRef.current = context
   const conversationApiIdRef = useRef<string | null>(null)
+
+  // Restore history + settings once on mount
+  useEffect(() => {
+    const { conversations: saved, activeId: savedActive } = loadConversations()
+    if (saved.length) {
+      setConversations(saved)
+      setActiveId(savedActive && saved.some((c) => c.id === savedActive) ? savedActive : saved[0].id)
+    }
+    setSettings(loadSettings())
+    setHydrated(true)
+  }, [])
+
+  // Persist conversations
+  useEffect(() => {
+    if (!hydrated) return
+    saveConversations(conversations, activeId)
+  }, [conversations, activeId, hydrated])
+
+  // Persist settings
+  useEffect(() => {
+    if (!hydrated) return
+    saveSettings(settings)
+  }, [settings, hydrated])
+
+  // Warn when selected language has no system voice
+  useEffect(() => {
+    let cancelled = false
+    void ensureVoicesLoaded().then((voices) => {
+      if (cancelled) return
+      const lang = settings.speechLanguage || 'hi-IN'
+      if (!hasVoiceForLanguage(lang, voices)) {
+        setVoiceWarning(
+          `No system voice found for ${lang}. Speech may fall back or stay silent. Install a voice for this language in OS / browser settings.`,
+        )
+      } else {
+        setVoiceWarning(null)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [settings.speechLanguage])
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -277,14 +329,14 @@ export function useChatbot(context: ChatbotContext = {}) {
         prev.map((c) =>
           c.id === convId
             ? {
-                ...c,
-                title:
-                  c.messages.length === 0
-                    ? content.slice(0, 40) || 'New conversation'
-                    : c.title,
-                updatedAt: Date.now(),
-                messages: [...c.messages, userMsg],
-              }
+              ...c,
+              title:
+                c.messages.length === 0
+                  ? content.slice(0, 40) || 'New conversation'
+                  : c.title,
+              updatedAt: Date.now(),
+              messages: [...c.messages, userMsg],
+            }
             : c,
         ),
       )
@@ -292,25 +344,28 @@ export function useChatbot(context: ChatbotContext = {}) {
       setAttachments([])
       setStatus('thinking')
       stopRef.current = false
+      abortRef.current?.abort()
+      const ac = new AbortController()
+      abortRef.current = ac
 
       const assistantId = uid('msg')
       setConversations((prev) =>
         prev.map((c) =>
           c.id === convId
             ? {
-                ...c,
-                updatedAt: Date.now(),
-                messages: [
-                  ...c.messages,
-                  {
-                    id: assistantId,
-                    role: 'assistant',
-                    content: '',
-                    timestamp: Date.now(),
-                    isStreaming: true,
-                  },
-                ],
-              }
+              ...c,
+              updatedAt: Date.now(),
+              messages: [
+                ...c.messages,
+                {
+                  id: assistantId,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: Date.now(),
+                  isStreaming: true,
+                },
+              ],
+            }
             : c,
         ),
       )
@@ -333,9 +388,10 @@ export function useChatbot(context: ChatbotContext = {}) {
           },
           ctx.accessToken,
           apiConfig,
+          ac.signal,
         )
 
-        if (stopRef.current) {
+        if (stopRef.current || ac.signal.aborted) {
           setStatus('online')
           return
         }
@@ -354,27 +410,27 @@ export function useChatbot(context: ChatbotContext = {}) {
           grounded: formatted.grounded,
         }
 
-        // Typing animation — reveal answer character-by-character
+        // Typing animation (skipped when user prefers reduced motion)
         const total = answer.length
-        if (total === 0) {
+        const reduceMotion = prefersReducedMotion()
+        if (total === 0 || reduceMotion) {
           setConversations((prev) =>
             prev.map((c) =>
               c.id === convId
                 ? {
-                    ...c,
-                    updatedAt: Date.now(),
-                    messages: c.messages.map((m) =>
-                      m.id === assistantId
-                        ? { ...m, content: '', isStreaming: false, ...meta }
-                        : m,
-                    ),
-                  }
+                  ...c,
+                  updatedAt: Date.now(),
+                  messages: c.messages.map((m) =>
+                    m.id === assistantId
+                      ? { ...m, content: answer, isStreaming: false, ...meta }
+                      : m,
+                  ),
+                }
                 : c,
             ),
           )
           setStatus('online')
         } else {
-          // ~28–45 chars/sec; faster for long answers
           const step = total > 400 ? 4 : total > 180 ? 3 : 2
           const delay = total > 400 ? 12 : 16
           let i = 0
@@ -385,13 +441,13 @@ export function useChatbot(context: ChatbotContext = {}) {
                   prev.map((c) =>
                     c.id === convId
                       ? {
-                          ...c,
-                          messages: c.messages.map((m) =>
-                            m.id === assistantId
-                              ? { ...m, content: answer, isStreaming: false, ...meta }
-                              : m,
-                          ),
-                        }
+                        ...c,
+                        messages: c.messages.map((m) =>
+                          m.id === assistantId
+                            ? { ...m, content: answer, isStreaming: false, ...meta }
+                            : m,
+                        ),
+                      }
                       : c,
                   ),
                 )
@@ -405,19 +461,19 @@ export function useChatbot(context: ChatbotContext = {}) {
                 prev.map((c) =>
                   c.id === convId
                     ? {
-                        ...c,
-                        updatedAt: Date.now(),
-                        messages: c.messages.map((m) =>
-                          m.id === assistantId
-                            ? {
-                                ...m,
-                                content: slice,
-                                isStreaming: !done,
-                                ...(done ? meta : {}),
-                              }
-                            : m,
-                        ),
-                      }
+                      ...c,
+                      updatedAt: Date.now(),
+                      messages: c.messages.map((m) =>
+                        m.id === assistantId
+                          ? {
+                            ...m,
+                            content: slice,
+                            isStreaming: !done,
+                            ...(done ? meta : {}),
+                          }
+                          : m,
+                      ),
+                    }
                     : c,
                 ),
               )
@@ -432,11 +488,12 @@ export function useChatbot(context: ChatbotContext = {}) {
           setStatus('online')
         }
 
+        // Speak only after typing finishes (sync)
         if (settingsRef.current.autoReadResponses && answer && !stopRef.current) {
-          setTimeout(() => speakTextRef.current(answer, assistantId), 80)
+          setTimeout(() => speakTextRef.current(answer, assistantId), 120)
         }
       } catch (err) {
-        if (stopRef.current) {
+        if (stopRef.current || (err instanceof DOMException && err.name === 'AbortError')) {
           setStatus('online')
           return
         }
@@ -451,13 +508,13 @@ export function useChatbot(context: ChatbotContext = {}) {
           prev.map((c) =>
             c.id === convId
               ? {
-                  ...c,
-                  messages: c.messages.map((m) =>
-                    m.id === assistantId
-                      ? { ...m, content: '', isStreaming: false, error: message }
-                      : m,
-                  ),
-                }
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: '', isStreaming: false, error: message }
+                    : m,
+                ),
+              }
               : c,
           ),
         )
@@ -470,6 +527,12 @@ export function useChatbot(context: ChatbotContext = {}) {
 
   const stopGenerating = useCallback(() => {
     stopRef.current = true
+    try {
+      abortRef.current?.abort()
+    } catch {
+      /* ignore */
+    }
+    abortRef.current = null
     setStatus('online')
   }, [])
 
@@ -545,7 +608,11 @@ export function useChatbot(context: ChatbotContext = {}) {
 
       let speakBody = cleaned
       try {
-        speakBody = await translateForSpeech(cleaned, lang)
+        speakBody = await translateForSpeech(
+          cleaned,
+          lang,
+          contextRef.current.accessToken,
+        )
       } catch {
         speakBody = cleaned
       }
@@ -722,9 +789,31 @@ export function useChatbot(context: ChatbotContext = {}) {
   )
 
   const dismissVoiceError = useCallback(() => setVoiceError(null), [])
+  const dismissVoiceWarning = useCallback(() => setVoiceWarning(null), [])
+
+  /** Settings “Test voice” — short sample in current language/gender. */
+  const testVoice = useCallback(() => {
+    const lang = settingsRef.current.speechLanguage || 'hi-IN'
+    const primary = lang.split('-')[0].toLowerCase()
+    const samples: Record<string, string> = {
+      hi: 'नमस्ते, मैं आपका सहायक हूँ। आवाज़ सही से काम कर रही है।',
+      mr: 'नमस्कार, मी तुमचा सहाय्यक आहे. आवाज व्यवस्थित काम करत आहे.',
+      bn: 'নমস্কার, আমি আপনার সহায়ক। কণ্ঠস্বর ঠিকভাবে কাজ করছে।',
+      ta: 'வணக்கம், நான் உங்கள் உதவியாளர். குரல் சரியாக வேலை செய்கிறது.',
+      te: 'నమస్కారం, నేను మీ సహాయకుడిని. వాయిస్ సరిగ్గా పని చేస్తోంది.',
+      gu: 'નમસ્તે, હું તમારો સહાયક છું. અવાજ સારી રીતે કામ કરે છે.',
+      kn: 'ನಮಸ್ಕಾರ, ನಾನು ನಿಮ್ಮ ಸಹಾಯಕ. ಧ್ವನಿ ಸರಿಯಾಗಿ ಕೆಲಸ ಮಾಡುತ್ತಿದೆ.',
+      ml: 'നമസ്കാരം, ഞാൻ നിങ്ങളുടെ സഹായി. ശബ്ദം ശരിയായി പ്രവർത്തിക്കുന്നു.',
+      pa: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਮੈਂ ਤੁਹਾਡਾ ਸਹਾਇਕ ਹਾਂ। ਆਵਾਜ਼ ਠੀਕ ਕੰਮ ਕਰ ਰਹੀ ਹੈ।',
+      en: 'Hello, I am your assistant. The voice is working correctly.',
+    }
+    const sample = samples[primary] || samples.en
+    speakText(sample)
+  }, [speakText])
 
   useEffect(() => {
     return () => {
+      flushConversations()
       teardownVoice()
     }
   }, [teardownVoice])
@@ -775,6 +864,9 @@ export function useChatbot(context: ChatbotContext = {}) {
     interimTranscript,
     voiceError,
     dismissVoiceError,
+    voiceWarning,
+    dismissVoiceWarning,
+    testVoice,
     isSpeaking,
     speakingMessageId,
     toggleSpeak,

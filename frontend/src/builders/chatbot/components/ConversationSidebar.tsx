@@ -50,11 +50,10 @@ export function ConversationSidebar({
                     <button
                       type="button"
                       onClick={() => onSelect(c.id)}
-                      className={`group flex h-11 w-full items-center gap-2 rounded-sm px-3 text-left font-sans text-[14px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${
-                        active
+                      className={`group flex h-11 w-full items-center gap-2 rounded-sm px-3 text-left font-sans text-[14px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${active
                           ? 'bg-ember-tint font-medium text-content'
                           : 'text-content-secondary hover:bg-raised hover:text-content'
-                      }`}
+                        }`}
                     >
                       {active && (
                         <span

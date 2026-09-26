@@ -69,7 +69,7 @@ export function ChatComposer({
     !disabled && !isGenerating && !isListening && (!!value.trim() || attachments.length > 0)
 
   return (
-    <div className="shrink-0 border-t border-line bg-surface px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <div data-role="chat-composer" className="shrink-0 border-t border-line bg-surface px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       {/* Attachments preview */}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
@@ -158,9 +158,8 @@ export function ChatComposer({
       )}
 
       <div
-        className={`flex min-w-0 items-end gap-1 rounded-xl border bg-surface px-1.5 py-1.5 transition-colors focus-within:border-ember ${
-          isListening ? 'border-ember' : 'border-line'
-        }`}
+        className={`flex min-w-0 items-end gap-1 rounded-xl border bg-surface px-1.5 py-1.5 transition-colors focus-within:border-ember ${isListening ? 'border-ember' : 'border-line'
+          }`}
       >
         <button
           type="button"
@@ -203,11 +202,10 @@ export function ChatComposer({
             onClick={isListening ? onStopListen : onStartListen}
             disabled={disabled || isGenerating}
             title={isListening ? 'Stop listening' : 'Voice input'}
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40 ${
-              isListening
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40 ${isListening
                 ? 'bg-ember text-oncolor shadow-sm'
                 : 'text-content-secondary hover:bg-raised hover:text-content'
-            }`}
+              }`}
           >
             {isListening ? (
               <MicOff className="h-[18px] w-[18px]" strokeWidth={2} />

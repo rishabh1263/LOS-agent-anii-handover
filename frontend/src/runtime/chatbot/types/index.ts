@@ -11,6 +11,9 @@ export type AiStatus =
 
 export type SpeechGender = 'female' | 'male' | 'any'
 
+/** Chatbot panel only — does not change the host app theme */
+export type ChatThemeId = 'light' | 'dark' | 'orange'
+
 export interface ChatAttachment {
   id: string
   name: string
@@ -49,6 +52,8 @@ export interface ChatSettings {
   /** BCP-47 tag from system voices, e.g. en-IN, hi-IN */
   speechLanguage: string
   speechGender: SpeechGender
+  /** Chatbot shell only: light | dark | orange */
+  chatTheme: ChatThemeId
   sendWithEnter: boolean
   showTimestamps: boolean
   compactMode: boolean
@@ -61,6 +66,7 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   speechSpeed: 1,
   speechLanguage: 'hi-IN',
   speechGender: 'female',
+  chatTheme: 'light',
   sendWithEnter: true,
   showTimestamps: true,
   compactMode: false,

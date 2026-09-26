@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowLeft } from 'lucide-react'
-import type { ChatSettings, SpeechGender } from '../../../runtime/chatbot'
+import type { ChatSettings, SpeechGender, ChatThemeId } from '../../../runtime/chatbot'
 import {
   ensureVoicesLoaded,
   listIndianLanguages,
@@ -11,6 +11,8 @@ interface SettingsProps {
   settings: ChatSettings
   onChange: (patch: Partial<ChatSettings>) => void
   onBack: () => void
+  onTestVoice?: () => void
+  voiceWarning?: string | null
 }
 
 function Row({
@@ -51,14 +53,12 @@ function Toggle({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 shrink-0 overflow-hidden rounded-full p-0.5 transition-colors duration-140 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 ${
-        checked ? 'bg-ember' : 'bg-line-strong'
-      }`}
+      className={`relative h-6 w-11 shrink-0 overflow-hidden rounded-full p-0.5 transition-colors duration-140 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 ${checked ? 'bg-ember' : 'bg-line-strong'
+        }`}
     >
       <span
-        className={`block h-5 w-5 rounded-full bg-oncolor shadow-sm transition-transform duration-140 ${
-          checked ? 'translate-x-5' : 'translate-x-0'
-        }`}
+        className={`block h-5 w-5 rounded-full bg-oncolor shadow-sm transition-transform duration-140 ${checked ? 'translate-x-5' : 'translate-x-0'
+          }`}
       />
     </button>
   )
@@ -67,7 +67,7 @@ function Toggle({
 const selectClass =
   'max-w-[12rem] h-9 rounded-sm border border-line bg-surface px-2 font-sans text-[13px] text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember'
 
-export function Settings({ settings, onChange, onBack }: SettingsProps) {
+export function Settings({ settings, onChange, onBack, onTestVoice, voiceWarning }: SettingsProps) {
   const [indianLangs, setIndianLangs] = useState<{ tag: string; hasVoice: boolean }[]>(
     [],
   )
@@ -116,6 +116,37 @@ export function Settings({ settings, onChange, onBack }: SettingsProps) {
             Appearance
           </h3>
           <div className="rounded-md border border-line bg-surface px-3">
+            <Row label="Theme" description="Chatbot only — not the whole app">
+              <div className="flex items-center gap-2" role="radiogroup" aria-label="Chat theme">
+                {(
+                  [
+                    { id: 'light', label: 'Light', swatch: '#ffffff', ring: '#25d366' },
+                    { id: 'dark', label: 'Dark', swatch: '#0b141a', ring: '#00a884' },
+                    { id: 'orange', label: 'Orange', swatch: '#ff6b00', ring: '#ff6b00' },
+                  ] as const
+                ).map((t) => {
+                  const active = (settings.chatTheme || 'light') === t.id
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      aria-label={t.label}
+                      title={t.label}
+                      onClick={() => onChange({ chatTheme: t.id as ChatThemeId })}
+                      className={`relative h-9 w-9 rounded-full border-2 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${active ? 'scale-105 border-transparent' : 'border-line'
+                        }`}
+                      style={{
+                        background: t.swatch,
+                        boxShadow: active ? `0 0 0 2px var(--cb-surface, #fff), 0 0 0 4px ${t.ring}` : undefined,
+                      }}
+                    />
+                  )
+                })}
+              </div>
+            </Row>
+            <div className="border-t border-divider" />
             <Row label="Compact mode">
               <Toggle
                 checked={settings.compactMode}
@@ -193,6 +224,21 @@ export function Settings({ settings, onChange, onBack }: SettingsProps) {
                 <option value={1.35}>1.35×</option>
               </select>
             </Row>
+            <div className="border-t border-divider" />
+            <div className="py-3">
+              <button
+                type="button"
+                onClick={() => onTestVoice?.()}
+                className="btn btn-secondary w-full text-[13px]"
+              >
+                Test voice
+              </button>
+              {voiceWarning && (
+                <p className="mt-2 text-[12px] text-warning-text" role="status">
+                  {voiceWarning}
+                </p>
+              )}
+            </div>
           </div>
         </section>
 

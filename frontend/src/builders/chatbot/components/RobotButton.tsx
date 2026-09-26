@@ -191,11 +191,9 @@ export function RobotButton({ onClick, visible, modelUrl }: RobotButtonProps) {
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
         aria-label="Open AI Assistant. Drag to reposition."
-        className={`relative flex h-full w-full cursor-grab items-center justify-center bg-transparent active:cursor-grabbing focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-          dragging ? 'scale-105' : hover ? 'scale-110' : 'scale-100'
-        } transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-          !reduceMotion && !dragging ? 'animate-[botFloat_3.2s_ease-in-out_infinite]' : ''
-        }`}
+        className={`relative flex h-full w-full cursor-grab items-center justify-center bg-transparent active:cursor-grabbing focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${dragging ? 'scale-105' : hover ? 'scale-110' : 'scale-100'
+          } transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${!reduceMotion && !dragging ? 'animate-[botFloat_3.2s_ease-in-out_infinite]' : ''
+          }`}
       >
         {!modelError ? (
           <model-viewer

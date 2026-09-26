@@ -46,9 +46,19 @@ export {
   listIndianLanguages,
   languageLabel,
   speakUtterance,
+  hasVoiceForLanguage,
   INDIAN_SPEECH_LOCALES,
   type SpeechGender,
   type VoicePickOptions,
 } from './speech'
 
 export { translateForSpeech, isEnglishLang, looksLikeLatin } from './translate'
+
+export {
+  loadConversations,
+  saveConversations,
+  flushConversations,
+  loadSettings,
+  saveSettings,
+  prefersReducedMotion,
+} from './storage'

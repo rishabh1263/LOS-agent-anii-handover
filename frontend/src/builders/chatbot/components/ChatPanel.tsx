@@ -7,6 +7,7 @@ import { ChatComposer } from './ChatComposer'
 import { Settings } from './Settings'
 import { ConversationSidebar } from './ConversationSidebar'
 import { ConfirmModal } from './ConfirmModal'
+import { ensureChatThemeStyles } from './ChatThemeStyles'
 
 interface ChatPanelProps {
   api: ChatbotApi
@@ -48,6 +49,8 @@ export function ChatPanel({ api }: ChatPanelProps) {
     interimTranscript,
     voiceError,
     dismissVoiceError,
+    voiceWarning,
+    testVoice,
     speakingMessageId,
     toggleSpeak,
     showSettings,
@@ -64,6 +67,10 @@ export function ChatPanel({ api }: ChatPanelProps) {
   const open = mode !== 'closed'
   const isExpanded = mode === 'expanded'
   const isMobile = mode === 'mobile'
+
+  useEffect(() => {
+    ensureChatThemeStyles()
+  }, [])
 
   useEffect(() => {
     if (open) panelRef.current?.focus()
@@ -87,25 +94,26 @@ export function ChatPanel({ api }: ChatPanelProps) {
     }
   }
 
+  const theme = settings.chatTheme || 'light'
   const panelLayoutClass = isMobile
-    ? 'fixed inset-x-0 bottom-0 top-[max(0.5rem,env(safe-area-inset-top))] z-[70] flex max-h-[100dvh] flex-col overflow-hidden rounded-t-[20px] border border-line bg-surface/95 shadow-2xl backdrop-blur-xl'
+    ? 'chatbot-shell fixed inset-x-0 bottom-0 top-[max(0.5rem,env(safe-area-inset-top))] z-[70] flex max-h-[100dvh] flex-col overflow-hidden rounded-t-[20px] border border-line bg-surface/95 shadow-2xl backdrop-blur-xl'
     : isExpanded
-      ? 'fixed inset-4 z-[70] flex flex-col overflow-hidden rounded-2xl border border-line bg-surface/95 shadow-2xl backdrop-blur-xl sm:inset-5'
-      : 'fixed bottom-4 right-4 z-[70] flex h-[min(680px,calc(100dvh-5.5rem))] max-h-[calc(100dvh-5rem)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-line bg-surface/95 shadow-2xl backdrop-blur-xl md:bottom-6 md:right-6 md:w-[min(460px,calc(100vw-3rem))]'
+      ? 'chatbot-shell fixed inset-4 z-[70] flex flex-col overflow-hidden rounded-2xl border border-line bg-surface/95 shadow-2xl backdrop-blur-xl sm:inset-5'
+      : 'chatbot-shell fixed bottom-4 right-4 z-[70] flex h-[min(680px,calc(100dvh-5.5rem))] max-h-[calc(100dvh-5rem)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-line bg-surface/95 shadow-2xl backdrop-blur-xl md:bottom-6 md:right-6 md:w-[min(460px,calc(100vw-3rem))]'
 
   const enterExit = reduceMotion
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }
     : isMobile
       ? {
-          initial: { opacity: 0, y: '28%' },
-          animate: { opacity: 1, y: 0 },
-          exit: { opacity: 0, y: '18%' },
-        }
+        initial: { opacity: 0, y: '28%' },
+        animate: { opacity: 1, y: 0 },
+        exit: { opacity: 0, y: '18%' },
+      }
       : {
-          initial: { opacity: 0, scale: 0.92, y: 16 },
-          animate: { opacity: 1, scale: 1, y: 0 },
-          exit: { opacity: 0, scale: 0.94, y: 10 },
-        }
+        initial: { opacity: 0, scale: 0.92, y: 16 },
+        animate: { opacity: 1, scale: 1, y: 0 },
+        exit: { opacity: 0, scale: 0.94, y: 10 },
+      }
 
   return (
     <AnimatePresence>
@@ -132,6 +140,7 @@ export function ChatPanel({ api }: ChatPanelProps) {
             role="dialog"
             aria-label="AI Assistant"
             className={panelLayoutClass}
+            data-chat-theme={theme}
             initial={enterExit.initial}
             animate={enterExit.animate}
             exit={enterExit.exit}
@@ -174,9 +183,8 @@ export function ChatPanel({ api }: ChatPanelProps) {
               )}
 
               <div
-                className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
-                  settings.compactMode ? '[&_.py-2]:py-1.5 [&_.px-4]:px-3' : ''
-                }`}
+                className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${settings.compactMode ? '[&_.py-2]:py-1.5 [&_.px-4]:px-3' : ''
+                  }`}
               >
                 <AnimatePresence mode="wait" initial={false}>
                   {showSettings ? (
@@ -192,6 +200,8 @@ export function ChatPanel({ api }: ChatPanelProps) {
                         settings={settings}
                         onChange={updateSettings}
                         onBack={() => setShowSettings(false)}
+                        onTestVoice={testVoice}
+                        voiceWarning={voiceWarning}
                       />
                     </motion.div>
                   ) : (

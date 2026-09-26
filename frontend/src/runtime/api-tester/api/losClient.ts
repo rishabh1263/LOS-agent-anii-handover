@@ -1,6 +1,7 @@
 import type { LosProcessResponse, Operation, ApiErrorBody } from '../types'
+import { apiUrl, PATHS } from '../../config'
 
-const DEFAULT_BASE = '/api/v1/los'
+const DEFAULT_BASE = apiUrl(PATHS.los)
 
 export class LosApiError extends Error {
   status: number
