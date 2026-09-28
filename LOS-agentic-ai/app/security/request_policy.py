@@ -64,7 +64,7 @@ _RECORD = r"(records?|applications?|cases?|files?|accounts?|profiles?|entries|ro
 #: the caller's own co-applicant.
 _NOT_ME = (r"(another|someone\s+else'?s?|somebody\s+else'?s?|different|"
            r"previous|prev|prior|last|latest|recent|most\s+recent(ly)?|recently\s+processed|"
-           r"earlier|next|random|any\s+other|pichl\w*|pichh?l\w*|dusr\w*|doosr\w*|"
+           r"earlier|next|random|any\s+other|pichl\w*|pichh?l\w*|(?:dusr\w*|doosr\w*)(?!\s+applicant)|"
            r"kisi\s+aur|aur\s+kisi)")
 _EVERY = r"(all|every|each|entire|whole|complete\s+list\s+of|list\s+of\s+all|sab\w*|har|saare|sare|tamam)"
 #: POSSESSIVES only: "show me all customers" is not about the caller's own case.

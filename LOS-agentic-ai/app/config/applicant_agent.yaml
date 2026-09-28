@@ -578,6 +578,20 @@ chatbot:
     llm_fallback: false
     llm_timeout_seconds: 1.5
 
+  # CONVERSATION STATE (conversation_state.py): server-side, in-process,
+  # labels only. A pending clarification is discarded after `pending_turns`
+  # unrelated turns or `pending_ttl_seconds`; a conversation after
+  # `ttl_seconds` of silence; the store holds at most `max_conversations`.
+  conversation:
+    enabled: true
+    # memory -- in-process (one worker). sqlite -- rows on the LOS store file
+    # (LOS_STORE_PATH), for several workers sharing one conversation.
+    store: memory
+    ttl_seconds: 1800
+    pending_turns: 3
+    pending_ttl_seconds: 600
+    max_conversations: 2000
+
   # Intent examples for the LEGACY word-overlap fallback. Demoted: consulted
   # only when neither the semantic frame nor the rules understood the
   # question. Keys are Intent names.

@@ -1848,6 +1848,102 @@ async def _answer_for_subject(
 _answer_unguarded = answer_question
 
 
+async def _conversational(**kwargs: Any) -> dict[str, Any]:
+    """
+    THE CONVERSATION STATE LAYER around one question (conversation_state.py).
+
+    ORDER: the input guardrail first -- a refused request touches no state
+    and is refused exactly as before. Then the turn is read RELATIVE TO THE
+    CONVERSATION (a pending clarification, a cancellation, a correction, an
+    acknowledgement, "again"), and the message that results is answered by
+    the ordinary pipeline with the conversation's context merged under any
+    context the caller sent. Afterwards the state records what the answer
+    was about. State is keyed by the authenticated subject; it never grants
+    ownership and never carries case values.
+    """
+    from app.agents.applicant import conversation_state as conv
+    from app.security import guardrails
+
+    message = str(kwargs.get("message") or "")
+    claims = kwargs.get("claims") or {}
+    case_id = kwargs.get("case_id")
+    context = kwargs.get("context")
+    if not conv.enabled() or kwargs.get("intent_override") is not None:
+        return await _answer_unguarded(**kwargs)
+    screened = guardrails.check_input(
+        message, allowed_ids=(case_id, kwargs.get("applicant_id"), kwargs.get("party_id")))
+    if not screened.allowed:
+        return await _answer_unguarded(**kwargs)
+
+    subject = str(Caller.from_claims(claims).subject or "anonymous")
+    conversation_id = (context or {}).get("conversation_id") if isinstance(context, dict) else None
+    state = conv.STORE.get(subject, conversation_id)
+    if state is not None and (state.case_id or None) != (case_id or None):
+        state = None                      # another case: a new conversation
+    if state is None:
+        state = conv.STORE.new(subject, case_id)
+    reading = conv.read_turn(message, state)
+
+    trace = {"conversation_id": state.conversation_id, "turn_id": state.turn_id + 1,
+             "outcome": reading.outcome, "note": reading.note,
+             "pending_before": (state.pending_clarification.public()
+                                if state.pending_clarification else None)}
+    merged = dict(state.as_context())
+    if isinstance(context, dict):
+        merged.update({k: v for k, v in context.items() if v not in (None, "", [])
+                       and k not in merged or merged.get(k) in (None, "", [])})
+    merged["conversation_id"] = state.conversation_id
+
+    if reading.reply is not None:
+        # ANSWERED FROM THE CONVERSATION ALONE: nothing read, no tool, no model.
+        clarification = None
+        if reading.options:
+            clarification = {"reason": "CLARIFICATION_PENDING", "question": reading.reply,
+                             "options": list(reading.options), "original_message": message[:200]}
+        response = {
+            "request_id": kwargs.get("request_id"), "applicant_id": kwargs.get("applicant_id"),
+            "case_id": case_id, "intent": Intent.UNKNOWN.value, "answer": reading.reply,
+            "applicant": None, "application": None, "stage": None, "documents": [],
+            "checklist": [], "policy": None, "pending_items": [], "next_action": None,
+            "readiness": None, "actions": [], "knowledge": None, "case_memory": None,
+            "sources": [],
+            "category": (routing.QueryCategory.UNSUPPORTED.value if clarification
+                         else routing.QueryCategory.CONVERSATION.value),
+            "query_type": QueryType.CLARIFICATION.value, "case_state": None,
+            "suggested_questions": list(reading.options), "available_actions": [],
+            "document_highlights": [], "clarification_required": clarification,
+            "followed_up": None, "context": None, "base_intent": None, "route_to": None,
+            "response_source": routing.ResponseSource.CONVERSATION.value,
+            "processing_ms": 0.0, "errors": [], "tools_invoked": [],
+            "understanding": {"frame": None, "decided_by": "CONVERSATION_STATE",
+                              "referents": {}, "short_query": None,
+                              "llm": {"consulted": False, "status": "NOT_NEEDED"},
+                              "parse_ms": 0.0, "case_stage": None},
+        }
+        if reading.outcome in (conv.STILL_AMBIGUOUS, conv.NEGATION, conv.INVALID_OPTION,
+                               conv.PARTIAL_RESOLUTION):
+            response["errors"] = [{"code": "UNSUPPORTED_REQUEST",
+                                   "message": "The request was not understood."}]
+    else:
+        if reading.message != message:
+            kwargs = dict(kwargs, message=reading.message)
+        response = await _answer_unguarded(**dict(kwargs, context=merged))
+        if reading.message != message:
+            response["followed_up"] = {"original_message": message[:200],
+                                       "resolved_to": reading.message[:200],
+                                       "reason": reading.note or reading.outcome}
+    conv.update_from_response(state, reading.message or message, response, reading)
+    trace["pending_after"] = (state.pending_clarification.public()
+                              if state.pending_clarification else None)
+    trace["state"] = state.public()
+    understanding = response.get("understanding")
+    if not isinstance(understanding, dict):
+        understanding = {}
+        response["understanding"] = understanding
+    understanding["conversation"] = trace
+    return response
+
+
 @functools.wraps(_answer_unguarded)
 async def answer_question(**kwargs: Any) -> dict[str, Any]:
     """
@@ -1860,7 +1956,7 @@ async def answer_question(**kwargs: Any) -> dict[str, Any]:
     """
     from app.security import guardrails
 
-    response = await _answer_unguarded(**kwargs)
+    response = await _conversational(**kwargs)
     answer = response.get("answer")
     if isinstance(answer, str) and answer:
         cleaned, verdict = guardrails.published(answer)

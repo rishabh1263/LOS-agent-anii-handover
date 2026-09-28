@@ -26,7 +26,7 @@ def test_semantic_understanding_passes_against_the_real_http_api(tmp_path):
     env["PYTHONIOENCODING"] = "utf-8"          # the console, not the API, is cp1252
     completed = subprocess.run(
         [sys.executable, "-m", "evals.copilot.semantic", "--report", str(report)],
-        cwd=ROOT, env=env, capture_output=True, text=True, timeout=900)
+        cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
     summary = "\n".join(line for line in completed.stdout.splitlines()
                         if line.startswith(("FAIL", "SEMANTIC", "      -")))
     assert completed.returncode == 0, summary or completed.stderr[-3000:]
