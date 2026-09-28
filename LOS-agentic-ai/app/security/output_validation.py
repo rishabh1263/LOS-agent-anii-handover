@@ -98,6 +98,9 @@ SURFACES: dict[str, Surface] = {s.name: s for s in (
     Surface("fraud_summary", 15, 320, noun="summary", guardrail_first=True,
             count_numbers=False, two_decimals=True),
     Surface("document_workflow", 1, 4000),
+    # The credit memo's one model-written sentence set (app/agents/credit/memo.py).
+    Surface("credit_memo", 20, 600, noun="summary", guardrail_first=True,
+            count_numbers=True),
 )}
 
 

@@ -214,8 +214,12 @@ def test_a_rejected_answer_falls_back_rather_than_erroring(monkeypatch):
 def test_a_model_answer_that_is_grounded_is_kept(monkeypatch):
     """The validator must not reject everything the model writes."""
     async def sensible(*_args, **_kwargs):
-        return ("Verification classifies the document, decides a verdict, "
-                "and releases fields only behind a PASS.")
+        # A REPHRASING OF THE RETRIEVED PASSAGE: the same facts, reworded.
+        # (An answer that adds a claim the passage does not carry is now
+        # replaced by the passage -- app/agents/applicant/fidelity.py.)
+        return ("FOS says what should be collected; it does not say whether a "
+                "collected document is genuine, and it says nothing about "
+                "creditworthiness, risk or KYC status, which belong to later stages.")
 
     monkeypatch.setattr(knowledge_answer, "_phrase", sensible)
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "true")
@@ -223,7 +227,7 @@ def test_a_model_answer_that_is_grounded_is_kept(monkeypatch):
 
     answer, source, detail = ask("What happens during FOS verification?")
 
-    assert "releases fields only behind a PASS" in answer
+    assert "says nothing about creditworthiness" in answer
     assert detail.get("grounding_rejected") is not True
     assert source == "LLM"
 

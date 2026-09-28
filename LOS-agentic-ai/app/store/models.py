@@ -148,6 +148,14 @@ class Application:
     #: eligibility_policy.yaml.
     declared_monthly_obligations: str | None = None
 
+    #: What the applicant says they EARN each month, as FOS captured it.
+    #: DECLARED and only ever treated as declared: nothing computes income
+    #: from it. Credit underwriting compares it with the income the recorded
+    #: income-consistency check read off the documents; when absent, that
+    #: comparison is reported as unavailable -- never guessed. Nullable, so
+    #: every existing application is unchanged.
+    declared_monthly_income: str | None = None
+
     #: The property's value, for a secured product LTV applies to.
     #:
     #: DECLARED, and used only through the eligibility policy's accepted
@@ -316,6 +324,10 @@ class FindingKind(str, Enum):
     FINANCIAL = "FINANCIAL"
     RISK = "RISK"
     RCU = "RCU"
+    #: The Credit Underwriting Agent's assessment (READY_FOR_DECISION /
+    #: REVIEW_REQUIRED / DATA_INSUFFICIENT) -- an interpretation of the
+    #: findings above, never a decision. Read by the Decision Agent.
+    UNDERWRITING = "UNDERWRITING"
 
 
 @dataclass

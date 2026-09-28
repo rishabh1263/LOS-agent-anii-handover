@@ -247,8 +247,11 @@ def test_a_scan_awaiting_ocr_says_so_rather_than_failing_arithmetic():
     # nothing from this scan; it now recovers transactions that still
     # do not confirm the balance. Either way the document goes to a
     # person with a reason that says the limit is ours.
-    assert set(document.get("reason_codes") or []) & {"DOCUMENT_REQUIRES_OCR",
-                     "BANK_STATEMENT_RECONCILIATION_INCONCLUSIVE"}
+    assert set(document.get("reason_codes") or []) & {
+        "DOCUMENT_REQUIRES_OCR", "BANK_STATEMENT_RECONCILIATION_INCONCLUSIVE",
+        # the specific form of "inconclusive": OCR left amounts unreadable,
+        # and they were NOT filled in from the balance
+        "BANK_STATEMENT_AMOUNTS_MISSING"}
 
     joined = " ".join(document.get("reasons") or []).lower()
     assert "do not add up" not in joined

@@ -466,6 +466,9 @@ def model_on(monkeypatch):
     agent_config.reload()
     monkeypatch.setattr("app.llm.availability.provider_reachable", lambda: True)
     monkeypatch.setattr("app.llm.availability.mark_slow", lambda *_a, **_k: None)
+    # These tests exercise the Copilot's case-answer composition, which the
+    # shipped configuration switches off (compose.case_answers: false).
+    monkeypatch.setattr(agent_config, "compose_case_answers", lambda: True)
 
     def install(model):
         monkeypatch.setattr("app.llm.provider.create_ollama_client",

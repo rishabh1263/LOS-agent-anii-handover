@@ -199,6 +199,7 @@ def extract_via_tables(
 
     out: list[Transaction] = []
     mapping: dict[str, int] | None = None
+    last_balance = None
     carry: dict | None = None
     cap = page_cap()
     budget = time_budget_ms()
@@ -282,13 +283,24 @@ def extract_via_tables(
                 # onto one line, whereas the date column can (two same-day
                 # transactions occasionally read as one date line, silently
                 # dropping a row when date was used as the anchor).
-                anchor = mapping.get("balance", mapping.get("date"))
-                body = T.split_merged_cells(body, anchor_col=anchor)
+                # The movement columns of a borderless table are placed in
+                # column order, the balance direction saying which column
+                # the next line came from (split_merged_cells_ordered). The
+                # values are the ones read; nothing is derived.
+                body, placements = T.split_merged_cells_ordered(
+                    body, mapping, prev_balance=last_balance)
 
                 page_rows, carry = T.rows_to_transactions(
-                    body, mapping, index, carry
+                    body, mapping, index, carry, prev_balance=last_balance,
+                    source="READ", placements=placements,
                 )
                 out.extend(page_rows)
+                for row in reversed(page_rows):
+                    if row.balance is not None:
+                        last_balance = row.balance
+                        break
+                if carry and carry.get("balance") is not None:
+                    last_balance = carry["balance"]
             if carry:
                 out.extend(T.flush(carry, len(pdf.pages)))
 
@@ -297,18 +309,11 @@ def extract_via_tables(
         out, swapped = T.orient_movements(out)
         if swapped:
             logger.info("Debit/credit columns were swapped; corrected by balance check.")
-
-        # A whole-column swap (above) is one failure mode; a borderless
-        # table's debit/credit VALUES landing on the wrong ROW entirely is
-        # another. Balance-derived deltas correct that row-by-row, and are
-        # a no-op wherever the existing values already agree.
-        out, derived = T.derive_movements_from_balance(out)
-        if derived:
-            logger.info(
-                "%d row(s) had their debit/credit re-derived from the "
-                "running balance rather than trusted from column position.",
-                derived,
-            )
+        # NO AMOUNT IS EVER DERIVED FROM THE BALANCE. A value that landed on
+        # the wrong row, or could not be read, stays as read or missing;
+        # `annotate_against_balance` records the disagreement and
+        # reconciliation reports it (INCONCLUSIVE / MISMATCH), which is the
+        # honest answer.
     except Exception as exc:
         logger.warning("Table extraction failed: %s", exc)
         return [], exhausted
@@ -446,7 +451,8 @@ def extract_via_grid(path: str, started: float) -> list[Transaction]:
         else:
             body = cells
 
-        page_rows, carry = T.rows_to_transactions(body, mapping, index, carry)
+        page_rows, carry = T.rows_to_transactions(body, mapping, index, carry,
+                                                  source="OCR")
         out.extend(page_rows)
 
     if carry:
@@ -528,7 +534,8 @@ def extract_via_columns(path: str, started: float) -> list[Transaction]:
 
         cells, mapping = found
         pages_read += 1
-        page_rows, carry = T.rows_to_transactions(cells, mapping, index, carry)
+        page_rows, carry = T.rows_to_transactions(cells, mapping, index, carry,
+                                                  source="OCR")
         out.extend(page_rows)
 
     if carry:
@@ -620,6 +627,18 @@ def classify_source(pages: int, with_text: int) -> SourceKind:
     return SourceKind.DIGITAL
 
 
+_BALANCE_CAPTION_RE = re.compile(
+    r"(?:opening|closing)\s+balance|open(?:ing)?\s+bal\b|clos(?:ing)?\s+bal\b"
+    r"|balance\s+(?:b/?f|c/?f|brought\s+forward|carried\s+forward|forward)"
+    r"|balance\s+at\s+end|^b/f\b|^c/f\b",
+    re.IGNORECASE,
+)
+_OPENING_ROW_RE = re.compile(
+    r"^\W*(?:balance\s+(?:b/?f|brought\s+forward|forward)|opening\s+balance|b/f)\b",
+    re.IGNORECASE,
+)
+
+
 def _rows_from_page(text: str, page_no: int) -> list[Transaction]:
     """
     Assemble transactions from one page.
@@ -634,6 +653,19 @@ def _rows_from_page(text: str, page_no: int) -> list[Transaction]:
     for line in text.split("\n"):
         stripped = line.strip()
         if not stripped:
+            continue
+
+        # A PRINTED BALANCE CAPTION IS NOT PART OF A ROW. "Opening Balance /
+        # 4,824.70" before row one and "Closing Balance / 229.70" after the
+        # last row print in the Balance column, and were being pulled into
+        # the neighbouring transaction's number window -- row one took the
+        # wrong side, the last row took the caption's figure as its amount.
+        # The caption closes the open row; its figure (on this line or the
+        # next) belongs to nobody.
+        if _BALANCE_CAPTION_RE.search(stripped):
+            if current:
+                rows.append(_finalise(current, page_no))
+            current = None
             continue
 
         date_text = P.is_transaction_start(stripped)
@@ -713,6 +745,9 @@ def _finalise(row: dict, page_no: int) -> Transaction:
         balance=balance,
         page=page_no,
         reference=None,
+        amount_source="MISSING",
+        side_source="UNRESOLVED",
+        placement="LINE",
     ) if movement is None else Transaction(
         date=row["date"],
         value_date=row["value_date"],
@@ -722,31 +757,56 @@ def _finalise(row: dict, page_no: int) -> Transaction:
         balance=balance,
         page=page_no,
         reference=None,
+        amount_source="READ",
+        side_source="UNRESOLVED",          # settled by _assign_sides, from the balance
+        placement="LINE",
     )
 
 
-def _assign_sides(rows: list[Transaction]) -> int:
+def _assign_sides(rows: list[Transaction], previous: Decimal | None = None) -> int:
     """
     Decide debit vs credit from the running balance.
 
     A movement is a credit when the balance rose and a debit when it fell.
-    This is derived evidence rather than a column guess, so it works across
-    layouts that order the money columns differently. Returns the number of
-    rows that could be resolved.
+    THE MAGNITUDE IS NEVER TOUCHED: it is the figure read off the line. Only
+    the side comes from the balance, and the row records that
+    (side_source = BALANCE_DIRECTION). `previous` seeds row one with the
+    statement's PRINTED opening balance where it prints one; without it row
+    one's side stays UNRESOLVED. Returns the number of rows resolved.
     """
     resolved = 0
-    previous: Decimal | None = None
     for row in rows:
-        movement = row.debit
+        movement = row.debit if row.debit is not None else row.credit
         if movement is not None and row.balance is not None and previous is not None:
             if row.balance > previous:
                 row.credit, row.debit = movement, None
             else:
                 row.credit, row.debit = None, movement
+            row.side_source = "BALANCE_DIRECTION"
             resolved += 1
         if row.balance is not None:
             previous = row.balance
     return resolved
+
+
+def _lift_opening_rows(rows: list[Transaction]) -> tuple[list[Transaction], "Decimal | None"]:
+    """
+    A "balance forward" line printed AS A ROW is the statement's opening
+    balance, not a transaction: it has no movement. Left in, it is a row
+    with no readable amount and reconciliation cannot run. Taken out, its
+    balance is the printed opening figure (when the header prints none).
+    Returns the remaining rows and the first such balance.
+    """
+    kept: list[Transaction] = []
+    opening: Decimal | None = None
+    for row in rows:
+        if (row.debit is None and row.credit is None and row.balance is not None
+                and _OPENING_ROW_RE.search(row.narration or "")):
+            if opening is None:
+                opening = row.balance
+            continue
+        kept.append(row)
+    return kept, opening
 
 
 def _drop_date_outliers(
@@ -958,7 +1018,15 @@ def extract_bank_statement(path: str) -> BankStatementResult:
     # already carry the bank's own debit and credit columns, and re-deriving
     # them made correct output look unresolved: 27 verified rows were reported
     # as "resolved for 17 of 27" and the whole statement marked PARTIAL.
-    resolved = len(rows) if column_aware else _assign_sides(rows)
+    # THE BASELINE COMES FROM THE DOCUMENT WHERE THE DOCUMENT STATES IT --
+    # a printed opening caption, or a movement-free "balance forward" row.
+    # Read first, so the text path can settle row one's side against it.
+    printed_opening = P.find_printed_opening_balance(joined)
+    rows, lifted_opening = _lift_opening_rows(rows)
+    if printed_opening is None and lifted_opening is not None:
+        printed_opening = lifted_opening
+
+    resolved = len(rows) if column_aware else _assign_sides(rows, printed_opening)
 
     result.transactions = rows
     result.transaction_count = len(rows)
@@ -969,35 +1037,28 @@ def extract_bank_statement(path: str) -> BankStatementResult:
             end=rows[-1].date,
             months_covered=round((rows[-1].date - rows[0].date).days / 30.44, 1),
         )
-        # THE BASELINE COMES FROM THE DOCUMENT WHERE THE DOCUMENT STATES IT.
-        #
-        # _assign_sides settles which SIDE a movement is on from the running
-        # balance, but keeps the magnitude the column parse produced and
-        # cannot touch row one at all -- it has no previous balance to
-        # compare against. Both gaps showed up on one real statement: the
-        # first row kept the wrong side (moving the derived opening by twice
-        # its amount) and the last row kept a magnitude that was actually the
-        # balance figure beside it.
-        #
-        # derive_movements_from_balance already solves exactly this, by
-        # arithmetic rather than alignment; it was simply never run on this
-        # path. Seeding it with the PRINTED opening extends it to row one.
-        printed_opening = P.find_printed_opening_balance(joined)
+        # NOTHING IS DERIVED. Every debit and credit below is a figure read
+        # off the document; where one could not be read it is None and the
+        # row says MISSING. The balance is used to CHECK the rows, never to
+        # fill them.
+        from app.agents.bank_statement.tables import annotate_against_balance
 
-        if printed_opening is not None:
-            from app.agents.bank_statement.tables import (
-                derive_movements_from_balance,
-            )
+        disagreeing, missing = annotate_against_balance(rows, printed_opening)
+        result.rows_disagreeing_with_balance = disagreeing
+        result.rows_missing_amount = missing
+        result.rows_balance_ordered = sum(
+            1 for r in rows if r.placement == "BALANCE_ORDERED")
+        unresolved_order = sum(1 for r in rows if r.placement == "UNRESOLVED_ORDER")
+        if unresolved_order:
+            result.warnings.append(
+                f"{unresolved_order} row(s) of a borderless table could not be "
+                "placed in column order; their amounts may sit on the wrong row.")
 
-            rows, rederived = derive_movements_from_balance(
-                rows, printed_opening
-            )
-            if rederived:
-                logger.info(
-                    "%d row(s) had their movement re-derived from the running "
-                    "balance against the printed opening balance.",
-                    rederived,
-                )
+        from app.agents.bank_statement.tables import serial_gaps
+
+        result.rows_not_read = serial_gaps(rows)
+        if kind is SourceKind.MIXED:
+            result.pages_unread = max(0, pages - with_text)
 
         balances = [r.balance for r in rows if r.balance is not None]
         if balances:
@@ -1038,6 +1099,11 @@ def extract_bank_statement(path: str) -> BankStatementResult:
             printed_closing=printed,
             truncated=truncated_at is not None or table_budget_exhausted,
             reached_end=P.has_end_marker(joined),
+            missing_amounts=result.rows_missing_amount,
+            disagreeing_rows=result.rows_disagreeing_with_balance,
+            rows_not_read=result.rows_not_read,
+            pages_unread=result.pages_unread,
+            scanned=kind is SourceKind.SCANNED,
             # Every page of the file was read and nothing cut the parse
             # short, so there is no unread tail for rows to be missing from.
             # Independent of whether this bank prints a closing balance or
@@ -1049,6 +1115,8 @@ def extract_bank_statement(path: str) -> BankStatementResult:
             ),
         )
         result.balance_reconciles = verdict
+        result.reconciliation = ("RECONCILED" if verdict is True
+                                 else "MISMATCH" if verdict is False else "INCONCLUSIVE")
         if reason:
             result.warnings.append(f"Not verified: {reason}")
         if verdict is not True:

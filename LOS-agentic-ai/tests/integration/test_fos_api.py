@@ -33,6 +33,8 @@ ENVELOPE = {
     # the frontend contract
     "query_type", "case_state", "suggested_questions", "available_actions",
     "document_highlights", "clarification_required",
+    # what the Copilot understood of a typed question (null for a dropdown action)
+    "understanding",
     # conversation plumbing -- the caller carries it, this service does not
     "followed_up", "context",
     # THE COMPACT BLOCKS, added for the frontend. Each is derived from

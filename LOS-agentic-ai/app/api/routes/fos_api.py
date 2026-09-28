@@ -214,6 +214,15 @@ class ApplicationDetails(BaseModel):
             "not accepted by default."
         ),
     )
+    declared_monthly_income: float | str | None = Field(
+        None, examples=[65000],
+        description=(
+            "What the applicant says they earn each month. DECLARED, and "
+            "recorded as declared: it is never used as verified income. "
+            "Optional; credit underwriting reports its comparison with the "
+            "documented income as unavailable when it is absent."
+        ),
+    )
     property_value: float | str | None = Field(
         None, examples=[8000000],
         description=(
@@ -409,6 +418,15 @@ class FosResponse(BaseModel):
             "no conversation state; the caller carries it."
         ),
     )
+    understanding: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "How the question was understood: the semantic frame (task, "
+            "object, qualifiers, referents, stage, language), what each "
+            "referent resolved to, which layer decided (FRAME / RULES / LLM) "
+            "and whether the understanding model was called."
+        ),
+    )
     clarification_required: dict[str, Any] | None = Field(
         None,
         description=(
@@ -549,6 +567,7 @@ def _blank(request_id: str, **overrides: Any) -> dict[str, Any]:
         "query_type": None, "case_state": None, "suggested_questions": [],
         "available_actions": [], "document_highlights": [],
         "clarification_required": None, "followed_up": None, "context": None,
+        "understanding": None,
         "pending_items": [], "verification": None, "kyc": None,
         "knowledge": None, "category": "CASE_ONLY", "next_action": None,
         "readiness": None, "actions": [], "route_to": None,
@@ -626,6 +645,7 @@ async def create_case(
         declared_monthly_obligations=_text(
             application_details.declared_monthly_obligations),
         property_value=_text(application_details.property_value),
+        declared_monthly_income=_text(application_details.declared_monthly_income),
     )
     if not application.ok:
         _raise_from(request_id, application)
@@ -1014,8 +1034,16 @@ async def _answer_action(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The body of `_run_action`, before refusals become HTTP statuses."""
+    # A COMPOUND QUESTION -- two case questions in one sentence ("are my
+    # documents verified and what is my loan amount?") -- is answered as
+    # its halves, each exactly as if asked alone, then joined. The same
+    # rule the Universal Copilot route applies (intents.compound_parts).
+    from app.agents.applicant import intents as _intents
+
+    parts = (_intents.compound_parts(message)
+             if action is FosAction.CUSTOM_QUERY and message else None)
     result = await answer_question(
-        message=(message if message is not None
+        message=(parts[0] if parts else message if message is not None
                  else _ACTION_PHRASE.get(action, action.value)),
         applicant_id=applicant_id,
         case_id=case_id,
@@ -1034,6 +1062,24 @@ async def _answer_action(
         # a stale context would change what the button does.
         context=(context if action is FosAction.CUSTOM_QUERY else None),
     )
+    if parts and str(result.get("intent") or "") not in ("GUARDRAIL_BLOCKED",):
+        answers = [str(result.get("answer") or "").strip()]
+        intents_seen = [result.get("intent")]
+        frames = [(result.get("understanding") or {}).get("frame")]
+        for part in parts[1:]:
+            second = await answer_question(
+                message=part, applicant_id=applicant_id, case_id=case_id, claims=claims,
+                request_id=request_id, intent_override=None, concise=True, context=context)
+            answers.append(str(second.get("answer") or "").strip())
+            intents_seen.append(second.get("intent"))
+            frames.append((second.get("understanding") or {}).get("frame"))
+            for key in ("tools_invoked", "tool_trace", "sources"):
+                result[key] = list(result.get(key) or []) + list(second.get(key) or [])
+        result["answer"] = " ".join(a for a in answers if a)
+        result["_compound"] = intents_seen
+        if isinstance(result.get("understanding"), dict):
+            result["understanding"]["compound"] = {
+                "parts": list(parts), "intents": intents_seen, "frames": frames}
     envelope = _from_agent(result, action.value, request_id,
                            concise=action is FosAction.CUSTOM_QUERY)
     # THE SUMMARY DESCRIBES THE CASE, NOT THE REPLY. A typed question
@@ -1379,6 +1425,21 @@ async def _copilot_upload(
     )
 
 
+def _reads_nothing(result: dict) -> bool:
+    """
+    A refusal or a clarification READS NOTHING. The question was refused or
+    not understood; a case summary, a frontend header or a readiness figure
+    beside it would be store reads made for a question that was never
+    answered -- and, for a refusal, reads a security boundary said must not
+    happen.
+    """
+    return (str(result.get("intent") or "") == "GUARDRAIL_BLOCKED"
+            or bool(result.get("clarification_required"))
+            or bool(result.get("guardrail"))
+            # A greeting, thanks or goodbye is answered from nothing.
+            or str(result.get("category") or "") == "CONVERSATION")
+
+
 async def _with_summary(envelope: dict[str, Any],
                         state: dict[str, Any] | None = None) -> dict[str, Any]:
     """
@@ -1396,6 +1457,8 @@ async def _with_summary(envelope: dict[str, Any],
     sentence and the plain `structured`, which is true rather than
     flattering.
     """
+    if _reads_nothing(state or envelope):
+        return envelope
     from app.agents.applicant import case_summary
 
     try:
@@ -1467,6 +1530,7 @@ def _from_agent(
         processing_ms=result.get("processing_ms", 0.0),
         errors=result.get("errors") or [],
     )
+    envelope["understanding"] = result.get("understanding") if concise else None
     envelope.update(_compact(result, envelope))
     envelope.update(_frontend_contract(result, envelope))
     # Built from the COMPLETE envelope, before pruning: the slot a
@@ -1570,6 +1634,11 @@ def _with_case_state(envelope: dict[str, Any]) -> dict[str, Any]:
         return envelope
     if envelope.get("stage") and envelope.get("readiness"):
         return envelope
+    # A CLARIFICATION READS NOTHING. The question was not understood; a case
+    # summary beside "which did you mean?" would be work done for a question
+    # that was not asked, and a store read the question never needed.
+    if envelope.get("clarification_required"):
+        return envelope
 
     try:
         from app.agents.applicant import workflow
@@ -1611,6 +1680,12 @@ def _frontend_contract(result: dict[str, Any],
     a header stating counts for a case the answer never looked at would be
     the same overreach the routing boundary exists to prevent.
     """
+    if _reads_nothing(result):
+        # A clarification's suggestions are its own options: no read.
+        clarification = result.get("clarification_required")
+        if isinstance(clarification, dict) and clarification.get("options"):
+            return {"suggested_questions": list(clarification["options"])}
+        return {}
     from app.agents.applicant import frontend
     from app.agents.applicant.query_types import READS_CASE, QueryType
 

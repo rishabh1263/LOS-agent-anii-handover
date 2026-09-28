@@ -181,23 +181,44 @@ def test_a_bank_statement_gets_basic_verification_only(client, kyc_tripwire):
     # estimated income, a total, a score. `income_estimate` and
     # `monthly_income` are those; `income_proof` is not.
     import json
+    import re
 
+    # WHOLE TOKENS, not substrings. The application record the response
+    # carries has a DECLARED `declared_monthly_income` field (what the
+    # applicant stated on the FOS form -- captured, never derived); that is
+    # not the `monthly_income` figure this guard exists to catch.
     blob = json.dumps(body).lower()
     for forbidden in ("average_monthly_credit", "monthly_net_salary",
                       "total_credit", "total_debit", "transactions",
                       "income_estimate", "estimated_income", "monthly_income",
                       "income_analysis", "risk_score", "creditworth",
                       "affordability", "cash_flow", "spending"):
-        assert forbidden not in blob, (
+        assert not re.search(rf"\b{re.escape(forbidden)}\b", blob), (
             f"{forbidden!r} leaked financial analysis into a FOS response"
         )
 
-    # And the word "income" may appear ONLY as a document slot name.
+    # And the word "income" may appear ONLY as a document slot name, or as
+    # the application's DECLARED income field (FOS captures it; nothing
+    # derives it). Its VALUE is still checked: it must be exactly what was
+    # declared -- nothing on this case, so null.
     for occurrence in blob.split('"'):
         if "income" in occurrence:
-            assert occurrence.strip().lower() in {"income_proof"}, (
+            assert occurrence.strip().lower() in {"income_proof",
+                                                  "declared_monthly_income"}, (
                 f"{occurrence!r} mentions income and is not a document slot"
             )
+    def declared(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "declared_monthly_income":
+                    yield value
+                yield from declared(value)
+        elif isinstance(node, list):
+            for item in node:
+                yield from declared(item)
+
+    values = list(declared(body))
+    assert values and all(v is None for v in values), values
 
 
 def test_a_reviewed_document_is_never_reported_as_rejected(client):

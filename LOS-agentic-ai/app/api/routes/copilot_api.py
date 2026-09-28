@@ -375,7 +375,10 @@ class CopilotQueryResponse(BaseModel):
 #: would let tomorrow's key through. Nothing here is a raw payload, a
 #: prompt, agent state or a tool response.
 _PUBLIC = ("request_id", "case_id", "applicant_id", "category", "intent",
-           "answer", "response_source", "errors")
+           "answer", "response_source", "errors",
+           # HOW THE QUESTION WAS UNDERSTOOD: the semantic frame, the referents
+           # it resolved and which layer decided (semantic_frame.py).
+           "understanding")
 
 
 #: The kinds of question that need a stage capability behind them.
@@ -890,7 +893,7 @@ async def _grounded(
             stats=stats,
         )
     composition.update({k: v for k, v in stats.items()
-                        if k in ("called", "qwen_ms", "error",
+                        if k in ("called", "qwen_ms", "error", "fidelity", "fidelity_reason",
                                  "composer_context_ms", "prompt_build_ms")})
 
     # CHECKED BEFORE IT IS PUBLISHED. A composed answer that leaks an id,
@@ -933,7 +936,12 @@ async def _grounded(
             envelope["_validation"] = "PASSED"
             composition["outcome"] = "ACCEPTED"
     elif composition.get("called"):
-        composition["outcome"] = "FALLBACK" if stats.get("error") else "UNCHANGED"
+        # The fidelity guard (app/knowledge/grounding._faithful) may already
+        # have replaced an enriched phrasing with the source answer.
+        composition["outcome"] = ("REJECTED" if stats.get("fidelity") == "REJECTED"
+                                  else "FALLBACK" if stats.get("error") else "UNCHANGED")
+        if composition["outcome"] == "REJECTED":
+            envelope["_validation"] = "REJECTED_FALLBACK"
     if composition.get("outcome") in ("REJECTED", "FALLBACK"):
         # A FALLBACK IS A TRACED EVENT: why the recorded answer was published
         # instead of the model's (codes only -- never the rejected text).
@@ -1564,26 +1572,35 @@ async def query(
                 # The stage the case record established above -- so a case at
                 # CPA is answered as a CPA case, never as a FOS one.
                 stage_context=context,
-                # One model call: when the Copilot phrases the answer, the
-                # agent does not.
-                compose_with_model=not _agent_config.compose_case_answers(),
+                # AT MOST ONE MODEL CALL, AND IT IS THE COPILOT'S. The agent
+                # never phrases here: a knowledge answer is phrased below
+                # (grounding.answer, once) and a case answer only when
+                # compose.case_answers says so -- otherwise it is published
+                # as built (the model policy of the acceptance pass).
+                compose_with_model=False,
             )
             if parts:
-                second = await answer_question(
-                    message=parts[1], applicant_id=request.applicant_id,
-                    case_id=request.case_id, party_id=request.party_id, claims=claims,
-                    request_id=request_id, context=request.context,
-                    stage_context=context, compose_with_model=False)
-                envelope["answer"] = " ".join(
-                    a for a in (str(envelope.get("answer") or "").strip(),
-                                str(second.get("answer") or "").strip()) if a)
-                envelope["tools_invoked"] = (list(envelope.get("tools_invoked") or [])
-                                             + list(second.get("tools_invoked") or []))
-                envelope["tool_trace"] = (list(envelope.get("tool_trace") or [])
-                                          + list(second.get("tool_trace") or []))
-                envelope["sources"] = (list(envelope.get("sources") or [])
-                                       + list(second.get("sources") or []))
-                envelope["_compound"] = [envelope.get("intent"), second.get("intent")]
+                answers = [str(envelope.get("answer") or "").strip()]
+                intents_seen = [envelope.get("intent")]
+                for part in parts[1:]:
+                    second = await answer_question(
+                        message=part, applicant_id=request.applicant_id,
+                        case_id=request.case_id, party_id=request.party_id, claims=claims,
+                        request_id=request_id, context=request.context,
+                        stage_context=context, compose_with_model=False)
+                    answers.append(str(second.get("answer") or "").strip())
+                    intents_seen.append(second.get("intent"))
+                    for key in ("tools_invoked", "tool_trace", "sources"):
+                        envelope[key] = (list(envelope.get(key) or [])
+                                         + list(second.get(key) or []))
+                envelope["answer"] = " ".join(a for a in answers if a)
+                envelope["_compound"] = intents_seen
+                # Each part's answer was built from its own records and is
+                # published as built; a composer would have to merge them.
+                envelope["answer_is_quoted"] = True
+                if isinstance(envelope.get("understanding"), dict):
+                    envelope["understanding"]["compound"] = {
+                        "parts": list(parts), "intents": intents_seen}
     except NotOwned:
         # A REFUSAL, NOT AN ERROR, AND NOT A DISCLOSURE. Phrased
         # identically whether the case belongs to somebody else or

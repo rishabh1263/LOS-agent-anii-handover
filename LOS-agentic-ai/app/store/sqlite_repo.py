@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS applications (
     tenure_months    TEXT,
     interest_rate_pct TEXT,
     declared_monthly_obligations TEXT,
+    declared_monthly_income TEXT,
     property_value   TEXT,
     employment_type  TEXT,
     policy_id        TEXT,
@@ -323,6 +324,9 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("interest_rate_pct", "TEXT"),
         ("declared_monthly_obligations", "TEXT"),
         ("property_value", "TEXT"),
+        # Declared income (credit underwriting). Nullable: existing rows keep
+        # NULL, which underwriting reports as "not declared".
+        ("declared_monthly_income", "TEXT"),
     ],
     "case_findings": [
         # When the row was LAST written. Nullable: an existing row keeps
@@ -518,13 +522,14 @@ class SQLiteRepository(Repository):
                                       loan_amount, tenure_months,
                                       interest_rate_pct,
                                       declared_monthly_obligations,
+                                      declared_monthly_income,
                                       property_value,
                                       employment_type,
                                       co_applicant_id,
                                       policy_id, policy_version,
                                       policy_pinned_at,
                                       created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(case_id) DO UPDATE SET
                 status           = excluded.status,
                 product          = excluded.product,
@@ -533,6 +538,7 @@ class SQLiteRepository(Repository):
                 interest_rate_pct = excluded.interest_rate_pct,
                 declared_monthly_obligations =
                     excluded.declared_monthly_obligations,
+                declared_monthly_income = excluded.declared_monthly_income,
                 property_value   = excluded.property_value,
                 employment_type  = excluded.employment_type,
                 co_applicant_id  = excluded.co_applicant_id,
@@ -546,6 +552,7 @@ class SQLiteRepository(Repository):
              application.loan_amount, application.tenure_months,
              application.interest_rate_pct,
              application.declared_monthly_obligations,
+             getattr(application, "declared_monthly_income", None),
              application.property_value,
              application.employment_type,
              application.co_applicant_id,
@@ -695,6 +702,7 @@ class SQLiteRepository(Repository):
             interest_rate_pct=_column(row, "interest_rate_pct"),
             declared_monthly_obligations=_column(
                 row, "declared_monthly_obligations"),
+            declared_monthly_income=_column(row, "declared_monthly_income"),
             property_value=_column(row, "property_value"),
             policy_id=_column(row, "policy_id"),
             policy_version=_column(row, "policy_version"),
@@ -853,6 +861,41 @@ class SQLiteRepository(Repository):
             (case_id,),
         )
         return [self._ocr_job(row) for row in rows]
+
+    def reclaim_stale_ocr_jobs(self, older_than_seconds: float,
+                               max_attempts: int) -> int:
+        """
+        Put ORPHANED jobs back to work.
+
+        A job is claimed by moving it to PROCESSING; a worker that dies
+        mid-job (crash, kill, deploy) leaves it there, and `claim_ocr_job`
+        never looks at PROCESSING rows -- so the document was "being read"
+        for ever. A PROCESSING row untouched for longer than the worker's
+        lease is orphaned: it goes back to QUEUED for another attempt, or
+        to FAILED when its attempts are spent. Returns how many moved.
+        """
+        from datetime import timedelta
+
+        from app.store.ocr_queue import OcrJobStatus
+
+        cutoff = _iso(utcnow() - timedelta(seconds=older_than_seconds))
+        now = _iso(utcnow())
+        failed = self._write_count(
+            "UPDATE ocr_jobs SET status = ?, detail = ?, updated_at = ? "
+            "WHERE status = ? AND updated_at < ? AND attempts >= ?",
+            (OcrJobStatus.FAILED.value,
+             "The background read was interrupted and its attempts are spent; "
+             "the document needs manual review.",
+             now, OcrJobStatus.PROCESSING.value, cutoff, max_attempts),
+        )
+        requeued = self._write_count(
+            "UPDATE ocr_jobs SET status = ?, detail = ?, updated_at = ? "
+            "WHERE status = ? AND updated_at < ?",
+            (OcrJobStatus.QUEUED.value,
+             "The background read was interrupted; it has been queued again.",
+             now, OcrJobStatus.PROCESSING.value, cutoff),
+        )
+        return failed + requeued
 
     def claim_ocr_job(self) -> "OcrJob | None":
         """

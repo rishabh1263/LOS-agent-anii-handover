@@ -23,6 +23,11 @@ agent:
   # to a model adds a second of latency and a chance of paraphrasing the fact.
   llm_for_simple_intents: false
 
+  # MODEL POLICY (acceptance pass): the one-sentence case summary on a FOS
+  # answer is the computed text; the model does not phrase it. Measured on
+  # qwen2.5:3b it cost ~1 s per deterministic case answer for the same facts.
+  llm_for_case_summary: false
+
 # -----------------------------------------------------------------------------
 # WORKFLOW
 #
@@ -302,7 +307,12 @@ chatbot:
   # timeout_seconds -- measured on this deployment's qwen2.5:3b via Ollama:
   #   ~4.8 s cold, 1.6-2.0 s warm. 6.0 covers a cold start.
   compose:
-    case_answers: true
+    # false -- MODEL POLICY (acceptance pass): a case / status / stage /
+    #   profile answer is a recorded fact and is published as built, with no
+    #   model call; the model phrases knowledge answers only. Measured with
+    #   case_answers: true on qwen2.5:3b: p50 860 ms, p95 2.5 s, and the
+    #   accepted phrasing was the structured sentence in every sampled case.
+    case_answers: false
     # 2-3 s RESPONSE TARGET (measured on qwen2.5:3b, CPU: a NEW prompt costs
     # ~8.5 ms/token to evaluate and generation runs ~18 tokens/s). The model
     # is used when it can finish inside the budget; otherwise the recorded
@@ -549,10 +559,28 @@ chatbot:
       - income
       - account
 
-  # Intent examples for the semantic fallback, used ONLY when no rule
-  # matched. Add an intent's natural phrasings here -- a stage or specialist
-  # agent contributes its own intents by adding entries -- and the Copilot
-  # recognises them without a code change. Keys are Intent names.
+  # QUESTION UNDERSTANDING (app/agents/applicant/semantic_frame.py).
+  #
+  # Meaning is parsed into a semantic FRAME (task / object / qualifiers /
+  # referents) from concept classes (config/semantic_concepts.yaml), never
+  # from listed sentences. When the deterministic parser is not confident,
+  # ONE bounded Qwen call may propose a frame in the same closed enums; it
+  # is validated like any other frame and chooses no tool and no fact. It
+  # is never called when the parser is confident.
+  #
+  # MEASURED (qwen2.5:3b, idle CPU, 2026-09-28): a frame call takes 3.1-5.2 s
+  # (p50 4.4 s) and the frames are unreliable (5 of 8 wrong or invalid on
+  # hard paraphrases). At the 1.5 s budget it times out every time, so
+  # enabling it only delays the clarification. OFF by default until a more
+  # capable local model is measured; the mechanism, validation and tests
+  # are in place (COPILOT_UNDERSTANDING_LLM=true enables it).
+  understanding:
+    llm_fallback: false
+    llm_timeout_seconds: 1.5
+
+  # Intent examples for the LEGACY word-overlap fallback. Demoted: consulted
+  # only when neither the semantic frame nor the rules understood the
+  # question. Keys are Intent names.
   intents:
     min_score: 0.5
     examples:

@@ -95,6 +95,7 @@ from app.agents.fraud_risk.config import (
 from app.api.routes.agent_service import router as agent_service_router
 from app.api.routes.applicant_agent_api import router as applicant_agent_router
 from app.api.routes.copilot_api import router as copilot_router
+from app.api.routes.credit_api import router as credit_router
 from app.api.routes.document_extraction_api import router as document_extraction_router
 from app.api.routes.document_agent_api import router as document_agent_router
 from app.api.routes.financial_api import router as financial_router
@@ -564,6 +565,15 @@ app.include_router(
 # pipeline; this and the Universal Copilot read what it recorded.
 app.include_router(
     eligibility_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+)
+
+# Credit underwriting: an evidence-linked ASSESSMENT for the Decision Agent,
+# run on the common agent harness. Scope, ownership and stage are enforced by
+# the agent before any tool runs.
+app.include_router(
+    credit_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
 )

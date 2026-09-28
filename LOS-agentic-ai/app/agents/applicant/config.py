@@ -107,6 +107,11 @@ def llm_enabled() -> bool:
     return _flag("agent", "llm_enabled", True)
 
 
+def llm_for_case_summary() -> bool:
+    """Whether the model phrases the case summary sentence (else computed text)."""
+    return _flag("agent", "llm_for_case_summary", True)
+
+
 def llm_for_simple_intents() -> bool:
     return _flag("agent", "llm_for_simple_intents", False)
 

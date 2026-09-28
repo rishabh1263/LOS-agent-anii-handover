@@ -510,6 +510,27 @@ def get_document_agent():
     return build_document_agent()
 
 
+async def _credit_agent_handler(
+    payload: dict[str, Any],
+    config: AgentConfig,
+    request_id: str,
+) -> dict[str, Any]:
+    """
+    Adapter for the Credit Underwriting Agent (runs on the common agent harness).
+
+    FAILS CLOSED WITHOUT A CALLER. The handler signature carries no caller, and
+    a payload may never supply one: the agent reads the authenticated caller
+    from a context variable the credit route sets, and refuses when there is
+    none (CALLER_REQUIRED). Its output is an underwriting ASSESSMENT for the
+    Decision Agent -- never an approval or a rejection.
+    """
+    from app.agents.credit.agent import registry_handler
+
+    return await registry_handler(payload, config, request_id)
+
+
+register("credit_agent", _credit_agent_handler)
+
 __all__ = [
     "AgentHandler",
     "UnknownAgentError",

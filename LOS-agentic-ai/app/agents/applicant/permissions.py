@@ -245,9 +245,11 @@ def check_ownership(applicant_id: str, case_id: str | None,
             raise PermissionDenied("CASE_STORE_UNAVAILABLE", str(exc)) from exc
 
         if not repository.applicant_owns_case(applicant_id, case_id):
+            # ONE SENTENCE, NO IDS: the same words whether the case belongs to
+            # somebody else or does not exist, so the refusal discloses neither.
             raise PermissionDenied(
                 "CASE_NOT_ACCESSIBLE",
-                f"Case {case_id} is not accessible for applicant {applicant_id}.",
+                "You are not authorized to access this case.",
             )
 
     # THE CALLER, BOUND TO THE RESOURCE. Without this, the check above only

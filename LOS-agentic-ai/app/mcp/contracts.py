@@ -325,6 +325,9 @@ CONTRACTS: dict[str, ToolContract] = {
                     "The property's value, for a secured product LTV "
                     "applies to. Recorded AS DECLARED; never derived from a "
                     "sale deed's consideration price."),
+                "declared_monthly_income": _string(
+                    "What the applicant says they earn each month. Recorded "
+                    "AS DECLARED; never treated as verified income."),
                 "case_id": _string("Optional. Generated when omitted."),
             },
             ["applicant_id"],
@@ -366,6 +369,9 @@ CONTRACTS: dict[str, ToolContract] = {
                     "The property's value, for a secured product LTV "
                     "applies to. Recorded AS DECLARED; never derived from a "
                     "sale deed's consideration price."),
+                "declared_monthly_income": _string(
+                    "What the applicant says they earn each month. Recorded "
+                    "AS DECLARED; never treated as verified income."),
             },
             ["case_id"],
         ),

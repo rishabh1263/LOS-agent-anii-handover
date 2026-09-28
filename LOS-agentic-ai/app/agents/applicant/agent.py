@@ -54,6 +54,7 @@ from app.agents.applicant.answer import (
 from app.agents.applicant import followup
 from app.agents.applicant.query_types import QueryType, clarification_for, type_for
 from app.agents.applicant.intents import (
+    looks_like_knowledge,
     Classification,
     Intent,
     SIMPLE_INTENTS,
@@ -474,6 +475,23 @@ def _stage_ctx(stage_context: Any, case_id: str | None) -> Any:
         return None
 
 
+def _stage_after(stage: str | None) -> str | None:
+    """
+    The stage that follows `stage` in the LOS order (stages.ORDER), or None
+    for the last one. READ-ONLY VOCABULARY: the Copilot names the next stage,
+    it never reaches the transition service that moves a case.
+    """
+    from app.agents.los import stages as los_stages
+
+    try:
+        current = los_stages.LosStage(str(stage or "").upper())
+    except ValueError:
+        return None
+    order = list(los_stages.ORDER)
+    position = order.index(current)
+    return order[position + 1].value if position + 1 < len(order) else None
+
+
 def _stage_of(stage_context: Any, case_id: str | None) -> str | None:
     """The stage name the case record establishes, or None."""
     stage = getattr(_stage_ctx(stage_context, case_id), "stage", None)
@@ -569,6 +587,10 @@ async def answer_question(
         return round((time.perf_counter() - started) * 1000, 2)
 
     _routing_ms: list[float | None] = [None]
+    #: HOW THE QUESTION WAS UNDERSTOOD (semantic_frame): published on every
+    #: envelope so a caller -- and an eval -- can see the frame, the
+    #: referents it resolved and which layer decided, not only the answer.
+    _understanding: list[dict[str, Any] | None] = [None]
 
     def envelope(**overrides: Any) -> dict[str, Any]:
         base: dict[str, Any] = {
@@ -624,6 +646,7 @@ async def answer_question(
             "response_source": routing.ResponseSource.STRUCTURED.value,
             "processing_ms": 0.0,
             "errors": [],
+            "understanding": _understanding[0],
         }
         # PER-STEP TIMINGS: routing always, plus whatever the path adds.
         timings = {"routing_ms": _routing_ms[0]} if _routing_ms[0] is not None else {}
@@ -755,6 +778,14 @@ async def answer_question(
                     has_case=bool(case_id))
                 if named_subject:
                     message = said
+                    # THE FRAME KEEPS THE PARTY the neutral text dropped, so a
+                    # clarification asks about the co-applicant, not "my documents".
+                    from app.agents.applicant import semantic_frame as _frames
+
+                    frame_ = getattr(classification, "frame", None)
+                    if frame_ is not None and named_subject in (subjects.Kind.CO,
+                                                                subjects.Kind.BOTH):
+                        frame_.party = _frames.Party.CO_APPLICANT
                 elif classification.normalized:
                     message = classification.normalized
 
@@ -765,6 +796,119 @@ async def answer_question(
                   followed_up=bool(getattr(resolution, "rewritten", False)))
     intent = classification.intent
     _routing_ms[0] = round((time.perf_counter() - routing_started) * 1000, 2)
+
+    # ------------------------------------------------------------------
+    # UNDERSTANDING, BEYOND THE RULES (semantic_frame.py).
+    #
+    # 1. QWEN AS A BOUNDED FALLBACK FOR MEANING. Only when nothing above
+    #    understood the question, and it is not a bare follow-up: ONE call
+    #    proposes a frame in the closed enums, validated like any other.
+    #    It chooses no tool and states no fact; a timeout or an invalid
+    #    answer leaves the question UNKNOWN. Never called when the parser
+    #    or the rules were confident.
+    # 2. REFERENTS. "this stage" is the case's recorded stage; "that
+    #    document" the document the previous answer was about. One that
+    #    cannot be resolved safely is asked back, by name.
+    # ------------------------------------------------------------------
+    from app.agents.applicant import semantic_frame, short_query as short_queries
+
+    understanding_trace: dict[str, Any] = {"llm": {"consulted": False, "status": "NOT_NEEDED"}}
+    frame = getattr(classification, "frame", None)
+
+    # A ONE-WORD QUESTION IS NOT A GUESSING GAME. "name", "status",
+    # "documents", "PAN" each mean several things. The previous turn
+    # settles it when it can (then the settled question is understood
+    # exactly as if typed); otherwise the reply names the choices, and no
+    # tool, retrieval or model runs for it (short_query.py).
+    short = None
+    if intent_override is None:
+        short = short_queries.short_query(message, followup.Context.from_payload(context))
+    if short is not None and short.resolved_to:
+        message = short.resolved_to
+        classification = understand(message, has_case=bool(case_id))
+        intent = classification.intent
+        frame = getattr(classification, "frame", None)
+        understanding_trace["short_query"] = {"head": short.head, "resolved_to": message,
+                                              "resolved_by": short.resolved_by}
+    elif short is not None and short.clarification:
+        audit.record(request_id=request_id, subject=caller.subject,
+                     applicant_id=applicant_id, case_id=case_id,
+                     intent=Intent.UNKNOWN.value, tools=[], status="CLARIFICATION",
+                     message=message)
+        _understanding[0] = {"frame": None, "decided_by": "SHORT_QUERY",
+                             "referents": {}, "short_query": {"head": short.head},
+                             "llm": understanding_trace["llm"], "parse_ms": 0.0,
+                             "case_stage": None}
+        return envelope(
+            intent=Intent.UNKNOWN.value,
+            category=routing.QueryCategory.UNSUPPORTED.value,
+            query_type=QueryType.CLARIFICATION.value,
+            clarification_required=short.clarification,
+            suggested_questions=list(short.clarification["options"]),
+            answer=short.clarification["question"],
+        )
+    if (intent is Intent.UNKNOWN and intent_override is None
+            and not followup.is_bare(message)
+            and resolution.reason != followup.EXPLAIN_REASON):
+        proposed, llm_trace = await semantic_frame.llm_frame(message)
+        understanding_trace["llm"] = llm_trace
+        if proposed is not None:
+            routed = semantic_frame.route(proposed)
+            if routed and Intent(routed) not in WRITE_INTENTS:
+                classification = Classification(
+                    Intent(routed), confidence="medium",
+                    document_type=proposed.document_type or classification.document_type,
+                    matched_on=f"llm_frame:{proposed.task.value}/{proposed.object.value}",
+                    frame=proposed, understanding="LLM")
+                intent = classification.intent
+                frame = proposed
+            else:
+                frame = proposed
+
+    # A follow-up whose pronoun the previous turn cannot settle ("why is it
+    # still pending?" after two pending documents) is asked back, not guessed.
+    asked_back = followup.pronoun_clarification(message, followup.Context.from_payload(context))
+    referent_clarification = asked_back[0] if asked_back else None
+    referent_options = list(asked_back[1]) if asked_back else []
+    if frame is not None:
+        # BEFORE OWNERSHIP IS CHECKED nothing is read from the store: only a
+        # stage the route already resolved is used here; "this stage" is
+        # bound to the case record after the ownership check below.
+        resolved = semantic_frame.resolve_referents(
+            frame, followup.Context.from_payload(context),
+            case_stage=getattr(getattr(stage_context, "stage", None), "value", None))
+        understanding_trace["referents"] = resolved.resolutions
+        referent_clarification = resolved.clarification or referent_clarification
+        if frame.document_type and not classification.document_type:
+            classification.document_type = frame.document_type
+    _understanding[0] = {
+        "frame": frame.public() if frame is not None else None,
+        "decided_by": getattr(classification, "understanding", None),
+        "referents": understanding_trace.get("referents") or {},
+        "short_query": understanding_trace.get("short_query"),
+        "llm": understanding_trace["llm"],
+        "parse_ms": getattr(frame, "parse_ms", 0.0) if frame is not None else 0.0,
+        # THE CASE'S RECORDED LOS STAGE -- what "this stage" means here.
+        # Filled in after the ownership check (below); a refusal never reads it.
+        "case_stage": getattr(getattr(stage_context, "stage", None), "value", None),
+    }
+
+    if referent_clarification and intent is not Intent.UNKNOWN:
+        audit.record(request_id=request_id, subject=caller.subject,
+                     applicant_id=applicant_id, case_id=case_id,
+                     intent=intent.value, tools=[], status="CLARIFICATION",
+                     message=message)
+        return envelope(
+            intent=intent.value,
+            category=routing.QueryCategory.UNSUPPORTED.value,
+            query_type=QueryType.CLARIFICATION.value,
+            clarification_required={"reason": "REFERENT_UNRESOLVED",
+                                    "question": referent_clarification,
+                                    "options": referent_options,
+                                    "original_message": message[:200]},
+            followed_up=resolution.public(),
+            answer=referent_clarification,
+        )
 
     # "WHAT IS THIS BASED ON?" WITH NOTHING TO EXPLAIN: there was no previous
     # answer in this conversation, so the honest reply says so (read nothing).
@@ -871,8 +1015,16 @@ async def answer_question(
         # clarification, never policy text.
         bare = followup.is_bare(message)
         own_case = bool(case_id) and asks_about_own_case(message)
+        # RAG ONLY FOR A GENUINE KNOWLEDGE QUESTION. Retrieval used to run on
+        # every unrecognised message and, when it scored a passage
+        # confident, published policy text in place of understanding. It
+        # runs now only when the frame says the question is about the
+        # rules (a definition, a general or product question) -- never as
+        # a stand-in for a case question the service did not understand.
+        knowledge_like = (frame is not None and semantic_frame.is_knowledge(frame)) \
+            or (frame is None and looks_like_knowledge(message))
         text, source, detail = (
-            ("", "", {"confident": False}) if bare or own_case
+            ("", "", {"confident": False}) if bare or own_case or not knowledge_like
             else await _knowledge_reply(message, allow_model=compose_with_model)
         )
         if detail["confident"]:
@@ -899,7 +1051,19 @@ async def answer_question(
         # The error stays. A caller distinguishing "answered" from "not
         # answered" reads `errors`, and dropping it to make the response
         # look friendlier would make an unanswered question look answered.
-        clarification = clarification_for(message, has_case=bool(case_id))
+        # A TARGETED QUESTION FIRST: what the frame did understand names
+        # the missing piece. The generic offer only when nothing at all
+        # was understood.
+        clarification = (
+            (semantic_frame.clarification(frame, has_case=bool(case_id)) or {})
+            if frame is not None else {})
+        if referent_clarification:
+            clarification = {"reason": "REFERENT_UNRESOLVED",
+                             "question": referent_clarification, "options": []}
+        if clarification:
+            clarification["original_message"] = (message or "").strip()[:200]
+        else:
+            clarification = clarification_for(message, has_case=bool(case_id))
         return envelope(
             intent=intent.value,
             category=routing.QueryCategory.UNSUPPORTED.value,
@@ -932,6 +1096,21 @@ async def answer_question(
             except _access.AccessDenied:
                 raise PermissionDenied("CASE_NOT_ACCESSIBLE",
                                        "Not the caller's case.") from None
+        # OWNERSHIP PASSED: "this stage" now means the case's recorded stage.
+        if case_id and _understanding[0] is not None:
+            recorded = _stage_of(stage_context, case_id)
+            _understanding[0]["case_stage"] = recorded
+            if frame is not None and recorded and frame.referents.get("stage") == "CURRENT":
+                frame.stage = str(recorded).upper()
+                _understanding[0]["frame"] = frame.public()
+                _understanding[0]["referents"]["stage"] = f"CURRENT -> {frame.stage} (case record)"
+            elif frame is not None and recorded and frame.referents.get("stage") == "NEXT":
+                # "after this step": the stage the configured lifecycle names
+                # after the case's recorded stage (never advanced, only named).
+                frame.stage = _stage_after(recorded)
+                _understanding[0]["frame"] = frame.public()
+                _understanding[0]["referents"]["stage"] = (
+                    f"NEXT -> {frame.stage or 'none (final stage)'} (lifecycle after {recorded})")
     except PermissionDenied as exc:
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
@@ -1032,9 +1211,23 @@ async def answer_question(
                      applicant_id=applicant_id, case_id=case_id,
                      intent=intent.value, tools=[], status="OK",
                      message=message)
+        # "WHAT HAPPENS AFTER THIS STEP?" names the next stage from the
+        # configured lifecycle -- a recorded fact, stated; the stage guide
+        # (retrieved by the caller) may describe it. Nothing is invented.
+        next_stage_answer = ""
+        if frame is not None and frame.referents.get("stage") == "NEXT" and case_id:
+            current = _stage_of(stage_context, case_id)
+            if current and frame.stage:
+                next_stage_answer = (
+                    f"Your application is at the {config.stage_label(current)} stage. "
+                    f"The next stage in the process is {config.stage_label(frame.stage)}.")
+            elif current:
+                next_stage_answer = (
+                    f"Your application is at the {config.stage_label(current)} stage, "
+                    f"which is the final stage; there is no stage after it.")
         return envelope(
             intent=intent.value,
-            answer="",
+            answer=next_stage_answer,
             category=routing.QueryCategory.PROCESS_KNOWLEDGE.value,
             query_type=QueryType.PROCESS_KNOWLEDGE.value,
             followed_up=resolution.public(),
@@ -1749,6 +1942,13 @@ async def _knowledge_reply(
                 text, surface="knowledge_phrase", truth=passage or "")
             if not unified.accepted:
                 verdict = grounding.Verdict(False, [unified.value])
+        if verdict:
+            # WORDING ONLY: no number, name or claim the passage does not carry.
+            from app.agents.applicant import fidelity
+
+            faith = fidelity.check(text, source=passage or "", question=message)
+            if not faith.faithful:
+                verdict = grounding.Verdict(False, [f"fidelity: {faith.describe()}"])
         if not verdict:
             logger.warning(
                 "FOS knowledge answer rejected by grounding (%s); using the "

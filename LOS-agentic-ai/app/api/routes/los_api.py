@@ -29,6 +29,7 @@ from app.agents.los.flow import (
 from app.agents.los.schemas import LosProcessResponse
 from app.agents.document_agent.workflow import MAX_UPLOAD_BYTES
 from app.security import access
+from app.security.auth import require_jwt
 from app.store.ingest import persist_los_result
 
 #: /los/process WRITES a case: the document-processing write scope, the FOS
@@ -715,3 +716,41 @@ async def transition_stage(
         ) from None
 
     return {"request_id": request_id, **result}
+
+
+@router.get(
+    "/cases/{case_id}/processing",
+    summary="Background document processing status for one case",
+    response_description="Queued / processing / completed / failed reads, and each "
+                         "document's current status.",
+)
+async def processing_status(case_id: str,
+                            claims: dict[str, Any] = Depends(require_jwt)) -> dict[str, Any]:
+    """
+    THE REAL STATE OF THE QUEUE, for a caller who owns the case.
+
+    A document that is being read in the background is PROCESSING and its
+    job says QUEUED or PROCESSING here; a finished read says COMPLETED and
+    the document carries the verdict verification reached; a read that gave
+    up says FAILED and the document is REVIEW. Nothing here is a verdict.
+    """
+    from app.store import get_repository, ocr_queue
+
+    request_id = f"proc_{uuid.uuid4().hex}"
+    try:
+        access.authorize_claims(claims, case_id=case_id)
+    except access.AccessDenied as denied:
+        raise access.http_denied(denied, request_id) from None
+
+    repository = get_repository()
+    documents = [
+        {"document_id": d.document_id, "document_type": d.document_type,
+         "party_id": d.party_id, "status": d.status.value,
+         "verification_status": d.verification_status,
+         "reason_codes": list(d.reason_codes or [])}
+        for d in repository.list_documents(case_id)
+    ]
+    return {"request_id": request_id, "case_id": case_id,
+            "worker_enabled": ocr_queue.worker_enabled(),
+            "jobs": ocr_queue.jobs_for_case(repository, case_id),
+            "documents": documents}

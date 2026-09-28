@@ -1,0 +1,285 @@
+# =============================================================================
+# UNDERWRITING POLICY -- DEMO / NON-PRODUCTION
+#
+# NONE OF THESE RULES IS COMPANY-APPROVED. Every threshold below is a DEMO
+# value chosen to exercise the Credit Underwriting Agent; each rule carries
+# `confirmation_status: DEMO_UNCONFIRMED`, and the policy as a whole is
+# `signed_off: false`. Outside development/test the agent refuses to load an
+# unsigned policy (the same gate as risk_policy.yaml) unless
+# ALLOW_UNSIGNED_UNDERWRITING_POLICY=true. Replace this file with the credit
+# team's approved policy -- no code change is needed.
+#
+# WHAT THIS POLICY MAY EVALUATE: bureau signals, repayment and adverse
+# signals, recorded banking signals, declared-vs-recorded metadata, and the
+# RECORDED results of other agents. WHAT IT MUST NOT RE-DERIVE: EMI, FOIR,
+# LTV, eligibility, slip-vs-bank income consistency, the risk score or flags,
+# bounce / salary-credit detection, KYC matching, document verification.
+#
+# The signals a rule may read are a CLOSED set (app/agents/credit/signals.py);
+# a rule naming any other input fails at load time.
+# =============================================================================
+
+policy_id: UW_DEMO_V1
+policy_version: "0.1.0-demo"
+confirmation_status: DEMO_UNCONFIRMED
+signed_off: false
+
+# -----------------------------------------------------------------------------
+# EVIDENCE PLAN -- what the planner must resolve, and from which allowed
+# sources, in order. `scope: case` = one call for the case; `party` = one
+# call per party. An alternative source is tried only when the first leaves
+# the category unresolved (bounded replanning).
+# -----------------------------------------------------------------------------
+evidence_plan:
+  - {category: application,   required: true,  scope: case,  sources: [application.get]}
+  - {category: documents,     required: false, scope: case,  sources: [documents.get]}
+  - {category: kyc,           required: true,  scope: case,  sources: [kyc.get]}
+  - {category: income,        required: true,  scope: case,  sources: [income.get, bank_behaviour.get, financial_documents.get]}
+  - {category: banking,       required: false, scope: case,  sources: [bank_behaviour.get]}
+  - {category: eligibility,   required: true,  scope: case,  sources: [eligibility.get]}
+  - {category: risk,          required: false, scope: case,  sources: [risk.get]}
+  - {category: bureau,        required: true,  scope: party, sources: [bureau.get]}
+
+# Employment-specific plan changes (still only allowed sources).
+by_employment:
+  SELF_EMPLOYED:
+    # No salary slip exists for a self-employed applicant: income evidence
+    # comes from the recorded bank recurring-credit evidence first, then a
+    # VERIFIED ITR's recorded total income (financial_documents.get).
+    income: [bank_behaviour.get, financial_documents.get, income.get]
+
+# -----------------------------------------------------------------------------
+# RULES -- each produces a FINDING, never a decision.
+#
+#   rule_id, enabled, description, category
+#   inputs            the ONE signal the rule reads (closed set, signals.py)
+#   operator          lt | lte | gt | gte | eq | ne | in | not_in | between
+#   threshold         the demo threshold / list / [low, high]
+#   severity          INFO | LOW | MEDIUM | HIGH
+#   finding_status    POSITIVE | NEGATIVE | REVIEW
+#   policy_version    optional; defaults to the policy's version
+#   confirmation_status   DEMO_UNCONFIRMED until the credit team signs off
+#
+# A rule whose input is unavailable produces NO judgement: the signal is
+# reported as a DATA_GAP (DATA_UNAVAILABLE). Missing is never zero / false /
+# clean. A rule whose condition is not met produces nothing.
+# -----------------------------------------------------------------------------
+defaults: &demo
+  confirmation_status: DEMO_UNCONFIRMED
+  enabled: true
+
+rules:
+  # ---- bureau / credit profile (per party) -----------------------------------
+  - <<: *demo
+    rule_id: UW_BUR_SCORE_LOW
+    category: CREDIT_PROFILE
+    description: "Bureau score below the demo review threshold"
+    inputs: [bureau.score]
+    operator: lt
+    threshold: 650
+    severity: HIGH
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_BUR_SCORE_STRONG
+    category: CREDIT_PROFILE
+    description: "Bureau score at or above the demo strong threshold"
+    inputs: [bureau.score]
+    operator: gte
+    threshold: 700
+    severity: INFO
+    finding_status: POSITIVE
+  - <<: *demo
+    rule_id: UW_BUR_THIN_HISTORY
+    category: CREDIT_PROFILE
+    description: "Credit history shorter than the demo minimum"
+    inputs: [bureau.history_months]
+    operator: lt
+    threshold: 12
+    severity: MEDIUM
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_BUR_ESTABLISHED_HISTORY
+    category: CREDIT_PROFILE
+    description: "Established credit history"
+    inputs: [bureau.history_months]
+    operator: gte
+    threshold: 36
+    severity: INFO
+    finding_status: POSITIVE
+  # ---- repayment (per party) --------------------------------------------------
+  - <<: *demo
+    rule_id: UW_REP_DPD_30
+    category: REPAYMENT
+    description: "Repayment delinquency of 30+ days in the last 12 months"
+    inputs: [bureau.max_dpd_12m]
+    operator: gte
+    threshold: 30
+    severity: HIGH
+    finding_status: NEGATIVE
+  - <<: *demo
+    rule_id: UW_REP_DPD_MINOR
+    category: REPAYMENT
+    description: "Minor repayment delay (1-29 days) in the last 12 months"
+    inputs: [bureau.max_dpd_12m]
+    operator: between
+    threshold: [1, 29]
+    severity: MEDIUM
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_REP_CLEAN
+    category: REPAYMENT
+    description: "No repayment delay reported by the bureau in the last 12 months"
+    inputs: [bureau.max_dpd_12m]
+    operator: eq
+    threshold: 0
+    severity: INFO
+    finding_status: POSITIVE
+  # ---- adverse (per party) ----------------------------------------------------
+  - <<: *demo
+    rule_id: UW_ADV_SETTLEMENT
+    category: ADVERSE
+    description: "Settled account reported by the bureau"
+    inputs: [bureau.settlements]
+    operator: gt
+    threshold: 0
+    severity: HIGH
+    finding_status: NEGATIVE
+  - <<: *demo
+    rule_id: UW_ADV_WRITE_OFF
+    category: ADVERSE
+    description: "Written-off account reported by the bureau"
+    inputs: [bureau.write_offs]
+    operator: gt
+    threshold: 0
+    severity: HIGH
+    finding_status: NEGATIVE
+  - <<: *demo
+    rule_id: UW_ADV_ENQUIRIES
+    category: ADVERSE
+    description: "High number of recent credit enquiries"
+    inputs: [bureau.enquiries_6m]
+    operator: gt
+    threshold: 5
+    severity: MEDIUM
+    finding_status: REVIEW
+  # ---- banking (signals the Bank Statement Agent recorded) ----------------------
+  # NO "no bounces" rule, deliberately. bank_statement/signals.py reports a
+  # narration count ONLY when a row matched: an absent count means "this
+  # bank's narrations did not use the word", never "zero".
+  - <<: *demo
+    rule_id: UW_BNK_RETURNS
+    category: BANKING
+    description: "Returned / bounced transactions observed on the statement"
+    inputs: [bank.returned_transaction_count]
+    operator: gt
+    threshold: 0
+    severity: MEDIUM
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_BNK_MANDATE_DEBITS
+    category: BANKING
+    description: "Recurring mandate (EMI / NACH) debits observed on the statement"
+    inputs: [bank.mandate_debit_count]
+    operator: gt
+    threshold: 0
+    severity: LOW
+    finding_status: REVIEW
+  # ---- income: the recorded check, and declared vs recorded ---------------------
+  - <<: *demo
+    rule_id: UW_INC_RECORDED_REVIEW
+    category: INCOME_CONSISTENCY
+    description: "The recorded income-consistency check did not pass"
+    inputs: [income.consistency_status]
+    operator: in
+    threshold: [REVIEW, FAIL]
+    severity: MEDIUM
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_INC_RECORDED_PASS
+    category: INCOME_CONSISTENCY
+    description: "The recorded income-consistency check passed"
+    inputs: [income.consistency_status]
+    operator: eq
+    threshold: PASS
+    severity: INFO
+    finding_status: POSITIVE
+  - <<: *demo
+    rule_id: UW_INC_DECLARED_VS_RECORDED
+    category: INCOME_CONSISTENCY
+    description: "Declared monthly income differs from the recorded salary-slip amount"
+    inputs: [income.declared_vs_recorded_diff_pct]
+    operator: gt
+    threshold: 10.0
+    severity: MEDIUM
+    finding_status: REVIEW
+  # ---- other agents' recorded results (consumed, never re-derived) ---------------
+  - <<: *demo
+    rule_id: UW_REC_ELIGIBILITY_NOT_PASS
+    category: CROSS_SOURCE
+    description: "The recorded eligibility result is not PASS"
+    inputs: [eligibility.status]
+    operator: in
+    threshold: [REVIEW, FAIL, SKIPPED]
+    severity: MEDIUM
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_REC_ELIGIBILITY_PASS
+    category: CROSS_SOURCE
+    description: "The recorded eligibility result is PASS"
+    inputs: [eligibility.status]
+    operator: eq
+    threshold: PASS
+    severity: INFO
+    finding_status: POSITIVE
+  - <<: *demo
+    rule_id: UW_REC_RISK_NOT_PASS
+    category: CROSS_SOURCE
+    description: "The recorded risk assessment did not pass"
+    inputs: [risk.final_outcome]
+    operator: in
+    threshold: [REVIEW, FAIL]
+    severity: MEDIUM
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_REC_KYC_NOT_PASS
+    category: CROSS_SOURCE
+    description: "The recorded KYC result for this party is not PASS"
+    inputs: [kyc.status]
+    operator: in
+    threshold: [REVIEW, FAIL]
+    severity: MEDIUM
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_REC_DOCUMENT_NOT_PASSED
+    category: CROSS_SOURCE
+    description: "A document's recorded verification is not PASS"
+    inputs: [documents.not_passed_count]
+    operator: gt
+    threshold: 0
+    severity: MEDIUM
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_OBL_BUREAU_VS_DECLARED
+    category: CROSS_SOURCE
+    description: "Bureau-reported monthly obligations differ from the declared obligations"
+    inputs: [obligations.bureau_vs_declared_diff_pct]
+    operator: gt
+    threshold: 20.0
+    severity: MEDIUM
+    finding_status: REVIEW
+
+# -----------------------------------------------------------------------------
+# ASSESSMENT -- how findings roll up. Still not a decision: the result is
+# READY_FOR_DECISION / REVIEW_REQUIRED / DATA_INSUFFICIENT, for the Decision
+# Agent. Precedence: DATA_INSUFFICIENT > REVIEW_REQUIRED > READY_FOR_DECISION.
+# -----------------------------------------------------------------------------
+assessment:
+  # A REQUIRED evidence category left unresolved -> DATA_INSUFFICIENT.
+  insufficient_when_required_missing: true
+  # Any REVIEW / NEGATIVE finding at or above this severity -> REVIEW_REQUIRED.
+  review_at_severity: MEDIUM
+  # Severity of a DATA_GAP for an unavailable rule input / optional category.
+  # Below review_at_severity, so a gap alone never forces review.
+  data_gap_severity: LOW
+  # Severity of a DATA_GAP for a REQUIRED evidence category.
+  required_gap_severity: HIGH

@@ -361,11 +361,36 @@ agents:
   # PHASE 2+ placeholders. Declared so routing is config-driven from day
   # one; not implemented, and disabled.
   # ---------------------------------------------------------------------
+  # CREDIT UNDERWRITING (app/agents/credit). Produces an evidence-linked
+  # underwriting ASSESSMENT for the Decision Agent -- READY_FOR_DECISION /
+  # REVIEW_REQUIRED / DATA_INSUFFICIENT -- never an approval or rejection.
+  # It reads the recorded results of document, KYC, bank, income,
+  # eligibility and risk agents; it recomputes none of them.
   credit_agent:
     agent_id: credit_agent
     agent_name: "Credit Underwriting Agent"
     stage: credit_decision
-    enabled: false
+    enabled: true
+    version: "0.1.0-demo"
+    langgraph_enabled: true
+    llm_enabled: true            # memo WORDING only; the assessment is deterministic
+    max_iterations: 10           # tool executions per run (the agentic budget)
+    # The orchestrator's hard timeout, above the agent's own deadline so the
+    # agent stops cleanly (with its state) before the orchestrator cancels.
+    timeout: 25
+    deadline_seconds: 20         # the common harness's run deadline
+    # ACCESS AND STAGE -- configuration, not code (G5). The scope a caller
+    # must hold to RUN underwriting, and the case stages it may run at.
+    # Ownership / service-scope authorisation (app/security/access.py) still
+    # applies on top.
+    required_scope: "los.credit.underwrite"
+    allowed_stages: [CREDIT]
+    max_replans: 2
+    bureau_provider: demo        # demo | (future) cibil / experian / equifax / crif
+    bureau_timeout_seconds: 3.0
+    bureau_retries: 1            # only a TRANSIENT bureau failure is retried, once
+    policy_file: underwriting_policy.yaml
+    memo_timeout_seconds: 2.5
 
   rcu_agent:
     agent_id: rcu_agent

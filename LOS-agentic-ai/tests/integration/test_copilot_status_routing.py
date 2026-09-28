@@ -297,7 +297,12 @@ def test_an_unrecognised_question_without_a_case_keeps_the_knowledge_fallback(
         "message": "Tell me something about my application please"})
 
     assert response.status_code == 200, response.text
-    assert confident_handbook, "no case: the fallback is unchanged"
+    # THE CONTRACT CHANGED WITH THE SEMANTIC FRAME: a question the service
+    # did not understand is asked back, not answered from the handbook.
+    # Retrieval runs only for a question understood as KNOWLEDGE.
+    body = response.json()
+    assert body.get("intent") in ("UNKNOWN", "APPLICANT_PROFILE")
+    assert body.get("intent") != "FOS_KNOWLEDGE"
 
 
 def test_status_stays_unset_for_other_case_questions(client, repo,

@@ -422,7 +422,9 @@ __all__ = [
 # into a reported failure.
 _PRINTED_BALANCE_RE = re.compile(
     r"(?:closing\s+balance|clos(?:ing)?\s+bal|balance\s+at\s+end)"
-    r"\s*[:\-]?\s*(?:₹|Rs\.?|INR)?\s*"
+    # Separators: a colon, dashes or empty-cell markers ("- - -") between
+    # the caption and its figure, as a table row prints them.
+    r"[\s:\-|]*(?:₹|Rs\.?|INR)?\s*"
     r"([\d,]+(?:\.\d{1,2})?)",
     re.IGNORECASE,
 )
@@ -447,7 +449,7 @@ def has_end_marker(text: str) -> bool:
 # silently moved the baseline the whole reconciliation is measured against.
 _PRINTED_OPENING_RE = re.compile(
     r"(?:opening\s+balance|open(?:ing)?\s+bal|balance\s+(?:b/f|brought\s+forward))"
-    r"\s*[:\-]?\s*(?:₹|Rs\.?|INR)?\s*"
+    r"[\s:\-|]*(?:₹|Rs\.?|INR)?\s*"
     r"([\d,]+(?:\.\d{1,2})?)",
     re.IGNORECASE,
 )
