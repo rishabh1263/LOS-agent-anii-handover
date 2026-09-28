@@ -229,11 +229,13 @@ async def summarise(envelope: dict[str, Any], *,
     state = state_of(envelope)
     fallback = deterministic(state)
 
+    from app.security import sensitivity
+
     written = await _generate(state, timeout)
     if not written:
-        return fallback, STRUCTURED
+        return sensitivity.mask_identifiers(fallback), STRUCTURED
 
-    return written, STRUCTURED_AND_LLM
+    return sensitivity.mask_identifiers(written), STRUCTURED_AND_LLM
 
 
 async def _generate(state: dict[str, Any], timeout: float) -> str:

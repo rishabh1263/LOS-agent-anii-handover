@@ -500,6 +500,8 @@ def _answered_without_the_case(request: "CopilotQueryRequest") -> bool:
         return True
     if _handoffs.asks_for_person(message):
         return False
+    if followup._WHY_ANSWER.match(message or "") and not (request.context or {}).get("last_intent"):
+        return True
     return bool(conversations.classify(message)
                 or request_policy.asks_capability(message)
                 or request_policy.asks_own_history(message))
@@ -852,7 +854,7 @@ async def _grounded(
     # A PER-PARTY ANSWER IS PUBLISHED AS BUILT: a composer held to two
     # sentences is how "the co-applicant's PAN" becomes "the PAN". So is a
     # next-best-action answer: the action is established, not phrased.
-    if envelope.get("subject") or envelope.get("next_actions"):
+    if envelope.get("subject") or envelope.get("next_actions") or envelope.get("_compound"):
         return gathered, gathered.grounded
     # A MIXED ANSWER WITH BOTH HALVES IS PUBLISHED AS BUILT. The agent wrote
     # the case half from the records and the general half from the handbook,
@@ -1486,13 +1488,15 @@ async def query(
                 except access.AccessDenied as denied:
                     raise permissions.PermissionDenied(
                         denied.code, denied.message) from None
-            # A CUSTOMER-FACING DEPLOYMENT: service scopes do not open another
-            # customer's case in a conversation -- only ownership does.
-            if (access.conversation_service_access() == "deny"
-                    and access.is_service(caller.scopes, write=False)
-                    and not access.holds(caller.subject, request.case_id)):
-                raise permissions.PermissionDenied(
-                    "CASE_NOT_ACCESSIBLE", "Not the caller's case.")
+            # THE CUSTOMER-FACING ACCESS POLICY (access.authorize_conversation):
+            # service scopes open only owned cases unless the deployment has
+            # explicitly enabled service-scope access.
+            try:
+                access.authorize_conversation(caller.subject, caller.scopes,
+                                              applicant_id=request.applicant_id,
+                                              case_id=request.case_id)
+            except access.AccessDenied as denied:
+                raise permissions.PermissionDenied(denied.code, denied.message) from None
         except permissions.PermissionDenied:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -1500,6 +1504,21 @@ async def query(
                         "code": "CASE_ACCESS_DENIED",
                         "message": "You are not authorized to access "
                                    "this case."},
+            ) from None
+
+    if request.applicant_id and not request.case_id and not early:
+        from app.agents.applicant import permissions as _permissions
+        from app.security import access as _access
+
+        _caller = _permissions.Caller.from_claims(claims)
+        try:
+            _access.authorize_conversation(_caller.subject, _caller.scopes,
+                                           applicant_id=request.applicant_id)
+        except _access.AccessDenied:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"request_id": request_id, "code": "CASE_ACCESS_DENIED",
+                        "message": "You are not authorized to access this case."},
             ) from None
 
     # WHICH DESK THIS QUESTION BELONGS TO, read from the case rather than
@@ -1525,8 +1544,13 @@ async def query(
     try:
         with timed(timings, "agent", request_id=request_id,
                    stage=context.stage.value if context.stage else None):
+            # A COMPOUND QUESTION -- recorded application details AND another
+            # case question -- is answered as its two halves, each exactly as
+            # if asked alone (same authorisation, tools and deterministic
+            # answer), then joined. See intents.compound_parts.
+            parts = None if early else intents.compound_parts(request.message)
             envelope = await answer_question(
-                message=request.message,
+                message=parts[0] if parts else request.message,
                 applicant_id=request.applicant_id,
                 # None when the question is about the applicant rather than
                 # one case. `check_ownership` enforces case -> applicant
@@ -1544,6 +1568,22 @@ async def query(
                 # agent does not.
                 compose_with_model=not _agent_config.compose_case_answers(),
             )
+            if parts:
+                second = await answer_question(
+                    message=parts[1], applicant_id=request.applicant_id,
+                    case_id=request.case_id, party_id=request.party_id, claims=claims,
+                    request_id=request_id, context=request.context,
+                    stage_context=context, compose_with_model=False)
+                envelope["answer"] = " ".join(
+                    a for a in (str(envelope.get("answer") or "").strip(),
+                                str(second.get("answer") or "").strip()) if a)
+                envelope["tools_invoked"] = (list(envelope.get("tools_invoked") or [])
+                                             + list(second.get("tools_invoked") or []))
+                envelope["tool_trace"] = (list(envelope.get("tool_trace") or [])
+                                          + list(second.get("tool_trace") or []))
+                envelope["sources"] = (list(envelope.get("sources") or [])
+                                       + list(second.get("sources") or []))
+                envelope["_compound"] = [envelope.get("intent"), second.get("intent")]
     except NotOwned:
         # A REFUSAL, NOT AN ERROR, AND NOT A DISCLOSURE. Phrased
         # identically whether the case belongs to somebody else or
@@ -1792,6 +1832,9 @@ async def query(
         # HOW THE ANSWER WAS PRESENTED -- a deterministic localized template
         # and/or an empathetic opening line. Never a change to a fact.
         "presentation": conversation["presentation"],
+        # A COMPOUND QUESTION: the intents of its two halves, each answered
+        # from its own authoritative records.
+        **({"compound": envelope["_compound"]} if envelope.get("_compound") else {}),
         "composition": {k: v for k, v in (envelope.get("_composition") or {
             "called": False, "skipped": "NOT_REACHED"}).items()
             if k in ("called", "skipped", "outcome", "language")},
@@ -1860,7 +1903,12 @@ async def query(
         if recorded:
             published["status"] = str(recorded)
 
-    return CopilotQueryResponse(**published)
+    # THE DISCLOSURE POLICY OVER EVERYTHING PUBLISHED -- answer, problems,
+    # history, next actions, provenance, handoff summary: a full PAN, Aadhaar
+    # or account number never leaves in any field (sensitivity.py).
+    from app.security import sensitivity
+
+    return CopilotQueryResponse(**sensitivity.mask_payload(published))
 
 
 __all__ = ["router"]

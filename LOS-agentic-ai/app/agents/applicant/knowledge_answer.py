@@ -152,8 +152,12 @@ async def answer(
     # through and turned an answerable question into a 500. Phrasing is the
     # optional half of this path, so the caller does not rely on the callee
     # keeping its word about something this cheap to guarantee here.
+    # WHAT THE MODEL IS SHOWN: the top passages, cut to whole sentences within
+    # `chatbot.compose.knowledge_context_chars`. On this CPU every prompt token
+    # costs ~8.5 ms on a new question, so the passage size IS the latency.
+    context = _model_context(result, limit)
     try:
-        phrased = await _phrase(question, result.context(limit=limit))
+        phrased = await _phrase(question, context)
     except Exception:
         logger.exception("FOS knowledge phrasing raised; using retrieved text")
         phrased = None
@@ -166,8 +170,28 @@ async def answer(
     # WHAT THE MODEL WAS SHOWN, for the caller's unified validation (numbers,
     # dates, decision words must come from the passage). Internal: the
     # caller removes it before anything is published.
-    detail["_passage"] = result.context(limit=limit)
+    detail["_passage"] = context
     return phrased, "llm", detail
+
+
+def _model_context(result, limit: int) -> str:
+    """The passages a model phrases from: bounded, whole sentences."""
+    import re
+
+    try:
+        chars = int(config.chatbot("compose").get("knowledge_context_chars", 700))
+        passages = int(config.chatbot("compose").get("knowledge_passages", 2))
+    except (TypeError, ValueError):
+        chars, passages = 700, 2
+    text = result.context(limit=max(1, min(limit, passages)))
+    if len(text) <= chars:
+        return text
+    kept = ""
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if len(kept) + len(sentence) + 1 > chars:
+            break
+        kept = f"{kept} {sentence}".strip()
+    return kept or text[:chars]
 
 
 async def _phrase(question: str, context: str) -> str | None:

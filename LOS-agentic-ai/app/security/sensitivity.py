@@ -50,10 +50,19 @@ _DEFAULT_DISCLOSURE = {
     HIGH_SENSITIVITY_IDENTIFIER: "masked", SECRET_CREDENTIAL: "withhold",
 }
 
-#: Identifiers recognisable in free text, masked wherever they appear.
-_PAN = re.compile(r"\b([A-Z]{5})(\d{4})([A-Z])\b")
-_AADHAAR = re.compile(r"(?<!\d)(\d{4})[ -]?(\d{4})[ -]?(\d{4})(?!\d)")
-_ACCOUNT = re.compile(r"(?i)\b(account|a/c|acct|acc)(\s*(no\.?|number|#))?[\s:.-]*(\d[\d -]{7,20}\d)")
+#: Identifiers recognisable in free text, masked wherever they appear. Bounded
+#: so they never match INSIDE a longer token (a hex request id that happens to
+#: hold twelve digits is not an Aadhaar number).
+_PAN = re.compile(r"(?<![\w-])[A-Z]{5}\d{4}[A-Z](?![\w-])")
+_AADHAAR = re.compile(r"(?<![\w-])\d{4}[ -]?\d{4}[ -]?\d{4}(?![\w-])")
+_ACCOUNT = re.compile(r"(?i)\b(account|a/c|acct|acc)(\s*(no\.?|number|#))?[\s:.-]*"
+                      r"(\d[\d -]{7,20}\d)(?![\w-])")
+
+#: Keys that carry identifiers of the SERVICE's own records (never customer
+#: identifiers) and must not be rewritten by a pattern.
+ID_KEYS = frozenset({"request_id", "correlation_id", "case_id", "applicant_id",
+                     "party_id", "conversation_id", "document_id", "problem_id",
+                     "event_id", "record_id", "source_id"})
 
 
 def _settings() -> dict[str, Any]:
@@ -80,43 +89,63 @@ def disclosure(field: str) -> str:
     return value if value in {"full", "masked", "withhold"} else "masked"
 
 
-def mask(value: str, keep: int = 4) -> str:
-    raw = str(value or "")
-    visible = raw[-keep:] if len(raw) > keep else ""
-    return "X" * max(0, len(raw) - len(visible)) + visible
+def keep_last() -> int:
+    try:
+        return max(0, min(6, int(_settings().get("mask_keep_last", 4))))
+    except (TypeError, ValueError):
+        return 4
+
+
+def mask(value: str, keep: int | None = None) -> str:
+    """Every character but the last `keep` replaced by X; spaces dropped."""
+    raw = re.sub(r"[\s-]", "", str(value or ""))
+    keep = keep_last() if keep is None else keep
+    visible = raw[-keep:] if keep and len(raw) > keep else ""
+    return "X" * (len(raw) - len(visible)) + visible
 
 
 def mask_identifiers(text: str) -> str:
-    """Mask PAN, Aadhaar and account numbers in free text, per policy."""
+    """
+    PAN, Aadhaar and bank account numbers in free text, per the disclosure
+    policy: `masked` keeps the last 4 (XXXXXXXX1234 / XXXXXX234F), `withhold`
+    replaces the value entirely, `full` leaves it.
+    """
     if not text:
         return text
     out = text
-    if disclosure("pan_number") != "full":
-        out = _PAN.sub(lambda m: mask(m.group(0))
-                       if disclosure("pan_number") == "masked" else "[withheld]", out)
-    if disclosure("bank_account_number") != "full":
-        def account(m: re.Match[str]) -> str:
-            digits = re.sub(r"\D", "", m.group(4))
-            shown = mask(digits) if disclosure("bank_account_number") == "masked" else "[withheld]"
-            return m.group(0)[:m.start(4) - m.start(0)] + shown
-        out = _ACCOUNT.sub(account, out)
-    if disclosure("aadhaar_number") != "full":
-        out = _AADHAAR.sub(lambda m: "XXXX XXXX " + m.group(3)
-                           if disclosure("aadhaar_number") == "masked" else "[withheld]", out)
+
+    def shown(field: str, value: str) -> str:
+        policy = disclosure(field)
+        return value if policy == "full" else mask(value) if policy == "masked" else "[withheld]"
+
+    # Accounts first: a twelve-digit account number is not an Aadhaar number.
+    def account(m: re.Match[str]) -> str:
+        return m.group(0)[:m.start(4) - m.start(0)] + shown("bank_account_number", m.group(4))
+    out = _ACCOUNT.sub(account, out)
+    out = _AADHAAR.sub(lambda m: shown("aadhaar_number", m.group(0)), out)
+    out = _PAN.sub(lambda m: shown("pan_number", m.group(0)), out)
     return out
 
 
-def mask_payload(value: Any) -> Any:
-    """`mask_identifiers` over every string in a structure (composer input)."""
+def mask_payload(value: Any, *, _key: str | None = None) -> Any:
+    """
+    `mask_identifiers` over every string in a structure -- a composer's input
+    or a whole published response. The service's own record-id fields are
+    left untouched (ID_KEYS).
+    """
+    if _key in ID_KEYS:
+        return value
     if isinstance(value, str):
         return mask_identifiers(value)
     if isinstance(value, dict):
-        return {k: mask_payload(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
+        return {k: mask_payload(v, _key=str(k)) for k, v in value.items()}
+    if isinstance(value, list):
         return [mask_payload(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(mask_payload(v) for v in value)
     return value
 
 
 __all__ = ["HIGH_SENSITIVITY_IDENTIFIER", "NON_SENSITIVE_BUSINESS", "SECRET_CREDENTIAL",
-           "SENSITIVE_PERSONAL", "disclosure", "level", "mask", "mask_identifiers",
-           "mask_payload"]
+           "SENSITIVE_PERSONAL", "ID_KEYS", "disclosure", "keep_last", "level", "mask",
+           "mask_identifiers", "mask_payload"]
