@@ -823,6 +823,10 @@ async def answer_question(
     short = None
     if intent_override is None:
         short = short_queries.short_query(message, followup.Context.from_payload(context))
+        if short is None and intent is Intent.UNKNOWN:
+            # Nothing understood it, and its only content word is ambiguous.
+            short = short_queries.short_query(
+                message, followup.Context.from_payload(context), loose=True)
     if short is not None and short.resolved_to:
         message = short.resolved_to
         classification = understand(message, has_case=bool(case_id))
@@ -1404,9 +1408,15 @@ async def answer_question(
         case_memory_block = memory
         source, llm_ms = "deterministic", 0.0
 
-    elif intent is Intent.CASE_HISTORY:
+    elif intent in (Intent.CASE_HISTORY, Intent.CASE_FINDINGS, Intent.KYC_RESULT):
         memory = case_memory_facts.case_memory(case_id or "", party_id)
-        answer, case_sources = case_memory_facts.explain(memory)
+        if intent is Intent.CASE_FINDINGS:
+            answer, case_sources = case_memory_facts.findings_summary(memory)
+        elif intent is Intent.KYC_RESULT:
+            answer, case_sources = case_memory_facts.kyc_answer(
+                memory, want_score=(classification.fields or {}).get("want") == "score")
+        else:
+            answer, case_sources = case_memory_facts.explain(memory)
         case_memory_block = memory
         source, llm_ms = "deterministic", 0.0
 
@@ -1428,10 +1438,26 @@ async def answer_question(
             answer = deterministic_answer(answering_intent, results)
         source, llm_ms = "deterministic", 0.0
     else:
-        use_llm = compose_with_model and config.llm_enabled() and (
-            answering_intent not in SIMPLE_INTENTS
-            or config.llm_for_simple_intents()
+        # WHO WORDS THE ANSWER (model_routing.py): the policy decides from the
+        # intent and the turn -- FAST is worded deterministically, MODEL may
+        # be reworded by the model (one call, validated), NEVER is quoted.
+        # A question typed in another language keeps its deterministic,
+        # localizable wording: the model phrases English only.
+        from app.agents.applicant import conversation_state as _conv
+        from app.agents.applicant import model_routing as _routing
+
+        typed_language = getattr(frame, "language", None) or "en"
+        decision = _routing.decide(
+            answering_intent.value, turn_type=_conv.CURRENT_TURN.get(),
+            language=typed_language, model_reachable=config.llm_enabled())
+        use_llm = compose_with_model and config.llm_enabled() and typed_language == "en" and (
+            decision.route is _routing.Route.MODEL
+            or (config.llm_for_simple_intents() and decision.route is not _routing.Route.NEVER)
         )
+        if _understanding[0] is not None:
+            _understanding[0]["model_routing"] = {
+                "route": decision.route.value, "reason": decision.reason,
+                "phrased_by_model": bool(use_llm)}
 
         # AND WHERE THERE IS ONE, NOTHING PARAPHRASES IT.
         #
@@ -1519,9 +1545,15 @@ async def answer_question(
                 answer = ("I can only show the primary applicant's recorded details here. "
                           "Ask me about your co-applicant's documents or verification instead.")
             else:
+                from app.agents.applicant import language as _languages
+
                 answer = profiles.answer(
                     profiles.Question(classification.fields.get("field") or profiles.ALL),
-                    results)
+                    results, case_id=case_id, party_id=party_id or applicant_id,
+                    # the language the question was TYPED in (the frame read the
+                    # raw text); the message may have been canonicalised since
+                    language=(getattr(frame, "language", None)
+                              or _languages.detect(message).code))
             source, llm_ms = "deterministic", 0.0
         elif (intent in (Intent.DOCUMENTS_UPLOADED, Intent.DOCUMENTS_PENDING)
               and classification.status_filter):
@@ -1883,6 +1915,10 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
     if state is None:
         state = conv.STORE.new(subject, case_id)
     reading = conv.read_turn(message, state)
+    from app.agents.applicant import phrasing as _phrasing
+
+    _phrasing.TURN_SEED.set(_phrasing.seed_for(state.conversation_id, state.turn_id + 1))
+    conv.CURRENT_TURN.set(conv._TURN_TYPES.get(reading.outcome, conv.NEW_REQUEST))
 
     trace = {"conversation_id": state.conversation_id, "turn_id": state.turn_id + 1,
              "outcome": reading.outcome, "note": reading.note,
@@ -1932,6 +1968,20 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
             response["followed_up"] = {"original_message": message[:200],
                                        "resolved_to": reading.message[:200],
                                        "reason": reading.note or reading.outcome}
+    kind = conv.turn_type(reading, response, state)
+    trace["turn_type"] = kind
+    # A CORRECTION, A RESOLVED CLARIFICATION OR A REPEAT is acknowledged in a
+    # few words before the answer -- the answer itself is untouched.
+    if str(response.get("answer") or "").strip() and not response.get("clarification_required") \
+            and str(response.get("category") or "") not in ("CONVERSATION", "UNSUPPORTED") \
+            and reading.outcome in (conv.CORRECTION, conv.OPTION_RESOLVED, conv.REPLAY,
+                                    conv.YES_NO_RESPONSE):
+        language = ((response.get("understanding") or {}).get("frame") or {}).get("language")
+        ack_kind = {conv.CORRECTION: "CORRECTION", conv.REPLAY: "REPLAY"}.get(
+            reading.outcome, "CLARIFICATION_RESPONSE")
+        response["answer"] = _phrasing.acknowledge(
+            str(response["answer"]), turn_type=ack_kind, language=language,
+            seed=_phrasing.TURN_SEED.get())
     conv.update_from_response(state, reading.message or message, response, reading)
     trace["pending_after"] = (state.pending_clarification.public()
                               if state.pending_clarification else None)

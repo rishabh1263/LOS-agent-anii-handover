@@ -118,6 +118,8 @@ RELEVANT_FIELDS: dict[Intent, tuple[str, ...]] = {
     Intent.DOCUMENTS_UPLOADED: ("documents",),
     # The explanation is the findings; the application says which case.
     Intent.CASE_HISTORY: ("application", "stage", "case_memory"),
+    Intent.CASE_FINDINGS: ("application", "stage", "case_memory"),
+    Intent.KYC_RESULT: ("application", "stage", "case_memory"),
     Intent.INCOME_EVIDENCE: ("application", "case_memory"),
     Intent.ELIGIBILITY: ("application", "case_memory"),
     # The application says which case; the answer carries the value. NOT

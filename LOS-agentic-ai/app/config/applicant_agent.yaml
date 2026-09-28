@@ -578,6 +578,17 @@ chatbot:
     llm_fallback: false
     llm_timeout_seconds: 1.5
 
+  # MODEL ROUTING (model_routing.py): which turns the language model may
+  # phrase (MODEL), which are worded deterministically (FAST) and which it
+  # never touches (NEVER: refusals, quoted records, verdicts). Lists ADD to
+  # the code defaults; a name in `never` wins over `model`.
+  model_routing:
+    enabled: true
+    model: []
+    never: []
+    compound_uses_model: false
+    corrections_use_model: false
+
   # CONVERSATION STATE (conversation_state.py): server-side, in-process,
   # labels only. A pending clarification is discarded after `pending_turns`
   # unrelated turns or `pending_ttl_seconds`; a conversation after

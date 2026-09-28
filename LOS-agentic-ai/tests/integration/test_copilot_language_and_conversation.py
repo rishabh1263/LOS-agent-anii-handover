@@ -456,9 +456,11 @@ def test_a_summary_never_uses_a_record_id_as_the_applicants_name():
 # ==========================================================================
 
 @pytest.mark.parametrize("question,intent", [
-    ("is my kyc done?", "OUT_OF_SCOPE"),              # same as "kyc status"
-    ("mera kyc hua kya?", "OUT_OF_SCOPE"),
-    ("has my kyc been completed", "OUT_OF_SCOPE"),
+    # THE RECORDED KYC RESULT (case memory), in every wording; the KYC
+    # DECISION ("do a complete KYC", "is the KYC decision approved") stays routed.
+    ("is my kyc done?", "KYC_RESULT"),
+    ("mera kyc hua kya?", "KYC_RESULT"),
+    ("has my kyc been completed", "KYC_RESULT"),
     ("why hasn't my application moved", "CASE_HISTORY"),
     ("why is my case not moving", "CASE_HISTORY"),
     ("I uploaded this three times and it's still pending!", "DOCUMENTS_PENDING"),

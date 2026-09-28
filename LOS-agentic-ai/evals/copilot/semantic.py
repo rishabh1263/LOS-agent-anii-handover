@@ -230,7 +230,7 @@ def run(*, live: bool, report: str | None) -> int:
                       and out["retrievals"] == 0)
                 why = f"clarification={clar} reads={out['reads']}"
             else:
-                knowledge = r.get("intent") == "FOS_KNOWLEDGE"
+                knowledge = r.get("intent") in ("FOS_KNOWLEDGE", "FULL_SUMMARY")
                 ok = (r.get("intent") in case["intents"] and not clar and bool(answer.strip())
                       and (knowledge or out["retrievals"] == 0)
                       and not (r.get("intent") not in ("APPLICATION_STAGE", "APPLICATION_STATUS",
@@ -240,7 +240,9 @@ def run(*, live: bool, report: str | None) -> int:
                        f"clarified={bool(clar)} retrievals={out['retrievals']} answer={answer[:70]!r}")
             lang = (u.get("frame") or {}).get("language")
             ok = (ok and out["qwen_calls"] <= 1 and not any(c in out["text"] for c in CANARIES)
-                  and out["total_ms"] <= case["max_ms"] and lang == case["language"])
+                  and out["total_ms"] <= case["max_ms"]
+                  # a short-query clarification carries no frame, hence no language
+                  and (lang == case["language"] or (case["clarify"] and lang is None)))
             latencies.append(out["total_ms"])
             results.append({"id": case["id"], "q": case["q"], "unseen": True, "passed": bool(ok),
                             "ms": round(out["total_ms"], 1), "frame": u.get("frame"),

@@ -61,13 +61,16 @@ AMBIGUOUS: dict[str, dict[str, Any]] = {
         "question": ("Do you mean the PAN number on your application, whether your PAN "
                      "document is verified, or the name on your PAN?"),
         "options": ["What is my PAN number?", "Is my PAN verified?", "What name is on my PAN?"]},
+    "id": {
+        "question": "Do you mean your application ID or your case ID?",
+        "options": ["What is my application ID?", "What is my case ID?"]},
     "stage": {
         "question": ("About the stage: which stage the case is at, or what is required at "
                      "this stage?"),
         "options": ["What stage is my application at?",
                     "What documents are required at this stage?"]},
 }
-_ALIASES = {"doc": "documents", "docs": "documents", "document": "documents",
+_ALIASES = {"ids": "id", "identity": "id", "reference": "id", "ref": "id", "doc": "documents", "docs": "documents", "document": "documents",
             "paperwork": "documents", "papers": "documents", "kagaz": "documents",
             "phone": "mobile", "number": "mobile", "salary": "income", "naam": "name",
             "pata": "address", "sthiti": "status", "state": "status", "step": "stage"}
@@ -94,10 +97,15 @@ def _tokens(text: str) -> list[str]:
     return [t.lower().strip("'-") for t in _WORD.findall(text) if t.strip("'-")]
 
 
-def short_head(message: str) -> str | None:
-    """The ambiguous head of a very short query, or None for a real question."""
+def short_head(message: str, *, loose: bool = False) -> str | None:
+    """
+    The ambiguous head of a very short query, or None for a real question.
+    `loose`: a longer message whose only content word is an ambiguous head
+    ("what is my id", "meri id kya hai") -- used only after nothing else
+    understood it, so a question the rules answer is never turned into one.
+    """
     raw = _tokens(message)
-    if not raw or len(raw) > 2:
+    if not raw or len(raw) > (6 if loose else 2):
         return None                       # a real question, not a bare word
     tokens = [t for t in raw if t not in _FILLER]
     if len(tokens) != 1:
@@ -120,12 +128,12 @@ def _readable_slot(slot: str) -> str:
     return text.upper() if text.upper() in ("PAN", "ITR", "DL", "KYC") else text
 
 
-def short_query(message: str, context: Any) -> ShortQuery | None:
+def short_query(message: str, context: Any, *, loose: bool = False) -> ShortQuery | None:
     """
     Resolve or clarify a one-word query. None when the message is a real
     question. With no settling context the result is the clarification.
     """
-    head = short_head(message)
+    head = short_head(message, loose=loose)
     if head is None:
         return None
     last_object = str(getattr(context, "last_object", None) or "").upper()
