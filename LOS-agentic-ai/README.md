@@ -58,6 +58,8 @@ python -m venv .venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 
+pip install "psycopg[binary]"
+
 copy .env.example .env            # Linux/macOS: cp .env.example .env
 # Set JWT_JWKS_URL, JWT_ISSUER and JWT_AUDIENCE -- the service will not
 # start without them. There is no way to switch authentication off.
