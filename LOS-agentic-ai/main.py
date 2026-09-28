@@ -43,6 +43,7 @@ from __future__ import annotations
 # leaving it alone. Set either only after measuring on the target machine.
 # ---------------------------------------------------------------------------
 
+import asyncio
 import os as _os
 
 _lib_threads = (_os.environ.get("DOCUMENT_OCR_LIB_THREADS") or "").strip()
@@ -208,6 +209,17 @@ async def lifespan(app: FastAPI):
 
                 get_vector_store()._connect()
                 get_query_embedder().embed("warmup")
+                # THE UNDERSTANDING STACK, loaded before the first user does:
+                # configuration, lexicons, classifier and guardrail patterns
+                # (measured: ~1.5 s on the first request after a cold start).
+                from app.agents.applicant import conversation, intents, language
+                from app.security import guardrails
+
+                for sample in ("hi", "what is my stage?", "mera stage kya hai?"):
+                    guardrails.check_input(sample)
+                    conversation.classify(sample)
+                    language.detect(sample)
+                    intents.understand(sample, has_case=True)
             except Exception as exc:
                 logger.info("Copilot retrieval warmup skipped (%s)",
                             type(exc).__name__)
@@ -369,7 +381,20 @@ async def lifespan(app: FastAPI):
     print("  GET  /docs                        Swagger")
     print("=" * 58 + "\n")
 
+    # KEEP THE COMPOSER MODEL RESIDENT between quiet stretches (app/llm/
+    # keep_warm.py): an unloaded qwen2.5:3b cost 6.0 s on the next request.
+    keep_warm_task = None
+    if _composer_config.llm_enabled() or _los_config.llm_summary_enabled():
+        from app.llm import keep_warm as _keep_warm
+
+        if _keep_warm.interval_seconds() > 0:
+            keep_warm_task = asyncio.create_task(_keep_warm.run_forever())
+            print(f"model keep-warm    : every {_keep_warm.interval_seconds():.0f} s")
+
     yield
+
+    if keep_warm_task is not None:
+        keep_warm_task.cancel()
 
     # The worker holds a thread and a claimed job. Asked to stop, it
     # finishes the iteration it is in and leaves the job PROCESSING,

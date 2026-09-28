@@ -50,6 +50,16 @@ os.environ["LOS_MCP_MODE"] = "in_process"
 # that exercises the local no-auth mode switches it off itself.
 os.environ["AUTH_ENABLED"] = "true"
 
+# AND THE COPILOT ACCESS POLICY: a STAFF deployment, explicitly. The production
+# default is customer-facing (service scopes open only OWNED cases -- see
+# access.conversation_service_access). Most suites below use service tokens
+# (los.read / los.write) against seeded demo cases no test subject owns: that
+# is an officer desk, so the test environment declares it, the same way it
+# pins AUTH_ENABLED. The customer-facing default is proven where it matters:
+# tests/integration/test_copilot_policy_lock.py switches this off (and deletes
+# it to check the code default) and asserts every cross-customer path fails.
+os.environ["COPILOT_SERVICE_SCOPE_ACCESS"] = "true"
+
 # AND THE CASE STORE. A test that does not build its own repository used the
 # default path -- the deployment's LIVE ./runtime/los_store.sqlite3 -- so the
 # suite wrote its fixtures (APP-E2E, CASE-DEFAULT ...) into real data, and

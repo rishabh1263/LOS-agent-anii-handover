@@ -154,6 +154,9 @@ class Intent(str, Enum):
 #: it: the applicant narrative and the case briefing.
 SIMPLE_INTENTS = frozenset({
     Intent.APPLICANT_PROFILE,
+    # What is still to capture is an ENUMERATION of recorded gaps: the live
+    # eval caught it being phrased by a model for no gain.
+    Intent.APPLICANT_MISSING_INFO,
     Intent.DOCUMENT_VERIFICATION,
     Intent.NEXT_ACTION,
     Intent.READINESS,
@@ -587,7 +590,7 @@ _PATTERNS: list[tuple[str, Intent]] = [
      Intent.CASE_PORTFOLIO),
     (r"\bmy\s+(cases|applications)\b", Intent.CASE_PORTFOLIO),
     (r"\bacross\b.{0,20}\b(cases?|applications?)\b", Intent.CASE_PORTFOLIO),
-    (r"\b(list|show)\b.{0,20}\b(cases?|applications?)\b",
+    (r"\b(list|show)\b.{0,20}\b(cases|applications|all\s+(my\s+)?(cases?|applications?))\b(?!\s+(status|stage|details?))",
      Intent.CASE_PORTFOLIO),
     # AFFORDABILITY, BEFORE INCOME AND BEFORE VERIFICATION.
     #
@@ -1370,6 +1373,42 @@ def classify(message: str) -> Classification:
     return Classification(Intent.UNKNOWN, confidence="low")
 
 
+#: Where a compound question joins its two halves.
+_JOIN = re.compile(r"\s*(?:,\s*)?\b(?:and|also|plus)\b\s+(?:also\s+)?|\s*;\s*|\s*,\s+(?=what|which|how|is|are)",
+                   re.IGNORECASE)
+
+#: Case intents a compound half may be (not knowledge, not a refusal).
+_COMPOUND_CASE: frozenset = frozenset()   # set below, once PLANS exists
+
+
+def compound_parts(message: str) -> tuple[str, str] | None:
+    """
+    "Are my documents verified and what is my loan amount?" -> the two halves,
+    when ONE of them asks for the caller's recorded application / applicant
+    details (APPLICANT_PROFILE) and the other is a different case question.
+    Each half is then answered exactly as if it had been asked alone -- the
+    metadata from the application record, the document half from the document
+    / verification records. Anything else (a knowledge tail, two metadata
+    fields, an unrecognised half) is not a compound and keeps its route.
+    """
+    text = " ".join(str(message or "").split())
+    match = _JOIN.search(text)
+    if not match or match.start() == 0:
+        return None
+    first = text[:match.start()].strip(" ,;?")
+    second = text[match.end():].strip(" ,;")
+    if len(first.split()) < 2 or len(second.split()) < 2:
+        return None
+    a = understand(first + "?", has_case=True)
+    b = understand(second if second.endswith("?") else second + "?", has_case=True)
+    intents = {a.intent, b.intent}
+    if Intent.APPLICANT_PROFILE not in intents or a.intent is b.intent:
+        return None
+    if not all(i in _COMPOUND_CASE for i in intents):
+        return None
+    return first + "?", (second if second.endswith("?") else second + "?")
+
+
 def understand(message: str, *, has_case: bool = False) -> Classification:
     """
     What the message means, in three steps, the rules always first.
@@ -1523,6 +1562,9 @@ def plan_for(
             and not classification.document_type):
         return _with_checklist(("documents.get",), has_case)
     return _with_checklist(PLANS.get(classification.intent, ()), has_case)
+
+
+_COMPOUND_CASE = frozenset(PLANS) | {Intent.CASE_HISTORY, Intent.DOCUMENT_DETAILS}
 
 
 __all__ = [

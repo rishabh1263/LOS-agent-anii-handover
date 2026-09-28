@@ -57,7 +57,8 @@ markers:
   hi-Latn: [hai, hain, kya, kyu, kyun, kyon, mera, meri, mere, kis, kaha, kahan,
             hu, hoon, hun, mujhe, batao, bataiye, abhi, baaki, baki, nahi, kaunsa,
             kaunse, konsa, konse, karna, chahiye, hua, hui, hota, badla, pe, mein,
-            aur, bhi, kab, tak, raha, rahi, gaya, gayi, wala, wali]
+            aur, bhi, kab, tak, raha, rahi, gaya, gayi, wala, wali, namaste, namaskar,
+            shukriya, dhanyavad, dhanyawad, alvida]
 
 # ---------------------------------------------------------------------------
 # LEXICONS -- language word (or phrase) -> canonical English.

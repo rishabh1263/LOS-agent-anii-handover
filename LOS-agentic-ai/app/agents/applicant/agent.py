@@ -921,14 +921,17 @@ async def answer_question(
             permissions.check_ownership(applicant_id or "", case_id,
                                         caller=caller,
                                         write=intent in WRITE_INTENTS)
-            # A CUSTOMER-FACING DEPLOYMENT (access.conversation_service_access):
-            # a service scope does not open a case the caller does not own.
+            # THE CUSTOMER-FACING ACCESS POLICY, for every conversation surface
+            # (Universal Copilot and the FOS copilot route alike).
             from app.security import access as _access
 
-            if (_access.conversation_service_access() == "deny"
-                    and _access.is_service(caller.scopes, write=False)
-                    and not _access.holds(caller.subject, case_id)):
-                raise PermissionDenied("CASE_NOT_ACCESSIBLE", "Not the caller's case.")
+            try:
+                _access.authorize_conversation(caller.subject, caller.scopes,
+                                               applicant_id=applicant_id,
+                                               case_id=case_id)
+            except _access.AccessDenied:
+                raise PermissionDenied("CASE_NOT_ACCESSIBLE",
+                                       "Not the caller's case.") from None
     except PermissionDenied as exc:
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,

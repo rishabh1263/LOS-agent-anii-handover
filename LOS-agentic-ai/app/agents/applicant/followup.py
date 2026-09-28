@@ -42,11 +42,32 @@ from typing import Any, Mapping
 #: would answer a question nobody asked, which is worse than not following
 #: up at all.
 _BARE_WHY = re.compile(
-    r"^\s*(why|why\s+(is|are|was|were)\s+(that|this|it|they)"
-    r"|why\s+though|but\s+why|how\s+come|for\s+what\s+reason)"
+    r"^\s*(why|why\s+(is|are|was|were)\s+(that|this|it|they)(\s+so)?"
+    r"|why\s+though|but\s+why|how\s+come|for\s+what\s+reason"
+    r"|(explain|tell\s+me)\s+why(\s+(that|this|it)\s+(is|was|happened))?)"
     r"\s*[?.!]*\s*$",
     re.IGNORECASE,
 )
+
+#: Courtesy around a bare follow-up: "can you explain why?", "please
+#: elaborate", "explain that more simply". Removed before the bare patterns
+#: are tried; what is being asked is the same question.
+_POLITE_HEAD = re.compile(
+    r"^\s*((can|could|would|will)\s+(you|u)\s+)?(please\s+|pls\s+|kindly\s+)?",
+    re.IGNORECASE)
+_POLITE_TAIL = re.compile(
+    r"\s+((a\s+bit\s+|a\s+little\s+)?more(\s+(simply|clearly|detail))?|again|simply|"
+    r"clearly|in\s+simple(r)?\s+(words|terms|language)|for\s+me|please)\s*(?=[?.!]*\s*$)",
+    re.IGNORECASE)
+
+
+def _bare_form(text: str) -> str:
+    """The follow-up without its courtesy, for matching the bare patterns."""
+    core = _POLITE_HEAD.sub("", text or "", count=1)
+    previous = None
+    while previous != core:
+        previous, core = core, _POLITE_TAIL.sub("", core)
+    return core.strip() or (text or "")
 
 _BARE_MORE = re.compile(
     r"^\s*(tell\s+me\s+more|more\s+detail(s)?|go\s+on|expand"
@@ -230,7 +251,18 @@ def resolve(message: str, context: Context | None) -> Resolution:
     # clarification that asks what they meant.
     slot = context.last_slot if _is_known(context.last_slot or "") else None
 
-    if _BARE_WHY.match(text):
+    bare = _bare_form(text)
+    # AFTER A CASE-HISTORY ANSWER, "why?" / "explain that" ask for the
+    # recorded reason again -- never a handbook paragraph, never a model.
+    if (context.last_intent == "CASE_HISTORY"
+            and (_BARE_WHY.match(bare) or _BARE_MORE.match(bare) or _BARE_MORE.match(text))):
+        return Resolution(
+            message="Why is my application under review?",
+            rewritten_from=text,
+            reason="the previous answer explained the recorded reason",
+        )
+
+    if _BARE_WHY.match(bare) or _BARE_WHY.match(text):
         if slot:
             return Resolution(
                 message=f"Why is {_readable(slot)} required for this application?",
@@ -253,7 +285,7 @@ def resolve(message: str, context: Context | None) -> Resolution:
             )
         return Resolution(message=text)
 
-    if _BARE_MORE.match(text):
+    if _BARE_MORE.match(bare) or _BARE_MORE.match(text):
         if context.last_query_type == "POLICY_REQUIREMENT":
             return Resolution(
                 message="Which policy rules applied to this case?",

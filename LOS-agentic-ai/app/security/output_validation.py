@@ -305,7 +305,11 @@ def validate(text: Any, *, surface: str, truth: Any,
         if reason:
             return Result(False, reason, getattr(check, "__name__", "surface"))
 
-    return Result(True, cleaned)
+    # MINIMUM NECESSARY DISCLOSURE on every model-written surface (summaries
+    # included): a full PAN / Aadhaar / account number never leaves here.
+    from app.security import sensitivity
+
+    return Result(True, sensitivity.mask_identifiers(cleaned))
 
 
 __all__ = ["DECISION_LANGUAGE", "NUMBER", "Result", "SURFACES", "Surface",

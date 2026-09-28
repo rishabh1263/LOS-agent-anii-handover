@@ -144,6 +144,11 @@ def _application_json(app) -> dict[str, Any]:
         "product": app.product,
         "loan_amount": app.loan_amount,
         "employment_type": app.employment_type,
+        # The loan terms the FOS form captures, so the owner's own recorded
+        # tenure and rate can be read back (Copilot APPLICANT_PROFILE).
+        # Additive; null when not captured -- never defaulted.
+        "tenure_months": getattr(app, "tenure_months", None),
+        "interest_rate_pct": getattr(app, "interest_rate_pct", None),
         "missing_fields": app.missing_fields(),
         "created_at": app.created_at.isoformat(),
         "updated_at": app.updated_at.isoformat(),
