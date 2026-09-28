@@ -99,6 +99,9 @@ _CASE_FACT = frozenset({
     # POLICY_REQUIREMENT either -- nothing here is a rule the officer is
     # about to act on, it is what was already found.
     Intent.CASE_HISTORY,
+    # The recorded findings themselves, and the recorded KYC result.
+    Intent.CASE_FINDINGS,
+    Intent.KYC_RESULT,
     # What the documents recorded about income is a stored record.
     Intent.INCOME_EVIDENCE,
     # And so is what affordability concluded.
@@ -166,9 +169,10 @@ CARRIES_POLICY = frozenset({
 #: What the copilot offers when it did not understand. Phrased as things a
 #: FOS actually asks, not as a menu of intent names.
 _OFFERS = (
+    "What are my application details?",
+    "What is my application status?",
     "What documents are still needed?",
     "Which documents have been verified?",
-    "Is this case ready to hand over?",
     "What is pending on this case?",
 )
 
@@ -192,11 +196,11 @@ def clarification_for(message: str, *, has_case: bool) -> dict[str, object]:
     return {
         "reason": "INTENT_NOT_RECOGNISED",
         "question": (
-            "I can answer questions about this case's documents, checklist "
-            "and readiness for handoff. Which of these did you mean?"
+            "I can help with your application details, its status and stage, your "
+            "documents, and what to do next. Which of these did you mean?"
             if has_case else
-            "I can answer questions about a case's documents, checklist and "
-            "readiness for handoff. Open a case, or pick one of these."
+            "I can help with a case's application details, status and stage, documents "
+            "and next steps. Open a case, or pick one of these."
         ),
         "options": list(_OFFERS),
         "original_message": (message or "").strip()[:200],

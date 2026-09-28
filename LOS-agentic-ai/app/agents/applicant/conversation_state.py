@@ -26,6 +26,7 @@ never by matching a sentence.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import re
 import threading
@@ -56,6 +57,11 @@ NO_STATE = "NO_STATE"
 PER_PARTY_INTENTS = frozenset({"DOCUMENT_VERIFICATION", "DOCUMENTS_PENDING", "DOCUMENTS_MISSING",
                                "PENDING_ITEMS", "READINESS", "DOCUMENTS_UPLOADED",
                                "DOCUMENT_DETAILS", "CASE_HISTORY"})
+
+#: The kind of turn being answered (a TURN TYPE below), set by the
+#: conversation layer before the pipeline runs, for the model-routing policy.
+CURRENT_TURN: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "copilot_current_turn", default=None)
 
 YES_NO = "YES_NO"
 EITHER_OR = "EITHER_OR"
@@ -464,6 +470,15 @@ def _match_option(text: str, options: list[Option]) -> tuple[list[int], Any]:
     from app.agents.applicant import short_query
 
     c = _frame_of(text)
+    from app.agents.applicant import profile
+
+    asked = profile.detect(text)
+    if asked is not None and not asked.field.startswith("ALL"):
+        # "mobile" after "which field: mobile, email or address?" names it.
+        by_field = [i for i, o in enumerate(options)
+                    if (profile.detect(o.label) or profile.Question("")).field == asked.field]
+        if len(by_field) == 1:
+            return by_field, c
     if short_query.short_head(text) is not None:
         return [], c                    # a bare word chooses nothing
     f = getattr(c, "frame", None)
@@ -480,6 +495,18 @@ def _match_option(text: str, options: list[Option]) -> tuple[list[int], Any]:
         elif task and task != "UNKNOWN" and task == option.task and (
                 obj == option.object or obj == "NONE" or option.object == "NONE"):
             hits.append(index)
+    if len(exact) > 1:
+        # Two options with the SAME intent ("application ID" / "case ID"):
+        # the recorded field the reply names decides, when it names one.
+        from app.agents.applicant import profile
+
+        asked = profile.detect(text)
+        if asked is not None:
+            by_field = [i for i in exact
+                        if (profile.detect(options[i].label) or profile.Question("")).field
+                        == asked.field]
+            if len(by_field) == 1:
+                return by_field, c
     return (exact or hits), c
 
 
@@ -646,6 +673,46 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
     if _has("NEGATE", text) or _has("NEITHER", text):
         return Reading(NEGATION, "", reply="Alright. What would you like instead?")
     return Reading(PENDING_EXPIRED if expired else NEW_TOPIC, text)
+
+
+# ==========================================================================
+# TURN TYPES
+# ==========================================================================
+
+NEW_REQUEST = "NEW_REQUEST"
+FOLLOW_UP = "FOLLOW_UP"
+CLARIFICATION_RESPONSE = "CLARIFICATION_RESPONSE"
+TURN_CORRECTION = "CORRECTION"
+TURN_ACKNOWLEDGEMENT = "ACKNOWLEDGEMENT"
+TURN_NEW_TOPIC = "NEW_TOPIC"
+TURN_CANCELLATION = "CANCELLATION"
+AMBIGUOUS = "AMBIGUOUS"
+
+_TURN_TYPES = {
+    NO_STATE: NEW_REQUEST, NEW_TOPIC: TURN_NEW_TOPIC, PENDING_EXPIRED: TURN_NEW_TOPIC,
+    REPLAY: FOLLOW_UP, OPTION_RESOLVED: CLARIFICATION_RESPONSE,
+    YES_NO_RESPONSE: CLARIFICATION_RESPONSE, PARTIAL_RESOLUTION: CLARIFICATION_RESPONSE,
+    STILL_AMBIGUOUS: AMBIGUOUS, INVALID_OPTION: AMBIGUOUS, NEGATION: AMBIGUOUS,
+    USER_REJECTED_CLARIFICATION: TURN_CANCELLATION, CANCELLATION: TURN_CANCELLATION,
+    CORRECTION: TURN_CORRECTION, ACKNOWLEDGEMENT: TURN_ACKNOWLEDGEMENT,
+}
+
+
+def turn_type(reading: Reading, response: dict[str, Any], state: ConversationState | None) -> str:
+    """The kind of turn this was: what the reading found, refined by the outcome."""
+    kind = _TURN_TYPES.get(reading.outcome, NEW_REQUEST)
+    if response.get("clarification_required"):
+        return AMBIGUOUS
+    if kind in (NEW_REQUEST, TURN_NEW_TOPIC):
+        followed = response.get("followed_up") or {}
+        short = (response.get("understanding") or {}).get("short_query") or {}
+        referents = (response.get("understanding") or {}).get("referents") or {}
+        if followed or (isinstance(short, dict) and short.get("resolved_to")) or any(
+                str(v).startswith(("CURRENT ->", "THAT ->", "NEXT ->")) for v in referents.values()):
+            return FOLLOW_UP
+        if state is not None and state.turn_id == 0:
+            return NEW_REQUEST
+    return kind
 
 
 # ==========================================================================

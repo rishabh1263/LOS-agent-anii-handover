@@ -530,6 +530,29 @@ templates:
     hi-Latn: {missing: "{missing} abhi baaki hai.", awaiting: "{awaiting} verification ke intezaar mein hai.", join: " aur "}
     mr: {missing: "{missing} अजून बाकी आहे.", awaiting: "{awaiting} पडताळणीच्या प्रतीक्षेत आहे.", join: " आणि "}
 
+  # THE STATE OF A REQUESTED FIELD (field_state.py): the same sentence for
+  # every field; {field} is the field's label, {value} the value as disclosed.
+  field_present:
+    hi: "आपका {field} {value} है।"
+    hi-Latn: "Aapka {field} {value} hai."
+    mr: "तुमचा {field} {value} आहे."
+  field_not_provided:
+    hi: "आपने अपना {field} अभी तक नहीं दिया है।"
+    hi-Latn: "Aapne apna {field} abhi tak provide nahi kiya hai."
+    mr: "तुम्ही तुमचा {field} अजून दिलेला नाही."
+  field_not_available:
+    hi: "आपका {field} अभी उपलब्ध नहीं है।"
+    hi-Latn: "Aapka {field} abhi available nahi hai."
+    mr: "तुमचा {field} अजून उपलब्ध नाही."
+  field_restricted:
+    hi: "आपका {field} रिकॉर्ड में है, लेकिन सुरक्षा के लिए मैं पूरा नंबर साझा नहीं कर सकता।"
+    hi-Latn: "Aapka {field} record mein hai, lekin security ke liye main poora number share nahi kar sakta."
+    mr: "तुमचा {field} नोंदीत आहे, पण सुरक्षेसाठी मी पूर्ण क्रमांक सांगू शकत नाही."
+  field_unknown:
+    hi: "मैं अभी आपका {field} जाँच नहीं पा रहा हूँ। कृपया थोड़ी देर बाद फिर कोशिश करें।"
+    hi-Latn: "Main abhi aapka {field} check nahi kar pa raha hoon. Thodi der baad phir try karein."
+    mr: "मी सध्या तुमचा {field} तपासू शकत नाही. कृपया थोड्या वेळाने पुन्हा प्रयत्न करा."
+
   # A request for a person: acknowledged, never claiming anyone was contacted.
   handoff_acknowledged:
     hi: "मैंने नोट कर लिया है कि आप किसी व्यक्ति से मदद चाहते हैं। तब तक मैं इस आवेदन के दस्तावेज़, स्थिति और अगले कदम के बारे में बता सकता हूँ।"
