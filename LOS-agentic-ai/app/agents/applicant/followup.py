@@ -93,7 +93,7 @@ def pronoun_clarification(message: str, context: Context | None) -> tuple[str, l
     listed = [d for d in context.last_documents if _is_known(d)]
     if len(listed) < 2:
         return None
-    names = [_readable(d) for d in listed]
+    names = [_display(d) for d in listed]
     return (f"Which one do you mean: {' or '.join(names)}?",
             [_PRONOUN.sub(name, text, count=1) for name in names])
 
@@ -250,6 +250,12 @@ class Resolution:
 
 #: Names that read as a typo in lower case.
 _ACRONYMS = frozenset({"PAN", "ITR", "DL", "KYC", "NOC", "GST", "CPA"})
+
+
+def _display(slot: str) -> str:
+    """A slot as a person reads it in a question back: Address Proof, PAN."""
+    return " ".join(w if w.isupper() and len(w) <= 4 else w.capitalize()
+                    for w in _readable(slot).split())
 
 
 def _readable(slot: str) -> str:
@@ -661,7 +667,10 @@ def context_from_response(envelope: Mapping[str, Any]) -> dict[str, Any]:
     if not stage_code:
         stage = envelope.get("stage")
         stage_code = (stage.get("stage") if isinstance(stage, Mapping) else stage) or None
+    conversation = (understanding.get("conversation")
+                    if isinstance(understanding, Mapping) else None) or {}
     return {
+        "conversation_id": conversation.get("conversation_id"),
         "last_query_type": envelope.get("query_type"),
         "last_intent": envelope.get("intent"),
         "last_slot": slot,

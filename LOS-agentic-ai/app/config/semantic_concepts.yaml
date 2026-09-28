@@ -81,12 +81,23 @@ concepts:
     - where do things stand
     - where do i stand
     - where does it stand
+    - where am i
+    - kaha hu
+    - kahan hu
+    - kaha hoon
+    - kahan hoon
+    - कहाँ हूँ
+    - कुठे आहे मी
     - moving forward
     - moving ahead
     - going ahead
     - holdup
     - hold up
     - held up
+    - holding up
+    - holding it up
+    - holding things up
+    - holding this up
     - kuthe
     - कुठे
     - kaha pahunchi
@@ -179,6 +190,17 @@ concepts:
     - द्यावे
     - अपलोड
   SUBMITTED:                        # past-facing: what has already been given
+    - submit ho gaya
+    - submit ho gaye
+    - submit ho gayi
+    - upload ho gaya
+    - upload ho gaye
+    - upload ho gayi
+    - de diya
+    - de diye
+    - de di
+    - jama kiya
+    - jama kiye
     - submitted
     - uploaded
     - collected
@@ -213,6 +235,11 @@ concepts:
     - nahi aaya
     - nahi aayi
     - nahi aaye
+    - nahi diya
+    - nahi diye
+    - nahi di
+    - nahi bheja
+    - nahi bheje
     - nahi mila
     - nahi mili
     - reh gaya
@@ -550,3 +577,54 @@ protected:
   - papa
   - complete
   - completed
+
+
+# ---------------------------------------------------------------------------
+# CONVERSATION -- how a turn relates to the conversation (conversation_state).
+# Concept classes: whole-message phrases (AFFIRM, NEGATE, ordinals) or
+# leading phrases (CANCEL, CORRECTION, AGAIN) followed by the real question.
+# ---------------------------------------------------------------------------
+conversation:
+  AFFIRM: ['yes', yeah, yep, yup, ya, yess, haan, haa, ha, han, ji, ji haan, haan ji, hoy, ho,
+           हाँ, हां, जी, हो, होय, correct, right, exactly, sure, of course, please do,
+           go ahead, yes please, do it, kar do, karo, bilkul, zaroor, theek hai, thik hai, ok yes]
+  ACK: [ok, okay, okk, k, kk, fine, alright, got it, noted, understood, samjha, samjhi,
+        samajh gaya, samajh gayi, achha, acha, accha, hmm, hm, cool, great, nice, ठीक है, ठीक, समजले]
+  NEGATE: ['no', nope, nah, nahi, nahin, nai, na, नहीं, नाही, not that, not this, not this one,
+           not that one, dont mean that, don t mean that, wrong, galat, that s not it, thats not it,
+           not really, no no]
+  NEITHER: [neither, none, none of these, none of them, koi nahi, koi bhi nahi, dono nahi,
+            कोई नहीं, दोन्ही नाही, both no]
+  CANCEL: [leave it, leave that, leave this, forget it, forget that, forget this, never mind,
+           nevermind, skip it, skip that, skip, cancel, cancel that, drop it, drop that,
+           chhodo, chodo, chhod do, chod do, rehne do, rehne dijiye, jaane do, jane do,
+           छोड़ो, छोड़ दो, रहने दो, जाने दो, सोडा, सोडून द्या, राहू द्या, actually leave it,
+           actually never mind, ok leave it, okay leave it]
+  CORRECTION: [no i mean, no i meant, i mean, i meant, no not that i mean, not that i mean,
+               actually i mean, actually i meant, actually, what i mean is, what i meant is,
+               mera matlab, mera matlab hai, matlab, nahi mera matlab, nahi matlab,
+               मेरा मतलब, मतलब, मला म्हणायचे आहे, no wait, wait i mean, sorry i mean,
+               sorry i meant, correction, let me rephrase, rephrase]
+  AGAIN: [again, once again, one more time, repeat, repeat that, say again, say that again,
+          same, same thing, same question, more, tell me more, more details, more info,
+          elaborate, phir se, dobara, ek baar aur, fir se, aur batao, aur bataiye, thoda aur,
+          फिर से, दोबारा, और बताओ, पुन्हा, परत, आणखी सांगा]
+  FOR_PARTY: [for co applicant, for the co applicant, for my co applicant, for co app,
+              for the other applicant, for the other one, for the other person, for the other guy,
+              for coapplicant, co applicant ke liye, dusre applicant ke liye, सह-अर्जदार के लिए]
+  FOR_SELF: [and for me, for me, and me, what about me, and mine, for myself, mere liye,
+             aur mera, aur mere liye, mera kya, और मेरा, माझे काय, and the primary applicant,
+             for the primary applicant]
+  OTHER_PARTY: [what about the other one, and the other one, and for the other one,
+                the other one, and the co applicant, and for the co applicant,
+                what about the co applicant, what about the other applicant, aur dusra,
+                dusre ka kya, dusre applicant ka, और दूसरा, दुसऱ्याचे काय]
+  FIRST: [first, first one, the first, the first one, 1st, number one, option one, option 1,
+          pehla, pehla wala, pehli, pehli wali, pahila, पहला, पहली, पहिला, पहिली, former, the former]
+  SECOND: [second, second one, the second, the second one, 2nd, number two, option two, option 2,
+           dusra, dusra wala, doosra, dusri, dusri wali, दूसरा, दूसरी, दुसरा, दुसरी, latter, the latter]
+  THIRD: [third, third one, the third, the third one, 3rd, number three, option three, option 3,
+          teesra, tisra, teesra wala, तीसरा, तिसरा]
+  FOURTH: [fourth, fourth one, the fourth, 4th, number four, option four, option 4, chautha, चौथा]
+  LAST: [last, last one, the last, the last one, aakhri, akhri, आखिरी, शेवटचा]
+  OTHER: [other, other one, the other, the other one, dusra wala, doosra wala, दूसरा वाला]

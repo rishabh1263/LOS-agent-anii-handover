@@ -1568,7 +1568,8 @@ async def query(
                 party_id=request.party_id,
                 claims=claims,
                 request_id=request_id,
-                context=request.context,
+                context=({**(request.context or {}), "conversation_id": request.conversation_id}
+                         if request.conversation_id else request.context),
                 # The stage the case record established above -- so a case at
                 # CPA is answered as a CPA case, never as a FOS one.
                 stage_context=context,
@@ -1750,7 +1751,8 @@ async def query(
     if gated is not None:
         published["status"] = "CAPABILITY_UNAVAILABLE"
     published["party_id"] = request.party_id
-    published["conversation_id"] = request.conversation_id
+    published["conversation_id"] = (request.conversation_id or (
+        ((envelope.get("understanding") or {}).get("conversation") or {}).get("conversation_id")))
     # THE NEXT TURN'S CONTEXT, built from this answer, and what a
     # follow-up was taken to mean when one was resolved.
     published["context"] = followup.context_from_response(envelope)

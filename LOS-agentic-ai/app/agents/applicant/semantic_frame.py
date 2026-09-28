@@ -227,7 +227,8 @@ def concepts_in(text: str) -> list[tuple[str, str]]:
 
 _QUESTION = re.compile(r"\?|\b(what|which|kya|kaunse|kaunsa|konse|कौन|काय|कोणत|किस|कौनसे)\b",
                        re.IGNORECASE)
-_PAST = re.compile(r"\b(have|has|had|already|been|were|was|did)\b", re.IGNORECASE)
+_PAST = re.compile(r"\b(have|has|had|already|been|were|was|did|gaya|gayi|gaye|hua|hui|hue|"
+                   r"diya|diye|kiya|kiye|chuka|chuki|chuke|ho gaya|ho gaye)\b", re.IGNORECASE)
 _HOW_WORKS = re.compile(r"\bhow\s+(do|does|is|are|can|should)\b.{0,48}\b(work|works|verified|"
                         r"classified|handled|processed|decided|checked|evaluated)\b", re.IGNORECASE)
 _WHATS_PENDING = re.compile(r"^\s*what'?s?\s*(is\s+)?(still\s+)?(pending|outstanding|left)\b",
@@ -470,6 +471,9 @@ def parse(message: str, *, original: str | None = None) -> SemanticFrame:
                 _QUESTION.search(lowered) or _PAST.search(lowered)):
             frame.object = Object.DOCUMENTS             # "kya sab kuch verify ho gaya"
             task_cues.append(Task.CHECK_VERIFICATION)
+        elif "SUBMITTED" in present and _PAST.search(lowered) and not explain:
+            frame.object = Object.DOCUMENTS             # "jo submit ho gaye"
+            task_cues.append(Task.LIST_SUBMITTED)
         elif "DONE" in present and not explain:
             task_cues.append(Task.LIST_PENDING)         # "have you got everything you need?"
         elif "STATUS" in present and not explain:

@@ -33,8 +33,8 @@ function ActionBtn({
       title={label}
       aria-pressed={active}
       className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${active
-          ? 'bg-ember/10 text-ember'
-          : 'text-content-secondary hover:bg-raised hover:text-content'
+        ? 'bg-ember/10 text-ember'
+        : 'text-content-secondary hover:bg-raised hover:text-content'
         }`}
     >
       {children}
@@ -188,10 +188,10 @@ export function MessageBubble({
         <div
           data-role={isUser ? 'user-bubble' : 'ai-bubble'}
           className={`rounded-2xl px-3.5 py-2.5 font-sans text-[14.5px] leading-[1.5] ${isUser
-              ? 'rounded-br-md text-white'
-              : isSpeaking
-                ? 'rounded-bl-md border border-ember/30 shadow-[0_0_0_3px_rgba(37,99,235,0.08)]'
-                : 'rounded-bl-md'
+            ? 'rounded-br-md text-white'
+            : isSpeaking
+              ? 'rounded-bl-md border border-ember/30 shadow-[0_0_0_3px_rgba(37,99,235,0.08)]'
+              : 'rounded-bl-md'
             }`}
         >
           {message.error ? (
@@ -201,14 +201,18 @@ export function MessageBubble({
               {message.content ? (
                 renderContent(message.content)
               ) : message.isStreaming ? (
-                <span className="text-content-secondary">…</span>
+                <span className="flex items-center gap-1.5 py-0.5" aria-label="Loading">
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:0ms] [animation-duration:0.6s]" />
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:150ms] [animation-duration:0.6s]" />
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:300ms] [animation-duration:0.6s]" />
+                </span>
               ) : null}
-              {message.isStreaming && (
+              {message.isStreaming && message.content ? (
                 <span
                   className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[1px] animate-pulse bg-current align-text-bottom opacity-60"
                   aria-hidden
                 />
-              )}
+              ) : null}
             </div>
           )}
           {!message.isStreaming && message.routeTo && (
@@ -232,8 +236,8 @@ export function MessageBubble({
       {!isUser && !message.isStreaming && (
         <div
           className={`ml-9 flex items-center gap-0.5 transition-opacity duration-150 ${isSpeaking
-              ? 'opacity-100'
-              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+            ? 'opacity-100'
+            : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
             }`}
         >
           <ActionBtn label={copied ? 'Copied' : 'Copy'} onClick={handleCopy}>

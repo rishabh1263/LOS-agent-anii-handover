@@ -1192,6 +1192,24 @@ _LOAN_REJECTED = re.compile(
     r"\b(loan|application|case|file)\s+(was\s+|is\s+|been\s+|got\s+)?"
     r"(rejected|declined)\b", re.IGNORECASE)
 
+def _tail_is_about_this_case(text: str) -> bool:
+    """
+    "... and what is holding it up?" -- a second clause bound to THIS case by
+    a pronoun and read confidently by the frame as a case question is not a
+    knowledge tail; the whole question is one case question.
+    """
+    from app.agents.applicant import semantic_frame
+
+    match = _MIXED_TAIL.search(text)
+    if not match:
+        return False
+    tail = re.sub(r"^[\s,;]*((and|also|plus)\s+)?", "", text[match.start():], flags=re.IGNORECASE)
+    if not re.search(r"\b(it|this|that|my|mine|mera|meri|mere|माझ|मेर)\b", tail, re.IGNORECASE):
+        return False
+    frame = semantic_frame.parse(tail)
+    return frame.is_confident() and not semantic_frame.is_knowledge(frame)
+
+
 def _mixed_with_knowledge_tail(text: str) -> Classification | None:
     """
     MIXED, when the message is a case question AND a knowledge question.
@@ -1360,7 +1378,7 @@ def classify(message: str) -> Classification:
             # with "three documents are missing" and no idea what satisfies
             # them; answering only the second recites policy at someone who
             # asked about a specific case.
-            if intent not in WRITE_INTENTS and _MIXED_TAIL.search(text):
+            if intent not in WRITE_INTENTS and _MIXED_TAIL.search(text)                     and not _tail_is_about_this_case(text):
                 return Classification(
                     Intent.MIXED,
                     document_type=_document_type(text),
@@ -1407,6 +1425,18 @@ _NOT_COMPOUND = frozenset({"FOS_KNOWLEDGE", "STAGE_PROCESS", "UNKNOWN", "OUT_OF_
 _COMPOUND_CASE: frozenset = frozenset()   # set below, once PLANS exists
 
 
+_QUESTION_CUE = re.compile(r"\b(what|which|how|is|are|do|does|did|can|should|will|kya|kaunsa|"
+                           r"kaunse|kab|kaise|क्या|काय|कोणत|कौन|कब)\b|\?", re.IGNORECASE)
+
+
+def _part_as_question(part: str) -> str:
+    """A compound part that is only a noun phrase ("my stage") asked as one."""
+    text = part if part.endswith("?") else part + "?"
+    if _QUESTION_CUE.search(part) or len(part.split()) > 4:
+        return text
+    return f"what is {part}?"
+
+
 def compound_parts(message: str) -> list[str] | None:
     """
     "What is my loan amount, what stage am I in, and what is pending?" -> its
@@ -1428,7 +1458,7 @@ def compound_parts(message: str) -> list[str] | None:
     pieces = [p for p in pieces if p and len(p.split()) >= 2]
     if len(pieces) < 2 or len(pieces) > 4:
         return None
-    questions = [p if p.endswith("?") else p + "?" for p in pieces]
+    questions = [_part_as_question(p) for p in pieces]
     seen: list[Intent] = []
     for question in questions:
         part = understand(question, has_case=True)
@@ -1541,6 +1571,13 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
                 tail_frame = semantic_frame.parse(tail)
                 knowledge_tail = (looks_like_knowledge(tail) or asks_for_a_definition(tail)
                                   or semantic_frame.is_knowledge(tail_frame))
+                # A tail about THIS case ("... and what is holding it up?",
+                # "... and what should I do next?") is a case question.
+                if re.search(r"\b(it|my|mine|me|i|mera|meri|mere|mujhe|माझ|मेर)\b", tail,
+                             re.IGNORECASE) and (not asks_for_a_definition(tail) or (
+                                 tail_frame.is_confident()
+                                 and not semantic_frame.is_knowledge(tail_frame))):
+                    knowledge_tail = False
                 if knowledge_tail and not (tail_frame.is_confident()
                                            and tail_frame.object is frame.object
                                            and tail_frame.task is frame.task):

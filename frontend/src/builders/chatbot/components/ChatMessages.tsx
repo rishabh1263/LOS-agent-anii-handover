@@ -79,13 +79,22 @@ export function ChatMessages({
         ))}
         {(status === 'thinking' || status === 'generating') &&
           !messages.some((m) => m.isStreaming) && (
-            <div className="flex items-center gap-2.5 px-4 py-3 pl-[52px]">
-              <span className="flex items-center gap-1">
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-content-disabled [animation-delay:0ms]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-content-disabled [animation-delay:150ms]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-content-disabled [animation-delay:300ms]" />
-              </span>
-              <span className="font-sans text-[13px] text-content-secondary">Thinking…</span>
+            <div className="flex items-start gap-2 px-4 py-1.5" aria-live="polite" aria-label="Loading">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-raised text-content-secondary">
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
+                  <path
+                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </div>
+              <div className="rounded-2xl rounded-bl-md border border-line bg-raised px-4 py-3">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:0ms] [animation-duration:0.6s]" />
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:150ms] [animation-duration:0.6s]" />
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:300ms] [animation-duration:0.6s]" />
+                </span>
+              </div>
             </div>
           )}
         <div ref={bottomRef} />
