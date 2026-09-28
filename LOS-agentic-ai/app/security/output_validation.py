@@ -98,6 +98,9 @@ SURFACES: dict[str, Surface] = {s.name: s for s in (
     Surface("fraud_summary", 15, 320, noun="summary", guardrail_first=True,
             count_numbers=False, two_decimals=True),
     Surface("document_workflow", 1, 4000),
+    # The credit memo's one model-written sentence set (app/agents/credit/memo.py).
+    Surface("credit_memo", 20, 600, noun="summary", guardrail_first=True,
+            count_numbers=True),
 )}
 
 
@@ -305,7 +308,11 @@ def validate(text: Any, *, surface: str, truth: Any,
         if reason:
             return Result(False, reason, getattr(check, "__name__", "surface"))
 
-    return Result(True, cleaned)
+    # MINIMUM NECESSARY DISCLOSURE on every model-written surface (summaries
+    # included): a full PAN / Aadhaar / account number never leaves here.
+    from app.security import sensitivity
+
+    return Result(True, sensitivity.mask_identifiers(cleaned))
 
 
 __all__ = ["DECISION_LANGUAGE", "NUMBER", "Result", "SURFACES", "Surface",

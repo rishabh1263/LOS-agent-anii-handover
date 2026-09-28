@@ -51,13 +51,18 @@ languages:
 # unless Marathi or Konkani markers appear; Bengali script is Bengali unless
 # an Assamese letter or marker appears.
 markers:
-  mr: [आहे, आहेत, माझं, माझा, माझी, माझे, कोणत्या, कोणता, मध्ये, सध्या, काय, झाले, झालं, तुमच्या]
+  mr: [आहे, आहेत, माझं, माझा, माझी, माझे, कोणत्या, कोणता, कोणती, कोणते, मध्ये, सध्या, काय, झाले, झालं, तुमच्या,
+       लागतील, लागेल, कागदपत्रे, कागदपत्र, साठी, स्टेजसाठी, टप्प्यात, आता]
   kok: [म्हजो, म्हजी, म्हजें, कितें, आसा, खंयच्या, खंय]
   as: [ৰ, ৱ, মোৰ, আছেনে, কিয়]
   hi-Latn: [hai, hain, kya, kyu, kyun, kyon, mera, meri, mere, kis, kaha, kahan,
             hu, hoon, hun, mujhe, batao, bataiye, abhi, baaki, baki, nahi, kaunsa,
             kaunse, konsa, konse, karna, chahiye, hua, hui, hota, badla, pe, mein,
-            aur, bhi, kab, tak, raha, rahi, gaya, gayi, wala, wali]
+            aur, bhi, kab, tak, raha, rahi, gaya, gayi, wala, wali, namaste, namaskar,
+            shukriya, dhanyavad, dhanyawad, alvida, sab, sabhi, theek, thik, sahi,
+            koi, kuch, dena, dene, deni, hoga, hogi, honge, mereko, mujhko, apna,
+            apni, apne, aapka, aapki, aapke, karo, kijiye, kiya, kiye, ho, hun,
+            aage, abhi, kal, aaj, kab, jaldi]
 
 # ---------------------------------------------------------------------------
 # LEXICONS -- language word (or phrase) -> canonical English.

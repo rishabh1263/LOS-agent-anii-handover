@@ -43,6 +43,39 @@ class Transaction(BaseModel):
     balance: Decimal | None = None
     page: int = 0
 
+    # -- PROVENANCE OF THE AMOUNT -------------------------------------------
+    #
+    # `debit` / `credit` are ALWAYS figures read off the document: from a
+    # table cell or text line of a digital PDF (READ) or from an OCR token
+    # (OCR). An amount that could not be read is None, and the row says so
+    # (MISSING). Nothing ever synthesises an amount from the running balance.
+    amount_source: str = "READ"                 # READ | OCR | MISSING
+    #: How the SIDE (debit vs credit) was settled: the bank's own column
+    #: (COLUMN), the direction of the running balance for a layout that
+    #: prints one movement column (BALANCE_DIRECTION), or not at all
+    #: (UNRESOLVED -- the magnitude is kept, the side is a guess).
+    side_source: str = "COLUMN"
+    #: How the read value was placed on THIS row: its own table cell (CELL),
+    #: its own text line (LINE), or -- for a borderless table whose column
+    #: arrived as one multi-line block -- in column order, the balance
+    #: direction saying which column the next line came from
+    #: (BALANCE_ORDERED). UNRESOLVED_ORDER: the block could not be ordered
+    #: consistently and the lines were distributed by position, which may be
+    #: wrong; reconciliation then reports it.
+    placement: str = "CELL"
+    #: The statement's own serial / transaction number where it prints one.
+    #: Gaps in it prove rows the parser did not read.
+    serial: int | None = None
+    #: True when this row printed no date of its own (a same-day transaction
+    #: whose date line the table extractor merged with the previous row's)
+    #: and took the previous row's date. Its amount and balance are its own.
+    date_inherited: bool = False
+    #: DIAGNOSTIC, DERIVED: what the running balance implies the movement was
+    #: (balance minus the previous balance). Never an amount; kept apart so a
+    #: reader can see WHERE the read amount and the balance disagree.
+    balance_delta: Decimal | None = None
+    agrees_with_balance: bool | None = None
+
 
 class StatementPeriod(BaseModel):
     start: date | None = None
@@ -82,6 +115,26 @@ class BankStatementResult(BaseModel):
     # against: where the opening was inferred, a wrong side on row one and a
     # wrong opening cancel out and the chain still reconciles.
     opening_balance_printed: bool = False
+
+    # -- RECONCILIATION, ON INDEPENDENTLY READ AMOUNTS ------------------------
+    #
+    # `balance_reconciles` is the verdict (True / False / None); this is the
+    # same verdict named, with the evidence it rests on. RECONCILED and
+    # MISMATCH are conclusive; INCONCLUSIVE means it could not be decided --
+    # an amount could not be read, rows were provably not read, a page had
+    # no text, or a scan's OCR figures did not add up (which says something
+    # about the reading, not the document).
+    reconciliation: str = "NOT_ATTEMPTED"       # RECONCILED | MISMATCH | INCONCLUSIVE | NOT_ATTEMPTED
+    reconciliation_basis: str = "READ_AMOUNTS"  # never balance deltas
+    rows_missing_amount: int = 0
+    rows_disagreeing_with_balance: int = 0
+    #: Rows the statement's serial numbers prove exist but were not read.
+    rows_not_read: int | None = None
+    #: Pages with no text layer that the digital path could not read.
+    pages_unread: int = 0
+    #: Rows of a borderless table whose movement lines were placed by
+    #: column order (values read; order decided by the balance direction).
+    rows_balance_ordered: int = 0
 
     pages: int = 0
     pages_with_text: int = 0

@@ -289,10 +289,12 @@ def test_a_customer_facing_deployment_denies_service_scopes_other_cases(
     assert r.status_code == 403 and "987654" not in r.text
 
 
-def test_the_staff_desk_default_still_lets_a_service_principal_review(service_client, cases):
+def test_a_staff_deployment_must_enable_service_access_explicitly(service_client, cases,
+                                                                  monkeypatch):
+    monkeypatch.setenv("COPILOT_SERVICE_SCOPE_ACCESS", "true")
     r = service_client.post(COPILOT, json={"case_id": THEIRS, "applicant_id": THEM,
                                            "message": "What is the loan amount on this application?"})
-    assert r.status_code == 200    # allow: officer desks review cases they did not create
+    assert r.status_code == 200    # an officer desk, configured as one
 
 
 def test_a_dev_login_is_a_customer_not_a_service_principal(monkeypatch):
@@ -441,7 +443,7 @@ def test_high_sensitivity_identifiers_are_masked_in_any_answer():
 
     said, _ = guardrails.published("Your PAN is ABCDE1234F and Aadhaar 1234 5678 9012.")
     assert "ABCDE1234F" not in said and "XXXXXX234F" in said
-    assert "1234 5678 9012" not in said and "XXXX XXXX 9012" in said
+    assert "1234 5678 9012" not in said and "XXXXXXXX9012" in said   # locked format
 
 
 def test_a_model_is_never_shown_a_full_identifier():

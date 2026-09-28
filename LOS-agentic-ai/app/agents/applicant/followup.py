@@ -42,11 +42,69 @@ from typing import Any, Mapping
 #: would answer a question nobody asked, which is worse than not following
 #: up at all.
 _BARE_WHY = re.compile(
-    r"^\s*(why|why\s+(is|are|was|were)\s+(that|this|it|they)"
-    r"|why\s+though|but\s+why|how\s+come|for\s+what\s+reason)"
+    r"^\s*(why|why\s+(is|are|was|were)\s+(that|this|it|they)(\s+so)?"
+    r"|why\s+though|but\s+why|how\s+come|for\s+what\s+reason"
+    r"|(explain|tell\s+me)\s+why(\s+(that|this|it)\s+(is|was|happened))?)"
     r"\s*[?.!]*\s*$",
     re.IGNORECASE,
 )
+
+#: Courtesy around a bare follow-up: "can you explain why?", "please
+#: elaborate", "explain that more simply". Removed before the bare patterns
+#: are tried; what is being asked is the same question.
+_POLITE_HEAD = re.compile(
+    r"^\s*((can|could|would|will)\s+(you|u)\s+)?(please\s+|pls\s+|kindly\s+)?",
+    re.IGNORECASE)
+_POLITE_TAIL = re.compile(
+    r"\s+((a\s+bit\s+|a\s+little\s+)?more(\s+(simply|clearly|detail))?|again|simply|"
+    r"clearly|in\s+simple(r)?\s+(words|terms|language)|for\s+me|please)\s*(?=[?.!]*\s*$)",
+    re.IGNORECASE)
+
+
+#: A pronoun standing for a document the previous answer named.
+_PRONOUN = re.compile(r"\b(it|that one|this one|that|ye|yeh|woh|wo|vo|te|ती|ते|वो|यह|ये)\b",
+                      re.IGNORECASE)
+#: What is being asked about it: its state.
+_DOCUMENT_ASK = re.compile(
+    r"\b(pending|verified|verify|verification|rejected|status|missing|uploaded|"
+    r"approved|accepted|cleared|hold|stuck|baki|baaki|abhi tak|अभी|बाकी|प्रलंबित)\b",
+    re.IGNORECASE)
+#: The question names its subject itself: no pronoun to resolve.
+_NAMES_A_THING = re.compile(
+    r"\b(document|documents|docs?|pan|aadhaar|aadhar|passport|statement|slip|proof|"
+    r"itr|application|case|file|loan|stage|step|kyc|salary|bank|address|income|"
+    r"co-?applicant|applicant|customer)\b", re.IGNORECASE)
+
+
+def pronoun_clarification(message: str, context: Context | None) -> tuple[str, list[str]] | None:
+    """
+    "Why is it still pending?" after an answer that listed SEVERAL documents:
+    the question back, and the questions it offers. None when the pronoun is
+    settled (resolve rewrites it) or there is nothing to settle it against.
+    """
+    text = (message or "").strip()
+    if not text or context is None or not context.last_documents:
+        return None
+    if not (_PRONOUN.search(text) and _DOCUMENT_ASK.search(text)
+            and not _NAMES_A_THING.search(text)):
+        return None
+    if context.last_document and _is_known(context.last_document):
+        return None
+    listed = [d for d in context.last_documents if _is_known(d)]
+    if len(listed) < 2:
+        return None
+    names = [_readable(d) for d in listed]
+    return (f"Which one do you mean: {' or '.join(names)}?",
+            [_PRONOUN.sub(name, text, count=1) for name in names])
+
+
+def _bare_form(text: str) -> str:
+    """The follow-up without its courtesy, for matching the bare patterns."""
+    core = _POLITE_HEAD.sub("", text or "", count=1)
+    previous = None
+    while previous != core:
+        previous, core = core, _POLITE_TAIL.sub("", core)
+    return core.strip() or (text or "")
 
 _BARE_MORE = re.compile(
     r"^\s*(tell\s+me\s+more|more\s+detail(s)?|go\s+on|expand"
@@ -99,6 +157,21 @@ class Context:
     #: CO_APPLICANT, BOTH). A label, never an id: the party is always read
     #: from the case record.
     last_subject: str | None = None
+    #: SEMANTIC STATE of the last turn (semantic_frame): what was asked
+    #: about, so "this/that" can be read. Labels only, no case values.
+    last_task: str | None = None
+    last_object: str | None = None
+    #: The stage the last answer REPORTED. Carried so a client can show it;
+    #: never used to override the case record, which stays authoritative.
+    last_stage: str | None = None
+    last_source: str | None = None
+    last_language: str | None = None
+    #: The document slots the last answer LISTED (pending / failed / under
+    #: review). "It" after one of them is that one; after several it is asked.
+    last_documents: tuple[str, ...] = ()
+    #: The document the last QUESTION named ("is my bank statement pending?"):
+    #: "it" next turn is that one, whatever else the answer listed.
+    last_document: str | None = None
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any] | None) -> "Context":
@@ -121,6 +194,11 @@ class Context:
 
         slot = text("last_slot")
         subject = (text("last_subject") or "").upper()
+        listed = payload.get("last_documents")
+        documents = tuple(
+            re.sub(r"[^A-Z0-9]+", "_", str(d).upper()).strip("_")
+            for d in (listed if isinstance(listed, (list, tuple)) else [])[:6]
+            if isinstance(d, str) and d.strip())
         return cls(
             last_query_type=text("last_query_type"),
             last_intent=text("last_intent"),
@@ -131,11 +209,19 @@ class Context:
             last_subject=(subject if subject in {"PRIMARY_APPLICANT",
                                                  "CO_APPLICANT", "BOTH"}
                           else None),
+            last_task=text("last_task", 32),
+            last_object=text("last_object", 32),
+            last_stage=text("last_stage", 16),
+            last_source=text("last_source", 16),
+            last_language=text("last_language", 8),
+            last_documents=documents,
+            last_document=(re.sub(r"[^A-Z0-9]+", "_", text("last_document").upper()).strip("_")
+                           if text("last_document") else None),
         )
 
     def is_empty(self) -> bool:
         return not (self.last_query_type or self.last_intent or self.last_slot
-                    or self.last_subject)
+                    or self.last_subject or self.last_task)
 
 
 @dataclass(frozen=True)
@@ -146,6 +232,7 @@ class Resolution:
     #: None when the message was already self-contained.
     rewritten_from: str | None = None
     reason: str | None = None
+
 
     @property
     def followed_up(self) -> bool:
@@ -230,7 +317,33 @@ def resolve(message: str, context: Context | None) -> Resolution:
     # clarification that asks what they meant.
     slot = context.last_slot if _is_known(context.last_slot or "") else None
 
-    if _BARE_WHY.match(text):
+    # "WHY IS IT STILL PENDING?" -- "it" is the document the previous answer
+    # was about. One listed document: that one. Several: asked, never chosen.
+    if _PRONOUN.search(text) and _DOCUMENT_ASK.search(text) and not _NAMES_A_THING.search(text):
+        listed = [d for d in context.last_documents if _is_known(d)]
+        if context.last_document and _is_known(context.last_document):
+            listed = [context.last_document]
+        if len(listed) >= 2:
+            return Resolution(message=text)      # pronoun_clarification asks
+        target = listed[0] if listed else slot
+        if target:
+            return Resolution(
+                message=_PRONOUN.sub(_readable(target), text, count=1),
+                rewritten_from=text,
+                reason=f"the previous answer was about {target}")
+
+    bare = _bare_form(text)
+    # AFTER A CASE-HISTORY ANSWER, "why?" / "explain that" ask for the
+    # recorded reason again -- never a handbook paragraph, never a model.
+    if (context.last_intent == "CASE_HISTORY"
+            and (_BARE_WHY.match(bare) or _BARE_MORE.match(bare) or _BARE_MORE.match(text))):
+        return Resolution(
+            message="Why is my application under review?",
+            rewritten_from=text,
+            reason="the previous answer explained the recorded reason",
+        )
+
+    if _BARE_WHY.match(bare) or _BARE_WHY.match(text):
         if slot:
             return Resolution(
                 message=f"Why is {_readable(slot)} required for this application?",
@@ -253,7 +366,7 @@ def resolve(message: str, context: Context | None) -> Resolution:
             )
         return Resolution(message=text)
 
-    if _BARE_MORE.match(text):
+    if _BARE_MORE.match(bare) or _BARE_MORE.match(text):
         if context.last_query_type == "POLICY_REQUIREMENT":
             return Resolution(
                 message="Which policy rules applied to this case?",
@@ -528,15 +641,41 @@ def context_from_response(envelope: Mapping[str, Any]) -> dict[str, Any]:
     # in the next question means.
     if slot is None:
         slot = _only_implicated_document(envelope)
+    # THE DOCUMENTS THE ANSWER LISTED as needing something, for "it" next turn.
+    listed: list[str] = []
+    for item in envelope.get("pending_items") or []:
+        if isinstance(item, Mapping) and item.get("slot") and item.get("slot") not in listed:
+            listed.append(str(item["slot"]))
+    for entry in checklist:
+        if isinstance(entry, Mapping) and entry.get("fulfilment") in ("FAILED", "UNDER_REVIEW",
+                                                                      "MISSING") \
+                and entry.get("slot") and entry.get("slot") not in listed:
+            listed.append(str(entry["slot"]))
 
     subject = envelope.get("subject") or {}
+    understanding = envelope.get("understanding") or {}
+    frame = understanding.get("frame") if isinstance(understanding, Mapping) else None
+    frame = frame if isinstance(frame, Mapping) else {}
+    stage_code = (understanding.get("case_stage")
+                  if isinstance(understanding, Mapping) else None)
+    if not stage_code:
+        stage = envelope.get("stage")
+        stage_code = (stage.get("stage") if isinstance(stage, Mapping) else stage) or None
     return {
         "last_query_type": envelope.get("query_type"),
         "last_intent": envelope.get("intent"),
         "last_slot": slot,
+        "last_documents": listed[:6],
+        "last_document": frame.get("document_type"),
         # The party role the answer was about, for "and her documents?".
         "last_subject": (subject.get("kind")
                          if isinstance(subject, Mapping) else None),
+        # The semantic state of this turn, for the next one's referents.
+        "last_task": frame.get("task"),
+        "last_object": frame.get("object"),
+        "last_stage": str(stage_code) if stage_code else None,
+        "last_source": envelope.get("response_source"),
+        "last_language": frame.get("language"),
     }
 
 

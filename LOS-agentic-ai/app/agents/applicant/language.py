@@ -288,7 +288,15 @@ def canonicalise(text: str) -> Canonical:
 
     changes: list[tuple[str, str]] = []
     question = original.rstrip().endswith(("?", "؟"))
-    canonical = _translate_tokens(original, language.code, changes)
+    source = original
+    if language.code == "mr":
+        # A sentence-final "का" is Marathi's yes/no question tag ("तपासले
+        # का?" = "checked?"), not the "why" it means at the front.
+        tagless = re.sub(r"\s+का\s*[?？]*$", "", original)
+        if tagless != original:
+            changes.append((original, tagless))
+            source, question = tagless, True
+    canonical = _translate_tokens(source, language.code, changes)
     # Latin words inside an Indic sentence ("माझं application ... stage")
     # are often Hinglish too; map them with the romanized lexicon.
     if language.code != "hi-Latn" and language.code_mixed:

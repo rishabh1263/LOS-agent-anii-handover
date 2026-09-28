@@ -252,6 +252,16 @@ CATALOGUE: dict[str, str] = {
         "This bank statement needs review because its transaction "
         "integrity could not be established confidently."
     ),
+    "BANK_STATEMENT_AMOUNTS_MISSING": (
+        "Some transaction amounts on this statement could not be read, so "
+        "its transactions could not be checked against the balance. This "
+        "is a limit of the reading, not a finding about the document."
+    ),
+    "BANK_STATEMENT_ROWS_NOT_READ": (
+        "Some rows of this statement were not read, so its transactions "
+        "could not be checked in full. This is a limit of the reading, not "
+        "a finding about the document."
+    ),
     "BANK_STATEMENT_RECONCILIATION_FAILED": (
         "The transactions on this statement do not add up to the balance "
         "it shows."

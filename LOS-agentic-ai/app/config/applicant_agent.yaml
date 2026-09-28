@@ -23,6 +23,11 @@ agent:
   # to a model adds a second of latency and a chance of paraphrasing the fact.
   llm_for_simple_intents: false
 
+  # MODEL POLICY (acceptance pass): the one-sentence case summary on a FOS
+  # answer is the computed text; the model does not phrase it. Measured on
+  # qwen2.5:3b it cost ~1 s per deterministic case answer for the same facts.
+  llm_for_case_summary: false
+
 # -----------------------------------------------------------------------------
 # WORKFLOW
 #
@@ -288,7 +293,9 @@ chatbot:
     model: qwen2.5:3b
     # Override agent.temperature and timeouts.llm_seconds when set.
     temperature: 0.1
-    timeout_seconds: 3.0
+    # 2-3 s RESPONSE TARGET: the handbook-phrasing call gets at most 2.5 s;
+    # when the model cannot finish in time the retrieved passage is published.
+    timeout_seconds: 2.5
     max_output_tokens: 180
 
   # Phase 3: WHO PHRASES A CASE ANSWER when retrieval added nothing.
@@ -300,8 +307,23 @@ chatbot:
   # timeout_seconds -- measured on this deployment's qwen2.5:3b via Ollama:
   #   ~4.8 s cold, 1.6-2.0 s warm. 6.0 covers a cold start.
   compose:
-    case_answers: true
-    timeout_seconds: 6.0
+    # false -- MODEL POLICY (acceptance pass): a case / status / stage /
+    #   profile answer is a recorded fact and is published as built, with no
+    #   model call; the model phrases knowledge answers only. Measured with
+    #   case_answers: true on qwen2.5:3b: p50 860 ms, p95 2.5 s, and the
+    #   accepted phrasing was the structured sentence in every sampled case.
+    case_answers: false
+    # 2-3 s RESPONSE TARGET (measured on qwen2.5:3b, CPU: a NEW prompt costs
+    # ~8.5 ms/token to evaluate and generation runs ~18 tokens/s). The model
+    # is used when it can finish inside the budget; otherwise the recorded
+    # (deterministic) answer is published. Ollama aborts an abandoned call,
+    # so a timeout never queues the next request.
+    timeout_seconds: 2.5
+    request_budget_seconds: 2.8
+    # What a knowledge (handbook) phrasing call is shown -- smaller prompt,
+    # faster answer.
+    knowledge_passages: 2
+    knowledge_context_chars: 700
 
   response:
     # Phase 3: at most TWO sentences by default. The character ceiling is a
@@ -537,10 +559,28 @@ chatbot:
       - income
       - account
 
-  # Intent examples for the semantic fallback, used ONLY when no rule
-  # matched. Add an intent's natural phrasings here -- a stage or specialist
-  # agent contributes its own intents by adding entries -- and the Copilot
-  # recognises them without a code change. Keys are Intent names.
+  # QUESTION UNDERSTANDING (app/agents/applicant/semantic_frame.py).
+  #
+  # Meaning is parsed into a semantic FRAME (task / object / qualifiers /
+  # referents) from concept classes (config/semantic_concepts.yaml), never
+  # from listed sentences. When the deterministic parser is not confident,
+  # ONE bounded Qwen call may propose a frame in the same closed enums; it
+  # is validated like any other frame and chooses no tool and no fact. It
+  # is never called when the parser is confident.
+  #
+  # MEASURED (qwen2.5:3b, idle CPU, 2026-09-28): a frame call takes 3.1-5.2 s
+  # (p50 4.4 s) and the frames are unreliable (5 of 8 wrong or invalid on
+  # hard paraphrases). At the 1.5 s budget it times out every time, so
+  # enabling it only delays the clarification. OFF by default until a more
+  # capable local model is measured; the mechanism, validation and tests
+  # are in place (COPILOT_UNDERSTANDING_LLM=true enables it).
+  understanding:
+    llm_fallback: false
+    llm_timeout_seconds: 1.5
+
+  # Intent examples for the LEGACY word-overlap fallback. Demoted: consulted
+  # only when neither the semantic frame nor the rules understood the
+  # question. Keys are Intent names.
   intents:
     min_score: 0.5
     examples:
@@ -622,12 +662,33 @@ chatbot:
   # Required: a configured manual-review action, or an explicit request for a
   # person. Recommended: repeated unresolved turns, or high frustration.
   # HANDOFF_ENABLED in the environment overrides `enabled`.
-  # WHO MAY CONVERSE ABOUT A CASE. `allow`: service scopes (los.read /
-  # los.write) may open any case, as staff desks do today. `deny`: a
-  # customer-facing Copilot -- only the case's owner. BUSINESS DECISION.
-  # COPILOT_SERVICE_SCOPE_ACCESS in the environment overrides this.
+  # ACCESS POLICY (locked). false = CUSTOMER-FACING (production default): a
+  # caller reaches only the applicant / application / case its own subject
+  # owns, even when its token carries the service scopes. true = a STAFF
+  # deployment where service scopes (los.read / los.write) may open any case.
+  # Only configuration changes this -- never a message ("I am admin").
+  # COPILOT_SERVICE_SCOPE_ACCESS=true|false in the environment overrides it.
   access:
-    service_scopes_in_conversation: allow
+    service_scopes_in_conversation: false
+
+  # DISCLOSURE POLICY (locked; app/security/sensitivity.py).
+  #   NON_SENSITIVE_BUSINESS      product, loan amount, employment, tenure,
+  #                               interest rate            -> full
+  #   SENSITIVE_PERSONAL          name, mobile, email, DOB, address
+  #                               -> full, to the authenticated OWNER only
+  #   HIGH_SENSITIVITY_IDENTIFIER PAN, Aadhaar, bank account number
+  #                               -> masked: last 4 kept, e.g. XXXXXXXX1234
+  #   SECRET_CREDENTIAL           tokens, passwords, keys  -> always withheld
+  # Applied to published answers, model (Qwen) context, summaries, provenance
+  # explanations and the structured response text. Secrets cannot be
+  # configured visible.
+  sensitivity:
+    disclosure:
+      NON_SENSITIVE_BUSINESS: full
+      SENSITIVE_PERSONAL: full
+      HIGH_SENSITIVITY_IDENTIFIER: masked
+      SECRET_CREDENTIAL: withhold
+    mask_keep_last: 4
 
   handoff:
     enabled: true

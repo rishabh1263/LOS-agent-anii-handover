@@ -229,11 +229,13 @@ async def summarise(envelope: dict[str, Any], *,
     state = state_of(envelope)
     fallback = deterministic(state)
 
+    from app.security import sensitivity
+
     written = await _generate(state, timeout)
     if not written:
-        return fallback, STRUCTURED
+        return sensitivity.mask_identifiers(fallback), STRUCTURED
 
-    return written, STRUCTURED_AND_LLM
+    return sensitivity.mask_identifiers(written), STRUCTURED_AND_LLM
 
 
 async def _generate(state: dict[str, Any], timeout: float) -> str:
@@ -248,7 +250,7 @@ async def _generate(state: dict[str, Any], timeout: float) -> str:
         from app.llm.provider import create_ollama_client
         from app.security import guardrails
 
-        if not config.llm_enabled() or not availability.provider_reachable():
+        if not config.llm_enabled() or not config.llm_for_case_summary()                 or not availability.provider_reachable():
             return ""
         # THE INPUT BOUNDARY, as for every composer.
         if guardrails.context_issues(state):

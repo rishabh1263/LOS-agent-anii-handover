@@ -1,0 +1,552 @@
+# ============================================================================
+# SEMANTIC CONCEPTS -- the vocabulary of MEANING the Copilot understands.
+#
+# WHAT THIS IS. Concept CLASSES, each a set of words and short phrases that
+# carry one meaning, in English, Hinglish, Hindi and Marathi. The semantic
+# frame parser (app/agents/applicant/semantic_frame.py) reads a question as
+# a bag of concepts and composes a frame -- task, object, qualifiers,
+# referents -- from them. It never matches a whole sentence.
+#
+# WHAT THIS IS NOT. Not a list of questions, not answers, not routes. Adding
+# a word here teaches the Copilot a way of SAYING something it already
+# understands; it can never add a task, a tool or a fact. Every task and
+# object the parser can produce is a closed enum in code, and every route
+# from a frame to a tool is the same deterministic PLANS table as before.
+#
+# Most non-English words are ALSO canonicalised by languages.yaml before the
+# parser runs ("kaunse" -> "which", "दस्तावेज़" -> "documents"); the native
+# forms listed here are a safety net for words that lexicon does not carry.
+# ============================================================================
+
+concepts:
+  # ---- objects --------------------------------------------------------------
+  DOCUMENTS:
+    - documents
+    - document
+    - docs
+    - doc
+    - paperwork
+    - papers
+    - paper
+    - kagaz
+    - kaagaz
+    - kagzaat
+    - kaagzaat
+    - dastavez
+    - dastavej
+    - दस्तावेज़
+    - दस्तावेज
+    - कागज़ात
+    - कागजात
+    - कागदपत्रे
+    - कागदपत्र
+    - कागद
+    - proofs
+    - proof
+    - upload
+    - uploads
+  APPLICATION:
+    - application
+    - case
+    - file
+    - loan
+    - aavedan
+    - avedan
+    - आवेदन
+    - अर्ज
+    - form
+  STAGE:
+    - stage
+    - step
+    - phase
+    - level
+    - charan
+    - चरण
+    - स्टेज
+    - टप्पा
+    - टप्प्या
+    - टप्प्यात
+  STATUS:
+    - status
+    - state
+    - progress
+    - position
+    - sthiti
+    - स्थिति
+    - स्थिती
+    - halat
+    - haal
+    - where things stand
+    - how things stand
+    - where do things stand
+    - where do i stand
+    - where does it stand
+    - moving forward
+    - moving ahead
+    - going ahead
+    - holdup
+    - hold up
+    - held up
+    - kuthe
+    - कुठे
+    - kaha pahunchi
+    - kahan pahunchi
+    - kaha tak pahunchi
+    - aage badh
+    - aage ja raha
+    - aage ja rahi
+    - पुढे जात
+    - पुढे जाते
+    - आगे बढ़
+  PROCESS_TERM:                     # things a knowledge question asks ABOUT
+    - kyc
+    - verification
+    - checklist
+    - policy
+    - process
+    - workflow
+    - eligibility
+    - foir
+    - disbursement
+    - sanction
+
+  # ---- task cues ---------------------------------------------------------
+  REQUIRED:
+    - required
+    - require
+    - requirement
+    - requirements
+    - mandatory
+    - compulsory
+    - necessary
+    - essential
+    - must
+    - obligatory
+    - needed
+    - need
+    - needs
+    - chahiye
+    - chahiyen
+    - chaiye
+    - chahie
+    - zaroori
+    - zaruri
+    - jaruri
+    - jarurat
+    - zarurat
+    - lagega
+    - lagenge
+    - lagengi
+    - lagegi
+    - lagtil
+    - wants from me
+    - want from me
+    - need from me
+    - needs from me
+    - expect from me
+    - expects from me
+    - आवश्यक
+    - अनिवार्य
+    - ज़रूरी
+    - जरूरी
+    - चाहिए
+    - लागतील
+    - लागेल
+    - लागतात
+    - गरजेचे
+    - गरजेची
+  SUBMIT:                           # future-facing giving of documents
+    - submit
+    - upload
+    - provide
+    - bring
+    - give
+    - attach
+    - collect
+    - gather
+    - obtain
+    - hand in
+    - jama
+    - dena
+    - dene
+    - deni
+    - dalna
+    - dalne
+    - bhejna
+    - जमा
+    - देना
+    - द्यायचे
+    - द्यावे
+    - अपलोड
+  SUBMITTED:                        # past-facing: what has already been given
+    - submitted
+    - uploaded
+    - collected
+    - received
+    - provided
+    - attached
+    - given
+    - shared
+    - sent
+    - diye
+    - diya
+    - bheja
+    - bheje
+    - dala
+    - dale
+    - जमा किए
+    - दिए
+    - दिले
+  # MISSING: not yet provided (the checklist's gaps). PENDING: provided and
+  # awaiting the outcome. The two are different answers.
+  MISSING:
+    - missing
+    - left
+    - remaining
+    - not uploaded
+    - not submitted
+    - yet to be collected
+    - yet to collect
+    - to be collected
+    - short of
+    - lacking
+    - nahi aaya
+    - nahi aayi
+    - nahi aaye
+    - nahi mila
+    - nahi mili
+    - reh gaya
+    - reh gayi
+    - rah gaya
+    - kami
+    - कमी
+    - नाही
+  PENDING:
+    - pending
+    - outstanding
+    - awaited
+    - awaiting
+    - due
+    - incomplete
+    - under review
+    - in review
+    - processing
+    - baaki
+    - baki
+    - bache
+    - bacha
+    - bachi
+    - shesh
+    - बाकी
+    - शेष
+    - बाकि
+    - प्रलंबित
+    - लंबित
+  STILL:
+    - still
+    - yet
+    - abhi
+    - अभी
+    - अजून
+    - अभीतक
+  VERIFICATION:
+    - verified
+    - verify
+    - verification
+    - checked
+    - check
+    - validated
+    - validate
+    - approved
+    - accepted
+    - confirmed
+    - clear
+    - cleared
+    - passed
+    - failed
+    - rejected
+    - needs attention
+    - need attention
+    - requires attention
+    - issue
+    - issues
+    - problem
+    - problems
+    - wrong with
+    - kya hua
+    - verify hua
+    - go through
+    - went through
+    - gone through
+    - green light
+    - looked at
+    - theek hai
+    - theek hain
+    - thik hai
+    - sahi hai
+    - reject hua
+    - reject hui
+    - okay
+    - fine
+    - alright
+    - all right
+    - in order
+    - all good
+    - okay hai
+    - तपासले
+    - तपासली
+    - तपासलं
+    - तपासणी
+    - जांच
+    - ok hai
+    - सत्यापित
+    - सत्यापन
+    - पडताळणी
+    - पडताळले
+    - जांच
+    - तपासले
+  NEXT:
+    - next
+    - now what
+    - what now
+    - to do
+    - need to do
+    - should i do
+    - after
+    - afterwards
+    - comes after
+    - baad
+    - ke baad
+    - बाद
+    - नंतर
+    - aage
+    - agla
+    - agli
+    - aglaa
+    - अगला
+    - अगली
+    - आगे
+    - पुढे
+    - पुढील
+    - पुढचे
+  DONE:                             # "am I done", "is everything in", "all set"
+    - done
+    - all set
+    - everything in
+    - all in
+    - everything you need
+    - ho gaya
+    - ho gayi
+    - poora
+    - pura
+    - झाले
+    - झालं
+  READY:
+    - ready
+    - readiness
+    - good to go
+    - handoff
+    - hand over
+    - handover
+    - tayyar
+  PROCEED:                          # move to the next stage
+    - proceed
+    - move to
+    - move forward
+    - go ahead
+    - advance
+    - aage badh
+    - aage badhe
+    - aage badhna
+    - taiyar
+    - तैयार
+    - तयार
+  EXPLAIN:                          # a definition / how-it-works question
+    - mean
+    - means
+    - meaning
+    - matlab
+    - explain
+    - define
+    - definition
+    - describe
+    - what is a
+    - what is an
+    - what does
+    - kya hota
+    - kya hoti
+    - kya matlab
+    - मतलब
+    - अर्थ
+    - म्हणजे
+    - समझाओ
+    - समझाइए
+  WHY:
+    - why
+    - reason
+    - kyu
+    - kyun
+    - kyon
+    - kaaran
+    - karan
+    - क्यों
+    - कारण
+    - का
+  FIX:                              # a correction, not a requirement: "what do I need to fix"
+    - fix
+    - rectify
+    - correct
+    - resolve
+    - sudhar
+    - sudharna
+    - theek karna
+    - thik karna
+    - सुधार
+    - दुरुस्त
+  # ---- qualifiers --------------------------------------------------------------
+  MANDATORY:
+    - mandatory
+    - compulsory
+    - must
+    - obligatory
+    - anivarya
+    - zaroori
+    - zaruri
+    - अनिवार्य
+    - ज़रूरी
+    - जरूरी
+    - आवश्यक
+  NOW:
+    - now
+    - currently
+    - current
+    - present
+    - presently
+    - at this point
+    - at the moment
+    - right now
+    - abhi
+    - ab
+    - filhal
+    - अभी
+    - अब
+    - सध्या
+    - आता
+  ALL:
+    - all
+    - every
+    - complete list
+    - full list
+    - saare
+    - sab
+    - sabhi
+    - सभी
+    - सारे
+    - सर्व
+  # ---- referent markers -----------------------------------------------------------
+  DEIXIS:                           # this / that / same -> refers to context
+    - this
+    - that
+    - these
+    - those
+    - same
+    - isi
+    - usi
+    - यह
+    - वह
+    - इस
+    - उस
+    - या
+    - ह्या
+    - त्या
+    - हे
+    - ते
+  OWN:                              # my / our / mine
+    - my
+    - mine
+    - our
+    - mera
+    - meri
+    - mere
+    - hamara
+    - humara
+    - मेरा
+    - मेरी
+    - मेरे
+    - माझा
+    - माझी
+    - माझं
+    - माझे
+    - माझ्या
+  GENERAL:                          # asks about the rules in general, not this case
+    - in general
+    - generally
+    - normally
+    - usually
+    - typically
+    - any loan
+    - aam taur
+    - आम तौर
+    - सामान्यतः
+  CO_APPLICANT:
+    - other applicant
+    - other person
+    - other guy
+    - other party
+    - second applicant
+    - other borrower
+    - the other one
+    - dusra applicant
+    - doosra applicant
+    - co-applicant
+    - co applicant
+    - coapplicant
+    - co-borrower
+    - co borrower
+    - coborrower
+    - guarantor
+    - second applicant
+    - सह-आवेदक
+    - सहआवेदक
+    - सह आवेदक
+    - सहअर्जदार
+
+# Loan products, for "for a <product> loan" (a policy question, not this case).
+products:
+  - personal
+  - home
+  - housing
+  - business
+  - vehicle
+  - car
+  - two-wheeler
+  - gold
+  - education
+  - property
+  - mortgage
+
+# Words the fuzzy matcher must never "correct" into a concept word.
+protected:
+  - state
+  - stage
+  - status
+  - where
+  - there
+  - then
+  - than
+  - what
+  - which
+  - when
+  - does
+  - done
+  - name
+  - same
+  - some
+  - come
+  - form
+  - from
+  - loan
+  - long
+  - papa
+  - complete
+  - completed

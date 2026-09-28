@@ -144,6 +144,13 @@ def _application_json(app) -> dict[str, Any]:
         "product": app.product,
         "loan_amount": app.loan_amount,
         "employment_type": app.employment_type,
+        "declared_monthly_obligations": getattr(app, "declared_monthly_obligations", None),
+        "declared_monthly_income": getattr(app, "declared_monthly_income", None),
+        # The loan terms the FOS form captures, so the owner's own recorded
+        # tenure and rate can be read back (Copilot APPLICANT_PROFILE).
+        # Additive; null when not captured -- never defaulted.
+        "tenure_months": getattr(app, "tenure_months", None),
+        "interest_rate_pct": getattr(app, "interest_rate_pct", None),
         "missing_fields": app.missing_fields(),
         "created_at": app.created_at.isoformat(),
         "updated_at": app.updated_at.isoformat(),
@@ -560,6 +567,7 @@ async def application_create(
     interest_rate_pct: str | None = None,
     declared_monthly_obligations: str | None = None,
     property_value: str | None = None,
+    declared_monthly_income: str | None = None,
 ) -> ToolEnvelope:
     """Create an application for an existing applicant."""
 
@@ -587,6 +595,7 @@ async def application_create(
             declared_monthly_obligations=(
                 declared_monthly_obligations or None),
             property_value=(property_value or None),
+            declared_monthly_income=(declared_monthly_income or None),
         )
         _pin_policy(record)
         repo.save_application(record)
@@ -604,6 +613,7 @@ async def application_update(
     interest_rate_pct: str | None = None,
     declared_monthly_obligations: str | None = None,
     property_value: str | None = None,
+    declared_monthly_income: str | None = None,
 ) -> ToolEnvelope:
     """Update basic application information."""
 
@@ -633,6 +643,7 @@ async def application_update(
             ("interest_rate_pct", interest_rate_pct),
             ("declared_monthly_obligations", declared_monthly_obligations),
             ("property_value", property_value),
+            ("declared_monthly_income", declared_monthly_income),
         ):
             if supplied is not None and str(supplied).strip():
                 setattr(record, name, str(supplied).strip())

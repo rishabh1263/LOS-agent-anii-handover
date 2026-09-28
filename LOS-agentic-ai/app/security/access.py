@@ -144,46 +144,74 @@ def authorize(subject: str | None, scopes: Iterable[str], *,
         raise AccessDenied()
 
 
-def holds(subject: str | None, case_id: str) -> bool:
-    """Whether this subject OWNS the case (or its applicant) -- no service bypass."""
+def holds(subject: str | None, case_id: str | None = None, *,
+          applicant_id: str | None = None) -> bool:
+    """
+    Whether this subject OWNS the case (or its applicant), or the applicant --
+    ownership only, no service bypass.
+    """
     from app.store import get_repository
 
-    if not subject or not case_id:
+    if not subject or not (case_id or applicant_id):
         return False
     try:
         repository = get_repository()
-        application = repository.get_application(case_id)
+        if case_id:
+            application = repository.get_application(case_id)
+            if application is None:
+                return False
+            return (repository.has_access(subject, CASE, case_id)
+                    or repository.has_access(subject, APPLICANT, application.applicant_id))
+        return repository.has_access(subject, APPLICANT, applicant_id)
     except Exception:
         return False
-    if application is None:
-        return False
-    return (repository.has_access(subject, CASE, case_id)
-            or repository.has_access(subject, APPLICANT, application.applicant_id))
 
 
-def conversation_service_access() -> str:
+_ALLOW = frozenset({"1", "true", "yes", "on", "allow", "allowed", "enabled"})
+
+
+def conversation_service_access() -> bool:
     """
-    `allow` or `deny`: may SERVICE scopes (los.read / los.write) open a case
-    in a Copilot CONVERSATION without owning it?
+    THE CUSTOMER-FACING ACCESS POLICY (locked): may SERVICE scopes (los.read /
+    los.write) open a case in a Copilot CONVERSATION without owning it?
 
-    `allow` (default) keeps the staff-desk behaviour -- a CPA / credit / RCU
-    officer reviews cases they did not create. A CUSTOMER-FACING deployment
-    sets `deny` (COPILOT_SERVICE_SCOPE_ACCESS=deny, or
-    chatbot.access.service_scopes_in_conversation), and then only the case's
-    owner may converse about it. BUSINESS DECISION: which deployment this is.
+    Default: NO (False). A customer reaches only the applicant / application /
+    case their own subject owns. Staff desks that review other people's cases
+    turn it on EXPLICITLY per deployment:
+
+        COPILOT_SERVICE_SCOPE_ACCESS=true          (environment), or
+        chatbot.access.service_scopes_in_conversation: true   (YAML)
+
+    Nothing a message says can turn it on: it is read from configuration only.
     """
     import os
 
     value = os.getenv("COPILOT_SERVICE_SCOPE_ACCESS")
-    if not value:
+    if value is None or not value.strip():
         try:
             from app.agents.applicant import config
 
-            value = str(config.chatbot("access").get("service_scopes_in_conversation")
-                        or "allow")
+            value = str(config.chatbot("access").get("service_scopes_in_conversation", False))
         except Exception:
-            value = "allow"
-    return "deny" if str(value).strip().lower() == "deny" else "allow"
+            value = "false"
+    return str(value).strip().lower() in _ALLOW
+
+
+def authorize_conversation(subject: str | None, scopes: Iterable[str], *,
+                           applicant_id: str | None = None,
+                           case_id: str | None = None) -> None:
+    """
+    The Copilot-conversation layer ON TOP OF `authorize`: when service-scope
+    access is not enabled for this deployment, a caller holding only service
+    scopes must OWN the case (or, with no case, the applicant) it asks about.
+    Raises AccessDenied. The ordinary ownership check still runs first.
+    """
+    if conversation_service_access() or not is_service(scopes, write=False):
+        return
+    if not (case_id or applicant_id):
+        return          # nothing about a case or a person is being read
+    if not holds(subject, case_id, applicant_id=None if case_id else applicant_id):
+        raise AccessDenied()
 
 
 def authorize_claims(claims: dict[str, Any], **kwargs: Any) -> None:

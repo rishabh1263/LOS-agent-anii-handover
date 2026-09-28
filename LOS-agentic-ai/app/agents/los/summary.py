@@ -244,6 +244,13 @@ def _and_list(items: list[str]) -> str:
 
 
 def deterministic_summary(envelope: dict[str, Any]) -> str:
+    """The summary built from computed values, identifiers masked."""
+    from app.security import sensitivity
+
+    return sensitivity.mask_identifiers(_deterministic_summary(envelope))
+
+
+def _deterministic_summary(envelope: dict[str, Any]) -> str:
     """
     A correct one-line summary built from the envelope alone.
 

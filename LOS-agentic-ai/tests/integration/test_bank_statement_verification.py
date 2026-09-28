@@ -160,8 +160,11 @@ def test_an_unreadable_scan_reviews_with_a_reason():
     # still do not confirm the closing balance. Both are honest, and
     # both are REVIEW -- what must never happen is FAIL, which is an
     # accusation about the customer's document.
+    # A third honest doubt since amounts stopped being inferred from the
+    # balance: the amounts the scan did not yield are reported as unread.
     assert set(document["reason_codes"]) & {"DOCUMENT_REQUIRES_OCR",
-                     "BANK_STATEMENT_RECONCILIATION_INCONCLUSIVE"}
+                     "BANK_STATEMENT_RECONCILIATION_INCONCLUSIVE",
+                     "BANK_STATEMENT_AMOUNTS_MISSING"}
 
 
 def test_a_review_reason_is_written_for_a_person():

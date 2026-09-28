@@ -38,6 +38,8 @@ _MESSAGE_CHARS = 120
 #: asked; the values themselves are in the case store, behind authorisation.
 _REDACTIONS = (
     (re.compile(r"\b[A-Za-z]{5}\d{4}[A-Za-z]\b"), "[PAN]"),
+    (re.compile(r"(?i)\b(account|a/c|acct|acc)(\s*(no\.?|number|#))?[\s:.-]*\d[\d -]{7,20}\d"),
+     r"\1 [ACCOUNT]"),
     (re.compile(r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b"), "[AADHAAR]"),
     (re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"), "[EMAIL]"),
     (re.compile(r"(?<!\d)(?:\+?91[\s-]?)?[6-9]\d{9}(?!\d)"), "[PHONE]"),

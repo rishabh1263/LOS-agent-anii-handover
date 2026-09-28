@@ -42,6 +42,11 @@ REQUIRES_OCR = "DOCUMENT_REQUIRES_OCR"
 #: with it.
 QUEUED = "DOCUMENT_QUEUED_FOR_PROCESSING"
 NO_TRANSACTIONS = "BANK_STATEMENT_NO_TRANSACTIONS"
+#: A row whose amount could not be read. The amount is NOT reconstructed
+#: from the balance; the statement goes to a person.
+AMOUNTS_MISSING = "BANK_STATEMENT_AMOUNTS_MISSING"
+#: The statement's own numbering proves rows the parser did not read.
+ROWS_NOT_READ = "BANK_STATEMENT_ROWS_NOT_READ"
 PERIOD_MISSING = "REQUIRED_FIELD_MISSING"
 
 
@@ -151,6 +156,28 @@ def checks_for(result: Any) -> list[Check]:
                 "so this statement needs review."),
     ))
 
+    # -- every amount was READ ---------------------------------------------
+    #
+    # Reconciliation runs on figures read off the document and nothing else.
+    # A row with no readable amount is reported, not filled in.
+    missing = int(getattr(result, "rows_missing_amount", 0) or 0)
+    checks.append(Check(
+        name="amounts_read",
+        outcome=Outcome.OK if not missing else Outcome.UNKNOWN,
+        weight=2.0,
+        reason_code=AMOUNTS_MISSING,
+        reason=(f"{missing} transaction(s) on this statement have no readable "
+                "amount, so the statement needs a person to check them."),
+    ))
+    not_read = getattr(result, "rows_not_read", None)
+    if not_read:
+        checks.append(Check(
+            name="rows_complete", outcome=Outcome.UNKNOWN, weight=2.0,
+            reason_code=ROWS_NOT_READ,
+            reason=(f"The statement's own numbering shows {not_read} "
+                    "transaction(s) could not be read, so it needs review."),
+        ))
+
     # -- INTEGRITY, and the distinction that matters -----------------------
     #
     # True  the rows explain the balance -- conclusive, and good
@@ -227,13 +254,26 @@ def checks_for(result: Any) -> list[Check]:
         # be evaluated is not a check the document failed, and treating a
         # parser limitation as an integrity failure turns our shortcoming
         # into an accusation about the customer's statement.
+        code, reason = RECONCILIATION_INCONCLUSIVE, (
+            "This bank statement needs review because its transaction "
+            "integrity could not be established confidently.")
+        if missing:
+            code, reason = AMOUNTS_MISSING, (
+                f"{missing} transaction(s) have no readable amount, so the figures "
+                "could not be confirmed against the balance; a person needs to check "
+                "them. This is a limit of reading the document, not a finding about it.")
+        elif not_read:
+            code, reason = ROWS_NOT_READ, (
+                f"{not_read} transaction(s) could not be read, so the figures could "
+                "not be confirmed against the balance; a person needs to check them. "
+                "This is a limit of reading the document, not a finding about it.")
+        elif getattr(result, "pages_unread", 0):
+            code, reason = PARSE_INCOMPLETE, (
+                "Some pages of this statement carry no readable text, so its "
+                "figures could not be confirmed; it needs review.")
         integrity = Check(
             name="integrity", outcome=Outcome.UNKNOWN, weight=3.0,
-            hard_gate=True, gate_verdict="FAIL",
-            reason_code=RECONCILIATION_INCONCLUSIVE,
-            reason=("This bank statement needs review because its "
-                    "transaction integrity could not be established "
-                    "confidently."),
+            hard_gate=True, gate_verdict="FAIL", reason_code=code, reason=reason,
         )
     checks.append(integrity)
 

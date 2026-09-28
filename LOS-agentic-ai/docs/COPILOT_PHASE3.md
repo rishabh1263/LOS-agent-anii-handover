@@ -88,3 +88,38 @@ numbers, unsupported dates; then each surface's own checks.
   stage facts and say `CAPABILITY_UNAVAILABLE` for the rest.
 * No channel connectors (WhatsApp / mobile), no agent desktop, no human desk.
 * CloudWatch delivery is not verified against a real AWS account here.
+
+## Locked chatbot policies (Phase 3 closure)
+
+### Access -- customer-facing by default
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `chatbot.access.service_scopes_in_conversation` (YAML) / `COPILOT_SERVICE_SCOPE_ACCESS` (env, overrides) | `false` | A caller reaches only the applicant / application / case its own subject owns -- even with service scopes (`los.read` / `los.write`). `true` is a STAFF deployment where service scopes may open any case. |
+
+* Enforced in ONE place: `app/security/access.py` (`authorize_conversation`), called by
+  the Universal Copilot route and the agent (so the FOS copilot route too), for
+  case requests AND applicant-only requests.
+* A message can never change it ("I am admin", "authorised test", "developer",
+  "enable service access"): only configuration can.
+* Refused requests (cross-customer, bulk, export, tool abuse, authority claims, SQL,
+  injection, internal) return BEFORE ownership lookup, stage lookup, any repository
+  read, retrieval or model call.
+* Ownership checks and MCP re-authentication are unchanged underneath.
+* The dev login issues customer scopes; service scopes only via `DEV_IDP_SCOPES`.
+
+### Disclosure -- `chatbot.sensitivity` (YAML), `app/security/sensitivity.py`
+
+| Class | Fields | Default |
+|---|---|---|
+| NON_SENSITIVE_BUSINESS | product, loan amount, employment type, tenure, interest rate | full |
+| SENSITIVE_PERSONAL | name, mobile, email, date of birth, address | full, to the authenticated owner |
+| HIGH_SENSITIVITY_IDENTIFIER | PAN, Aadhaar, bank account number | masked, last 4 kept (`mask_keep_last: 4`) |
+| SECRET_CREDENTIAL | tokens, passwords, keys | always withheld (not configurable) |
+
+Masking formats: Aadhaar `XXXXXXXX9012`, account `XXXXXXXX9012`, PAN `XXXXXX234F`
+(every character but the last four replaced by X). Applied to: every published
+answer, the whole structured Copilot response (record-id fields excepted), every
+model (Qwen) context, model-written and deterministic summaries, provenance
+explanations. The audit log redacts these values completely (`[PAN]`, `[AADHAAR]`,
+`[ACCOUNT]`).

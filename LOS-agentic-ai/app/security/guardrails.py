@@ -126,6 +126,23 @@ _INPUT_ALWAYS = (
         ("system_code", r"\b(backend|system|api|service|agent|copilot|chatbot|"
                         r"bot|server|validator|classifier|extractor|pipeline|"
                         r"workflow|guardrails?)('?s)?\s+(source\s+)?code\b"),
+        # THE SOFTWARE'S OWN PARTS, asked for by kind: files, modules,
+        # functions, classes, implementation. Concept classes, not sentences:
+        # a code noun with a system context, or a code noun that "handles" /
+        # "runs" something.
+        ("code_part", r"\b(python\s+)?(files?(?!\s*paths?)|file\s*names?|filenames?|modules?|packages?|"
+                      r"functions?|classes?|methods?|scripts?|symbols?|implementation|"
+                      r"line\s+numbers?)\b[^?]{0,30}\b(in|of|for|from|behind|that|which|handles?|"
+                      r"runs?|does|processes|implements?)\b[^?]{0,30}"
+                      r"\b(backend|server|system|internal|python|chatbot|copilot|bot|api|app|"
+                      r"code|kyc|pan|verification|upload|documents?|database|db|service|"
+                      r"pipeline|agent|classifier|extractor)\b"),
+        ("code_part_reverse", r"\b(backend|server|system|internal|python|chatbot|copilot|bot|api|"
+                              r"app|service)\b[^?]{0,20}\b(files?|file\s*names?|modules?|"
+                              r"packages?|functions?|classes?|methods?|scripts?|implementation|"
+                              r"source)\b"),
+        ("which_function", r"\b(which|what|name\s+the|show\s+the)\s+(python\s+)?(function|class|"
+                           r"module|method|file|script)\b"),
     )),
     (Category.FILE_PATH_LEAK, _rules(
         ("file_path", r"\b(file|folder|directory|storage|server|disk|internal)\s*(path|location)s?\b"),
@@ -136,6 +153,13 @@ _INPUT_ALWAYS = (
     )),
     (Category.SECRET_LEAK, _rules(
         ("secret", r"\b(api[\s_-]?keys?|secret\s+keys?|client\s+secrets?|private\s+keys?|signing\s+keys?)\b"),
+        ("auth_header", r"\bauthori[sz]ation\s+headers?\b|\bbearer\b"),
+        ("db_credentials", r"\b(database|db|backend|server|postgres\w*|sqlite|mysql|mongo\w*)\b"
+                           r"[^?]{0,25}\b(user\s*names?|users?|logins?|passwords?|passwd|"
+                           r"credentials?|secrets?)\b"),
+        ("host_key", r"\b(ollama|model|llm|qdrant|vector)\s+(host|url|endpoint|key|port)\b"),
+        ("credentials_of_system", r"\b(user\s*names?|passwords?|passwd|credentials?|logins?)\b[^?]{0,30}"
+                                  r"\b(database|db|backend|server|system|postgres\w*|sqlite|mysql)\b"),
         ("credentials", r"\b(passwords?|passwd|credentials?|connection\s+strings?)\b"),
         ("token", r"\b(jwt|bearer\s+token|access\s+tokens?|auth(entication)?\s+tokens?|refresh\s+tokens?|session\s+tokens?)\b"),
         ("env_vars", r"\b(env(ironment)?\s+variables?|env\s+vars?)\b"),
@@ -150,8 +174,22 @@ _INPUT_ALWAYS = (
         ("chain_of_thought", r"\b(chain\s+of\s+thought|your\s+reasoning|hidden\s+thoughts?)\b"),
         ("what_told", r"\bwhat\s+(were|are)\s+you\s+(told|instructed|programmed)\b"),
     )),
+    (Category.INTERNAL_SYSTEM_LEAK, _rules(
+        # No business question names a table or a column; these need no ask verb.
+        ("run_statement", r"\b(run|execute|exec|fire|issue)\b[^?]{0,12}\b(select|insert|update|"
+                          r"delete|drop|alter|truncate|create)\b|\bselect\s+\*"),
+        ("table_name", r"\b(table|column|schema|index)\s+names?\b|\bname\s+of\s+the\s+(table|column|schema)\b"),
+    )),
     (Category.TOOL_INTERNAL_LEAK, _rules(
         ("mcp", r"\b(mcp|json[\s-]?rpc|tools?/(call|list))\b"),
+        # The tools themselves: which ones, their names, arguments, calls.
+        ("list_tools", r"\b(list|show|name|print|enumerate|reveal)\s+(me\s+)?(the\s+|your\s+|"
+                       r"all\s+|available\s+)?(tools?|plugins?|functions?)\b"),
+        ("tool_names", r"\b(internal\s+|your\s+|which\s+|what\s+)(tools?|functions?\s+calls?|"
+                       r"apis?|capabilities|endpoints?)\b[^?]{0,25}\b(names?|call|calls|called|"
+                       r"use|used|invoke|invoked|arguments?|params?|parameters?|schemas?|list)\b"
+                       r"|\btools?\s+names?\b|\bwhich\s+tools?\b"),
+        ("debug_output", r"\bdebug\s+(output|info|information|log|logs|trace|data)\b"),
         ("tool_payload", r"\btool\s+(calls?|payloads?|schemas?|outputs?|responses?|arguments?|metadata|results?|traces?)\b"),
         ("raw", r"\braw\s+(payloads?|responses?|json|outputs?|data|ocr|text|extraction|records?)\b"),
         ("ocr_dump", r"\bocr\s+(text|output|dump|json|result|tokens?)\b"),
@@ -181,12 +219,46 @@ _INPUT_ALWAYS = (
 #: nothing is being asked to be shown ("is my application in your system").
 _INPUT_WITH_ASK = (
     (Category.INTERNAL_SYSTEM_LEAK, _rules(
-        ("database", r"\b(database|db)\s+(tables?|schemas?|rows?|dump|contents?|records?|queries|query)\b"),
+        ("database", r"\b(database|db)\s+(tables?|schemas?|rows?|dump|contents?|records?|queries|query|"
+                     r"paths?|files?|connection|users?|usernames?)\b"),
         ("sql", r"\b(sql|sql\s+quer(y|ies)|table\s+names?|schema)\b"),
+        ("ddl_schema", r"\b(create|alter|drop)\s+table\b|\bddl\b|\b(columns?|indexes|indices|"
+                       r"constraints?)\b[^?]{0,20}\b(table|schema|database|db)\b|\btables?\b[^?]{0,15}"
+                       r"\b(columns?|exist|list|names?)\b|\b(all|the|list)\s+tables\b"),
+        ("db_query", r"\b(read[\s-]?only\s+)?(sql|postgres\w*|sqlite|mysql|database|db)\s+"
+                     r"(query|queries|statements?|commands?)\b|\bquery\s+(i|we)\s+can\s+run\b"),
+        ("connection", r"\bconnection\s+strings?\b|\b(sqlite|database|db)\s+file\b"),
         ("backend", r"\b(backend|internal)\s+(urls?|endpoints?|hosts?|servers?|architecture|config(uration)?|services?)\b"),
         ("logs", r"\b(server|system|application|audit|error)\s+logs?\b"),
     )),
 )
+
+
+def _decoded_forms(text: str) -> list[str]:
+    """Readable text hidden in Base64 / URL / hex encodings -- judged as itself."""
+    import base64
+    import binascii
+    from urllib.parse import unquote
+
+    found: list[str] = []
+    unquoted = unquote(text)
+    if unquoted != text:
+        found.append(unquoted)
+    for blob in re.findall(r"[A-Za-z0-9+/]{16,}={0,2}", text):
+        try:
+            decoded = base64.b64decode(blob + "=" * (-len(blob) % 4), validate=True).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError, ValueError):
+            continue
+        if decoded and sum(ch.isprintable() for ch in decoded) / len(decoded) > 0.9:
+            found.append(decoded)
+    for blob in re.findall(r"(?:[0-9a-fA-F]{2}[\s:]?){12,}", text):
+        try:
+            decoded = bytes.fromhex(re.sub(r"[\s:]", "", blob)).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if decoded and sum(ch.isprintable() for ch in decoded) / len(decoded) > 0.9:
+            found.append(decoded)
+    return found
 
 
 def check_input(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Verdict:
@@ -207,6 +279,12 @@ def check_input(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Ve
     verdict = _check_system_request(text)
     if not verdict.allowed:
         return verdict
+    # AN ENCODED REQUEST IS THE SAME REQUEST. Base64, URL-encoded or hex
+    # text is decoded and judged by what it says -- never decoded and obeyed.
+    for inner in _decoded_forms(text):
+        verdict = _check_system_request(inner)
+        if not verdict.allowed:
+            return Verdict(False, verdict.category, "encoded_" + str(verdict.rule))
     from app.security import request_policy
 
     decision = request_policy.classify(text, allowed_ids=allowed_ids)
