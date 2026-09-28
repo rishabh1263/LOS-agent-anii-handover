@@ -63,12 +63,8 @@ interface SpeechRecognitionResultEvent {
 }
 
 const QUICK_ACTIONS = [
-  { id: 'summarize', label: 'Summarize application', icon: 'FileText' },
-  { id: 'explain', label: 'Explain something', icon: 'HelpCircle' },
-  { id: 'status', label: 'Check application status', icon: 'ClipboardList' },
-  { id: 'extract', label: 'Extract information', icon: 'Scan' },
-  { id: 'report', label: 'Generate a report', icon: 'BarChart3' },
   { id: 'help', label: 'How can you help?', icon: 'Search' },
+  { id: 'status', label: 'Check application status', icon: 'ClipboardList' },
 ]
 
 function createConversation(): Conversation {

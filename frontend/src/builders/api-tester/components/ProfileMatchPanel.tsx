@@ -47,43 +47,43 @@ const FIELD_MAP: {
   extractKeys: string[]
   kind: 'name' | 'exact'
 }[] = [
-  {
-    profileKey: 'full_name',
-    label: 'Full name',
-    extractKeys: ['name', 'full_name', 'applicant_name'],
-    kind: 'name',
-  },
-  {
-    profileKey: 'date_of_birth',
-    label: 'Date of birth',
-    extractKeys: ['dob', 'date_of_birth', 'birth'],
-    kind: 'exact',
-  },
-  {
-    profileKey: 'mobile',
-    label: 'Mobile',
-    extractKeys: ['mobile', 'phone', 'phone_number'],
-    kind: 'exact',
-  },
-  {
-    profileKey: 'email',
-    label: 'Email',
-    extractKeys: ['email', 'email_id'],
-    kind: 'exact',
-  },
-  {
-    profileKey: 'address',
-    label: 'Address',
-    extractKeys: ['address', 'full_address', 'residential_address'],
-    kind: 'exact',
-  },
-  {
-    profileKey: 'pan',
-    label: 'PAN',
-    extractKeys: ['pan', 'pan_number'],
-    kind: 'exact',
-  },
-]
+    {
+      profileKey: 'full_name',
+      label: 'Full name',
+      extractKeys: ['name', 'full_name', 'applicant_name'],
+      kind: 'name',
+    },
+    {
+      profileKey: 'date_of_birth',
+      label: 'Date of birth',
+      extractKeys: ['dob', 'date_of_birth', 'birth'],
+      kind: 'exact',
+    },
+    {
+      profileKey: 'mobile',
+      label: 'Mobile',
+      extractKeys: ['mobile', 'phone', 'phone_number'],
+      kind: 'exact',
+    },
+    {
+      profileKey: 'email',
+      label: 'Email',
+      extractKeys: ['email', 'email_id'],
+      kind: 'exact',
+    },
+    {
+      profileKey: 'address',
+      label: 'Address',
+      extractKeys: ['address', 'full_address', 'residential_address'],
+      kind: 'exact',
+    },
+    {
+      profileKey: 'pan',
+      label: 'PAN',
+      extractKeys: ['pan', 'pan_number'],
+      kind: 'exact',
+    },
+  ]
 
 export function ProfileMatchPanel({ profile, result }: ProfileMatchPanelProps) {
   if (!result) return null

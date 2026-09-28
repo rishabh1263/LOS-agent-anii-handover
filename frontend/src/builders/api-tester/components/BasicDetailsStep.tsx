@@ -184,9 +184,8 @@ export function BasicDetailsStep({
       <div className="flex justify-end pt-1">
         <button
           type="button"
-          className={`group btn btn-primary min-w-[140px] ${
-            !canContinue ? 'opacity-80' : ''
-          }`}
+          className={`group btn btn-primary min-w-[140px] ${!canContinue ? 'opacity-80' : ''
+            }`}
           onClick={handleContinue}
         >
           <span>Continue</span>

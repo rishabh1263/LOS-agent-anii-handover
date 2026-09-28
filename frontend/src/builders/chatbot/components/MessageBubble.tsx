@@ -32,11 +32,10 @@ function ActionBtn({
       aria-label={label}
       title={label}
       aria-pressed={active}
-      className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${
-        active
+      className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${active
           ? 'bg-ember/10 text-ember'
           : 'text-content-secondary hover:bg-raised hover:text-content'
-      }`}
+        }`}
     >
       {children}
     </button>
@@ -188,13 +187,12 @@ export function MessageBubble({
 
         <div
           data-role={isUser ? 'user-bubble' : 'ai-bubble'}
-          className={`rounded-2xl px-3.5 py-2.5 font-sans text-[14.5px] leading-[1.5] ${
-            isUser
+          className={`rounded-2xl px-3.5 py-2.5 font-sans text-[14.5px] leading-[1.5] ${isUser
               ? 'rounded-br-md text-white'
               : isSpeaking
                 ? 'rounded-bl-md border border-ember/30 shadow-[0_0_0_3px_rgba(37,99,235,0.08)]'
                 : 'rounded-bl-md'
-          }`}
+            }`}
         >
           {message.error ? (
             <p className="text-danger-text">{message.error}</p>
@@ -218,17 +216,13 @@ export function MessageBubble({
               Route to {message.routeTo}
             </p>
           )}
-          {!message.isStreaming && message.grounded === false && !message.routeTo && (
-            <p className="mt-1 text-[11px] opacity-60">Limited evidence</p>
-          )}
         </div>
       </div>
 
       {showTimestamp && (
         <span
-          className={`px-1 font-sans text-[11px] text-content-disabled ${
-            isUser ? 'mr-0' : 'ml-9'
-          }`}
+          className={`px-1 font-sans text-[11px] text-content-disabled ${isUser ? 'mr-0' : 'ml-9'
+            }`}
         >
           {formatTime(message.timestamp)}
         </span>
@@ -237,11 +231,10 @@ export function MessageBubble({
       {/* AI actions — hover / focus / speaking only */}
       {!isUser && !message.isStreaming && (
         <div
-          className={`ml-9 flex items-center gap-0.5 transition-opacity duration-150 ${
-            isSpeaking
+          className={`ml-9 flex items-center gap-0.5 transition-opacity duration-150 ${isSpeaking
               ? 'opacity-100'
               : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
-          }`}
+            }`}
         >
           <ActionBtn label={copied ? 'Copied' : 'Copy'} onClick={handleCopy}>
             {copied ? (

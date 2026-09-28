@@ -17,7 +17,6 @@ export {
   speakUtterance,
   hasVoiceForLanguage,
   INDIAN_SPEECH_LOCALES,
-  type SpeechGender,
   type VoicePickOptions,
 } from './speech'
 

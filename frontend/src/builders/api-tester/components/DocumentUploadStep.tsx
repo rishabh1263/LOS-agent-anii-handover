@@ -204,11 +204,10 @@ export function DocumentUploadStep({
             <button
               type="button"
               onClick={() => onActivePartyChange('PRIMARY_APPLICANT')}
-              className={`inline-flex items-center gap-2 rounded-xs px-3 py-2 text-[13px] font-semibold transition ${
-                activeParty === 'PRIMARY_APPLICANT'
+              className={`inline-flex items-center gap-2 rounded-xs px-3 py-2 text-[13px] font-semibold transition ${activeParty === 'PRIMARY_APPLICANT'
                   ? 'bg-ember text-oncolor'
                   : 'bg-raised text-content-secondary hover:bg-raised-hover'
-              }`}
+                }`}
             >
               <User className="h-4 w-4" />
               Applicant
@@ -221,11 +220,10 @@ export function DocumentUploadStep({
             <button
               type="button"
               onClick={() => onActivePartyChange('CO_APPLICANT')}
-              className={`inline-flex items-center gap-2 rounded-xs px-3 py-2 text-[13px] font-semibold transition ${
-                activeParty === 'CO_APPLICANT'
+              className={`inline-flex items-center gap-2 rounded-xs px-3 py-2 text-[13px] font-semibold transition ${activeParty === 'CO_APPLICANT'
                   ? 'bg-ember text-oncolor'
                   : 'bg-raised text-content-secondary hover:bg-raised-hover'
-              }`}
+                }`}
             >
               <Users className="h-4 w-4" />
               Co-applicant

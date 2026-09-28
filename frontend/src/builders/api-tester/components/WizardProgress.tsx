@@ -27,22 +27,20 @@ export function WizardProgress({ current }: { current: WizardProgressStep }) {
               />
             )}
             <div
-              className={`flex items-center gap-2 rounded-xs px-2.5 py-1.5 transition ${
-                active
+              className={`flex items-center gap-2 rounded-xs px-2.5 py-1.5 transition ${active
                   ? 'bg-ember-tint font-semibold text-ember-text'
                   : done
                     ? 'bg-raised font-medium text-content'
                     : 'bg-raised font-medium text-content-secondary'
-              }`}
+                }`}
             >
               <span
-                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-xs font-sans text-[11px] font-bold tabular-nums ${
-                  active
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-xs font-sans text-[11px] font-bold tabular-nums ${active
                     ? 'bg-ember text-oncolor'
                     : done
                       ? 'bg-success text-oncolor'
                       : 'bg-raised text-content-secondary'
-                }`}
+                  }`}
                 aria-hidden
               >
                 {done ? <Check className="h-3.5 w-3.5" /> : step.n}

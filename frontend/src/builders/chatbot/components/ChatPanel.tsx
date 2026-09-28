@@ -121,15 +121,15 @@ export function ChatPanel({ api }: ChatPanelProps) {
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }
     : isMobile
       ? {
-          initial: { opacity: 0, y: '24%' },
-          animate: { opacity: 1, y: 0 },
-          exit: { opacity: 0, y: '16%' },
-        }
+        initial: { opacity: 0, y: '24%' },
+        animate: { opacity: 1, y: 0 },
+        exit: { opacity: 0, y: '16%' },
+      }
       : {
-          initial: { opacity: 0, scale: 0.94, y: 12 },
-          animate: { opacity: 1, scale: 1, y: 0 },
-          exit: { opacity: 0, scale: 0.96, y: 8 },
-        }
+        initial: { opacity: 0, scale: 0.94, y: 12 },
+        animate: { opacity: 1, scale: 1, y: 0 },
+        exit: { opacity: 0, scale: 0.96, y: 8 },
+      }
 
   return (
     <AnimatePresence>
@@ -213,11 +213,10 @@ export function ChatPanel({ api }: ChatPanelProps) {
                     />
 
                     <div
-                      className={`flex min-h-0 flex-1 flex-col overflow-hidden ${
-                        settings.compactMode
+                      className={`flex min-h-0 flex-1 flex-col overflow-hidden ${settings.compactMode
                           ? '[&_.py-1\\.5]:py-1 [&_.px-4]:px-3 [&_.text-\\[14\\.5px\\]]:text-[13.5px]'
                           : ''
-                      }`}
+                        }`}
                     >
                       <ChatMessages
                         messages={messages}

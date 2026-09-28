@@ -196,9 +196,8 @@ function ChecklistPartyBlock({
           </div>
         </div>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-content-secondary transition-transform duration-200 ${
-            open ? 'rotate-180' : ''
-          }`}
+          className={`h-4 w-4 shrink-0 text-content-secondary transition-transform duration-200 ${open ? 'rotate-180' : ''
+            }`}
           aria-hidden
         />
       </button>
@@ -253,9 +252,8 @@ function ChecklistPartyBlock({
                       onClick={() => hasDetail && toggle(rowKey)}
                       aria-expanded={hasDetail ? isOpen : undefined}
                       disabled={!hasDetail}
-                      className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ember ${
-                        hasDetail ? 'cursor-pointer hover:bg-raised/30' : 'cursor-default'
-                      }`}
+                      className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ember ${hasDetail ? 'cursor-pointer hover:bg-raised/30' : 'cursor-default'
+                        }`}
                     >
                       {checkIcon(c.status)}
                       <span className="min-w-0 flex-1 font-display text-[12px] font-bold uppercase tracking-wide text-content">
@@ -264,9 +262,8 @@ function ChecklistPartyBlock({
                       {statusPill(statusText, statusText)}
                       {hasDetail && (
                         <ChevronDown
-                          className={`h-3.5 w-3.5 shrink-0 text-content-disabled transition-transform duration-200 ${
-                            isOpen ? 'rotate-180' : ''
-                          }`}
+                          className={`h-3.5 w-3.5 shrink-0 text-content-disabled transition-transform duration-200 ${isOpen ? 'rotate-180' : ''
+                            }`}
                           aria-hidden
                         />
                       )}
@@ -712,13 +709,12 @@ export function CrossDocumentReconciliation({
         </div>
 
         <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider border ${
-            isOverallPass
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider border ${isOverallPass
               ? 'bg-success-subtle text-success-text border-success/25'
               : isOverallFail
                 ? 'bg-danger-subtle text-danger-text border-danger/25'
                 : 'bg-warning-subtle text-warning-text border-warning/25'
-          }`}
+            }`}
         >
           {isOverallPass ? (
             <CheckCircle2 className="h-3.5 w-3.5" />
@@ -742,9 +738,8 @@ export function CrossDocumentReconciliation({
           </div>
           <div className="flex items-end gap-1">
             <span
-              className={`font-display text-[28px] font-bold leading-none tracking-tight ${
-                matchScore >= 80 ? 'text-success' : matchScore >= 50 ? 'text-warning' : 'text-danger'
-              }`}
+              className={`font-display text-[28px] font-bold leading-none tracking-tight ${matchScore >= 80 ? 'text-success' : matchScore >= 50 ? 'text-warning' : 'text-danger'
+                }`}
             >
               {matchScore}
             </span>
@@ -752,9 +747,8 @@ export function CrossDocumentReconciliation({
           </div>
           <div className="h-1.5 w-full rounded-full bg-raised overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${
-                matchScore >= 80 ? 'bg-success' : matchScore >= 50 ? 'bg-warning' : 'bg-danger'
-              }`}
+              className={`h-full rounded-full transition-all ${matchScore >= 80 ? 'bg-success' : matchScore >= 50 ? 'bg-warning' : 'bg-danger'
+                }`}
               style={{ width: `${Math.min(100, matchScore)}%` }}
             />
           </div>
@@ -791,23 +785,21 @@ export function CrossDocumentReconciliation({
         </div>
 
         <div
-          className={`card p-4 shadow-xs flex flex-col gap-2 ${
-            failCount > 0
+          className={`card p-4 shadow-xs flex flex-col gap-2 ${failCount > 0
               ? 'border-danger/25 bg-danger-subtle'
               : reviewCount > 0
                 ? 'border-warning/25 bg-warning-subtle'
                 : 'border-line bg-surface'
-          }`}
+            }`}
         >
           <div className="flex items-center justify-between">
             <span
-              className={`text-[10px] font-bold uppercase tracking-wider ${
-                failCount > 0
+              className={`text-[10px] font-bold uppercase tracking-wider ${failCount > 0
                   ? 'text-danger/70'
                   : reviewCount > 0
                     ? 'text-warning/70'
                     : 'text-content-disabled'
-              }`}
+                }`}
             >
               {failCount > 0 ? 'Failed' : 'Review'}
             </span>
@@ -818,24 +810,22 @@ export function CrossDocumentReconciliation({
             )}
           </div>
           <span
-            className={`font-display text-[28px] font-bold leading-none tracking-tight ${
-              failCount > 0
+            className={`font-display text-[28px] font-bold leading-none tracking-tight ${failCount > 0
                 ? 'text-danger'
                 : reviewCount > 0
                   ? 'text-warning'
                   : 'text-content-disabled'
-            }`}
+              }`}
           >
             {failCount > 0 ? failCount : reviewCount}
           </span>
           <span
-            className={`text-[10px] ${
-              failCount > 0
+            className={`text-[10px] ${failCount > 0
                 ? 'text-danger/70'
                 : reviewCount > 0
                   ? 'text-warning/70'
                   : 'text-content-disabled'
-            }`}
+              }`}
           >
             {failCount > 0
               ? totalChecks > 0
@@ -866,9 +856,8 @@ export function CrossDocumentReconciliation({
             </span>
           </div>
           <ChevronDown
-            className={`h-4 w-4 text-content-secondary transition-transform duration-200 ${
-              checklistOpen ? 'rotate-180' : ''
-            }`}
+            className={`h-4 w-4 text-content-secondary transition-transform duration-200 ${checklistOpen ? 'rotate-180' : ''
+              }`}
           />
         </button>
 
@@ -955,9 +944,8 @@ export function CrossDocumentReconciliation({
             </span>
           </div>
           <ChevronDown
-            className={`h-4 w-4 text-content-secondary transition-transform duration-200 ${
-              matrixOpen ? 'rotate-180' : ''
-            }`}
+            className={`h-4 w-4 text-content-secondary transition-transform duration-200 ${matrixOpen ? 'rotate-180' : ''
+              }`}
           />
         </button>
 
@@ -996,11 +984,10 @@ export function CrossDocumentReconciliation({
                                       e.stopPropagation()
                                       setInfoOpen(infoOpen === row.field ? null : row.field)
                                     }}
-                                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                                      infoOpen === row.field
+                                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${infoOpen === row.field
                                         ? 'border-ember/40 bg-ember/10 text-ember'
                                         : 'border-line text-content-disabled hover:border-ember/30 hover:text-ember'
-                                    }`}
+                                      }`}
                                     title={row.reason}
                                     aria-label={`Info: ${row.field}`}
                                   >
@@ -1050,9 +1037,8 @@ export function CrossDocumentReconciliation({
                           className={`group ${idx % 2 === 1 ? 'bg-raised' : 'bg-surface'}`}
                         >
                           <td
-                            className={`sticky left-0 z-10 py-3.5 pl-5 pr-4 align-top shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)] ${
-                              idx % 2 === 1 ? 'bg-raised' : 'bg-surface'
-                            }`}
+                            className={`sticky left-0 z-10 py-3.5 pl-5 pr-4 align-top shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)] ${idx % 2 === 1 ? 'bg-raised' : 'bg-surface'
+                              }`}
                             style={{ minWidth: 180, width: 180 }}
                           >
                             <div className="flex items-start gap-2">

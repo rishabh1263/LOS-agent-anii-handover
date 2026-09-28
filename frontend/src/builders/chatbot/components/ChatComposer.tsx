@@ -122,9 +122,8 @@ export function ChatComposer({
       )}
 
       <div
-        className={`flex min-w-0 items-end gap-1 rounded-2xl border bg-raised px-2 py-1.5 transition-colors focus-within:border-ember/60 focus-within:bg-surface focus-within:ring-2 focus-within:ring-ember/10 ${
-          isListening ? 'border-blue-400' : 'border-line'
-        }`}
+        className={`flex min-w-0 items-end gap-1 rounded-2xl border bg-raised px-2 py-1.5 transition-colors focus-within:border-ember/60 focus-within:bg-surface focus-within:ring-2 focus-within:ring-ember/10 ${isListening ? 'border-blue-400' : 'border-line'
+          }`}
       >
         <textarea
           ref={taRef}
@@ -146,11 +145,10 @@ export function ChatComposer({
             onClick={isListening ? onStopListen : onStartListen}
             disabled={disabled || isGenerating}
             title={isListening ? 'Stop listening' : 'Voice input'}
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40 ${
-              isListening
-                ? 'bg-blue-500 text-white shadow-sm'
-                : 'text-content-secondary hover:bg-surface hover:text-content'
-            }`}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40 ${isListening
+              ? 'bg-blue-500 text-white shadow-sm'
+              : 'text-content-secondary hover:bg-surface hover:text-content'
+              }`}
           >
             {isListening ? (
               <MicOff className="h-4 w-4" strokeWidth={2} />

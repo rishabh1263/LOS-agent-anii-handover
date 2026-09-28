@@ -29,24 +29,21 @@ function PartyCard({
       type="button"
       onClick={onToggle}
       aria-pressed={selected}
-      className={`flex w-full flex-col items-start gap-3 rounded-sm border p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${
-        selected
+      className={`flex w-full flex-col items-start gap-3 rounded-sm border p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${selected
           ? 'border-ember bg-ember-tint shadow-sm'
           : 'border-line bg-surface hover:border-line-strong hover:bg-raised/50'
-      }`}
+        }`}
     >
       <div className="flex w-full items-center justify-between">
         <div
-          className={`flex h-10 w-10 items-center justify-center rounded-xs ${
-            selected ? 'bg-ember text-oncolor' : 'bg-raised text-content-secondary'
-          }`}
+          className={`flex h-10 w-10 items-center justify-center rounded-xs ${selected ? 'bg-ember text-oncolor' : 'bg-raised text-content-secondary'
+            }`}
         >
           {icon}
         </div>
         <span
-          className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
-            selected ? 'border-ember bg-ember' : 'border-border-strong bg-surface'
-          }`}
+          className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${selected ? 'border-ember bg-ember' : 'border-border-strong bg-surface'
+            }`}
           aria-hidden
         >
           {selected && <span className="h-2 w-2 rounded-full bg-oncolor" />}

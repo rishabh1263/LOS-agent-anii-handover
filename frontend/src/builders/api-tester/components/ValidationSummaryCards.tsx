@@ -10,12 +10,12 @@ export interface ValidationSummaryCardsProps {
 }
 
 export function ValidationSummaryCards({ kyc, crossDocument, decision }: ValidationSummaryCardsProps) {
-  const isKycPass   = kyc.status          === 'PASS'
+  const isKycPass = kyc.status === 'PASS'
   const isCrossPass = crossDocument.status === 'PASS'
-  const isKycFail   = kyc.status          === 'FAIL'
+  const isKycFail = kyc.status === 'FAIL'
   const isCrossFail = crossDocument.status === 'FAIL'
 
-  const isDecisionPass   = decision === 'PASS'
+  const isDecisionPass = decision === 'PASS'
   const isDecisionReject = decision === 'REJECT'
 
   // ── helpers ──────────────────────────────────────────────────────────────
@@ -36,35 +36,35 @@ export function ValidationSummaryCards({ kyc, crossDocument, decision }: Validat
 
   const decisionConfig = isDecisionPass
     ? {
-        icon      : <CheckCircle2 className="h-5 w-5" />,
-        bg        : 'bg-success-subtle',
-        border    : 'border-success/30',
-        text      : 'text-success',
-        textLabel : 'text-success-text',
-        badge     : 'APPROVED',
-        heading   : kyc.result?.title || 'Verification Passed',
-        sub       : kycMessage || 'Document package validated. Workflow may proceed.',
-      }
+      icon: <CheckCircle2 className="h-5 w-5" />,
+      bg: 'bg-success-subtle',
+      border: 'border-success/30',
+      text: 'text-success',
+      textLabel: 'text-success-text',
+      badge: 'APPROVED',
+      heading: kyc.result?.title || 'Verification Passed',
+      sub: kycMessage || 'Document package validated. Workflow may proceed.',
+    }
     : isDecisionReject
-    ? {
-        icon      : <ShieldAlert className="h-5 w-5" />,
-        bg        : 'bg-danger-subtle',
-        border    : 'border-danger/30',
-        text      : 'text-danger',
-        textLabel : 'text-danger-text',
-        badge     : 'REJECTED',
-        heading   : kyc.result?.title || 'Verification Rejected',
-        sub       : kycMessage || 'Application does not meet document requirements.',
+      ? {
+        icon: <ShieldAlert className="h-5 w-5" />,
+        bg: 'bg-danger-subtle',
+        border: 'border-danger/30',
+        text: 'text-danger',
+        textLabel: 'text-danger-text',
+        badge: 'REJECTED',
+        heading: kyc.result?.title || 'Verification Rejected',
+        sub: kycMessage || 'Application does not meet document requirements.',
       }
-    : {
-        icon      : <AlertTriangle className="h-5 w-5" />,
-        bg        : 'bg-warning-subtle',
-        border    : 'border-warning/30',
-        text      : 'text-warning',
-        textLabel : 'text-warning-text',
-        badge     : 'MANUAL REVIEW',
-        heading   : kyc.result?.title || 'Manual Review Required',
-        sub       :
+      : {
+        icon: <AlertTriangle className="h-5 w-5" />,
+        bg: 'bg-warning-subtle',
+        border: 'border-warning/30',
+        text: 'text-warning',
+        textLabel: 'text-warning-text',
+        badge: 'MANUAL REVIEW',
+        heading: kyc.result?.title || 'Manual Review Required',
+        sub:
           kyc.result?.message ||
           kyc.result?.action ||
           'One or more checks require human verification.',
@@ -96,9 +96,8 @@ export function ValidationSummaryCards({ kyc, crossDocument, decision }: Validat
         {/* Row — KYC */}
         <div className={`grid grid-cols-[1fr_auto] items-center gap-4 px-6 py-4 border-l-[3px] ${rowBorder(isKycPass, isKycFail)} hover:bg-raised/20 transition-colors`}>
           <div className="flex items-center gap-3 min-w-0">
-            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xs ${
-              isKycPass ? 'bg-success-subtle text-success' : isKycFail ? 'bg-danger-subtle text-danger' : 'bg-warning-subtle text-warning'
-            }`}>
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xs ${isKycPass ? 'bg-success-subtle text-success' : isKycFail ? 'bg-danger-subtle text-danger' : 'bg-warning-subtle text-warning'
+              }`}>
               <UserCheck className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0">
@@ -119,9 +118,8 @@ export function ValidationSummaryCards({ kyc, crossDocument, decision }: Validat
         {/* Row — Cross-Document */}
         <div className={`grid grid-cols-[1fr_auto] items-center gap-4 px-6 py-4 border-l-[3px] ${rowBorder(isCrossPass, isCrossFail)} hover:bg-raised/20 transition-colors`}>
           <div className="flex items-center gap-3 min-w-0">
-            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xs ${
-              isCrossPass ? 'bg-success-subtle text-success' : isCrossFail ? 'bg-danger-subtle text-danger' : 'bg-warning-subtle text-warning'
-            }`}>
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xs ${isCrossPass ? 'bg-success-subtle text-success' : isCrossFail ? 'bg-danger-subtle text-danger' : 'bg-warning-subtle text-warning'
+              }`}>
               <FileSearch className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0">

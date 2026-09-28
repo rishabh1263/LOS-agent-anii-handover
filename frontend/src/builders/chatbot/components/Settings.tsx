@@ -55,14 +55,12 @@ function Toggle({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative h-7 w-12 shrink-0 overflow-hidden rounded-full p-0.5 transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 ${
-        checked ? 'bg-ember' : 'bg-neutral-300'
-      }`}
+      className={`relative h-7 w-12 shrink-0 overflow-hidden rounded-full p-0.5 transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 ${checked ? 'bg-ember' : 'bg-neutral-300'
+        }`}
     >
       <span
-        className={`block h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150 ${
-          checked ? 'translate-x-5' : 'translate-x-0'
-        }`}
+        className={`block h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150 ${checked ? 'translate-x-5' : 'translate-x-0'
+          }`}
       />
     </button>
   )
@@ -137,9 +135,8 @@ export function Settings({ settings, onChange, onBack, onTestVoice, voiceWarning
                       aria-label={t.label}
                       title={t.label}
                       onClick={() => onChange({ chatTheme: t.id as ChatThemeId })}
-                      className={`relative h-8 w-8 rounded-full border-2 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${
-                        active ? 'scale-105 border-transparent' : 'border-line'
-                      }`}
+                      className={`relative h-8 w-8 rounded-full border-2 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${active ? 'scale-105 border-transparent' : 'border-line'
+                        }`}
                       style={{
                         background: t.swatch,
                         boxShadow: active
@@ -150,14 +147,6 @@ export function Settings({ settings, onChange, onBack, onTestVoice, voiceWarning
                   )
                 })}
               </div>
-            </Row>
-            <div className="border-t border-divider" />
-            <Row label="Compact mode">
-              <Toggle
-                checked={settings.compactMode}
-                onChange={(v) => onChange({ compactMode: v })}
-                label="Compact mode"
-              />
             </Row>
           </div>
         </section>
@@ -260,14 +249,6 @@ export function Settings({ settings, onChange, onBack, onTestVoice, voiceWarning
                 checked={settings.showTimestamps}
                 onChange={(v) => onChange({ showTimestamps: v })}
                 label="Show timestamps"
-              />
-            </Row>
-            <div className="border-t border-divider" />
-            <Row label="Suggested questions">
-              <Toggle
-                checked={settings.showSuggestedQuestions}
-                onChange={(v) => onChange({ showSuggestedQuestions: v })}
-                label="Suggested questions"
               />
             </Row>
           </div>

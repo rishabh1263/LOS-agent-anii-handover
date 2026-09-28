@@ -2,7 +2,7 @@
  * Speech helpers — Indian-language focused voice pick + reliable speak.
  */
 
-export type SpeechGender = 'female' | 'male' | 'any'
+import type { SpeechGender } from '../types'
 
 export interface VoicePickOptions {
   lang?: string
