@@ -1,0 +1,64 @@
+# =============================================================================
+# DEMO BUREAU FIXTURES -- SYNTHETIC, NON-PRODUCTION.
+#
+# Read only by DemoBureauProvider (app/agents/credit/bureau/demo.py). Every
+# report it returns is marked `is_demo: true`. These are NOT real bureau
+# records of any person: they are invented profiles keyed by DEMO party ids,
+# used to exercise the Credit Underwriting Agent. A party with no fixture gets
+# NO report (DATA_UNAVAILABLE) -- the provider never makes one up.
+#
+# `behaviour` simulates provider conditions for tests: ok | timeout | error.
+# =============================================================================
+
+provider: DEMO_BUREAU
+score_model: DEMO_SCORE_V1
+
+profiles:
+  # The reference demo case: Rahul Sharma (salaried, clean history).
+  DEMO-BUREAU-CLEAN:
+    score: 750
+    history_months: 84
+    accounts:
+      - {type: CREDIT_CARD, status: ACTIVE, dpd_max_12m: 0}
+      - {type: PERSONAL_LOAN, status: CLOSED, dpd_max_12m: 0}
+    settlements: 0
+    write_offs: 0
+    enquiries_6m: 1
+    total_monthly_obligation: 0
+  DEMO-BUREAU-ADVERSE:
+    score: 610
+    history_months: 40
+    accounts:
+      - {type: PERSONAL_LOAN, status: SETTLED, dpd_max_12m: 60}
+      - {type: CREDIT_CARD, status: ACTIVE, dpd_max_12m: 30}
+    settlements: 1
+    write_offs: 0
+    enquiries_6m: 7
+    total_monthly_obligation: 14000
+  DEMO-BUREAU-THIN:
+    score: 705
+    history_months: 8
+    accounts:
+      - {type: CREDIT_CARD, status: ACTIVE, dpd_max_12m: 0}
+    settlements: 0
+    write_offs: 0
+    enquiries_6m: 2
+    total_monthly_obligation: 3000
+  DEMO-BUREAU-WEAK-REPAYMENT:
+    score: 688
+    history_months: 30
+    accounts:
+      - {type: CREDIT_CARD, status: ACTIVE, dpd_max_12m: 15}
+      - {type: PERSONAL_LOAN, status: ACTIVE, dpd_max_12m: 5}
+    settlements: 0
+    write_offs: 0
+    enquiries_6m: 3
+    total_monthly_obligation: 6000
+  DEMO-BUREAU-TIMEOUT: {behaviour: timeout}
+  DEMO-BUREAU-ERROR: {behaviour: error}
+
+# Which synthetic profile answers for which DEMO party id. Anything not
+# listed has no bureau record in the demo. APP-3D51FFAC6342 is the applicant
+# id the FOS Swagger example uses.
+parties:
+  APP-3D51FFAC6342: DEMO-BUREAU-CLEAN

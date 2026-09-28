@@ -269,7 +269,8 @@ async def _answer(question: str, *, structured: str, facts: dict[str, Any],
         # back this, the records did.
         generated = _called(await _generate(question, facts, context, timeout,
                                             established=structured))
-        if generated and not _denies(generated, structured):
+        if generated and not _denies(generated, structured) \
+                and _faithful(generated, question, structured, facts, context):
             return _readable(generated), False
         return _readable(structured.rstrip()), False
 
@@ -307,8 +308,36 @@ async def _answer(question: str, *, structured: str, facts: dict[str, Any],
         logger.warning("Generated answer contradicted the record; "
                        "published the computed answer instead.")
         return _readable(structured), True
+    # WORDING ONLY. A phrasing that adds a number, a name or a claim the
+    # records and the retrieved passage do not carry is not published;
+    # the source answer is (app/agents/applicant/fidelity.py).
+    if generated and not _faithful(generated, question, structured, facts, context):
+        text = structured.rstrip() or _passage(context)
+        return (_readable(text) if text else NO_EVIDENCE), True
 
     return _readable(generated or structured), True
+
+
+def _faithful(generated: str, question: str, structured: str,
+              facts: dict[str, Any], context: GroundedContext) -> bool:
+    """The deterministic fidelity guard, recorded in the composition stats."""
+    from app.agents.applicant import fidelity
+
+    evidence = []
+    for part in (getattr(context, "case", None), getattr(context, "process", None)):
+        for item in list(getattr(part, "evidence", ()) or ()):
+            evidence.append(str(getattr(item, "text", "") or ""))
+    source = " ".join([structured or "", json.dumps(facts or {}, default=str), *evidence])
+    verdict = fidelity.check(generated, source=source, question=question)
+    stats = _STATS.get()
+    if stats is not None:
+        stats["fidelity"] = "FAITHFUL" if verdict.faithful else "REJECTED"
+        if not verdict.faithful:
+            stats["fidelity_reason"] = verdict.describe()
+    if not verdict.faithful:
+        logger.info("Composed answer rejected by the fidelity guard (%s); "
+                    "published the source answer", verdict.describe())
+    return verdict.faithful
 
 
 #: Internal vocabulary that must never reach a reader. A model given

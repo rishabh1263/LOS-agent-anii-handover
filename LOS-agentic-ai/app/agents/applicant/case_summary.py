@@ -250,7 +250,7 @@ async def _generate(state: dict[str, Any], timeout: float) -> str:
         from app.llm.provider import create_ollama_client
         from app.security import guardrails
 
-        if not config.llm_enabled() or not availability.provider_reachable():
+        if not config.llm_enabled() or not config.llm_for_case_summary()                 or not availability.provider_reachable():
             return ""
         # THE INPUT BOUNDARY, as for every composer.
         if guardrails.context_issues(state):

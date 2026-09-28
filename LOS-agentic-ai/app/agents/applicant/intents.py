@@ -19,6 +19,7 @@ data.
 from __future__ import annotations
 
 import re
+from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -207,6 +208,14 @@ class Classification:
     #: deterministic rules as it would be on its own -- adding a knowledge
     #: paragraph must not change what the facts are.
     base_intent: Intent | None = None
+
+    #: WHAT THE QUESTION MEANS (semantic_frame.SemanticFrame), when the
+    #: frame parser understood it. Present on every classification the
+    #: parser could frame, whichever layer decided the intent.
+    frame: Any = None
+    #: Which layer decided: FRAME (the semantic parser), RULES (the ordered
+    #: patterns), EXAMPLES (the legacy word-overlap fallback), LLM.
+    understanding: str | None = None
 
 
 # ==========================================================================
@@ -1003,7 +1012,11 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\b(are|is|have|has)\b[^?]{0,20}\bdocuments?\b[^?]{0,20}\b(verified|verif\w+|checked|cleared|passed)\b",
      Intent.DOCUMENT_VERIFICATION),
     (r"\bwhat('?s| is)\s+the\s+(application|case)\s+status\b", Intent.APPLICATION_STATUS),
-    (r"\b(current\s+)?stage\b", Intent.APPLICATION_STAGE),
+    # THE BARE "stage" CATCH-ALL IS GONE. It took every sentence carrying the
+    # word -- "what documents are mandatory for this stage?" answered with
+    # the case's stage. A stage word is now a REFERENT in the semantic
+    # frame; which stage the case is at is asked through the frame's
+    # CURRENT_STAGE task (or the explicit _CURRENT_STAGE shapes above).
     (r"\bwhere\s+is\s+(this|the)\s+application\b", Intent.APPLICATION_STAGE),
     # A STATUS QUESTION ABOUT ONE'S OWN CASE, IN THE REMAINING WORDINGS.
     #
@@ -1373,61 +1386,168 @@ def classify(message: str) -> Classification:
     return Classification(Intent.UNKNOWN, confidence="low")
 
 
+#: A loan-decision word: with none of these, "was anything rejected?" asks
+#: about the documents on the case, which is what gets rejected here.
+_DECISION_WORDS = re.compile(
+    r"\b(loan|application|case|file|approv\w*|sanction\w*|disburs\w*|eligib\w*|decision|"
+    r"decid\w*|credit|limit|amount|rate|emi|tenure)\b", re.IGNORECASE)
+
+
 #: Where a compound question joins its two halves.
-_JOIN = re.compile(r"\s*(?:,\s*)?\b(?:and|also|plus)\b\s+(?:also\s+)?|\s*;\s*|\s*,\s+(?=what|which|how|is|are)",
+_JOIN = re.compile(r"\s*(?:,\s*)?\b(?:and|also|plus|aur|ani|aani|और|आणि)\b\s+(?:also\s+)?"
+                   r"|\s*;\s*|\s*,\s+(?=what|which|how|is|are|kya|kaun|क्या|काय)",
                    re.IGNORECASE)
+
+#: Intents a compound part may NOT be: a knowledge tail is MIXED's business,
+#: an unrecognised or refused part keeps the whole question on its own route.
+_NOT_COMPOUND = frozenset({"FOS_KNOWLEDGE", "STAGE_PROCESS", "UNKNOWN", "OUT_OF_SCOPE",
+                           "MIXED", "GUARDRAIL_BLOCKED", "CASE_HISTORY"})
 
 #: Case intents a compound half may be (not knowledge, not a refusal).
 _COMPOUND_CASE: frozenset = frozenset()   # set below, once PLANS exists
 
 
-def compound_parts(message: str) -> tuple[str, str] | None:
+def compound_parts(message: str) -> list[str] | None:
     """
-    "Are my documents verified and what is my loan amount?" -> the two halves,
-    when ONE of them asks for the caller's recorded application / applicant
-    details (APPLICANT_PROFILE) and the other is a different case question.
-    Each half is then answered exactly as if it had been asked alone -- the
-    metadata from the application record, the document half from the document
-    / verification records. Anything else (a knowledge tail, two metadata
-    fields, an unrecognised half) is not a compound and keeps its route.
+    "What is my loan amount, what stage am I in, and what is pending?" -> its
+    parts, when EVERY part is a case question this desk answers on its own
+    and at least two of them ask different things. Each part is then
+    answered exactly as if asked alone (same authorisation, tools and
+    deterministic answer) and the answers are joined. A knowledge tail, an
+    unrecognised part, a refusal or a write keeps the whole question on its
+    own route (MIXED, clarification, guardrail).
     """
     text = " ".join(str(message or "").split())
-    match = _JOIN.search(text)
-    if not match or match.start() == 0:
+    # A MIXED question (a case half and a knowledge tail) and a case-history
+    # question ("what is wrong and what should I upload?", whose recorded
+    # answer already carries the pending step) keep their own routes.
+    whole = understand(text, has_case=True)
+    if whole.intent in (Intent.MIXED, Intent.CASE_HISTORY):
         return None
-    first = text[:match.start()].strip(" ,;?")
-    second = text[match.end():].strip(" ,;")
-    if len(first.split()) < 2 or len(second.split()) < 2:
+    pieces = [p.strip(" ,;?") for p in _JOIN.split(text)]
+    pieces = [p for p in pieces if p and len(p.split()) >= 2]
+    if len(pieces) < 2 or len(pieces) > 4:
         return None
-    a = understand(first + "?", has_case=True)
-    b = understand(second if second.endswith("?") else second + "?", has_case=True)
-    intents = {a.intent, b.intent}
-    if Intent.APPLICANT_PROFILE not in intents or a.intent is b.intent:
+    questions = [p if p.endswith("?") else p + "?" for p in pieces]
+    seen: list[Intent] = []
+    for question in questions:
+        part = understand(question, has_case=True)
+        if part.intent.value in _NOT_COMPOUND or part.intent in WRITE_INTENTS \
+                or part.intent not in _COMPOUND_CASE:
+            return None
+        # EACH PART IS A QUESTION IN ITS OWN RIGHT: read by the frame or a
+        # structural rule, never guessed by word overlap ("At this point in
+        # my application" is a preamble, not a question).
+        if getattr(part, "understanding", None) == "EXAMPLES":
+            return None
+        seen.append(part.intent)
+    if len(set(seen)) < 2:
         return None
-    if not all(i in _COMPOUND_CASE for i in intents):
-        return None
-    return first + "?", (second if second.endswith("?") else second + "?")
+    return questions
+
+
+#: The intent family the SEMANTIC FRAME decides. A rule match in this family
+#: is a phrasing the rules happened to know; the frame reads the meaning and
+#: wins. Every other intent (a write, a refusal, eligibility, income, one
+#: document's values, case history, the caller's own details, a named party,
+#: a mixed question) keeps the rule that owns it.
+FRAME_FAMILY = frozenset({
+    Intent.UNKNOWN, Intent.DOCUMENTS_REQUIRED, Intent.DOCUMENTS_MISSING,
+    Intent.DOCUMENTS_PENDING, Intent.DOCUMENTS_UPLOADED, Intent.DOCUMENT_VERIFICATION,
+    Intent.PENDING_ITEMS, Intent.NEXT_ACTION, Intent.READINESS, Intent.COMPLETENESS,
+    Intent.APPLICATION_STAGE, Intent.APPLICATION_STATUS, Intent.FOS_KNOWLEDGE,
+})
 
 
 def understand(message: str, *, has_case: bool = False) -> Classification:
     """
-    What the message means, in three steps, the rules always first.
+    What the message means.
 
-      1. NORMALISE -- short forms, typos, Hinglish -> full words
-         (normalize.py, driven by `chatbot.normalization`).
-      2. CLASSIFY  -- the ordered rules above, unchanged.
-      3. SEMANTIC  -- only when the rules found nothing, a case is in hand,
-         and the question is not asking for a definition: the closest
-         configured intent example (semantic.py), if close enough.
+      1. NORMALISE -- short forms, typos, other languages -> canonical words
+         (normalize.py / language.py).
+      2. FRAME     -- the semantic parser (semantic_frame.py) reads the
+         question as concepts and composes task / object / qualifiers /
+         referents. A confident frame decides the intent for its family.
+      3. RULES     -- the ordered patterns keep every intent outside that
+         family (writes, refusals, eligibility, income, history, profile,
+         mixed questions), exactly as before.
+      4. EXAMPLES  -- the legacy word-overlap fallback, demoted to last.
 
-    Deterministic, no model. The result carries the normalised text when it
-    differs, so a caller can report what the question was taken to mean.
+    Deterministic, no model here: the bounded Qwen frame fallback runs in the
+    agent, only when this returns UNKNOWN (agent.py).
     """
-    from app.agents.applicant import normalize, semantic
+    from app.agents.applicant import normalize, semantic, semantic_frame
 
     normalised = normalize.normalise(message)
     text = normalised.text or (message or "").strip()
     classification = classify(text)
+    classification.understanding = "RULES"
+
+    frame = semantic_frame.parse(text, original=message)
+    classification.frame = frame
+    if classification.document_type is None and frame.document_type:
+        classification.document_type = frame.document_type   # "salry slip", read fuzzily
+    # A documents question that NAMES a stage ("which documents do I need
+    # for CPA?") is about documents; the stage is its referent. The
+    # how-a-stage-works rule keys on the stage name and would take it.
+    frame_decides = classification.intent in FRAME_FAMILY or (
+        classification.intent is Intent.STAGE_PROCESS
+        and frame.object in (semantic_frame.Object.DOCUMENTS, semantic_frame.Object.DOCUMENT))
+    # The STRUCTURAL rules ahead of the pattern table (which stage the case
+    # is at, its history, an impact question, a document-status list) read
+    # the whole question's shape and keep what they matched.
+    if classification.matched_on in ("current_stage", "stage_history", "impact",
+                                     "document_status_list", "document_rejected"):
+        frame_decides = False
+    # A DOCUMENT'S verification asked with the word "reject" ("koi document
+    # reject hua kya") is a document question, not a loan decision: the
+    # out-of-scope rule keyed on the word alone.
+    # "WHY IS ADDRESS PROOF STILL PENDING?" is that document's status (not
+    # uploaded / under review / rejected), not the case's recorded reason.
+    if (classification.intent is Intent.CASE_HISTORY and frame.is_confident()
+            and frame.object is semantic_frame.Object.DOCUMENT
+            and frame.task is semantic_frame.Task.CHECK_VERIFICATION):
+        frame_decides = True
+    # "WHAT HAPPENS AFTER THIS STEP?" names the next stage; the current-stage
+    # rule keyed on "this step" alone.
+    if (frame.is_confident() and frame.object is semantic_frame.Object.STAGE
+            and frame.referents.get("stage") == "NEXT"):
+        frame_decides = True
+    if (classification.intent is Intent.OUT_OF_SCOPE and frame.is_confident()
+            and frame.task is semantic_frame.Task.CHECK_VERIFICATION
+            and frame.object in (semantic_frame.Object.DOCUMENTS, semantic_frame.Object.DOCUMENT)
+            and ("DOCUMENTS" in frame.concepts           # the question names a document
+                 or not _DECISION_WORDS.search(text))):  # or names no loan / decision
+        frame_decides = True
+    if frame.is_confident() and frame_decides \
+            and not (classification.intent is Intent.FOS_KNOWLEDGE
+                     and classification.matched_on in ("product", "definition")
+                     and not frame.object in (semantic_frame.Object.DOCUMENTS,)):
+        routed = semantic_frame.route(frame)
+        if routed:
+            intent = Intent(routed)
+            base = Classification(
+                intent, confidence=frame.confidence,
+                document_type=frame.document_type or _document_type(text),
+                matched_on=f"frame:{frame.task.value}/{frame.object.value}",
+                frame=frame, understanding="FRAME")
+            # A knowledge clause attached to a case question is still MIXED
+            # -- when the tail IS a knowledge question. "At this point in my
+            # application, what documents do I still need?" has a comma and
+            # a "what", and one meaning.
+            tail_match = _MIXED_TAIL.search(text) if intent in PLANS else None
+            if tail_match:
+                tail = text[tail_match.end():].strip()
+                tail_frame = semantic_frame.parse(tail)
+                knowledge_tail = (looks_like_knowledge(tail) or asks_for_a_definition(tail)
+                                  or semantic_frame.is_knowledge(tail_frame))
+                if knowledge_tail and not (tail_frame.is_confident()
+                                           and tail_frame.object is frame.object
+                                           and tail_frame.task is frame.task):
+                    base = Classification(Intent.MIXED, document_type=base.document_type,
+                                          matched_on=base.matched_on, base_intent=intent,
+                                          frame=frame, understanding="FRAME")
+            classification = base
 
     from app.agents.applicant import followup
 
@@ -1436,7 +1556,10 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
     # guess a document question about every document on the case.
     if (classification.intent is Intent.UNKNOWN and has_case
             and not asks_for_a_definition(text)
-            and not followup.needs_context(text)):
+            and not followup.needs_context(text)
+            # A frame that already knows what to ask ("what about the other
+            # applicant?") is a clarification, not a guess by word overlap.
+            and semantic_frame.clarification(frame, has_case=has_case) is None):
         match = semantic.best(text)
         if match is not None:
             try:
@@ -1449,6 +1572,7 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
                     intent, confidence="medium",
                     document_type=_document_type(text),
                     matched_on=f"semantic:{match.example}",
+                    frame=frame, understanding="EXAMPLES",
                 )
 
     if normalised.changed:
@@ -1564,7 +1688,8 @@ def plan_for(
     return _with_checklist(PLANS.get(classification.intent, ()), has_case)
 
 
-_COMPOUND_CASE = frozenset(PLANS) | {Intent.CASE_HISTORY, Intent.DOCUMENT_DETAILS}
+_COMPOUND_CASE = frozenset(PLANS) | {Intent.CASE_HISTORY, Intent.DOCUMENT_DETAILS,
+                                     Intent.INCOME_EVIDENCE}
 
 
 __all__ = [

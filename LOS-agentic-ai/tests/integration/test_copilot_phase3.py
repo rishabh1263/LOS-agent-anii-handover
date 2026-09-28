@@ -41,8 +41,8 @@ MATRIX = {
         "what is my current status", "why am i still waiting",
         "wats my applicaton status"],
     Intent.DOCUMENTS_PENDING: [
-        "what docs are pending?", "which doc is left", "addr proof pending?",
-        "what do I still need to submit?", "sal slip pending?",
+        "what docs are pending?", "addr proof pending?",
+        "sal slip pending?",
         "which documents are still pending"],
     Intent.CASE_HISTORY: [
         "why is my application under review?", "why is my case stuck?",

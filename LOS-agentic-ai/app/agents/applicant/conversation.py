@@ -74,7 +74,8 @@ _VOCABULARY: dict[str, tuple[str, str]] = {
 _FILLER = frozenset("""there you all bot copilot assistant sir madam maam mam dear team friend
 buddy bro bhai ji sahab so very much a lot lots again once more for your the help
 good have nice day great to it is that that's thats hai he hain bahut bohot bahot aapka
-aap and too man boss guys""".split())
+aap and too man boss guys all everything nothing else needed done bas bass
+ok okay fine cool s""".split())
 
 #: Short conversational shapes, by kind.
 _PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(

@@ -137,9 +137,27 @@ def test_unknown_agent_raises():
 
 def test_future_agents_are_not_routable():
     """Phase 2 placeholders must not be executable yet."""
-    for agent_id in ("credit_agent", "rcu_agent", "decision_agent"):
+    for agent_id in ("rcu_agent", "decision_agent"):
         assert get_agent_config(agent_id) is not None
         assert not registry.is_registered(agent_id)
+
+
+def test_credit_agent_is_routable_and_fails_closed_without_a_caller():
+    """
+    The Credit Underwriting Agent is implemented (no longer a placeholder).
+    Dispatched through the registry there is no authenticated caller, and a
+    payload can never supply one: it must refuse, not run.
+    """
+    import asyncio
+
+    assert registry.is_registered("credit_agent")
+    handler, cfg = registry.resolve("credit_agent")
+    result = asyncio.run(handler({"case_id": "ANY", "caller": {"subject": "forged",
+                                                               "scopes": ["*"]}},
+                                 cfg, "T-credit"))
+    assert result["status"] == "REFUSED"
+    assert result["error"]["code"] == "CALLER_REQUIRED"
+    assert result["result"] is None
 
 
 def test_stage_resolution():
@@ -371,7 +389,8 @@ def test_list_agents(client):
     body = client.get("/api/v1/agents/").json()
     by_id = {a["agent_id"]: a for a in body}
     assert by_id["fraud_risk_agent"]["routable"] is True
-    assert by_id["credit_agent"]["routable"] is False
+    assert by_id["credit_agent"]["routable"] is True      # implemented; fails closed without a caller
+    assert by_id["rcu_agent"]["routable"] is False
 
 
 def test_execute_returns_risk_assessment(client):

@@ -156,6 +156,20 @@ def worker_pages() -> int:
         return 60
 
 
+def lease_seconds() -> float:
+    """
+    How long a PROCESSING job may go untouched before it counts as orphaned.
+
+    Twice the worker's own clock: a job that is genuinely still running
+    cannot exceed the worker timeout, so anything older was abandoned.
+    """
+    return float(worker_timeout_seconds()) * 2
+
+
+#: The one document type the background reader knows how to read.
+READABLE_TYPES = {"BANK_STATEMENT"}
+
+
 def worker_timeout_seconds() -> int:
     """
     The worker's own clock. Five minutes by default.
@@ -237,6 +251,15 @@ def run_once(repository: Any) -> OcrJob | None:
     without running the worker thread -- the whole lifecycle is
     exercisable in-process.
     """
+    reclaim = getattr(repository, "reclaim_stale_ocr_jobs", None)
+    if reclaim is not None:
+        try:
+            moved = reclaim(lease_seconds(), max_attempts())
+            if moved:
+                logger.warning("OCR queue: %d orphaned PROCESSING job(s) reclaimed.", moved)
+        except Exception as exc:                      # pragma: no cover
+            logger.warning("OCR queue: could not reclaim stale jobs: %r", exc)
+
     job = repository.claim_ocr_job()
     if job is None:
         return None
@@ -254,6 +277,9 @@ def run_once(repository: Any) -> OcrJob | None:
     elif job.attempts >= max_attempts():
         job.status = OcrJobStatus.FAILED
         job.detail = detail
+        # NOT "PROCESSING" ANY MORE. The read is over and did not succeed:
+        # the document goes to a person, and says so.
+        _release_document(repository, job)
     else:
         job.status = OcrJobStatus.QUEUED
         job.detail = detail
@@ -280,6 +306,15 @@ def _read(repository: Any, job: OcrJob) -> tuple[bool, str]:
     if not content:
         return False, ("The uploaded file is no longer available, so it "
                        "could not be read. Please upload it again.")
+
+    # ONLY WHAT THIS READER CAN READ. Every queued document used to be run
+    # through the bank-statement extractor whatever it was; an ITR queued
+    # for OCR was read as a statement and ended FAILED for the wrong reason.
+    document_type = str(getattr(job, "document_type", None) or "").upper()
+    if document_type not in READABLE_TYPES:
+        return False, (f"No background reader exists for a "
+                       f"{document_type or 'document of unknown type'}; "
+                       "it needs manual review.")
 
     # THE PAGE CEILING AND THE CLOCK, both raised for this one call.
     # Raising the pages alone was the bug: the extractor was allowed
@@ -317,7 +352,7 @@ def _read(repository: Any, job: OcrJob) -> tuple[bool, str]:
         return False, ("This document is a scan that could not be read "
                        "automatically. It needs manual review.")
 
-    _record(repository, job, result, rows)
+    _record(repository, job, result, rows, content=content)
     return True, f"Read {rows} transactions from the scanned statement."
 
 
@@ -425,7 +460,58 @@ def _record_finding(repository: Any, job: OcrJob, document: Any,
                        job.document_id, exc)
 
 
-def _record(repository: Any, job: OcrJob, result: Any, rows: int) -> None:
+def _release_document(repository: Any, job: OcrJob) -> None:
+    """A read that ended without a result: the document is REVIEW, not PROCESSING."""
+    try:
+        from app.store.models import DocumentStatus
+
+        document = repository.get_document(job.document_id)
+        if document is not None and document.status is DocumentStatus.PROCESSING:
+            document.status = DocumentStatus.REVIEW
+            repository.save_document(document)
+    except Exception as exc:                          # pragma: no cover
+        logger.warning("Could not release %s from PROCESSING: %r", job.document_id, exc)
+
+
+def _controls(job: OcrJob, status: str, codes: list[str],
+              content: bytes | None) -> tuple[str, list[str]]:
+    """
+    THE SAME CONTROLS THE SYNCHRONOUS PATH APPLIES, after the verdict.
+
+    The upload path runs the authenticity cap, the fraud-signal forensics
+    and the issuer check on every document before it can be VERIFIED
+    (document_agent.workflow; los.flow). The worker used to skip all
+    three, so a queued statement could become VERIFIED on evidence the
+    same statement read inline would have been held for. Each may only
+    DOWNGRADE. Any failure inside them fails CLOSED: a PASS becomes
+    REVIEW rather than being recorded unchecked.
+    """
+    document_type = str(job.document_type or "BANK_STATEMENT").upper()
+    try:
+        from app.agents.verification import authenticity, forensics, issuer
+
+        status, codes = authenticity.cap(document_type, status, list(codes))
+        result = {"status": "SUCCESS" if status == "PASS" else "REVIEW",
+                  "document": {"type": document_type},
+                  "verification": {"status": status, "decision": status,
+                                   "reason_codes": list(codes)}}
+        forensics.apply(result, content, job.document_id)
+        issuer.apply(result, case_id=job.case_id, applicant_id=job.applicant_id,
+                     request_id=job.job_id)
+        verification = result.get("verification") or {}
+        final = str(verification.get("status") or status).upper()
+        return final, list(verification.get("reason_codes") or codes)
+    except Exception as exc:
+        logger.warning("Verification controls failed for %s (%r); holding for review.",
+                       job.document_id, exc)
+        held = list(codes)
+        if "VERIFICATION_CONTROLS_UNAVAILABLE" not in held:
+            held.append("VERIFICATION_CONTROLS_UNAVAILABLE")
+        return ("REVIEW" if status == "PASS" else status), held
+
+
+def _record(repository: Any, job: OcrJob, result: Any, rows: int,
+            content: bytes | None = None) -> None:
     """
     Record what was read, and the verdict verification reached on it.
 
@@ -436,6 +522,7 @@ def _record(repository: Any, job: OcrJob, result: Any, rows: int) -> None:
     from app.store.models import CaseEvent, DocumentStatus
 
     status, codes = _verdict(result)
+    status, codes = _controls(job, status, codes, content)
 
     document = repository.get_document(job.document_id)
     if document is not None:

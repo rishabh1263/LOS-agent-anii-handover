@@ -115,6 +115,14 @@ _CROSS = _rx(
 
 _BULK = _rx(
     rf"\b{_EVERY}\s+(the\s+)?({_PERSON}|{_RECORD}|entries|everything)\b",
+    # a verb of retrieval on every value of a protected field: "return all PANs"
+    rf"\b(return|give|show|list|export|dump|send|fetch|get|print)\s+(me\s+)?{_EVERY}\s+"
+    r"(the\s+)?(pans?|aadhaa?rs?|mobiles?|phones?|phone\s+numbers?|mobile\s+numbers?|"
+    r"emails?|e-mails?|addresses|dobs?|names|salaries|incomes?|account\s+numbers?|"
+    r"loan\s+amounts?)\b",
+    # every value of a protected field: "all PAN numbers", "every phone number"
+    rf"\b{_EVERY}\s+(the\s+)?{_PROTECTED}\s*(numbers?|cards?|ids?|details|addresses|values)?\b"
+    r"[^?]{0,20}\b(in|from|of|on)\s+(the\s+)?(system|database|db|records?|file|platform)\b",
     r"\b(everyone|everybody|everything)\b[^?]{0,30}\b(applied|data|records?|details?|"
     r"information|info|in\s+the\s+(system|database|db))\b",
     r"\b(show|list|give|tell)\s+(me\s+)?(everyone|everybody)\b",
@@ -189,6 +197,9 @@ _RESTRICTED = _rx(
 )
 
 _SQLI = (
+    # A bare SQL statement is not a question, whatever follows it.
+    re.compile(r"^\s*(select|insert|update|delete|drop|create|alter|truncate|grant)\b[^?]{0,80}"
+               r"\b(from|into|table|set|database|where|values)\b", _I),
     re.compile(r"'\s*(or|and)\s+'?\s*[\w]+'?\s*(=|like|<>)\s*'?[\w]*", _I),
     re.compile(r"\b(or|and)\s+\d+\s*=\s*\d+\b", _I),
     re.compile(r"\bunion\b[\s(]+(all\s+)?select\b", _I),
@@ -252,8 +263,20 @@ def _first(patterns, texts, name):
 
 
 def _decoded(text: str) -> list[str]:
-    """Readable text hidden in Base64 blobs -- classified like any other."""
+    """Readable text hidden in Base64 / URL / hex blobs -- classified like any other."""
+    from urllib.parse import unquote
+
     found = []
+    unquoted = unquote(text or "")
+    if unquoted != (text or ""):
+        found.append(unquoted)
+    for blob in re.findall(r"(?:[0-9a-fA-F]{2}[\s:]?){12,}", text or ""):
+        try:
+            decoded = bytes.fromhex(re.sub(r"[\s:]", "", blob)).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if decoded and sum(ch.isprintable() for ch in decoded) / len(decoded) > 0.9:
+            found.append(decoded)
     for blob in re.findall(r"[A-Za-z0-9+/]{16,}={0,2}", text or ""):
         try:
             raw = base64.b64decode(blob + "=" * (-len(blob) % 4), validate=True)
@@ -296,7 +319,7 @@ def classify(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Decis
                      r"\b(do|follow|execute|run|obey|act|perform)\b", raw, _I):
             return Decision("PROMPT_INJECTION", "decode_and_obey")
 
-    rule = _first(_SQLI, [raw], "sql")
+    rule = _first(_SQLI, [raw] + decoded, "sql")
     if rule:
         return Decision("SQL_INJECTION", rule)
 

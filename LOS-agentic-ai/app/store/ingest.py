@@ -320,14 +320,27 @@ def _queue_unread(repository, result: dict, case_id: str,
             if not source_id:
                 continue
             party_id = str(document.get("party_id") or applicant_id)
-            ocr_queue.submit(
+            document_id = parties.document_key(case_id, party_id, source_id)
+            job = ocr_queue.submit(
                 repository,
-                document_id=parties.document_key(case_id, party_id, source_id),
+                document_id=document_id,
                 case_id=case_id,
                 applicant_id=applicant_id,
                 party_id=party_id,
                 document_type=str(document.get("type") or "") or None,
             )
+            # PROCESSING MEANS SOMETHING IS PROCESSING IT. Only when a job is
+            # open AND a worker is switched on; otherwise the document stays
+            # REVIEW -- a person has to act, and saying "in progress" would
+            # be a promise nothing keeps.
+            if job is not None and job.status in ocr_queue.OPEN_STATUSES \
+                    and ocr_queue.worker_enabled():
+                record = repository.get_document(document_id)
+                if record is not None:
+                    from app.store.models import DocumentStatus
+
+                    record.status = DocumentStatus.PROCESSING
+                    repository.save_document(record)
     except Exception as exc:
         logger.warning("Could not queue OCR work for %s: %r", case_id, exc)
 
@@ -572,6 +585,30 @@ def _write_case_memory(repository, result: dict, case_id: str) -> dict:
             status=eligibility.get("status"),
             reason_codes=eligibility.get("reason_codes"),
             source_type="ELIGIBILITY",
+        )
+
+    # -- what the risk agent concluded -------------------------------------
+    #
+    # A RISK finding, from the result the flow ALREADY computed (flow._risk_for
+    # -> the response's `risk` block) -- never a second run of the risk agent.
+    # Attributed to the primary applicant, whose result the block is. The
+    # summary is left out: it may be model-written, and a finding stores
+    # structured conclusions only. Read back by credit underwriting (risk.get).
+    risk = result.get("risk")
+    if isinstance(risk, dict) and risk.get("final_outcome"):
+        flags = [str(f) for f in risk.get("flags") or []]
+        _finding(
+            FindingKind.RISK,
+            {"agent": risk.get("agent") or "fraud_risk_agent",
+             "risk_category": risk.get("risk_category"),
+             "risk_score": risk.get("risk_score"),
+             "final_outcome": risk.get("final_outcome"),
+             "flags": flags},
+            party_id=result.get("applicant_id"),
+            status=risk.get("final_outcome"),
+            score=risk.get("risk_score") if isinstance(risk.get("risk_score"), int) else None,
+            reason_codes=[f.split(":", 1)[0] for f in flags],
+            source_type="FRAUD_RISK",
         )
 
     # -- the case verdict --------------------------------------------------

@@ -80,7 +80,10 @@ def test_a_worker_job_never_writes_the_process_environment(monkeypatch):
 
     monkeypatch.setattr("app.store.documents.get_document_store", lambda: _Store())
 
-    ocr_queue._read(None, types.SimpleNamespace(document_id="D"))
+    # The worker reads only the types it has a reader for; a bare job
+    # without a type is refused before extraction, so the job names one.
+    ocr_queue._read(None, types.SimpleNamespace(document_id="D",
+                                                document_type="BANK_STATEMENT"))
 
     assert seen["env"] == "25000"                                  # untouched
     assert seen["budget"] == ocr_queue.worker_timeout_seconds() * 1000

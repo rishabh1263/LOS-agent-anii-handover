@@ -47,7 +47,16 @@ _HEADERS: dict[str, tuple[str, ...]] = {
     "debit": ("withdrawals", "withdrawal", "withdraw", "debit", "dr", "paidout"),
     "credit": ("deposits", "deposit", "credit", "cr", "paidin"),
     "balance": ("closingbalance", "balance", "runningbalance"),
+    # The statement's own row numbering. Not every bank prints one; where it
+    # does, a gap in it is proof of a row the parser did not read.
+    "serial": ("srno", "slno", "sno", "serialno", "serial", "txnno", "transactionno",
+               "seqno", "sequence"),
 }
+
+#: How a movement value came to sit on its row (Transaction.placement).
+CELL, LINE = "CELL", "LINE"
+BALANCE_ORDERED, UNRESOLVED_ORDER, POSITIONAL = ("BALANCE_ORDERED", "UNRESOLVED_ORDER",
+                                                 "POSITIONAL")
 
 
 def _norm(text: str) -> str:
@@ -68,7 +77,17 @@ def map_columns(header_row: list[str | None]) -> dict[str, int]:
         _HEADERS.items(),
         key=lambda kv: -max(len(s) for s in kv[1]),
     )
+    # A bare "#" / "No." caption is a serial column; it normalises to
+    # nothing, so it is matched before the letters-only comparison.
+    for index, cell in enumerate(header_row):
+        if (cell or "").strip().lower() in {"#", "no.", "no", "sr.", "sl."}:
+            mapping["serial"] = index
+            taken.add(index)
+            break
+
     for field, captions in ordered:
+        if field in mapping:
+            continue
         for index, cell in enumerate(header_row):
             if index in taken:
                 continue
@@ -149,6 +168,206 @@ def split_merged_cells(
     return expanded
 
 
+def _direction(delta: Decimal) -> int:
+    """The EXACT sign: a 0.45 charge is a movement, and only zero is none."""
+    if delta > 0:
+        return 1
+    if delta < 0:
+        return -1
+    return 0
+
+
+def place_by_balance_direction(
+    balances: list[Decimal | None], debits: list[str], credits: list[str],
+    prev_balance: Decimal | None,
+) -> list[tuple[str, str]] | None:
+    """
+    Put a merged block's movement LINES on their rows, in column order.
+
+    THE VALUES ARE READ; ONLY THEIR ORDER IS TRUSTED. pdfplumber hands a
+    borderless table's Withdrawals column as one block of N lines and its
+    Deposits column as another of M lines, both in document order, while
+    the Balance column has one line per transaction. Which column the next
+    transaction's amount came from is exactly what the balance direction
+    says: the balance fell, so the next unconsumed withdrawal line is this
+    row's; it rose, so the next deposit line is. Each line is used once, in
+    order, and no figure is ever made up.
+
+    Row one has no previous balance unless the caller knows it, so it may
+    be a debit, a credit, or a movement-free line (a "balance forward"
+    caption printed as a row). Every placement is then CHECKED: a placed
+    value must equal the balance change on its row. Exactly one consistent
+    placement is accepted; none, or more than one, returns None and the
+    caller falls back to positional distribution and says so.
+    """
+    n = len(balances)
+    if n == 0 or any(b is None for b in balances):
+        return None
+    if not debits and not credits:
+        return [("", "")] * n
+
+    directions: list[int | None] = [None] * n
+    if prev_balance is not None:
+        directions[0] = _direction(balances[0] - prev_balance)
+    for i in range(1, n):
+        directions[i] = _direction(balances[i] - balances[i - 1])
+
+    first_options: list[int] = [directions[0]] if directions[0] is not None else [-1, 1, 0]
+    solutions: list[list[tuple[str, str]]] = []
+    for first in first_options:
+        dirs = [first] + directions[1:]
+        placed: list[tuple[str, str]] = []
+        di = ci = 0
+        ok = True
+        for d in dirs:
+            if d == -1:
+                if di >= len(debits):
+                    ok = False
+                    break
+                placed.append((debits[di], ""))
+                di += 1
+            elif d == 1:
+                if ci >= len(credits):
+                    ok = False
+                    break
+                placed.append(("", credits[ci]))
+                ci += 1
+            else:
+                placed.append(("", ""))
+        if not ok or di != len(debits) or ci != len(credits):
+            continue
+        # THE CHECK: every placed value must be the change its row shows.
+        for i, (dt, ct) in enumerate(placed):
+            if i == 0 and prev_balance is None:
+                continue
+            previous = balances[i - 1] if i else prev_balance
+            delta = balances[i] - previous
+            value = parse_amount(dt or ct)
+            if dt or ct:
+                if value is None or abs(abs(delta) - value) >= Decimal("1.00"):
+                    ok = False
+                    break
+            elif delta != 0:
+                ok = False
+                break
+        if ok:
+            solutions.append(placed)
+    return solutions[0] if len(solutions) == 1 else None
+
+
+_TOTALS_LINE = re.compile(r"^\W*(?:grand\s+)?total", re.IGNORECASE)
+
+
+def _ends_with_totals_line(split_cells: list[list[str]], mapping: dict[str, int],
+                           balances: list[Decimal | None]) -> bool:
+    """The block's last line is a TOTALS caption whose balance repeats the previous one."""
+    narration_col = mapping.get("narration")
+    if narration_col is None or narration_col >= len(split_cells) or len(balances) < 2:
+        return False
+    lines = [l for l in split_cells[narration_col] if l.strip()]
+    if not lines or not _TOTALS_LINE.search(lines[-1]):
+        return False
+    return balances[-1] is not None and balances[-2] is not None \
+        and abs(balances[-1] - balances[-2]) < Decimal("1.00")
+
+
+def split_merged_cells_ordered(
+    rows: list[list[str | None]], mapping: dict[str, int],
+    prev_balance: Decimal | None = None,
+) -> tuple[list[list[str | None]], list[str]]:
+    """
+    `split_merged_cells`, with the movement columns placed by column order
+    and the balance direction (see `place_by_balance_direction`) instead of
+    by line position. Returns the rows and, per row, how its movement was
+    placed (CELL / BALANCE_ORDERED / UNRESOLVED_ORDER / POSITIONAL).
+    """
+    balance_col = mapping.get("balance")
+    anchor = balance_col if balance_col is not None else mapping.get("date")
+    debit_col, credit_col = mapping.get("debit"), mapping.get("credit")
+    if anchor is None:
+        out = _split_naive(rows)
+        return out, [POSITIONAL] * len(out)
+
+    expanded: list[list[str | None]] = []
+    placements: list[str] = []
+    for row in rows:
+        split_cells = [(cell or "").split("\n") for cell in row]
+        anchor_lines = ([l for l in split_cells[anchor] if l.strip()]
+                        if anchor < len(split_cells) else [])
+        if len(anchor_lines) <= 1:
+            expanded.append(row)
+            placements.append(CELL)
+            if balance_col is not None and anchor_lines:
+                bal = parse_amount(anchor_lines[0])
+                if bal is not None:
+                    prev_balance = bal
+            continue
+
+        count = len(anchor_lines)
+        new_rows: list[list[str | None]] = [[""] * len(row) for _ in range(count)]
+        movement_cols = {c for c in (debit_col, credit_col) if c is not None}
+        ordered = balance_col is not None and bool(movement_cols)
+        for col_index, lines in enumerate(split_cells):
+            content = [l for l in lines if l.strip()] or [""]
+            if col_index == anchor:
+                for i in range(count):
+                    new_rows[i][col_index] = content[i] if i < len(content) else ""
+                continue
+            if ordered and col_index in movement_cols:
+                continue                      # placed below, by balance direction
+            for i in range(min(count, len(content))):
+                new_rows[i][col_index] = content[i]
+            if len(content) > count:
+                extra = " ".join(content[count:])
+                new_rows[-1][col_index] = (new_rows[-1][col_index] + " " + extra).strip()
+
+        placement = CELL
+        if ordered:
+            balances = [parse_amount(l) for l in anchor_lines]
+
+            def lines_of(col: int | None) -> list[str]:
+                if col is None or col >= len(split_cells):
+                    return []
+                return [l for l in split_cells[col] if l.strip()]
+
+            debits, credits = lines_of(debit_col), lines_of(credit_col)
+            placed = place_by_balance_direction(balances, debits, credits, prev_balance)
+            if placed is None and _ends_with_totals_line(split_cells, mapping, balances):
+                # A TOTALS LINE closes the table on its last page: the column
+                # totals sit in the movement columns and the closing balance
+                # is repeated. It is not a transaction. Placement is retried
+                # without it, and the line itself is dropped.
+                placed = place_by_balance_direction(
+                    balances[:-1], debits[:-1] if debits else [],
+                    credits[:-1] if credits else [], prev_balance)
+                if placed is not None:
+                    balances = balances[:-1]
+                    new_rows = new_rows[:-1]
+                    count -= 1
+            if placed is not None:
+                for i, (dt, ct) in enumerate(placed):
+                    if debit_col is not None:
+                        new_rows[i][debit_col] = dt
+                    if credit_col is not None:
+                        new_rows[i][credit_col] = ct
+                placement = BALANCE_ORDERED
+            else:
+                # By position, and SAID SO: the values may sit on the wrong
+                # rows, and reconciliation will report the disagreement.
+                for col_index in movement_cols:
+                    content = lines_of(col_index)
+                    for i in range(min(count, len(content))):
+                        new_rows[i][col_index] = content[i]
+                placement = UNRESOLVED_ORDER
+            if balances and balances[-1] is not None:
+                prev_balance = balances[-1]
+
+        kept = [r for r in new_rows if any((c or "").strip() for c in r)]
+        expanded.extend(kept)
+        placements.extend([placement] * len(kept))
+    return expanded, placements
+
+
 def _split_naive(rows: list[list[str | None]]) -> list[list[str | None]]:
     """Fallback when the date column is not yet known: split by line index."""
     expanded: list[list[str | None]] = []
@@ -198,9 +417,16 @@ def rows_to_transactions(
     page_no: int,
     carry: dict | None = None,
     prev_balance: Decimal | None = None,
+    source: str = "READ",
+    placements: list[str] | None = None,
 ) -> tuple[list[Transaction], dict | None]:
     """
     Convert table rows into transactions.
+
+    `source` says how the cells were obtained (READ: a digital PDF's cells;
+    OCR: tokens off a scan) and is carried on every transaction as its
+    amount provenance. `placements`, aligned with `rows`, says how each
+    row's movement was placed (split_merged_cells_ordered).
 
     A row without a date continues the previous one: banks wrap long
     narrations across rows, and dropping those loses the payee. `carry` lets an
@@ -213,7 +439,9 @@ def rows_to_transactions(
     out: list[Transaction] = []
     open_row: dict | None = carry
 
-    for row in rows:
+    for row_index, row in enumerate(rows):
+        placement = placements[row_index] if placements and row_index < len(placements) \
+            else CELL
         if not any((c or "").strip() for c in row):
             continue
 
@@ -225,13 +453,28 @@ def rows_to_transactions(
 
         date_text = _cell(row, mapping, "date")
         parsed = parse_date(date_text) if date_text else None
+        inherited = False
 
         if parsed is None:
-            if open_row is not None:
-                extra = _cell(row, mapping, "narration")
-                if extra:
-                    open_row["narration"] += " " + extra
-            continue
+            # A row with no date but ITS OWN balance and movement is a
+            # transaction, not a continuation: two same-day transactions
+            # print one date line, and the table extractor merges them.
+            # Folding such a row into the previous narration silently
+            # dropped its amount AND its balance. It takes the open row's
+            # date, and says so.
+            own_balance = (parse_amount(_cell(row, mapping, "balance"))
+                           if "balance" in mapping else None)
+            own_movement = (parse_amount(_cell(row, mapping, "debit")) is not None
+                            or parse_amount(_cell(row, mapping, "credit")) is not None)
+            if open_row is not None and own_balance is not None and own_movement:
+                parsed = open_row["date"]
+                inherited = True
+            else:
+                if open_row is not None:
+                    extra = _cell(row, mapping, "narration")
+                    if extra:
+                        open_row["narration"] += " " + extra
+                continue
 
         if open_row is not None:
             out.append(_build(open_row, page_no))
@@ -249,12 +492,17 @@ def rows_to_transactions(
         # source but their two columns wrap into different numbers of lines.
         # The running balance settles it: whichever side's magnitude actually
         # explains the change from the previous balance is the real one.
+        side_source = "COLUMN"
         if debit is not None and credit is not None and balance is not None and prev_balance is not None:
             delta = balance - prev_balance
             if abs(delta - credit) < abs(delta - (-debit)):
                 debit = None
             else:
                 credit = None
+            side_source = "BALANCE_DIRECTION"     # both are READ; the balance picked the side
+
+        serial_text = _cell(row, mapping, "serial")
+        serial = int(serial_text) if serial_text.isdigit() else None
 
         open_row = {
             "date": parsed,
@@ -264,6 +512,11 @@ def rows_to_transactions(
             "debit": debit,
             "credit": credit,
             "balance": balance,
+            "amount_source": source if (debit is not None or credit is not None) else "MISSING",
+            "side_source": side_source,
+            "placement": placement,
+            "serial": serial,
+            "date_inherited": inherited,
         }
 
     return out, open_row
@@ -279,7 +532,59 @@ def _build(row: dict, page_no: int) -> Transaction:
         credit=row["credit"],
         balance=row["balance"],
         page=page_no,
+        amount_source=row.get("amount_source", "READ"),
+        side_source=row.get("side_source", "COLUMN"),
+        placement=row.get("placement", CELL),
+        serial=row.get("serial"),
+        date_inherited=bool(row.get("date_inherited", False)),
     )
+
+
+def annotate_against_balance(
+    rows: list[Transaction], opening_balance: Decimal | None = None,
+) -> tuple[int, int]:
+    """
+    DIAGNOSTIC ONLY. For each row, record what the running balance implies
+    the movement was (`balance_delta`) and whether the READ amount agrees
+    (`agrees_with_balance`). Nothing here changes a debit or a credit --
+    the amount on a row is what was read, or None.
+
+    Returns (rows that disagree, rows with no readable amount).
+    """
+    disagreeing = missing = 0
+    previous: Decimal | None = opening_balance
+    for row in rows:
+        row.balance_delta = None
+        row.agrees_with_balance = None
+        if row.debit is None and row.credit is None:
+            missing += 1
+            row.amount_source = "MISSING"
+        if row.balance is None:
+            previous = None
+            continue
+        if previous is not None:
+            delta = row.balance - previous
+            row.balance_delta = delta
+            movement = (row.credit or Decimal(0)) - (row.debit or Decimal(0))
+            row.agrees_with_balance = abs(delta - movement) < Decimal("1.00")
+            if not row.agrees_with_balance:
+                disagreeing += 1
+        previous = row.balance
+    return disagreeing, missing
+
+
+def serial_gaps(rows: list[Transaction]) -> int | None:
+    """
+    Rows the statement's own numbering proves were not read, or None when
+    the statement prints no usable numbering (fewer than 80% of rows carry
+    one, or it is not increasing).
+    """
+    serials = [r.serial for r in rows if r.serial is not None]
+    if len(rows) < 2 or len(serials) < max(2, int(len(rows) * 0.8)):
+        return None
+    if any(b <= a for a, b in zip(serials, serials[1:])):
+        return None
+    return sum(b - a - 1 for a, b in zip(serials, serials[1:]))
 
 
 def flush(carry: dict | None, page_no: int) -> list[Transaction]:
@@ -297,9 +602,22 @@ def reconcile(
     truncated: bool = False,
     reached_end: bool = False,
     parsed_to_last_page: bool = False,
+    missing_amounts: int = 0,
+    disagreeing_rows: int = 0,
+    rows_not_read: int | None = None,
+    pages_unread: int = 0,
+    scanned: bool = False,
 ) -> tuple[bool | None, str | None]:
     """
     Whether the extraction can be trusted. Returns (verdict, reason).
+
+    ON INDEPENDENTLY READ AMOUNTS ONLY. `total_credit` and `total_debit` are
+    sums of figures read off the document; no amount was derived from the
+    balance. When a required amount could not be read, when the statement's
+    own numbering proves rows were not read, or when a page carried no text
+    the parser could read, the answer is None -- INCONCLUSIVE -- and the
+    reason says which. A check that ran on incomplete evidence and passed
+    would be exactly the self-confirmation this module must never produce.
 
     Two different questions have to be answered, and an earlier version
     answered only the first:
@@ -325,14 +643,47 @@ def reconcile(
             "could not be established"
         )
 
+    if pages_unread:
+        return None, (
+            f"{pages_unread} page(s) carry no text layer and were not read, so "
+            "the rows are incomplete and completeness could not be established"
+        )
+
+    if rows_not_read:
+        return None, (
+            f"the statement's own numbering shows {rows_not_read} row(s) were "
+            "not read, so completeness could not be established"
+        )
+
+    if missing_amounts:
+        return None, (
+            f"{missing_amounts} row(s) have no readable amount, so the movements "
+            "cannot be checked against the balance"
+        )
+
     if opening is None or closing is None:
         return None, "no opening or closing balance was recovered"
 
     expected = opening + total_credit - total_debit
     if abs(expected - closing) >= Decimal("1.00"):
+        if scanned:
+            # OCR read these figures. A sum that does not add up says the
+            # reading is uncertain, not that the document is wrong.
+            return None, (
+                "the figures read from this scan do not add up to its closing "
+                "balance, so they could not be confirmed"
+            )
         return False, (
             f"movements do not explain the balance: expected {expected}, "
             f"rows end at {closing}"
+        )
+
+    if disagreeing_rows:
+        # The totals agree but individual rows do not: values sit on the
+        # wrong rows, or errors cancel. Not something to certify.
+        return None, (
+            f"{disagreeing_rows} row(s) disagree with the running balance even "
+            "though the totals match, so the rows could not be confirmed"
         )
 
     # A printed figure that equals the OPENING balance is an opening caption,
@@ -388,8 +739,10 @@ def reconcile(
 
 
 __all__ = [
-    "map_columns", "find_header_row", "rows_to_transactions", "flush",
-    "reconcile",
+    "BALANCE_ORDERED", "CELL", "LINE", "POSITIONAL", "UNRESOLVED_ORDER",
+    "annotate_against_balance", "find_header_row", "flush", "map_columns",
+    "place_by_balance_direction", "reconcile", "rows_to_transactions", "serial_gaps",
+    "split_merged_cells_ordered",
 ]
 
 
@@ -455,54 +808,6 @@ def infer_columns(rows: list[list[str | None]]) -> dict[str, int] | None:
     elif movements:
         mapping["debit"] = movements[-1]
     return mapping
-
-
-def derive_movements_from_balance(
-    rows: list[Transaction], opening_balance: Decimal | None = None,
-) -> tuple[list[Transaction], int]:
-    """
-    Replace each row's debit/credit with the delta between consecutive
-    balances, when the balance sequence is trustworthy.
-
-    A statement with debit and credit interleaved unpredictably across rows
-    (some transactions debit, some credit, in no fixed pattern) cannot be
-    solved by aligning the Withdrawal and Deposit columns positionally --
-    both columns split into multi-line cells of DIFFERENT lengths on a
-    borderless table, and there is no way to tell from the flattened text
-    which of a column's several values belongs to which row. A real HDFC
-    statement had 5 withdrawal values and 4 deposit values across 9 rows;
-    naively filling withdrawals into the first 5 slots and deposits into the
-    next 4 put a debit where the third transaction was actually a credit,
-    corrupting every row after it.
-
-    The balance column does not have this problem -- it is the anchor
-    precisely because pdfplumber never merges two balance figures into one
-    line. Once the true balance is known for every row, the movement and its
-    sign are ARITHMETIC, not alignment: delta = balance[i] - balance[i-1].
-    This sidesteps column alignment for the amount entirely.
-
-    Returns (rows, corrected_count).
-    """
-    corrected = 0
-    previous: Decimal | None = opening_balance
-    for row in rows:
-        if row.balance is None:
-            previous = None
-            continue
-        if previous is not None:
-            delta = row.balance - previous
-            # Only override when the column-derived movement disagrees with
-            # what the balance says happened -- a row that already matches
-            # is left untouched rather than rewritten for no reason.
-            existing = (row.credit or Decimal(0)) - (row.debit or Decimal(0))
-            if abs(delta - existing) >= Decimal("1.00"):
-                if delta >= 0:
-                    row.credit, row.debit = delta, None
-                else:
-                    row.credit, row.debit = None, -delta
-                corrected += 1
-        previous = row.balance
-    return rows, corrected
 
 
 def orient_movements(
