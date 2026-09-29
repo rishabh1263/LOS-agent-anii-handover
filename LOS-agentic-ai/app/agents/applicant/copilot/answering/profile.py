@@ -177,7 +177,10 @@ _EVERYTHING = re.compile(
     r"\bwhat\s+(all\s+)?(information|details|info|data)\s+(have|did)\s+(i|we)\s+"
     r"(submit\w*|provid\w*|give|given|enter\w*|fill\w*|share\w*)\b"
     r"|\bwhat\s+(all\s+)?(have|did)\s+(i|we)\s+(submit\w*|provid\w*|fill\w*|enter\w*)\b"
-    r"|\b(show|give|tell)\s+(me\s+)?my\s+(basic\s+|personal\s+)?(details|information|info|profile)\b"
+    , re.I)
+#: "tell me my details" / "my details?" -- the caller's own details, with values
+_MY_DETAILS = re.compile(
+    r"\b(show|give|tell)\s+(me\s+)?my\s+(basic\s+|personal\s+)?(details|information|info|profile)\b"
     r"|^\s*my\s+(basic\s+|personal\s+)?(details|information|info|profile)\s*\??\s*$", re.I)
 #: "Are my basic details complete?" -- answered by the missing-information intent.
 COMPLETENESS = re.compile(
@@ -205,6 +208,9 @@ def _broad(said: str) -> Question | None:
     """A request for everything recorded, or None."""
     if _EVERYTHING.search(said):
         return Question(ALL)
+    if _MY_DETAILS.search(said) and not _ABOUT_APPLICATION.search(said) \
+            and not _DOCUMENT_WORDS.search(said):
+        return Question(ALL_APPLICANT)
     if _FIELDS_LISTED.search(said):
         return Question(FIELDS_AVAILABLE)
     if re.search(r"\b(tell|batao|bataiye)\b[^?]{0,15}\babout\s+(my|the)\s+loan\b|"
@@ -258,6 +264,15 @@ def detect(text: str) -> Question | None:
     broad = _broad(said)
     if broad is not None:
         return broad
+    # A VALUE OFFERED FOR CONFIRMATION names its own field by its shape:
+    # "Priya's is priya@example.com, right?" is about the email on record.
+    offered = re.search(r"\b(right|correct|sahi|na|naa|isn'?t\s+it|hai\s+na)\b\s*\??\s*$|"
+                        r"^\s*(and\s+)?(is|are)\b|\b(confirm|verify)\b", said, re.I)
+    if offered and not _named_fields(said):
+        if re.search(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", said):
+            return Question("email")
+        if re.search(r"(?<!\d)[6-9]\d{9}(?!\d)", said):
+            return Question("mobile")
     asked = bool(_OWNERSHIP.search(said) or _ASKING.search(said))
     if not asked:
         bare = _BARE_FILLER.sub(" ", said).strip()
@@ -268,9 +283,12 @@ def detect(text: str) -> Question | None:
     if not fields:
         return None
     if "full_name" in fields and re.search(
-            r"\b(naam|name)\s+(pe|par|per|on|under|mein|me)\b", said, re.I):
-        # "the number ON my name" is the registered mobile, not the name
-        if re.search(r"\b(number|no|numbr)\b", said, re.I) and "mobile" not in fields:
+            r"\b(naam|name)\s+(pe|par|per|on|at|under|mein|me|ka|ki|ke)\b"
+            # normalised Hinglish drops the connector: "mere naam ka PAN" -> "my naam PAN"
+            r"|\bnaam\s+(?!kya|hai|h\b|batao|bataiye|kaun|what|is\b)\w", said, re.I):
+        # "the number ON my name" is the registered mobile, not the name --
+        # when no other field names which number ("naam ka PAN number")
+        if fields == ["full_name"] and re.search(r"\b(number|no|numbr)\b", said, re.I):
             fields = [f for f in fields if f != "full_name"] + ["mobile"]
         elif len(fields) > 1:
             fields = [f for f in fields if f != "full_name"]

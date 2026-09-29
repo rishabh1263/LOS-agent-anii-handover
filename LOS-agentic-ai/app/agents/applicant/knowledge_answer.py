@@ -132,35 +132,372 @@ def _coverage(terms: list[str], hit) -> float:
     return _matched(terms, hit) / len(terms) if terms else 0.0
 
 
+def _vocabulary() -> list[dict[str, list[str]]]:
+    """app/config/knowledge_vocabulary.yaml: how people ask -> handbook words."""
+    global _VOCABULARY
+    if _VOCABULARY is None:
+        try:
+            import pathlib
+            import yaml
+
+            path = pathlib.Path(__file__).resolve().parents[2] / "config" / "knowledge_vocabulary.yaml"
+            loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            _VOCABULARY = [{"asks": [str(a).lower() for a in c.get("asks") or []],
+                            "handbook": [str(h).lower() for h in c.get("handbook") or []]}
+                           for c in loaded.get("concepts") or [] if c.get("handbook")]
+        except Exception:  # noqa: BLE001 - no vocabulary: the plain terms only
+            logger.exception("knowledge vocabulary unavailable")
+            _VOCABULARY = []
+    return _VOCABULARY
+
+
+_VOCABULARY: list[dict[str, list[str]]] | None = None
+_CORPUS_WORDS: dict[str, set[str]] = {}
+
+
+def _corpus_words() -> set[str]:
+    """Every word the FOS handbook uses (headings and text), for the stage."""
+    if STAGE not in _CORPUS_WORDS:
+        from app.knowledge.embeddings import tokenize
+
+        words: set[str] = set()
+        try:
+            for chunk in knowledge_layer.get_repository().chunks(STAGE):
+                words.update(tokenize(f"{chunk.heading} {chunk.text}"))
+        except Exception:  # noqa: BLE001 - unknown corpus: no guard from it
+            logger.exception("FOS corpus vocabulary unavailable")
+        _CORPUS_WORDS[STAGE] = words
+    return _CORPUS_WORDS[STAGE]
+
+
+def _unknown_subject(terms: list[str]) -> bool:
+    """
+    A THING THE HANDBOOK NEVER MENTIONS ("NRI", "prepayment"): a distinctive
+    word of the question that no passage uses, in any form. A passage that
+    covers the rest of the question does not answer a question about it.
+    """
+    words = _corpus_words()
+    if not words:
+        return False
+    stems = {w[:5] for w in words if len(w) >= 5}
+    plain = [t for t in terms if len(t) >= 3 and t.isalpha()]
+    unknown = [t for t in plain if t not in words and not (len(t) >= 5 and t[:5] in stems)]
+    # an incidental word ("marked", "borrowed") is not the subject; when the
+    # unknown words are half of what was asked, the subject is one of them
+    return bool(unknown) and len(unknown) * 2 >= len(plain)
+
+
+#: A question asking for a THRESHOLD is answered only by a passage stating one.
+_THRESHOLD = None
+
+
+def _asks_threshold(text: str) -> bool:
+    import re as _re
+
+    return bool(_re.search(r"\b(minimum|maximum|min|max|threshold|cut-?off|at\s+least|at\s+most|"
+                           r"upper\s+limit|lower\s+limit)\b", text, _re.I))
+
+
+def _concepts(*texts: str) -> tuple[list[list[str]], set[str]]:
+    """
+    THE ASKED CONCEPTS, each as the handbook words that would answer it, and
+    the question words they came from. One concept is one group: a passage
+    covering any of its handbook words covers it ONCE.
+    """
+    import re as _re
+
+    said = " ".join(t.lower() for t in texts if t)
+    groups: list[list[str]] = []
+    sources: set[str] = set()
+    for concept in _vocabulary():
+        hit = [a for a in concept["asks"]
+               if _re.search(r"(?<![\w-])" + _re.escape(a) + r"(?![\w-])", said)]
+        if hit:
+            groups.append(list(concept["handbook"]))
+            for a in hit:
+                sources.update(a.split())
+    return groups, sources
+
+
+def _stem(term: str) -> str:
+    """A light stem: "means"/"meaning" -> "mean", "documents" -> "document"."""
+    for suffix in ("ing", "ies", "es", "ed", "s"):
+        if len(term) - len(suffix) >= 4 and term.endswith(suffix):
+            return term[: -len(suffix)]
+    return term
+
+
+def _group_matched(group: list[str], hit, words: set[str], text: str) -> bool:
+    """Any of the group's terms at the START of a word of the text (so
+    "established" is found in NOT_ESTABLISHED and "mean" in "means")."""
+    import re as _re
+
+    for term in group:
+        stem = _stem(term.lower())
+        if _re.search(r"(?<![a-z0-9])" + _re.escape(stem), text):
+            return True
+    return False
+
+
+def _group_coverage(groups: list[list[str]], hit) -> tuple[float, int, int]:
+    """(share of groups covered, groups covered, groups covered by the heading)."""
+    from app.knowledge.embeddings import tokenize
+
+    body = f"{hit.chunk.heading} {hit.chunk.text}"
+    words, text = set(tokenize(body)), " ".join(body.lower().split())
+    head_words = set(tokenize(hit.chunk.heading))
+    head_text = hit.chunk.heading.lower()
+    covered = sum(1 for g in groups if _group_matched(g, hit, words, text))
+    in_heading = sum(1 for g in groups if _group_matched(g, hit, head_words, head_text))
+    return (covered / len(groups) if groups else 0.0), covered, in_heading
+
+
+def _group_weight(group: list[str]) -> float:
+    """How RARE the group is in the handbook (log inverse passage frequency):
+    "lifecycle" says more about which passage answers than "stage" does."""
+    import math
+
+    key = "\x1f".join(group)
+    cached = _WEIGHTS.get(key)
+    if cached is not None:
+        return cached
+    try:
+        chunks = list(knowledge_layer.get_repository().chunks(STAGE))
+    except Exception:  # noqa: BLE001
+        chunks = []
+    if not chunks:
+        return 1.0
+    df = sum(1 for c in chunks
+             if _group_matched(group, None, set(), " ".join(f"{c.heading} {c.text}".lower().split())))
+    weight = math.log((len(chunks) + 1) / (df + 1)) + 0.1
+    _WEIGHTS[key] = weight
+    return weight
+
+
+_WEIGHTS: dict[str, float] = {}
+
+
+def _weighted_coverage(groups: list[list[str]], hit) -> float:
+    body = " ".join(f"{hit.chunk.heading} {hit.chunk.text}".lower().split())
+    total = sum(_group_weight(g) for g in groups)
+    got = sum(_group_weight(g) for g in groups if _group_matched(g, hit, set(), body))
+    return got / total if total else 0.0
+
+
+def _rank(scored: tuple[float, int, int], groups: int, hit=None, codes: tuple[str, ...] = (),
+          weights_for: list[list[str]] | None = None) -> float:
+    """
+    RANKING ONLY (acceptance uses the plain coverage): body coverage, plus
+    what the HEADING covers -- a section titled by the question's subject is
+    the one written for it -- plus the CODES the question names in capitals
+    ("SKIPPED", "CONDITIONAL"), found written the same way in the passage:
+    the handbook spells a status exactly as the screen shows it.
+    """
+    coverage, _covered, in_heading = scored
+    if weights_for is not None and hit is not None:
+        coverage = _weighted_coverage(weights_for, hit)
+    rank = coverage + 0.5 * (in_heading / groups if groups else 0.0)
+    if codes and hit is not None:
+        import re as _re
+
+        body = f"{hit.chunk.heading} {hit.chunk.text}"
+        found = sum(1 for c in codes if _re.search(r"(?<![A-Za-z0-9_])" + _re.escape(c) + r"(?![A-Za-z0-9_])", body))
+        in_head = sum(1 for c in codes if c in hit.chunk.heading)
+        rank += (found + in_head) / len(codes)
+    return round(rank, 4)
+
+
+def _codes(question: str) -> tuple[str, ...]:
+    """Status / field codes the question writes in capitals (not the stage)."""
+    import re as _re
+
+    return tuple(dict.fromkeys(c for c in _re.findall(r"\b[A-Z][A-Z_]{2,}\b", question)
+                               if c not in (STAGE, "CPA", "KYC", "PAN", "ID", "FAQ")))
+
+
+def _common_terms() -> set[str]:
+    """Words most of the handbook uses ("fos", "stage"): they say nothing
+    about WHICH passage answers."""
+    if "_common" not in _CORPUS_WORDS:
+        from app.knowledge.embeddings import tokenize
+
+        counts: dict[str, int] = {}
+        total = 0
+        try:
+            for chunk in knowledge_layer.get_repository().chunks(STAGE):
+                total += 1
+                for w in set(tokenize(f"{chunk.heading} {chunk.text}")):
+                    counts[w] = counts.get(w, 0) + 1
+        except Exception:  # noqa: BLE001
+            total = 0
+        _CORPUS_WORDS["_common"] = {w for w, n in counts.items() if total and n / total >= 0.4}
+    return _CORPUS_WORDS["_common"]
+
+
 def _second_look(retriever, question: str, first, limit: int):
     from dataclasses import replace
     from app.agents.applicant import normalize
 
     canonical = normalize.normalise(question).text or question
-    terms = _distinctive(canonical) or _distinctive(question)
+    concepts, asked_words = _concepts(question, canonical)
+    terms = [t for t in (_distinctive(canonical) or _distinctive(question))
+             if t not in asked_words]
+    # ONE GROUP PER THING ASKED: a plain distinctive term, or a concept with
+    # the handbook words that answer it. The thresholds apply to the groups.
+    groups = [[t] for t in terms] + concepts
+    # for RANKING, the words every passage uses are left out
+    common = _common_terms()
+    rank_groups = [g for g in groups if not all(t in common for t in g)] or groups
+    codes = _codes(question)
     if first.confident:
         # A WEAK "confident" hit that answers almost nothing asked is declined.
-        if first.hits and first.hits[0].score < _WEAK_CONFIDENT and len(terms) >= 2 \
-                and not any(_coverage(terms, h) >= _ACCEPT_COVERAGE
-                            and _matched(terms, h) >= _MIN_MATCHED for h in first.hits[:3]):
+        if first.hits and first.hits[0].score < _WEAK_CONFIDENT and len(groups) >= 2 \
+                and not any(_group_coverage(groups, h)[0] >= _ACCEPT_COVERAGE
+                            and _group_coverage(groups, h)[1] >= _MIN_MATCHED
+                            for h in first.hits[:3]):
             return replace(first, hits=list(first.hits[:limit]), confident=False)
-        return _trimmed(first, limit)
+        if len(groups) < 2:
+            return _trimmed(first, limit)
+        pool = {h.chunk.chunk_id: h for h in first.hits}
+        if concepts:
+            rewrite = " ".join([canonical] + [w for g in concepts for w in g])
+            for h in retriever.retrieve(rewrite, STAGE, limit=10).hits:
+                pool.setdefault(h.chunk.chunk_id, h)
+        scored_first = {cid: _group_coverage(rank_groups, h) for cid, h in pool.items()}
+        reranked = sorted(pool.values(),
+                          key=lambda h: (_rank(scored_first[h.chunk.chunk_id], len(rank_groups), h, codes,
+                                               rank_groups), h.score),
+                          reverse=True)
+        return replace(first, hits=reranked[:limit])
     merged = {h.chunk.chunk_id: h for h in first.hits}
+    rewrites = []
     if canonical.strip().lower() != question.strip().lower():
-        for h in retriever.retrieve(canonical, STAGE, limit=5).hits:
+        rewrites.append(canonical)
+    if concepts:
+        # THE QUESTION IN THE HANDBOOK'S WORDS, retrieved as well
+        rewrites.append(" ".join([canonical] + [w for g in concepts for w in g]))
+    for rewrite in rewrites:
+        for h in retriever.retrieve(rewrite, STAGE, limit=10).hits:
             known = merged.get(h.chunk.chunk_id)
             if known is None or h.score > known.score:
                 merged[h.chunk.chunk_id] = h
-    if not merged or len(terms) < 2:
+    if not merged or len(groups) < 2:
         return _trimmed(first, limit)
-    ranked = sorted(merged.values(), key=lambda h: (_coverage(terms, h), h.score), reverse=True)
-    best = _coverage(terms, ranked[0])
-    confident = (best >= _ACCEPT_COVERAGE and _matched(terms, ranked[0]) >= _MIN_MATCHED
+    scored = {cid: _group_coverage(groups, h) for cid, h in merged.items()}
+    for_rank = {cid: _group_coverage(rank_groups, h) for cid, h in merged.items()}
+
+    def _acceptable(h) -> bool:
+        cov, cov_n, _ = scored[h.chunk.chunk_id]
+        return cov >= _ACCEPT_COVERAGE and cov_n >= _MIN_MATCHED and h.score >= 0.1
+
+    # a passage that meets the (unchanged) acceptance rule comes before one
+    # that only ranks well; among each, the ranking decides
+    ranked = sorted(merged.values(),
+                    key=lambda h: (_acceptable(h),
+                                   _rank(for_rank[h.chunk.chunk_id], len(rank_groups), h, codes,
+                                         rank_groups), h.score),
+                    reverse=True)
+    best, covered, _heading = scored[ranked[0].chunk.chunk_id]
+    confident = (best >= _ACCEPT_COVERAGE and covered >= _MIN_MATCHED
                  and ranked[0].score >= 0.1)
+    # GROUNDING GUARDS on a rescued retrieval: the question's own subject
+    # must exist in the handbook, and a threshold needs a stated number.
+    if confident and _unknown_subject(terms):
+        confident = False
+    if confident and _asks_threshold(canonical) and not any(
+            ch.isdigit() for ch in ranked[0].chunk.text):
+        confident = False
     return replace(first, hits=ranked[:limit], confident=confident)
 
 
-def deterministic_answer(result, *, max_sentences: int | None = None) -> str:
+def _question_groups(question: str) -> list[list[str]]:
+    """The things a question asks, as term groups (see _second_look)."""
+    from app.agents.applicant import normalize
+
+    canonical = normalize.normalise(question).text or question
+    concepts, asked_words = _concepts(question, canonical)
+    terms = [t for t in (_distinctive(canonical) or _distinctive(question))
+             if t not in asked_words]
+    return [[t] for t in terms] + concepts
+
+
+def _evidence(body: str, question: str, *, keep: int = 2) -> str:
+    """
+    ANSWER MORE, SAY LESS: the sentences of the passage that answer THIS
+    question -- those covering most of what it asks -- in the passage's own
+    order and words. Nothing is rephrased or added; a passage whose opening
+    already answers keeps its opening.
+    """
+    import re as _re
+    from app.knowledge.embeddings import tokenize
+
+    groups = _question_groups(question)
+    # NO IMPLEMENTATION DETAIL reaches a user: a file path in the handbook
+    # ("`app/config/policies/x.yaml`") is said as what it is
+    body = _re.sub(r"`?[\w.-]*(?:/[\w.-]+)+\.(?:ya?ml|json|py|md|txt)`?", "a configured policy file", body)
+    body = _re.sub(r"\|(\s*:?-{3,}:?\s*\|)+", " ", body)          # table rules
+    body = _re.sub(r"\s*\|\s*\|\s*", " || ", body)                  # row boundaries
+    # a heading, a table row, a list item is its own piece
+    pieces = [p.strip(" |") for p in _re.split(
+        r"(?<=[.!?])(?<!\b\d\.)\s+(?=[A-Z0-9*`(-])|(?<=:)\s+(?=-\s|\d+\.\s)|\s+(?=\d+\.\s)|\s+(?=-\s+\*\*)"
+        r"|\s*#{2,}\s+|\s*\|\|\s*",
+        body) if p.strip(" |")]
+    pieces = [_re.sub(r"\s*\|\s*", " -- ", p) for p in pieces]
+    # a list item keeps its own continuation sentences ("- **CONDITIONAL** --
+    # needed because ... It is just as binding as REQUIRED ...")
+    kept: list[str] = []
+    merged_once = False
+    for p in pieces:
+        # ONE continuation sentence, and only after an item that is itself a
+        # sentence -- a bare label ("- **EMPLOYMENT_PROOF**") has none
+        if kept and not merged_once and _re.match(r"(-\s+|\d+\.\s)", kept[-1]) \
+                and kept[-1].endswith(".") and not _re.match(r"(-\s+|\d+\.\s)", p) \
+                and not p.endswith(":") and len(p.split()) > 2:
+            kept[-1] = f"{kept[-1]} {p}"
+            merged_once = True
+        else:
+            kept.append(p)
+            merged_once = False
+    pieces = kept
+    # a heading on its own says nothing: joined to the line it heads
+    joined: list[str] = []
+    for p in pieces:
+        if joined and len(joined[-1].split()) <= 4 and not joined[-1].endswith((".", ":")):
+            joined[-1] = f"{joined[-1]}: {p}"
+        else:
+            joined.append(p)
+    pieces = joined
+    if not groups or len(pieces) <= keep:
+        return body
+    scored = []
+    for index, piece in enumerate(pieces):
+        words, text = set(tokenize(piece)), " ".join(piece.lower().split())
+        covered = sum(1 for g in groups if _group_matched(g, None, words, text))
+        scored.append((covered, -index, index))
+    best = max(scored)
+    if best[0] == 0:
+        return " ".join(pieces[:keep])
+    chosen = sorted(i for _c, _neg, i in sorted(scored, reverse=True)[:keep] if _c > 0)
+    asks_list = _re.search(r"\b(which|what\s+are|list|steps|states|stages|kaun-?kaun|kin-?kin|kya\s+kya)\b|"
+                           r"कौन-कौन|किन-किन", question, _re.I)
+    if asks_list and chosen and _re.match(r"\d+\.\s", pieces[chosen[0]]):
+        start = chosen[0]
+        while start > 0 and _re.match(r"\d+\.\s", pieces[start - 1]):
+            start -= 1
+        end = start
+        while end + 1 < len(pieces) and _re.match(r"\d+\.\s", pieces[end + 1]) and end - start < 7:
+            end += 1
+        items = [_re.sub(r"\s+--?\s+.*$|\s+—\s+.*$", "", pieces[i]) for i in range(start, end + 1)]
+        return "; ".join(i.rstrip(".") for i in items) + "."
+    # a sentence introducing a list ("Concretely:") brings its first item
+    first = chosen[0]
+    if pieces[first].endswith(":") and first + 1 < len(pieces) and first + 1 not in chosen:
+        chosen = sorted(set(chosen[:keep - 1]) | {first, first + 1})
+    return " ".join(pieces[i] for i in chosen)
+
+
+def deterministic_answer(result, *, max_sentences: int | None = None,
+                         question: str | None = None) -> str:
     """
     The retrieved passage, returned as written.
 
@@ -177,7 +514,9 @@ def deterministic_answer(result, *, max_sentences: int | None = None) -> str:
     top = result.hits[0].chunk
     body = " ".join(top.text.split())
 
-    if max_sentences:
+    if question:
+        body = _evidence(body, question, keep=max(2, max_sentences or 2))
+    elif max_sentences:
         import re as _re
 
         sentences = _re.split(r"(?<=[.!?])\s+", body)
@@ -232,7 +571,7 @@ async def answer(
 
     if not allow_model or not config.llm_enabled():
         counters.record(called=False)
-        return (deterministic_answer(result, max_sentences=max_sentences),
+        return (deterministic_answer(result, max_sentences=max_sentences, question=question),
                 "deterministic", detail)
 
     # GUARDED AT THE CALL SITE AS WELL, not only inside `_phrase`.
@@ -253,7 +592,7 @@ async def answer(
         phrased = None
 
     if phrased is None:
-        return (deterministic_answer(result, max_sentences=max_sentences),
+        return (deterministic_answer(result, max_sentences=max_sentences, question=question),
                 "deterministic", detail)
 
     detail["processing_ms"] = round((time.perf_counter() - started) * 1000, 2)

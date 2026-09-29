@@ -1,0 +1,59 @@
+# How people ASK about the FOS handbook -> the words the handbook USES.
+#
+# Retrieval-side query rewriting only. A question's everyday wording
+# ("compulsory", "genuine", "where they live", "अनिवार्य") is mapped to the
+# handbook's own vocabulary ("mandatory", "authenticity", "address") so the
+# passage that answers can be found and reranked. Each entry is ONE concept:
+# a passage covering any of its handbook terms covers that concept once, so
+# expansions never inflate coverage -- the acceptance thresholds in
+# knowledge_answer are unchanged and still decide.
+#
+# Keys are matched as whole words / phrases, case-insensitively, on the
+# question and on its canonical English form. No answers live here.
+concepts:
+  - asks: [compulsory, necessary, required, requirement, zaruri, zaroori, "जरूरी", "ज़रूरी", "अनिवार्य", anivarya, "आवश्यक", "गरजेचे", always needed]
+    handbook: [mandatory]
+  - asks: [genuine, real, fake, forged, authentic, asli, "असली", "नकली"]
+    handbook: [authenticity, established]
+  - asks: [confirm, confirms, prove, proves, guarantee, guarantees]
+    handbook: [established, means]
+  - asks: [where they live, where he lives, where she lives, residence, residential, rehta, rehti, "पता", "राहतो"]
+    handbook: [address]
+  - asks: [dropped, drop, removed, waived, excluded, hataya, "हटाया"]
+    handbook: [remove]
+  - asks: [bigger, higher, larger, more money, badi, zyada, borrowed, how much is borrowed, loan size]
+    handbook: [amount, add]
+  - asks: [stop, stops, block, prevent, hold up, rok, rokega]
+    handbook: [blocks]
+  - asks: [handing over, hand over, handover, send to cpa, bhejne, submit to cpa]
+    handbook: [handoff]
+  - asks: [spelling, spelt, spelled, alag naam, name differs]
+    handbook: [names, tolerates]
+  - asks: [reject ho, reject hogi, reject ho jayegi, rejected automatically]
+    handbook: [rejects]
+  - asks: [cibil, credit score, bureau score, credit report]
+    handbook: [route_to, later stages]
+  - asks: [policy file, rule file, policy changed, policy update, policy updated, file update]
+    handbook: [version, current file]
+  - asks: [blocked dikhega, still blocked, slot blocked]
+    handbook: [satisfied slot, best outcome]
+  - asks: [match_score, match score]
+    handbook: [compared]
+  - asks: ["अवस्थाओं", "अवस्था", avastha, states, statuses, stages it goes through, goes through, "गुजरता", lifecycle]
+    handbook: [lifecycle, APPLICATION_CREATED]
+  - asks: [clear first, first clear, priority, prioritise, prioritize, order]
+    handbook: [first, work through]
+  - asks: ["होम", home loan, ghar ka loan]
+    handbook: [home]
+  - asks: [income proof, salary proof, "आय प्रमाण"]
+    handbook: [income_proof, salary slip]
+  - asks: [accept, accepts, accepted, accept hote, allowed, valid, chalega, chalegi, "मान्य"]
+    handbook: [accepted, satisfied]
+  - asks: [electricity bill, electricity bills, light bill, bijli bill, water bill, gas bill, phone bill]
+    handbook: [utility bills, utility]
+  - asks: [chatbot, chat bot, assistant, this bot]
+    handbook: [copilot]
+  - asks: [naam, "नाम", naav]
+    handbook: [name, names]
+  - asks: [alag, different, differs, differ, mismatch, "अलग"]
+    handbook: [differ, mismatch, tolerates]

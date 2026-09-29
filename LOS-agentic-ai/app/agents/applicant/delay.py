@@ -59,7 +59,7 @@ def explain(*, stage: str | None, since: str | None,
 
 
 def answer(truth: dict[str, Any], held: list[dict[str, Any]],
-           nba: dict[str, Any], *, multi_party: bool) -> str:
+           nba: dict[str, Any], *, multi_party: bool, detail: str = "") -> str:
     """At most two sentences; a cause only when the records establish one."""
     from app.agents.applicant import actions, config
 
@@ -74,6 +74,13 @@ def answer(truth: dict[str, Any], held: list[dict[str, Any]],
             whose = (" for the primary applicant"
                      if item["party_role"] == "PRIMARY_APPLICANT"
                      else " for the co-applicant")
+        # THE RECORDED COMPARISON over the code's sentence: "the name on the
+        # PAN, X, does not match the bank account holder name, Y" is what the
+        # officer acts on. Only when the pipeline recorded both values.
+        if detail and item.get("impact_code") == "KYC_REVIEW":
+            reasons.append(f"{detail}, so the case is held for a reviewer{whose}")
+            detail = ""
+            continue
         reasons.append(f"{impacts.text(item)}{whose}")
     first = f"The records show your application is held because {'; and '.join(reasons)}."
     second = actions.answer(nba, primary_sentence=None,
