@@ -442,6 +442,9 @@ chatbot:
     fuzzy: true
     synonyms:
       dis: this
+      intrest: interest
+      intrst: interest
+      scor: score
       dat: that
       abt: about
       wat: what

@@ -92,6 +92,10 @@ _CROSS = _rx(
     rf"before|recent\w*|latest|last|previous|earlier)\b",
     # someone else's
     r"\b(someone|somebody|anyone|anybody)\s+else'?s?\b",
+    # "the other customer", "that customer I mentioned" -- a customer is never
+    # the co-applicant on this case
+    r"\b(the|that|this|those)\s+other\s+(customers?|clients?|borrowers?|users?)\b",
+    r"\b(customer|client|borrower|user|person)\s+(i|we)\s+(mentioned|told\s+you\s+about|asked\s+about)\b",
     # a named third person who "also applied": a neighbour, a friend, a relative
     r"\b(neighbou?rs?|friends?|colleagues?|relatives?|brothers?|sisters?|wife|husband|cousins?|"
     r"uncles?|aunts?|fathers?|mothers?|sons?|daughters?|boss|coworkers?|padosi|dost|rishtedar)\b"
@@ -134,8 +138,9 @@ _BULK = _rx(
     r"information|info|in\s+the\s+(system|database|db))\b",
     r"\b(show|list|give|tell)\s+(me\s+)?(everyone|everybody)\b",
     # every co-applicant, every KYC record: bulk, whatever the noun
-    rf"\b(list|show|dump|export|give|send|get|fetch|print|return)\s+(me\s+)?({_EVERY}\s+)?(the\s+)?"
+    rf"\b(list|show|dump|export|give|send|get|fetch|print|return)\s+(me\s+)?{_EVERY}\s+(the\s+)?"
     r"co[\s-]?(applicants|borrowers)\b",
+    r"\blist\s+(me\s+)?(the\s+)?co[\s-]?(applicants|borrowers)\b",
     rf"\b{_EVERY}\s+(the\s+)?kyc\s+(records?|results?|data|checks?|details|reports?)\b",
     r"\b(whole|entire|full|complete)\s+(database|db|dataset|table|customer\s+base|system\s+data)\b",
 )
@@ -171,6 +176,7 @@ _TOOL = _rx(
 _AUTHORITY_CLAIM = _rx(
     r"\b(sysadmin|admin|system|root)\s+override\b|\boverride\s+(code|accepted|granted)\b|"
     r"\b(elevate|escalate|upgrade)\s+(this\s+|my\s+)?(session|access|privileges?|permissions?|role)\b|"
+    r"\bas\s+(admin\w*|administrator|superuser|super\s+user|root|sysadmin)\b|"
     r"\bfull\s+(read\s+|write\s+|admin\s+)?access\b",
     r"\b(i\s*am|i'?m|im|as\s+(an?|the)|main|mai|hum|we\s+are|this\s+is)\s+(an?\s+|the\s+)?"
     r"(\w+\s+){0,2}(admin\w*|administrator|superuser|super\s+user|root|cto|ceo|cfo|ciso|cio|"
@@ -200,7 +206,27 @@ _ACCESS_OBJECT = _rx(
     r"numbers?)\b",
     rf"\b{_EVERY}\s+{_PERSON}",
     r"\bsab\s*k[aei]\s+\w+",
+    r"\b(full|complete|unmasked|raw|whole|entire|actual)\s+(pan|aadhaa?r|account|bank\s+account|card|"
+    r"identity|id)\b|\bunmasked\b|\bmasking\s+(is\s+)?(disabled|off|removed|turned\s+off)\b",
 )
+
+#: A SENSITIVE VALUE RE-SHAPED to slip past masking: spelled out, reversed,
+#: encoded, one character at a time.
+_OBFUSCATE = _rx(
+    r"\b(spell|reverse|backwards?|encode|encrypt|base64|rot13|hex|obfuscate|split)\b[^?]{0,60}"
+    r"\b(pan|aadhaa?r|account|a/c|mobile|phone|card|identity|number)\b",
+    r"\b(pan|aadhaa?r|account|a/c|mobile|phone|card|number)\b[^?]{0,60}\b(backwards?|reversed|"
+    r"spelled|one\s+(character|letter|digit)\s+at\s+a\s+time|character\s+by\s+character|"
+    r"digit\s+by\s+digit|with\s+(dashes|spaces|dots)\s+between)\b",
+)
+
+#: A PERSONAL IDENTIFIER VALUE used as the key of a lookup ("the customer with
+#: PAN ...", "the PAN for x@y.com", "open loan 987654"). The Copilot answers
+#: about the authorised case; it never looks a record up by a value.
+_PERSONAL_ID = re.compile(
+    r"\b[A-Z]{5}\d{4}[A-Z]\b|[\w.+-]+@[\w-]+(\.[\w-]+)+|"
+    r"\b(loan|case|application|file|account|a/c)\s*(no\.?|number|#|id)?\s*[:.-]?\s*\d{5,}\b",
+    re.IGNORECASE)
 
 _RESTRICTED = _rx(
     # NOT the caller's own: "tell me if my sensitive data is safe" passes.
@@ -236,6 +262,8 @@ _OTHER_CONVERSATION = _rx(
     r"\b(person|user|customer|someone|somebody|guy|one)\s+(chatting|talking|speaking|who\s+(chatted|"
     r"talked|spoke|was\s+here))\s+(with\s+you\s+|to\s+you\s+)?(just\s+)?(before|earlier|prior)\b",
     r"\bremember\b[^?]{0,30}\b(another|other|previous|different)\b",
+    # "the session before mine", "the chat before this one"
+    r"\b(session|chat|conversation)s?\s+(before|prior\s+to)\s+(mine|this|ours|my\s+own)\b",
 )
 
 #: Internal identifiers a message may name: a case / applicant / party id.
@@ -332,7 +360,7 @@ def classify(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Decis
             if found:
                 return Decision(found.category, "encoded_" + found.rule)
         if re.search(r"\b(decode|decrypt|base64)\b[^?]{0,30}\b(and|then)\b[^?]{0,20}"
-                     r"\b(do|follow|execute|run|obey|act|perform)\b", raw, _I):
+                     r"\b(do|follow|execute|run|obey|act|perform|answer|reply|respond)\b", raw, _I):
             return Decision("PROMPT_INJECTION", "decode_and_obey")
 
     rule = _first(_SQLI, [raw] + decoded, "sql")
@@ -349,6 +377,22 @@ def classify(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Decis
     for match in _IDS.finditer(raw):
         if match.group(0).lower() not in allowed:
             return Decision("UNAUTHORIZED_SUBJECT", "named_identifier")
+    if _PERSONAL_ID.search(raw) and not (
+            re.search(r"\b(is|are)\s+(my|mera|meri)\s+(email|e-mail|mobile|phone|number)\b", raw, _I)
+            or re.search(r"^\s*(and\s+)?\w+'s\s+is\s+[\w.+-]+@", raw, _I)):
+        return Decision("UNAUTHORIZED_SUBJECT", "named_personal_identifier")
+    if re.search(r"\b(decode|decrypt)\b[^?]{0,20}\b(and|then|&)\b[^?]{0,20}"
+                 r"\b(answer|reply|respond|follow|execute|do)\b", raw, _I):
+        return Decision("PROMPT_INJECTION", "decode_and_answer")
+    rule = _first(_OBFUSCATE, texts, "obfuscate")
+    if rule:
+        return Decision("DATA_EXPORT", rule)
+    # ASKING FOR A VALUE WITH ITS MASK REMOVED: "print my full account number,
+    # unmasked". Masking is not the caller's to switch off, own value or not.
+    if re.search(r"\b(print|show|give|tell|display|send|share|reveal|batao|bata|dikhao|dikha|de\s*do)\b"
+                 r"[^?]{0,60}\b(unmasked|un-masked|without\s+(any\s+)?mask(ing|s)?|"
+                 r"(remove|disable|skip|bypass)\s+(the\s+)?mask(ing)?)\b", raw, _I):
+        return Decision("DATA_EXPORT", "unmask_request")
 
     rule = _first(_OTHER_CONVERSATION, texts, "conversation")
     if rule:

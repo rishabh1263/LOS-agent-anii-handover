@@ -710,6 +710,10 @@ def context_from_response(envelope: Mapping[str, Any]) -> dict[str, Any]:
         "last_slot": slot,
         "last_documents": listed[:6],
         "last_document": (None if understanding.get("compound") else frame.get("document_type")),
+        "last_field": ((understanding.get("requested") or {}).get("field")
+                       if isinstance(understanding, Mapping) else None),
+        "last_aspect": ((understanding.get("requested") or {}).get("aspect")
+                        if isinstance(understanding, Mapping) else None),
         # The party role the answer was about, for "and her documents?".
         "last_subject": (subject.get("kind")
                          if isinstance(subject, Mapping) else None),

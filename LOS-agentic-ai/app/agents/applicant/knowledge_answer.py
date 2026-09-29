@@ -57,17 +57,107 @@ _SYSTEM = (
 
 
 def retrieve(question: str, *, limit: int = 3):
-    """Retrieve FOS knowledge for a question. Never raises."""
+    """
+    Retrieve FOS knowledge for a question. Never raises.
+
+    ONE PASS WHEN IT IS CLEAR: a confident retrieval is returned as the
+    retriever produced it. OTHERWISE A SECOND LOOK, bounded and deterministic
+    -- the question is also retrieved in its canonical English form
+    (Hinglish / Hindi / Marathi rewritten by the language layer), the hits are
+    merged, and each passage is RERANKED by how much of the question's
+    DISTINCTIVE vocabulary it covers. A passage is accepted below the score
+    threshold only when it covers most of what was asked; a weakly confident
+    hit that covers almost none of it is declined. A question the handbook
+    does not cover ("prepayment penalty") shares no distinctive term with any
+    passage and is still answered honestly: not enough information.
+    """
     if not knowledge_layer.enabled():
         return None
     try:
-        return knowledge_layer.get_retriever().retrieve(
-            question, STAGE, limit=limit,
-        )
+        retriever = knowledge_layer.get_retriever()
+        first = retriever.retrieve(question, STAGE, limit=max(limit, 5))
     except Exception:
         # The knowledge base failing must not take a case question with it.
         logger.exception("FOS knowledge retrieval failed")
         return None
+    try:
+        return _second_look(retriever, question, first, limit)
+    except Exception:  # noqa: BLE001 - the second look never costs the first
+        logger.exception("FOS knowledge rerank failed")
+        return _trimmed(first, limit)
+
+
+#: Words that say nothing about WHICH passage answers ("loan", "customer").
+_GENERIC_TERMS = frozenset("""
+loan loans customer customers applicant applicants borrower case cases application applications
+document documents doc docs file files system personal home business can could use used using need
+needed needs get give tell show know want please will would should does did done make made take
+taken good fine okay yes no also still just like one two first second any some thing things way
+else ones clear stop sitting turned several instead less haven entered yet include depend always
+regardless got shows details didn over handing through process usually live left right really about
+there their them they then than these those this that which what when where while who whom why how
+liye chalega maana jata tha raha rahi hoga hogi toh uske uska uski nahi rahe karta karte karna aane
+baad kiya kiye phir dobara karne kitne kitna lagte lagta hota hoti hote jaata jaati jayega jayegi
+chahiye bhejne bhej kab kaise kya hai hain mein par wala wali beech chal agar jab bhi sirf sab kuch
+""".split())
+#: Coverage a below-threshold passage needs to be accepted, the floor under
+#: which a weakly confident one is declined, and what "weakly" means.
+_ACCEPT_COVERAGE, _DECLINE_COVERAGE, _WEAK_CONFIDENT = 0.5, 0.25, 0.4
+#: ... and a passage must cover at least this many distinct terms of it.
+_MIN_MATCHED = 2
+
+
+def _trimmed(result, limit: int):
+    from dataclasses import replace
+
+    return replace(result, hits=list(result.hits[:limit]))
+
+
+def _distinctive(text: str) -> list[str]:
+    from app.knowledge.retriever import content_terms
+
+    return list(dict.fromkeys(t for t in content_terms(text)
+                              if len(t) >= 3 and t not in _GENERIC_TERMS and not t.isdigit()))
+
+
+def _matched(terms: list[str], hit) -> int:
+    from app.knowledge.embeddings import tokenize
+
+    words = set(tokenize(f"{hit.chunk.heading} {hit.chunk.text}"))
+    stems = {w[:5] for w in words if len(w) >= 5}
+    return sum(1 for t in terms if t in words or (len(t) >= 5 and t[:5] in stems))
+
+
+def _coverage(terms: list[str], hit) -> float:
+    return _matched(terms, hit) / len(terms) if terms else 0.0
+
+
+def _second_look(retriever, question: str, first, limit: int):
+    from dataclasses import replace
+    from app.agents.applicant import normalize
+
+    canonical = normalize.normalise(question).text or question
+    terms = _distinctive(canonical) or _distinctive(question)
+    if first.confident:
+        # A WEAK "confident" hit that answers almost nothing asked is declined.
+        if first.hits and first.hits[0].score < _WEAK_CONFIDENT and len(terms) >= 2 \
+                and not any(_coverage(terms, h) >= _ACCEPT_COVERAGE
+                            and _matched(terms, h) >= _MIN_MATCHED for h in first.hits[:3]):
+            return replace(first, hits=list(first.hits[:limit]), confident=False)
+        return _trimmed(first, limit)
+    merged = {h.chunk.chunk_id: h for h in first.hits}
+    if canonical.strip().lower() != question.strip().lower():
+        for h in retriever.retrieve(canonical, STAGE, limit=5).hits:
+            known = merged.get(h.chunk.chunk_id)
+            if known is None or h.score > known.score:
+                merged[h.chunk.chunk_id] = h
+    if not merged or len(terms) < 2:
+        return _trimmed(first, limit)
+    ranked = sorted(merged.values(), key=lambda h: (_coverage(terms, h), h.score), reverse=True)
+    best = _coverage(terms, ranked[0])
+    confident = (best >= _ACCEPT_COVERAGE and _matched(terms, ranked[0]) >= _MIN_MATCHED
+                 and ranked[0].score >= 0.1)
+    return replace(first, hits=ranked[:limit], confident=confident)
 
 
 def deterministic_answer(result, *, max_sentences: int | None = None) -> str:

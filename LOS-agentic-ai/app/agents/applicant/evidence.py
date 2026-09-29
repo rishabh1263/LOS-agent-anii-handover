@@ -228,7 +228,8 @@ def build(
 def answer_basis(packet: dict[str, Any], *, tools: list[dict[str, Any]],
                  knowledge_sources: list[str] | None = None,
                  semantic_sources: list[str] | None = None,
-                 validated: bool, response_source: str) -> dict[str, Any]:
+                 validated: bool, response_source: str,
+                 answer_evidence: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """
     WHY THIS ANSWER -- structured provenance, safe to publish: which
     governed tools (and over which transport) the case facts came from,
@@ -241,7 +242,11 @@ def answer_basis(packet: dict[str, Any], *, tools: list[dict[str, Any]],
                                   for t in tools}) or [],
         "knowledge_sources": list(knowledge_sources or []),
         "semantic_sources": list(semantic_sources or []),
-        "evidence": sorted(k for k in packet if k != "question_intent"),
+        # WHAT THIS ANSWER RESTS ON: the fields it resolved (field, state,
+        # source) when it is a field answer -- never the case's unrelated
+        # problems; otherwise the case evidence it was composed from.
+        "evidence": (list(answer_evidence) if answer_evidence
+                     else sorted(k for k in packet if k != "question_intent")),
         "validated": validated,
         "response_source": response_source,
     }

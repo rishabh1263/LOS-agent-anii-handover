@@ -1,0 +1,2069 @@
+[
+ {
+  "id": "mt_001",
+  "category": "pronoun",
+  "turns": [
+   {
+    "q": "What's my loan amount?",
+    "has": [
+     "5,00,000"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "and the tenure?",
+    "has": [
+     "36 months"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "interest?",
+    "has": [
+     "11.5%"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_002",
+  "category": "pronoun",
+  "turns": [
+   {
+    "q": "Mera loan kitne ka hai?",
+    "has": [
+     "5,00,000"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "aur stage?",
+    "has": [
+     "Basic Document Verification"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "kyun atka hai?",
+    "has": [],
+    "any": [
+     "R SHARMA",
+     "R Sharma",
+     "match",
+     "mismatch"
+    ],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_003",
+  "category": "pronoun",
+  "turns": [
+   {
+    "q": "What's my mobile number?",
+    "has": [
+     "9876501234"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "and email?",
+    "has": [
+     "rahul@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "priya@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "DOB?",
+    "has": [
+     "14 May 1990"
+    ],
+    "any": [],
+    "lacks": [
+     "21 August 1992"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_004",
+  "category": "pronoun",
+  "turns": [
+   {
+    "q": "Co-applicant ka mobile kya hai?",
+    "has": [
+     "9811122233"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "aur uska email?",
+    "has": [
+     "priya@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "rahul@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "address?",
+    "has": [],
+    "any": [],
+    "lacks": [
+     "12 MG Road"
+    ],
+    "missing": true,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_005",
+  "category": "pronoun",
+  "turns": [
+   {
+    "q": "What's the interest rate on this loan?",
+    "has": [
+     "11.5%"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "and for how long?",
+    "has": [
+     "36 months"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "what about the employment type?",
+    "has": [],
+    "any": [
+     "salaried",
+     "Salaried"
+    ],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_006",
+  "category": "pronoun",
+  "turns": [
+   {
+    "q": "मेरा लोन अमाउंट क्या है?",
+    "has": [],
+    "any": [
+     "5,00,000",
+     "500000",
+     "5 लाख",
+     "5 lakh"
+    ],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "और टेन्योर?",
+    "has": [],
+    "any": [
+     "36"
+    ],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "ब्याज दर?",
+    "has": [
+     "11.5%"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_007",
+  "category": "pronoun",
+  "turns": [
+   {
+    "q": "Mera KYC status kya hai?",
+    "has": [
+     "needs review"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "score kitna hai?",
+    "has": [],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": true,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "aur Priya ka?",
+    "has": [],
+    "any": [],
+    "lacks": [
+     "needs review"
+    ],
+    "missing": true,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_008",
+  "category": "pronoun",
+  "turns": [
+   {
+    "q": "Which documents are missing?",
+    "has": [
+     "Address Proof",
+     "Bank Statement"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "and which ones are done?",
+    "has": [
+     "PAN"
+    ],
+    "any": [
+     "verified",
+     "Verified"
+    ],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_009",
+  "category": "party",
+  "turns": [
+   {
+    "q": "What's my mobile?",
+    "has": [
+     "9876501234"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "and the co-applicant's?",
+    "has": [
+     "9811122233"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "mine again?",
+    "has": [
+     "9876501234"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "their email?",
+    "has": [
+     "priya@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "rahul@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_010",
+  "category": "party",
+  "turns": [
+   {
+    "q": "Meri DOB kya hai?",
+    "has": [
+     "14 May 1990"
+    ],
+    "any": [],
+    "lacks": [
+     "21 August 1992"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "aur Priya ki?",
+    "has": [
+     "21 August 1992"
+    ],
+    "any": [],
+    "lacks": [
+     "14 May 1990"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "wapas mera email batao",
+    "has": [
+     "rahul@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "priya@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "aur uska email?",
+    "has": [
+     "priya@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "rahul@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_011",
+  "category": "party",
+  "turns": [
+   {
+    "q": "Priya Sharma ka number do",
+    "has": [
+     "9811122233"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "aur mera?",
+    "has": [
+     "9876501234"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "dono ke email?",
+    "has": [
+     "rahul@example.com",
+     "priya@example.com"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_012",
+  "category": "party",
+  "turns": [
+   {
+    "q": "Tell me the co-applicant's details",
+    "has": [
+     "Priya Sharma"
+    ],
+    "any": [
+     "9811122233",
+     "priya@example.com",
+     "21 August 1992"
+    ],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "what about me?",
+    "has": [],
+    "any": [
+     "9876501234",
+     "rahul@example.com",
+     "14 May 1990",
+     "12 MG Road"
+    ],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "and her phone?",
+    "has": [
+     "9811122233"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_013",
+  "category": "party",
+  "turns": [
+   {
+    "q": "Mera KYC?",
+    "has": [
+     "needs review"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "co-applicant ka KYC?",
+    "has": [],
+    "any": [],
+    "lacks": [
+     "needs review"
+    ],
+    "missing": true,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "mera PAN verified hai?",
+    "has": [
+     "PAN"
+    ],
+    "any": [
+     "verified",
+     "Verified"
+    ],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "aur uska PAN?",
+    "has": [
+     "PAN"
+    ],
+    "any": [
+     "rejected",
+     "Rejected",
+     "reject",
+     "Reject"
+    ],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_014",
+  "category": "party",
+  "turns": [
+   {
+    "q": "माझा मोबाईल नंबर काय आहे?",
+    "has": [
+     "9876501234"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "आणि सह-अर्जदाराचा?",
+    "has": [
+     "9811122233"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "माझा ईमेल?",
+    "has": [
+     "rahul@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "priya@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_015",
+  "category": "party",
+  "turns": [
+   {
+    "q": "Priya ka address kya hai?",
+    "has": [],
+    "any": [],
+    "lacks": [
+     "12 MG Road"
+    ],
+    "missing": true,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "aur mera address?",
+    "has": [
+     "12 MG Road"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "uska DOB?",
+    "has": [
+     "21 August 1992"
+    ],
+    "any": [],
+    "lacks": [
+     "14 May 1990"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_016",
+  "category": "party",
+  "turns": [
+   {
+    "q": "Is my email rahul@example.com?",
+    "has": [
+     "rahul@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "priya@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "and Priya's is priya@example.com, right?",
+    "has": [
+     "priya@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "and my birth date?",
+    "has": [
+     "14 May 1990"
+    ],
+    "any": [],
+    "lacks": [
+     "21 August 1992"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_017",
+  "category": "correction",
+  "turns": [
+   {
+    "q": "Co-applicant ka mobile batao",
+    "has": [
+     "9811122233"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "nahi, mera matlab mera wala tha",
+    "has": [
+     "9876501234"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_018",
+  "category": "correction",
+  "turns": [
+   {
+    "q": "What's the loan amount?",
+    "has": [
+     "5,00,000"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "no I meant the tenure",
+    "has": [
+     "36 months"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_019",
+  "category": "correction",
+  "turns": [
+   {
+    "q": "Mera DOB batao",
+    "has": [
+     "14 May 1990"
+    ],
+    "any": [],
+    "lacks": [
+     "21 August 1992"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "nahi nahi, Priya ka",
+    "has": [
+     "21 August 1992"
+    ],
+    "any": [],
+    "lacks": [
+     "14 May 1990"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_020",
+  "category": "correction",
+  "turns": [
+   {
+    "q": "What's my declared income?",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": true,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "sorry, I meant the loan amount",
+    "has": [
+     "5,00,000"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "no wait, the interest rate",
+    "has": [
+     "11.5%"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_021",
+  "category": "correction",
+  "turns": [
+   {
+    "q": "Priya ka email?",
+    "has": [
+     "priya@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "rahul@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "galti se bola, mera email chahiye",
+    "has": [
+     "rahul@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "priya@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_022",
+  "category": "correction",
+  "turns": [
+   {
+    "q": "Show me the application number",
+    "has": [],
+    "any": [
+     "case_eval0000000000000000000000mine",
+     "APP-EVALMINE01"
+    ],
+    "lacks": [],
+    "missing": true,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "no, I meant the applicant ID",
+    "has": [
+     "APP-EVALMINE01"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_023",
+  "category": "correction",
+  "turns": [
+   {
+    "q": "मेरा ईमेल क्या है?",
+    "has": [
+     "rahul@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "priya@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "नहीं, मेरा मतलब मोबाइल नंबर था",
+    "has": [
+     "9876501234"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_024",
+  "category": "clarification",
+  "turns": [
+   {
+    "q": "Sharma ji ka mobile number?",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": true,
+    "party": null
+   },
+   {
+    "q": "the co-applicant",
+    "has": [
+     "9811122233"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_025",
+  "category": "clarification",
+  "turns": [
+   {
+    "q": "Sharma ka DOB batao",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": true,
+    "party": null
+   },
+   {
+    "q": "jo co-applicant hai uska",
+    "has": [
+     "21 August 1992"
+    ],
+    "any": [],
+    "lacks": [
+     "14 May 1990"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_026",
+  "category": "clarification",
+  "turns": [
+   {
+    "q": "What's the ID?",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": true,
+    "party": null
+   },
+   {
+    "q": "the case one",
+    "has": [
+     "case_eval0000000000000000000000mine"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_027",
+  "category": "clarification",
+  "turns": [
+   {
+    "q": "number batao",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": true,
+    "party": null
+   },
+   {
+    "q": "applicant ID wala",
+    "has": [
+     "APP-EVALMINE01"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_028",
+  "category": "clarification",
+  "turns": [
+   {
+    "q": "Sharma's email?",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": true,
+    "party": null
+   },
+   {
+    "q": "2, the co-applicant",
+    "has": [
+     "priya@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "rahul@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_029",
+  "category": "clarification",
+  "turns": [
+   {
+    "q": "Uska DOB kya hai?",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": true,
+    "party": null
+   },
+   {
+    "q": "Priya ka",
+    "has": [
+     "21 August 1992"
+    ],
+    "any": [],
+    "lacks": [
+     "14 May 1990"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "aur Rahul ka?",
+    "has": [
+     "14 May 1990"
+    ],
+    "any": [],
+    "lacks": [
+     "21 August 1992"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_030",
+  "category": "topic_switch",
+  "turns": [
+   {
+    "q": "What stage is my case at?",
+    "has": [
+     "Basic Document Verification"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "What's my email?",
+    "has": [
+     "rahul@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "priya@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "how much is the interest?",
+    "has": [
+     "11.5%"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_031",
+  "category": "topic_switch",
+  "turns": [
+   {
+    "q": "Kaunse documents pending hain?",
+    "has": [
+     "Address Proof",
+     "Bank Statement"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "accha, Priya ka mobile?",
+    "has": [
+     "9811122233"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "loan tenure kitna hai?",
+    "has": [
+     "36 months"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_032",
+  "category": "topic_switch",
+  "turns": [
+   {
+    "q": "What's my KYC status?",
+    "has": [
+     "needs review"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "What's the property value?",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": true,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "tenure?",
+    "has": [
+     "36 months"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_033",
+  "category": "topic_switch",
+  "turns": [
+   {
+    "q": "Mera address kya hai?",
+    "has": [
+     "12 MG Road"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "obligations kitni hai?",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": true,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "case ID?",
+    "has": [
+     "case_eval0000000000000000000000mine"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_034",
+  "category": "topic_switch",
+  "turns": [
+   {
+    "q": "माझ्या केसची स्टेज काय आहे?",
+    "has": [],
+    "any": [
+     "Basic Document Verification",
+     "Document Verification",
+     "डॉक्युमेंट",
+     "कागदपत्र"
+    ],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "कर्जाची रक्कम किती आहे?",
+    "has": [],
+    "any": [
+     "5,00,000",
+     "500000",
+     "5 लाख",
+     "5 lakh"
+    ],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_035",
+  "category": "topic_switch",
+  "turns": [
+   {
+    "q": "Is my bank statement uploaded?",
+    "has": [
+     "Bank Statement"
+    ],
+    "any": [
+     "missing",
+     "Missing",
+     "not",
+     "pending"
+    ],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "What's Priya's DOB?",
+    "has": [
+     "21 August 1992"
+    ],
+    "any": [],
+    "lacks": [
+     "14 May 1990"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "and the loan type?",
+    "has": [
+     "Personal Loan"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_036",
+  "category": "cancel",
+  "turns": [
+   {
+    "q": "Sharma ka number",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": true,
+    "party": null
+   },
+   {
+    "q": "chhodo, loan amount batao",
+    "has": [
+     "5,00,000"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_037",
+  "category": "cancel",
+  "turns": [
+   {
+    "q": "Their email?",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": true,
+    "party": null
+   },
+   {
+    "q": "never mind. what's my stage?",
+    "has": [
+     "Basic Document Verification"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_038",
+  "category": "cancel",
+  "turns": [
+   {
+    "q": "Priya ke documents dikhao",
+    "has": [
+     "PAN"
+    ],
+    "any": [
+     "rejected",
+     "Rejected",
+     "reject",
+     "Reject"
+    ],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "rehne do. mera mobile kya hai?",
+    "has": [
+     "9876501234"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_039",
+  "category": "cancel",
+  "turns": [
+   {
+    "q": "What's the ID?",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": true,
+    "party": null
+   },
+   {
+    "q": "forget it, what's my interest rate?",
+    "has": [
+     "11.5%"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_040",
+  "category": "cancel",
+  "turns": [
+   {
+    "q": "शर्मा जी का नंबर बताओ",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": true,
+    "party": null
+   },
+   {
+    "q": "छोड़ो, मेरा ईमेल बताओ",
+    "has": [
+     "rahul@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "priya@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_041",
+  "category": "expand",
+  "turns": [
+   {
+    "q": "What's the stage?",
+    "has": [
+     "Basic Document Verification"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "why?",
+    "has": [],
+    "any": [
+     "R SHARMA",
+     "R Sharma",
+     "match",
+     "mismatch"
+    ],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "tell me more",
+    "has": [],
+    "any": [
+     "PAN",
+     "Address Proof",
+     "Bank Statement",
+     "R SHARMA",
+     "R Sharma"
+    ],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_042",
+  "category": "expand",
+  "turns": [
+   {
+    "q": "Mere KYC ka kya hua?",
+    "has": [
+     "needs review"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "kyun?",
+    "has": [],
+    "any": [
+     "R SHARMA",
+     "R Sharma",
+     "match",
+     "mismatch"
+    ],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "aur kya?",
+    "has": [],
+    "any": [
+     "score",
+     "R SHARMA",
+     "RAHUL SHARMA",
+     "needs review",
+     "Address Proof"
+    ],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_043",
+  "category": "expand",
+  "turns": [
+   {
+    "q": "Tell me about my loan",
+    "has": [],
+    "any": [
+     "5,00,000",
+     "Personal Loan"
+    ],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "what else?",
+    "has": [],
+    "any": [
+     "36 months",
+     "11.5%",
+     "salaried",
+     "Salaried",
+     "Basic Document Verification"
+    ],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_044",
+  "category": "expand",
+  "turns": [
+   {
+    "q": "Documents ka status?",
+    "has": [],
+    "any": [
+     "Address Proof",
+     "Bank Statement",
+     "PAN"
+    ],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "detail mein batao",
+    "has": [],
+    "any": [
+     "Address Proof",
+     "Bank Statement"
+    ],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "aur co-applicant ke?",
+    "has": [],
+    "any": [
+     "rejected",
+     "Rejected",
+     "reject",
+     "Reject"
+    ],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_045",
+  "category": "expand",
+  "turns": [
+   {
+    "q": "Who is my co-applicant?",
+    "has": [
+     "Priya Sharma"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "tell me more about her",
+    "has": [],
+    "any": [
+     "9811122233",
+     "priya@example.com",
+     "21 August 1992"
+    ],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_046",
+  "category": "confirm",
+  "turns": [
+   {
+    "q": "Priya ka mobile kya hai?",
+    "has": [
+     "9811122233"
+    ],
+    "any": [],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   },
+   {
+    "q": "ok. aur email?",
+    "has": [
+     "priya@example.com"
+    ],
+    "any": [],
+    "lacks": [
+     "rahul@example.com"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_047",
+  "category": "confirm",
+  "turns": [
+   {
+    "q": "My loan amount is 5 lakh, right?",
+    "has": [
+     "5,00,000"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "ok, and tenure is 36 months?",
+    "has": [
+     "36 months"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "haan theek hai. stage?",
+    "has": [
+     "Basic Document Verification"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_048",
+  "category": "confirm",
+  "turns": [
+   {
+    "q": "Kya mera Address Proof missing hai?",
+    "has": [
+     "Address Proof"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "haan, aur bank statement?",
+    "has": [
+     "Bank Statement"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_049",
+  "category": "confirm",
+  "turns": [
+   {
+    "q": "Is my interest 11.5%?",
+    "has": [
+     "11.5%"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "ok cool. my DOB?",
+    "has": [
+     "14 May 1990"
+    ],
+    "any": [],
+    "lacks": [
+     "21 August 1992"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   }
+  ]
+ },
+ {
+  "id": "mt_050",
+  "category": "confirm",
+  "turns": [
+   {
+    "q": "क्या मेरा PAN वेरिफाइड है?",
+    "has": [
+     "PAN"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "ठीक है, और सह-आवेदक का?",
+    "has": [],
+    "any": [
+     "rejected",
+     "Rejected",
+     "reject",
+     "Reject",
+     "रिजेक्ट",
+     "अस्वीकार"
+    ],
+    "lacks": [
+     "9876501234"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_051",
+  "category": "compound",
+  "turns": [
+   {
+    "q": "Give me my mobile and Priya's mobile",
+    "has": [
+     "9876501234",
+     "9811122233"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "and both emails",
+    "has": [
+     "rahul@example.com",
+     "priya@example.com"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_052",
+  "category": "compound",
+  "turns": [
+   {
+    "q": "Loan amount aur tenure dono batao",
+    "has": [
+     "5,00,000",
+     "36 months"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "aur interest aur stage bhi",
+    "has": [
+     "11.5%",
+     "Basic Document Verification"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ },
+ {
+  "id": "mt_053",
+  "category": "compound",
+  "turns": [
+   {
+    "q": "What's my KYC status and which docs are missing?",
+    "has": [
+     "needs review",
+     "Address Proof",
+     "Bank Statement"
+    ],
+    "any": [],
+    "lacks": [
+     "9811122233"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "and the co-applicant's KYC and DOB?",
+    "has": [
+     "21 August 1992"
+    ],
+    "any": [],
+    "lacks": [
+     "14 May 1990"
+    ],
+    "missing": true,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_054",
+  "category": "compound",
+  "turns": [
+   {
+    "q": "Mera email aur DOB?",
+    "has": [
+     "rahul@example.com",
+     "14 May 1990"
+    ],
+    "any": [],
+    "lacks": [
+     "priya@example.com",
+     "21 August 1992"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "SELF"
+   },
+   {
+    "q": "Priya ka bhi same do",
+    "has": [
+     "priya@example.com",
+     "21 August 1992"
+    ],
+    "any": [],
+    "lacks": [
+     "rahul@example.com",
+     "14 May 1990"
+    ],
+    "missing": false,
+    "clarify": false,
+    "party": "CO"
+   }
+  ]
+ },
+ {
+  "id": "mt_055",
+  "category": "compound",
+  "turns": [
+   {
+    "q": "Case ID aur applicant ID batao",
+    "has": [
+     "case_eval0000000000000000000000mine",
+     "APP-EVALMINE01"
+    ],
+    "any": [],
+    "lacks": [],
+    "missing": false,
+    "clarify": false,
+    "party": null
+   },
+   {
+    "q": "aur income kitni declare hui?",
+    "has": [],
+    "any": [],
+    "lacks": [],
+    "missing": true,
+    "clarify": false,
+    "party": null
+   }
+  ]
+ }
+]
