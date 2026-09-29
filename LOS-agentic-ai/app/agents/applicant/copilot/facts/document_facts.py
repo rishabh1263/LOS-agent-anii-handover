@@ -149,7 +149,7 @@ def answer(
         # reason codes stay in `sources`; the sentence says what they mean
         # -- "under review", and the catalogue's text for each code --
         # rather than printing REVIEW (REQUIRED_FIELD_MISSING).
-        from app.agents.applicant.answer import _explained
+        from app.agents.applicant.copilot.answering.answer import _explained
 
         held = {"REVIEW": "is under review", "FAIL": "did not pass verification"}
         verb = held.get(status, f"was recorded as {status.lower()}")

@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.agents.applicant import config
-from app.agents.applicant.intents import Intent, WRITE_INTENTS
+from app.agents.applicant.copilot.semantics.intents import Intent, WRITE_INTENTS
 
 logger = logging.getLogger(__name__)
 

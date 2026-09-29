@@ -134,9 +134,11 @@ def case_memory(case_id: str, party_id: str | None = None) -> dict[str, Any]:
         # from this list; handed every run's rows, the first one it met
         # was the OLDEST -- a reprocessed case whose PAN name had been
         # corrected was still explained with the superseded name.
-        findings = repository.get_current_findings(case_id, party_id=party_id)
-        decisions = repository.get_case_decisions(case_id)
-        timeline = repository.get_case_timeline(case_id)
+        from app.store import request_cache
+
+        findings = request_cache.read(repository, "get_current_findings", case_id, party_id)             if party_id is not None else request_cache.read(repository, "get_current_findings", case_id)
+        decisions = request_cache.read(repository, "get_case_decisions", case_id)
+        timeline = request_cache.read(repository, "get_case_timeline", case_id)
     except Exception as exc:
         logger.warning("Case memory unavailable for %s: %r", case_id, exc)
         return _empty()
@@ -192,6 +194,11 @@ def _public_finding(finding: Any) -> dict[str, Any]:
     comparisons = _failed_comparisons(getattr(finding, "payload", None))
     if comparisons:
         row["comparisons"] = comparisons
+    # WHICH FIELDS a KYC check compared, and whether each matched -- names
+    # and outcomes only; a value is published only for a failed comparison.
+    checked = _checked_fields(getattr(finding, "payload", None))
+    if checked and row["finding_kind"] == "KYC":
+        row["checked"] = checked
 
     income = _income(finding)
     if income:
@@ -261,6 +268,15 @@ def _income(finding: Any) -> dict[str, Any]:
     keep = ("status", "reason_codes", "bank_statement", "salary_slip",
             "difference", "tolerance")
     return {k: payload[k] for k in keep if payload.get(k) is not None}
+
+
+def _checked_fields(payload: Any) -> list[dict[str, str]]:
+    """The fields a KYC check compared and each one's outcome -- no values."""
+    if not isinstance(payload, dict):
+        return []
+    return [{"field": str(f.get("field")), "status": str(f.get("status") or "").upper()}
+            for f in payload.get("fields") or []
+            if isinstance(f, dict) and f.get("field")]
 
 
 def _failed_comparisons(payload: Any) -> list[dict[str, Any]]:
@@ -518,33 +534,98 @@ def findings_summary(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]
             _sources(findings=findings))
 
 
-def kyc_answer(memory: dict[str, Any], *, want_score: bool = False
-               ) -> tuple[str, list[dict[str, Any]]]:
+#: A recorded KYC status, as it is said of a check.
+_KYC_STATE = {"PASS": "passed", "SUCCESS": "passed", "VERIFIED": "passed",
+              "REVIEW": "needs review", "FAIL": "did not pass", "REJECTED": "did not pass",
+              "PENDING": "is still pending"}
+
+
+def _kyc_doc(document_type: Any) -> str:
+    raw = str(document_type or "a document").upper()
+    return raw if raw in ("PAN", "KYC") else raw.replace("_", " ").lower()
+
+
+def _kyc_mismatch(comparisons: list[dict[str, Any]]) -> str:
+    """ "the name didn't match -- the PAN says X, but the bank statement says Y" """
+    from app.security import sensitivity
+
+    parts = []
+    for c in comparisons:
+        field = str(c.get("field") or "a field").replace("_", " ").lower()
+        said = [f"the {_kyc_doc(s.get('document_type'))} says "
+                f"{sensitivity.mask_identifiers(str(s.get('value')))}"
+                for s in c.get("sources") or []]
+        detail = (": " + ", but ".join(said)) if said else ""
+        parts.append(f"the {field} didn't match{detail}")
+    return "; ".join(parts)
+
+
+def kyc_answer(memory: dict[str, Any], *, want_score: bool = False, want: str | None = None,
+               party_id: str | None = None, primary_id: str | None = None,
+               who: str | None = None) -> tuple[str, list[dict[str, Any]]]:
     """
     THE RECORDED KYC RESULT, and only that. Three honest outcomes: a KYC
     finding with a score; a KYC finding without one; no KYC finding at all.
     The downstream KYC decision is not this, and is not claimed.
+
+    `party_id` narrows it to ONE PERSON's check (a finding with no party is
+    the primary applicant's); `who` names that person in the sentence
+    ("the co-applicant"), None for the caller's own. `want` is what was
+    asked: result, score, mismatch (why / which fields failed) or fields.
     """
+    want = want or ("score" if want_score else "result")
     kyc = [row for row in (memory.get("findings") or [])
            if str(row.get("finding_kind") or "").upper() == "KYC"]
+    if party_id is not None:
+        kyc = [row for row in kyc
+               if str(row.get("party_id") or "") == party_id
+               or (not row.get("party_id") and party_id == primary_id)]
     if not kyc:
+        if who:
+            return (f"No KYC result has been recorded for {who} yet, so I can't tell you "
+                    f"their KYC status.", [])
         return ("KYC information is not yet available for this case: no KYC check has been "
                 "recorded.", [])
     latest = kyc[-1]
-    status = str(latest.get("status") or "recorded").lower()
+    whose = f"{who}'s" if who else "your"
+    Whose = whose[0].upper() + whose[1:]
+    raw_status = str(latest.get("status") or "").upper()
+    state = _KYC_STATE.get(raw_status, f"is recorded as {raw_status.lower() or 'recorded'}")
     score = latest.get("score")
-    codes = latest.get("reason_codes") or []
-    reasons = (" Reason codes: " + ", ".join(str(c).replace("_", " ").lower() for c in codes)
-               + ".") if codes else ""
-    if want_score:
+    codes = [str(c).replace("_", " ").lower() for c in latest.get("reason_codes") or []]
+    comparisons = latest.get("comparisons") or []
+    why = _kyc_mismatch(comparisons) if comparisons else (
+        f"of {_and_list(['a ' + c for c in codes])}" if codes else "")
+    because = f" because {why}" if why and raw_status not in ("PASS", "SUCCESS", "VERIFIED") else ""
+    sources = _sources(findings=kyc)
+    if want == "score":
         if score in (None, ""):
-            return (f"A KYC check is recorded for this case (status: {status}), but no KYC "
-                    f"score was recorded with it.{reasons}", _sources(findings=kyc))
-        return (f"The recorded KYC score for this case is {score} (status: {status}).{reasons}",
-                _sources(findings=kyc))
-    said = f"The recorded KYC check for this case has status {status}"
-    said += f" with a score of {score}." if score not in (None, "") else "; no score was recorded."
-    return said + reasons, _sources(findings=kyc)
+            return (f"{Whose} KYC check is recorded -- it {state} -- but no KYC score was "
+                    f"recorded with it.", sources)
+        return f"{Whose} recorded KYC score is {score}; the check {state}.", sources
+    if want == "fields":
+        checked = latest.get("checked") or [{"field": c.get("field"), "status": "FAIL"}
+                                            for c in comparisons]
+        if not checked:
+            return (f"{Whose} KYC check is recorded (it {state}), but it doesn't list the "
+                    f"individual fields it compared.", sources)
+        listed = [f"{str(c.get('field')).replace('_', ' ').lower()} "
+                  f"({'matched' if c.get('status') in ('PASS', 'MATCH') else 'did not match'})"
+                  for c in checked]
+        return f"{Whose} KYC check compared: {_and_list(listed)}.", sources
+    if want == "mismatch":
+        if comparisons:
+            return f"{Whose} KYC check {state} because {_kyc_mismatch(comparisons)}.", sources
+        if raw_status in ("PASS", "SUCCESS", "VERIFIED"):
+            return f"Nothing failed in {whose} KYC check -- it passed.", sources
+        if codes:
+            return f"{Whose} KYC check {state} because of {_and_list(['a ' + c for c in codes])}.", sources
+        return (f"{Whose} KYC check {state}, but no field-level reason was recorded with it.",
+                sources)
+    said = f"{Whose} KYC check {state}{because}."
+    if score not in (None, ""):
+        said += f" The recorded score is {score}."
+    return said, sources
 
 
 #: A recorded decision that holds the application, as it is said.

@@ -34,7 +34,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from app.agents.applicant import capabilities
+from app.agents.applicant.copilot.routing import capabilities
 
 ALL = "ALL"                         # every recorded detail, applicant and application
 ALL_APPLICANT = "ALL_APPLICANT"     # the applicant's own details
@@ -52,48 +52,61 @@ _FIELDS: tuple[tuple[str, str, str], ...] = (
      r"^(?!.*\b(emi|instal\w*|foir|income|salary|balance|credit|fee|charges?|obligation\w*|"
      r"property)\b)(.*\b(loan\s+)?(amount|amt|principal)\b|.*\bhow\s+much\b[^?]{0,20}"
      r"\b(did|have|had)\s+(i|we|the\s+applicant|the\s+customer)\b|"
-     r".*\bkitna\s+loan\b|.*\bloan\s+(value|size)\b|.*\b(requested|asked\s+for)\s+loan\b)"),
+     r".*\bkitna\s+loan\b|.*\bloan\s+(value|size)\b|.*\b(requested|asked\s+for)\s+loan\b|"
+     r".*\bhow\s+(many|much)\s+rupees\b|.*\brupees\s+(ka|of|ke)\s+loan\b|.*\bhow\s+big\b[^?]{0,15}\bloan\b)"),
     ("tenure_months", "tenure",
      r"\b(tenure|loan\s+term|term\s+of\s+(the\s+|my\s+)?loan|repayment\s+(period|term)|"
-     r"how\s+many\s+months|duration\s+of\s+(the\s+|my\s+)?loan|avadhi|अवधि)\b"),
+     r"how\s+many\s+months|duration\s+of\s+(the\s+|my\s+)?loan|avadhi|"
+     r"(over\s+)?how\s+long(?![^?]{0,30}\b(take|wait|process|till|until))|"
+     r"months\s+(is|of)\s+(the\s+|my\s+)?loan|(the|my)\s+months|months\s+(was|were|is|hai|kya))\b|"
+     r"अवधि|कालावधी|महीने|महिने"),
     ("interest_rate_pct", "interest rate",
-     r"\b(interest\s+rate|rate\s+of\s+interest|roi|interest|byaj|ब्याज|व्याज)\b"),
+     r"\b(interest\s+rate|rate\s+of\s+interest|roi|interest|byaj|"
+     r"(percentage|percent|rate)\b[^?]{0,25}\b(charg\w*|interest|apr)|"
+     r"charg\w*\b[^?]{0,20}\b(percentage|percent|rate)|"
+     r"(the|my|what|which)\s+rate(?!\s+of\s+(success|approval|rejection))|rate\s+(was|were|is|hai|kya))\b|"
+     r"ब्याज|व्याज"),
     ("product", "product",
      r"\b(product|loan\s+type|type\s+of\s+loan|kind\s+of\s+loan|scheme)\b"
      r"|\b(which|what)\s+loan\s+(did|have|am|was)\b"),
     ("employment_type", "employment type",
      r"\b(employment(\s+type)?|occupation|job\s+type|profession|work\s+type|"
-     r"salaried\s+or\s+self|naukri|रोज़गार|व्यवसाय)\b"),
+     r"salaried\b[^?]{0,12}\b(or|ya|/)\s+self|self\s+employed\b[^?]{0,12}\b(or|ya)\s+salaried|naukri)\b|"
+     r"रोज़गार|रोजगार|व्यवसाय|पगारदार|व्यावसायिक"),
     ("declared_monthly_income", "declared monthly income",
      r"\b(declared\s+)?(monthly\s+)?income\b(?!\s+(proof|document|evidence|verif\w*))"
      r"|\b(salary\s+declared|declared\s+salary|aay|आय|उत्पन्न)\b"),
     ("declared_monthly_obligations", "declared monthly obligations",
      r"\b(obligations?|existing\s+emis?|monthly\s+emis?|liabilit\w*|outgoings?|"
-     r"existing\s+loans?\s+emi|dues)\b"),
+     r"existing\s+loans?\s+emi|dues|emis?\b[^?]{0,30}\b(declar\w*|running|chal|already))\b"),
     ("property_value", "property value",
-     r"\b(property\s+(value|price|worth|cost)|value\s+of\s+(the\s+)?property|"
-     r"collateral\s+value|sampatti|संपत्ति)\b"),
+     r"\b(property\s+(value|price|worth|cost|valuation)|value\s+of\s+(the\s+)?property|"
+     r"collateral(\s+(value|worth))?|valuation|sampatti)\b|संपत्ति|मालमत्ता"),
     ("mobile", "mobile number",
-     r"\b(mobile|phone|cell|contact)(\s+(no|number|num))?\b|\bcontact\s+(details)\b|"
-     r"\b(my|the|applicant'?s?|customer'?s?)\s+number\b|\bmobile\s+no\b"),
+     r"\b(mobile|phone|cell|contact|mob|ph)(\s+(no|number|num))?\b|\bcontact\s+(details)\b|"
+     r"\b(my|the|applicant'?s?|customer'?s?)\s+number\b|\bmobile\s+no\b|मोबाइल|मोबाईल|फोन"),
     ("email", "email",
-     r"\b(e-?mail|mail\s+id)(\s+(id|address))?\b"),
+     r"\b(e-?mail|emial|emal|mail\s+id)(\s+(id|address))?\b|ईमेल|ई-मेल"),
     ("date_of_birth", "date of birth",
-     r"\b(dob|d\.o\.b|date\s+of\s+birth|birth\s*date|birthday|born|janm\s*tithi|जन्म)\b"),
+     r"\b(dob|d\.o\.b|date\s+of\s+birth|birth\s*date|birthday|born|janm\s*tithi|"
+     r"janam\s*(tithi|din))\b|जन्म"),
     ("address", "address",
-     r"\baddress\b(?!\s+proof)|\bpata\b|\bपता\b"),
+     r"\baddress\b(?!\s+proof)|\bpata\b|पत्ता|पता"),
     ("aadhaar_number", "Aadhaar number",
      r"\b(aadhaa?r|adhar|aadhar|uidai|uid)\s*(card\s*)?(number|no|num|id)?\b|\bआधार\b"),
     ("pan_number", "PAN number",
      r"\bpan\s*(card\s*)?(number|no|num)\b|\bpan\s+card\b|\bपैन\b"),
     ("bank_account_number", "bank account number",
-     r"\b(bank\s+)?(account|a/c|acct)\s*(number|no|num)\b|\bkhata\s*(number|no)?\b|\bखाता\b"),
+     r"\b(bank\s+)?(account|a/c|acct)\s*(numbers?|nos?|num|one)\b|\bbank\s+account\b(?!\s+(holder|statement))|"
+     r"\bkhata\s*(number|no)?\b|खाता|खाते"),
     ("case_id", "case ID",
-     r"\b(case|file)\s*(id|no|number|num|ref|reference)\b|\bcase\s+id\b"
-     r"|\bcase\s+(and|&|or|aur|और)\s+(application|applicant|app)\s*(id|no|number|ids)\b"),
+     r"\b(case|file)\s*(id|no|number|num|ref|reference)\b|\bcase\s+id\b|\bcase\s+id\s+wala\b"
+     r"|\bcase\s+(and|&|or|aur|और)\s+(application|applicant|app)\s*(id|no|number|ids)\b"
+     r"|\bwhich\s+case\b(?![^?]{0,20}\b(stage|documents?|status))"),
     (APPLICATION_REF, "application reference",
      r"\b(application|app|loan)\s*(id|no|number|num|ref|reference)\b"
-     r"|\b(application|app)\s+(and|&|or|aur|और)\s+case\s*(id|no|number|ids)\b"),
+     r"|\b(reference|ref)\s*(no\.?|number|num|id)\b|\b(application|app)\s+(and|&|or|aur|और)\s+case\s*(id|no|number|ids)\b"
+     r"|\bwhich\s+application\b(?![^?]{0,20}\b(stage|documents?|status))"),
     ("applicant_id", "applicant ID",
      r"\b(applicant|customer)\s*(id|no|number|num|ref|reference)\b"
      r"|\b(applicant)\s+(and|&|or|aur|और)\s+case\s*(id|no|number|ids)\b"),
@@ -111,13 +124,15 @@ _OWNERSHIP = re.compile(
     r"the\s+applicant|applicant'?s|application|applied|customer'?s?|borrower'?s?)\b"
     r"|\b(did|have|had)\s+(i|we)\b", re.I)
 _ASKING = re.compile(
-    r"\b(what|which|whats|how|tell|show|give|confirm|check|do\s+you\s+have|is\s+there|kya|kitna|"
-    r"kaunsa|batao|bata|share|provide|display|fetch)\b|\?\s*$", re.I)
+    r"\b(what|which|whats|how|when|where|tell|show|give|confirm|check|remind|do\s+you\s+have|"
+    r"is\s+there|kya|kitna|kitni|kitne|kaunsa|kaun|batao|bata|share|provide|display|fetch|"
+    r"chahiye|de\s+do|sangaa?)\b|\?\s*$", re.I)
 #: Words around a bare field name that add nothing to it.
 _BARE_FILLER = re.compile(
-    r"\b(my|mine|our|mera|meri|mere|please|pls|plz|batao|bata|bataiye|do|the|kya|hai|hain|"
+    r"\b(my|mine|our|mera|meri|mere|please|pls|plz|batao|bata|bataiye|do|the|kya|hai|hain|h|"
     r"what|is|whats|tell|me|show|give|complete|full|entire|exact|current|registered|recorded|"
-    r"customer'?s?|applicant'?s?|of|for|this|that)\b|[?.!,]", re.I)
+    r"customer'?s?|applicant'?s?|of|for|this|that|wala|wali|chahiye|de|and|aur|number|no)\b|[?.!,]",
+    re.I)
 _WRITE = re.compile(
     r"\b(update|change|correct|edit|modify|set|add|capture|save|replace|fix|remove|delete)\b", re.I)
 #: A public identifier the caller named ("show me application APP-…"). The
@@ -242,9 +257,9 @@ def detect(text: str) -> Question | None:
     asked = bool(_OWNERSHIP.search(said) or _ASKING.search(said))
     if not asked:
         bare = _BARE_FILLER.sub(" ", said).strip()
-        if not bare or len(bare.split()) > 4:
+        if not bare or len(bare.split()) > 5:
             return None
-        said = bare
+        said = f"{bare} number" if re.search(r"\b(number|no)\b", str(text), re.I) else bare
     fields = _named_fields(said)
     if not fields:
         return None
@@ -259,6 +274,17 @@ def detect(text: str) -> Question | None:
                                                     "declared_monthly_obligations")
                                               for f in fields):
         return None
+    if len(fields) >= 2:
+        # Several fields mentioned, ONE asked for: "out of the amount, the
+        # months and the rate, what the rate was" -- the last asking clause
+        # names the field wanted; the rest is the caller's own framing.
+        clauses = re.split(r"\b(?=(?:what|which)\b)", said, flags=re.I)
+        tail = clauses[-1] if len(clauses) > 1 else ""
+        if re.match(r"(what|which)\s+(the|my|our|mera|meri)?\s*[\w\s]{1,30}?\s+(was|is|were|are|hai|tha|thi)\b",
+                    tail, re.I):
+            narrowed = _named_fields(tail)
+            if len(narrowed) == 1 and narrowed[0] in fields:
+                return Question(narrowed[0])
     return Question("+".join(fields))
 
 
@@ -299,7 +325,7 @@ def _readable(value: str) -> str:
 
 def _values(results: dict[str, Any]) -> dict[str, Any]:
     """The recorded values, from the tool results -- only registry fields."""
-    from app.agents.applicant.answer import _get
+    from app.agents.applicant.copilot.answering.answer import _get
 
     applicant = _get(results, "applicant.get", "applicant") or {}
     application = _get(results, "application.get", "application") or {}
@@ -318,7 +344,12 @@ def _shown(field: str, value: Any) -> str | None:
     if disclosure == "withhold":
         return None
     shown = sensitivity.mask(str(value)) if disclosure == "masked" else str(value)
-    if field in ("address", "full_name"):
+    if field == "address":
+        # THE ADDRESS, and only the address: an account / Aadhaar / PAN / phone
+        # number typed into it is not part of what was asked (and is removed,
+        # not merely masked). mask_identifiers stays as the safety net.
+        shown = sensitivity.mask_identifiers(sensitivity.without_identifiers(shown))
+    elif field == "full_name":
         shown = sensitivity.mask_identifiers(shown)   # a number typed into a text field
     if field in ("loan_amount", "declared_monthly_income", "declared_monthly_obligations",
                  "property_value"):
@@ -337,7 +368,7 @@ def _shown(field: str, value: Any) -> str | None:
 
 
 def _said(field: str, value: Any, language: str | None = None) -> str:
-    from app.agents.applicant import phrasing
+    from app.agents.applicant.copilot.answering import phrasing
 
     shown = _shown(field, value)
     if shown is None:
@@ -371,7 +402,7 @@ def _said(field: str, value: Any, language: str | None = None) -> str:
 
 def _one(field: str, values: dict[str, Any], results: dict[str, Any] | None = None,
          context: dict[str, Any] | None = None) -> str:
-    from app.agents.applicant import field_state
+    from app.agents.applicant.copilot.facts import field_state
 
     context = context or {}
     if field == APPLICATION_REF:

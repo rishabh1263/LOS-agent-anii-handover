@@ -24,8 +24,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.agents.applicant import followup
-from app.agents.applicant.followup import Context
+from app.agents.applicant.copilot.conversation import followup
+from app.agents.applicant.copilot.conversation.followup import Context
 
 CHECKLIST_CONTEXT = Context(
     last_query_type="POLICY_REQUIREMENT",

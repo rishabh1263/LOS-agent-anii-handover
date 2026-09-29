@@ -14,9 +14,11 @@ import json
 
 import pytest
 
-from app.agents.applicant import followup, intents, normalize
-from app.agents.applicant import semantic_frame as sf
-from app.agents.applicant.semantic_frame import Object, Party, Qualifier, Scope, Task
+from app.agents.applicant import normalize
+from app.agents.applicant.copilot.conversation import followup
+from app.agents.applicant.copilot.semantics import intents
+from app.agents.applicant.copilot.semantics import semantic_frame as sf
+from app.agents.applicant.copilot.semantics.semantic_frame import Object, Party, Qualifier, Scope, Task
 
 LR, LP, LS, CV = (Task.LIST_REQUIREMENTS, Task.LIST_PENDING, Task.LIST_SUBMITTED,
                   Task.CHECK_VERIFICATION)
@@ -217,7 +219,7 @@ def test_a_bare_object_is_not_guessed():
 # short / ambiguous queries
 # ==========================================================================
 
-from app.agents.applicant import short_query as sq  # noqa: E402
+from app.agents.applicant.copilot.semantics import short_query as sq  # noqa: E402
 
 
 @pytest.mark.parametrize("word", ["name", "status", "documents", "income", "address", "mobile",

@@ -222,6 +222,29 @@ GUIDES: tuple[StageGuide, ...] = (
 )
 
 
+def describe(stage: str | None, label: str | None = None) -> str | None:
+    """
+    What the configured stage guide says a stage does and checks, in plain
+    sentences -- or None when there is no guide for it. The guide is sample
+    process knowledge (MARKER), so the sentence says where it comes from and
+    never presents it as policy.
+    """
+    wanted = str(stage or "").upper()
+    guide = next((g for g in GUIDES if g.stage == wanted), None)
+    if guide is None:
+        return None
+    name = label or guide.stage
+
+    def lower_first(text: str) -> str:
+        return text[:1].lower() + text[1:]
+
+    return (f"According to the configured stage guide (a sample process description, not a "
+            f"policy document), the {name} stage works like this: {guide.purpose} "
+            f"It checks that {lower_first(guide.checks.rstrip('.'))}. "
+            f"A file is held back by {lower_first(guide.blockers.rstrip('.'))}. "
+            f"{guide.transition}")
+
+
 def guides() -> tuple[StageGuide, ...]:
     return GUIDES
 

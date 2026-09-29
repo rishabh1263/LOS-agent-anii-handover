@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.agents.applicant import config
-from app.agents.applicant.agent import AgentError, answer_question, confirm_action
+from app.agents.applicant.copilot.agent import AgentError, answer_question, confirm_action
 from app.security.auth import require_jwt
 
 logger = logging.getLogger(__name__)
@@ -302,7 +302,7 @@ async def applicant_360(
     claims: dict[str, Any] = Depends(require_jwt),
 ):
     from app.agents.applicant import permissions
-    from app.agents.applicant.intents import Intent
+    from app.agents.applicant.copilot.semantics.intents import Intent
     from app.agents.applicant.permissions import Caller, PermissionDenied
     from app.mcp import applicant as tools
 
@@ -347,7 +347,7 @@ async def _write(
 ) -> dict[str, Any]:
     """Shared body for the direct create endpoints: authorise, then call MCP."""
     from app.agents.applicant import audit, permissions
-    from app.agents.applicant.intents import Intent
+    from app.agents.applicant.copilot.semantics.intents import Intent
     from app.agents.applicant.permissions import Caller, PermissionDenied
     from app.mcp import applicant as tools
 

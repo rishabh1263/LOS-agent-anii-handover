@@ -26,34 +26,17 @@ import time
 import uuid
 from typing import Any
 
-from app.agents.applicant import (
-    audit,
-    case_memory_facts,
-    config,
-    counters,
-    facts,
-    document_facts,
-    eligibility_facts,
-    grounding,
-    income_facts,
-    knowledge_answer,
-    permissions,
-    routing,
-    status_facts,
-    subjects,
-    history,
-    ledger,
-    actions,
-    delay,
-)
-from app.agents.applicant.answer import (
+from app.agents.applicant import audit, case_memory_facts, config, counters, facts, eligibility_facts, grounding, income_facts, knowledge_answer, permissions, routing, status_facts, history, ledger, actions, delay
+from app.agents.applicant.copilot.facts import document_facts
+from app.agents.applicant.copilot.routing import subjects
+from app.agents.applicant.copilot.answering.answer import (
     NOTHING_AVAILABLE,
     deterministic_answer,
     generate_answer,
 )
-from app.agents.applicant import followup
+from app.agents.applicant.copilot.conversation import followup
 from app.agents.applicant.query_types import QueryType, clarification_for, type_for
-from app.agents.applicant.intents import (
+from app.agents.applicant.copilot.semantics.intents import (
     looks_like_knowledge,
     Classification,
     Intent,
@@ -391,7 +374,7 @@ def _named_pending(document_type: str, results: dict[str, Any]) -> str:
     "addr proof pending?" was answered "Pending -- not yet collected: Bank
     Statement.": true, and silent on the one document that was asked about.
     """
-    from app.agents.applicant.answer import _readable
+    from app.agents.applicant.copilot.answering.answer import _readable
 
     checklist = (results.get("documents.checklist") or {}).get("checklist") or []
     wanted = str(document_type).upper()
@@ -422,9 +405,44 @@ _STATUS_PHRASE = {"VERIFIED": "verified", "REVIEW": "under review",
                   "REJECTED": "rejected"}
 
 
+def _one_document_upload(document_type: str, results: dict[str, Any]) -> str:
+    """Whether ONE named document has come in, and in what state it is."""
+    from app.agents.applicant.copilot.answering.answer import _readable
+
+    wanted = str(document_type or "").upper()
+    name = _readable(wanted)
+    documents = (results.get("documents.get") or {}).get("documents") or []
+    states = {"VERIFIED": "verified", "PASS": "verified", "REVIEW": "under review",
+              "REJECTED": "rejected", "FAIL": "rejected", "UPLOADED": "uploaded",
+              "PROCESSING": "being processed"}
+    mine = [d for d in documents if str(d.get("document_type") or "").upper() == wanted]
+    if mine:
+        parts = []
+        for d in mine:
+            owner = ("the co-applicant's" if str(d.get("party_role") or "").upper()
+                     == "CO_APPLICANT" else "your")
+            state = states.get(str(d.get("status") or "").upper(),
+                               str(d.get("status") or "recorded").replace("_", " ").lower())
+            parts.append(f"{owner} {name} is uploaded and {state}"
+                         if state not in ("uploaded", "being processed")
+                         else f"{owner} {name} is {state}")
+        said = case_memory_facts._and_list(parts) + "."
+        return said[0].upper() + said[1:]
+    checklist = (results.get("documents.checklist") or {}).get("checklist") or []
+    listed = [e for e in checklist if isinstance(e, dict)
+              and (str(e.get("slot") or "").upper() == wanted
+                   or wanted in [str(a).upper() for a in (e.get("accepts") or [])])]
+    if listed:
+        status = str(listed[0].get("status") or "").upper()
+        if status == "MISSING":
+            return f"Your {name} hasn't been received yet -- it is still to be uploaded."
+        return f"Your {name} is recorded as {status.replace('_', ' ').lower()} on the checklist."
+    return f"No {name} has been uploaded on this application."
+
+
 def _documents_in_status(status: str, results: dict[str, Any]) -> str:
     """The uploaded documents in ONE status, read from documents.get."""
-    from app.agents.applicant.answer import _readable
+    from app.agents.applicant.copilot.answering.answer import _readable
 
     documents = (results.get("documents.get") or {}).get("documents") or []
     phrase = _STATUS_PHRASE.get(status, status.lower())
@@ -448,7 +466,7 @@ def _missing_required(checklist: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _plain_knowledge(text: str) -> str:
     """A handbook passage fit for a sentence: codes in words, no tables."""
-    from app.agents.applicant.validate import _CODE
+    from app.agents.applicant.copilot.answering.validate import _CODE
     from app.knowledge.grounding import _in_words
 
     said = _in_words(text or "")
@@ -521,7 +539,7 @@ def _portfolio_answer(results: dict[str, Any]) -> str:
     # NO CASE IDS IN THE SENTENCE. Each case is told apart by position,
     # product and status; the ids stay in the structured `applications`
     # list for any caller that needs to act on one.
-    from app.agents.applicant.answer import _readable
+    from app.agents.applicant.copilot.answering.answer import _readable
 
     lines = []
     for number, record in enumerate(applications, start=1):
@@ -708,7 +726,8 @@ async def answer_question(
     turn = None
     if not _handoffs.asks_for_person(message):
         turn = conversations.classify(message)
-        if turn is None and request_policy.asks_capability(message):
+        if turn is None and request_policy.asks_capability(message) \
+                and subjects.mentioned(message) not in (subjects.Kind.CO, subjects.Kind.BOTH):
             turn = conversations.Turn(conversations.CAPABILITIES)
         if turn is None and request_policy.asks_own_history(message):
             turn = conversations.Turn(conversations.HISTORY)
@@ -735,7 +754,7 @@ async def answer_question(
     # The rewrite produces a MESSAGE, which is then classified by exactly
     # the same patterns as anything typed by a person. It selects no
     # intent, reaches no tool and skips no check -- see
-    # app/agents/applicant/followup.py for why that boundary is where it
+    # app/agents/applicant/copilot/conversation/followup.py for why that boundary is where it
     # is, given the context comes from the caller.
     routing_started = time.perf_counter()
     from app.observability.tracing import annotate as _annotate
@@ -763,7 +782,7 @@ async def answer_question(
                 # the person is read from the case record below). When a role is
                 # named, the question is classified with the subject phrase
                 # neutralised, so the ordinary rules decide WHAT is being asked
-                # (app/agents/applicant/subjects.py).
+                # (app/agents/applicant/copilot/routing/subjects.py).
                 from app.agents.applicant import normalize
 
                 said = normalize.normalise(message).text or message
@@ -776,11 +795,17 @@ async def answer_question(
                 classification = understand(
                     subjects.neutral(message) if named_subject else message,
                     has_case=bool(case_id))
+                if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
+                    # A PERSON'S DETAILS OR KYC, asked of the co-applicant: the
+                    # party's own record answers it (subjects.party_question).
+                    asked_of_party = subjects.party_question(said, classification)
+                    if asked_of_party is not None:
+                        classification = asked_of_party
                 if named_subject:
                     message = said
                     # THE FRAME KEEPS THE PARTY the neutral text dropped, so a
                     # clarification asks about the co-applicant, not "my documents".
-                    from app.agents.applicant import semantic_frame as _frames
+                    from app.agents.applicant.copilot.semantics import semantic_frame as _frames
 
                     frame_ = getattr(classification, "frame", None)
                     if frame_ is not None and named_subject in (subjects.Kind.CO,
@@ -810,7 +835,8 @@ async def answer_question(
     #    document" the document the previous answer was about. One that
     #    cannot be resolved safely is asked back, by name.
     # ------------------------------------------------------------------
-    from app.agents.applicant import semantic_frame, short_query as short_queries
+    from app.agents.applicant.copilot.semantics import semantic_frame
+    from app.agents.applicant.copilot.semantics import short_query as short_queries
 
     understanding_trace: dict[str, Any] = {"llm": {"consulted": False, "status": "NOT_NEEDED"}}
     frame = getattr(classification, "frame", None)
@@ -834,7 +860,10 @@ async def answer_question(
         frame = getattr(classification, "frame", None)
         understanding_trace["short_query"] = {"head": short.head, "resolved_to": message,
                                               "resolved_by": short.resolved_by}
-    elif short is not None and short.clarification:
+    elif short is not None and short.clarification and not (
+            intent is not Intent.UNKNOWN and len(short_queries._tokens(message)) > 1):
+        # A BARE WORD is asked back; a word with a possessive or a conjunction
+        # ("my number?", "and stage?") that the rules already read is answered.
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
                      intent=Intent.UNKNOWN.value, tools=[], status="CLARIFICATION",
@@ -1101,6 +1130,11 @@ async def answer_question(
                 raise PermissionDenied("CASE_NOT_ACCESSIBLE",
                                        "Not the caller's case.") from None
         # OWNERSHIP PASSED: "this stage" now means the case's recorded stage.
+        # RESOLVED ONCE: the case record is read here and every later step
+        # (tools, the stage answer, the next-action intelligence) reuses it
+        # instead of resolving the stage again -- the same context the
+        # Universal Copilot route hands in.
+        stage_context = _stage_ctx(stage_context, case_id)
         if case_id and _understanding[0] is not None:
             recorded = _stage_of(stage_context, case_id)
             _understanding[0]["case_stage"] = recorded
@@ -1140,6 +1174,8 @@ async def answer_question(
                          http_status=403)
 
     subject = subjects.resolve(named_subject, parties_on_case)
+    if intent is Intent.APPLICANT_PROFILE and named_subject is subjects.Kind.PRIMARY:
+        subject = None      # the profile IS the primary applicant's own record
     # A DOCUMENT QUESTION ON A TWO-PARTY CASE IS ANSWERED FOR EACH PARTY.
     # "Is the PAN verified?" was answered from the latest PAN on the case,
     # whoever it belonged to; with two people, that is one person's
@@ -1413,8 +1449,14 @@ async def answer_question(
         if intent is Intent.CASE_FINDINGS:
             answer, case_sources = case_memory_facts.findings_summary(memory)
         elif intent is Intent.KYC_RESULT:
+            # THE CALLER'S OWN CHECK: on a two-party case the co-applicant's
+            # KYC is theirs, never reported as "your KYC".
+            _parties = subjects.parties_of(case_id) if case_id else []
+            _primary = next((p.party_id for p in _parties
+                             if p.role is subjects.Kind.PRIMARY), None)
             answer, case_sources = case_memory_facts.kyc_answer(
-                memory, want_score=(classification.fields or {}).get("want") == "score")
+                memory, want=(classification.fields or {}).get("want") or "result",
+                party_id=_primary if len(_parties) > 1 else None, primary_id=_primary)
         else:
             answer, case_sources = case_memory_facts.explain(memory)
         case_memory_block = memory
@@ -1443,8 +1485,8 @@ async def answer_question(
         # be reworded by the model (one call, validated), NEVER is quoted.
         # A question typed in another language keeps its deterministic,
         # localizable wording: the model phrases English only.
-        from app.agents.applicant import conversation_state as _conv
-        from app.agents.applicant import model_routing as _routing
+        from app.agents.applicant.copilot.conversation import state as _conv
+        from app.agents.applicant.copilot.routing import model_routing as _routing
 
         typed_language = getattr(frame, "language", None) or "en"
         decision = _routing.decide(
@@ -1539,7 +1581,7 @@ async def answer_question(
             # ONE RECORDED DETAIL, from the applicant / application record the
             # tools just read for this case (profile.py). A co-applicant's
             # form details are not served here: said so, never substituted.
-            from app.agents.applicant import profile as profiles
+            from app.agents.applicant.copilot.answering import profile as profiles
 
             if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
                 answer = ("I can only show the primary applicant's recorded details here. "
@@ -1554,6 +1596,10 @@ async def answer_question(
                     # raw text); the message may have been canonicalised since
                     language=(getattr(frame, "language", None)
                               or _languages.detect(message).code))
+            source, llm_ms = "deterministic", 0.0
+        elif intent is Intent.DOCUMENTS_UPLOADED and classification.document_type \
+                and not classification.status_filter:
+            answer = _one_document_upload(classification.document_type, results)
             source, llm_ms = "deterministic", 0.0
         elif (intent in (Intent.DOCUMENTS_UPLOADED, Intent.DOCUMENTS_PENDING)
               and classification.status_filter):
@@ -1594,6 +1640,18 @@ async def answer_question(
     if intent is Intent.DOCUMENT_VERIFICATION:
         if recorded:
             answer = answer.rstrip() + " " + recorded
+
+    # "WHAT IS PENDING, AND WHY?" -- the recorded reason of each pending item
+    # (workflow.pending_items `detail`), never an explanation composed here.
+    if frame is not None and "WHY" in [getattr(q, "value", q) for q in frame.qualifiers] \
+            and intent in (Intent.DOCUMENTS_PENDING, Intent.DOCUMENTS_MISSING,
+                           Intent.PENDING_ITEMS):
+        payload = results.get("workflow.pending_items") or {}
+        items = (payload.get("pending_items") if isinstance(payload, dict) else None) or []
+        details = [str(i.get("detail")).strip() for i in items
+                   if isinstance(i, dict) and i.get("detail")]
+        if details and not all(d in answer for d in details):
+            answer = answer.rstrip() + " " + " ".join(d for d in details if d not in answer)
 
     knowledge_block = None
     category = routing.category_for(intent)
@@ -1822,6 +1880,31 @@ async def _answer_for_subject(
 
     if subject.missing and subject.kind is subjects.Kind.CO:
         return subject.missing, {}, [], [], None
+    frame = getattr(classification, "frame", None)
+    typed_in = getattr(frame, "language", None)
+    if capability is subjects.Capability.PROFILE:
+        # EACH PARTY'S OWN RECORD, read by the party id the CASE RECORD names
+        # -- never an id the user typed; the case's ownership was cleared above.
+        from app.agents.applicant.copilot.answering import profile as _profiles
+
+        wanted = (classification.fields or {}).get("field") or _profiles.ALL_APPLICANT
+        answer = subjects.profile_answer(subject, wanted, case_id, language=typed_in)
+        if subject.missing:
+            answer = f"{subject.missing} {answer}"
+        return answer, {}, [], [], None
+    if capability is subjects.Capability.KYC:
+        memory = case_memory_facts.case_memory(case_id)
+        primary = next((p.party_id for p in parties_on_case
+                        if p.role is subjects.Kind.PRIMARY), None)
+        want = (classification.fields or {}).get("want") or "result"
+        lines = [case_memory_facts.kyc_answer(
+                     memory, want=want, party_id=party.party_id, primary_id=primary,
+                     who=party.label)[0]
+                 for party in subject.parties]
+        answer = " ".join(lines)
+        if subject.missing:
+            answer = f"{subject.missing} {answer}"
+        return answer, {}, [], [], memory
     if capability is subjects.Capability.DETAILS:
         if len(subject.parties) == 1:
             return None
@@ -1893,7 +1976,7 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
     was about. State is keyed by the authenticated subject; it never grants
     ownership and never carries case values.
     """
-    from app.agents.applicant import conversation_state as conv
+    from app.agents.applicant.copilot.conversation import state as conv
     from app.security import guardrails
 
     message = str(kwargs.get("message") or "")
@@ -1902,10 +1985,15 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
     context = kwargs.get("context")
     if not conv.enabled() or kwargs.get("intent_override") is not None:
         return await _answer_unguarded(**kwargs)
+    security_started = time.perf_counter()
     screened = guardrails.check_input(
         message, allowed_ids=(case_id, kwargs.get("applicant_id"), kwargs.get("party_id")))
+    security_ms = round((time.perf_counter() - security_started) * 1000, 2)
     if not screened.allowed:
-        return await _answer_unguarded(**kwargs)
+        refused = await _answer_unguarded(**kwargs)
+        refused.setdefault("_timings", {})["security_ms"] = security_ms
+        return refused
+    turn_started = time.perf_counter()
 
     subject = str(Caller.from_claims(claims).subject or "anonymous")
     conversation_id = (context or {}).get("conversation_id") if isinstance(context, dict) else None
@@ -1914,8 +2002,20 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
         state = None                      # another case: a new conversation
     if state is None:
         state = conv.STORE.new(subject, case_id)
+    if isinstance(context, dict) and str(context.get("conversation_id") or "") == \
+            state.conversation_id:
+        # THE REFERENTS THE CALLER'S CONTEXT CARRIES (labels, never authority):
+        # a route that builds its reply context after the agent returns
+        # leaves the stored state without the document "it" points at.
+        if not state.last_slot and context.get("last_slot"):
+            state.last_slot = str(context.get("last_slot"))
+        if not state.last_document and context.get("last_document"):
+            state.last_document = str(context.get("last_document"))
+        if not state.last_documents and isinstance(context.get("last_documents"), list):
+            state.last_documents = [str(d) for d in context["last_documents"]][:6]
     reading = conv.read_turn(message, state)
-    from app.agents.applicant import phrasing as _phrasing
+    conversation_ms = round((time.perf_counter() - turn_started) * 1000, 2)
+    from app.agents.applicant.copilot.answering import phrasing as _phrasing
 
     _phrasing.TURN_SEED.set(_phrasing.seed_for(state.conversation_id, state.turn_id + 1))
     conv.CURRENT_TURN.set(conv._TURN_TYPES.get(reading.outcome, conv.NEW_REQUEST))
@@ -1965,17 +2065,20 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
             kwargs = dict(kwargs, message=reading.message)
         response = await _answer_unguarded(**dict(kwargs, context=merged))
         if reading.message != message:
-            response["followed_up"] = {"original_message": message[:200],
-                                       "resolved_to": reading.message[:200],
-                                       "reason": reading.note or reading.outcome}
+            if not response.get("followed_up"):
+                # the same block a bare follow-up publishes (followup.Resolution.public)
+                response["followed_up"] = {"original_message": message[:200],
+                                           "interpreted_as": reading.message[:200],
+                                           "reason": reading.note or reading.outcome}
     kind = conv.turn_type(reading, response, state)
     trace["turn_type"] = kind
     # A CORRECTION, A RESOLVED CLARIFICATION OR A REPEAT is acknowledged in a
     # few words before the answer -- the answer itself is untouched.
     if str(response.get("answer") or "").strip() and not response.get("clarification_required") \
             and str(response.get("category") or "") not in ("CONVERSATION", "UNSUPPORTED") \
-            and reading.outcome in (conv.CORRECTION, conv.OPTION_RESOLVED, conv.REPLAY,
-                                    conv.YES_NO_RESPONSE):
+            and (reading.outcome in (conv.CORRECTION, conv.OPTION_RESOLVED, conv.YES_NO_RESPONSE)
+                 or (reading.outcome == conv.REPLAY
+                     and reading.note == "the previous question, asked again")):
         language = ((response.get("understanding") or {}).get("frame") or {}).get("language")
         ack_kind = {conv.CORRECTION: "CORRECTION", conv.REPLAY: "REPLAY"}.get(
             reading.outcome, "CLARIFICATION_RESPONSE")
@@ -1991,6 +2094,10 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
         understanding = {}
         response["understanding"] = understanding
     understanding["conversation"] = trace
+    timings = response.setdefault("_timings", {})
+    timings["security_ms"] = security_ms
+    timings["conversation_ms"] = conversation_ms
+    timings["total_ms"] = round((time.perf_counter() - security_started) * 1000, 2)
     return response
 
 
@@ -2005,8 +2112,10 @@ async def answer_question(**kwargs: Any) -> dict[str, Any]:
     reaches this point unvalidated.
     """
     from app.security import guardrails
+    from app.store import request_cache
 
-    response = await _conversational(**kwargs)
+    with request_cache.scoped():
+        response = await _conversational(**kwargs)
     answer = response.get("answer")
     if isinstance(answer, str) and answer:
         cleaned, verdict = guardrails.published(answer)

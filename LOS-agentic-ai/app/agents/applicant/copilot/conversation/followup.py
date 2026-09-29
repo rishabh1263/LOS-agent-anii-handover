@@ -62,18 +62,25 @@ _POLITE_TAIL = re.compile(
 
 
 #: A pronoun standing for a document the previous answer named.
-_PRONOUN = re.compile(r"\b(it|that one|this one|that|ye|yeh|woh|wo|vo|te|ती|ते|वो|यह|ये)\b",
+_PRONOUN = re.compile(r"\b(it|that one|this one|that|those|these|they|them|both|ye|yeh|woh|wo|vo|"
+                      r"te|inko|unko|inhe|unhe|dono|sab|ती|ते|वो|यह|ये|वे|इन्हें|उन्हें)\b",
                       re.IGNORECASE)
 #: What is being asked about it: its state.
 _DOCUMENT_ASK = re.compile(
     r"\b(pending|verified|verify|verification|rejected|status|missing|uploaded|"
-    r"approved|accepted|cleared|hold|stuck|baki|baaki|abhi tak|अभी|बाकी|प्रलंबित)\b",
+    r"approved|accepted|cleared|hold|held|stuck|holding|delay\w*|blocked|baki|baaki|abhi tak|"
+    r"atka|अभी|बाकी|प्रलंबित)\b",
     re.IGNORECASE)
 #: The question names its subject itself: no pronoun to resolve.
 _NAMES_A_THING = re.compile(
     r"\b(document|documents|docs?|pan|aadhaar|aadhar|passport|statement|slip|proof|"
     r"itr|application|case|file|loan|stage|step|kyc|salary|bank|address|income|"
     r"co-?applicant|applicant|customer)\b", re.IGNORECASE)
+
+
+# A PLURAL pronoun after a list means the set just listed ("which of those
+# are verified?", "are they all uploaded?"), never one document.
+_PLURAL = re.compile(r"\b(those|these|they|them|both|dono|sab|sabhi|वे|ये|सब|सभी|दोनों|ती|सगळे|दोन्ही)\b", re.I)
 
 
 def pronoun_clarification(message: str, context: Context | None) -> tuple[str, list[str]] | None:
@@ -90,12 +97,19 @@ def pronoun_clarification(message: str, context: Context | None) -> tuple[str, l
         return None
     if context.last_document and _is_known(context.last_document):
         return None
+    if _PLURAL.search(text):
+        return None                      # resolve() reads it as the whole list
     listed = [d for d in context.last_documents if _is_known(d)]
     if len(listed) < 2:
         return None
     names = [_display(d) for d in listed]
+    asks_pending = bool(re.search(r"\b(pending|missing|baki|baaki)\b", text, re.I))
+    asks_upload = bool(re.search(r"\b(upload\w*|submitted|received|in|diya|jama)\b", text, re.I))
     return (f"Which one do you mean: {' or '.join(names)}?",
-            [_PRONOUN.sub(name, text, count=1) for name in names])
+            [(f"Why is {name} still pending?" if asks_pending
+              else f"Has my {name} been uploaded?" if asks_upload
+              else f"Is {name} verified?")
+             for name in names])
 
 
 def _bare_form(text: str) -> str:
@@ -330,6 +344,15 @@ def resolve(message: str, context: Context | None) -> Resolution:
         if context.last_document and _is_known(context.last_document):
             listed = [context.last_document]
         if len(listed) >= 2:
+            # "why are THESE still pending?" after a pending list: the pronoun
+            # means the documents just listed, asked about the same state.
+            plural = _PLURAL.search(text)
+            if plural or (str(context.last_task or "").upper() == "LIST_PENDING" and re.search(
+                    r"\b(pending|missing|held|stuck|delay\w*|baki|baaki|बाकी|प्रलंबित)\b", text, re.I)):
+                return Resolution(
+                    message=_PRONOUN.sub("my documents", text, count=1),
+                    rewritten_from=text,
+                    reason="the documents the previous answer listed")
             return Resolution(message=text)      # pronoun_clarification asks
         target = listed[0] if listed else slot
         if target:
@@ -553,7 +576,7 @@ _WHO = {"CO_APPLICANT": ("the co-applicant", "the co-applicant's"),
 
 
 def _subject_switch(text: str, context: Context) -> Resolution | None:
-    from app.agents.applicant import subjects
+    from app.agents.applicant.copilot.routing import subjects
 
     match = _BARE_SUBJECT.match(text)
     role = subjects.mentioned(match.group(3)) if match else None
@@ -652,11 +675,22 @@ def context_from_response(envelope: Mapping[str, Any]) -> dict[str, Any]:
     for item in envelope.get("pending_items") or []:
         if isinstance(item, Mapping) and item.get("slot") and item.get("slot") not in listed:
             listed.append(str(item["slot"]))
+    required_list = str(envelope.get("intent") or "") == "DOCUMENTS_REQUIRED"
     for entry in checklist:
-        if isinstance(entry, Mapping) and entry.get("fulfilment") in ("FAILED", "UNDER_REVIEW",
-                                                                      "MISSING") \
+        if isinstance(entry, Mapping) and (
+                required_list or entry.get("fulfilment") in ("FAILED", "UNDER_REVIEW", "MISSING")) \
+                and entry.get("mandatory", True) \
                 and entry.get("slot") and entry.get("slot") not in listed:
             listed.append(str(entry["slot"]))
+    # A VERIFICATION ANSWER names documents too: what it reported on.
+    for document in envelope.get("documents") or []:
+        kind = document.get("document_type") if isinstance(document, Mapping) else None
+        if kind and str(kind).upper() not in listed:
+            listed.append(str(kind).upper())
+    for source in envelope.get("sources") or []:
+        kind = source.get("document_type") if isinstance(source, Mapping) else None
+        if kind and str(kind).upper() not in listed:
+            listed.append(str(kind).upper())
 
     subject = envelope.get("subject") or {}
     understanding = envelope.get("understanding") or {}
@@ -675,7 +709,7 @@ def context_from_response(envelope: Mapping[str, Any]) -> dict[str, Any]:
         "last_intent": envelope.get("intent"),
         "last_slot": slot,
         "last_documents": listed[:6],
-        "last_document": frame.get("document_type"),
+        "last_document": (None if understanding.get("compound") else frame.get("document_type")),
         # The party role the answer was about, for "and her documents?".
         "last_subject": (subject.get("kind")
                          if isinstance(subject, Mapping) else None),

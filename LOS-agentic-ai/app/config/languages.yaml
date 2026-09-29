@@ -51,7 +51,8 @@ languages:
 # unless Marathi or Konkani markers appear; Bengali script is Bengali unless
 # an Assamese letter or marker appears.
 markers:
-  mr: [आहे, आहेत, माझं, माझा, माझी, माझे, कोणत्या, कोणता, कोणती, कोणते, मध्ये, सध्या, काय, झाले, झालं, तुमच्या,
+  mr: [आहे, आहेत, माझं, माझा, माझी, माझे, माझ्या, मी, किती, सांगा, होते, केसचा, कर्ज, रक्कम, रकमेचे, मागितले,
+       कोणत्या, कोणता, कोणती, कोणते, मध्ये, सध्या, काय, झाले, झालं, तुमच्या,
        लागतील, लागेल, कागदपत्रे, कागदपत्र, साठी, स्टेजसाठी, टप्प्यात, आता]
   kok: [म्हजो, म्हजी, म्हजें, कितें, आसा, खंयच्या, खंय]
   as: [ৰ, ৱ, মোৰ, আছেনে, কিয়]
@@ -62,7 +63,7 @@ markers:
             shukriya, dhanyavad, dhanyawad, alvida, sab, sabhi, theek, thik, sahi,
             koi, kuch, dena, dene, deni, hoga, hogi, honge, mereko, mujhko, apna,
             apni, apne, aapka, aapki, aapke, karo, kijiye, kiya, kiye, ho, hun,
-            aage, abhi, kal, aaj, kab, jaldi]
+            aage, abhi, kal, aaj, kab, jaldi, h, hv, kitne, kitna, kitni, mahine, mahino]
 
 # ---------------------------------------------------------------------------
 # LEXICONS -- language word (or phrase) -> canonical English.
@@ -109,7 +110,14 @@ lexicon:
     konsi: which
     pe: at
     par: at
+    abhi tak: still
     abhi: now
+    yeh: this
+    ye: this
+    yah: this
+    woh: that
+    wo: that
+    vo: that
     ab: now
     batao: tell
     bataiye: tell
@@ -124,6 +132,33 @@ lexicon:
     kaha: where
     kahan: where
     kyu: why
+    janam tithi: date of birth
+    janam din: date of birth
+    kitne mahine: how many months
+    kitne mahino: how many months
+    nahi pahuncha: not received
+    nahi pahunche: not received
+    nahi pahunchi: not received
+    h: is
+    hv: is
+    mahine: months
+    mahina: month
+    ya: or
+    atka hua: stuck
+    atka: stuck
+    atki: stuck
+    mila kya: received
+    mila: received
+    pahuncha: reached
+    pahunchi: reached
+    or bolo: again
+    ek baar or: once again
+    ek baar aur: once again
+    bolo: tell me
+    uska bhi: for the co-applicant too
+    uski bhi: for the co-applicant too
+    unka bhi: for the co-applicant too
+    ke bhi: for the co-applicant too
     kyun: why
     kyon: why
     mera: my
@@ -142,6 +177,71 @@ lexicon:
     ke: ""
     ko: ""
   hi:
+    मोबाइल नंबर: mobile number
+    मोबाइल: mobile
+    नाम: name
+    और: and
+    लोन अमाउंट: loan amount
+    अमाउंट: amount
+    दोनों: both
+    फाइल: file
+    कितने: how many
+    कितना: how much
+    कितनी: how much
+    जन्म तारीख: date of birth
+    जन्म तिथि: date of birth
+    तारीख: date
+    फोन नंबर: phone number
+    फ़ोन: phone
+    ईमेल आईडी: email id
+    ईमेल: email
+    ई-मेल: email
+    पता: address
+    संख्या: number
+    क्रमांक: number
+    नंबर: number
+    आईडी: id
+    केस: case
+    केस का: case
+    केस की: case
+    अवधि: tenure
+    ब्याज दर: interest rate
+    ब्याज: interest
+    राशि: amount
+    रुपये: rupees
+    माँगा: asked for
+    मांगा: asked for
+    दर्ज: recorded
+    रिकॉर्ड: recorded
+    प्रोडक्ट: product
+    उत्पाद: product
+    आधार: aadhaar
+    पैन कार्ड: pan card
+    पैन: pan
+    खाता संख्या: account number
+    खाता: account
+    जमा किए: submitted
+    जमा किया: submitted
+    जमा: submit
+    अब तक: so far
+    आवेदक: applicant
+    सह-आवेदक: co-applicant
+    सह आवेदक: co-applicant
+    का भी: for the co-applicant too
+    लोन: loan
+    वेरिफाई: verified
+    रोजगार: employment
+    रोज़गार: employment
+    ग्राहकों: customers
+    ग्राहक: customer
+    सभी: all
+    सारे: all
+    पूरा डेटा: all data
+    डेटा: data
+    छोड़ो: leave it
+    बताओ: tell me
+    कौन सा: which
+    कौन सी: which
     अगला कदम: next step
     क्या करना है: what should i do next
     क्या करना चाहिए: what should i do next
@@ -204,6 +304,56 @@ lexicon:
     के: ""
     को: ""
   mr:
+    मोबाईल क्रमांक: mobile number
+    मोबाईल: mobile
+    नाव: name
+    आणि: and
+    फाईल: file
+    फाइल: file
+    जन्मतारीख: date of birth
+    जन्म तारीख: date of birth
+    क्रमांक: number
+    केसचा: case
+    केस: case
+    अर्ज क्रमांक: application number
+    अर्ज: application
+    ईमेल पत्ता: email address
+    ईमेल: email
+    पत्ता: address
+    कर्ज: loan
+    रक्कम: amount
+    रकमेचे: amount
+    रकमेचा: amount
+    मागितले: asked for
+    तपासून: verified
+    तपासले: verified
+    पॅन कार्ड: pan card
+    पॅन: pan
+    खाते क्रमांक: account number
+    खाते: account
+    खाता: account
+    कागदपत्रं: documents
+    कागदपत्रे: documents
+    द्यायची: to give
+    द्यायचे: to give
+    राहिली: remaining
+    राहिले: remaining
+    रोजगार प्रकार: employment type
+    रोजगार: employment
+    पगारदार: salaried
+    व्यावसायिक: self employed
+    नोंदवला: recorded
+    नोंदला: recorded
+    नोंदवली: recorded
+    कोणता: which
+    कोणती: which
+    कोणते: which
+    सांगा: tell me
+    सोडा: leave it
+    सह-अर्जदार: co-applicant
+    लोन अमाउंट: loan amount
+    अमाउंट: amount
+    किती: how much
     पुढची पायरी: next step
     पुढे काय करायचे: what should i do next
     काय करायचे: what should i do next

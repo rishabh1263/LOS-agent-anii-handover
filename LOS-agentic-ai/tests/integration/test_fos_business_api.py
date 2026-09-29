@@ -92,7 +92,7 @@ def test_a_named_action_never_reaches_the_classifier(client, case, monkeypatch):
     the test if it is called at all. A dropdown action must complete
     without it.
     """
-    from app.agents.applicant import agent
+    from app.agents.applicant.copilot import agent
 
     def never(message):
         raise AssertionError(
@@ -119,7 +119,7 @@ def test_a_typed_question_still_is_classified(client, case, monkeypatch):
     The boundary works both ways. CUSTOM_QUERY is the only request here
     that is genuinely a question, and it must still be understood.
     """
-    from app.agents.applicant import agent
+    from app.agents.applicant.copilot import agent
 
     seen: list[str] = []
     original = agent.classify

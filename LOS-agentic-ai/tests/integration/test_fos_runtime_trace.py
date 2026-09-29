@@ -78,7 +78,7 @@ def trace(monkeypatch):
     Wrapped rather than replaced: the real function still executes, so
     the trace describes a request that genuinely happened.
     """
-    from app.agents.applicant import agent
+    from app.agents.applicant.copilot import agent
     from app.orchestration import graph
 
     log: dict[str, list] = {"classified": [], "tools": [], "orchestrator": []}

@@ -51,12 +51,196 @@ ACKNOWLEDGEMENT = "ACKNOWLEDGEMENT"
 NEGATION = "NEGATION"
 REPLAY = "REPLAY"
 PENDING_EXPIRED = "PENDING_EXPIRED"
+ASKED = "CLARIFICATION_ASKED"          # the conversation layer asks, from state alone
 NO_STATE = "NO_STATE"
 
 #: Questions that can be asked about ONE PARTY on the case (subjects.py).
 PER_PARTY_INTENTS = frozenset({"DOCUMENT_VERIFICATION", "DOCUMENTS_PENDING", "DOCUMENTS_MISSING",
                                "PENDING_ITEMS", "READINESS", "DOCUMENTS_UPLOADED",
-                               "DOCUMENT_DETAILS", "CASE_HISTORY"})
+                               "DOCUMENT_DETAILS", "CASE_HISTORY", "APPLICANT_PROFILE",
+                               "KYC_RESULT"})
+
+#: The caller's own words ("my", "mera") -- an explicit self beats any
+#: party the conversation was about.
+_SELF_WORDS = re.compile(r"\b(my|mine|me|i|myself|mera|meri|mere|mujhe|mujhko|apna|apni|apne)\b"
+                         r"|मेरा|मेरी|मेरे|माझा|माझी|माझे|माझं", re.IGNORECASE)
+#: A PERSON pronoun -- "their KYC", "for them", "unka mobile".
+_PERSON_POSSESSIVE = re.compile(r"\b(their|unka|unki|unke|inka|inki|inke)\b|उनका|उनकी|उनके", re.IGNORECASE)
+_PERSON_OBJECT = re.compile(r"\b(for|of|about|to)\s+them\b|\b(unko|unhe|unhen)\b", re.IGNORECASE)
+_BARE_THEIRS = re.compile(r"^\s*(and\s+|aur\s+|what\s+about\s+|how\s+about\s+)?"
+                          r"(theirs|their\s+one|unka|unki|unke|unka\s+kya|unki\s+kya|unke\s+bare\s+mein)"
+                          r"\s*[?.!]*\s*$", re.IGNORECASE)
+#: A turn that continues the last one ("what about the mobile?", "and email?").
+_FOLLOW_FORM = re.compile(r"^\s*(what\s+about|how\s+about|and|aur|also|or|then|uska|iska)\b",
+                          re.IGNORECASE)
+
+
+def _party_askable(state: "ConversationState") -> bool:
+    """
+    Whether the previous question means something asked of another PERSON.
+    Documents, verification, pending items, KYC and a person's own details
+    do; an application-wide field (loan amount, tenure, product) does not --
+    "and the other applicant?" after "what is my loan amount?" is asked back.
+    """
+    last_intent = str((state.last_answer_reference or {}).get("intent") or "")
+    if last_intent not in PER_PARTY_INTENTS:
+        return False
+    if last_intent != "APPLICANT_PROFILE":
+        return True
+    from app.agents.applicant.copilot.routing import capabilities
+    from app.agents.applicant.copilot.answering import profile as _profile
+
+    asked = _profile.detect(state.last_message or "")
+    if asked is None:
+        return False
+    person = set(capabilities.APPLICANT_FIELDS) | {"aadhaar_number", "pan_number",
+                                                   "bank_account_number", "applicant_id",
+                                                   "employment_type", "declared_monthly_income",
+                                                   "declared_monthly_obligations"}
+    return asked.field.startswith("ALL") or all(f in person for f in asked.fields)
+
+
+def _names_co(text: str) -> bool:
+    """The co-applicant named in any language the lexicons read."""
+    from app.agents.applicant import normalize
+    from app.agents.applicant.copilot.routing import subjects as _subjects
+
+    lowered = _strip(text)
+    if re.search(r"\b(applicant|him|her)\b|सह-?\s?आवेदक|सह-?\s?अर्जदार", lowered):
+        return True
+    return _subjects.mentioned(normalize.normalise(text).text) is _subjects.Kind.CO
+
+
+def _same_document(text: str, state: "ConversationState") -> bool:
+    """ "the other PAN" after a PAN answer: the same document, another person's."""
+    from app.agents.applicant.copilot.semantics import semantic_frame as _frames
+
+    return bool(state.last_document) and _frames._document_type(text) == state.last_document
+
+
+def _for_co(message: str) -> str:
+    """The previous question, asked of the co-applicant instead of the caller."""
+    text = str(message or "").strip()
+    swapped, n = re.subn(r"\b(my|mera|meri|mere)\b", "the co-applicant's", text, count=1,
+                         flags=re.IGNORECASE)
+    if n:
+        return swapped
+    return f"{text.rstrip('?')} for the co-applicant?"
+
+
+#: "and mine?", "what about me?", "aur mera?" -- the caller, and nothing else asked.
+_BARE_MINE = re.compile(r"^\s*(and\s+|aur\s+|what\s+about\s+|how\s+about\s+)?"
+                        r"(mine|me|myself|my\s+one|mera|meri|mere|mera\s+kya|meri\s+kya|mere\s+liye)"
+                        r"\s*[?.!]*\s*$", re.IGNORECASE)
+
+
+def _explicit_party_turn(text: str, state: "ConversationState") -> "Reading | None":
+    """
+    EXPLICIT PARTY > INHERITED PARTY. The current turn NAMES whose question it
+    is -- "mine" / "mera" is the caller, "their" / "theirs" / "unka" is the
+    other person on the case -- so it decides the party whatever the previous
+    turn was about, and whether or not a clarification is still pending.
+    """
+    if not state.last_message:
+        return None
+    if (_BARE_MINE.match(text) or _has("FOR_SELF", text)) \
+            and state.active_party == "CO_APPLICANT" and _party_askable(state):
+        return Reading(REPLAY, _for_self(state.last_message),
+                       note="the previous question, for the primary applicant")
+    referred = _pronoun_referent(text, state)
+    if referred:
+        return Reading(NEW_TOPIC, referred, note="the party the conversation is about")
+    return None
+
+
+def _pronoun_referent(text: str, state: "ConversationState") -> str | None:
+    """
+    A PERSON PRONOUN in the turn ("their KYC", "for them", "unka mobile",
+    "and theirs?") resolved to the co-applicant. None when the turn names a
+    party itself or says "my".
+    """
+    from app.agents.applicant.copilot.routing import subjects as _subjects
+
+    if _subjects.mentioned(text) is not None or _SELF_WORDS.search(text):
+        return None
+    last_intent = str((state.last_answer_reference or {}).get("intent") or "")
+    about_co = state.active_party == "CO_APPLICANT"
+    if _BARE_THEIRS.match(text) and _party_askable(state):
+        return _for_co(state.last_message)
+    person_topic = about_co or last_intent in ("APPLICANT_PROFILE", "KYC_RESULT")
+    if _PERSON_POSSESSIVE.search(text) and (person_topic or re.search(
+            r"\b(their|unka|unki|unke)\s+(kyc|name|naam|mobile|phone|number|email|address|"
+            r"dob|date\s+of\s+birth|details?)\b", text, re.IGNORECASE)):
+        return _PERSON_POSSESSIVE.sub("the co-applicant's", text, count=1)
+    if _PERSON_OBJECT.search(text) and person_topic:
+        return _PERSON_OBJECT.sub(lambda m: (f"{m.group(1)} the co-applicant" if m.group(1)
+                                             else "the co-applicant"), text, count=1)
+    return None
+
+
+def _party_referent(text: str, state: "ConversationState") -> str | None:
+    """
+    WHO an un-named follow-up is about: a person pronoun first
+    (_pronoun_referent), then INHERITANCE -- "what about the mobile?" after
+    a co-applicant answer is still the co-applicant. An explicit "my" or a
+    named party always wins (None).
+    """
+    from app.agents.applicant.copilot.semantics import short_query as _short
+    from app.agents.applicant.copilot.routing import subjects as _subjects
+
+    if _subjects.mentioned(text) is not None or _SELF_WORDS.search(text):
+        return None
+    pronoun = _pronoun_referent(text, state) if state.last_message else None
+    if pronoun:
+        return pronoun
+    about_co = state.active_party == "CO_APPLICANT"
+    if about_co and (_FOLLOW_FORM.match(text) or (len(text.split()) <= 4 and (
+            _short.short_head(text) is not None or _is_field(text)
+            or re.search(r"\bkyc\b", text, re.IGNORECASE)))):
+        return f"{text.strip().rstrip('?')} for the co-applicant?"
+    return None
+
+
+def _other_document_or_party(text: str, state: "ConversationState",
+                             last_intent: str) -> "Reading | None":
+    """
+    "the other one" right after a question about ONE document is either the
+    other document on the list or the co-applicant's copy of this one. Both
+    readings are offered; the conversation state never picks.
+    """
+    from app.agents.applicant.copilot.conversation import followup as _followup
+
+    if not (state.last_document and state.last_message and _party_askable(state)):
+        return None
+    lowered = _strip(text)
+    if not re.search(r"\b(the\s+)?other\s+one\b|\bdusra\s+wala\b|\bdoosra\s+wala\b", lowered) \
+            or re.search(r"\b(applicant|him|her|person|co)\b", lowered):
+        return None
+    others = [d for d in state.last_documents if d and d != state.last_document]
+    if not others:
+        return None
+    ask = ("Is my {doc} verified?" if last_intent == "DOCUMENT_VERIFICATION"
+           else "Has my {doc} been uploaded?" if last_intent == "DOCUMENTS_UPLOADED"
+           else "Is my {doc} still pending?")
+    options = [ask.format(doc=_followup._display(d)) for d in others[:2]]
+    options.append(_for_co(state.last_message))
+    names = [_followup._display(d) for d in others[:2]]
+    reply = (f"Do you mean the {' or the '.join(names)}, or the co-applicant's "
+             f"{_followup._display(state.last_document)}?")
+    return Reading(ASKED, text, reply=reply, options=options,
+                   note="the other document, or the other person")
+
+
+def _for_self(message: str) -> str:
+    """The previous question, asked of the caller instead of the co-applicant."""
+    text = str(message or "")
+    text = re.sub(r"\b(the|my|our)\s+co-?\s?applicant'?s\b", "my", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(for|of|about)\s+(my|the|our)\s+co-?\s?applicant\b", r"\1 me", text,
+                  flags=re.IGNORECASE)
+    text = re.sub(r"\bco-?\s?applicant\s+(ka|ki|ke)\b",
+                  lambda m: {"ka": "mera", "ki": "meri", "ke": "mere"}[m.group(1).lower()],
+                  text, flags=re.IGNORECASE)
+    return re.sub(r"\b(the\s+|my\s+)?co-?\s?applicant\b", "me", text, flags=re.IGNORECASE)
 
 #: The kind of turn being answered (a TURN TYPE below), set by the
 #: conversation layer before the pipeline runs, for the model-routing policy.
@@ -346,7 +530,7 @@ _VOCAB_CACHE: dict[str, Any] = {}
 
 
 def _vocab() -> dict[str, list[str]]:
-    from app.agents.applicant import semantic_frame
+    from app.agents.applicant.copilot.semantics import semantic_frame
 
     raw = semantic_frame._config().get("conversation") or {}
     out: dict[str, list[str]] = {}
@@ -357,7 +541,7 @@ def _vocab() -> dict[str, list[str]]:
                 if isinstance(e, bool):        # YAML reads a bare yes / no as a boolean
                     e = "yes" if e else "no"
                 if str(e).strip():
-                    words.append(str(e).strip().lower())
+                    words.append(_strip(str(e)))
             out[str(key).upper()] = words
     return out
 
@@ -380,6 +564,23 @@ def _has(kind: str, text: str) -> bool:
     if lowered in set(phrases):
         return True
     return len(lowered) >= 5 and _fuzzy(lowered, phrases) is not None
+
+
+def _completed_fragment(earlier: str, now: str) -> str | None:
+    """
+    "date" + "birth" -> "date birth" when the two short fragments read as one
+    question and neither does alone. Nothing is guessed: the joined text is
+    classified exactly as a typed message would be.
+    """
+    a, b = _strip(earlier), _strip(now)
+    if not a or not b or len(a.split()) > 2 or len(b.split()) > 2:
+        return None
+    from app.agents.applicant.copilot.semantics import intents as _intents
+    for joined in (f"{a} {b}", f"{b} {a}"):
+        reading = _intents.understand(joined, has_case=True)
+        if reading.intent.value not in ("UNKNOWN", "OUT_OF_SCOPE", "GUARDRAIL_BLOCKED"):
+            return joined
+    return None
 
 
 def _leading(kind: str, text: str) -> str | None:
@@ -441,7 +642,7 @@ class Reading:
 
 
 def _frame_of(text: str) -> Any:
-    from app.agents.applicant import intents
+    from app.agents.applicant.copilot.semantics import intents
 
     return intents.understand(text, has_case=True)
 
@@ -467,18 +668,50 @@ def _same_family(a: str | None, b: str | None) -> bool:
 
 def _match_option(text: str, options: list[Option]) -> tuple[list[int], Any]:
     """Options the reply MEANS: same intent, or same task/object frame."""
-    from app.agents.applicant import short_query
+    from app.agents.applicant.copilot.semantics import short_query
 
     c = _frame_of(text)
-    from app.agents.applicant import profile
+    from app.agents.applicant.copilot.answering import profile
+
+    words = [w for w in _strip(text).split() if len(w) > 1]
+    if 0 < len(words) <= 2:
+        # "case" after "application ID or case ID?": the words of one option.
+        named = [i for i, o in enumerate(options)
+                 if all(w in _strip(o.label).split() for w in words)]
+        if len(named) == 1:
+            return named, c
+
+    # "the address proof" after "the Address Proof or the PAN?": a reply that
+    # NAMES ONE DOCUMENT chooses the one option about that document.
+    from app.agents.applicant.copilot.semantics import semantic_frame as _frames
+
+    from app.agents.applicant.copilot.routing import subjects as _subjects
+
+    if _subjects.mentioned(text) is _subjects.Kind.CO and len(words) <= 4:
+        by_party = [i for i, o in enumerate(options)
+                    if re.search(r"co-?\s?applicant", o.label, re.IGNORECASE)]
+        if len(by_party) == 1:
+            return by_party, c
+
+    named_document = _frames._document_type(text)
+    if named_document and len(words) <= 5:
+        by_document = [i for i, o in enumerate(options)
+                       if _frames._document_type(o.label) == named_document
+                       and not re.search(r"co-?\s?applicant", o.label, re.IGNORECASE)]
+        if len(by_document) == 1:
+            return by_document, c
 
     asked = profile.detect(text)
     if asked is not None and not asked.field.startswith("ALL"):
-        # "mobile" after "which field: mobile, email or address?" names it.
+        # "mobile" after "which field: mobile, email or address?" names it;
+        # "what about my email?" after a MOBILE clarification names a field
+        # no option carries -- it chooses nothing and is a new question.
         by_field = [i for i, o in enumerate(options)
                     if (profile.detect(o.label) or profile.Question("")).field == asked.field]
         if len(by_field) == 1:
             return by_field, c
+        if not by_field:
+            return [], c
     if short_query.short_head(text) is not None:
         return [], c                    # a bare word chooses nothing
     f = getattr(c, "frame", None)
@@ -498,7 +731,7 @@ def _match_option(text: str, options: list[Option]) -> tuple[list[int], Any]:
     if len(exact) > 1:
         # Two options with the SAME intent ("application ID" / "case ID"):
         # the recorded field the reply names decides, when it names one.
-        from app.agents.applicant import profile
+        from app.agents.applicant.copilot.answering import profile
 
         asked = profile.detect(text)
         if asked is not None:
@@ -522,6 +755,12 @@ def _reask(pending: PendingClarification, *, after_yes: bool = False,
     if after_no:
         return f"Understood. Then which one: {choice}? You can also say 'leave it'."
     return f"Just to be sure, which one do you mean: {choice}?"
+
+
+def _is_field(text: str) -> bool:
+    from app.agents.applicant.copilot.answering import profile
+
+    return profile.detect(text) is not None
 
 
 def _as_question(rest: str) -> str:
@@ -560,10 +799,37 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
             return Reading(CANCELLATION, rest, note="cancelled, then a new question")
         return Reading(CANCELLATION, "", reply="Okay, leaving that. What would you like to know?")
 
+    # 1b. AN ANNOUNCED TOPIC SHIFT -- "changing topic -", "by the way, ..."
+    shifted = _leading("TOPIC_SHIFT", text)
+    if shifted:
+        state.pending_clarification = None
+        return Reading(NEW_TOPIC, shifted, note="a new topic, announced")
+
     # 2. CORRECTION -- "no, I mean ...", "actually ...", "mera matlab ..."
     rest = _leading("CORRECTION", text)
+    if rest is None:
+        # A negation followed by a correction, in any pairing of the two
+        # classes: "nahi, I meant ...", "no, actually ...", "nope, mera matlab ...".
+        negated = _leading("NEGATE", text)
+        if negated:
+            rest = _leading("CORRECTION", negated)
+            if rest is None:
+                # "no, not the tenure. the product" / "no no, what's blocking my file":
+                # what is negated is dropped, what follows is the correction.
+                remainder = re.sub(r"^(not\s+(the|that|this|my)\s+[^,.;]+[,.;]\s*)", "",
+                                   negated, flags=re.IGNORECASE).strip()
+                if remainder and len(remainder.split()) >= 2 and (
+                        _frame_of(remainder).intent.value != "UNKNOWN"
+                        or _is_field(remainder)):
+                    rest = remainder
     if rest:
         state.pending_clarification = None
+        # A CORRECTION THAT NAMES ONLY A PARTY ("I meant the co-applicant") is
+        # the previous question again, for that party.
+        if _has("PARTY_ONLY", rest) and state.last_message \
+                and _party_askable(state):
+            return Reading(REPLAY, _for_co(state.last_message),
+                           note="the previous question, for the co-applicant")
         return Reading(CORRECTION, _as_question(rest), note="the previous reading was corrected")
 
     # A TURN THAT CONTINUES THE CONVERSATION ("and what should I do next?")
@@ -577,6 +843,18 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
     #    (optionally for the other party).
     if state.last_message:
         last_intent = str((state.last_answer_reference or {}).get("intent") or "")
+        # EXPLICIT PARTY FIRST: "and mine?", "what about theirs?", "their
+        # KYC" name whose question it is -- above any replay of recent context
+        # ("what about theirs" must not read as "what about that").
+        if not pending:
+            explicit = _explicit_party_turn(text, state)
+            if explicit is not None:
+                return explicit
+        if _has("REFER_BACK", text) and not pending and not state.last_slot:
+            # (with ONE document referred to, "what about it?" is that
+            # document -- followup.resolve rewrites it)
+            # "what about that?" -- the previous answer, referred to (no "Again:")
+            return Reading(REPLAY, state.last_message, note="the previous question, referred to")
         again = _leading("AGAIN", text)
         if again is None and _has("AGAIN", text):
             again = ""
@@ -584,24 +862,30 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
             replay = state.last_message
             if again:
                 party = _leading("FOR_PARTY", again)
-                if party is not None and last_intent in PER_PARTY_INTENTS:
-                    replay = f"{replay.rstrip('?')} for the co-applicant?"
-                else:
-                    return Reading(NEW_TOPIC, text)
+                if party is not None and _party_askable(state):
+                    return Reading(REPLAY, _for_co(replay),
+                                   note="the previous question, for the co-applicant")
+                return Reading(NEW_TOPIC, text)
             return Reading(REPLAY, replay, note="the previous question, asked again")
-        if _has("FOR_SELF", text) and not pending and last_intent in PER_PARTY_INTENTS \
-                and state.active_party == "CO_APPLICANT":
-            replay = re.sub(r"\b(for|of|about)\s+(my|the|our)\s+co-?\s?applicant('s)?\b", "for me",
-                            state.last_message, flags=re.IGNORECASE)
-            return Reading(REPLAY, replay, note="the previous question, for the primary applicant")
         # "what about the other one?" -- the same question for the co-applicant,
         # when that question is one a party can be asked about; otherwise the
         # frame's own co-applicant clarification decides.
+        other = _other_document_or_party(text, state, last_intent) if not pending else None
+        if other is not None:
+            return other
         if (_has("OTHER_PARTY", text) or _has("FOR_PARTY", text)) and not pending \
-                and last_intent in PER_PARTY_INTENTS \
-                and (state.active_party or "SELF") != "CO_APPLICANT":
-            return Reading(REPLAY, f"{state.last_message.rstrip('?')} for the co-applicant?",
+                and not (state.last_slot and _has("REFER_BACK", text)) \
+                and _party_askable(state) \
+                and (state.active_party or "SELF") != "CO_APPLICANT" \
+                and not (state.last_document and _has("OTHER_PARTY", text)
+                         and not _names_co(text) and not _same_document(text, state)):
+            return Reading(REPLAY, _for_co(state.last_message),
                            note="the previous question, for the co-applicant")
+        # WHO AN UN-NAMED FOLLOW-UP IS ABOUT: the party the conversation is on.
+        if not pending:
+            referred = _party_referent(text, state)
+            if referred:
+                return Reading(NEW_TOPIC, referred, note="the party the conversation is about")
 
     # 4. A PENDING CLARIFICATION is answered before anything is classified.
     if pending is not None:
@@ -636,6 +920,28 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
             pending.asked_times += 1
             return Reading(STILL_AMBIGUOUS, text, reply=_reask(pending),
                            options=[o.label for o in pending.options])
+        if pending.reason == "INTENT_NOT_RECOGNISED":
+            # The generic offer is a menu, not a question: whatever comes next
+            # is read on its own -- unless two fragments ("date", then
+            # "birth") complete each other into one question.
+            state.pending_clarification = None
+            completed = _completed_fragment(pending.original_message, text)
+            if completed:
+                return Reading(NEW_TOPIC, completed, note="completed the earlier fragment")
+            return Reading(NEW_TOPIC, text, note="after a generic offer the turn stands alone")
+        from app.agents.applicant.copilot.semantics import short_query as _short
+
+        head = _short.short_head(text)
+        explicit = _explicit_party_turn(text, state)
+        if explicit is not None and len(_match_option(text, pending.options)[0]) != 1:
+            # "What about their address?" while "which document?" is open: a
+            # new question naming its party, not an answer to the old one.
+            state.pending_clarification = None
+            return explicit
+        if head is not None and not any(head in o.label.lower() for o in pending.options):
+            # "stage" while a MOBILE clarification is pending: another subject.
+            state.pending_clarification = None
+            return Reading(NEW_TOPIC, text, note="a bare word of another subject supersedes")
         hits, classified = _match_option(text, pending.options)
         if len(hits) == 1:
             state.pending_clarification = None
@@ -648,7 +954,7 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
             return Reading(PARTIAL_RESOLUTION, text, reply=_reask(pending),
                            options=[o.label for o in kept])
         frame = getattr(classified, "frame", None)
-        from app.agents.applicant import short_query
+        from app.agents.applicant.copilot.semantics import short_query
 
         confident = (bool(frame is not None and frame.is_confident())
                      or classified.intent.value not in ("UNKNOWN",)) \
@@ -692,7 +998,7 @@ _TURN_TYPES = {
     NO_STATE: NEW_REQUEST, NEW_TOPIC: TURN_NEW_TOPIC, PENDING_EXPIRED: TURN_NEW_TOPIC,
     REPLAY: FOLLOW_UP, OPTION_RESOLVED: CLARIFICATION_RESPONSE,
     YES_NO_RESPONSE: CLARIFICATION_RESPONSE, PARTIAL_RESOLUTION: CLARIFICATION_RESPONSE,
-    STILL_AMBIGUOUS: AMBIGUOUS, INVALID_OPTION: AMBIGUOUS, NEGATION: AMBIGUOUS,
+    STILL_AMBIGUOUS: AMBIGUOUS, INVALID_OPTION: AMBIGUOUS, NEGATION: AMBIGUOUS, ASKED: AMBIGUOUS,
     USER_REJECTED_CLARIFICATION: TURN_CANCELLATION, CANCELLATION: TURN_CANCELLATION,
     CORRECTION: TURN_CORRECTION, ACKNOWLEDGEMENT: TURN_ACKNOWLEDGEMENT,
 }
@@ -742,8 +1048,12 @@ def update_from_response(state: ConversationState, message: str,
         state.language = frame.get("language") or state.language
         if frame.get("party"):
             state.active_party = frame.get("party")
+    answered = (response.get("category") not in ("CONVERSATION", "UNSUPPORTED")
+                and str(response.get("intent") or "") not in ("UNKNOWN", "GUARDRAIL_BLOCKED"))
     context = response.get("context") or {}
-    if isinstance(context, dict):
+    if isinstance(context, dict) and answered:
+        # ONLY A REAL ANSWER moves the referents: "haan" or a refusal after a
+        # document answer leaves "that" pointing at the document.
         state.last_slot = context.get("last_slot") or None
         listed = context.get("last_documents")
         state.last_documents = [str(d) for d in listed] if isinstance(listed, list) else []
@@ -752,10 +1062,11 @@ def update_from_response(state: ConversationState, message: str,
     stage = understanding.get("case_stage") if isinstance(understanding, dict) else None
     if stage:
         state.active_stage = str(stage)
-    state.last_answer_reference = {
-        "intent": response.get("intent"), "query_type": response.get("query_type"),
-        "response_source": response.get("response_source"),
-        "category": response.get("category")}
+    if answered:
+        state.last_answer_reference = {
+            "intent": response.get("intent"), "query_type": response.get("query_type"),
+            "response_source": response.get("response_source"),
+            "category": response.get("category")}
     state.last_application_context = {"stage": state.active_stage,
                                       "query_type": response.get("query_type")}
     state.last_tool_result_reference = [str(t) for t in (response.get("tools_invoked") or [])][:8]

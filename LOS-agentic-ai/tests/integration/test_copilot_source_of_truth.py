@@ -574,7 +574,7 @@ def test_n12_a_caller_without_the_document_scope_is_refused(make_token, repo):
 
 
 async def test_n13_an_unknown_tool_is_refused_and_never_reported_as_run():
-    from app.agents.applicant.agent import _call_tools
+    from app.agents.applicant.copilot.agent import _call_tools
 
     results, trace, errors = await _call_tools(
         ("no.such.tool",), applicant_id="APP-A", case_id="CASE-A",

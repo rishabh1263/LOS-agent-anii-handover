@@ -21,8 +21,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agents.applicant import followup, routing
-from app.agents.applicant.intents import Intent, understand
+from app.agents.applicant import routing
+from app.agents.applicant.copilot.conversation import followup
+from app.agents.applicant.copilot.semantics.intents import Intent, understand
 from app.agents.los import stage_lifecycle
 from app.store import set_repository
 from app.store.models import CaseFinding, FindingKind

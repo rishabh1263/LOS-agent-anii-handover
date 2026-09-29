@@ -276,7 +276,7 @@ def test_the_copilot_cannot_override_the_recorded_verdict(client, monkeypatch):
     The model is switched ON and told to say something else. The answer
     comes from the record regardless: the eligibility path never calls it.
     """
-    from app.agents.applicant import agent
+    from app.agents.applicant.copilot import agent
 
     applicant_id, case_id = open_case(client)
     process_slip(client, applicant_id, case_id)

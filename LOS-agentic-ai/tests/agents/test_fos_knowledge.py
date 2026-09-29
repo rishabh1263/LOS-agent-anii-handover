@@ -30,7 +30,7 @@ import pytest
 from app import knowledge as knowledge_layer
 from app.agents.applicant import config as agent_config
 from app.agents.applicant import knowledge_answer
-from app.agents.applicant.intents import Intent, classify, plan_for
+from app.agents.applicant.copilot.semantics.intents import Intent, classify, plan_for
 
 
 @pytest.fixture(autouse=True)
@@ -316,7 +316,7 @@ def test_knowledge_can_be_switched_off(monkeypatch):
 
 def test_retrieval_never_returns_a_prompt_or_a_chunk_id_to_a_caller():
     """What a caller is told about retrieval is citations and a score."""
-    from app.agents.applicant.agent import _public_knowledge
+    from app.agents.applicant.copilot.agent import _public_knowledge
 
     _answer, _source, detail = ask("What does CPA readiness mean?")
     published = _public_knowledge(detail)

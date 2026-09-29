@@ -198,7 +198,7 @@ LEAKING = "Your application is under review; see C:\\los\\app\\kyc.py."
 def test_every_validator_refuses_the_same_leak():
     from app.agents.applicant import grounding as knowledge_grounding
     from app.agents.applicant.facts import fact_set
-    from app.agents.applicant.validate import check_composed, validate_answer
+    from app.agents.applicant.copilot.answering.validate import check_composed, validate_answer
     from app.agents.fraud_risk.summary import validate_llm_summary as fraud
     from app.agents.los.summary import validate_llm_summary as los
 
@@ -433,7 +433,7 @@ def test_a_model_timeout_falls_back_and_says_nothing_about_it(
 
 def test_a_handbook_passage_naming_a_file_is_published_without_it(
         case, client, monkeypatch):
-    from app.agents.applicant import agent
+    from app.agents.applicant.copilot import agent
 
     async def passage(message, **_):
         return ("Requirements come from the product policy. They are read "
