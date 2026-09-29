@@ -114,7 +114,8 @@ _CROSS = _rx(
 )
 
 _BULK = _rx(
-    rf"\b{_EVERY}\s+(the\s+)?({_PERSON}|{_RECORD}|entries|everything)\b",
+    rf"\b{_EVERY}\s+(the\s+)?(?!applicant\s+(information|details|info|data|fields))"
+    rf"({_PERSON}|{_RECORD}|entries|everything)\b",
     # a verb of retrieval on every value of a protected field: "return all PANs"
     rf"\b(return|give|show|list|export|dump|send|fetch|get|print)\s+(me\s+)?{_EVERY}\s+"
     r"(the\s+)?(pans?|aadhaa?rs?|mobiles?|phones?|phone\s+numbers?|mobile\s+numbers?|"

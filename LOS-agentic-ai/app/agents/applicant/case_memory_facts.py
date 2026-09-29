@@ -493,6 +493,60 @@ def explain(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     return f"{head} {clause[0].upper()}{clause[1:]}.", sources
 
 
+def findings_summary(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """
+    The findings recorded on the case, listed as recorded: kind, status and
+    reason codes. Nothing is explained or inferred; a case with no findings
+    is told exactly that.
+    """
+    findings = memory.get("findings") or []
+    if not findings:
+        return ("No findings or reason codes have been recorded for this case yet.", [])
+    lines = []
+    for row in findings:
+        kind = str(row.get("finding_kind") or "").replace("_", " ").title() or "Finding"
+        status = str(row.get("status") or "recorded").lower()
+        codes = row.get("reason_codes") or []
+        said = f"{kind} -- {status}"
+        if row.get("document_type"):
+            said += f" ({str(row['document_type']).replace('_', ' ').title()})"
+        if codes:
+            said += ": " + ", ".join(str(c).replace("_", " ").lower() for c in codes)
+        lines.append(said)
+    noun = "finding" if len(findings) == 1 else "findings"
+    return (f"{len(findings)} {noun} recorded on this case: " + "; ".join(lines) + ".",
+            _sources(findings=findings))
+
+
+def kyc_answer(memory: dict[str, Any], *, want_score: bool = False
+               ) -> tuple[str, list[dict[str, Any]]]:
+    """
+    THE RECORDED KYC RESULT, and only that. Three honest outcomes: a KYC
+    finding with a score; a KYC finding without one; no KYC finding at all.
+    The downstream KYC decision is not this, and is not claimed.
+    """
+    kyc = [row for row in (memory.get("findings") or [])
+           if str(row.get("finding_kind") or "").upper() == "KYC"]
+    if not kyc:
+        return ("KYC information is not yet available for this case: no KYC check has been "
+                "recorded.", [])
+    latest = kyc[-1]
+    status = str(latest.get("status") or "recorded").lower()
+    score = latest.get("score")
+    codes = latest.get("reason_codes") or []
+    reasons = (" Reason codes: " + ", ".join(str(c).replace("_", " ").lower() for c in codes)
+               + ".") if codes else ""
+    if want_score:
+        if score in (None, ""):
+            return (f"A KYC check is recorded for this case (status: {status}), but no KYC "
+                    f"score was recorded with it.{reasons}", _sources(findings=kyc))
+        return (f"The recorded KYC score for this case is {score} (status: {status}).{reasons}",
+                _sources(findings=kyc))
+    said = f"The recorded KYC check for this case has status {status}"
+    said += f" with a score of {score}." if score not in (None, "") else "; no score was recorded."
+    return said + reasons, _sources(findings=kyc)
+
+
 #: A recorded decision that holds the application, as it is said.
 _HELD = {"REVIEW": "is under review", "REJECT": "was declined"}
 

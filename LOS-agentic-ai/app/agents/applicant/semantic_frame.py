@@ -362,6 +362,13 @@ def parse(message: str, *, original: str | None = None) -> SemanticFrame:
             and not ({"OWN", "DEIXIS"} & present) \
             and re.match(r"^\s*(what|which)\s+(is|are)\s+(a|an|the)?\s*\w", lowered):
         explain = True
+    # "WHAT IS THE NEXT ACTION / STEP?" names the case's next step, not a
+    # term to define: the noun after "next" is the object of NEXT.
+    if "NEXT" in present and frame.object is Object.PROCESS_TERM \
+            and re.search(r"\bnext\s+(action|step|thing|task|move)\b", lowered) \
+            and not re.search(r"\b(mean|means|meaning|definition|define|matlab)\b", lowered):
+        frame.object = Object.NONE
+        explain = False
     # A "why" question asks for a reason or a policy, never for a list; the
     # rules that own explanations (case history, policy) keep it.
     if "WHY" in present and not explain and not (

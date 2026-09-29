@@ -98,6 +98,11 @@ class Intent(str, Enum):
     # the state says REVIEW, not why. The reasons were recorded by the LOS
     # pipeline at the time and read back from case memory.
     CASE_HISTORY = "CASE_HISTORY"
+    #: The findings and reason codes recorded on the case, listed as recorded.
+    CASE_FINDINGS = "CASE_FINDINGS"
+    #: The recorded KYC (cross-document consistency) result and its score,
+    #: when the pipeline recorded one -- never a decision, never invented.
+    KYC_RESULT = "KYC_RESULT"
 
     # -- what the documents SAY about income, and what they EVIDENCE
     #
@@ -170,6 +175,8 @@ SIMPLE_INTENTS = frozenset({
     Intent.APPLICATION_STAGE,
     Intent.POLICY_EXPLANATION,
     Intent.CASE_HISTORY,
+    Intent.CASE_FINDINGS,
+    Intent.KYC_RESULT,
     Intent.CASE_PORTFOLIO,
     Intent.STAGE_PROCESS,
     # A recorded value is quoted, never phrased: a paraphrased name is a
@@ -309,13 +316,15 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
     # risk?" fell through to UNKNOWN and then to the knowledge base.
     (r"\brisk\w*\b", "RISK"),
     # "Is KYC clear?" -- the adjective, not only the noun "clearance".
-    (r"\b(full|complete|final)\s*kyc\b"
-     r"|\bkyc\s*(decision|verdict|clearance|result|status)\b"
-     # "Is my KYC done?" is the same question as "is the KYC done?" -- the
-     # KYC decision is the downstream KYC process's, whoever's KYC it is.
-     r"|\bis\s+(the\s+|my\s+|our\s+)?kyc\s+(clear|clean|done|ok|passed|complete|"
-     r"completed|cleared|finished)\b"
-     r"|\bhas\s+(the\s+|my\s+|our\s+)?kyc\s+(been\s+)?(done|completed|cleared|passed)\b",
+    # THE KYC DECISION is downstream: asking for it, or for a KYC to be
+    # performed, is routed. The RECORDED result / score / status of the
+    # FOS-stage KYC check is answered from case memory (KYC_RESULT).
+    (r"\b(do|perform|run|start|initiate|complete)\s+(a\s+|the\s+|my\s+)?(full\s+|complete\s+)?kyc\b"
+     r"|\bkyc\s*(decision|verdict|clearance|approval)\b|\bkyc\s+(approved|rejected)\b"
+     r"|\b(final|full)\s+kyc\s+(decision|status|result)\b"
+     # "Is KYC clear?" -- clearance is the decision, whoever's KYC it is.
+     r"|\b(is|has|was)\s+(the\s+|my\s+|our\s+)?kyc\s+(been\s+)?(clear|clean|cleared|passed|"
+     r"approved|ok)\b",
      "KYC_DECISION"),
     # ANY mention of fraud routes. Narrowing this to "fraud check" and
     # "fraud investigation" left "are there fraud concerns?" unmatched, and
@@ -1346,6 +1355,23 @@ def classify(message: str) -> Classification:
     # A document named ("the name on my PAN") is left to DOCUMENT_DETAILS.
     from app.agents.applicant import profile
 
+    # THE RECORDED FINDINGS AND THE RECORDED KYC RESULT: case memory, read
+    # as recorded (case_memory_facts). Before the case patterns, which took
+    # "what findings were recorded" as a history explanation and "what is
+    # my KYC score" as nothing at all.
+    if _FINDINGS_ASK.search(text) and not asks_for_a_definition(text):
+        return Classification(Intent.CASE_FINDINGS, matched_on="findings")
+    if _KYC_ASK.search(text) and not asks_for_a_definition(text):
+        return Classification(Intent.KYC_RESULT, matched_on="kyc",
+                              fields={"want": "score" if re.search(r"\bscore\b", text, re.I)
+                                      else "result"})
+
+    identity = profile.detect(text)
+    if identity is not None and identity.fields and all(
+            f in ("aadhaar_number", "pan_number", "bank_account_number") for f in identity.fields):
+        return Classification(Intent.APPLICANT_PROFILE, matched_on="profile",
+                              fields={"field": identity.field})
+
     if _document_type(text) is None:
         if profile.COMPLETENESS.search(text):
             return Classification(Intent.APPLICANT_MISSING_INFO,
@@ -1454,6 +1480,13 @@ def compound_parts(message: str) -> list[str] | None:
     whole = understand(text, has_case=True)
     if whole.intent in (Intent.MIXED, Intent.CASE_HISTORY):
         return None
+    # "give me my case and application id" names two RECORDED FIELDS: one
+    # profile answer carries both (profile.detect), not two tool plans.
+    from app.agents.applicant import profile as _profile
+
+    asked = _profile.detect(text)
+    if asked is not None and (len(asked.fields) >= 2 or asked.field.startswith("ALL")):
+        return None
     pieces = [p.strip(" ,;?") for p in _JOIN.split(text)]
     pieces = [p for p in pieces if p and len(p.split()) >= 2]
     if len(pieces) < 2 or len(pieces) > 4:
@@ -1475,6 +1508,21 @@ def compound_parts(message: str) -> list[str] | None:
         return None
     return questions
 
+
+#: The recorded findings / reason codes, by concept.
+_FINDINGS_ASK = re.compile(
+    r"\b(findings?|reason\s*codes?|red\s+flags?|flags\s+(raised|recorded)|observations?\s+"
+    r"(recorded|noted)|remarks\s+(recorded|noted)|what\s+(was|were|got)\s+recorded|"
+    r"recorded\s+(findings?|reasons?|observations?)|any\s+(findings?|reason\s*codes?|flags?))\b",
+    re.I)
+#: The RECORDED KYC result / score / status -- a possessive or a status word
+#: with "kyc"; never a bare "what is KYC" (a definition) and never a decision.
+_KYC_ASK = re.compile(
+    r"\b(my|our|mera|meri|this|the\s+case'?s?|applicant'?s?|customer'?s?)\s+kyc\b"
+    r"|\bkyc\s+(score|result|status|outcome|check|verification|match|comparison|fields?)\b"
+    r"|\bkyc\s+(done|complete\w*|verified|hua|ho\s+gaya|zala)\b"
+    r"|\b(is|has|was)\s+(the\s+)?kyc\s+(been\s+)?(done|complete\w*|verified)\b",
+    re.I)
 
 #: The intent family the SEMANTIC FRAME decides. A rule match in this family
 #: is a phrasing the rules happened to know; the frame reads the meaning and
@@ -1527,7 +1575,9 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
     # is at, its history, an impact question, a document-status list) read
     # the whole question's shape and keep what they matched.
     if classification.matched_on in ("current_stage", "stage_history", "impact",
-                                     "document_status_list", "document_rejected"):
+                                     "document_status_list", "document_rejected",
+                                     # a field, a finding or a KYC result named explicitly
+                                     "profile", "findings", "kyc"):
         frame_decides = False
     # A DOCUMENT'S verification asked with the word "reject" ("koi document
     # reject hua kya") is a document question, not a loan decision: the
@@ -1552,7 +1602,11 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
     if frame.is_confident() and frame_decides \
             and not (classification.intent is Intent.FOS_KNOWLEDGE
                      and classification.matched_on in ("product", "definition")
-                     and not frame.object in (semantic_frame.Object.DOCUMENTS,)):
+                     and not frame.object in (semantic_frame.Object.DOCUMENTS,)
+                     # "what is the next action?" -- a case step, not a term
+                     and frame.task not in (semantic_frame.Task.NEXT_ACTION,
+                                            semantic_frame.Task.READINESS,
+                                            semantic_frame.Task.LIST_PENDING)):
         routed = semantic_frame.route(frame)
         if routed:
             intent = Intent(routed)
@@ -1643,7 +1697,7 @@ PLANS: dict[Intent, tuple[str, ...]] = {
 #: the recorded findings (agent.py answers MIXED from exactly these). Not a
 #: write, a refusal, a person-level read, or an intent the agent answers on
 #: a path of its own (eligibility, income, one document's values).
-_MIXED_BASES = frozenset(PLANS) | {Intent.CASE_HISTORY}
+_MIXED_BASES = frozenset(PLANS) | {Intent.CASE_HISTORY, Intent.CASE_FINDINGS, Intent.KYC_RESULT}
 
 
 #: Tools whose result already carries the checklist.
@@ -1705,7 +1759,7 @@ def plan_for(
     if classification.intent is Intent.APPLICANT_PROFILE:
         return PLANS[Intent.APPLICANT_PROFILE] if has_case else ()
 
-    if classification.intent in (Intent.CASE_HISTORY,
+    if classification.intent in (Intent.CASE_HISTORY, Intent.CASE_FINDINGS, Intent.KYC_RESULT,
                                  Intent.INCOME_EVIDENCE,
                                  Intent.ELIGIBILITY,
                                  Intent.DOCUMENT_DETAILS):
