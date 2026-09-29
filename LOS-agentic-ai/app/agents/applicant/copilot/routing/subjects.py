@@ -61,6 +61,7 @@ _BOTH = (r"(?:both(?:\s+(?:of\s+)?(?:the\s+)?(?:applicants|parties|borrowers|"
          r"of\s+us|of\s+them))?(?!\s+(?:documents?|docs?|the\s+documents?|"
          r"pan|names?|papers?))"
          r"|each\s+(?:applicant|party|borrower)|all\s+(?:the\s+)?applicants"
+         r"|dono\s+(?:ke|ka|ki)\b|donon\s+(?:ke|ka|ki)\b"
          r"|every\s+applicant|which\s+(?:applicant|party|borrower|person)(?!\s+(?:id|number|no|ref)\b)"
          r"|(?:the\s+)?applicant\s+and\s+(?:the\s+|my\s+)?co[\s-]?applicant"
          r"|me\s+and\s+(?:my\s+)?co[\s-]?applicant"
@@ -450,7 +451,166 @@ def readiness(subject: Subject, documents: list[dict[str, Any]],
 _DOCUMENT_NOUN = re.compile(r"\b(documents?|docs?|papers?|kagaz\w*|pan|aadhaar|statement|"
                             r"proof|slip|upload\w*|verif\w*|pending|missing)\b", _I)
 _PROFILE_ASK = re.compile(r"^\s*(who|kaun)\b|\b(who\s+is|kaun\s+(hai|h)|details?|information|info|"
-                          r"profile|jaankari|jankari|batao\s+(uske|unke)\s+baare)\b", _I)
+                          r"profile|jaankari|jankari|batao\s+(uske|unke)\s+baare|"
+                          r"tell\s+me\s+(more\s+)?about|more\s+about|baare\s+(me|mein)\s+batao|"
+                          r"kaun\s+(is|hai|h)|who\s+(is|are))\b", _I)
+
+
+# ==========================================================================
+# PEOPLE NAMED BY NAME -- "Priya ka mobile", "What's Priya's DOB?". A name is
+# matched against the parties the CASE RECORD names (read only after the
+# caller's ownership of the case is proven); a person who is not on the case
+# is never looked up.
+# ==========================================================================
+
+_COMMON = frozenset("""
+a an the and or but of for to in on at by with from as is are was were be been being am do does did
+have has had can could will would should shall may might must not no yes ok okay please pls plz
+what which who whom whose where when why how whats hows whos wheres tell show give share send get
+find check need want know see list explain say mention mentioned meant mean about also too just
+only again more else anything everything something nothing any some all every each both either
+neither one two first second last next previous other another same this that these those it its
+my mine me i im you your yours our ours us we they them their theirs he him his she her hers
+customer customers client applicant applicants borrower person people user someone somebody
+loan loans case file application account bank number mobile phone email address name date birth
+dob pan aadhaar aadhar kyc document documents doc docs proof statement slip card photo copy status
+stage review pending missing verified rejected uploaded submitted details detail info information
+record records score result field fields value right wrong now today yesterday tomorrow still yet
+here there then than so very really exactly stays live lives lived stay birthdate birthday
+kya hai hain ka ki ke ko ne se mein me mera meri mere tera teri aapka aapki unka unki uska uski
+iska iski batao bataiye bata dikhao do dijiye chahiye aur bhi nahi haan ji wala wali wale kaun
+kaunsa konsa kitna kitni kitne kab kahan kaise kyun kyu kyon sab dono abhi tak toh phir yeh woh
+vo ye isme usme apna apni apne hamara humara hum main mai mujhe maine accha acha theek thik
+income salary monthly declared obligations obligation property tenure interest rate emi amount
+employment employed salaried business type product personal home gold charges fee fees penalty
+branch timings timing saturday saturdays sunday monday office hours cibil credit bureau limit
+hello hii hey thanks thank bye goodbye welcome sorry help
+""".split())
+_VOCAB: frozenset[str] | None = None
+
+
+def _vocabulary() -> frozenset[str]:
+    """Every word the semantic and language layers know -- none of them is a name."""
+    global _VOCAB
+    if _VOCAB is not None:
+        return _VOCAB
+    words: set[str] = set(_COMMON)
+
+    def walk(node: Any) -> None:
+        if isinstance(node, str):
+            words.update(w.lower() for w in re.findall(r"[A-Za-z]+", node))
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                walk(k)
+                walk(v)
+        elif isinstance(node, (list, tuple)):
+            for v in node:
+                walk(v)
+    try:
+        from app.agents.applicant.copilot.semantics import semantic_frame as _frames
+
+        walk(_frames._config())
+    except Exception:
+        pass
+    try:
+        from app.agents.applicant import language as _language
+
+        walk(_language._load())
+    except Exception:
+        pass
+    _VOCAB = frozenset(words)
+    return _VOCAB
+
+
+def _is_word(token: str) -> bool:
+    from difflib import get_close_matches
+
+    t = token.lower()
+    vocab = _vocabulary()
+    return t in vocab or len(t) < 3 or bool(get_close_matches(t, vocab, n=1, cutoff=0.86))
+
+
+def _unspelled(text: str) -> str:
+    """ "Z-a-r-a" -> "Zara", "Z.a.r.a" -> "Zara": letters spaced out are one word."""
+    return re.sub(r"\b(?:[A-Za-z][-.\s]){2,}[A-Za-z]\b",
+                  lambda m: re.sub(r"[-.\s]", "", m.group(0)), str(text or ""))
+
+
+def name_candidates(message: str) -> list[str]:
+    """Tokens that may be a person's name: letters, unknown to every vocabulary,
+    and not an all-capitals code or acronym (CPA, UNCONFIRMED)."""
+    return [t for t in re.findall(r"[A-Za-z]{3,}", _unspelled(message))
+            if not t.isupper() and not _is_word(t)]
+
+
+_POSSESSIVE_AFTER = r"(?:'s|\u2019s|\s+(?:ji\s+)?(?:ka|ki|ke|ko|ne|chya|cha|chi|che)\b)"
+
+
+def names_a_person(message: str) -> bool:
+    """
+    Whether the message is SHAPED like it names a person: an unknown word with
+    a possessive after it ("Priya's", "priya ka", "Sharma ji"), or a
+    capitalised unknown word that does not open the sentence. A greeting, a
+    typo or a bare topic word ("hello", "income") is not -- and costs no read.
+    """
+    text = _unspelled(message)
+    tokens = name_candidates(text)
+    if not tokens:
+        return False
+    alt = "|".join(re.escape(t) for t in tokens)
+    if re.search(r"\b(?:" + alt + r")(?:" + _POSSESSIVE_AFTER + r"|\s+ji\b)", text, re.I):
+        return True
+    first = re.match(r"\s*([A-Za-z]+)", text)
+    opener = first.group(1) if first else ""
+    return any(t[:1].isupper() and t != opener for t in tokens)
+
+
+def resolve_names(message: str, parties: list["Party"], names: dict[str, str]) -> dict[str, Any]:
+    """
+    What the NAMES in a message refer to. `names` maps party_id -> recorded
+    full name. Returns {"role": Kind | "AMBIGUOUS" | "OTHER" | None, "as_self",
+    "as_co"} -- the message rewritten with the name as the caller / as the
+    co-applicant, so the ordinary party rules read it.
+    """
+    text = _unspelled(message)
+    tokens = name_candidates(text)
+    if not tokens:
+        return {"role": None}
+    by_token: dict[str, set[Kind]] = {}
+    for party in parties:
+        for part in re.findall(r"[A-Za-z]{3,}", names.get(party.party_id) or ""):
+            by_token.setdefault(part.lower(), set()).add(party.role)
+    matched = [t for t in tokens if t.lower() in by_token]
+    if matched:
+        unique = [by_token[t.lower()] for t in matched if len(by_token[t.lower()]) == 1]
+        roles = set.union(*unique) if unique else set.union(*(by_token[t.lower()] for t in matched))
+        alt = "|".join(re.escape(t) for t in matched)
+        span = re.compile(r"\b(?:" + alt + r")(?:\s+(?:" + alt + r"))*(?:\s+ji)?(?P<pos>"
+                          + _POSSESSIVE_AFTER + r")?", re.IGNORECASE)
+
+        def as_co(m: "re.Match[str]") -> str:
+            pos = m.group("pos") or ""
+            if pos.startswith(("'", "\u2019")):
+                return "the co-applicant's"
+            return "the co-applicant" + pos
+
+        def as_self(m: "re.Match[str]") -> str:
+            pos = (m.group("pos") or "").strip().lower()
+            if pos.startswith(("'", "\u2019")):
+                return "my"
+            return {"ka": "mera", "ki": "meri", "ke": "mere", "ko": "mujhe", "ne": "maine"}.get(pos, "me")
+        rewritten = {"as_self": span.sub(as_self, text), "as_co": span.sub(as_co, text)}
+        if len(roles) == 1:
+            return {"role": next(iter(roles)), **rewritten}
+        return {"role": "AMBIGUOUS", **rewritten}
+    # A NAME THAT IS NOT ON THE CASE, used as a person ("Zara's PAN", "Zara
+    # Qureshi is my co-applicant"): somebody else's record.
+    named = [t for t in tokens if t[:1].isupper() and t[1:].islower()]
+    alt = "|".join(re.escape(t) for t in named)
+    if named and (re.search(r"\b(?:" + alt + r")(?:'s|\u2019s|\s+(?:ji\s+)?(?:ka|ki|ke)\b)", text)
+                  or (re.search(r"\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b", text) and len(named) >= 2)):
+        return {"role": "OTHER"}
+    return {"role": None}
 
 
 def party_question(message: str, classification: Any) -> Any | None:
@@ -475,9 +635,13 @@ def party_question(message: str, classification: Any) -> Any | None:
             "GUARDRAIL_BLOCKED", "OUT_OF_SCOPE", "FOS_KNOWLEDGE", "STAGE_PROCESS", "MIXED")):
         return None
     as_own = _BOTH_RE.sub(" my ", _CO_RE.sub(" my ", text))
+    as_own = re.sub(r"\b(email|mobile|number|phone|name|address|dob)(e?s)\b", r"\1", as_own, flags=_I)
     asked = _profile.detect(as_own) or _profile.detect(text)
     if asked is not None and asked.field not in (_profile.COMPLETENESS,):
         field_ = asked.field if not asked.field.startswith("ALL") else _profile.ALL_APPLICANT
+        if re.search(r"^\s*who\b|\bwho\s+is\b|\bkaun\s+(is|hai|h)\b", text, _I) \
+                and "full_name" not in field_.split("+") and not field_.startswith("ALL"):
+            field_ = "full_name+" + field_
         return _intents.Classification(Intent.APPLICANT_PROFILE, matched_on="party_profile",
                                        fields={"field": field_},
                                        frame=getattr(classification, "frame", None))
@@ -540,21 +704,23 @@ def _party_field(field: str, party: Party, record: Any, readable: bool, case_id:
     if field in field_state.IDENTITY_FIELDS:
         resolved = field_state.resolve(field, {}, case_id=case_id, party_id=party.party_id)
         state = resolved.state.value
+        field_state.record(field, state, resolved.source, party=party.role.value)
         shown = _profile._shown(field, resolved.value) if resolved.value else None
         if state == "PRESENT" and shown is None:
             state = "RESTRICTED"
         return phrasing.party_sentence(state, who, name, shown, language=language, seed=seed)
+    source = "applicant_record"
     if not readable:
-        return phrasing.party_sentence("UNKNOWN", who, name, language=language, seed=seed)
-    if record is None:
-        return phrasing.party_sentence("NOT_AVAILABLE", who, name, language=language, seed=seed)
-    value = getattr(record, field, None)
-    if value in (None, ""):
-        return phrasing.party_sentence("NOT_PROVIDED", who, name, language=language, seed=seed)
-    shown = _profile._shown(field, value)
-    if shown is None:
-        return phrasing.party_sentence("RESTRICTED", who, name, language=language, seed=seed)
-    return phrasing.party_sentence("PRESENT", who, name, shown, language=language, seed=seed)
+        state, shown = "UNKNOWN", None
+    elif record is None:
+        state, shown = "NOT_AVAILABLE", None
+    elif getattr(record, field, None) in (None, ""):
+        state, shown = "NOT_PROVIDED", None
+    else:
+        shown = _profile._shown(field, getattr(record, field))
+        state = "PRESENT" if shown is not None else "RESTRICTED"
+    field_state.record(field, state, source, party=party.role.value)
+    return phrasing.party_sentence(state, who, name, shown, language=language, seed=seed)
 
 
 def profile_answer(subject: Subject, field: str, case_id: str, *,

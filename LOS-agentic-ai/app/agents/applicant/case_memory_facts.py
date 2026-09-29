@@ -580,6 +580,20 @@ def kyc_answer(memory: dict[str, Any], *, want_score: bool = False, want: str | 
         kyc = [row for row in kyc
                if str(row.get("party_id") or "") == party_id
                or (not row.get("party_id") and party_id == primary_id)]
+    try:
+        from app.agents.applicant.copilot.facts import field_state as _field_state
+
+        latest_row = kyc[-1] if kyc else {}
+        if not kyc:
+            _state = "NOT_AVAILABLE"
+        elif want == "score":
+            _state = "PRESENT" if latest_row.get("score") not in (None, "") else "NOT_AVAILABLE"
+        else:
+            _state = "PRESENT"
+        _field_state.record(f"kyc_{want}", _state, "case_findings:KYC",
+                            party=("CO_APPLICANT" if who else None))
+    except Exception:  # noqa: BLE001 - evidence is a record of the answer, never its cause
+        pass
     if not kyc:
         if who:
             return (f"No KYC result has been recorded for {who} yet, so I can't tell you "

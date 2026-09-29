@@ -52,6 +52,7 @@ languages:
 # an Assamese letter or marker appears.
 markers:
   mr: [आहे, आहेत, माझं, माझा, माझी, माझे, माझ्या, मी, किती, सांगा, होते, केसचा, कर्ज, रक्कम, रकमेचे, मागितले,
+       आणि, सह-अर्जदाराचा, सह-अर्जदाराची, सह-अर्जदाराचे,
        कोणत्या, कोणता, कोणती, कोणते, मध्ये, सध्या, काय, झाले, झालं, तुमच्या,
        लागतील, लागेल, कागदपत्रे, कागदपत्र, साठी, स्टेजसाठी, टप्प्यात, आता]
   kok: [म्हजो, म्हजी, म्हजें, कितें, आसा, खंयच्या, खंय]
@@ -136,6 +137,10 @@ lexicon:
     janam din: date of birth
     kitne mahine: how many months
     kitne mahino: how many months
+    kitne ka: how much
+    kitne ki: how much
+    kis type ka: what type of
+    kis type ki: what type of
     nahi pahuncha: not received
     nahi pahunche: not received
     nahi pahunchi: not received
@@ -181,6 +186,13 @@ lexicon:
     मोबाइल: mobile
     नाम: name
     और: and
+    टेन्योर: tenure
+    इंटरेस्ट: interest
+    वेरिफाइड: verified
+    वेरीफाई: verify
+    सह-आवेदक का: co-applicant's
+    कितने का: how much
+    कितने की: how much
     लोन अमाउंट: loan amount
     अमाउंट: amount
     दोनों: both
@@ -307,6 +319,9 @@ lexicon:
     मोबाईल क्रमांक: mobile number
     मोबाईल: mobile
     नाव: name
+    सह-अर्जदाराचा: co-applicant's
+    सह-अर्जदाराची: co-applicant's
+    सह-अर्जदाराचे: co-applicant's
     आणि: and
     फाईल: file
     फाइल: file

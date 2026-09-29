@@ -345,7 +345,9 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
     # "approved" and "rejected" as well as "approve" -- "will the loan be
     # approved?" and "should this application be rejected?" are the two most
     # natural ways to ask, and both fell through to UNKNOWN.
-    (r"\b(approve[ds]?|approval|sanction(ed)?|disburse[ds]?|reject(ed|ion)?)\b",
+    (r"^(?![^?]*\b(pan|aadhaa?r|passport|voter|licen[cs]e|address\s+proof|bank\s+statement|"
+     r"salary\s+slip|photo|document|doc|apply\s+kiya|applied\s+for|requested|maanga)\b)[^?]*"
+     r"\b(approve[ds]?|approval|sanction(ed)?|disburse[ds]?|reject(ed|ion)?)\b",
      "LOAN_DECISION"),
     (r"\b(is\s+.{0,20}loan\s+safe|should\s+we\s+approve|eligib\w+\s+amount)\b", "LOAN_DECISION"),
 ]
@@ -361,7 +363,7 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
 _DOC_TYPES = (
     r"(pan|aadhaar|aadhar|driving\s*licence|driving\s*license|dl|voter\s*id|"
     r"voter|passport|bank\s*statement|bank\s*account|bank\s*details|"
-    r"account\s*statement|address\s*proof|"
+    r"account\s*statement|address\s*proof|photo|photograph|passport\s*size\s*photo|"
     # The lender's taxonomy: income, property and business evidence.
     r"salary\s*slip|pay\s*slip|payslip|itr|income\s*tax\s*return|form\s*16|"
     r"sale\s*deed|mark\s*sheet|marksheet|business\s*proof\s*[12])"
@@ -837,6 +839,8 @@ _PATTERNS: list[tuple[str, Intent]] = [
      Intent.FULL_SUMMARY),
     (r"\bwhat('?s| is)\s+done\b.{0,40}\bpending\b", Intent.FULL_SUMMARY),
     (r"\b(tell|give)\s+me\s+(the\s+)?(complete|full|everything)\b", Intent.FULL_SUMMARY),
+    (r"^(?![^?]*\b(documents?|docs?|policy|kyc)\b)[^?]*\b(summary|summari[sz]e|overview|"
+     r"sab\s*kuch\s+(batao|tell|bata)|poori\s+jaankari|everything\s+about\s+my)\b", Intent.FULL_SUMMARY),
     (r"\bwhere\s+(does|is)\s+(this|the)\s+case\s+stand\b", Intent.FULL_SUMMARY),
     (r"\bquick\s+overview\b", Intent.FULL_SUMMARY),
     # "Give me the current status of Rahul's application" wants the briefing,
@@ -1093,6 +1097,7 @@ _DOC_ALIASES = {
     "bank details": "BANK_STATEMENT",
     "account statement": "BANK_STATEMENT",
     "address proof": "ADDRESS_PROOF",
+    "photo": "PHOTO", "photograph": "PHOTO", "passport size photo": "PHOTO",
     "salary slip": "SALARY_SLIP", "pay slip": "SALARY_SLIP",
     "payslip": "SALARY_SLIP",
     "itr": "ITR", "income tax return": "ITR",
@@ -1182,16 +1187,16 @@ def asks_about_own_case(text: str) -> bool:
 
 
 _DOCUMENT_STATUS_LIST = re.compile(
-    r"\b(which|what|any|list|show)\b[^?]{0,12}\b(documents?|docs?)\b\s+"
+    r"\b(which|what|any|list|show)\b[^?]{0,12}\b(documents?|docs?|ones)\b\s+"
     r"(are|is|were|was|have\s+been|has\s+been|got)\s+(still\s+|currently\s+)?"
-    r"(?P<status>verified|approved|accepted|cleared|under\s+review|in\s+review|"
-    r"being\s+reviewed|rejected|declined|failed)\b",
+    r"(?P<status>verified|approved|accepted|cleared|done|complete|completed|under\s+review|in\s+review|"
+    r"being\s+reviewed|rejected|declined|failed)\b(?!\s+(as|for|in\s+place\s+of)\b)",
     re.IGNORECASE,
 )
 
 _STATUS_WORDS_TO_FILTER = {
     "verified": "VERIFIED", "approved": "VERIFIED", "accepted": "VERIFIED",
-    "cleared": "VERIFIED",
+    "cleared": "VERIFIED", "done": "VERIFIED", "complete": "VERIFIED", "completed": "VERIFIED",
     "under review": "REVIEW", "in review": "REVIEW", "being reviewed": "REVIEW",
     "rejected": "REJECTED", "declined": "REJECTED", "failed": "REJECTED",
 }
@@ -1374,7 +1379,8 @@ def classify(message: str) -> Classification:
     if _KYC_ASK.search(text) and not asks_for_a_definition(text) \
             and not re.search(r"\bdecision\b", text, re.I):
         return Classification(Intent.KYC_RESULT, matched_on="kyc",
-                              fields={"want": kyc_want(text)})
+                              fields={"want": "mismatch" if re.search(r"\bmismatch|\bvs\.?\b|versus|compared",
+                                                                    text, re.I) else kyc_want(text)})
 
     if re.fullmatch(r"\s*(case\s+|my\s+|the\s+)?(history|timeline|journey)\s*[?.!]*\s*", text, re.I) \
             or (_CASE_HAPPENED.search(text) and stage_in(text) is None):
@@ -1509,7 +1515,8 @@ def compound_parts(message: str) -> list[str] | None:
 
     pieces = [p.strip(" ,;?.!") for p in _JOIN.split(text)]
     pieces = [p for p in pieces
-              if p and (len(p.split()) >= 2 or _short.short_head(p) is not None)]
+              if p and (len(p.split()) >= 2 or _short.short_head(p) is not None
+                        or _profile.detect(f"what is my {p}") is not None)]
     if len(pieces) < 2 or len(pieces) > 4:
         return None
     # "the applicant and the co-applicant" is ONE subject (both parties),
@@ -1575,7 +1582,12 @@ _KYC_ASK = re.compile(
     r"|\b(is|has|was)\s+(the\s+)?kyc\s+(been\s+)?(done|complete\w*|verified|pass\w*|clear\w*)\b"
     r"|\bkyc\b[^?]{0,25}\b(problem|issue|mismatch\w*|galat|pending|baaki|baki|kya\s+hua)\b"
     r"|\b(why|kyon|kyu|kyun)\b[^?]{0,30}\bkyc\b(?![^?]{0,20}\b(mean|matter|required|needed|important))"
-    r"|\b(which|what)\s+kyc\s+\w+",
+    r"|\b(which|what)\s+kyc\s+\w+"
+    r"|\b(name|naam|dob|date\s+of\s+birth)\s+mismatch\b|\bmismatch\b[^?]{0,25}\b(kya|what|exactly|details?|batao)\b"
+    r"|\b(pan|bank\s+statement|passport|aadhaa?r)\b[^?]{0,30}\b(vs\.?|versus|compared\s+to|aur)\b[^?]{0,15}"
+    r"\b(pan|bank\s+statement|passport|aadhaa?r)\b[^?]*\b(name|naam|show|says?)\b"
+    r"|\b(name|naam)\b[^?]{0,30}\b(pan|bank\s+statement)\b[^?]{0,20}\b(vs\.?|versus|compared\s+to)\b"
+    r"|^\s*(my\s+|mera\s+|meri\s+|the\s+)?score\b(?![^?]*\b(credit|cibil|bureau)\b)",
     re.I)
 
 
@@ -1749,7 +1761,154 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
 
     if normalised.changed:
         classification.normalized = text
+    general = _general_question(message, classification)
+    if general is not None:
+        return general
     return classification
+
+
+#: A question about THIS case names it: my / mera / I / our case ...
+_SELF_OR_CASE = re.compile(
+    r"\b(my|mine|me|i|i'?m|i'?ve|mera|meri|mere|mujhe|maine|hamara|humara|hamari|humari|"
+    r"apna|apni|apne|this\s+case|is\s+case|my\s+case|this\s+(file|application|loan)|"
+    # "this issue", "that document", "these findings": the case's own
+    r"(this|that|these|those)\s+(issues?|problems?|findings?|documents?|stages?|steps?|"
+    r"mismatch(es)?|reasons?|blockers?|items?))\b"
+    r"|मेरा|मेरी|मेरे|माझा|माझी|माझे|माझं", re.IGNORECASE)
+#: ... a question about HOW THINGS WORK is general: a hypothetical, a rule,
+#: a limit, "a customer", "a personal loan".
+_GENERAL = re.compile(
+    r"\bif\b|\bagar\b|\bjab\b|\b(in\s+general|generally|typically|usually|normally|as\s+a\s+rule)\b"
+    r"|\b(a|an|any)\s+(customer|applicant|borrower|client|case|file|application|document|kyc\s+field|field)('s)?\b"
+    r"|\b(for|ke\s+liye|mein)\s+(a\s+)?(home|personal|business|gold|car)\s+loan\b"
+    r"|\b(home|personal|business|gold|car)\s+loan\s+(ke\s+liye|mein|me|ke)\b|होम\s+लोन|एक\s+केस|\bek\s+case\b"
+    r"|\b(accept\s+hote|hote\s+hain|hoti\s+hai|chalta\s+hai)\b"
+    r"|\bhow\s+(many|long)\s+(days|weeks)\b|\bhow\s+long\s+(does|will|would)\s+it\s+take\b"
+    r"|\b(accepted|acceptable|valid|allowed|used|use|usable)\s+(as|for)\b"
+    r"|\b(a|an|any)\s+((personal|home|business|gold|car|vehicle|two-wheeler)\s+)?loans?\b"
+    r"|\b(is\s+it|are\s+they|is\s+there)\s+(ok|okay|allowed|possible|mandatory|compulsory|required|a\s+rule)\b"
+    r"|\b(allowed|permitted|compulsory|mandatory|maximum|minimum|max|min|policy|rule|rules|we\s+can)\b"
+    r"|\b(chalega|chalta\s+hai|maana\s+jata|mana\s+jata|hota\s+hai|lagta\s+hai)\b"
+    # ("does THAT stop ..." is hypothetical; "does THIS thing get paid back"
+    # is the caller's own loan, so this / it are not general markers)
+    r"|\b(does|will|would|can|should)\s+(that|the\s+\w+)\b", re.IGNORECASE)
+#: THE CASE'S OWN THING: a possessive (or "this") attached to something the
+#: case records -- "my loan amount", "mera KYC", "this issue", "pending for me".
+_CASE_POSSESSION = re.compile(
+    r"\bis\s+(case|file|application|loan)\b|"
+    r"\b(my|mine|our|mera|meri|mere|hamara|humara|hamari|apna|apni|apne|this)\s+(\w+\s+){0,2}"
+    r"(loan|case|application|file|documents?|docs?|kyc|pan|aadhaa?r|stage|status|mobile|number|email|"
+    r"address|name|naam|dob|birth|tenure|amount|interest|rate|emi|co-?\s?applicant|details?|issues?|"
+    r"problems?|findings?|score|result|verification|photo|statement|proof|slip|income|salary|id)\b"
+    r"|\b(pending|missing|baki|baaki)\s+(for|on|in)\s+(me|my|mere|mera)\b|\bmere\s+liye\b"
+    r"|मेरा|मेरी|मेरे|माझा|माझी|माझे|माझं", re.IGNORECASE)
+#: HOW THINGS WORK asked in the first person: "Can I use an electricity bill
+#: as address proof?", "Will that stop me from handing over?", "Should I ...".
+_POLICY_FRAMING = re.compile(
+    r"\b(can|could|may|should|shall)\s+i\b|\b(do|would)\s+i\s+need\s+to\b"
+    r"|\b(will|would|does|can)\s+(that|it)\s+(stop|block|hold|prevent|mean|affect|count|work)\b"
+    r"|\bwhat\s+(else\s+)?can\s+i\s+(take|use|collect|accept|submit)\b"
+    r"|\b(accepted|acceptable|valid|allowed|usable|used)\s+(as|for)\b"
+    r"|\b(if|agar)\b|\b(generally|in\s+general|as\s+a\s+rule|usually|typically|normally)\b", re.IGNORECASE)
+
+
+#: Case intents a general question must not be answered from.
+_CASE_ROUTED = frozenset({
+    Intent.APPLICANT_PROFILE, Intent.APPLICATION_STATUS, Intent.APPLICATION_STAGE,
+    Intent.DOCUMENTS_REQUIRED,
+    Intent.DOCUMENTS_UPLOADED, Intent.DOCUMENTS_PENDING, Intent.DOCUMENTS_MISSING,
+    Intent.DOCUMENT_VERIFICATION, Intent.PENDING_ITEMS, Intent.READINESS, Intent.KYC_RESULT,
+    Intent.UNKNOWN, Intent.OUT_OF_SCOPE,
+})
+
+
+def _general_question(message: str, classification: Classification) -> Classification | None:
+    """
+    LIVE DATA VS KNOWLEDGE. "Can I use an electricity bill as address proof?",
+    "If the loan amount is bigger, can documents be dropped?", "What is the
+    maximum interest we can charge on a personal loan?" are questions about
+    HOW THINGS WORK: nothing in them names this case, and the case's own
+    record is not their answer. They go to the knowledge path, which answers
+    from the handbook -- or says honestly that it does not know.
+    """
+    text = str(message or "")
+    if classification.intent not in _CASE_ROUTED or not text.strip():
+        return None
+    if classification.matched_on in ("kyc", "findings", "stage_history"):
+        return None
+    from app.agents.applicant import handoff as _handoff
+
+    if _handoff.asks_for_person(text):
+        return None                   # "can I speak to a person?" is a handoff, not a policy question
+    # "which documents are mandatory?" is this case's checklist; only a named
+    # PRODUCT ("for a home loan", "होम लोन के लिए") makes it a general question
+    if classification.intent is Intent.DOCUMENTS_REQUIRED and not re.search(
+            r"(for|of)\s+(a|an|any)?\s*(home|personal|business|vehicle|car|gold|education|"
+            r"housing|two[- ]wheeler|msme)\s+loans?|loan\s+ke\s+liye|लोन\s+के\s+लिए|"
+            r"कर्जासाठी", text, re.I):
+        return None
+    if classification.matched_on == "current_stage" and not re.search(
+            r"\b(a|an|any)\s+(case|file|application)\b", text, re.I):
+        return None
+    if _CASE_POSSESSION.search(text):
+        return None                   # "my loan amount", "this issue": the case's own
+    if _SELF_OR_CASE.search(text) and not _POLICY_FRAMING.search(text):
+        return None                   # "I" / "me" with nothing that asks how things work
+    from app.agents.applicant.copilot.routing import subjects as _subjects_general
+
+    if _subjects_general.mentioned(text) is not None or re.match(
+            r"\s*(and|aur|also|then|ok|okay|theek|thik|accha|haan|और|आणि|ठीक)\b", text, re.I):
+        return None
+    question_shaped = bool(re.search(r"\?\s*$|^\s*(what|which|who|how|is|are|can|could|does|do|"
+                                     r"will|should|kya|kaun|kab|kitna|kitne)\b", text, re.I))
+    # an unknown question that points back ("what is THIS based on?") is about
+    # the conversation, never a general one
+    deictic = bool(re.search(r"\b(this|that|it|these|those|yeh|woh|ye|vo)\b", text, re.I))
+    if not _GENERAL.search(text) and not (
+            classification.intent is Intent.UNKNOWN and question_shaped and len(text.split()) >= 5
+            and not deictic):
+        return None
+    if classification.intent is Intent.OUT_OF_SCOPE and not re.search(
+            r"\b(maximum|minimum|max|min|policy|rule|allowed|charge|fee|penalty|rate|usually|"
+            r"typically|how\s+(many|long)|can\s+i\s+(check|see|tell))\b", text, re.I):
+        return None                        # a decision question stays out of scope
+    if len(text.split()) < 4:
+        return None
+    if stage_in(text) is not None and re.search(r"\b(hold|block|stop|stuck|check|happen)\w*\b", text, re.I) \
+            and re.search(r"\b(at|in|during)\s+(the\s+|a\s+)?\w+\s+(step|stage|desk)\b", text, re.I):
+        return Classification(Intent.STAGE_PROCESS, confidence="medium",
+                              matched_on="general_question_stage", frame=classification.frame)
+    return Classification(Intent.FOS_KNOWLEDGE, confidence="medium", matched_on="general_question",
+                          frame=classification.frame)
+
+
+def _profile_plan(classification: Classification) -> tuple[str, ...]:
+    """
+    THE SOURCE EACH FIELD NEEDS, AND NO OTHER. A person's own field (name,
+    mobile, email, date of birth, address) is on the applicant record; the
+    loan's (amount, tenure, rate, product, the case and applicant ids) on the
+    application record; an identity number (PAN, Aadhaar, account) is read
+    from the case's document findings, which no tool here serves. A bundle or
+    a field this cannot place keeps both records, exactly as before.
+    """
+    from app.agents.applicant.copilot.routing import capabilities
+    from app.agents.applicant.copilot.facts import field_state
+
+    wanted = str((classification.fields or {}).get("field") or "")
+    fields = [f for f in wanted.split("+") if f]
+    if not fields or any(f.startswith("ALL") or f.isupper() for f in fields):
+        return PLANS[Intent.APPLICANT_PROFILE]
+    plan: list[str] = []
+    for f in fields:
+        if f in field_state.IDENTITY_FIELDS:
+            continue
+        if f in capabilities.APPLICANT_FIELDS:
+            plan.append("applicant.get")
+        elif f in capabilities.APPLICATION_FIELDS or f == "application_ref":
+            plan.append("application.get")
+        else:
+            return PLANS[Intent.APPLICANT_PROFILE]
+    return tuple(dict.fromkeys(plan))
 
 
 #: Intent -> the tools that answer it. The planner reads this; it does not
@@ -1838,9 +1997,12 @@ def plan_for(
     # One recorded detail needs its two records and nothing else -- no
     # checklist, no documents (minimum necessary).
     if classification.intent is Intent.APPLICANT_PROFILE:
-        return PLANS[Intent.APPLICANT_PROFILE] if has_case else ()
+        return _profile_plan(classification) if has_case else ()
 
-    if classification.intent in (Intent.CASE_HISTORY, Intent.CASE_FINDINGS, Intent.KYC_RESULT,
+    # A KYC RESULT is the recorded KYC finding (case memory): no tool record.
+    if classification.intent is Intent.KYC_RESULT:
+        return ()
+    if classification.intent in (Intent.CASE_HISTORY, Intent.CASE_FINDINGS,
                                  Intent.INCOME_EVIDENCE,
                                  Intent.ELIGIBILITY,
                                  Intent.DOCUMENT_DETAILS):

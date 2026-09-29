@@ -53,7 +53,8 @@ _FIELDS: tuple[tuple[str, str, str], ...] = (
      r"property)\b)(.*\b(loan\s+)?(amount|amt|principal)\b|.*\bhow\s+much\b[^?]{0,20}"
      r"\b(did|have|had)\s+(i|we|the\s+applicant|the\s+customer)\b|"
      r".*\bkitna\s+loan\b|.*\bloan\s+(value|size)\b|.*\b(requested|asked\s+for)\s+loan\b|"
-     r".*\bhow\s+(many|much)\s+rupees\b|.*\brupees\s+(ka|of|ke)\s+loan\b|.*\bhow\s+big\b[^?]{0,15}\bloan\b)"),
+     r".*\bhow\s+(many|much)\s+rupees\b|.*\brupees\s+(ka|of|ke)\s+loan\b|.*\bhow\s+big\b[^?]{0,15}\bloan\b|"
+     r".*\bloan\b[^?]{0,12}\bhow\s+much\b|.*\bhow\s+much\b[^?]{0,8}\bloan\b)"),
     ("tenure_months", "tenure",
      r"\b(tenure|loan\s+term|term\s+of\s+(the\s+|my\s+)?loan|repayment\s+(period|term)|"
      r"how\s+many\s+months|duration\s+of\s+(the\s+|my\s+)?loan|avadhi|"
@@ -67,11 +68,11 @@ _FIELDS: tuple[tuple[str, str, str], ...] = (
      r"(the|my|what|which)\s+rate(?!\s+of\s+(success|approval|rejection))|rate\s+(was|were|is|hai|kya))\b|"
      r"ब्याज|व्याज"),
     ("product", "product",
-     r"\b(product|loan\s+type|type\s+of\s+loan|kind\s+of\s+loan|scheme)\b"
+     r"\b(product|loan\s+type|type\s+of\s+loan|kind\s+of\s+loan|scheme|loan\s+\w*\s*(type|kind))\b"
      r"|\b(which|what)\s+loan\s+(did|have|am|was)\b"),
     ("employment_type", "employment type",
      r"\b(employment(\s+type)?|occupation|job\s+type|profession|work\s+type|"
-     r"salaried\b[^?]{0,12}\b(or|ya|/)\s+self|self\s+employed\b[^?]{0,12}\b(or|ya)\s+salaried|naukri)\b|"
+     r"salaried\b[^?]{0,30}\b(or|ya|/)\s+self|self\s+employed\b[^?]{0,30}\b(or|ya)\s+salaried|naukri)\b|"
      r"रोज़गार|रोजगार|व्यवसाय|पगारदार|व्यावसायिक"),
     ("declared_monthly_income", "declared monthly income",
      r"\b(declared\s+)?(monthly\s+)?income\b(?!\s+(proof|document|evidence|verif\w*))"
@@ -206,6 +207,9 @@ def _broad(said: str) -> Question | None:
         return Question(ALL)
     if _FIELDS_LISTED.search(said):
         return Question(FIELDS_AVAILABLE)
+    if re.search(r"\b(tell|batao|bataiye)\b[^?]{0,15}\babout\s+(my|the)\s+loan\b|"
+                 r"\bloan\s+ke\s+baare\s+(me|mein)\b", said, re.I) and not _DOCUMENT_WORDS.search(said):
+        return Question(ALL_APPLICATION)
     if _LEGACY_BROAD.search(said) or _ASSESSMENT_WORDS.search(said):
         return None                                  # a verdict / evidence question
     if _BROAD.search(said) and not _DOCUMENT_WORDS.search(said):
@@ -263,6 +267,13 @@ def detect(text: str) -> Question | None:
     fields = _named_fields(said)
     if not fields:
         return None
+    if "full_name" in fields and re.search(
+            r"\b(naam|name)\s+(pe|par|per|on|under|mein|me)\b", said, re.I):
+        # "the number ON my name" is the registered mobile, not the name
+        if re.search(r"\b(number|no|numbr)\b", said, re.I) and "mobile" not in fields:
+            fields = [f for f in fields if f != "full_name"] + ["mobile"]
+        elif len(fields) > 1:
+            fields = [f for f in fields if f != "full_name"]
     # "the name on my PAN" / "the address on my Aadhaar" is a DOCUMENT
     # question; a document word beside a field that only a document carries
     # leaves it to DOCUMENT_DETAILS. A field the form records (loan amount,

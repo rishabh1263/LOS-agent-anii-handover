@@ -531,6 +531,10 @@ concepts:
     - saare
     - sab
     - sabhi
+    - sabka
+    - sabki
+    - sabke
+    - सबका
     - सभी
     - सारे
     - सर्व
@@ -579,6 +583,15 @@ concepts:
     - aam taur
     - आम तौर
     - सामान्यतः
+  PRIMARY_APPLICANT:                # exact phrases, so fuzzy matching never reads them as co
+    - applicant
+    - applicants
+    - the applicant
+    - main applicant
+    - primary applicant
+    - applicant ka
+    - applicant ki
+    - applicant ke
   CO_APPLICANT:
     - other applicant
     - other person
