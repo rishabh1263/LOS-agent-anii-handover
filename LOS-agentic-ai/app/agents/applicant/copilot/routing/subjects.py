@@ -379,6 +379,38 @@ def verification(subject: Subject, documents: list[dict[str, Any]],
     return " ".join(sentences)
 
 
+def _to_caller(subject: Subject, said: str) -> str:
+    """An answer about the primary applicant alone is said to the caller."""
+    if subject.kind is not Kind.PRIMARY or len(subject.parties) != 1:
+        return said
+    return (said.replace("The primary applicant's ", "Your ")
+                .replace("The primary applicant has a recorded issue: ", "Your case has a recorded issue: ")
+                .replace("The primary applicant has not uploaded ", "You have not uploaded ")
+                .replace("No issue is recorded for the primary applicant.", "No issue is recorded against you."))
+
+
+def _problem_words(problem: dict[str, Any]) -> str:
+    """
+    A recorded problem as the officer acts on it: the compared VALUES when the
+    record holds them ("the name on the PAN, X, does not match the bank
+    account holder name, Y"), else the reason code's own sentence.
+    """
+    from app.agents.applicant import case_memory_facts as _cm
+
+    by_field: dict[str, list[dict[str, Any]]] = {}
+    for link in problem.get("evidence") or []:
+        if link.get("value") not in (None, ""):
+            by_field.setdefault(str(link.get("field") or ""), []).append(
+                {"document_type": link.get("source"), "value": link.get("value")})
+    differing = [{"field": f, "sources": s} for f, s in by_field.items()
+                 if len({str(x["value"]).strip().upper() for x in s}) > 1]
+    detail = _cm._mismatch_detail([{"comparisons": differing}]) if differing else ""
+    if detail:
+        return detail
+    return problem["message"].rstrip(".") + (f" on the {_type(problem['document'])}"
+                                             if problem.get("document") else "")
+
+
 def pending(subject: Subject, documents: list[dict[str, Any]],
             checklist: list[dict[str, Any]] | None) -> str:
     sentences = []
@@ -418,10 +450,7 @@ def issues(subject: Subject, memory: dict[str, Any],
     for party in subject.parties:
         found = _problems_for(party, memory, documents, tuple(all_parties))
         if found:
-            said = _and(list(dict.fromkeys(
-                p["message"].rstrip(".") + (f" on the {_type(p['document'])}"
-                                            if p.get("document") else "")
-                for p in found)))
+            said = _and(list(dict.fromkeys(_problem_words(p) for p in found)))
             sentences.append(f"{_cap(party.label)} has a recorded issue: "
                              f"{said}.")
         else:
@@ -518,6 +547,20 @@ def _vocabulary() -> frozenset[str]:
         walk(_language._load())
     except Exception:
         pass
+    # THE DOMAIN'S OWN NAMES are never a person's: every LOS stage (CPA, FOS,
+    # RCU ...), and the everyday words for a person's own details ("naam").
+    try:
+        from app.agents.los.stages import LosStage
+
+        words.update(s.value.lower() for s in LosStage)
+    except Exception:
+        pass
+    # everyday Hinglish nouns a possessive follows ("ghar ka pata", "dukaan ka")
+    words.update({"ghar", "makan", "makaan", "dukan", "dukaan", "daftar", "naukri", "company", "bijli",
+                  "paani", "gaon", "sheher", "shehar", "desh", "kiraya", "kiraye", "rashan", "office",
+                  "loan", "bank", "file", "case", "form", "pata", "mahina", "saal", "tarikh"})
+    words.update({"naam", "nam", "naav", "kaam", "kyc", "ekyc", "ckyc", "emi", "ifsc", "nbfc", "otp",
+                  "upi", "cibil", "itr", "gst", "dob", "pan", "aadhar", "aadhaar"})
     _VOCAB = frozenset(words)
     return _VOCAB
 
@@ -539,8 +582,29 @@ def _unspelled(text: str) -> str:
 def name_candidates(message: str) -> list[str]:
     """Tokens that may be a person's name: letters, unknown to every vocabulary,
     and not an all-capitals code or acronym (CPA, UNCONFIRMED)."""
-    return [t for t in re.findall(r"[A-Za-z]{3,}", _unspelled(message))
-            if not t.isupper() and not _is_word(t)]
+    # an email address or a web address is a value, not a person's name
+    text = re.sub(r"[\w.+-]+@[\w-]+(\.[\w-]+)+|\bhttps?://\S+|\bwww\.\S+", " ", _unspelled(message))
+    # AN ALL-CAPITALS WORD is a code (CPA, UNCONFIRMED) -- unless it is used
+    # as a person: "ZARA's mobile", "PRIYA ka PAN". Case never decides who.
+    return [t for t in re.findall(r"[A-Za-z]{3,}", text)
+            if (not t.isupper() or _possessed(t, text)) and not _is_word(t)]
+
+
+def _possessed(token: str, text: str) -> bool:
+    """
+    The token is USED AS A PERSON: followed by a Hinglish possessive ("zara
+    ka", "PRIYA ki"), or -- in any case -- possessing a person's detail
+    ("ZARA's mobile", "zara's PAN"). "the lender's policy" possesses no
+    personal detail and is not a person, whatever its case.
+    """
+    esc = re.escape(token)
+    if re.search(r"\b" + esc + r"\s+(?:ji\s+)?(?:ka|ki|ke|ko|ne|chya|cha|chi|che)\b", text, re.IGNORECASE):
+        return True
+    if token[:1].isupper() and re.search(r"\b" + esc + r"(?:'s|’s)", text):
+        return True               # "Zara's", "ZARA's" -- written as a name
+    return bool(re.search(r"\b" + esc + r"(?:'s|’s)\s+(\w+\s+){0,2}(mobile|phone|number|email|e-mail|pan|"
+                          r"aadhaa?r|dob|date\s+of\s+birth|birth|address|details?|kyc|name|account|documents?)\b",
+                          text, re.IGNORECASE))
 
 
 _POSSESSIVE_AFTER = r"(?:'s|\u2019s|\s+(?:ji\s+)?(?:ka|ki|ke|ko|ne|chya|cha|chi|che)\b)"
@@ -585,7 +649,8 @@ def resolve_names(message: str, parties: list["Party"], names: dict[str, str]) -
         unique = [by_token[t.lower()] for t in matched if len(by_token[t.lower()]) == 1]
         roles = set.union(*unique) if unique else set.union(*(by_token[t.lower()] for t in matched))
         alt = "|".join(re.escape(t) for t in matched)
-        span = re.compile(r"\b(?:" + alt + r")(?:\s+(?:" + alt + r"))*(?:\s+ji)?(?P<pos>"
+        # never inside an email address ("priya@example.com" stays as typed)
+        span = re.compile(r"(?<![\w.+-])(?:" + alt + r")(?![\w.+-]*@)(?:\s+(?:" + alt + r"))*(?:\s+ji)?(?P<pos>"
                           + _POSSESSIVE_AFTER + r")?", re.IGNORECASE)
 
         def as_co(m: "re.Match[str]") -> str:
@@ -605,9 +670,10 @@ def resolve_names(message: str, parties: list["Party"], names: dict[str, str]) -
         return {"role": "AMBIGUOUS", **rewritten}
     # A NAME THAT IS NOT ON THE CASE, used as a person ("Zara's PAN", "Zara
     # Qureshi is my co-applicant"): somebody else's record.
-    named = [t for t in tokens if t[:1].isupper() and t[1:].islower()]
+    # a name is a name in any case: "Zara", "zara ka", "ZARA's"
+    named = [t for t in tokens if (t[:1].isupper() and t[1:].islower()) or _possessed(t, text)]
     alt = "|".join(re.escape(t) for t in named)
-    if named and (re.search(r"\b(?:" + alt + r")(?:'s|\u2019s|\s+(?:ji\s+)?(?:ka|ki|ke)\b)", text)
+    if named and (re.search(r"\b(?:" + alt + r")(?:'s|\u2019s|\s+(?:ji\s+)?(?:ka|ki|ke)\b)", text, re.IGNORECASE)
                   or (re.search(r"\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b", text) and len(named) >= 2)):
         return {"role": "OTHER"}
     return {"role": None}
