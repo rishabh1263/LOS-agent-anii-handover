@@ -29,8 +29,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agents.applicant import intents
-from app.agents.applicant.intents import Intent
+from app.agents.applicant.copilot.semantics import intents
+from app.agents.applicant.copilot.semantics.intents import Intent
 from app.store import set_repository
 from app.store.sqlite_repo import SQLiteRepository
 
@@ -103,8 +103,8 @@ def confident_handbook(monkeypatch):
         calls.append(message)
         return HANDBOOK, "KNOWLEDGE", {"confident": True, "sources": []}
 
-    monkeypatch.setattr("app.agents.applicant.agent._knowledge_reply", reply)
-    monkeypatch.setattr("app.agents.applicant.agent._public_knowledge",
+    monkeypatch.setattr("app.agents.applicant.copilot.agent._knowledge_reply", reply)
+    monkeypatch.setattr("app.agents.applicant.copilot.agent._public_knowledge",
                         lambda detail: {"confident": detail["confident"]})
     return calls
 

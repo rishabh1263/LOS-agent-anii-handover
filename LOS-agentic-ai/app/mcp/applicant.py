@@ -16,6 +16,8 @@ app/mcp/capabilities.py: no exception crosses this boundary as a traceback.
 
 from __future__ import annotations
 
+from app.store import request_cache
+
 import asyncio
 import logging
 import time
@@ -304,10 +306,10 @@ async def document_checklist(case_id: str) -> ToolEnvelope:
 
         cid = _require(case_id, "case_id")
         repo = _repo()
-        application = repo.get_application(cid)
+        application = request_cache.read(repo, "get_application", cid)
         if application is None:
             raise NotFound(f"No application for case {cid}.", case_id=cid)
-        documents = repo.list_documents(cid)
+        documents = request_cache.read(repo, "list_documents", cid)
         resolution = workflow.resolution_for(application)
         entries = workflow.build_checklist(application, documents, resolution)
         return {
@@ -363,11 +365,11 @@ async def pending_items_get(case_id: str) -> ToolEnvelope:
 
         cid = _require(case_id, "case_id")
         repo = _repo()
-        application = repo.get_application(cid)
+        application = request_cache.read(repo, "get_application", cid)
         if application is None:
             raise NotFound(f"No application for case {cid}.", case_id=cid)
-        applicant = repo.get_applicant(application.applicant_id)
-        documents = repo.list_documents(cid)
+        applicant = request_cache.read(repo, "get_applicant", application.applicant_id)
+        documents = request_cache.read(repo, "list_documents", cid)
         items = workflow.pending_items(applicant, application, documents)
         return {"pending_items": items, "count": len(items)}
 
@@ -382,11 +384,11 @@ async def next_action_get(case_id: str) -> ToolEnvelope:
 
         cid = _require(case_id, "case_id")
         repo = _repo()
-        application = repo.get_application(cid)
+        application = request_cache.read(repo, "get_application", cid)
         if application is None:
             raise NotFound(f"No application for case {cid}.", case_id=cid)
-        applicant = repo.get_applicant(application.applicant_id)
-        documents = repo.list_documents(cid)
+        applicant = request_cache.read(repo, "get_applicant", application.applicant_id)
+        documents = request_cache.read(repo, "list_documents", cid)
         return {"next_action": workflow.next_action(applicant, application, documents)}
 
     return await _envelope("workflow.next_action", run)
@@ -400,11 +402,11 @@ async def readiness_get(case_id: str) -> ToolEnvelope:
 
         cid = _require(case_id, "case_id")
         repo = _repo()
-        application = repo.get_application(cid)
+        application = request_cache.read(repo, "get_application", cid)
         if application is None:
             raise NotFound(f"No application for case {cid}.", case_id=cid)
-        applicant = repo.get_applicant(application.applicant_id)
-        documents = repo.list_documents(cid)
+        applicant = request_cache.read(repo, "get_applicant", application.applicant_id)
+        documents = request_cache.read(repo, "list_documents", cid)
         return {"readiness": workflow.readiness(applicant, application, documents)}
 
     return await _envelope("workflow.readiness", run)
@@ -451,17 +453,19 @@ async def applicant_360(case_id: str) -> ToolEnvelope:
 
         cid = _require(case_id, "case_id")
         repo = _repo()
-        application = repo.get_application(cid)
+        application = request_cache.read(repo, "get_application", cid)
         if application is None:
             raise NotFound(f"No application for case {cid}.", case_id=cid)
-        applicant = repo.get_applicant(application.applicant_id)
-        documents = repo.list_documents(cid)
+        applicant = request_cache.read(repo, "get_applicant", application.applicant_id)
+        documents = request_cache.read(repo, "list_documents", cid)
 
-        readiness_result = workflow.readiness(applicant, application, documents)
-        # ONE RESOLUTION, used for both the checklist and the block that
-        # explains it. Resolving twice would let the two disagree if a
-        # policy file were edited between the calls.
+        # ONE RESOLUTION for everything below -- the checklist, the block
+        # that explains it, the pending items, the next action and the
+        # readiness verdict. Resolving per part let them disagree if a policy
+        # file were edited between the calls, and cost a stage lookup each.
         resolution = workflow.resolution_for(application)
+        readiness_result = workflow.readiness(applicant, application, documents,
+                                              resolution=resolution)
         return {
             "applicant": _applicant_json(applicant) if applicant else None,
             "application": _application_json(application),
@@ -471,8 +475,10 @@ async def applicant_360(case_id: str) -> ToolEnvelope:
             "checklist": workflow.build_checklist(application, documents,
                                                   resolution),
             "policy": _policy_json(application, resolution),
-            "pending_items": workflow.pending_items(applicant, application, documents),
-            "next_action": workflow.next_action(applicant, application, documents),
+            "pending_items": workflow.pending_items(applicant, application, documents,
+                                                    resolution=resolution),
+            "next_action": workflow.next_action(applicant, application, documents,
+                                                resolution=resolution),
             "readiness": readiness_result,
         }
 
@@ -501,7 +507,7 @@ async def applicant_create(
 
         aid = (applicant_id or "").strip() or f"APP-{uuid.uuid4().hex[:12].upper()}"
         repo = _repo()
-        if repo.get_applicant(aid) is not None:
+        if request_cache.read(repo, "get_applicant", aid) is not None:
             raise InvalidInput(f"Applicant {aid} already exists.", applicant_id=aid)
 
         record = Applicant(
@@ -531,7 +537,7 @@ async def applicant_update(
     async def run() -> dict[str, Any]:
         aid = _require(applicant_id, "applicant_id")
         repo = _repo()
-        record = repo.get_applicant(aid)
+        record = request_cache.read(repo, "get_applicant", aid)
         if record is None:
             raise NotFound(f"No applicant record for {aid}.", applicant_id=aid)
 
@@ -577,14 +583,14 @@ async def application_create(
 
         aid = _require(applicant_id, "applicant_id")
         repo = _repo()
-        if repo.get_applicant(aid) is None:
+        if request_cache.read(repo, "get_applicant", aid) is None:
             raise NotFound(
                 f"No applicant record for {aid}. Create the applicant first.",
                 applicant_id=aid,
             )
 
         cid = (case_id or "").strip() or f"CASE-{uuid.uuid4().hex[:12].upper()}"
-        if repo.get_application(cid) is not None:
+        if request_cache.read(repo, "get_application", cid) is not None:
             raise InvalidInput(f"Application {cid} already exists.", case_id=cid)
 
         record = Application(
@@ -621,7 +627,7 @@ async def application_update(
     async def run() -> dict[str, Any]:
         cid = _require(case_id, "case_id")
         repo = _repo()
-        record = repo.get_application(cid)
+        record = request_cache.read(repo, "get_application", cid)
         if record is None:
             raise NotFound(f"No application for case {cid}.", case_id=cid)
 
@@ -683,7 +689,7 @@ async def document_mark_for_reupload(
         cid = _require(case_id, "case_id")
         wanted = _require(document_type, "document_type").upper()
         repo = _repo()
-        matches = [d for d in repo.list_documents(cid)
+        matches = [d for d in request_cache.read(repo, "list_documents", cid)
                    if (d.document_type or "").upper() == wanted]
         if not matches:
             raise NotFound(

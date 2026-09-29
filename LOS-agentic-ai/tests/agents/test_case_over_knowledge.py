@@ -28,7 +28,7 @@ from __future__ import annotations
 import pytest
 
 from app.agents.applicant import routing
-from app.agents.applicant.intents import Intent, classify
+from app.agents.applicant.copilot.semantics.intents import Intent, classify
 from app.agents.applicant.query_types import QueryType, type_for
 
 
@@ -110,7 +110,8 @@ def test_a_recorded_review_qualifies_a_passing_document_answer(monkeypatch):
     the name on the PAN and the name on the bank account belong to
     different people.
     """
-    from app.agents.applicant import agent, case_memory_facts
+    from app.agents.applicant import case_memory_facts
+    from app.agents.applicant.copilot import agent
 
     monkeypatch.setattr(case_memory_facts, "case_memory",
                         lambda *_a, **_k: memory("REVIEW", ["NAME_MISMATCH"]))
@@ -126,7 +127,8 @@ def test_a_case_that_is_progressing_gets_no_caveat(monkeypatch):
     A qualifier on every answer trains a reader to skip the sentence
     that matters.
     """
-    from app.agents.applicant import agent, case_memory_facts
+    from app.agents.applicant import case_memory_facts
+    from app.agents.applicant.copilot import agent
 
     monkeypatch.setattr(case_memory_facts, "case_memory",
                         lambda *_a, **_k: memory("PASS", []))
@@ -135,7 +137,8 @@ def test_a_case_that_is_progressing_gets_no_caveat(monkeypatch):
 
 
 def test_nothing_recorded_means_no_qualifier(monkeypatch):
-    from app.agents.applicant import agent, case_memory_facts
+    from app.agents.applicant import case_memory_facts
+    from app.agents.applicant.copilot import agent
 
     monkeypatch.setattr(case_memory_facts, "case_memory",
                         lambda *_a, **_k: {"findings": [], "decisions": [],
@@ -145,7 +148,8 @@ def test_nothing_recorded_means_no_qualifier(monkeypatch):
 
 
 def test_an_unreachable_store_does_not_break_the_answer(monkeypatch):
-    from app.agents.applicant import agent, case_memory_facts
+    from app.agents.applicant import case_memory_facts
+    from app.agents.applicant.copilot import agent
 
     def boom(*_a, **_k):
         raise RuntimeError("store down")
@@ -250,7 +254,8 @@ def test_the_unsupported_phrase_never_appears_beside_a_name_mismatch(phrase):
 
 @pytest.mark.parametrize("phrase", UNSUPPORTED)
 def test_the_qualifier_carries_the_concrete_reason(monkeypatch, phrase):
-    from app.agents.applicant import agent, case_memory_facts
+    from app.agents.applicant import case_memory_facts
+    from app.agents.applicant.copilot import agent
 
     monkeypatch.setattr(case_memory_facts, "case_memory",
                         lambda *_a, **_k: NAME_MISMATCH_MEMORY)
@@ -364,7 +369,7 @@ def processed_case(tmp_path, monkeypatch):
 
 
 async def ask(question: str) -> str:
-    from app.agents.applicant.agent import answer_question
+    from app.agents.applicant.copilot.agent import answer_question
 
     response = await answer_question(
         message=question, applicant_id="APP-E2E", case_id="CASE-E2E",

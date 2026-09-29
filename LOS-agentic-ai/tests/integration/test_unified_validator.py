@@ -82,7 +82,7 @@ def test_dates_are_compared_as_dates_not_strings():
 
 
 def test_the_surface_checks_still_run():
-    from app.agents.applicant.validate import validate_answer
+    from app.agents.applicant.copilot.answering.validate import validate_answer
 
     accepted, reason = validate_answer("The PAN is REJECTED.", {"stage": "FOS"})
     assert not accepted and "unsupported status" in reason
@@ -116,10 +116,10 @@ def test_los_and_fraud_summaries_now_refuse_decision_language():
 def test_every_model_path_uses_the_unified_validator():
     """No model surface keeps a private copy of the decision-word list."""
     sources = {
-        "app/agents/applicant/validate.py": "output_validation.validate(",
+        "app/agents/applicant/copilot/answering/validate.py": "output_validation.validate(",
         "app/agents/los/summary.py": "output_validation.validate(",
         "app/agents/fraud_risk/summary.py": "output_validation.validate(",
-        "app/agents/applicant/agent.py": 'surface="knowledge_phrase"',
+        "app/agents/applicant/copilot/agent.py": 'surface="knowledge_phrase"',
         "app/agents/applicant/case_summary.py": 'surface="case_summary"',
         "app/api/routes/copilot_api.py": 'surface="copilot_composer"',
         "app/orchestration/orchestrator.py": 'surface="document_workflow"',

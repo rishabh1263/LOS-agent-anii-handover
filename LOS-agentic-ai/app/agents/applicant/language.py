@@ -303,16 +303,21 @@ def canonicalise(text: str) -> Canonical:
         canonical = _translate_tokens(canonical, "hi-Latn", changes)
     canonical = " ".join(canonical.lower().split())
 
-    for pattern, replacement, whole in _rewrites():
-        match = pattern.search(canonical)
-        if not match:
-            continue
-        rewritten = replacement if whole else pattern.sub(replacement, canonical, count=1)
-        rewritten = " ".join(rewritten.split())
-        if rewritten != canonical:
-            changes.append((canonical, rewritten))
-            canonical = rewritten
-        break
+    clauses = re.split(r"\s+and\s+", canonical) if " and " in canonical else [canonical]
+    reordered = []
+    for clause in clauses:
+        for pattern, replacement, whole in _rewrites():
+            match = pattern.search(clause)
+            if not match:
+                continue
+            rewritten = replacement if whole else pattern.sub(replacement, clause, count=1)
+            rewritten = " ".join(rewritten.split())
+            if rewritten != clause:
+                changes.append((clause, rewritten))
+                clause = rewritten
+            break
+        reordered.append(clause)
+    canonical = " and ".join(reordered)
 
     if question and not canonical.endswith("?"):
         canonical += "?"

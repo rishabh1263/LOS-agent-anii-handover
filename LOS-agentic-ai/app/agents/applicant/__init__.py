@@ -11,18 +11,22 @@ agent answers none of them and invents no result on their behalf.
 
 Layering, and it is enforced rather than conventional:
 
-    agent.py        the flow: classify, authorise, plan, call, phrase
-    intents.py      what was asked, and which tools answer it
-    permissions.py  who may ask it, and about whom
-    workflow.py     the deterministic business answers
-    answer.py       phrasing, deterministic first and model second
-    validate.py     the model may not state a fact it was not given
-    audit.py        who asked what, and what changed
+    copilot/agent.py                 the flow: classify, authorise, plan, call, phrase
+    copilot/semantics/intents.py     what was asked, and which tools answer it
+    copilot/conversation/state.py    what the conversation is about, turn to turn
+    copilot/routing/                 which capability, party and model path applies
+    copilot/answering/answer.py      phrasing, deterministic first and model second
+    copilot/answering/validate.py    the model may not state a fact it was not given
+    copilot/facts/                   stored facts, interpreted for an answer
+    permissions.py                   who may ask it, and about whom
+    workflow.py                      the deterministic business answers
+    audit.py                         who asked what, and what changed
 
 Data is reached only through app/mcp/applicant.py. Nothing here imports the
-repository, and nothing here imports sqlite3.
+repository; the only sqlite3 use is the conversation store's own optional
+backend (copilot/conversation/state.py), which holds labels, never case data.
 """
 
-from app.agents.applicant.agent import AgentError, answer_question, confirm_action
+from app.agents.applicant.copilot.agent import AgentError, answer_question, confirm_action
 
 __all__ = ["AgentError", "answer_question", "confirm_action"]

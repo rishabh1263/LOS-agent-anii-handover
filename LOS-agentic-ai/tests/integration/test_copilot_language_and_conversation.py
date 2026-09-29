@@ -17,7 +17,8 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agents.applicant import handoff, intents, language, sentiment
+from app.agents.applicant import handoff, language, sentiment
+from app.agents.applicant.copilot.semantics import intents
 from app.observability import analytics
 from app.store import set_repository
 from app.store.sqlite_repo import SQLiteRepository
@@ -444,7 +445,7 @@ def test_analytics_endpoint_requires_the_ops_scope(client, make_token):
 
 
 def test_a_summary_never_uses_a_record_id_as_the_applicants_name():
-    from app.agents.applicant.answer import _summary_text
+    from app.agents.applicant.copilot.answering.answer import _summary_text
 
     text = _summary_text({"applicant": {"applicant_id": "APP-SECRET01"},
                           "stage": "BASIC_DOCUMENT_VERIFICATION"})

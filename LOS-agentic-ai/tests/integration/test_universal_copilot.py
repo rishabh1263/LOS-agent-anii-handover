@@ -23,8 +23,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.agents.applicant import normalize, semantic, status_facts
-from app.agents.applicant.intents import Intent, understand
-from app.agents.applicant.validate import check_composed, required_facts
+from app.agents.applicant.copilot.semantics.intents import Intent, understand
+from app.agents.applicant.copilot.answering.validate import check_composed, required_facts
 from app.store import set_repository
 from app.store.sqlite_repo import SQLiteRepository
 
@@ -880,7 +880,8 @@ async def test_a_write_is_never_normalised(repo, monkeypatch):
     whose fields reach the store -- is classified on the words as typed
     and never passes through it.
     """
-    from app.agents.applicant import agent, config
+    from app.agents.applicant import config
+    from app.agents.applicant.copilot import agent
 
     assert normalize.normalise("update mobile to 9876543210 kya").changed
 

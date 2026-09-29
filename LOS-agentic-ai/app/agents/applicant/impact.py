@@ -146,7 +146,7 @@ def for_pending(items: list[dict[str, Any]] | None,
 
 
 def _document_words(value: Any) -> str:
-    from app.agents.applicant.subjects import _type
+    from app.agents.applicant.copilot.routing.subjects import _type
 
     return _type(value) if value else "document"
 

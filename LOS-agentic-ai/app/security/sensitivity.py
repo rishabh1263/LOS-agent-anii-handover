@@ -127,6 +127,32 @@ def mask_identifiers(text: str) -> str:
     return out
 
 
+#: An identifier TYPED INTO another field ("12 MG Road (A/c no. 1234...)"):
+#: its label, if any, and the value. Accounts, Aadhaar, PAN, mobile, email.
+_EMBEDDED_ID = re.compile(
+    r"(?:\b(?:bank\s+)?(?:a/c|acct|account|pan|aadhaa?r|uid|mobile|mob|phone|ph|tel|contact|e-?mail)"
+    r"\b\.?\s*(?:no\.?|number|num|#)?\s*[:.\-]?\s*)?"
+    r"(?:[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\b[A-Z]{5}\d{4}[A-Z]\b|(?<![\w])[X\d][X\d\s-]{7,}[X\d](?![\w]))",
+    re.IGNORECASE)
+
+
+def without_identifiers(text: str) -> str:
+    """
+    A free-text field (an address) with every EMBEDDED identifier removed --
+    label, value and the brackets around it -- so the answer carries the field
+    that was asked for and nothing else. The field's own words are kept; if
+    nothing but identifiers was typed, the masked text is returned instead.
+    """
+    if not text:
+        return text
+    out = _EMBEDDED_ID.sub(" ", text)
+    for _ in range(3):
+        out = re.sub(r"[\(\[]\s*[,;:./-]*\s*[\)\]]", " ", out)      # emptied brackets
+        out = re.sub(r"\s*([,;])(\s*[,;])+", r"\1", out)              # doubled separators
+    out = re.sub(r"\s{2,}", " ", out).strip(" ,;:-")
+    return out if re.search(r"[A-Za-z0-9]", out) else mask_identifiers(text)
+
+
 def mask_payload(value: Any, *, _key: str | None = None) -> Any:
     """
     `mask_identifiers` over every string in a structure -- a composer's input

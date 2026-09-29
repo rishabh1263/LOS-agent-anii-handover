@@ -1,0 +1,1 @@
+"""The FOS Copilot: orchestration (agent.py) over semantics, conversation, routing, answering and facts. Shared infrastructure (security, mcp, store, llm, knowledge, observability) stays in its own packages."""

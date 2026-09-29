@@ -441,6 +441,11 @@ chatbot:
     enabled: true
     fuzzy: true
     synonyms:
+      dis: this
+      dat: that
+      abt: about
+      wat: what
+      wht: what
       docs: documents
       doc: document
       dox: documents

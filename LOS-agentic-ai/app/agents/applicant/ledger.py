@@ -137,7 +137,7 @@ class Ledger:
 
     @property
     def parties(self) -> list:
-        from app.agents.applicant import subjects
+        from app.agents.applicant.copilot.routing import subjects
 
         return self._load("parties", lambda: subjects.parties_of(
             self.case_id, application=self.application,

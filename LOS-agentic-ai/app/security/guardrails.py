@@ -170,6 +170,14 @@ _INPUT_ALWAYS = (
         ("system_prompt", r"\b(system|developer|hidden|initial)\s+(prompts?|instructions?|messages?)\b"
                           r"|\b(internal|hidden)\s+(prompts?|instructions)\b"),
         ("your_prompt", r"\byour\s+(prompts?|instructions|system\s+message|configuration)\b"),
+        ("configured_with", r"\b(configured|programmed|set\s*up|initiali[sz]ed|primed|instructed)\s+with\b"
+                            r"|\b(text|words|message)\s+you\s+were\s+(given|configured|programmed|"
+                            r"started|set\s*up)\b|\b(hidden|secret)\s+(rules?|guidelines?|niyam|instructions?)\b"
+                            # "internal rules FOR KYC" is a business question; bare
+                            # "your internal rules" is about the assistant
+                            r"|\binternal\s+(guidelines?|niyam|instructions?)\b"
+                            r"|\binternal\s+rules?\b(?!\s+(for|of|on|about|around|regarding|behind)\s+\w)"
+                            r"|\bopening\s+(text|message|instructions?)\b"),
         ("repeat_above", r"\b(repeat|print|show|reveal|output)\b[^?]{0,30}\b(above|previous|prior|earlier)\s+(text|instructions?|messages?|prompt)\b"),
         ("chain_of_thought", r"\b(chain\s+of\s+thought|your\s+reasoning|hidden\s+thoughts?)\b"),
         ("what_told", r"\bwhat\s+(were|are)\s+you\s+(told|instructed|programmed)\b"),
@@ -178,6 +186,8 @@ _INPUT_ALWAYS = (
         # No business question names a table or a column; these need no ask verb.
         ("run_statement", r"\b(run|execute|exec|fire|issue)\b[^?]{0,12}\b(select|insert|update|"
                           r"delete|drop|alter|truncate|create)\b|\bselect\s+\*"),
+        ("storage_layout", r"\b(field|column)\s+names?\b|\bdata\s+types?\b|\b(storage|table|db|database)"
+                           r"\s+(layout|structure|design)\b|\brow\b[^?]{0,20}\b(lives|stored|sits|kept)\b"),
         ("table_name", r"\b(table|column|schema|index)\s+names?\b|\bname\s+of\s+the\s+(table|column|schema)\b"),
     )),
     (Category.TOOL_INTERNAL_LEAK, _rules(
@@ -251,6 +261,10 @@ def _decoded_forms(text: str) -> list[str]:
             continue
         if decoded and sum(ch.isprintable() for ch in decoded) / len(decoded) > 0.9:
             found.append(decoded)
+    leet = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a",
+                          "$": "s", "!": "i"})
+    if len(re.findall(r"[a-zA-Z][0-9@$!][a-zA-Z]", text)) >= 2:
+        found.append(text.translate(leet))
     for blob in re.findall(r"(?:[0-9a-fA-F]{2}[\s:]?){12,}", text):
         try:
             decoded = bytes.fromhex(re.sub(r"[\s:]", "", blob)).decode("utf-8")

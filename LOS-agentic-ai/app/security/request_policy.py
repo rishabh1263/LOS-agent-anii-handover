@@ -51,7 +51,7 @@ _I = re.IGNORECASE
 
 #: People and records that belong to SOMEBODY. `applicant` is written so it
 #: never matches "co-applicant" (the caller's own co-applicant).
-_PERSON = (r"(customers?|users?|clients?|(?<!co-)(?<!co\s)applicants?|borrowers?|"
+_PERSON = (r"(customers?|users?|clients?|(?<!co-)(?<!co\s)applicants?|borrowers?|ग्राहक\w*|आवेदक\w*|"
            r"persons?|people|individuals?|members?|callers?|visitors?|"
            r"account\s*holders?|grahak\w*)")
 #: Only OTHER people -- never the applicant / co-applicant on the caller's own
@@ -66,7 +66,7 @@ _NOT_ME = (r"(another|someone\s+else'?s?|somebody\s+else'?s?|different|"
            r"previous|prev|prior|last|latest|recent|most\s+recent(ly)?|recently\s+processed|"
            r"earlier|next|random|any\s+other|pichl\w*|pichh?l\w*|(?:dusr\w*|doosr\w*)(?!\s+applicant)|"
            r"kisi\s+aur|aur\s+kisi)")
-_EVERY = r"(all|every|each|entire|whole|complete\s+list\s+of|list\s+of\s+all|sab\w*|har|saare|sare|tamam)"
+_EVERY = r"(all|every|each|entire|whole|complete\s+list\s+of|list\s+of\s+all|sab\w*|har|saare|sare|tamam|सभी|सारे|हर|सर्व)"
 #: POSSESSIVES only: "show me all customers" is not about the caller's own case.
 _OWN = r"\b(my|mine|our|mera|meri|mere|apna|apni|apne|hamara|humara)\b"
 _ASK = (r"(show|give|get|tell|list|display|reveal|share|send|dump|print|fetch|pull|"
@@ -92,6 +92,10 @@ _CROSS = _rx(
     rf"before|recent\w*|latest|last|previous|earlier)\b",
     # someone else's
     r"\b(someone|somebody|anyone|anybody)\s+else'?s?\b",
+    # a named third person who "also applied": a neighbour, a friend, a relative
+    r"\b(neighbou?rs?|friends?|colleagues?|relatives?|brothers?|sisters?|wife|husband|cousins?|"
+    r"uncles?|aunts?|fathers?|mothers?|sons?|daughters?|boss|coworkers?|padosi|dost|rishtedar)\b"
+    r"[^?]{0,60}\b(applied|applying|loan|application|case|sanction\w*|approved|got)\b",
     # rankings / comparisons across customers
     rf"\b(which|who|what)\b[^?]{{0,30}}\b{_PEOPLE_ONLY}\b[^?]{{0,30}}\b(highest|lowest|"
     r"largest|biggest|smallest|most|least|max(imum)?|min(imum)?|top|richest|best|worst)\b",
@@ -116,6 +120,8 @@ _CROSS = _rx(
 _BULK = _rx(
     rf"\b{_EVERY}\s+(the\s+)?(?!applicant\s+(information|details|info|data|fields))"
     rf"({_PERSON}|{_RECORD}|entries|everything)\b",
+    rf"\b(list|show|dump|export|give|send)\s+(me\s+)?{_EVERY}\s+(open\s+|active\s+|pending\s+)?"
+    rf"(cases?|applications?|files?|loans?)\b|\b(पूरा|सारा|सभी)\s+डेटा\b",
     # a verb of retrieval on every value of a protected field: "return all PANs"
     rf"\b(return|give|show|list|export|dump|send|fetch|get|print)\s+(me\s+)?{_EVERY}\s+"
     r"(the\s+)?(pans?|aadhaa?rs?|mobiles?|phones?|phone\s+numbers?|mobile\s+numbers?|"
@@ -127,6 +133,10 @@ _BULK = _rx(
     r"\b(everyone|everybody|everything)\b[^?]{0,30}\b(applied|data|records?|details?|"
     r"information|info|in\s+the\s+(system|database|db))\b",
     r"\b(show|list|give|tell)\s+(me\s+)?(everyone|everybody)\b",
+    # every co-applicant, every KYC record: bulk, whatever the noun
+    rf"\b(list|show|dump|export|give|send|get|fetch|print|return)\s+(me\s+)?({_EVERY}\s+)?(the\s+)?"
+    r"co[\s-]?(applicants|borrowers)\b",
+    rf"\b{_EVERY}\s+(the\s+)?kyc\s+(records?|results?|data|checks?|details|reports?)\b",
     r"\b(whole|entire|full|complete)\s+(database|db|dataset|table|customer\s+base|system\s+data)\b",
 )
 
@@ -159,6 +169,9 @@ _TOOL = _rx(
 )
 
 _AUTHORITY_CLAIM = _rx(
+    r"\b(sysadmin|admin|system|root)\s+override\b|\boverride\s+(code|accepted|granted)\b|"
+    r"\b(elevate|escalate|upgrade)\s+(this\s+|my\s+)?(session|access|privileges?|permissions?|role)\b|"
+    r"\bfull\s+(read\s+|write\s+|admin\s+)?access\b",
     r"\b(i\s*am|i'?m|im|as\s+(an?|the)|main|mai|hum|we\s+are|this\s+is)\s+(an?\s+|the\s+)?"
     r"(\w+\s+){0,2}(admin\w*|administrator|superuser|super\s+user|root|cto|ceo|cfo|ciso|cio|"
     r"coo|director|manager|supervisor|developer|auditor|compliance(\s+officer)?|officer|"
@@ -220,6 +233,8 @@ _OTHER_CONVERSATION = _rx(
     r"customer'?s?|client'?s?)\s+(session|chat|conversation|history|questions?|messages?)\b",
     r"\b(another|other|different|someone\s+else'?s?)\s+(conversation|chat|session)s?\b",
     r"\bwhat\s+(did|do|have)\s+(other|the\s+other|the\s+previous|the\s+last|others)\b",
+    r"\b(person|user|customer|someone|somebody|guy|one)\s+(chatting|talking|speaking|who\s+(chatted|"
+    r"talked|spoke|was\s+here))\s+(with\s+you\s+|to\s+you\s+)?(just\s+)?(before|earlier|prior)\b",
     r"\bremember\b[^?]{0,30}\b(another|other|previous|different)\b",
 )
 

@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from app.agents.applicant.intents import Intent
+from app.agents.applicant.copilot.semantics.intents import Intent
 
 
 class QueryCategory(str, Enum):

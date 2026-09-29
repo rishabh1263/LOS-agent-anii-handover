@@ -378,6 +378,9 @@ def test_the_response_carries_only_the_published_keys(client, repo):
         # The follow-up block to send back, and what a follow-up was
         # taken to mean (additive; null when there was none).
         "context", "followed_up",
+        # Why this answer: capability, model, tools, latency by component
+        # (codes, counts and milliseconds only).
+        "observability",
         # Where the stage came from, and where the case is within it.
         "stage_source", "stage_status",
         # Phase 3, additive: the frontend-ready case view derived from
@@ -466,7 +469,7 @@ def test_the_routing_categories_are_unchanged():
 
 def test_case_history_is_a_case_only_question():
     from app.agents.applicant import routing
-    from app.agents.applicant.intents import Intent
+    from app.agents.applicant.copilot.semantics.intents import Intent
 
     assert routing.category_for(Intent.CASE_HISTORY) is \
         routing.QueryCategory.CASE_ONLY
@@ -485,7 +488,7 @@ def test_the_mcp_tool_registry_is_unchanged():
 
 
 def test_existing_intents_still_classify_the_same_way():
-    from app.agents.applicant.intents import Intent, classify
+    from app.agents.applicant.copilot.semantics.intents import Intent, classify
 
     assert classify("what documents are pending?").intent is \
         Intent.DOCUMENTS_PENDING

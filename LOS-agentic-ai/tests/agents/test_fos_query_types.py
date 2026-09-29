@@ -20,7 +20,7 @@ from __future__ import annotations
 import pytest
 
 from app.agents.applicant import frontend
-from app.agents.applicant.intents import WRITE_INTENTS, Intent
+from app.agents.applicant.copilot.semantics.intents import WRITE_INTENTS, Intent
 from app.agents.applicant.query_types import (
     CARRIES_POLICY,
     READS_CASE,

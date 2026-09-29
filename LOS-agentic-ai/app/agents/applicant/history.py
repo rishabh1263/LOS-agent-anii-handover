@@ -77,7 +77,7 @@ def window(message: str, events: list[dict[str, Any]],
     Raises nothing: a stage window the history cannot place returns a
     Window with `start=None` and kind STAGE_UNPLACED (said so, not guessed).
     """
-    from app.agents.applicant.intents import stage_in
+    from app.agents.applicant.copilot.semantics.intents import stage_in
 
     text = message or ""
     zone = _zone()
@@ -178,7 +178,7 @@ def _whose(event: dict[str, Any], multi_party: bool) -> str:
 
 
 def _doc(event: dict[str, Any]) -> str:
-    from app.agents.applicant.subjects import _type
+    from app.agents.applicant.copilot.routing.subjects import _type
 
     return _type((event.get("source") or {}).get("document_type"))
 

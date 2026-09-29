@@ -30,12 +30,14 @@ a named party belongs to that case, and refuses otherwise.
 
 from __future__ import annotations
 
+from app.store import request_cache
+
 import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from app.agents.applicant.intents import Intent
+from app.agents.applicant.copilot.semantics.intents import Intent
 
 
 class Kind(str, Enum):
@@ -59,13 +61,13 @@ _BOTH = (r"(?:both(?:\s+(?:of\s+)?(?:the\s+)?(?:applicants|parties|borrowers|"
          r"of\s+us|of\s+them))?(?!\s+(?:documents?|docs?|the\s+documents?|"
          r"pan|names?|papers?))"
          r"|each\s+(?:applicant|party|borrower)|all\s+(?:the\s+)?applicants"
-         r"|every\s+applicant|which\s+(?:applicant|party|borrower|person)"
+         r"|every\s+applicant|which\s+(?:applicant|party|borrower|person)(?!\s+(?:id|number|no|ref)\b)"
          r"|(?:the\s+)?applicant\s+and\s+(?:the\s+|my\s+)?co[\s-]?applicant"
          r"|me\s+and\s+(?:my\s+)?co[\s-]?applicant"
          r"|co[\s-]?applicant\s+and\s+(?:the\s+|my\s+)?(?:primary\s+)?applicant)")
 #: The primary applicant, named as such. A bare "my" is NOT this: "my
 #: application" is the case.
-_PRIMARY = r"(?:(?:primary|main|first)\s+applicant|for\s+me\b|my\s+own)"
+_PRIMARY = r"(?:(?:primary|main|first)\s+applicant(?!\s+(?:id|number|no)\b)|for\s+me\b|my\s+own)"
 
 _BOTH_RE = re.compile(rf"\b{_POSSESSIVE}{_BOTH}{_OWN}", _I)
 _CO_RE = re.compile(rf"\b{_POSSESSIVE}{_CO}{_OWN}", _I)
@@ -75,7 +77,9 @@ _PRIMARY_RE = re.compile(rf"\b{_POSSESSIVE}{_PRIMARY}{_OWN}", _I)
 def mentioned(message: str) -> Kind | None:
     """The role the question names, or None when it names none."""
     text = message or ""
-    if _BOTH_RE.search(text):
+    both = _BOTH_RE.search(text)
+    if both and not (both.group(0).strip().lower() == "both"
+                     and re.search(r"\bme\b[^?]{0,30}\bboth\b|\band\s+\S+\s+both\b", text, _I)):
         return Kind.BOTH
     if _CO_RE.search(text):
         return Kind.CO
@@ -140,7 +144,7 @@ def parties_of(case_id: str | None, *, application: Any = _UNREAD,
 
     if application is _UNREAD:
         try:
-            application = get_repository().get_application(case_id)
+            application = request_cache.read(get_repository(), "get_application", case_id)
         except Exception:
             return []
     if application is None:
@@ -154,7 +158,7 @@ def parties_of(case_id: str | None, *, application: Any = _UNREAD,
         # is a record this service cannot interpret, and none is adopted.
         try:
             if documents is _UNREAD:
-                documents = get_repository().list_documents(case_id)
+                documents = request_cache.read(get_repository(), "list_documents", case_id)
             stamped = {str(d.party_id).strip()
                        for d in documents or ()
                        if str(getattr(d, "party_role", "") or "").upper()
@@ -235,6 +239,8 @@ class Capability(str, Enum):
     HISTORY = "HISTORY"          # what changed, from the case ledger
     DETAILS = "DETAILS"          # one document's recorded values -- the
                                  # existing party-scoped path answers it
+    PROFILE = "PROFILE"          # the party's own recorded details (name, mobile ...)
+    KYC = "KYC"                  # the party's own recorded KYC check
 
 
 _ISSUE_WORDS = re.compile(
@@ -250,11 +256,15 @@ def capability_for(intent: Intent, message: str,
     """What a subject question asks for, from the classified intent."""
     from app.agents.applicant.history import asks_what_changed
 
+    if intent is Intent.KYC_RESULT:
+        return Capability.KYC
+    if intent is Intent.APPLICANT_PROFILE:
+        return Capability.PROFILE
     if asks_what_changed(message):
         return Capability.HISTORY
     if intent is Intent.READINESS:
         return Capability.READINESS
-    if intent in _PENDING:
+    if intent in _PENDING or intent is Intent.DOCUMENTS_REQUIRED:
         return Capability.PENDING
     if intent in (Intent.DOCUMENT_DETAILS, Intent.ELIGIBILITY,
                   Intent.INCOME_EVIDENCE):
@@ -359,8 +369,9 @@ def verification(subject: Subject, documents: list[dict[str, Any]],
                      if str(d.get("document_type") or "").upper()
                      == document_type.upper()]
         if not owned:
-            what = f"a {_type(document_type)}" if document_type else \
-                "any documents"
+            named = _type(document_type) if document_type else ""
+            what = (("an " if named[:1].lower() in "aeiou" else "a ") + named) if document_type \
+                else "any documents"
             sentences.append(f"{_cap(party.label)} has not uploaded {what} yet.")
         else:
             sentences.append(_grouped(party.label, owned))
@@ -428,6 +439,167 @@ def readiness(subject: Subject, documents: list[dict[str, Any]],
     return (f"{case_answer.rstrip()} Readiness is assessed for the "
             f"application as a whole, not for each applicant. {per_party}"
             ).strip()
+
+
+# ==========================================================================
+# A PARTY'S OWN DETAILS AND KYC -- the co-applicant is a person on the case,
+# with a record of their own; nothing of the primary applicant's is said of
+# them, and nothing is read from what the user typed.
+# ==========================================================================
+
+_DOCUMENT_NOUN = re.compile(r"\b(documents?|docs?|papers?|kagaz\w*|pan|aadhaar|statement|"
+                            r"proof|slip|upload\w*|verif\w*|pending|missing)\b", _I)
+_PROFILE_ASK = re.compile(r"^\s*(who|kaun)\b|\b(who\s+is|kaun\s+(hai|h)|details?|information|info|"
+                          r"profile|jaankari|jankari|batao\s+(uske|unke)\s+baare)\b", _I)
+
+
+def party_question(message: str, classification: Any) -> Any | None:
+    """
+    A question NAMING the co-applicant (or both) that asks for a person's
+    details or KYC, read as that -- APPLICANT_PROFILE / KYC_RESULT, with the
+    field(s) asked. None when it asks something else (documents, pending).
+    """
+    from app.agents.applicant.copilot.semantics import intents as _intents
+    from app.agents.applicant.copilot.answering import profile as _profile
+
+    text = str(message or "")
+    if re.search(r"\bkyc\b", text, _I) and not _intents.asks_for_a_definition(text) \
+            and not re.search(r"\bdecision\b", text, _I):
+        return _intents.Classification(Intent.KYC_RESULT, matched_on="party_kyc",
+                                       fields={"want": _intents.kyc_want(text)},
+                                       frame=getattr(classification, "frame", None))
+    intent = classification.intent
+    profile_like = intent in (Intent.UNKNOWN, Intent.APPLICANT_PROFILE, Intent.APPLICANT_DETAILS,
+                              Intent.APPLICANT_MISSING_INFO, Intent.FULL_SUMMARY)
+    if not profile_like and (_DOCUMENT_NOUN.search(text) or intent.value in (
+            "GUARDRAIL_BLOCKED", "OUT_OF_SCOPE", "FOS_KNOWLEDGE", "STAGE_PROCESS", "MIXED")):
+        return None
+    as_own = _BOTH_RE.sub(" my ", _CO_RE.sub(" my ", text))
+    asked = _profile.detect(as_own) or _profile.detect(text)
+    if asked is not None and asked.field not in (_profile.COMPLETENESS,):
+        field_ = asked.field if not asked.field.startswith("ALL") else _profile.ALL_APPLICANT
+        return _intents.Classification(Intent.APPLICANT_PROFILE, matched_on="party_profile",
+                                       fields={"field": field_},
+                                       frame=getattr(classification, "frame", None))
+    if intent is Intent.UNKNOWN and re.search(r"\b(documents?|docs?|papers?|kagaz\w*)\b", text, _I) \
+            and not _profile.detect(text):
+        # A PERSON'S DOCUMENTS, no task named: what that person uploaded and
+        # its state -- the one per-person document view (the checklist is kept
+        # for the application as a whole).
+        return _intents.Classification(Intent.DOCUMENTS_UPLOADED, matched_on="party_documents",
+                                       frame=getattr(classification, "frame", None))
+    if _PROFILE_ASK.search(text) and not _DOCUMENT_NOUN.search(text):
+        field_ = ("full_name" if re.search(r"^\s*(who|kaun)\b|\bwho\s+is\b|\bkaun\s+(hai|h)\b",
+                                           text, _I) else _profile.ALL_APPLICANT)
+        return _intents.Classification(Intent.APPLICANT_PROFILE, matched_on="party_profile",
+                                       fields={"field": field_},
+                                       frame=getattr(classification, "frame", None))
+    return None
+
+
+#: Application fields that describe a PERSON (the primary applicant's own).
+_PERSON_LEVEL = frozenset({"employment_type", "declared_monthly_income",
+                           "declared_monthly_obligations"})
+
+
+def _party_record(party: Party) -> tuple[Any, bool]:
+    """The party's own applicant record, and whether it could be read."""
+    from app.store import get_repository
+
+    try:
+        return request_cache.read(get_repository(), "get_applicant", party.party_id), True
+    except Exception:
+        return None, False
+
+
+def _party_field(field: str, party: Party, record: Any, readable: bool, case_id: str,
+                 language: str | None, application: Any) -> str:
+    from app.agents.applicant.copilot.routing import capabilities
+    from app.agents.applicant.copilot.facts import field_state
+    from app.agents.applicant.copilot.answering import phrasing
+    from app.agents.applicant.copilot.answering import profile as _profile
+
+    who = party.label
+    name = _profile.label(field)
+    seed = phrasing.current_seed(field)
+    if field == "applicant_id":
+        # the party's OWN reference, as the case record names it
+        return phrasing.party_sentence("PRESENT", who, name, party.party_id,
+                                       language=language, seed=seed)
+    if field in _PERSON_LEVEL and party.role is not Kind.PRIMARY:
+        # the application records these for the primary applicant only; they
+        # are never reported as another person's
+        return phrasing.party_sentence("NOT_AVAILABLE", who, name, language=language, seed=seed)
+    if field in capabilities.APPLICATION_FIELDS:
+        value = getattr(application, field, None) if application is not None else None
+        if value in (None, ""):
+            return f"The {name} isn't recorded on this application yet."
+        shown = _profile._shown(field, value)
+        return (f"The {name} is recorded for the application as a whole, not for each "
+                f"applicant: {shown}.")
+    if field in field_state.IDENTITY_FIELDS:
+        resolved = field_state.resolve(field, {}, case_id=case_id, party_id=party.party_id)
+        state = resolved.state.value
+        shown = _profile._shown(field, resolved.value) if resolved.value else None
+        if state == "PRESENT" and shown is None:
+            state = "RESTRICTED"
+        return phrasing.party_sentence(state, who, name, shown, language=language, seed=seed)
+    if not readable:
+        return phrasing.party_sentence("UNKNOWN", who, name, language=language, seed=seed)
+    if record is None:
+        return phrasing.party_sentence("NOT_AVAILABLE", who, name, language=language, seed=seed)
+    value = getattr(record, field, None)
+    if value in (None, ""):
+        return phrasing.party_sentence("NOT_PROVIDED", who, name, language=language, seed=seed)
+    shown = _profile._shown(field, value)
+    if shown is None:
+        return phrasing.party_sentence("RESTRICTED", who, name, language=language, seed=seed)
+    return phrasing.party_sentence("PRESENT", who, name, shown, language=language, seed=seed)
+
+
+def profile_answer(subject: Subject, field: str, case_id: str, *,
+                   language: str | None = None) -> str:
+    """Each named party's own recorded details, from their own record."""
+    from app.agents.applicant.copilot.routing import capabilities
+    from app.agents.applicant.copilot.answering import profile as _profile
+    from app.store import get_repository
+
+    try:
+        application = request_cache.read(get_repository(), "get_application", case_id)
+    except Exception:
+        application = None
+    bundle = field.startswith("ALL") or field == _profile.FIELDS_AVAILABLE
+    fields = list(capabilities.APPLICANT_FIELDS) if bundle else field.split("+")
+    lines = []
+    for party in subject.parties:
+        record, readable = _party_record(party)
+        if bundle:
+            if not readable:
+                lines.append(f"I couldn't read {party.label}'s details right now.")
+                continue
+            if record is None:
+                lines.append(f"I don't have {party.label}'s details recorded on this "
+                             f"application yet.")
+                continue
+            recorded, absent = [], []
+            for f in fields:
+                value = getattr(record, f, None)
+                if value in (None, ""):
+                    absent.append(_profile.label(f))
+                    continue
+                shown = _profile._shown(f, value)
+                recorded.append(f"{_profile.label(f)} {shown}" if shown is not None
+                                else f"{_profile.label(f)} withheld for security")
+            who = party.label[:1].upper() + party.label[1:]
+            said = (f"{who}'s details: {_profile._and(recorded)}." if recorded
+                    else f"None of {party.label}'s details are recorded yet.")
+            if absent:
+                said += f" Not provided yet: {_profile._and(absent)}."
+            lines.append(said)
+            continue
+        lines.append(" ".join(_party_field(f, party, record, readable, case_id, language,
+                                           application) for f in fields))
+    return " ".join(lines)
 
 
 def clarification(subject: Subject) -> str:

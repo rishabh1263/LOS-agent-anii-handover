@@ -22,8 +22,9 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agents.applicant import followup, subjects
-from app.agents.applicant.intents import Intent, understand
+from app.agents.applicant.copilot.conversation import followup
+from app.agents.applicant.copilot.routing import subjects
+from app.agents.applicant.copilot.semantics.intents import Intent, understand
 from app.store import set_repository
 from app.store.models import CaseFinding, FindingKind
 from app.store.sqlite_repo import SQLiteRepository

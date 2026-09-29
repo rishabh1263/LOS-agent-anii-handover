@@ -292,7 +292,7 @@ def _validated(written: str, state: dict[str, Any]) -> str:
     number, status or decision the state does not carry (validate_answer).
     Empty -- so the caller publishes the computed summary -- when it fails.
     """
-    from app.agents.applicant.validate import validate_answer
+    from app.agents.applicant.copilot.answering.validate import validate_answer
 
     if not written:
         return ""

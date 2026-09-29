@@ -257,6 +257,47 @@ def _pick(variants: dict[str, tuple[str, ...]], language: str | None, seed: int)
     return shapes[seed % len(shapes)]
 
 
+#: ONE FIELD OF ANOTHER PARTY ON THE CASE (the co-applicant), in each state.
+#: {who} is the party ("the co-applicant"), {Who} the same capitalised.
+_PARTY_VARIANTS: dict[str, dict[str, tuple[str, ...]]] = {
+    "PRESENT": {
+        "en": ("{Who}'s {field} is {value}.", "{Who}'s {field} on record is {value}."),
+        "hi-Latn": ("Co-applicant ka {field} {value} hai.",),
+        "hi": ("सह-आवेदक का {field} {value} है।",),
+    },
+    "NOT_PROVIDED": {
+        "en": ("{Who}'s {field} hasn't been provided yet.",
+               "{Who} hasn't provided their {field} yet."),
+        "hi-Latn": ("Co-applicant ne apna {field} abhi tak nahi diya hai.",),
+        "hi": ("सह-आवेदक ने अपना {field} अभी तक नहीं दिया है।",),
+    },
+    "NOT_AVAILABLE": {
+        "en": ("{Who}'s {field} isn't recorded on this application yet.",),
+        "hi-Latn": ("Co-applicant ka {field} abhi record nahi hua hai.",),
+        "hi": ("सह-आवेदक का {field} अभी दर्ज नहीं है।",),
+    },
+    "RESTRICTED": {
+        "en": ("{Who}'s {field} is on record, but for security I can't share the full value here.",),
+        "hi-Latn": ("Co-applicant ka {field} record mein hai, lekin security ke liye main poora "
+                    "number share nahi kar sakta.",),
+    },
+    "UNKNOWN": {
+        "en": ("I couldn't verify {who}'s {field} from the available records right now.",),
+        "hi-Latn": ("Main abhi co-applicant ka {field} check nahi kar pa raha hoon.",),
+    },
+}
+
+
+def party_sentence(state: str, who: str, field: str, value: str | None = None, *,
+                   language: str | None = None, seed: int = 0) -> str:
+    """One field of a named party, in its state and the caller's language."""
+    table = _PARTY_VARIANTS.get(state) or _PARTY_VARIANTS["UNKNOWN"]
+    shapes = table.get(language or "en") or table["en"]
+    shape = shapes[seed % len(shapes)]
+    return shape.format(who=who, Who=who[:1].upper() + who[1:], field=field,
+                        value="" if value is None else value)
+
+
 def field_sentence(field: str, value: str, *, language: str | None, seed: int) -> str | None:
     """A variant sentence for a PRESENT field, or None when the family has none."""
     shape = _pick(_FIELD_VARIANTS.get(field, {}), language, seed)
@@ -276,7 +317,12 @@ def acknowledge(answer: str, *, turn_type: str | None, language: str | None, see
     prefix = _pick(family, language, seed)
     if not prefix or answer.lstrip().startswith(prefix):
         return answer
-    return f"{prefix} {answer.strip()}"
+    body = answer.strip()
+    first = body.split(" ", 1)[0]
+    if prefix.rstrip().endswith(("--", ",", "-", "—")) and first in ("Your", "The", "You", "This",
+                                                                      "There", "It", "No"):
+        body = body[0].lower() + body[1:]       # a sentence continued, not restarted
+    return f"{prefix} {body}"
 
 
 def styles() -> dict[str, Any]:

@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from app.agents.applicant.intents import WRITE_INTENTS, Intent
+from app.agents.applicant.copilot.semantics.intents import WRITE_INTENTS, Intent
 
 
 class QueryType(str, Enum):

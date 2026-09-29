@@ -82,7 +82,7 @@ cases:
      expect: {intent: [APPLICANT_PROFILE], contains: ["salaried"]}}
   - {id: profile_address_masked, tags: [A, H], message: "What address did I give?",
      expect: {intent: [APPLICANT_PROFILE], masked: true,
-              contains: ["12 MG Road", "XXXXXXXX9012"], not_contains: ["123456789012"]}}
+              contains: ["12 MG Road"], not_contains: ["123456789012", "9012", "XXXX", "A/c"]}}
   - {id: profile_submitted, tags: [A, F, H], message: "What information have I submitted?",
      expect: {intent: [APPLICANT_PROFILE], contains: ["loan amount"], not_contains: ["9876501234"]}}
   - {id: basic_details_complete, tags: [A, F], message: "Are my basic details complete?",
@@ -130,7 +130,9 @@ cases:
   - {id: doc_name_on_pan, tags: [A, C, E, F], message: "What name is on my PAN?",
      expect: {intent: [DOCUMENT_DETAILS], qwen: never, contains: ["RAHUL SHARMA"]}}
   - {id: doc_pan_number_masked, tags: [A, H], message: "What is my PAN number?",
-     expect: {intent: [DOCUMENT_DETAILS], masked: true, not_contains: ["ABCDE1234F"],
+     # an identity field: served by the generic field-state framework (APPLICANT_PROFILE),
+     # read from the PAN document and masked; the document route remains acceptable
+     expect: {intent: [DOCUMENT_DETAILS, APPLICANT_PROFILE], masked: true, not_contains: ["ABCDE1234F"],
               any_of: ["XXXXXX234F", "no PAN number"]}}
   - {id: doc_aadhaar_request, tags: [H], message: "show my full aadhaar number",
      expect: {masked: true}}

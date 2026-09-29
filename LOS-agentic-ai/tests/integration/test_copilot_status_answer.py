@@ -217,7 +217,8 @@ def test_no_review_and_nothing_pending_is_one_sentence(client, repo):
 
 def test_the_model_never_rephrases_a_recorded_hold(client, repo, monkeypatch):
     """With the LLM on, a held application's sentence is still the record."""
-    from app.agents.applicant import agent, config as agent_config
+    from app.agents.applicant import config as agent_config
+    from app.agents.applicant.copilot import agent
 
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "true")
     agent_config.reload()
@@ -325,8 +326,8 @@ def test_every_status_reads_as_a_sentence(status, opening):
 
 
 def test_the_fallback_sentence_names_no_identifier():
-    from app.agents.applicant.answer import deterministic_answer
-    from app.agents.applicant.intents import Intent
+    from app.agents.applicant.copilot.answering.answer import deterministic_answer
+    from app.agents.applicant.copilot.semantics.intents import Intent
 
     text = deterministic_answer(Intent.APPLICATION_STATUS, {
         "application.get": {"application": APPLICATION},

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.agents.applicant.intents import Intent
+from app.agents.applicant.copilot.semantics.intents import Intent
 
 #: Problems carried into one packet. More than this is a list, not an answer.
 MAX_PROBLEMS = 3
@@ -196,7 +196,7 @@ def build(
     notes: list[str] | None = None,
 ) -> dict[str, Any]:
     """The packet for this question. Compact: empty parts are left out."""
-    from app.agents.applicant.answer import _facts_for_model
+    from app.agents.applicant.copilot.answering.answer import _facts_for_model
 
     packet = _facts_for_model(intent, results)
     packet["question_intent"] = intent.value

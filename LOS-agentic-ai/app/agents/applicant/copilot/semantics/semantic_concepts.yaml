@@ -91,6 +91,17 @@ concepts:
     - moving forward
     - moving ahead
     - going ahead
+    - going anywhere
+    - going somewhere
+    - any movement
+    - progressing
+    - reached
+    - stage-wise
+    - stagewise
+    - where has
+    - kaha tak
+    - kahan tak
+    - stuck
     - holdup
     - hold up
     - held up
@@ -127,6 +138,11 @@ concepts:
     - require
     - requirement
     - requirements
+    - expects
+    - expect from
+    - expects from
+    - expect for
+    - expects for
     - mandatory
     - compulsory
     - necessary
@@ -156,6 +172,10 @@ concepts:
     - needs from me
     - expect from me
     - expects from me
+    - expecting from me
+    - expecting
+    - paperwork-wise
+    - paperwork wise
     - आवश्यक
     - अनिवार्य
     - ज़रूरी
@@ -190,6 +210,16 @@ concepts:
     - द्यावे
     - अपलोड
   SUBMITTED:                        # past-facing: what has already been given
+    - reached you
+    - reach you
+    - come in from me
+    - come in
+    - came in
+    - got from me
+    - received from me
+    - sent you
+    - mila
+    - received
     - submit ho gaya
     - submit ho gaye
     - submit ho gayi
@@ -225,6 +255,26 @@ concepts:
     - missing
     - left
     - remaining
+    - not received
+    - not been received
+    - not yet received
+    - haven't been received
+    - hasn't been received
+    - have not been received
+    - has not been received
+    - not come in
+    - not arrived
+    - nahi received
+    - yet to reach
+    - yet to come
+    - yet to come in
+    - yet to arrive
+    - not reached
+    - havent reached
+    - haven't reached
+    - not come in
+    - to be given
+    - stuck
     - not uploaded
     - not submitted
     - yet to be collected
@@ -306,6 +356,14 @@ concepts:
     - went through
     - gone through
     - green light
+    - pass muster
+    - passed muster
+    - okayed
+    - got okayed
+    - pass
+    - passed
+    - cleared verification
+    - held up
     - looked at
     - theek hai
     - theek hain
@@ -382,6 +440,12 @@ concepts:
     - move forward
     - go ahead
     - advance
+    - pushed along
+    - pushed to
+    - pushed ahead
+    - moved along
+    - moved ahead
+    - move along
     - aage badh
     - aage badhe
     - aage badhna
@@ -590,7 +654,7 @@ conversation:
            go ahead, yes please, do it, kar do, karo, bilkul, zaroor, theek hai, thik hai, ok yes]
   ACK: [ok, okay, okk, k, kk, fine, alright, got it, noted, understood, samjha, samjhi,
         samajh gaya, samajh gayi, achha, acha, accha, hmm, hm, cool, great, nice, ठीक है, ठीक, समजले]
-  NEGATE: ['no', nope, nah, nahi, nahin, nai, na, नहीं, नाही, not that, not this, not this one,
+  NEGATE: ['no', nope, nah, nahi, nahin, nai, na, no no, nahi nahi, नहीं, नाही, not that, not this, not this one,
            not that one, dont mean that, don t mean that, wrong, galat, that s not it, thats not it,
            not really, no no]
   NEITHER: [neither, none, none of these, none of them, koi nahi, koi bhi nahi, dono nahi,
@@ -605,17 +669,39 @@ conversation:
                mera matlab, mera matlab hai, matlab, nahi mera matlab, nahi matlab,
                मेरा मतलब, मतलब, मला म्हणायचे आहे, no wait, wait i mean, sorry i mean,
                sorry i meant, correction, let me rephrase, rephrase]
-  AGAIN: [again, once again, one more time, repeat, repeat that, say again, say that again,
+  TOPIC_SHIFT: [changing topic, changing the topic, change of topic, new topic, different question,
+                another question, switching topics, on another note, by the way, btw, anyway, moving on,
+                unrelated question, one more thing, ek aur sawal, alag sawal, dusra sawal, waise,
+                दूसरा सवाल, एक और सवाल, वेगळा प्रश्न, आणखी एक प्रश्न]
+  REFER_BACK: [what about that, what about it, and that, and it, and about that, that one,
+               iska kya, uska kya, aur woh, aur yeh, aur uska, उसका क्या, इसका क्या, त्याचे काय]
+  PARTY_ONLY: [the co applicant, co applicant, the co-applicant, co-applicant, the other applicant,
+               the other one, the second applicant, him, her, for him, for her, the other person,
+               sah aavedak, sah avedak, dusra applicant, doosra applicant, सह-आवेदक, सह आवेदक,
+               सह-अर्जदार, दुसरा अर्जदार]
+  AGAIN: [ek baar or bolo, ek baar aur bolo, ek bar aur bolo, phir se bolo, dobara bolo, wapas bolo,
+          wapas batao, phir bolo, once again please, say it again, tell me again, repeat please,
+          again, once again, one more time, repeat, repeat that, say again, say that again,
           same, same thing, same question, more, tell me more, more details, more info,
           elaborate, phir se, dobara, ek baar aur, fir se, aur batao, aur bataiye, thoda aur,
           फिर से, दोबारा, और बताओ, पुन्हा, परत, आणखी सांगा]
-  FOR_PARTY: [for co applicant, for the co applicant, for my co applicant, for co app,
+  FOR_PARTY: [for him, for her, him too, her too, his too, hers too, for the second applicant,
+              for the other person, uska bhi, uski bhi, unka bhi, co applicant ka bhi,
+              co-applicant ka bhi, co applicant ke bhi, co-applicant ke bhi, dusre ka bhi,
+              सह-आवेदक का भी, सह आवेदक का भी, उसका भी, उसकी भी, त्याचेही, त्याचे पण,
+              for co applicant, for the co applicant, for my co applicant, for co app,
               for the other applicant, for the other one, for the other person, for the other guy,
               for coapplicant, co applicant ke liye, dusre applicant ke liye, सह-अर्जदार के लिए]
   FOR_SELF: [and for me, for me, and me, what about me, and mine, for myself, mere liye,
              aur mera, aur mere liye, mera kya, और मेरा, माझे काय, and the primary applicant,
              for the primary applicant]
-  OTHER_PARTY: [what about the other one, and the other one, and for the other one,
+  OTHER_PARTY: [same for him, same for her, and him, and her, what about him, what about her,
+                what about the co-applicant, and what about the co-applicant, co-applicant ka kya,
+                co applicant ka kya, same details for the co-applicant, same for the co-applicant,
+                same for co-applicant, and the co-applicant, and for the co-applicant,
+                and for him, and for her, co-applicant ke bhi, co applicant ke bhi, uska bhi check karo,
+                uska bhi, unka bhi, सह-आवेदक का भी बताओ, सह-आवेदक का भी, उसका भी बताओ,
+                what about the other one, and the other one, and for the other one,
                 the other one, and the co applicant, and for the co applicant,
                 what about the co applicant, what about the other applicant, aur dusra,
                 dusre ka kya, dusre applicant ka, और दूसरा, दुसऱ्याचे काय]

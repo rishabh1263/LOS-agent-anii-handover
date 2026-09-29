@@ -19,7 +19,8 @@ import time
 
 import pytest
 
-from app.agents.applicant import followup, intents
+from app.agents.applicant.copilot.conversation import followup
+from app.agents.applicant.copilot.semantics import intents
 
 
 # ==========================================================================

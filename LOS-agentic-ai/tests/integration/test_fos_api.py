@@ -35,6 +35,8 @@ ENVELOPE = {
     "document_highlights", "clarification_required",
     # what the Copilot understood of a typed question (null for a dropdown action)
     "understanding",
+    # why this answer: capability, model, tools, latency (codes and numbers only)
+    "observability",
     # conversation plumbing -- the caller carries it, this service does not
     "followed_up", "context",
     # THE COMPACT BLOCKS, added for the frontend. Each is derived from
@@ -631,7 +633,7 @@ def test_an_unknown_case_is_refused_without_confirming_it_exists(client, case):
 
 
 def test_the_response_carries_no_internals(client, case, _store):
-    from app.agents.applicant.validate import validate_response_shape
+    from app.agents.applicant.copilot.answering.validate import validate_response_shape
 
     applicant_id, case_id = case
     verify(_store, case_id, applicant_id, "PAN", "PASS")

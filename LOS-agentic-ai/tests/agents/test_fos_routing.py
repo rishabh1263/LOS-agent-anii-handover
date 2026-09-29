@@ -26,7 +26,7 @@ import pytest
 from app.agents.applicant import config as agent_config
 from app.agents.applicant import graph as fos_graph
 from app.agents.applicant import knowledge_facts, routing
-from app.agents.applicant.intents import Intent, classify
+from app.agents.applicant.copilot.semantics.intents import Intent, classify
 from app.agents.applicant.routing import QueryCategory, ResponseSource
 from app.store import set_repository
 from app.store.models import (
@@ -89,7 +89,7 @@ def ask(message: str) -> dict:
     Conciseness is NOT applied here. It belongs to the public contract, and
     `ask_http` is what exercises it.
     """
-    from app.agents.applicant.agent import answer_question
+    from app.agents.applicant.copilot.agent import answer_question
 
     return asyncio.run(answer_question(
         message=message, applicant_id="APP-R", case_id="CASE-R",
