@@ -380,7 +380,7 @@ def test_a_tool_whose_scope_does_not_resolve_is_refused(monkeypatch):
 
 
 async def test_a_confirmation_cannot_swap_in_another_tool(repo):
-    from app.agents.applicant.agent import AgentError, confirm_action
+    from app.agents.applicant.copilot.agent import AgentError, confirm_action
 
     with pytest.raises(AgentError) as refused:
         await confirm_action(
@@ -392,7 +392,7 @@ async def test_a_confirmation_cannot_swap_in_another_tool(repo):
 
 
 async def test_a_confirmed_write_to_anothers_applicant_is_refused(repo):
-    from app.agents.applicant.agent import AgentError, confirm_action
+    from app.agents.applicant.copilot.agent import AgentError, confirm_action
     from app.store.models import Applicant
 
     repo.save_applicant(Applicant(applicant_id="APP-BOB"))
@@ -409,7 +409,7 @@ async def test_a_confirmed_write_to_anothers_applicant_is_refused(repo):
 
 
 async def test_a_confirmed_create_is_owned_by_its_creator(repo):
-    from app.agents.applicant.agent import confirm_action
+    from app.agents.applicant.copilot.agent import confirm_action
 
     done = await confirm_action(
         action={"type": "CREATE_APPLICANT", "tool": "applicant.create",

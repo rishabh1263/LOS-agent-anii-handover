@@ -11,6 +11,7 @@ interface ChatMessagesProps {
   speakingMessageId?: string | null
   onListen: (text: string, messageId: string) => void
   onRegenerate: (id: string) => void
+  onEdit?: (messageId: string, newContent: string) => void
   onSuggested: (q: string) => void
   quickActions: { id: string; label: string; icon: string }[]
   onQuickAction: (label: string) => void
@@ -24,6 +25,7 @@ export function ChatMessages({
   speakingMessageId = null,
   onListen,
   onRegenerate,
+  onEdit,
   onSuggested,
   quickActions,
   onQuickAction,
@@ -72,8 +74,10 @@ export function ChatMessages({
             showTimestamp={showTimestamps}
             showSuggestedQuestions={showSuggestedQuestions}
             isSpeaking={speakingMessageId === m.id}
+            editDisabled={status === 'generating' || status === 'thinking'}
             onListen={() => onListen(m.content, m.id)}
             onRegenerate={() => onRegenerate(m.id)}
+            onEdit={onEdit}
             onSuggested={onSuggested}
           />
         ))}

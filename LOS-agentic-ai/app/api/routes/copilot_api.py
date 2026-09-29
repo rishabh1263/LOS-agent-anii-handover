@@ -33,13 +33,15 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.agents.applicant import followup, intents, language, normalize, routing, sentiment
+from app.agents.applicant import language, normalize, routing, sentiment
+from app.agents.applicant.copilot.conversation import followup
+from app.agents.applicant.copilot.semantics import intents
 from app.agents.applicant import handoff as handoffs
 from app.observability import analytics, cloudwatch
-from app.agents.applicant.validate import check_composed
+from app.agents.applicant.copilot.answering.validate import check_composed
 from app.agents.applicant import config as _agent_config
 from app.observability.tracing import span, timed
-from app.agents.applicant.agent import AgentError, answer_question
+from app.agents.applicant.copilot.agent import AgentError, answer_question
 from app.agents.applicant.grounded import supported_by_case_evidence
 from app.agents.los import stage_registry, stages
 from app.knowledge import grounding, retrieval
@@ -368,6 +370,9 @@ class CopilotQueryResponse(BaseModel):
     processing_ms: float | None = None
     correlation_id: str | None = Field(
         None, description="Correlates this answer with its logs and spans.")
+    observability: dict[str, Any] | None = Field(
+        None, description="Why this answer: capability, intent, model, tools and latency by "
+                          "component -- codes, counts and milliseconds only.")
 
 
 #: What this surface publishes. AN ALLOWLIST, not a filter: the internal
@@ -557,7 +562,7 @@ def _converse(request: "CopilotQueryRequest", envelope: dict[str, Any],
             and str(envelope.get("response_source") or "") == "STRUCTURED"):
         # THE SAME TWO LISTS the English answer is built from (answer.py):
         # documents not yet collected, and documents awaiting verification.
-        from app.agents.applicant import answer as answers
+        from app.agents.applicant.copilot.answering import answer as answers
 
         missing = [answers._readable(i.get("slot"))
                    for i in envelope.get("pending_items") or []
@@ -635,7 +640,7 @@ def _composition_skip(envelope: dict[str, Any], category: str) -> str | None:
     ARE phrased (once): condensing a handbook passage is what a composer adds.
     """
     from app.agents.applicant import config as agent_config
-    from app.agents.applicant.intents import SIMPLE_INTENTS, Intent
+    from app.agents.applicant.copilot.semantics.intents import SIMPLE_INTENTS, Intent
 
     answered_by = str(envelope.get("base_intent")
                       or envelope.get("intent") or "").upper()
@@ -692,7 +697,7 @@ def _accept_composed(text: str, *, structured: str, facts: dict[str, Any],
     answers were phrased inside the agent, behind `validate_answer`, until
     the Copilot took the phrasing over; the second check came with them.
     """
-    from app.agents.applicant.validate import validate_answer
+    from app.agents.applicant.copilot.answering.validate import validate_answer
 
     accepted, checked = check_composed(
         text, structured=structured, identifiers=identifiers,
@@ -1263,7 +1268,7 @@ def _provenance(request: "CopilotQueryRequest", envelope: dict[str, Any],
     from it. Never raises: provenance failing costs the explanation, never
     the answer. Logged as ids, kinds and verdicts -- never values.
     """
-    from app.agents.applicant import followup
+    from app.agents.applicant.copilot.conversation import followup
     from app.agents.applicant import provenance as chain
     from app.security import guardrails
 
@@ -1910,6 +1915,12 @@ async def query(
     except Exception as exc:  # pragma: no cover - observability never fails a request
         logger.warning("Copilot analytics skipped (%s)", type(exc).__name__)
     published["correlation_id"] = request_id
+    from app.observability import turn as _turn
+
+    _record = _turn.build(request_id=request_id, surface="copilot", claims=claims,
+                          result=envelope, timings=timings)
+    published["observability"] = _record
+    _turn.emit(_record)
     logger.info("copilot_timings request_id=%s stage=%s intent=%s %s",
                 request_id, published.get("stage"), published.get("intent"),
                 " ".join(f"{k}={v}" for k, v in timings.items()))

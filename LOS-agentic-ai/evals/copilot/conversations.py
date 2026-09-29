@@ -133,8 +133,8 @@ SCENARIOS = [
     s("J", "j1", t("Is my bank statement pending?", MISSING),
       t("why is it still pending?", VERIF, contains="bank statement")),
     s("J", "j2", t("What document is pending?", MISSING),
-      t("why is it still pending?", clarify=True),
-      t("the first one", VERIF, outcome="OPTION_RESOLVED")),
+      t("why is it still pending?", MISSING, contains="not been uploaded"),   # the listed set, with reasons
+      t("and the bank statement?", VERIF | MISSING)),
     s("J", "j3", t("Is my PAN verified?", VERIF), t("why is it rejected?", VERIF | {"CASE_HISTORY"})),
     s("J", "j4", t("What stage am I in?", STAGE), t("and the documents for it?", REQ | MISSING)),
     # K. stage follow-up
@@ -144,7 +144,10 @@ SCENARIOS = [
     s("K", "k3", t("What stage am I in?", STAGE), t("is everything in for this step?", PENDING)),
     # L. document follow-up
     s("L", "l1", t("Which documents are pending?", MISSING), t("status", VERIF)),
-    s("L", "l2", t("What documents are required?", REQ), t("which of those are verified?", VERIF)),
+    s("L", "l2", t("What documents are required?", REQ),
+      t("which of those are verified?", VERIF | UPLOADED, contains="PAN")),
+    s("L", "l2b", t("What documents are required?", REQ),
+      t("are they all uploaded?", UPLOADED | MISSING)),
     s("L", "l3", t("Is my salary slip uploaded?", UPLOADED | {"INCOME_EVIDENCE"}),
       t("is it verified?", VERIF | {"INCOME_EVIDENCE"})),
     # M. co-applicant follow-up
@@ -219,7 +222,7 @@ SCENARIOS = [
     s("Y", "y2", t("What is pending on my case?", PENDING), t("what about the other applicant?", PENDING | VERIF, outcome="REPLAY")),
     s("Y", "y3", t("What is my loan amount?", PROFILE), t("what about the other applicant?", clarify=True)),
     # AA. identifiers, applicant fields, findings and KYC in conversation
-    s("AA", "aa1", t("meri id kya hai", clarify=True), t("2", PROFILE, outcome="OPTION_RESOLVED", contains="case id")),
+    s("AA", "aa1", t("meri id kya hai", clarify=True), t("2", PROFILE, outcome="OPTION_RESOLVED", contains=MINE)),
     s("AA", "aa2", t("meri id kya hai", clarify=True), t("application id wala", PROFILE, outcome="OPTION_RESOLVED")),
     s("AA", "aa3", t("what is my case id", PROFILE), t("and the application id?", PROFILE)),
     s("AA", "aa4", t("what is my loan amount", PROFILE), t("what about the application number?", PROFILE)),

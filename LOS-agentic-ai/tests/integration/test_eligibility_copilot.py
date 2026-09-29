@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 from app.agents.applicant import eligibility_facts
-from app.agents.applicant.intents import Intent, classify
+from app.agents.applicant.copilot.semantics.intents import Intent, classify
 
 RECORDED = {
     "status": "PASS",

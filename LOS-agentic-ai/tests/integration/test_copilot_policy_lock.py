@@ -15,6 +15,7 @@ Fixtures are the two-customer set from test_copilot_security_refinement.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -103,7 +104,7 @@ def test_no_message_can_switch_the_policy(service_client, spy, claim, monkeypatc
 
 def test_the_policy_lives_in_one_place():
     """The customer-facing check is the access module's, not scattered."""
-    for module in ("app/api/routes/copilot_api.py", "app/agents/applicant/agent.py"):
+    for module in ("app/api/routes/copilot_api.py", "app/agents/applicant/copilot/agent.py"):
         source = (ROOT / module).read_text(encoding="utf-8")
         assert "authorize_conversation(" in source, module
         assert "COPILOT_SERVICE_SCOPE_ACCESS\")" not in source, module
@@ -170,10 +171,13 @@ def test_no_full_identifier_is_ever_published(client, spy, identifiers, question
         assert value not in blob, (question, value)
 
 
-def test_the_last_four_remain_where_the_value_is_the_answer(client, spy, identifiers):
+def test_the_address_answer_carries_the_address_and_nothing_else(client, spy, identifiers):
+    # An Aadhaar / account number typed into the address is not the address:
+    # the answer carries the address in full and no identifier, whole or masked.
     body = ask(client, "What address did I give?", spy)
-    assert "XXXXXXXX9012" in body["answer"]          # Aadhaar and account: last 4
     assert "12 MG Road, Pune" in body["answer"]     # the address itself in full
+    assert "9012" not in body["answer"] and "XXXX" not in body["answer"]
+    assert not re.search(r"\b(a/c|aadhaar|account)\b", body["answer"], re.I)
 
 
 def test_the_published_formats_are_exact():

@@ -260,7 +260,7 @@ def test_a_composed_answer_naming_another_stage_is_rejected(client, demo,
 
 
 def test_the_validator_rejects_a_stage_not_on_record():
-    from app.agents.applicant.validate import check_composed
+    from app.agents.applicant.copilot.answering.validate import check_composed
 
     structured = "Your application is currently at the Credit stage."
     ok, reason = check_composed("Your case is now in CPA.",
@@ -493,7 +493,7 @@ def test_a_rejected_document_question_is_not_a_lending_decision(client, repo):
     ("is my salry slip uploded", "SALARY_SLIP"),
 ])
 def test_every_taxonomy_document_is_recognised(question, document):
-    from app.agents.applicant.intents import understand
+    from app.agents.applicant.copilot.semantics.intents import understand
 
     assert understand(question, has_case=True).document_type == document
 
@@ -508,7 +508,7 @@ def test_every_taxonomy_document_is_recognised(question, document):
     ("what do I need to do?", "NEXT_ACTION"),
 ])
 def test_natural_questions_resolve(question, intent):
-    from app.agents.applicant.intents import understand
+    from app.agents.applicant.copilot.semantics.intents import understand
 
     assert understand(question, has_case=True).intent.value == intent
 

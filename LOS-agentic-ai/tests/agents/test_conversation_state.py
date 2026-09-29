@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from app.agents.applicant import conversation_state as conv
+from app.agents.applicant.copilot.conversation import state as conv
 
 
 def _state_with_pending(options, question_type=None):

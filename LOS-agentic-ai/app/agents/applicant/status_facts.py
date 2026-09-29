@@ -35,7 +35,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agents.applicant import case_memory_facts
-from app.agents.applicant.answer import _readable
+from app.agents.applicant.copilot.answering.answer import _readable
 
 #: Reason codes that mean "the check needed more documents than it had".
 #: Said as what the officer has to do about it, which is what the code
@@ -257,7 +257,7 @@ def stage_history_answer(message: str, context: Any) -> str:
     import re
 
     from app.agents.applicant import config
-    from app.agents.applicant.intents import stage_in
+    from app.agents.applicant.copilot.semantics.intents import stage_in
 
     label = config.stage_label
     history = [dict(e) for e in (getattr(context, "history", None) or ())

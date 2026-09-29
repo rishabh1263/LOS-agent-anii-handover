@@ -54,7 +54,7 @@ def _config():
 
 
 def ask(question: str):
-    from app.agents.applicant.agent import _knowledge_reply
+    from app.agents.applicant.copilot.agent import _knowledge_reply
 
     return asyncio.run(_knowledge_reply(question))
 

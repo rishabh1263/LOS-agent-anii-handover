@@ -31,9 +31,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.agents.applicant import answer as A
-from app.agents.applicant import intents
-from app.agents.applicant.intents import Intent
+from app.agents.applicant.copilot.answering import answer as A
+from app.agents.applicant.copilot.semantics import intents
+from app.agents.applicant.copilot.semantics.intents import Intent
 
 VIEW = {
     "applicant": {"applicant_id": "APP-AUDIT-001",
@@ -167,7 +167,7 @@ def test_the_mixed_path_suppresses_it_before_appending_knowledge():
     """
     import inspect
 
-    from app.agents.applicant import agent
+    from app.agents.applicant.copilot import agent
 
     source = inspect.getsource(agent.answer_question)
 

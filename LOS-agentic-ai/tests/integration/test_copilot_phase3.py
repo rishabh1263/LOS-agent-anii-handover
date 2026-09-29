@@ -16,8 +16,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agents.applicant import evidence, jev, validate
-from app.agents.applicant.intents import Intent, understand
+from app.agents.applicant import evidence, jev
+from app.agents.applicant.copilot.answering import validate
+from app.agents.applicant.copilot.semantics.intents import Intent, understand
 from app.agents.los import stage_lifecycle, stages
 from app.store import set_repository
 from app.store.models import CaseDecision, CaseFinding, FindingKind
@@ -208,7 +209,7 @@ def test_the_default_limit_is_two_sentences():
 
 
 def _next_step(detail):
-    from app.agents.applicant.answer import deterministic_answer
+    from app.agents.applicant.copilot.answering.answer import deterministic_answer
 
     return deterministic_answer(
         Intent.NEXT_ACTION, {"workflow.next_action": {"next_action": {

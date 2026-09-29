@@ -45,8 +45,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agents.applicant import intents, query_types, routing
-from app.agents.applicant.intents import Intent
+from app.agents.applicant import query_types, routing
+from app.agents.applicant.copilot.semantics import intents
+from app.agents.applicant.copilot.semantics.intents import Intent
 from app.agents.los.stages import LosStage
 from app.knowledge import grounding, indexing
 from app.knowledge.embeddings import HashingEmbedding

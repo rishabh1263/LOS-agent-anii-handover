@@ -133,7 +133,7 @@ def compute(*, stage: str | None, workflow_next: dict[str, Any] | None,
 # ==========================================================================
 
 def _phrase(action: dict[str, Any], language: str = "en") -> str:
-    from app.agents.applicant.subjects import _type
+    from app.agents.applicant.copilot.routing.subjects import _type
 
     phrases = ((_config().get("phrases") or {}).get(language)
                or (_config().get("phrases") or {}).get("en") or {})

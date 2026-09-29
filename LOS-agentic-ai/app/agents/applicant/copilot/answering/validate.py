@@ -290,7 +290,7 @@ def check_composed(
     # answer placing the case at any stage that neither the current stage
     # nor the structured answer names is a stage the model inferred.
     if stage and config.validation("reject_status_change"):
-        from app.agents.applicant.intents import _STAGE_WORDS
+        from app.agents.applicant.copilot.semantics.intents import _STAGE_WORDS
 
         for name, words in _STAGE_WORDS.items():
             if name == str(stage).upper():

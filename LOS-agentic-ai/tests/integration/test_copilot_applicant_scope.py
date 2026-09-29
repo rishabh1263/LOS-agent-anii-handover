@@ -257,7 +257,7 @@ def test_the_contract_no_longer_requires_a_case(client):
 
 def test_the_portfolio_intent_is_mapped_like_every_other(client):
     """The completeness guard: an unmapped intent falls to CLARIFICATION."""
-    from app.agents.applicant.intents import Intent
+    from app.agents.applicant.copilot.semantics.intents import Intent
     from app.agents.applicant.query_types import QueryType, type_for
 
     assert type_for(Intent.CASE_PORTFOLIO) is QueryType.CASE_FACT
@@ -289,6 +289,6 @@ def test_existing_intents_are_unchanged(message, expected):
     "the status of my application" -- a question about THE case in
     front of the officer. These hold that line.
     """
-    from app.agents.applicant.intents import classify
+    from app.agents.applicant.copilot.semantics.intents import classify
 
     assert classify(message).intent.value == expected

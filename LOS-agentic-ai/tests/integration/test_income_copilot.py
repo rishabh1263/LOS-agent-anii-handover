@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.agents.applicant.intents import Intent, classify
+from app.agents.applicant.copilot.semantics.intents import Intent, classify
 
 # ==========================================================================
 # A / B. THE CASE'S MISMATCH, AND THE WORD'S DEFINITION

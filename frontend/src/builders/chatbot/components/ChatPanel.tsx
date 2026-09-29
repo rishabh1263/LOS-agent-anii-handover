@@ -30,6 +30,7 @@ export function ChatPanel({ api }: ChatPanelProps) {
     sendMessage,
     stopGenerating,
     regenerate,
+    editMessage,
     startNewConversation,
     confirmNewConversation,
     confirmNew,
@@ -225,6 +226,7 @@ export function ChatPanel({ api }: ChatPanelProps) {
                         speakingMessageId={speakingMessageId}
                         onListen={(text, id) => toggleSpeak(text, id)}
                         onRegenerate={regenerate}
+                        onEdit={editMessage}
                         onSuggested={(q) => void sendMessage(q)}
                         quickActions={quickActions}
                         onQuickAction={(label) => void sendMessage(label)}

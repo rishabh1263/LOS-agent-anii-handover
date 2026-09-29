@@ -496,6 +496,12 @@ _STAGE_HISTORY_ALWAYS = re.compile(
     r"|\bwhere\s+was\s+(it|my|the|this|our)\b[^?]{0,30}\bbefore\b"
     r"|\bstages?\b[^?]{0,30}\b(been|gone|passed)\s+through\b",
     re.IGNORECASE)
+#: "What happened on my case so far?" -- the recorded case history.
+_CASE_HAPPENED = re.compile(
+    r"\bwhat(\s+has|'s|\s+all|\s+have)?\s+happened\b[^?]{0,40}\b(so\s+far|till\s+now|until\s+now|"
+    r"to\s+date|up\s+to\s+now|ab\s+tak|abhi\s+tak)\b"
+    r"|\bwhat(\s+has|'s|\s+all|\s+have)?\s+happened\s+(on|to|with|in)\s+(my|this|the|our)\s+"
+    r"(loan\s+)?(case|file|application|loan)\b", re.IGNORECASE)
 _STAGE_HISTORY_BEFORE = re.compile(
     r"\b(where|which|what)\b[^?]{0,50}\b(was|were)\b[^?]{0,40}\bbefore\b",
     re.IGNORECASE)
@@ -1207,7 +1213,7 @@ def _tail_is_about_this_case(text: str) -> bool:
     a pronoun and read confidently by the frame as a case question is not a
     knowledge tail; the whole question is one case question.
     """
-    from app.agents.applicant import semantic_frame
+    from app.agents.applicant.copilot.semantics import semantic_frame
 
     match = _MIXED_TAIL.search(text)
     if not match:
@@ -1215,6 +1221,10 @@ def _tail_is_about_this_case(text: str) -> bool:
     tail = re.sub(r"^[\s,;]*((and|also|plus)\s+)?", "", text[match.start():], flags=re.IGNORECASE)
     if not re.search(r"\b(it|this|that|my|mine|mera|meri|mere|माझ|मेर)\b", tail, re.IGNORECASE):
         return False
+    from app.agents.applicant.copilot.answering import profile as _profile
+
+    if _profile.detect(tail) is not None:
+        return True                                    # "... and what is my dob"
     frame = semantic_frame.parse(tail)
     return frame.is_confident() and not semantic_frame.is_knowledge(frame)
 
@@ -1353,7 +1363,7 @@ def classify(message: str) -> Classification:
     # name did I provide?" as a question about name matching, and before the
     # generic case patterns, which took "what's my loan amount?" as status.
     # A document named ("the name on my PAN") is left to DOCUMENT_DETAILS.
-    from app.agents.applicant import profile
+    from app.agents.applicant.copilot.answering import profile
 
     # THE RECORDED FINDINGS AND THE RECORDED KYC RESULT: case memory, read
     # as recorded (case_memory_facts). Before the case patterns, which took
@@ -1361,11 +1371,14 @@ def classify(message: str) -> Classification:
     # my KYC score" as nothing at all.
     if _FINDINGS_ASK.search(text) and not asks_for_a_definition(text):
         return Classification(Intent.CASE_FINDINGS, matched_on="findings")
-    if _KYC_ASK.search(text) and not asks_for_a_definition(text):
+    if _KYC_ASK.search(text) and not asks_for_a_definition(text) \
+            and not re.search(r"\bdecision\b", text, re.I):
         return Classification(Intent.KYC_RESULT, matched_on="kyc",
-                              fields={"want": "score" if re.search(r"\bscore\b", text, re.I)
-                                      else "result"})
+                              fields={"want": kyc_want(text)})
 
+    if re.fullmatch(r"\s*(case\s+|my\s+|the\s+)?(history|timeline|journey)\s*[?.!]*\s*", text, re.I) \
+            or (_CASE_HAPPENED.search(text) and stage_in(text) is None):
+        return Classification(Intent.CASE_HISTORY, matched_on="history")
     identity = profile.detect(text)
     if identity is not None and identity.fields and all(
             f in ("aadhaar_number", "pan_number", "bank_account_number") for f in identity.fields):
@@ -1438,7 +1451,7 @@ _DECISION_WORDS = re.compile(
 
 
 #: Where a compound question joins its two halves.
-_JOIN = re.compile(r"\s*(?:,\s*)?\b(?:and|also|plus|aur|ani|aani|और|आणि)\b\s+(?:also\s+)?"
+_JOIN = re.compile(r"\s*(?:,\s*)?(?:\b(?:and|also|plus|aur|ani|aani)\b|(?<!\S)(?:और|आणि)(?!\S))\s+(?:also\s+)?"
                    r"|\s*;\s*|\s*,\s+(?=what|which|how|is|are|kya|kaun|क्या|काय)",
                    re.IGNORECASE)
 
@@ -1460,6 +1473,8 @@ def _part_as_question(part: str) -> str:
     text = part if part.endswith("?") else part + "?"
     if _QUESTION_CUE.search(part) or len(part.split()) > 4:
         return text
+    if len(part.split()) == 1:
+        return f"what is my {part}?"          # "name" -> the caller's own
     return f"what is {part}?"
 
 
@@ -1482,28 +1497,61 @@ def compound_parts(message: str) -> list[str] | None:
         return None
     # "give me my case and application id" names two RECORDED FIELDS: one
     # profile answer carries both (profile.detect), not two tool plans.
-    from app.agents.applicant import profile as _profile
+    from app.agents.applicant.copilot.answering import profile as _profile
 
     asked = _profile.detect(text)
-    if asked is not None and (len(asked.fields) >= 2 or asked.field.startswith("ALL")):
+    other_subject = re.search(r"\b(kyc|documents?|docs?|pending|stage|status|verified|"
+                              r"co[\s-]?applicant'?s?)\b", text, re.I)
+    if asked is not None and (len(asked.fields) >= 2 or asked.field.startswith("ALL")) \
+            and not other_subject:
         return None
-    pieces = [p.strip(" ,;?") for p in _JOIN.split(text)]
-    pieces = [p for p in pieces if p and len(p.split()) >= 2]
+    from app.agents.applicant.copilot.semantics import short_query as _short
+
+    pieces = [p.strip(" ,;?.!") for p in _JOIN.split(text)]
+    pieces = [p for p in pieces
+              if p and (len(p.split()) >= 2 or _short.short_head(p) is not None)]
     if len(pieces) < 2 or len(pieces) > 4:
         return None
+    # "the applicant and the co-applicant" is ONE subject (both parties),
+    # not two questions: a split through it leaves a half with no question.
+    from app.agents.applicant.copilot.routing import subjects as _subjects_both
+
+    if _subjects_both.mentioned(text) is _subjects_both.Kind.BOTH             and _subjects_both.mentioned(pieces[0]) is not _subjects_both.Kind.BOTH             and not any(_subjects_both.mentioned(p) is _subjects_both.Kind.BOTH for p in pieces):
+        return None
     questions = [_part_as_question(p) for p in pieces]
+    # "the co-applicant's name and KYC status": a later part that is only a
+    # noun phrase names no one of its own -- it is about the party named
+    # before it. A part that names a party, or says "my", keeps its own.
+    from app.agents.applicant.copilot.routing import subjects as _subjects
+
+    carried = _subjects.mentioned(pieces[0])
+    if carried in (_subjects.Kind.CO, _subjects.Kind.BOTH):
+        phrase = "for the co-applicant" if carried is _subjects.Kind.CO else "for both applicants"
+        possessive = "the co-applicant's" if carried is _subjects.Kind.CO else "both applicants'"
+        for i in range(1, len(pieces)):
+            own = pieces[i]
+            if _subjects.mentioned(own) is not None or re.search(
+                    r"\b(my|mine|me|i|mera|meri|mere|our)\b", own, re.I):
+                continue
+            if re.search(r"\b(their|unka|unki|unke)\b", questions[i], re.I):
+                questions[i] = re.sub(r"\b(their|unka|unki|unke)\b", possessive, questions[i],
+                                      count=1, flags=re.I)
+            elif len(own.split()) <= 4 and not _QUESTION_CUE.search(own):
+                questions[i] = f"{questions[i].rstrip('?')} {phrase}?"
     seen: list[Intent] = []
-    for question in questions:
+    for position, question in enumerate(questions):
         part = understand(question, has_case=True)
-        if part.intent.value in _NOT_COMPOUND or part.intent in WRITE_INTENTS \
-                or part.intent not in _COMPOUND_CASE:
+        later_history = part.intent is Intent.CASE_HISTORY and position > 0
+        if (part.intent.value in _NOT_COMPOUND and not later_history) \
+                or part.intent in WRITE_INTENTS \
+                or (part.intent not in _COMPOUND_CASE and not later_history):
             return None
         # EACH PART IS A QUESTION IN ITS OWN RIGHT: read by the frame or a
         # structural rule, never guessed by word overlap ("At this point in
         # my application" is a preamble, not a question).
         if getattr(part, "understanding", None) == "EXAMPLES":
             return None
-        seen.append(part.intent)
+        seen.append((part.intent, _subjects.mentioned(question)))
     if len(set(seen)) < 2:
         return None
     return questions
@@ -1518,11 +1566,31 @@ _FINDINGS_ASK = re.compile(
 #: The RECORDED KYC result / score / status -- a possessive or a status word
 #: with "kyc"; never a bare "what is KYC" (a definition) and never a decision.
 _KYC_ASK = re.compile(
-    r"\b(my|our|mera|meri|this|the\s+case'?s?|applicant'?s?|customer'?s?)\s+kyc\b"
-    r"|\bkyc\s+(score|result|status|outcome|check|verification|match|comparison|fields?)\b"
-    r"|\bkyc\s+(done|complete\w*|verified|hua|ho\s+gaya|zala)\b"
-    r"|\b(is|has|was)\s+(the\s+)?kyc\s+(been\s+)?(done|complete\w*|verified)\b",
+    r"\b(my|our|mera|meri|mere|this|the\s+case'?s?|applicant'?s?|customer'?s?|their|unka|unki|unke|"
+    r"inka|inki)\s+kyc\b"
+    r"|\babout\s+(the\s+)?kyc\b(?!\s+(process|mean\w*|work\w*))"
+    r"|\bkyc\s+(score|result|status|outcome|check|verification|match|comparison|fields?|"
+    r"information|info|details|issues?|problems?|mismatch\w*|review)\b"
+    r"|\bkyc\s+(done|complete\w*|verified|hua|ho\s+gaya|zala|pass\w*|fail\w*|clear\w*)\b"
+    r"|\b(is|has|was)\s+(the\s+)?kyc\s+(been\s+)?(done|complete\w*|verified|pass\w*|clear\w*)\b"
+    r"|\bkyc\b[^?]{0,25}\b(problem|issue|mismatch\w*|galat|pending|baaki|baki|kya\s+hua)\b"
+    r"|\b(why|kyon|kyu|kyun)\b[^?]{0,30}\bkyc\b(?![^?]{0,20}\b(mean|matter|required|needed|important))"
+    r"|\b(which|what)\s+kyc\s+\w+",
     re.I)
+
+
+def kyc_want(text: str) -> str:
+    """What a KYC question wants: the score, why it did not match, the
+    fields compared, or the result."""
+    if re.search(r"\bscore\b", text or "", re.I):
+        return "score"
+    if re.search(r"\b(why|kyon|kyu|kyun|reason\w*|mismatch\w*|did\s*n[o']?t\s+match|not\s+match\w*|"
+                 r"problems?|issues?|galat|wrong|review|fail\w*)\b", text or "", re.I):
+        return "mismatch"
+    if re.search(r"\b(fields?|information|info|details|what\s+all|compared|checked)\b",
+                 text or "", re.I):
+        return "fields"
+    return "result"
 
 #: The intent family the SEMANTIC FRAME decides. A rule match in this family
 #: is a phrasing the rules happened to know; the frame reads the meaning and
@@ -1554,7 +1622,8 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
     Deterministic, no model here: the bounded Qwen frame fallback runs in the
     agent, only when this returns UNKNOWN (agent.py).
     """
-    from app.agents.applicant import normalize, semantic, semantic_frame
+    from app.agents.applicant import normalize, semantic
+    from app.agents.applicant.copilot.semantics import semantic_frame
 
     normalised = normalize.normalise(message)
     text = normalised.text or (message or "").strip()
@@ -1570,7 +1639,12 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
     # how-a-stage-works rule keys on the stage name and would take it.
     frame_decides = classification.intent in FRAME_FAMILY or (
         classification.intent is Intent.STAGE_PROCESS
-        and frame.object in (semantic_frame.Object.DOCUMENTS, semantic_frame.Object.DOCUMENT))
+        and frame.object in (semantic_frame.Object.DOCUMENTS, semantic_frame.Object.DOCUMENT)
+        # NAMED, not inferred: "what is checked during CPA?" infers documents
+        # from "checked" and is still about the stage
+        and (frame.document_type is not None or any(
+            concept in ("DOCUMENTS", "DOCUMENT")
+            for _word, concept in semantic_frame.concepts_in(message))))
     # The STRUCTURAL rules ahead of the pattern table (which stage the case
     # is at, its history, an impact question, a document-status list) read
     # the whole question's shape and keep what they matched.
@@ -1587,6 +1661,13 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
     if (classification.intent is Intent.CASE_HISTORY and frame.is_confident()
             and frame.object is semantic_frame.Object.DOCUMENT
             and frame.task is semantic_frame.Task.CHECK_VERIFICATION):
+        frame_decides = True
+    # "WHY ARE MY DOCUMENTS STILL PENDING?" lists the pending documents with
+    # their recorded reasons; the case-history rule keyed on "why ... pending".
+    if (classification.intent is Intent.CASE_HISTORY and frame.is_confident()
+            and frame.object in (semantic_frame.Object.DOCUMENTS, semantic_frame.Object.DOCUMENT)
+            and frame.task is semantic_frame.Task.LIST_PENDING
+            and semantic_frame.Qualifier.WHY in frame.qualifiers):
         frame_decides = True
     # "WHAT HAPPENS AFTER THIS STEP?" names the next stage; the current-stage
     # rule keyed on "this step" alone.
@@ -1640,7 +1721,7 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
                                           frame=frame, understanding="FRAME")
             classification = base
 
-    from app.agents.applicant import followup
+    from app.agents.applicant.copilot.conversation import followup
 
     # A BARE "which document?" NAMES NOTHING. Unresolved by the follow-up
     # context, it is a clarification -- the semantic layer would otherwise
@@ -1780,7 +1861,8 @@ def plan_for(
 
 
 _COMPOUND_CASE = frozenset(PLANS) | {Intent.CASE_HISTORY, Intent.DOCUMENT_DETAILS,
-                                     Intent.INCOME_EVIDENCE}
+                                     Intent.INCOME_EVIDENCE, Intent.KYC_RESULT,
+                                     Intent.CASE_FINDINGS}
 
 
 __all__ = [

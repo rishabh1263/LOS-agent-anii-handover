@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react'
-import { Check, Copy, RefreshCw, Volume2, VolumeX } from 'lucide-react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Check, Copy, Pencil, RefreshCw, Volume2, VolumeX, X } from 'lucide-react'
 import type { ChatMessage } from '../../../runtime/chatbot'
 import { formatTime } from '../../../runtime/chatbot'
 
@@ -8,9 +8,12 @@ interface MessageBubbleProps {
   showTimestamp?: boolean
   showSuggestedQuestions?: boolean
   isSpeaking?: boolean
+  /** Disable edit while generating / thinking */
+  editDisabled?: boolean
   onCopy?: () => void
   onListen?: () => void
   onRegenerate?: () => void
+  onEdit?: (messageId: string, newContent: string) => void
   onSuggested?: (q: string) => void
 }
 
@@ -19,20 +22,23 @@ function ActionBtn({
   onClick,
   children,
   active,
+  disabled,
 }: {
   label: string
   onClick: () => void
   children: ReactNode
   active?: boolean
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
       aria-pressed={active}
-      className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember ${active
+      className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40 ${active
         ? 'bg-ember/10 text-ember'
         : 'text-content-secondary hover:bg-raised hover:text-content'
         }`}
@@ -143,14 +149,31 @@ export function MessageBubble({
   showTimestamp = true,
   showSuggestedQuestions = true,
   isSpeaking,
+  editDisabled = false,
   onCopy,
   onListen,
   onRegenerate,
+  onEdit,
   onSuggested,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState(message.content)
+  const editRef = useRef<HTMLTextAreaElement>(null)
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
+
+  useEffect(() => {
+    if (!isEditing) return
+    const el = editRef.current
+    if (!el) return
+    el.focus()
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+    // Place caret at end
+    const len = el.value.length
+    el.setSelectionRange(len, len)
+  }, [isEditing])
 
   if (isSystem) {
     return (
@@ -167,6 +190,85 @@ export function MessageBubble({
     setCopied(true)
     onCopy?.()
     setTimeout(() => setCopied(false), 1600)
+  }
+
+  const startEdit = () => {
+    if (editDisabled || !onEdit) return
+    setDraft(message.content)
+    setIsEditing(true)
+  }
+
+  const cancelEdit = () => {
+    setIsEditing(false)
+    setDraft(message.content)
+  }
+
+  const submitEdit = () => {
+    const next = draft.trim()
+    if (!next || next === message.content) {
+      cancelEdit()
+      return
+    }
+    setIsEditing(false)
+    onEdit?.(message.id, next)
+  }
+
+  const onEditKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelEdit()
+      return
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      submitEdit()
+    }
+  }
+
+  // In-place edit UI for user messages (ChatGPT-style)
+  if (isUser && isEditing) {
+    return (
+      <div className="flex flex-col items-end gap-1.5 px-4 py-1.5">
+        <div className="w-full max-w-[92%] rounded-2xl rounded-br-md border border-ember/40 bg-raised px-3 py-2 shadow-sm">
+          <textarea
+            ref={editRef}
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              const el = e.target
+              el.style.height = 'auto'
+              el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+            }}
+            onKeyDown={onEditKey}
+            rows={1}
+            className="max-h-[200px] min-h-[36px] w-full resize-none overflow-y-auto bg-transparent font-sans text-[14.5px] leading-[1.5] text-content placeholder:text-content-disabled focus:outline-none"
+            aria-label="Edit message"
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-sans text-[12px] font-medium text-content-secondary transition-colors hover:bg-surface hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={2} />
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitEdit}
+              disabled={!draft.trim()}
+              className="flex items-center gap-1 rounded-lg bg-ember px-2.5 py-1.5 font-sans text-[12px] font-medium text-oncolor transition-colors hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+              Save &amp; submit
+            </button>
+          </div>
+        </div>
+        <p className="px-1 font-sans text-[11px] text-content-disabled">
+          Enter to save · Esc to cancel · messages after this will be removed
+        </p>
+      </div>
+    )
   }
 
   return (
@@ -230,6 +332,26 @@ export function MessageBubble({
         >
           {formatTime(message.timestamp)}
         </span>
+      )}
+
+      {/* User actions — edit (ChatGPT-style) */}
+      {isUser && onEdit && (
+        <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+          <ActionBtn
+            label="Edit message"
+            onClick={startEdit}
+            disabled={editDisabled}
+          >
+            <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+          </ActionBtn>
+          <ActionBtn label={copied ? 'Copied' : 'Copy'} onClick={handleCopy}>
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-emerald-500" strokeWidth={2.5} />
+            ) : (
+              <Copy className="h-3.5 w-3.5" strokeWidth={2} />
+            )}
+          </ActionBtn>
+        </div>
       )}
 
       {/* AI actions — hover / focus / speaking only */}

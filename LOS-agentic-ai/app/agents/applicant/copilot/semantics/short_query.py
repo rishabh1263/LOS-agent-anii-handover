@@ -64,6 +64,14 @@ AMBIGUOUS: dict[str, dict[str, Any]] = {
     "id": {
         "question": "Do you mean your application ID or your case ID?",
         "options": ["What is my application ID?", "What is my case ID?"]},
+    "amount": {
+        "question": ("Which amount do you mean: the loan amount, your declared income, your "
+                     "declared obligations, or the property value?"),
+        "options": ["What is my loan amount?", "What income did I declare?",
+                    "What are my declared monthly obligations?", "What is the property value?"]},
+    "kyc": {
+        "question": "Do you mean your KYC result on this case, or what KYC means?",
+        "options": ["What is my KYC result?", "What is KYC?"]},
     "stage": {
         "question": ("About the stage: which stage the case is at, or what is required at "
                      "this stage?"),

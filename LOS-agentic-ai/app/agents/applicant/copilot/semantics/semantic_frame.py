@@ -51,7 +51,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "semantic_concepts.yaml"
+_CONFIG_PATH = Path(__file__).resolve().with_name("semantic_concepts.yaml")
 
 
 # ==========================================================================
@@ -85,6 +85,7 @@ class Qualifier(str, Enum):
     STILL = "STILL"
     NOW = "NOW"
     ALL = "ALL"
+    WHY = "WHY"                                 # "... and why?" -- with the reasons
 
 
 class Party(str, Enum):
@@ -236,13 +237,13 @@ _WHATS_PENDING = re.compile(r"^\s*what'?s?\s*(is\s+)?(still\s+)?(pending|outstan
 
 
 def _document_type(text: str) -> str | None:
-    from app.agents.applicant import intents
+    from app.agents.applicant.copilot.semantics import intents
 
     return intents._document_type(text)
 
 
 def _named_stage(text: str) -> str | None:
-    from app.agents.applicant import intents
+    from app.agents.applicant.copilot.semantics import intents
 
     return intents.stage_in(text)
 
@@ -314,7 +315,7 @@ def parse(message: str, *, original: str | None = None) -> SemanticFrame:
         frame.party = Party.CO_APPLICANT
 
     # -- scope: the rules in general, or a product's policy ----------------------------
-    from app.agents.applicant import intents as _intents
+    from app.agents.applicant.copilot.semantics import intents as _intents
 
     general = "GENERAL" in present or bool(re.search(
         r"\bfor\s+(a|an|any)\s+(" + "|".join(re.escape(p) for p in products) + r")[\s_-]*loan\b",
@@ -371,11 +372,22 @@ def parse(message: str, *, original: str | None = None) -> SemanticFrame:
         explain = False
     # A "why" question asks for a reason or a policy, never for a list; the
     # rules that own explanations (case history, policy) keep it.
+    # "WHY IS IT UNDER REVIEW?" asks for the recorded reason (case history),
+    # not for a list: a review-state word is not "pending" here.
+    review_state = any(str(s).lower() in ("under review", "in review", "review", "being reviewed")
+                       for s, c in found if c == "PENDING")
     if "WHY" in present and not explain and not (
-            frame.document_type and ({"PENDING", "STILL", "MISSING"} & present)):
+            frame.document_type and ({"PENDING", "STILL", "MISSING"} & present)
+            and not review_state) and not (
+            frame.object in (Object.DOCUMENTS, Object.DOCUMENT)
+            and ({"PENDING", "MISSING"} & present) and not review_state):
         frame.confidence = "low"
         frame.parse_ms = round((time.perf_counter() - started) * 1000, 2)
         return frame
+    if "WHY" in present:
+        # "what documents are pending, and why?" -- the list, with each
+        # item's recorded reason (a qualifier, never a re-route).
+        frame.qualifiers.append(Qualifier.WHY)
     task_cues: list[Task] = []
     if explain and frame.object in (Object.PROCESS_TERM, Object.NONE, Object.DOCUMENTS,
                                     Object.STAGE, Object.APPLICATION) \
@@ -402,10 +414,14 @@ def parse(message: str, *, original: str | None = None) -> SemanticFrame:
                 "STILL" in present and ({"REQUIRED", "SUBMIT", "SUBMITTED"} & present)):
             task_cues.append(Task.LIST_PENDING)
         if "SUBMITTED" in present and "REQUIRED" not in present and (
-                _PAST.search(lowered) or frame.object is Object.DOCUMENT):
+                _PAST.search(lowered) or frame.object is Object.DOCUMENT
+                or re.match(r"\s*(are|is|kya|क्या)\b", lowered)):
             task_cues.append(Task.LIST_SUBMITTED)     # "is my salary slip uploaded?"
         if "DONE" in present and not task_cues:
             task_cues.append(Task.LIST_PENDING)          # "am I done with the paperwork?"
+        if not task_cues and frame.object is Object.DOCUMENT and re.search(
+                r"\b(is|are|has|have)\b.*\b(in|in\s+yet|come\s+in|reached)\s*\??$", lowered):
+            task_cues.append(Task.LIST_SUBMITTED)         # "is my bank statement in?"
         if {"REQUIRED", "MANDATORY", "SUBMIT"} & present and Task.LIST_PENDING not in task_cues:
             task_cues.append(Task.LIST_REQUIREMENTS)
         if not task_cues and re.search(r"\b(for|of)\s+(it|this|that|this\s+one|the\s+"

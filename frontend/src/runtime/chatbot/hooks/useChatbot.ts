@@ -539,6 +539,48 @@ export function useChatbot(context: ChatbotContext = {}) {
     [activeId, conversations, sendMessage],
   )
 
+  /**
+   * Edit a user message like ChatGPT: truncate the conversation from that
+   * message onward, then re-send the new text so a fresh assistant reply is generated.
+   */
+  const editMessage = useCallback(
+    (messageId: string, newContent: string) => {
+      const content = newContent.trim()
+      if (!content || !activeId) return
+      if (status === 'generating' || status === 'thinking') return
+
+      const conv = conversations.find((c) => c.id === activeId)
+      if (!conv) return
+      const idx = conv.messages.findIndex((m) => m.id === messageId)
+      if (idx < 0) return
+      const target = conv.messages[idx]
+      if (target.role !== 'user') return
+
+      // Keep messages before the edited one; drop the edited message and everything after
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === activeId
+            ? {
+                ...c,
+                updatedAt: Date.now(),
+                messages: c.messages.slice(0, idx),
+                title:
+                  idx === 0
+                    ? content.slice(0, 40) || 'New conversation'
+                    : c.title,
+              }
+            : c,
+        ),
+      )
+
+      // Reset API conversation continuity so the backend sees a clean branch
+      conversationApiIdRef.current = null
+
+      void sendMessage(content)
+    },
+    [activeId, conversations, sendMessage, status],
+  )
+
   const stopSpeaking = useCallback(() => {
     speakGenRef.current += 1
     try {
@@ -823,6 +865,7 @@ export function useChatbot(context: ChatbotContext = {}) {
     sendMessage,
     stopGenerating,
     regenerate,
+    editMessage,
     selectConversation,
     startNewConversation,
     confirmNewConversation,

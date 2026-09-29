@@ -18,7 +18,7 @@ import json
 import logging
 from typing import Any
 
-from app.agents.applicant.intents import Intent
+from app.agents.applicant.copilot.semantics.intents import Intent
 
 logger = logging.getLogger(__name__)
 
@@ -638,7 +638,7 @@ async def generate_answer(
     import time
 
     from app.agents.applicant import config
-    from app.agents.applicant.validate import validate_answer
+    from app.agents.applicant.copilot.answering.validate import validate_answer
 
     # THE ANSWER THE RECORDS GIVE, computed first. A caller that built a
     # better one (the status answer, with its recorded hold) passes it.
@@ -704,7 +704,7 @@ async def generate_answer(
 def _checked(text: Any, facts: dict[str, Any], structured: str,
              identifiers: tuple[str | None, ...], *, question: str = "") -> tuple[bool, str]:
     from app.agents.applicant import fidelity
-    from app.agents.applicant.validate import check_composed, validate_answer
+    from app.agents.applicant.copilot.answering.validate import check_composed, validate_answer
 
     accepted, value = validate_answer(text, facts)
     if not accepted:

@@ -34,7 +34,7 @@ import os
 import time
 from typing import Any, TypedDict
 
-from app.agents.applicant.intents import Classification, Intent
+from app.agents.applicant.copilot.semantics.intents import Classification, Intent
 from app.agents.applicant.routing import QueryCategory, ResponseSource
 
 logger = logging.getLogger(__name__)
@@ -82,8 +82,8 @@ async def route(state: CopilotState) -> CopilotState:
 
 async def case_node(state: CopilotState) -> CopilotState:
     """Structured case data, through MCP tools only."""
-    from app.agents.applicant.agent import _call_tools
-    from app.agents.applicant.intents import plan_for
+    from app.agents.applicant.copilot.agent import _call_tools
+    from app.agents.applicant.copilot.semantics.intents import plan_for
 
     started = time.perf_counter()
     classification = state["classification"]

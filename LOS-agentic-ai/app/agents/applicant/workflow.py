@@ -211,6 +211,8 @@ def pending_items(
     applicant: Applicant | None,
     application: Application | None,
     documents: list[Document],
+    *,
+    resolution=None,
 ) -> list[dict[str, Any]]:
     """
     Everything standing between this case and the CPA handoff.
@@ -254,7 +256,7 @@ def pending_items(
                 "detail": f"Application {field_name.replace('_', ' ')} is not set.",
             })
 
-    for entry in build_checklist(application, documents):
+    for entry in build_checklist(application, documents, resolution):
         # An optional slot never blocks the handoff. It is still reported in
         # the checklist so a FOS can see what has been collected beyond the
         # minimum, but its absence is not a pending item.
@@ -303,7 +305,7 @@ def pending_items(
 
 def _readable(slot: str) -> str:
     # "PAN", not "Pan": the answer module's rendering keeps acronyms.
-    from app.agents.applicant.answer import _readable as readable
+    from app.agents.applicant.copilot.answering.answer import _readable as readable
 
     return readable(slot)
 
@@ -317,6 +319,8 @@ def readiness(
     applicant: Applicant | None,
     application: Application | None,
     documents: list[Document],
+    *,
+    resolution=None,
 ) -> dict[str, Any]:
     """
     Whether this case may be handed to CPA.
@@ -328,7 +332,7 @@ def readiness(
     A rule switched off in configuration is REPORTED, not silently skipped, so
     a READY verdict can always be read alongside what was actually checked.
     """
-    items = pending_items(applicant, application, documents)
+    items = pending_items(applicant, application, documents, resolution=resolution)
     blocking = [i for i in items if i["type"] != "INFO"]
     rules = config.readiness_rules()
 
@@ -379,6 +383,8 @@ def next_action(
     applicant: Applicant | None,
     application: Application | None,
     documents: list[Document],
+    *,
+    resolution=None,
 ) -> dict[str, Any]:
     """
     The single next thing the FOS should do.
@@ -386,7 +392,7 @@ def next_action(
     One action, not a list: a FOS working a queue needs to know what to do
     now. Everything else is in pending_items.
     """
-    items = pending_items(applicant, application, documents)
+    items = pending_items(applicant, application, documents, resolution=resolution)
 
     if not items:
         return {

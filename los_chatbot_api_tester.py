@@ -153,58 +153,95 @@ with st.sidebar:
         step=5,
     )
 
+    st.divider()
+    st.header("Case Mode")
+    case_mode = st.radio(
+        "How should the test case be selected?",
+        ["Create New Case", "Use Existing Case"],
+        index=0,
+    )
+
 
 # -----------------------------
 # Applicant / Application
 # -----------------------------
-st.subheader("1. Create Applicant + Application")
+if case_mode == "Use Existing Case":
+    st.subheader("1. Existing Case")
 
-col1, col2 = st.columns(2)
+    ecol1, ecol2 = st.columns(2)
 
-with col1:
-    full_name = st.text_input("Full Name", value="Rahul Sharma")
-    mobile = st.text_input("Mobile", value="9876543210")
-    email = st.text_input("Email", value="rahul.sharma@example.com")
-    date_of_birth = st.text_input("Date of Birth", value="1990-04-12")
-    address = st.text_area("Address", value="Mumbai, Maharashtra")
+    with ecol1:
+        existing_case_id = st.text_input(
+            "Existing Case ID",
+            value=st.session_state.get("case_id", ""),
+            placeholder="Example: CASE-F64342199976",
+        )
 
-with col2:
-    product = st.text_input("Product", value="PERSONAL_LOAN")
-    loan_amount = st.number_input(
-        "Loan Amount",
-        min_value=0.0,
-        value=500000.0,
-        step=10000.0,
+    with ecol2:
+        existing_applicant_id = st.text_input(
+            "Existing Applicant ID",
+            value=st.session_state.get("applicant_id", ""),
+            placeholder="Example: APP-7A3889E4796F",
+        )
+
+    if existing_case_id.strip():
+        st.session_state["case_id"] = existing_case_id.strip()
+    if existing_applicant_id.strip():
+        st.session_state["applicant_id"] = existing_applicant_id.strip()
+
+    st.info(
+        "Existing Case mode: Create Case API will be skipped. "
+        "The entered case_id and applicant_id will be sent directly to Copilot."
     )
-    employment_type = st.selectbox(
-        "Employment Type",
-        ["SALARIED", "SELF_EMPLOYED", "BUSINESS", "OTHER"],
-        index=0,
-    )
-    tenure_months = st.number_input(
-        "Tenure (months)",
-        min_value=1,
-        value=36,
-        step=1,
-    )
-    interest_rate = st.number_input(
-        "Interest Rate (%)",
-        min_value=0.0,
-        value=12.5,
-        step=0.1,
-    )
-    monthly_obligations = st.number_input(
-        "Declared Monthly Obligations",
-        min_value=0.0,
-        value=8000.0,
-        step=500.0,
-    )
-    property_value = st.number_input(
-        "Property Value",
-        min_value=0.0,
-        value=8000000.0,
-        step=100000.0,
-    )
+else:
+    st.subheader("1. Create Applicant + Application")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        full_name = st.text_input("Full Name", value="Rahul Sharma")
+        mobile = st.text_input("Mobile", value="9876543210")
+        email = st.text_input("Email", value="rahul.sharma@example.com")
+        date_of_birth = st.text_input("Date of Birth", value="1990-04-12")
+        address = st.text_area("Address", value="Mumbai, Maharashtra")
+
+    with col2:
+        product = st.text_input("Product", value="PERSONAL_LOAN")
+        loan_amount = st.number_input(
+            "Loan Amount",
+            min_value=0.0,
+            value=500000.0,
+            step=10000.0,
+        )
+        employment_type = st.selectbox(
+            "Employment Type",
+            ["SALARIED", "SELF_EMPLOYED", "BUSINESS", "OTHER"],
+            index=0,
+        )
+        tenure_months = st.number_input(
+            "Tenure (months)",
+            min_value=1,
+            value=36,
+            step=1,
+        )
+        interest_rate = st.number_input(
+            "Interest Rate (%)",
+            min_value=0.0,
+            value=12.5,
+            step=0.1,
+        )
+        monthly_obligations = st.number_input(
+            "Declared Monthly Obligations",
+            min_value=0.0,
+            value=8000.0,
+            step=500.0,
+        )
+        property_value = st.number_input(
+            "Property Value",
+            min_value=0.0,
+            value=8000000.0,
+            step=100000.0,
+        )
 
 
 # -----------------------------
@@ -488,104 +525,112 @@ if run_test:
     create_url = f"{base_url}{create_case_path}"
     copilot_url = f"{base_url}{copilot_path}"
 
-    create_payload = {
-        "applicant": {
-            "full_name": full_name,
-            "mobile": mobile,
-            "email": email,
-            "date_of_birth": date_of_birth,
-            "address": address,
-        },
-        "application": {
-            "product": product,
-            "loan_amount": loan_amount,
-            "employment_type": employment_type,
-            "tenure_months": tenure_months,
-            "interest_rate_pct": interest_rate,
-            "declared_monthly_obligations": monthly_obligations,
-            "property_value": property_value,
-        },
-    }
+    if case_mode == "Use Existing Case":
+        case_id = existing_case_id.strip()
+        applicant_id = existing_applicant_id.strip()
 
-    # Keep generated IDs in session state
-    st.session_state["last_case_payload"] = create_payload
+        if not case_id or not applicant_id:
+            st.error("Please enter both Existing Case ID and Existing Applicant ID.")
+            st.stop()
 
-    st.markdown("### Creating Case")
+        st.session_state["case_id"] = case_id
+        st.session_state["applicant_id"] = applicant_id
 
-    try:
-        with st.spinner("Calling create applicant API..."):
-            create_response = post_json(
-                create_url,
-                create_payload,
-                headers,
-                int(timeout),
+        st.success("Existing case selected. Create Case API was skipped.")
+
+        c1, c2 = st.columns(2)
+        c1.metric("Case ID", case_id)
+        c2.metric("Applicant ID", applicant_id)
+
+    else:
+        create_payload = {
+            "applicant": {
+                "full_name": full_name,
+                "mobile": mobile,
+                "email": email,
+                "date_of_birth": date_of_birth,
+                "address": address,
+            },
+            "application": {
+                "product": product,
+                "loan_amount": loan_amount,
+                "employment_type": employment_type,
+                "tenure_months": tenure_months,
+                "interest_rate_pct": interest_rate,
+                "declared_monthly_obligations": monthly_obligations,
+                "property_value": property_value,
+            },
+        }
+
+        st.session_state["last_case_payload"] = create_payload
+
+        st.markdown("### Creating Case")
+
+        try:
+            with st.spinner("Calling create applicant API..."):
+                create_response = post_json(
+                    create_url,
+                    create_payload,
+                    headers,
+                    int(timeout),
+                )
+        except requests.RequestException as exc:
+            st.error(f"Create Case API request failed: {exc}")
+            st.stop()
+
+        if not create_response.ok:
+            st.error(
+                f"Create Case API failed: HTTP {create_response.status_code}\n\n"
+                f"{create_response.text}"
             )
-    except requests.RequestException as exc:
-        st.error(f"Create Case API request failed: {exc}")
-        st.stop()
+            st.stop()
 
-    if not create_response.ok:
-        st.error(
-            f"Create Case API failed: HTTP {create_response.status_code}\n\n"
-            f"{create_response.text}"
+        try:
+            create_data = create_response.json()
+        except ValueError:
+            st.error("Create Case API did not return valid JSON.")
+            st.code(create_response.text)
+            st.stop()
+
+        case_id = extract_value(create_data, ["case_id", "caseId"])
+        applicant_id = extract_value(create_data, ["applicant_id", "applicantId"])
+
+        if not case_id and isinstance(create_data.get("case"), dict):
+            case_id = extract_value(create_data["case"], ["case_id", "caseId"])
+
+        if not applicant_id and isinstance(create_data.get("applicant"), dict):
+            applicant_id = extract_value(
+                create_data["applicant"],
+                ["applicant_id", "applicantId"],
+            )
+
+        if not case_id or not applicant_id:
+            st.error(
+                "Could not find case_id/applicant_id in the create-case response. "
+                "Please inspect the raw response below."
+            )
+            with st.expander("Raw Create Case Response", expanded=True):
+                st.json(create_data)
+            st.stop()
+
+        st.session_state["case_id"] = case_id
+        st.session_state["applicant_id"] = applicant_id
+
+        returned_conversation_id = extract_value(
+            create_data,
+            ["conversation_id", "conversationId"],
         )
-        st.stop()
+        if returned_conversation_id:
+            conversation_id = returned_conversation_id
 
-    try:
-        create_data = create_response.json()
-    except ValueError:
-        st.error("Create Case API did not return valid JSON.")
-        st.code(create_response.text)
-        st.stop()
+        c1, c2 = st.columns(2)
+        c1.metric("Case ID", case_id)
+        c2.metric("Applicant ID", applicant_id)
 
-    # Supports different nesting patterns
-    case_id = extract_value(
-        create_data,
-        ["case_id", "caseId"],
-    )
-    applicant_id = extract_value(
-        create_data,
-        ["applicant_id", "applicantId"],
-    )
+        st.success("Case created successfully.")
 
-    # Common fallback in case response uses an object called case/applicant
-    if not case_id and isinstance(create_data.get("case"), dict):
-        case_id = extract_value(create_data["case"], ["case_id", "caseId"])
-
-    if not applicant_id and isinstance(create_data.get("applicant"), dict):
-        applicant_id = extract_value(
-            create_data["applicant"],
-            ["applicant_id", "applicantId"],
-        )
-
-    if not case_id or not applicant_id:
-        st.error(
-            "Could not find case_id/applicant_id in the create-case response. "
-            "Please inspect the raw response below."
-        )
-        with st.expander("Raw Create Case Response", expanded=True):
+        with st.expander("Create Case Response"):
             st.json(create_data)
-        st.stop()
-
-    st.session_state["case_id"] = case_id
-    st.session_state["applicant_id"] = applicant_id
-
-    # Reuse returned conversation_id if available
-    returned_conversation_id = extract_value(
-        create_data,
-        ["conversation_id", "conversationId"],
-    )
-    if returned_conversation_id:
-        conversation_id = returned_conversation_id
-
-    c1, c2 = st.columns(2)
-    c1.metric("Case ID", case_id)
-    c2.metric("Applicant ID", applicant_id)
-
-    st.success("Case created successfully.")
-
-    with st.expander("Create Case Response"):
-        st.json(create_data)
 
     # -------------------------
     # Run multiple questions
@@ -848,6 +893,7 @@ if run_test:
         export_records.append(
             {
                 "generated_at": report_time,
+                "case_mode": case_mode,
                 "case_id": case_id,
                 "applicant_id": applicant_id,
                 "question_no": item["No."],
@@ -865,6 +911,7 @@ if run_test:
     json_data = json.dumps(
         {
             "generated_at": report_time,
+            "case_mode": case_mode,
             "case_id": case_id,
             "applicant_id": applicant_id,
             "conversation_id": conversation_id,

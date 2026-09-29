@@ -22,7 +22,10 @@ instead of eleven.
 from __future__ import annotations
 
 import logging
+import time
 import uuid
+
+from app.store import request_cache
 from enum import Enum
 from typing import Any
 
@@ -30,11 +33,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.agents.applicant import audit, config, permissions
-from app.agents.applicant.agent import AgentError, answer_question
+from app.agents.applicant.copilot.agent import AgentError, answer_question
 from app.agents.applicant.grounded import supported_by_case_evidence
-from app.agents.applicant.intents import Intent
+from app.agents.applicant.copilot.semantics.intents import Intent
 from app.agents.applicant.permissions import Caller, PermissionDenied
-from app.agents.applicant import followup
+from app.agents.applicant.copilot.conversation import followup
 from app.agents.applicant.query_types import QueryType as _QueryType
 from app.security.auth import require_jwt
 
@@ -554,6 +557,10 @@ class FosResponse(BaseModel):
     )
     processing_ms: float = 0.0
     errors: list[FosErrorInfo] = Field(default_factory=list)
+    observability: dict[str, Any] | None = Field(
+        None, description="Why this answer: the capability and intent selected, the model "
+                          "consulted (if any), the tools called and latency by component. "
+                          "Codes, counts and milliseconds only -- never a value.")
 
 
 def _blank(request_id: str, **overrides: Any) -> dict[str, Any]:
@@ -568,6 +575,7 @@ def _blank(request_id: str, **overrides: Any) -> dict[str, Any]:
         "available_actions": [], "document_highlights": [],
         "clarification_required": None, "followed_up": None, "context": None,
         "understanding": None,
+        "observability": None,
         "pending_items": [], "verification": None, "kyc": None,
         "knowledge": None, "category": "CASE_ONLY", "next_action": None,
         "readiness": None, "actions": [], "route_to": None,
@@ -1034,11 +1042,28 @@ async def _answer_action(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The body of `_run_action`, before refusals become HTTP statuses."""
+    with request_cache.scoped():
+        return await _answer_action_scoped(
+            action, applicant_id=applicant_id, case_id=case_id, claims=claims,
+            request_id=request_id, message=message, context=context)
+
+
+async def _answer_action_scoped(
+    action: FosAction,
+    *,
+    applicant_id: str | None,
+    case_id: str | None,
+    claims: dict[str, Any],
+    request_id: str,
+    message: str | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """`_answer_action` inside ONE request-scoped read memo (request_cache)."""
     # A COMPOUND QUESTION -- two case questions in one sentence ("are my
     # documents verified and what is my loan amount?") -- is answered as
     # its halves, each exactly as if asked alone, then joined. The same
     # rule the Universal Copilot route applies (intents.compound_parts).
-    from app.agents.applicant import intents as _intents
+    from app.agents.applicant.copilot.semantics import intents as _intents
 
     parts = (_intents.compound_parts(message)
              if action is FosAction.CUSTOM_QUERY and message else None)
@@ -1080,6 +1105,23 @@ async def _answer_action(
         if isinstance(result.get("understanding"), dict):
             result["understanding"]["compound"] = {
                 "parts": list(parts), "intents": intents_seen, "frames": frames}
+    if str(result.get("intent") or "") == "STAGE_PROCESS" and not str(result.get("answer") or "").strip():
+        # HOW A NAMED STAGE WORKS: the agent leaves the text to a caller with a
+        # stage-guide source (copilot/agent.py). This route has one -- the
+        # configured stage guide -- and a blank reply helps nobody.
+        from app.agents.applicant import config as _agent_config
+        from app.agents.applicant.copilot.semantics import intents as _stage_intents
+        from app.knowledge import process_knowledge
+        from app.security import guardrails as _guardrails
+
+        frame = (result.get("understanding") or {}).get("frame") or {}
+        stage = (frame.get("stage") if isinstance(frame, dict) else None) \
+            or _stage_intents.stage_in(message or "")
+        described = process_knowledge.describe(stage, _agent_config.stage_label(stage)) if stage else None
+        result["answer"] = _guardrails.published(
+            described or ("I don't have a description of that stage in the configured stage "
+                          "guide. I can tell you where your own application is and what is "
+                          "pending on it."))[0]
     envelope = _from_agent(result, action.value, request_id,
                            concise=action is FosAction.CUSTOM_QUERY)
     # THE SUMMARY DESCRIBES THE CASE, NOT THE REPLY. A typed question
@@ -1087,7 +1129,22 @@ async def _answer_action(
     # the summary announce a case was ready while the answer beside it
     # listed three things blocking it -- the pruned envelope simply had
     # no readiness or pending items in it to see.
-    return await _with_summary(envelope, result)
+    summary_started = time.perf_counter()
+    envelope = await _with_summary(envelope, result)
+    # ONE STRUCTURED RECORD PER TURN (app/observability/turn.py): why this
+    # answer, in codes and milliseconds -- attached, and logged as JSON.
+    from app.observability import turn as _turn
+
+    timings = dict(result.get("_timings") or {})
+    timings["summary_ms"] = round((time.perf_counter() - summary_started) * 1000, 2)
+    record = _turn.build(request_id=request_id, surface="fos", claims=claims, result=result,
+                         timings=timings)
+    if action is FosAction.CUSTOM_QUERY:
+        # A typed question carries its record; a dropdown action is a screen
+        # read and stays byte-identical to the facade endpoint's answer.
+        envelope["observability"] = record
+    _turn.emit(record)
+    return envelope
 
 
 def _declared_types(form) -> list[str | None]:
@@ -1158,7 +1215,7 @@ async def _copilot_upload(
     Verification stays the source of truth. Nothing here re-derives a verdict,
     and nothing here releases extracted fields the gate withheld.
     """
-    from app.agents.applicant.intents import Intent as _Intent
+    from app.agents.applicant.copilot.semantics.intents import Intent as _Intent
     from app.agents.los.flow import PROCESS, UploadedDocument, process_application
     from app.mcp import applicant as tools
     from app.store.ingest import persist_los_result
@@ -1546,7 +1603,7 @@ def _from_agent(
     # never touched. Dropdown actions keep the full shape.
     if concise and config.concise_responses():
         from app.agents.applicant import routing as _routing
-        from app.agents.applicant.intents import Intent as _Intent
+        from app.agents.applicant.copilot.semantics.intents import Intent as _Intent
 
         try:
             intent = _Intent(result.get("intent") or "")
@@ -1645,7 +1702,7 @@ def _with_case_state(envelope: dict[str, Any]) -> dict[str, Any]:
         from app.store import get_repository
 
         repository = get_repository()
-        application = repository.get_application(case_id)
+        application = request_cache.read(repository, "get_application", case_id)
         if application is None:
             return envelope
 
@@ -1654,8 +1711,8 @@ def _with_case_state(envelope: dict[str, Any]) -> dict[str, Any]:
             filled["stage"] = application.status.value
 
         if not filled.get("readiness"):
-            applicant = repository.get_applicant(application.applicant_id)
-            documents = repository.list_documents(case_id)
+            applicant = request_cache.read(repository, "get_applicant", application.applicant_id)
+            documents = request_cache.read(repository, "list_documents", case_id)
             filled["readiness"] = workflow.readiness(
                 applicant, application, documents)
         return filled

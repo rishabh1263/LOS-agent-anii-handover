@@ -160,7 +160,7 @@ def test_enforcement_can_still_be_switched_off(monkeypatch):
 
 
 def _answer(question: str, scope: str, store):
-    from app.agents.applicant.agent import answer_question
+    from app.agents.applicant.copilot.agent import answer_question
 
     return asyncio.run(answer_question(
         message=question, applicant_id="A", case_id="C",
@@ -218,7 +218,7 @@ def test_a_caller_missing_one_tools_scope_loses_that_tool_only(store):
 
 def test_a_refused_tool_is_recorded_rather_than_hidden(store, monkeypatch):
     """The trace keeps its shape, and a refused call appears in it."""
-    from app.agents.applicant import agent
+    from app.agents.applicant.copilot import agent
 
     seen: list = []
     original = agent._call_tools
@@ -243,7 +243,7 @@ def test_the_intent_gate_still_refuses_the_whole_request(store):
     refused outright, with the same 403 as before, rather than being
     handed an empty answer.
     """
-    from app.agents.applicant.agent import AgentError
+    from app.agents.applicant.copilot.agent import AgentError
 
     with pytest.raises(AgentError) as exc:
         _answer("Which documents have been uploaded?", "read_applicant", store)

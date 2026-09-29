@@ -35,7 +35,7 @@ from datetime import date
 
 import pytest
 
-from app.agents.applicant.intents import Intent, classify
+from app.agents.applicant.copilot.semantics.intents import Intent, classify
 from app.agents.applicant.query_types import QueryType, type_for
 from app.agents.kyc.agent import run_kyc
 from app.agents.kyc.schemas import KycDocumentType, KycRequest, SourceDocument

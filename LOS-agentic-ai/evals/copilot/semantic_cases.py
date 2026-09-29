@@ -230,7 +230,7 @@ CHAT += [
     _chat("cap_contact", "customer contact number", *PROFILE),
     _chat("cap_email_short", "my email?", *PROFILE),
     _chat("cap_dob_short", "my DOB?", *PROFILE),
-    _chat("cap_address_short", "my address?", clarify="AMBIGUOUS_SHORT_QUERY"),   # application vs ID document: asked
+    _chat("cap_address_short", "my address?", *PROFILE),      # "my address" is the recorded one; bare "address" is asked
     _chat("cap_all_applicant", "give me all applicant information", *PROFILE, "APPLICANT_DETAILS"),
     _chat("cap_mobile_give", "give my mobile number", *PROFILE),
     _chat("cap_mobile_complete", "Give me the customer's complete mobile number.", *PROFILE),

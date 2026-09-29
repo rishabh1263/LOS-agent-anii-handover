@@ -19,9 +19,9 @@ from __future__ import annotations
 import pytest
 
 from app.agents.applicant import config as agent_config
-from app.agents.applicant.intents import Intent, classify, plan_for
+from app.agents.applicant.copilot.semantics.intents import Intent, classify, plan_for
 from app.agents.applicant.permissions import Caller, PermissionDenied, check_capability
-from app.agents.applicant.validate import validate_answer, validate_response_shape
+from app.agents.applicant.copilot.answering.validate import validate_answer, validate_response_shape
 from app.store import set_repository
 from app.store.models import (
     Applicant,
@@ -508,7 +508,7 @@ def test_the_envelope_carries_no_internals():
 # ==========================================================================
 
 async def test_a_question_is_answered_from_stored_records(_store, caller):
-    from app.agents.applicant.agent import answer_question
+    from app.agents.applicant.copilot.agent import answer_question
 
     seed(_store, documents=[("PAN", "PASS", [])])
 
@@ -525,7 +525,7 @@ async def test_a_question_is_answered_from_stored_records(_store, caller):
 
 
 async def test_a_write_is_proposed_and_not_performed(_store):
-    from app.agents.applicant.agent import answer_question
+    from app.agents.applicant.copilot.agent import answer_question
 
     seed(_store)
 
@@ -543,7 +543,7 @@ async def test_a_write_is_proposed_and_not_performed(_store):
 
 
 async def test_a_confirmed_write_is_applied(_store):
-    from app.agents.applicant.agent import answer_question, confirm_action
+    from app.agents.applicant.copilot.agent import answer_question, confirm_action
 
     seed(_store)
     claims = {"sub": "fos", "scope": " ".join(FULL_SCOPES)}
@@ -560,7 +560,7 @@ async def test_a_confirmed_write_is_applied(_store):
 
 async def test_a_confirmation_is_re_authorised(_store):
     """The proposal and the confirmation are separate requests."""
-    from app.agents.applicant.agent import AgentError, answer_question, confirm_action
+    from app.agents.applicant.copilot.agent import AgentError, answer_question, confirm_action
 
     seed(_store)
     proposal = await answer_question(
@@ -578,7 +578,7 @@ async def test_a_confirmation_is_re_authorised(_store):
 
 
 async def test_an_out_of_scope_question_reads_nothing(_store):
-    from app.agents.applicant.agent import answer_question
+    from app.agents.applicant.copilot.agent import answer_question
 
     seed(_store)
 
@@ -594,7 +594,7 @@ async def test_an_out_of_scope_question_reads_nothing(_store):
 
 
 async def test_a_cross_applicant_question_is_refused(_store):
-    from app.agents.applicant.agent import AgentError, answer_question
+    from app.agents.applicant.copilot.agent import AgentError, answer_question
 
     seed(_store)
 
@@ -608,7 +608,7 @@ async def test_a_cross_applicant_question_is_refused(_store):
 
 
 async def test_a_full_summary_combines_the_whole_picture(_store):
-    from app.agents.applicant.agent import answer_question
+    from app.agents.applicant.copilot.agent import answer_question
 
     seed(_store, documents=[("PAN", "PASS", [])])
 
@@ -625,7 +625,7 @@ async def test_a_full_summary_combines_the_whole_picture(_store):
 
 
 async def test_a_missing_case_is_a_clean_answer_not_a_crash(_store):
-    from app.agents.applicant.agent import AgentError, answer_question
+    from app.agents.applicant.copilot.agent import AgentError, answer_question
 
     seed(_store)
 
@@ -639,7 +639,7 @@ async def test_a_missing_case_is_a_clean_answer_not_a_crash(_store):
 
 
 async def test_the_response_never_carries_internals(_store):
-    from app.agents.applicant.agent import answer_question
+    from app.agents.applicant.copilot.agent import answer_question
 
     seed(_store, documents=[("PAN", "PASS", [])])
 
@@ -763,7 +763,8 @@ async def test_a_recorded_reason_is_not_handed_to_the_model(_store, monkeypatch)
     is the model's job only where the service has nothing precise of
     its own; a recorded reason is a fact, and a fact is reported.
     """
-    from app.agents.applicant import agent, case_memory_facts
+    from app.agents.applicant import case_memory_facts
+    from app.agents.applicant.copilot import agent
 
     seed(_store, documents=[("PAN", "PASS", [])])
 
@@ -820,7 +821,8 @@ async def test_the_model_still_phrases_a_case_with_nothing_recorded(
     Suppression applies to the recorded reason and to nothing else --
     a case that recorded no finding is phrased as it always was.
     """
-    from app.agents.applicant import agent, case_memory_facts
+    from app.agents.applicant import case_memory_facts
+    from app.agents.applicant.copilot import agent
 
     seed(_store, documents=[("PAN", "PASS", [])])
 

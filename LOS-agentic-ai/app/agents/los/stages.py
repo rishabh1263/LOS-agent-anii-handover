@@ -23,6 +23,8 @@ would make stage scoping a suggestion rather than a boundary.
 
 from __future__ import annotations
 
+from app.store import request_cache
+
 import logging
 from dataclasses import dataclass
 from enum import Enum
@@ -223,7 +225,7 @@ def _from_case(case_id: str) -> StageContext | None:
         else:
             from app.store import get_repository
 
-            timeline = get_repository().get_case_timeline(case_id) or []
+            timeline = request_cache.read(get_repository(), "get_case_timeline", case_id) or []
     except Exception as exc:
         logger.warning("Case timeline unavailable for %s: %r", case_id, exc)
         timeline = []
@@ -279,10 +281,10 @@ def _from_stage_record(case_id: str) -> StageContext | None:
         from app.store import get_repository
 
         repository = get_repository()
-        record = repository.get_case_stage(case_id)
+        record = request_cache.read(repository, "get_case_stage", case_id)
         if record is None:
             return None
-        transitions = repository.get_stage_transitions(case_id)
+        transitions = request_cache.read(repository, "get_stage_transitions", case_id)
     except Exception as exc:
         logger.warning("Stage record unavailable for %s: %r", case_id, exc)
         return None
@@ -352,7 +354,7 @@ def _application_status(case_id: str) -> str | None:
     try:
         from app.store import get_repository
 
-        application = get_repository().get_application(case_id)
+        application = request_cache.read(get_repository(), "get_application", case_id)
     except Exception as exc:
         logger.warning("Application unavailable for %s: %r", case_id, exc)
         return None

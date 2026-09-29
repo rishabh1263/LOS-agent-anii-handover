@@ -56,7 +56,7 @@ IDENTITY_FIELDS: dict[str, tuple[str, str]] = {
 def resolve(field: str, results: dict[str, Any], *, case_id: str | None = None,
             party_id: str | None = None) -> Resolved:
     """The state of `field` for this case, from its authoritative source."""
-    from app.agents.applicant import capabilities
+    from app.agents.applicant.copilot.routing import capabilities
     from app.security import sensitivity
 
     if field in IDENTITY_FIELDS:
@@ -74,7 +74,7 @@ def resolve(field: str, results: dict[str, Any], *, case_id: str | None = None,
 
 
 def _from_record(field: str, results: dict[str, Any], tool: str, key: str) -> Resolved:
-    from app.agents.applicant.answer import _get
+    from app.agents.applicant.copilot.answering.answer import _get
 
     payload = results.get(tool)
     if not isinstance(payload, dict):
@@ -140,7 +140,7 @@ _ENGLISH = {
 def say(resolved: Resolved, *, label: str, shown: str | None, language: str | None = None) -> str:
     """The state as a sentence -- localized when a template exists."""
     from app.agents.applicant import language as languages
-    from app.agents.applicant import phrasing
+    from app.agents.applicant.copilot.answering import phrasing
 
     seed = phrasing.current_seed(resolved.field)
     if resolved.state is FieldState.PRESENT:
