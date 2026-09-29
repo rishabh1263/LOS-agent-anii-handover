@@ -379,7 +379,7 @@ def classify(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Decis
             return Decision("UNAUTHORIZED_SUBJECT", "named_identifier")
     if _PERSONAL_ID.search(raw) and not (
             re.search(r"\b(is|are)\s+(my|mera|meri)\s+(email|e-mail|mobile|phone|number)\b", raw, _I)
-            or re.search(r"^\s*(and\s+)?\w+'s\s+is\s+[\w.+-]+@", raw, _I)):
+            or re.search(r"^\s*(and\s+)?(the\s+)?[\w-]+'s\s+(email\s+|e-mail\s+)?is\s+[\w.+-]+@", raw, _I)):
         return Decision("UNAUTHORIZED_SUBJECT", "named_personal_identifier")
     if re.search(r"\b(decode|decrypt)\b[^?]{0,20}\b(and|then|&)\b[^?]{0,20}"
                  r"\b(answer|reply|respond|follow|execute|do)\b", raw, _I):
@@ -387,6 +387,17 @@ def classify(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Decis
     rule = _first(_OBFUSCATE, texts, "obfuscate")
     if rule:
         return Decision("DATA_EXPORT", rule)
+    # RE-SPELLED TEXT: words with digits standing in for letters ("m0b1l3",
+    # "wh4t") or a name spelled out letter by letter ("Z-a-r-a"). An
+    # identifier (PAN, case / applicant ids) is upper-case or long, never this.
+    leet = [w for w in re.findall(r"\b[a-z]*[a-z][013457][a-z013457]*\b|\b[a-z]*[013457][a-z]+\b", raw.lower())
+            if 2 <= len(w) <= 8 and not re.fullmatch(r"\d+(st|nd|rd|th|k|l|lac|lakh|cr)", w) and re.search(r"[a-z]", w) and re.search(r"[013457]", w)]
+    spelled = re.search(r"\b[A-Za-z](?:[-.][A-Za-z]){3,}\b", raw)
+    if len(leet) >= 2 or (spelled and re.search(r"[A-Za-z](?:[-.][A-Za-z]){3,}[^?]*"
+                                                 r"[A-Za-z](?:[-.][A-Za-z]){3,}|"
+                                                 r"\b(of|for|ka|ki|ke)\s+[A-Za-z](?:[-.][A-Za-z]){3,}",
+                                                 raw)):
+        return Decision("DATA_EXPORT", "respelled_text")
     # ASKING FOR A VALUE WITH ITS MASK REMOVED: "print my full account number,
     # unmasked". Masking is not the caller's to switch off, own value or not.
     if re.search(r"\b(print|show|give|tell|display|send|share|reveal|batao|bata|dikhao|dikha|de\s*do)\b"

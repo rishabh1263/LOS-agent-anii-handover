@@ -383,7 +383,7 @@ _STAGE_WORDS = {
 }
 
 #: Asking HOW something works, rather than what happened on a case.
-_PROCESS_VERB = (r"(check|checks|checked|verify|verifies|verified|"
+_PROCESS_VERB = (r"(check|checks|checked|verify|verifies|verified|kaam|role|job|responsibility|"
                  r"validate|validates|validated|do|does|done|"
                  r"happen|happens|happened|require|requires|required|"
                  r"involve|involves|involved|mean|means|"
@@ -1205,7 +1205,8 @@ _STATUS_WORDS_TO_FILTER = {
 #: "Why was my PAN rejected?" / "why did the bank statement fail?" -- a
 #: named document and a failure word.
 _DOCUMENT_REJECTED = re.compile(
-    rf"\bwhy\b.{{0,40}}\b{_DOC_TYPES}\b.{{0,30}}\b(rejected|declined|failed)\b",
+    rf"\bwhy\b.{{0,40}}\b{_DOC_TYPES}\b.{{0,30}}\b(rejected|declined|failed)\b"
+    rf"|\b{_DOC_TYPES}\b.{{0,20}}\b(rejected|declined|failed)\b.{{0,12}}\bwhy\b",
     re.IGNORECASE)
 #: ...unless it is the loan or application that was rejected.
 _LOAN_REJECTED = re.compile(
@@ -1822,6 +1823,58 @@ _CASE_ROUTED = frozenset({
 })
 
 
+#: The caller's own record named in a clause ("my", "mera", "मेरा").
+_OWN_CLAUSE = re.compile(r"\b(my|mine|our|mera|meri|mere|hamara|hamari|apna|apni|apne)\b|मेरा|मेरी|मेरे|माझ",
+                         re.IGNORECASE)
+#: A GENERIC subject: "a KYC field", "one document", "the customer", "customer
+#: ke do documents", "pehla PAN" -- a kind of thing, not this case's own.
+_GENERIC_SUBJECT = re.compile(
+    r"^\s*(a|an|one|some|any|ek|koi)\s+(\w+\s+){0,2}(documents?|docs?|kyc\s+field|field|case|file|row|"
+    r"slot|pan|passport|application|checklist)\b"
+    r"|^\s*(the\s+|a\s+)?customer(\s+ke|\s+ka|\s+ki|'s|\s+has|\s+is|\s+gave)\b"
+    r"|^\s*(pehla|pehle|first|earlier)\s+\w+", re.IGNORECASE)
+#: What the ASSISTANT itself can do ("from this chatbot", "through the app").
+_ASSISTANT_CAPABILITY = re.compile(
+    r"\b(from|through|using|via|with|in|on)\s+(this|the)\s+(chat\s?bot|bot|assistant|copilot|tool|app)\b",
+    re.IGNORECASE)
+#: A question about what something MEANS or what to DO -- asked after a
+#: scenario ("... Can I tell the customer?", "... Which ones should I clear?").
+_POLICY_ASK = re.compile(
+    r"\b(can|could|should|may)\s+(i|we|you)\b|\bwill\s+(that|it|this)\s+(stop|block|mean|affect|delay)\b"
+    r"|\bdoes\s+(that|it|this)\s+(mean|stop|block|affect|confirm|count)\b|\bwhat\s+(happens|should|do\s+i)\b"
+    r"|\bwhich\s+(\w+\s+)?should\b"
+    r"|\bkya\b[^?]*\b(hoga|hogi|jayega|jayegi|dikhega|dikhegi|chalega|chalegi|maana|milega)\b",
+    re.IGNORECASE)
+
+
+def _framed_as_general(text: str, classification: Classification) -> Classification | None:
+    """
+    THE SHAPE OF A GENERAL QUESTION, not its words. Judged on the QUESTION
+    clause -- the sentences before it are the scenario it is asked about:
+
+      - a scenario, then "can I / should I / will that / does that mean"
+      - a generic subject ("a KYC field", "the customer") with that framing
+      - what the assistant can do ("check a CIBIL score from this chatbot")
+
+    The caller's own record named in the question clause ("my", "mera")
+    keeps it a case question, whatever else the sentence says.
+    """
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    question = sentences[-1] if sentences else text
+    context = " ".join(sentences[:-1])
+    if _OWN_CLAUSE.search(question):
+        return None
+    general = Classification(Intent.FOS_KNOWLEDGE, confidence="medium", matched_on="general_framing",
+                             frame=classification.frame)
+    if _ASSISTANT_CAPABILITY.search(question) and not _OWN_CLAUSE.search(text):
+        return general
+    if context and _POLICY_ASK.search(question):
+        return general
+    if _GENERIC_SUBJECT.search(text) and _POLICY_ASK.search(question) and not _OWN_CLAUSE.search(text):
+        return general
+    return None
+
+
 def _general_question(message: str, classification: Classification) -> Classification | None:
     """
     LIVE DATA VS KNOWLEDGE. "Can I use an electricity bill as address proof?",
@@ -1834,12 +1887,15 @@ def _general_question(message: str, classification: Classification) -> Classific
     text = str(message or "")
     if classification.intent not in _CASE_ROUTED or not text.strip():
         return None
-    if classification.matched_on in ("kyc", "findings", "stage_history"):
-        return None
     from app.agents.applicant import handoff as _handoff
 
     if _handoff.asks_for_person(text):
         return None                   # "can I speak to a person?" is a handoff, not a policy question
+    framed = _framed_as_general(text, classification)
+    if framed is not None:
+        return framed
+    if classification.matched_on in ("kyc", "findings", "stage_history"):
+        return None
     # "which documents are mandatory?" is this case's checklist; only a named
     # PRODUCT ("for a home loan", "होम लोन के लिए") makes it a general question
     if classification.intent is Intent.DOCUMENTS_REQUIRED and not re.search(

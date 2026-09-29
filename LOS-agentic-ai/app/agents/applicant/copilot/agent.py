@@ -989,6 +989,19 @@ async def answer_question(
                      applicant_id=applicant_id, case_id=case_id,
                      intent=intent.value, tools=[], status="ROUTED",
                      message=message, detail=classification.route_to)
+        routed = route.get("message", "That question is handled by a downstream process.")
+        # "IS MY LOAN APPROVED YET?" -- the decision is downstream, but where
+        # THIS application stands is recorded: said first, from the case
+        # record, only after the caller's ownership is proven.
+        if (case_id and route.get("route_to") == "DECISION_AGENT"
+                and re.search(r"\b(my|mera|meri|mere|our|apna|apni)\b|मेरा|मेरी|माझ", message, re.I)):
+            try:
+                permissions.check_ownership(applicant_id or "", case_id, caller=caller)
+                standing, _src = case_memory_facts.explain(case_memory_facts.case_memory(case_id))
+                if standing:
+                    routed = f"Not yet. {standing} {routed}"
+            except Exception:  # noqa: BLE001 - not provable: the routed answer alone
+                pass
         return envelope(
             intent=intent.value,
             category=routing.QueryCategory.DOWNSTREAM.value,
@@ -996,10 +1009,7 @@ async def answer_question(
             followed_up=resolution.public(),
             response_source=routing.ResponseSource.ROUTED.value,
             route_to=route.get("route_to", classification.route_to),
-            answer=route.get(
-                "message",
-                "That question is handled by a downstream process.",
-            ),
+            answer=routed,
         )
 
     # ---- a question about the rules, not about this case ---------------
@@ -1206,7 +1216,12 @@ async def answer_question(
     # document reported as the other's.
     if (subject is None and not party_id and len(parties_on_case) > 1
             and intent is Intent.DOCUMENT_VERIFICATION):
-        subject = subjects.resolve(subjects.Kind.BOTH, parties_on_case)
+        # "is MY PAN verified?" / "mera PAN" is the primary applicant's own:
+        # only a question naming no one is answered for each party.
+        own = re.search(r"\b(my|mine|mera|meri|mere|mujhe|apna|apni|apne)\b|मेरा|मेरी|मेरे|माझा|माझी|माझे",
+                        message, re.IGNORECASE)
+        subject = subjects.resolve(subjects.Kind.PRIMARY if own else subjects.Kind.BOTH,
+                                   parties_on_case)
 
     if subject is not None and case_id:
         answered = await _answer_for_subject(
@@ -1882,6 +1897,11 @@ def _intelligence(case_id: str, results: dict[str, Any], stage_context: Any,
     return book, found, case_impacts, nba
 
 
+#: The question says it is the caller's own ("my PAN", "mera case").
+_OWN_WORDS = re.compile(r"\b(my|mine|mera|meri|mere|mujhe|apna|apni|apne)\b|मेरा|मेरी|मेरे|माझा|माझी|माझे",
+                        re.IGNORECASE)
+
+
 async def _answer_for_subject(
     subject: "subjects.Subject",
     parties_on_case: list["subjects.Party"],
@@ -1976,6 +1996,25 @@ async def _answer_for_subject(
     if capability is subjects.Capability.VERIFICATION:
         answer = subjects.verification(subject, documents,
                                        classification.document_type)
+        if _OWN_WORDS.search(message):
+            answer = subjects._to_caller(subject, answer)
+        if classification.matched_on == "document_rejected":
+            # WHY IT WAS REJECTED: the recorded reason on that document, per
+            # party -- never guessed; said plainly when none was recorded.
+            memory = case_memory_facts.case_memory(case_id)
+            reasons = []
+            for party in subject.parties:
+                found = [p for p in subjects._problems_for(party, memory, documents,
+                                                           tuple(parties_on_case))
+                         if not classification.document_type
+                         or str(p.get("document") or "").upper()
+                         == str(classification.document_type).upper()]
+                reasons += [subjects._problem_words(p) for p in found]
+            reasons = list(dict.fromkeys(reasons))
+            if reasons:
+                answer += " The recorded reason: " + case_memory_facts._and_list(reasons) + "."
+            elif "rejected" in answer:
+                answer += " No reason was recorded for the rejection."
     elif capability is subjects.Capability.PENDING:
         answer = subjects.pending(
             subject, documents,
@@ -1987,6 +2026,8 @@ async def _answer_for_subject(
     else:
         memory = case_memory_facts.case_memory(case_id)
         answer = subjects.issues(subject, memory, documents, parties_on_case)
+        if _OWN_WORDS.search(message):
+            answer = subjects._to_caller(subject, answer)
 
     if subject.missing:
         answer = f"{subject.missing} {answer}"
@@ -2037,8 +2078,19 @@ async def _named_people(message: str, kwargs: dict[str, Any],
         return {"ask": "Do you mean you (the primary applicant) or the co-applicant?",
                 "options": [found["as_self"], found["as_co"]]}
     if role == "OTHER":
+        if _PARTY_CLAIM.search(message) and "?" not in message:
+            return {"reply": "I can only go by the people recorded on this application, so "
+                             "nothing has been changed. That name isn't one of them."}
         return {"refuse": True}
     return {}
+
+
+#: A statement ABOUT who is on the case ("X is my co-applicant", "remember
+#: that ..."): never adopted -- the case record decides who is on it.
+_PARTY_CLAIM = re.compile(
+    r"\b(remember|note|assume|consider|treat|save|store|yaad\s+rakh\w*)\b"
+    r"|\bis\s+(my|our|the)\s+(co-?\s?applicant|applicant|guarantor|spouse|wife|husband)\b"
+    r"|\b(mera|meri|hamara)\s+(co-?\s?applicant|guarantor)\s+(hai|he|h)\b", re.IGNORECASE)
 
 
 async def _conversational(**kwargs: Any) -> dict[str, Any]:
@@ -2118,6 +2170,9 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
     elif named.get("ask"):
         reading = conv.Reading(conv.ASKED, message, reply=named["ask"], options=named["options"],
                                note="which of the two people on the case")
+    elif named.get("reply"):
+        reading = conv.Reading(conv.NEW_TOPIC, message, reply=named["reply"],
+                               note="a claim about the case's parties, not adopted")
     else:
         reading = conv.read_turn(named.get("message") or message, state)
     conversation_ms = round((time.perf_counter() - turn_started) * 1000, 2)
@@ -2321,6 +2376,16 @@ async def _knowledge_reply(
             "authoritative": True,
             "citations": [f"configuration:{exact.kind}"],
         }
+        # THE HANDBOOK PAGE THAT DESCRIBES THIS CONFIGURATION is cited beside
+        # it -- only when retrieval confidently finds one. Its text is not
+        # appended: the configured value is the answer.
+        try:
+            described = knowledge_answer.retrieve(message)
+            if described is not None and described.confident and described.citations():
+                detail["citations"].append(described.citations()[0])
+                detail["versions"] = described.versions()
+        except Exception:  # noqa: BLE001 - the configured answer stands alone
+            pass
         return _cited(exact.text, detail), routing.ResponseSource.KNOWLEDGE.value, detail
 
     text, source, detail = await knowledge_answer.answer(
@@ -2380,6 +2445,10 @@ def _cited(text: str, detail: dict[str, Any] | None) -> str:
     if not citations:
         return text
     if citations[0].startswith("configuration:"):
+        page = next((c.partition("#")[0] for c in citations[1:] if "#" in c or c.endswith(".md")), "")
+        if page:
+            title = page.rsplit("/", 1)[-1].rsplit(".", 1)[0].replace("_", " ").strip().capitalize()
+            return f"{text}\n\nSource: the configured document policy (FOS handbook, {title})."
         return f"{text}\n\nSource: the configured document policy."
     document = citations[0].partition("#")[0]
     sections: list[str] = []
