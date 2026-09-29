@@ -934,7 +934,16 @@ async def copilot(
         if content_type.startswith(("multipart/form-data",
                                     "application/x-www-form-urlencoded")):
             return await _copilot_upload(request, claims, request_id)
-        return await _copilot_json(request, claims, request_id)
+        # THE SAME PUBLISHING RULE AS THE UNIVERSAL COPILOT: no full PAN,
+        # Aadhaar or account number anywhere in the published response --
+        # including a number typed into a free-text field of a record
+        # (sensitivity.mask_payload; record ids are left untouched).
+        from app.security import sensitivity as _sensitivity
+
+        published = await _copilot_json(request, claims, request_id)
+        if isinstance(published, dict):
+            return _sensitivity.mask_payload(published)
+        return published
     except HTTPException:
         raise
     except AgentError as exc:
@@ -1065,6 +1074,18 @@ async def _answer_action_scoped(
     # rule the Universal Copilot route applies (intents.compound_parts).
     from app.agents.applicant.copilot.semantics import intents as _intents
 
+    if action is FosAction.CUSTOM_QUERY and message:
+        # PEOPLE BY NAME before the split: "my mobile and Priya's mobile" is
+        # two questions about two people. After the input guardrail only, and
+        # the names are matched to this case's parties only after ownership.
+        from app.agents.applicant.copilot import agent as _copilot_agent
+        from app.security import guardrails as _guard
+
+        if _guard.check_input(message, allowed_ids=(case_id, applicant_id)).allowed:
+            named = await _copilot_agent._named_people(
+                message, {"case_id": case_id, "applicant_id": applicant_id}, claims)
+            if named.get("message"):
+                message = named["message"]
     parts = (_intents.compound_parts(message)
              if action is FosAction.CUSTOM_QUERY and message else None)
     result = await answer_question(

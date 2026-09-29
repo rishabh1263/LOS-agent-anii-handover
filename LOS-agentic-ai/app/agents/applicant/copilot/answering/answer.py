@@ -182,14 +182,22 @@ def deterministic_answer(
     and the fallback whenever the model is off, unreachable or rejected.
     """
     if intent is Intent.APPLICANT_DETAILS:
+        from app.agents.applicant.copilot.answering import profile as _profile
+
         applicant = _get(results, "applicant.get", "applicant") or {}
-        name = applicant.get("full_name") or "not captured"
+        # EVERY VALUE THROUGH THE SAME DISCLOSURE RULE the field answers use:
+        # an account / Aadhaar / PAN number typed into the address is removed,
+        # a masked field stays masked (profile._shown).
+        name = (_profile._shown("full_name", applicant["full_name"])
+                if applicant.get("full_name") else None) or "not captured"
         # The name, never the id: the id is in the structured response.
         parts = [f"Applicant: {name}."]
         for label, key in (("Mobile", "mobile"), ("Email", "email"),
                            ("Date of birth", "date_of_birth"), ("Address", "address")):
             if applicant.get(key):
-                parts.append(f"{label}: {applicant[key]}.")
+                shown = _profile._shown(key, applicant[key])
+                if shown:
+                    parts.append(f"{label}: {shown}.")
         missing = applicant.get("missing_fields") or []
         parts.append(
             f"Still to capture: {', '.join(_readable(m) for m in missing)}."

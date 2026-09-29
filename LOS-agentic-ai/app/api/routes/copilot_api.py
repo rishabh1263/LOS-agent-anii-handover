@@ -1390,6 +1390,11 @@ def _evidence(envelope: dict[str, Any], context) -> dict[str, Any]:
 
     if str(envelope.get("category") or "").upper() not in _CASE_CATEGORIES:
         return {}
+    # A FIELD ANSWER carries its own evidence (understanding.answer_evidence):
+    # the case ledger is neither read nor cited for "what is my PAN number?".
+    if (envelope.get("understanding") or {}).get("answer_evidence") \
+            and str(envelope.get("intent") or "") in ("APPLICANT_PROFILE", "KYC_RESULT"):
+        return {}
     case_id = envelope.get("case_id")
     packet: dict[str, Any] = {}
     from app.agents.applicant import ledger
@@ -1840,7 +1845,8 @@ async def query(
             packet or {}, tools=tools, knowledge_sources=knowledge,
             semantic_sources=["JEV"] if (envelope.get("_jev_notes")) else [],
             validated=validation in {"PASSED", "NOT_REQUIRED"},
-            response_source=str(published.get("response_source") or "")),
+            response_source=str(published.get("response_source") or ""),
+            answer_evidence=(envelope.get("understanding") or {}).get("answer_evidence")),
         "validation": validation,
         "routing": _routing_basis(request, envelope, tools, evidence,
                                   gated=gated is not None),

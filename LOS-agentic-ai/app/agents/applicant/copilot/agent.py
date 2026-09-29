@@ -366,6 +366,29 @@ def _pending_and_next(results: dict[str, Any]) -> str:
     return f"Next step: {detail}" if detail else ""
 
 
+def _slot_requirement(document_type: str, results: dict[str, Any]) -> str:
+    """Whether ONE named document is required here, and where it stands (the checklist)."""
+    from app.agents.applicant.copilot.answering.answer import _readable
+
+    wanted = str(document_type or "").upper()
+    checklist = (results.get("documents.checklist") or {}).get("checklist") or []
+    for row in checklist:
+        if not isinstance(row, dict):
+            continue
+        accepts = [str(a).upper() for a in row.get("accepts") or []]
+        if str(row.get("slot") or "").upper() != wanted and wanted not in accepts:
+            continue
+        name = _readable(wanted)
+        need = "required" if row.get("mandatory", True) else "optional"
+        status = str(row.get("status") or "").upper()
+        state = {"MISSING": "it is still missing (not uploaded yet)", "VERIFIED": "it is already verified",
+                 "REVIEW": "it is under review", "REJECTED": "it was rejected",
+                 "UPLOADED": "it has been uploaded"}.get(status, "")
+        said = f"{name} is {need} for this application"
+        return said + (f", and {state}." if state else ".")
+    return ""
+
+
 def _named_pending(document_type: str, results: dict[str, Any]) -> str:
     """
     Whether ONE named document is pending, from the checklist -- then what
@@ -435,7 +458,7 @@ def _one_document_upload(document_type: str, results: dict[str, Any]) -> str:
     if listed:
         status = str(listed[0].get("status") or "").upper()
         if status == "MISSING":
-            return f"Your {name} hasn't been received yet -- it is still to be uploaded."
+            return f"Your {name} is still missing -- it hasn't been uploaded yet."
         return f"Your {name} is recorded as {status.replace('_', ' ').lower()} on the checklist."
     return f"No {name} has been uploaded on this application."
 
@@ -793,7 +816,8 @@ async def answer_question(
                 # that says a document noun follows. `understand` normalises
                 # the neutral text itself.
                 classification = understand(
-                    subjects.neutral(message) if named_subject else message,
+                    subjects.neutral(message)
+                    if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH) else message,
                     has_case=bool(case_id))
                 if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
                     # A PERSON'S DETAILS OR KYC, asked of the co-applicant: the
@@ -1314,7 +1338,11 @@ async def answer_question(
         intent=intent.value,
     )
 
-    if not results:
+    # an identity number or a KYC result is read from the case's findings:
+    # no tool result is not "no data"
+    identity_only = (intent in (Intent.APPLICANT_PROFILE, Intent.KYC_RESULT)
+                     and not plan and not errors)
+    if not results and not identity_only:
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
                      intent=intent.value, tools=[t["tool"] for t in trace],
@@ -1570,6 +1598,11 @@ async def answer_question(
                 answer = status_facts.stage_answer(
                     view.get("application") or {"status": view.get("stage")},
                     _stage_of(stage_context, case_id))
+            source, llm_ms = "deterministic", 0.0
+        elif (intent in (Intent.DOCUMENTS_REQUIRED, Intent.DOCUMENTS_MISSING)
+              and classification.document_type
+              and _slot_requirement(classification.document_type, results)):
+            answer = _slot_requirement(classification.document_type, results)
             source, llm_ms = "deterministic", 0.0
         elif (intent is Intent.DOCUMENTS_PENDING
               and classification.document_type
@@ -1963,6 +1996,51 @@ async def _answer_for_subject(
 _answer_unguarded = answer_question
 
 
+async def _named_people(message: str, kwargs: dict[str, Any],
+                        claims: dict[str, Any]) -> dict[str, Any]:
+    """
+    A PERSON NAMED BY NAME ("Priya ka mobile", "Zara's PAN"). Only when the
+    message carries a token no vocabulary knows, and only AFTER the caller's
+    ownership of the case is proven with the pipeline's own checks: then the
+    case record's parties are read and the name is matched against them.
+    Returns {"message": rewritten} / {"ask", "options"} / {"refuse": True} /
+    {} (nothing named, or not provable here -- the pipeline decides as before).
+    """
+    case_id = kwargs.get("case_id")
+    applicant_id = kwargs.get("applicant_id")
+    if not case_id or not subjects.names_a_person(message):
+        return {}
+    try:
+        caller = Caller.from_claims(claims)
+        permissions.check_ownership(applicant_id or "", case_id, caller=caller)
+        from app.security import access as _access
+
+        _access.authorize_conversation(caller.subject, caller.scopes,
+                                       applicant_id=applicant_id, case_id=case_id)
+        from app.store import get_repository, request_cache as _cache
+
+        parties = subjects.parties_of(case_id)
+        repo = get_repository()
+        names = {}
+        for party in parties:
+            record = _cache.read(repo, "get_applicant", party.party_id)
+            names[party.party_id] = getattr(record, "full_name", None) or ""
+    except Exception:  # noqa: BLE001 - not provable here: the pipeline refuses as usual
+        return {}
+    found = subjects.resolve_names(message, parties, names)
+    role = found.get("role")
+    if role is subjects.Kind.CO:
+        return {"message": found["as_co"]}
+    if role is subjects.Kind.PRIMARY:
+        return {"message": found["as_self"]}
+    if role == "AMBIGUOUS":
+        return {"ask": "Do you mean you (the primary applicant) or the co-applicant?",
+                "options": [found["as_self"], found["as_co"]]}
+    if role == "OTHER":
+        return {"refuse": True}
+    return {}
+
+
 async def _conversational(**kwargs: Any) -> dict[str, Any]:
     """
     THE CONVERSATION STATE LAYER around one question (conversation_state.py).
@@ -1992,6 +2070,27 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
     if not screened.allowed:
         refused = await _answer_unguarded(**kwargs)
         refused.setdefault("_timings", {})["security_ms"] = security_ms
+        try:
+            # THE CONVERSATION LEARNS WHICH KIND OF TURN WAS REFUSED (a code):
+            # "and his mobile?" next points at the refused person.
+            _subject = str(Caller.from_claims(claims).subject or "anonymous")
+            _cid = (context or {}).get("conversation_id") if isinstance(context, dict) else None
+            _state = conv.STORE.get(_subject, _cid)
+            if _state is None or (_state.case_id or None) != (case_id or None):
+                _state = conv.STORE.new(_subject, case_id)
+            _state.last_refusal = getattr(screened.category, "value", None)
+            conv.STORE.put(_state)
+            # the conversation continues from here: its id, and nothing else
+            if not isinstance(refused.get("context"), dict):
+                refused["context"] = {"conversation_id": _state.conversation_id}
+            _understood = refused.get("understanding")
+            if not isinstance(_understood, dict):
+                _understood = refused["understanding"] = {}
+            _understood.setdefault("conversation", {"conversation_id": _state.conversation_id,
+                                                    "turn_id": _state.turn_id + 1,
+                                                    "outcome": "REFUSED", "turn_type": "NEW_REQUEST"})
+        except Exception:  # noqa: BLE001 - state never blocks a refusal
+            pass
         return refused
     turn_started = time.perf_counter()
 
@@ -2013,7 +2112,14 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
             state.last_document = str(context.get("last_document"))
         if not state.last_documents and isinstance(context.get("last_documents"), list):
             state.last_documents = [str(d) for d in context["last_documents"]][:6]
-    reading = conv.read_turn(message, state)
+    named = await _named_people(message, kwargs, claims)
+    if named.get("refuse"):
+        reading = conv.Reading(conv.REFUSED, message, reply="", note="CROSS_CUSTOMER_DATA")
+    elif named.get("ask"):
+        reading = conv.Reading(conv.ASKED, message, reply=named["ask"], options=named["options"],
+                               note="which of the two people on the case")
+    else:
+        reading = conv.read_turn(named.get("message") or message, state)
     conversation_ms = round((time.perf_counter() - turn_started) * 1000, 2)
     from app.agents.applicant.copilot.answering import phrasing as _phrasing
 
@@ -2056,6 +2162,12 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
                               "llm": {"consulted": False, "status": "NOT_NEEDED"},
                               "parse_ms": 0.0, "case_stage": None},
         }
+        if reading.outcome == conv.REFUSED:
+            response["answer"] = guardrails.refusal(guardrails.Category.CROSS_CUSTOMER_DATA)
+            response["intent"] = "GUARDRAIL_BLOCKED"
+            response["guardrail"] = {"stage": "context", "action": "BLOCKED",
+                                     "category": guardrails.Category.CROSS_CUSTOMER_DATA.value}
+            response["suggested_questions"] = []
         if reading.outcome in (conv.STILL_AMBIGUOUS, conv.NEGATION, conv.INVALID_OPTION,
                                conv.PARTIAL_RESOLUTION):
             response["errors"] = [{"code": "UNSUPPORTED_REQUEST",
@@ -2113,9 +2225,15 @@ async def answer_question(**kwargs: Any) -> dict[str, Any]:
     """
     from app.security import guardrails
     from app.store import request_cache
+    from app.agents.applicant.copilot.facts import field_state as _field_state
 
-    with request_cache.scoped():
-        response = await _conversational(**kwargs)
+    evidence_token = _field_state.EVIDENCE.set([])
+    try:
+        with request_cache.scoped():
+            response = await _conversational(**kwargs)
+        _describe_answer(response, _field_state.EVIDENCE.get() or [])
+    finally:
+        _field_state.EVIDENCE.reset(evidence_token)
     answer = response.get("answer")
     if isinstance(answer, str) and answer:
         cleaned, verdict = guardrails.published(answer)
@@ -2124,6 +2242,37 @@ async def answer_question(**kwargs: Any) -> dict[str, Any]:
             response["guardrail"] = {"stage": "output", "action": "REDACTED",
                                      "category": verdict.category.value}
     return response
+
+
+#: What a document-facing intent asks ABOUT the thing it names.
+_ASPECT = {"APPLICANT_PROFILE": "VALUE", "DOCUMENTS_UPLOADED": "UPLOADED",
+           "DOCUMENT_VERIFICATION": "VERIFICATION", "DOCUMENTS_REQUIRED": "REQUIREMENT",
+           "DOCUMENTS_PENDING": "PENDING", "DOCUMENTS_MISSING": "PENDING",
+           "KYC_RESULT": "KYC", "DOCUMENT_DETAILS": "VALUE"}
+
+
+def _describe_answer(response: dict[str, Any], evidence: list[dict[str, str]]) -> None:
+    """
+    WHAT WAS ASKED AND WHAT THE ANSWER RESTS ON -- kept apart from the case.
+    `understanding.requested`: the capability, the exact field or document and
+    the aspect asked (PAN number = PAN_NUMBER / VALUE, never "the PAN document").
+    `understanding.answer_evidence`: the fields this answer resolved, their
+    state and source. Case-level findings stay where they are; they are not
+    evidence for an answer that did not use them.
+    """
+    understanding = response.get("understanding")
+    if not isinstance(understanding, dict):
+        return
+    intent = str(response.get("intent") or "")
+    frame = understanding.get("frame") if isinstance(understanding.get("frame"), dict) else {}
+    fields = [e["field"] for e in evidence if e.get("field")]
+    thing = "+".join(dict.fromkeys(fields)) if fields and intent in ("APPLICANT_PROFILE", "KYC_RESULT") \
+        else (frame.get("document_type") or None)
+    if intent in _ASPECT:
+        understanding["requested"] = {"capability": intent, "field": thing,
+                                      "aspect": _ASPECT[intent], "party": frame.get("party")}
+    if evidence:
+        understanding["answer_evidence"] = list(evidence)
 
 
 async def _knowledge_reply(
@@ -2172,7 +2321,7 @@ async def _knowledge_reply(
             "authoritative": True,
             "citations": [f"configuration:{exact.kind}"],
         }
-        return exact.text, routing.ResponseSource.KNOWLEDGE.value, detail
+        return _cited(exact.text, detail), routing.ResponseSource.KNOWLEDGE.value, detail
 
     text, source, detail = await knowledge_answer.answer(
         message, allow_model=allow_model, max_sentences=max_sentences,
@@ -2211,10 +2360,42 @@ async def _knowledge_reply(
             )
             detail = dict(detail)
             detail["grounding_rejected"] = True
-            return (knowledge_answer.retrieved_text_for(message),
+            return (_cited(knowledge_answer.retrieved_text_for(message), detail),
                     routing.ResponseSource.KNOWLEDGE.value, detail)
 
-    return text, _knowledge_source(source, detail), detail
+    return _cited(text, detail), _knowledge_source(source, detail), detail
+
+
+def _cited(text: str, detail: dict[str, Any] | None) -> str:
+    """
+    A KNOWLEDGE ANSWER NAMES WHERE IT COMES FROM: the handbook document and
+    section it was grounded in (and the version, when recorded), or the
+    configured policy -- in words, never a path. A refused or unconfident
+    retrieval cites nothing; a customer fact never reaches this function.
+    """
+    if not text or not isinstance(detail, dict) or detail.get("refused") \
+            or not (detail.get("confident") or detail.get("authoritative")):
+        return text
+    citations = [str(c) for c in (detail.get("citations") or []) if c]
+    if not citations:
+        return text
+    if citations[0].startswith("configuration:"):
+        return f"{text}\n\nSource: the configured document policy."
+    document = citations[0].partition("#")[0]
+    sections: list[str] = []
+    for c in citations:
+        doc, _, section = c.partition("#")
+        if doc == document and section and section not in sections:
+            sections.append(section)
+    title = document.rsplit("/", 1)[-1].rsplit(".", 1)[0].replace("_", " ").strip().capitalize()
+    version = next((str(v.get("version") or "") for v in detail.get("versions") or []
+                    if isinstance(v, dict) and v.get("document") == document), "")
+    said = f"Source: FOS handbook, {title}"
+    if sections:
+        said += " (" + ", ".join(sections[:2]) + ")"
+    if version:
+        said += f", version {version.split(':')[-1][:7]}"
+    return f"{text}\n\n{said}."
 
 
 def _knowledge_source(source: str, detail: dict[str, Any]) -> str:

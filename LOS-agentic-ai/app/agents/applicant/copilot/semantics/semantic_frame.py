@@ -407,9 +407,13 @@ def parse(message: str, *, original: str | None = None) -> SemanticFrame:
             task_cues.append(Task.CHECK_VERIFICATION)
         elif "STATUS" in present and not explain:
             # "what is the status of my documents?" -- each document with its
-            # status, the long-standing document-status list
-            task_cues.append(Task.LIST_SUBMITTED if frame.object is Object.DOCUMENTS
-                             else Task.CHECK_VERIFICATION)
+            # status, the long-standing document-status list; "of ALL of them"
+            # is every required document, uploaded or not (the checklist)
+            if frame.object is Object.DOCUMENTS and "ALL" in present:
+                task_cues.append(Task.LIST_REQUIREMENTS)
+            else:
+                task_cues.append(Task.LIST_SUBMITTED if frame.object is Object.DOCUMENTS
+                                 else Task.CHECK_VERIFICATION)
         if "PENDING" in present or "MISSING" in present or (
                 "STILL" in present and ({"REQUIRED", "SUBMIT", "SUBMITTED"} & present)):
             task_cues.append(Task.LIST_PENDING)

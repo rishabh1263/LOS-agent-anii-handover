@@ -52,6 +52,7 @@ NEGATION = "NEGATION"
 REPLAY = "REPLAY"
 PENDING_EXPIRED = "PENDING_EXPIRED"
 ASKED = "CLARIFICATION_ASKED"          # the conversation layer asks, from state alone
+REFUSED = "REFUSED_IN_CONTEXT"         # a pronoun pointing at a refused person
 NO_STATE = "NO_STATE"
 
 #: Questions that can be asked about ONE PARTY on the case (subjects.py).
@@ -62,11 +63,70 @@ PER_PARTY_INTENTS = frozenset({"DOCUMENT_VERIFICATION", "DOCUMENTS_PENDING", "DO
 
 #: The caller's own words ("my", "mera") -- an explicit self beats any
 #: party the conversation was about.
-_SELF_WORDS = re.compile(r"\b(my|mine|me|i|myself|mera|meri|mere|mujhe|mujhko|apna|apni|apne)\b"
+_ADDRESSING = re.compile(r"\b(tell|show|give|send|help|let)\s+me\b|\bmujhe\s+(batao|bataiye|dikhao)\b",
+                         re.IGNORECASE)
+
+
+class _SelfWords:
+    """The caller's own words ("my", "mera") -- never "tell me", which only
+    addresses the assistant."""
+
+    def __init__(self, pattern: "re.Pattern[str]") -> None:
+        self._pattern = pattern
+
+    def search(self, text: str):
+        return self._pattern.search(_ADDRESSING.sub(" ", str(text or "")))
+
+
+_SELF_WORDS_RAW = re.compile(r"\b(my|mine|me|i|myself|mera|meri|mere|mujhe|mujhko|apna|apni|apne)\b"
                          r"|मेरा|मेरी|मेरे|माझा|माझी|माझे|माझं", re.IGNORECASE)
+_SELF_WORDS = _SelfWords(_SELF_WORDS_RAW)
 #: A PERSON pronoun -- "their KYC", "for them", "unka mobile".
-_PERSON_POSSESSIVE = re.compile(r"\b(their|unka|unki|unke|inka|inki|inke)\b|उनका|उनकी|उनके", re.IGNORECASE)
-_PERSON_OBJECT = re.compile(r"\b(for|of|about|to)\s+them\b|\b(unko|unhe|unhen)\b", re.IGNORECASE)
+_PERSON_POSSESSIVE = re.compile(r"\b(their|his|her|unka|unki|unke|inka|inki|inke|uska|uski|uske)\b"
+                                r"|उनका|उनकी|उनके|उसका|उसकी", re.IGNORECASE)
+_PERSON_OBJECT = re.compile(r"\b(for|of|about|to)\s+(them|him|her)\b|\b(unko|unhe|unhen|usko)\b",
+                            re.IGNORECASE)
+_PERSON_SUBJECT = re.compile(r"\b(she|he|they)\b", re.IGNORECASE)
+#: Refusals whose person a following pronoun may point at.
+#: "that loan" / "the same case" / "us file" right after a refusal points at
+#: the record that was refused -- never at the caller's own ("this" / "my").
+_REFUSED_RECORD = re.compile(r"\b(that|same|us|woh|wo|usi)\s+(loan|case|file|application|"
+                             r"customer|account|person|record)\b", re.IGNORECASE)
+_PERSON_REFUSALS = frozenset({"CROSS_CUSTOMER_DATA", "UNAUTHORIZED_SUBJECT", "OTHER_CONVERSATION",
+                              "BULK_DATA"})
+#: "tell me more" / "what else?" / "detail mein batao" -- the next level of the
+#: last answer; "why?" / "kyun?" -- its recorded reason.
+_MORE = re.compile(r"^\s*(and\s+|aur\s+|ok\s*,?\s*|okay\s*,?\s*|accha\s*,?\s*)?"
+                   r"(tell\s+me\s+more|more(\s+details?|\s+info)?|elaborate|go\s+on|what\s+else|"
+                   r"anything\s+else|aur\s+kya|aur\s+kuch|kya\s+aur|"
+                   r"detail\s+(me|mein|mai)\s+batao|details?\s+(do|dikhao|batao)|aur\s+batao|"
+                   r"aur\s+bataiye|thoda\s+aur|और\s+बताओ|विस्तार\s+से\s+बताओ|आणखी\s+सांगा)"
+                   r"\s*[?.!]*\s*$", re.IGNORECASE)
+_WHY = re.compile(r"^\s*(and\s+|aur\s+|but\s+|par\s+|lekin\s+)?(why|why\s+so|how\s+come|kyun|kyon|kyu|"
+                  r"kyun\s+atka(\s+hai)?|kyu\s+atka(\s+hai)?|क्यों)\s*[?.!]*\s*$", re.IGNORECASE)
+#: WHERE AN ANSWER GOES NEXT: each capability's next level, as the question
+#: the ordinary pipeline answers (never a sentence composed here).
+_EXPAND_MORE = {
+    "KYC_RESULT": "Which KYC fields did not match?",
+    "APPLICATION_STATUS": "Why is my application under review?",
+    "APPLICATION_STAGE": "Why is my application under review?",
+    "DOCUMENTS_PENDING": "What is pending on my case?",
+    "DOCUMENTS_MISSING": "What is pending on my case?",
+    "DOCUMENTS_UPLOADED": "What is pending on my case?",
+    "DOCUMENTS_REQUIRED": "What is pending on my case?",
+    "DOCUMENT_VERIFICATION": "What is pending on my case?",
+    "PENDING_ITEMS": "What should I do next?",
+    "FULL_SUMMARY": "What is pending on my case?",
+}
+_EXPAND_WHY = {
+    "KYC_RESULT": "Which KYC fields did not match?",
+    "APPLICATION_STATUS": "Why is my application under review?",
+    "APPLICATION_STAGE": "Why is my application under review?",
+    "DOCUMENTS_PENDING": "Why are my documents still pending?",
+    "DOCUMENTS_MISSING": "Why are my documents still pending?",
+    "PENDING_ITEMS": "Why is my application under review?",
+    "READINESS": "Why is my application under review?",
+}
 _BARE_THEIRS = re.compile(r"^\s*(and\s+|aur\s+|what\s+about\s+|how\s+about\s+)?"
                           r"(theirs|their\s+one|unka|unki|unke|unka\s+kya|unki\s+kya|unke\s+bare\s+mein)"
                           r"\s*[?.!]*\s*$", re.IGNORECASE)
@@ -92,7 +152,7 @@ def _party_askable(state: "ConversationState") -> bool:
 
     asked = _profile.detect(state.last_message or "")
     if asked is None:
-        return False
+        return True          # a person's detail, unless shown to be the loan's
     person = set(capabilities.APPLICANT_FIELDS) | {"aadhaar_number", "pan_number",
                                                    "bank_account_number", "applicant_id",
                                                    "employment_type", "declared_monthly_income",
@@ -118,6 +178,90 @@ def _same_document(text: str, state: "ConversationState") -> bool:
     return bool(state.last_document) and _frames._document_type(text) == state.last_document
 
 
+def _expanded(text: str, state: "ConversationState") -> "Reading | None":
+    """ "tell me more" / "why?" after an answer: the next level of THAT answer."""
+    if not state.last_message:
+        return None
+    last_intent = str((state.last_answer_reference or {}).get("intent") or "")
+    about_co = state.active_party == "CO_APPLICANT"
+    if _MORE.match(text):
+        if last_intent == "APPLICANT_PROFILE":
+            from app.agents.applicant.copilot.answering import profile as _profile
+            from app.agents.applicant.copilot.routing import capabilities
+
+            asked = _profile.detect(state.last_message)
+            fields = asked.fields if asked is not None else []
+            if about_co:
+                question = "Tell me the co-applicant details."
+            elif fields and all(f in capabilities.APPLICATION_FIELDS for f in fields):
+                question = "What are my application details?"
+            else:
+                question = "What are my applicant details?"
+        else:
+            question = _EXPAND_MORE.get(last_intent)
+    elif _WHY.match(text):
+        question = _EXPAND_WHY.get(last_intent)
+    else:
+        return None
+    if not question:
+        return None
+    if about_co and "co-applicant" not in question and last_intent in PER_PARTY_INTENTS:
+        question = _for_co(question)
+    return Reading(REPLAY, question, note="the previous answer, expanded")
+
+
+#: What is left of a turn that is ONLY a party ("and the co-applicant's?",
+#: "aur co-applicant ka?", "आणि सह-अर्जदाराचा?") once the filler is gone.
+_PARTY_FILLER = re.compile(r"\b(and|aur|what|about|how|the|my|our|of|for|ka|ki|ke|kya|bare|baare|mein|"
+                           r"me|batao|tell|please|pls|jo|hai|uska|uski|accha|ok|okay|theek|thik|also|"
+                           r"bhi|same|details?|info|s|is|are|hai|hain|ho|ji|kya|thik|theek|"
+                           r"do|dena|dijiye|de|batao|bataiye|chahiye|dikhao|please|too|also|"
+                           r"ठीक|है|और|आणि|का|की|के|चा|ची|चे)\b|[?.!,'\u2019-]|ठीक|है|और|आणि", re.IGNORECASE)
+
+
+def _bare_party_turn(text: str, state: "ConversationState") -> "Reading | None":
+    from app.agents.applicant import normalize as _normalize
+    from app.agents.applicant.copilot.routing import subjects as _subjects
+
+    said = _normalize.normalise(text).text or text
+    if _subjects.mentioned(said) is not _subjects.Kind.CO:
+        return None
+    remainder = _subjects._CO_RE.sub(" ", said)
+    remainder = _PARTY_FILLER.sub(" ", remainder)
+    if re.search(r"\w", remainder):
+        return None
+    if state.last_message and _party_askable(state) and state.active_party != "CO_APPLICANT":
+        return Reading(REPLAY, _for_co(state.last_message),
+                       note="the previous question, for the co-applicant")
+    return None
+
+
+def _same_question_other_document(text: str, state: "ConversationState") -> "Reading | None":
+    """ "Is my PAN verified?" then "aur bank statement?": the same question, of that document."""
+    from app.agents.applicant import normalize as _normalize
+    from app.agents.applicant.copilot.semantics import semantic_frame as _frames
+
+    if not (state.last_message and state.last_document):
+        return None
+    bare = re.sub(r"^\s*(haan|han|ha|yes|ok|okay|accha|theek|thik)\b[\s,.-]*", "", text, flags=re.IGNORECASE)
+    bare = re.sub(r"^\s*(and|aur|also|what\s+about|how\s+about|और|आणि)\s+", "", bare, flags=re.IGNORECASE)
+    said = _normalize.normalise(bare).text or bare
+    named = _frames._document_type(said)
+    if not named or named == state.last_document or len(_strip(bare).split()) > 3:
+        return None
+    old = _frames._document_type(state.last_message)
+    if old != state.last_document:
+        return None
+    from app.agents.applicant.copilot.conversation.followup import _display
+
+    spoken = re.compile("|".join(re.escape(v) for v in {
+        _display(old), _display(old).lower(), old.replace("_", " ").lower(), old}), re.IGNORECASE)
+    replayed, n = spoken.subn(_display(named), state.last_message, count=1)
+    if not n:
+        return None
+    return Reading(REPLAY, replayed, note="the previous question, for another document")
+
+
 def _for_co(message: str) -> str:
     """The previous question, asked of the co-applicant instead of the caller."""
     text = str(message or "").strip()
@@ -131,7 +275,10 @@ def _for_co(message: str) -> str:
 #: "and mine?", "what about me?", "aur mera?" -- the caller, and nothing else asked.
 _BARE_MINE = re.compile(r"^\s*(and\s+|aur\s+|what\s+about\s+|how\s+about\s+)?"
                         r"(mine|me|myself|my\s+one|mera|meri|mere|mera\s+kya|meri\s+kya|mere\s+liye)"
-                        r"\s*[?.!]*\s*$", re.IGNORECASE)
+                        r"(\s+(again|too|also|bhi|wala|waala|wali|only|hi|tha|thi|hai))*\s*[?.!]*\s*$",
+                        re.IGNORECASE)
+_BARE_MINE_IN_CORRECTION = re.compile(r"^\s*(mera|meri|mere|mine|my\s+one|me)(\s+\w+){0,2}\s*[?.!]*\s*$",
+                                      re.IGNORECASE)
 
 
 def _explicit_party_turn(text: str, state: "ConversationState") -> "Reading | None":
@@ -175,7 +322,31 @@ def _pronoun_referent(text: str, state: "ConversationState") -> str | None:
     if _PERSON_OBJECT.search(text) and person_topic:
         return _PERSON_OBJECT.sub(lambda m: (f"{m.group(1)} the co-applicant" if m.group(1)
                                              else "the co-applicant"), text, count=1)
+    if _PERSON_SUBJECT.search(text) and about_co:
+        return _PERSON_SUBJECT.sub("the co-applicant", text, count=1)
     return None
+
+
+def _pronoun_without_referent(text: str, state: "ConversationState") -> "Reading | None":
+    """
+    "Their email?" / "uska DOB?" with NO person in the conversation yet: whose
+    it is cannot be guessed -- asked, with both readings offered.
+    """
+    from app.agents.applicant.copilot.answering import profile as _profile
+    from app.agents.applicant.copilot.routing import subjects as _subjects
+
+    if state.last_message or _SELF_WORDS.search(text) or _subjects.mentioned(text) is not None:
+        return None
+    pronoun = re.search(r"\b(their|his|her|unka|unki|unke|uska|uski|uske)\b", text, re.IGNORECASE)
+    if not pronoun:
+        return None
+    as_self = text[:pronoun.start()] + "my" + text[pronoun.end():]
+    asked = _profile.detect(as_self)
+    if asked is None or asked.field.startswith("ALL"):
+        return None
+    as_co = text[:pronoun.start()] + "the co-applicant's" + text[pronoun.end():]
+    return Reading(ASKED, text, reply="Whose do you mean -- yours, or the co-applicant's?",
+                   options=[as_self, as_co], note="a pronoun with no one to point at")
 
 
 def _party_referent(text: str, state: "ConversationState") -> str | None:
@@ -235,6 +406,8 @@ def _for_self(message: str) -> str:
     """The previous question, asked of the caller instead of the co-applicant."""
     text = str(message or "")
     text = re.sub(r"\b(the|my|our)\s+co-?\s?applicant'?s\b", "my", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(the|my|our)\s+co-?\s?applicant\s+(details?|info|information|profile)\b",
+                  r"my applicant \2", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(for|of|about)\s+(my|the|our)\s+co-?\s?applicant\b", r"\1 me", text,
                   flags=re.IGNORECASE)
     text = re.sub(r"\bco-?\s?applicant\s+(ka|ki|ke)\b",
@@ -304,6 +477,9 @@ class ConversationState:
     pending_referents: dict[str, str] = field(default_factory=dict)
     last_document: str | None = None
     last_documents: list[str] = field(default_factory=list)
+    #: The category of the last refused turn (a code) -- a pronoun right after
+    #: a refused other-customer request points at that customer.
+    last_refusal: str | None = None
     last_slot: str | None = None
     last_application_context: dict[str, Any] | None = None  # labels: stage, query type
     last_tool_result_reference: list[str] = field(default_factory=list)
@@ -673,7 +849,8 @@ def _match_option(text: str, options: list[Option]) -> tuple[list[int], Any]:
     c = _frame_of(text)
     from app.agents.applicant.copilot.answering import profile
 
-    words = [w for w in _strip(text).split() if len(w) > 1]
+    words = [w for w in _strip(text).split() if len(w) > 1
+             and w not in ("the", "one", "wala", "wali", "wale", "waala", "vala", "ka", "ki", "ke")]
     if 0 < len(words) <= 2:
         # "case" after "application ID or case ID?": the words of one option.
         named = [i for i, o in enumerate(options)
@@ -687,7 +864,7 @@ def _match_option(text: str, options: list[Option]) -> tuple[list[int], Any]:
 
     from app.agents.applicant.copilot.routing import subjects as _subjects
 
-    if _subjects.mentioned(text) is _subjects.Kind.CO and len(words) <= 4:
+    if _subjects.mentioned(text) is _subjects.Kind.CO and len(words) <= 6:
         by_party = [i for i, o in enumerate(options)
                     if re.search(r"co-?\s?applicant", o.label, re.IGNORECASE)]
         if len(by_party) == 1:
@@ -830,6 +1007,13 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
                 and _party_askable(state):
             return Reading(REPLAY, _for_co(state.last_message),
                            note="the previous question, for the co-applicant")
+        party_turn = _explicit_party_turn(rest, state) or _bare_party_turn(rest, state)
+        if party_turn is not None:
+            return party_turn
+        if _BARE_MINE_IN_CORRECTION.search(rest) and state.last_message \
+                and state.active_party == "CO_APPLICANT":
+            return Reading(REPLAY, _for_self(state.last_message),
+                           note="the previous question, for the primary applicant")
         return Reading(CORRECTION, _as_question(rest), note="the previous reading was corrected")
 
     # A TURN THAT CONTINUES THE CONVERSATION ("and what should I do next?")
@@ -839,10 +1023,23 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
     if continued != text:
         text = continued
 
+    if not state.last_message and not pending:
+        first_turn = _pronoun_without_referent(text, state) if not state.last_message else None
+        if first_turn is not None:
+            return first_turn
+
     # 3. "AGAIN" / "SAME" / "MORE" -- the last question, asked once more
     #    (optionally for the other party).
     if state.last_message:
         last_intent = str((state.last_answer_reference or {}).get("intent") or "")
+        # A PRONOUN AT A REFUSED PERSON: "and his phone number?" right after
+        # "show another customer's ..." was refused is refused too.
+        if state.last_refusal in _PERSON_REFUSALS and (
+                _PERSON_POSSESSIVE.search(text) or _PERSON_OBJECT.search(text)
+                or _PERSON_SUBJECT.search(text) or _REFUSED_RECORD.search(text)) \
+                and not _SELF_WORDS.search(text) \
+                and "co-applicant" not in _strip(text) and "co applicant" not in _strip(text):
+            return Reading(REFUSED, text, reply="", note=state.last_refusal)
         # EXPLICIT PARTY FIRST: "and mine?", "what about theirs?", "their
         # KYC" name whose question it is -- above any replay of recent context
         # ("what about theirs" must not read as "what about that").
@@ -850,6 +1047,18 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
             explicit = _explicit_party_turn(text, state)
             if explicit is not None:
                 return explicit
+            unreferred = _pronoun_without_referent(text, state)
+            if unreferred is not None:
+                return unreferred
+            other_document = _same_question_other_document(text, state)
+            if other_document is not None:
+                return other_document
+            bare_party = _bare_party_turn(text, state)
+            if bare_party is not None:
+                return bare_party
+            expanded = _expanded(text, state)
+            if expanded is not None:
+                return expanded
         if _has("REFER_BACK", text) and not pending and not state.last_slot:
             # (with ONE document referred to, "what about it?" is that
             # document -- followup.resolve rewrites it)
@@ -866,6 +1075,8 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
                     return Reading(REPLAY, _for_co(replay),
                                    note="the previous question, for the co-applicant")
                 return Reading(NEW_TOPIC, text)
+            if _MORE.match(text):
+                return Reading(REPLAY, replay, note="the previous answer, expanded")
             return Reading(REPLAY, replay, note="the previous question, asked again")
         # "what about the other one?" -- the same question for the co-applicant,
         # when that question is one a party can be asked about; otherwise the
@@ -999,6 +1210,7 @@ _TURN_TYPES = {
     REPLAY: FOLLOW_UP, OPTION_RESOLVED: CLARIFICATION_RESPONSE,
     YES_NO_RESPONSE: CLARIFICATION_RESPONSE, PARTIAL_RESOLUTION: CLARIFICATION_RESPONSE,
     STILL_AMBIGUOUS: AMBIGUOUS, INVALID_OPTION: AMBIGUOUS, NEGATION: AMBIGUOUS, ASKED: AMBIGUOUS,
+    REFUSED: NEW_REQUEST,
     USER_REJECTED_CLARIFICATION: TURN_CANCELLATION, CANCELLATION: TURN_CANCELLATION,
     CORRECTION: TURN_CORRECTION, ACKNOWLEDGEMENT: TURN_ACKNOWLEDGEMENT,
 }
@@ -1050,6 +1262,11 @@ def update_from_response(state: ConversationState, message: str,
             state.active_party = frame.get("party")
     answered = (response.get("category") not in ("CONVERSATION", "UNSUPPORTED")
                 and str(response.get("intent") or "") not in ("UNKNOWN", "GUARDRAIL_BLOCKED"))
+    guard = response.get("guardrail") or {}
+    if str(response.get("intent") or "") == "GUARDRAIL_BLOCKED" and isinstance(guard, dict):
+        state.last_refusal = str(guard.get("category") or "") or None
+    elif answered:
+        state.last_refusal = None
     context = response.get("context") or {}
     if isinstance(context, dict) and answered:
         # ONLY A REAL ANSWER moves the referents: "haan" or a refusal after a

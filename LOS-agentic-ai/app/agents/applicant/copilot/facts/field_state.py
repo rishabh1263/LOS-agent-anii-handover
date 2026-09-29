@@ -21,6 +21,8 @@ Generic for every field: nothing here knows Aadhaar from a tenure.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 import logging
 from dataclasses import dataclass
 from enum import Enum
@@ -35,6 +37,29 @@ class FieldState(str, Enum):
     NOT_AVAILABLE = "NOT_AVAILABLE"
     RESTRICTED = "RESTRICTED"
     UNKNOWN = "UNKNOWN"
+
+
+#: ANSWER-LEVEL EVIDENCE for this request: every field an answer resolved --
+#: the field, its state, the source that decided it. Codes only, never a
+#: value. Opened per request by the Copilot agent; a no-op when not open.
+EVIDENCE: "ContextVar[list[dict[str, str]] | None]" = ContextVar("copilot_answer_evidence", default=None)
+
+
+def record(field: str, state: str, source: str | None, *, party: str | None = None) -> None:
+    """Note that the answer rests on `field` in `state`, from `source`."""
+    log = EVIDENCE.get()
+    if log is None:
+        return
+    entry = {"field": str(field).upper(), "state": str(state), "source": str(source or "unknown")}
+    if party:
+        entry["party"] = party
+        # the same field already noted without its party: this is its party
+        for known in log:
+            if known["field"] == entry["field"] and "party" not in known:
+                known["party"] = party
+                return
+    if entry not in log:
+        log.append(entry)
 
 
 @dataclass(frozen=True)
@@ -69,7 +94,8 @@ def resolve(field: str, results: dict[str, Any], *, case_id: str | None = None,
         return Resolved(field, FieldState.UNKNOWN)
     if resolved.state is FieldState.PRESENT and sensitivity.disclosure(field) == "withhold" \
             and field not in capabilities.IDENTIFIER_FIELDS:
-        return Resolved(field, FieldState.RESTRICTED, source=resolved.source)
+        resolved = Resolved(field, FieldState.RESTRICTED, source=resolved.source)
+    record(field, resolved.state.value, resolved.source)
     return resolved
 
 
@@ -106,25 +132,75 @@ def _from_documents(field: str, case_id: str | None, party_id: str | None) -> Re
         return str(getattr(getattr(f, "finding_kind", None), "value",
                            getattr(f, "finding_kind", "")) or "").upper()
 
-    of_type = [f for f in findings
-               if str((getattr(f, "payload", None) or {}).get("type") or "").upper() == document_type]
-    if not of_type:
+    # WHICH DOCUMENT EACH FINDING IS ABOUT. The pipeline writes the type on
+    # the verification finding and on the document row, not always on the
+    # extraction of the same file: a finding's type is its own, or the type
+    # recorded for the same file (source / document id) anywhere else.
+    documents: list[Any] = []
+    try:
+        from app.store import request_cache
+
+        documents = list(request_cache.read(get_repository(), "list_documents", case_id) or [])
+    except Exception:  # noqa: BLE001 - the findings alone still decide
+        documents = []
+    if party_id is not None:
+        documents = [d for d in documents if getattr(d, "party_id", None) in (None, party_id)]
+    type_of_file: dict[str, str] = {}
+    for d in documents:
+        kind_ = str(getattr(d, "document_type", "") or "").upper()
+        for ref in (getattr(d, "source_id", None), getattr(d, "document_id", None)):
+            if ref and kind_:
+                type_of_file[str(ref)] = kind_
+    for f in findings:
+        own = str((getattr(f, "payload", None) or {}).get("type") or "").upper()
+        if own:
+            for ref in (getattr(f, "source_id", None), getattr(f, "document_id", None)):
+                if ref:
+                    type_of_file.setdefault(str(ref), own)
+
+    def type_of(f: Any) -> str:
+        own = str((getattr(f, "payload", None) or {}).get("type") or "").upper()
+        if own:
+            return own
+        for ref in (getattr(f, "source_id", None), getattr(f, "document_id", None)):
+            if ref and str(ref) in type_of_file:
+                return type_of_file[str(ref)]
+        return ""
+
+    of_type = [f for f in findings if type_of(f) == document_type]
+    rows_of_type = [d for d in documents
+                    if str(getattr(d, "document_type", "") or "").upper() == document_type]
+    if not of_type and not rows_of_type:
         return Resolved(field, FieldState.NOT_PROVIDED, source=source)
     for f in reversed(of_type):
         if kind(f) == "EXTRACTION":
             value = (f.payload or {}).get(key)
             if value not in (None, ""):
-                return Resolved(field, FieldState.PRESENT, value=value, source=source)
+                return Resolved(field, FieldState.PRESENT, value=value,
+                                source=f"{source}:extraction")
+    # The document row's own extracted fields, where the pipeline stored them.
+    for d in reversed(rows_of_type):
+        extracted = getattr(d, "extracted_fields", None)
+        if isinstance(extracted, str):
+            try:
+                import json
+
+                extracted = json.loads(extracted)
+            except ValueError:
+                extracted = None
+        if isinstance(extracted, dict) and extracted.get(key) not in (None, ""):
+            return Resolved(field, FieldState.PRESENT, value=extracted[key],
+                            source=f"{source}:document_record")
     # The KYC comparison may carry the field the extraction did not.
     for f in reversed(findings):
         if kind(f) == "KYC":
             for entry in (getattr(f, "payload", None) or {}).get("fields") or []:
-                if str(entry.get("field") or "").upper() == key.upper():
+                if str(entry.get("field") or "").upper() in (key.upper(), document_type):
                     for side in entry.get("sources") or []:
                         if str(side.get("document_type") or "").upper() == document_type \
                                 and side.get("value"):
                             return Resolved(field, FieldState.PRESENT, value=side["value"],
-                                            source=source)
+                                            source=f"{source}:kyc_comparison")
     return Resolved(field, FieldState.NOT_AVAILABLE, source=source)
 
 
