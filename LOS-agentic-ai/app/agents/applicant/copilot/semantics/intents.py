@@ -351,6 +351,24 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
      r"\b(approve[ds]?|approval|sanction(ed)?|disburse[ds]?|reject(ed|ion)?)\b",
      "LOAN_DECISION"),
     (r"\b(is\s+.{0,20}loan\s+safe|should\s+we\s+approve|eligib\w+\s+amount)\b", "LOAN_DECISION"),
+    # DOMAIN-ADJACENT: about money or loans, but not this desk's to answer. Each
+    # is routed with its reason (applicant_agent.yaml `routing`), never guessed at.
+    (r"\b(how\s+much\s+(loan|money|amount)\s+(can|could|will|would)\s+(i|we)\s+(get|be\s+given|borrow)"
+     r"|max(imum)?\s+(loan\s+)?amount\s+(i|we)\s+can|kitna\s+loan\s+(mil|milega|mil\s+sakta)"
+     r"|loan\s+kab\s+(milega|mil\s+jayega|aayega))\b", "ELIGIBILITY_AMOUNT"),
+    # NEGOTIATING OR PREDICTING terms only. The application RECORDS an interest
+    # rate and a declared EMI: "what is my interest rate?" is a profile answer.
+    (r"\b(reduce|lower|decrease|cut|change|negotiate|waive|kam\s+kar\w*|kam\s+ho)\b.{0,25}"
+     r"\b(emi|interest|rate|roi|fees?|charges?|byaj)\b"
+     r"|\b(what|which)\s+(interest\s+)?rate\s+(will|would|can|could|might)\s+(i|we)\s+get\b"
+     r"|\bbest\s+(interest\s+)?rate\b|\b(foreclos\w*|pre-?payment\s+(penalty|charges?))\b"
+     # Hinglish word order: the verb after the term ("EMI kam kar do")
+     r"|\b(emi|byaj|interest|rate|fees?)\b.{0,15}\b(kam\s+kar\w*|kam\s+ho\w*|ghata\w*)\b", "LOAN_TERMS"),
+    (r"\b(mutual\s*funds?|invest(ing|ment)?|stocks?|share\s+market|sip|fixed\s+deposit|crypto\w*|"
+     r"trading|insurance\s+plan)\b", "INVESTMENT_ADVICE"),
+    (r"\b(should\s+i\s+(take|choose|go\s+for|apply\s+for)|which\s+(loan|product)\s+(is\s+)?(better|best|right)|"
+     r"(personal|home)\s+loan\s+(or|vs\.?|versus)\s+(a\s+)?(personal|home)\s+loan|kaun\s*sa\s+loan\s+(lu|lena))\b",
+     "PRODUCT_ADVICE"),
 ]
 
 

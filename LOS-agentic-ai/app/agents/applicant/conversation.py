@@ -34,6 +34,7 @@ THANKS = "THANKS"
 ACKNOWLEDGEMENT = "ACKNOWLEDGEMENT"
 GOODBYE = "GOODBYE"
 SMALL_TALK = "SMALL_TALK"
+IDENTITY = "IDENTITY"
 HELP = "HELP"
 CAPABILITIES = "CAPABILITIES"
 HISTORY = "CONVERSATION_HISTORY"
@@ -42,7 +43,7 @@ FRUSTRATION = "FRUSTRATION"
 #: "tell me a joke", "capital of France?" -- outside the application, said so.
 OFF_TOPIC = "OFF_TOPIC"
 
-KINDS = (GREETING, THANKS, ACKNOWLEDGEMENT, GOODBYE, SMALL_TALK, HELP, FRUSTRATION, OFF_TOPIC)
+KINDS = (GREETING, THANKS, ACKNOWLEDGEMENT, GOODBYE, SMALL_TALK, IDENTITY, HELP, FRUSTRATION, OFF_TOPIC)
 
 #: A word of the application's own domain anywhere in the message makes it a
 #: business question, never frustration or off-topic chat.
@@ -96,7 +97,10 @@ _PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
         (GREETING, r"^\s*good\s+(morning|afternoon|evening|day)\b"),
         (SMALL_TALK, r"^\s*(how\s+are\s+(you|u)|how\s+r\s+u|how('?s|\s+is)\s+(it\s+going|your\s+day)|"
                      r"what'?s\s+up|sup|how\s+do\s+you\s+do|kaise\s+ho|kaisa\s+hai|kya\s+haal|"
-                     r"aap\s+kaise\s+hain?|who\s+are\s+you|what\s+are\s+you|are\s+you\s+a\s+(bot|human|robot))\b"),
+                     r"aap\s+kaise\s+hain?)\b"),
+        # WHO, not HOW: "who are you?" was answered "I'm doing well, thanks for asking"
+        (IDENTITY, r"^\s*(who|what)\s+(are|r)\s+(you|u)\b|^\s*are\s+you\s+(a\s+|an\s+)?(bot|human|robot|ai|person)\b|"
+                   r"\b(aap|tum|tu)\s+(kaun|kon)\s+(ho|hai|hain)\b|\bintroduce\s+yourself\b"),
         (FRUSTRATION, _FILLER_LEAD + r"(ye\s+|yeh\s+|this\s+(is\s+)?|what\s+(a\s+)?|kya\s+)?"
                       r"(kya\s+)?(bakwaa?s|bekaa?r|faltu|useless|nonsense|rubbish|stupid|pathetic|worst|"
                       r"ghatiya|not\s+helpful|no\s+help|waste(\s+of\s+time)?|irritating|frustrating|annoying)"
@@ -240,6 +244,16 @@ _REPLIES: dict[str, dict[str, str]] = {
               "stage, documents and next steps.",
         "hi-Latn": "Main theek hoon, poochhne ke liye shukriya{smile} Main aapke application ka "
                    "stage, documents aur agla kadam bata sakta hoon.",
+    },
+    IDENTITY: {
+        "en": "I'm the LOS Copilot, an assistant for your loan application. I can check its stage, "
+              "documents, verification, KYC and what's pending, and help you upload documents. "
+              "I don't make lending decisions -- those are made by the credit team.",
+        "hi-Latn": "Main LOS Copilot hoon -- aapke loan application ka assistant. Main stage, documents, "
+                   "verification, KYC aur kya baaki hai bata sakta hoon, aur documents upload karne mein "
+                   "madad kar sakta hoon. Loan ka faisla main nahi karta -- woh credit team karti hai.",
+        "hi": "मैं LOS Copilot हूँ -- आपके लोन आवेदन का सहायक। मैं चरण, दस्तावेज़, सत्यापन, KYC और क्या बाकी "
+              "है बता सकता हूँ। लोन का फ़ैसला मैं नहीं करता -- वह क्रेडिट टीम करती है।",
     },
     HELP: {
         "en": "Of course{smile} I can tell you your application's stage, what's pending, why it's "

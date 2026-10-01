@@ -35,6 +35,7 @@ lender policy.
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 from app.agents.applicant.copilot.semantics.intents import WRITE_INTENTS, Intent
@@ -177,6 +178,32 @@ _OFFERS = (
 )
 
 
+#: Keyboard runs and repeated characters: input that is not words at all.
+_MASH = re.compile(r"(qwer|wert|erty|asdf|sdfg|dfgh|fghj|ghjk|hjkl|zxcv|xcvb|cvbn|vbnm|(.)\2{2,})", re.IGNORECASE)
+
+
+def _unreadable(message: str) -> bool:
+    """No letters at all, or mostly keyboard-mash / repeated characters."""
+    words = re.findall(r"[A-Za-z\u0900-\u0DFF\u0600-\u06FF]+", message or "")
+    if not words:
+        return True
+    mash = sum(1 for w in words if _MASH.search(w) or (
+        len(w) >= 4 and not re.search(r"[aeiouyAEIOUY\u0900-\u0DFF\u0600-\u06FF]", w)))
+    return mash * 2 >= len(words)
+
+
+def _in_domain(message: str) -> bool:
+    """Anything of the loan domain: a concept, a named document or a stage."""
+    try:
+        from app.agents.applicant.copilot.semantics import intents, semantic_frame
+
+        return bool(semantic_frame.concepts_in(message) or intents._document_type(message)
+                    or semantic_frame._named_stage(message)
+                    or re.search(r"\b(loan|application|case|applicant|kyc|emi|bank|credit|cpa|fos)\b", message, re.I))
+    except Exception:  # noqa: BLE001 - unknown: treat as in-domain (the general offer)
+        return True
+
+
 def clarification_for(message: str, *, has_case: bool) -> dict[str, object]:
     """
     The question to ask back, when the service will not guess.
@@ -193,6 +220,22 @@ def clarification_for(message: str, *, has_case: bool) -> dict[str, object]:
     question the classifier already failed on would be presenting a guess as
     a suggestion.
     """
+    # WHAT KIND OF "NOT UNDERSTOOD" (the industry fallback triage): unreadable
+    # input is asked to be rephrased; a question with nothing of the loan
+    # domain in it is declined as off-topic; only an in-domain question that
+    # was not recognised gets the "which of these did you mean?" offer.
+    # A FRAGMENT ("date", then "birth") is never off-topic: the conversation
+    # layer completes fragments after the generic offer. Off-topic needs a
+    # question of its own (three or more words) with nothing of the domain.
+    if _unreadable(message):
+        return {"reason": "UNCLEAR_INPUT",
+                "question": "Sorry, I didn't catch that. Could you rephrase? For example:",
+                "options": list(_OFFERS), "original_message": (message or "").strip()[:200]}
+    if len((message or "").split()) >= 3 and not _in_domain(message):
+        return {"reason": "OFF_TOPIC",
+                "question": ("That's outside what I can help with here -- I'm set up for your loan "
+                             "application. I can check its status, documents, verification or KYC for you."),
+                "options": list(_OFFERS), "original_message": (message or "").strip()[:200]}
     return {
         "reason": "INTENT_NOT_RECOGNISED",
         "question": (

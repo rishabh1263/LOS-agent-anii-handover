@@ -173,8 +173,10 @@ _TOOL = _rx(
     r"\b(any|every|all|whatever|arbitrary|available|each|some|internal|hidden|admin|"
     r"database|db|customer|the)?\s*(tools?|functions?|apis?|endpoints?|commands?|"
     r"scripts?|shell|stored\s+procedures?|procedures?|plugins?|skills?)\b",
-    r"\b(run|execute|exec|perform|fire|write)\b[^?]{0,20}\b(a|an|the|any|this|my|"
+    r"\b(run|execute|exec|perform|fire|write|hit|chala\w*|maar\w*|maro)\b[^?]{0,20}\b(a|an|the|any|this|my|"
     r"sql|database|db)?\s*(sql\s+)?(quer(y|ies)|sql)\b",
+    # Hinglish word order: the verb after the query ("sql query maar do")
+    r"\b(sql|db|database)\s+quer(y|ies)\b[^?]{0,20}\b(maar\w*|maro|chala\w*|run|hit|fire|execute)\b",
     r"\bquery\s+(the\s+)?(database|db|table|tables|records|system|backend)\b",
     r"\b(whatever|any)\s+tools?\s+(you\s+)?(have|can|got)\b",
 )
