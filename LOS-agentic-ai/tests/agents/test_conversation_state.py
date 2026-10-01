@@ -88,3 +88,16 @@ def test_state_never_holds_case_values():
     state = conv.ConversationState("c", "s")
     public = state.public()
     assert "applicant" not in public and "pan" not in str(public).lower()
+
+
+def test_the_same_clarification_is_not_asked_a_third_time():
+    """Unresolved replies get the question once more, then the overview option is answered."""
+    options = ["What documents does the co-applicant need?", "Are the co-applicant's documents verified?",
+               "What is pending for the co-applicant?"]
+    state = _state_with_pending(options)
+    first = conv.read_turn("why?", state)
+    assert first.outcome == conv.STILL_AMBIGUOUS
+    second = conv.read_turn("that document", state)
+    assert second.outcome == conv.OPTION_RESOLVED
+    assert second.message == "What is pending for the co-applicant?"
+    assert state.pending_clarification is None

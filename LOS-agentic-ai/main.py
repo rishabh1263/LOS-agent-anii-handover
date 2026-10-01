@@ -204,16 +204,39 @@ async def lifespan(app: FastAPI):
         import threading as _threading
 
         def _warm_retrieval() -> None:
-            try:
-                from app.knowledge.embeddings import get_query_embedder
+            # EACH STEP ON ITS OWN. They were one try-block: with no Qdrant
+            # configured the first step raised and the understanding stack and
+            # the knowledge index were never warmed -- measured, the first
+            # question that reached dense retrieval paid ~5 s building the
+            # handbook's vectors inside a user request.
+            def step(name: str, run) -> None:
+                try:
+                    run()
+                except Exception as exc:  # noqa: BLE001 - a cold step costs only its first use
+                    logger.info("Copilot warmup step %s skipped (%s)", name, type(exc).__name__)
+
+            def vector_store() -> None:
                 from app.knowledge.vector_store import get_vector_store
 
                 get_vector_store()._connect()
+
+            def embedder() -> None:
+                from app.knowledge.embeddings import get_query_embedder
+
                 get_query_embedder().embed("warmup")
-                # THE UNDERSTANDING STACK, loaded before the first user does:
+
+            def knowledge_index() -> None:
+                # builds the dense vectors of the handbook once (the 'vector'
+                # backend); a lexical backend just builds its BM25 index
+                from app import knowledge
+
+                knowledge.get_retriever().retrieve("what is KYC", "FOS", limit=1)
+
+            def understanding() -> None:
                 # configuration, lexicons, classifier and guardrail patterns
-                # (measured: ~1.5 s on the first request after a cold start).
-                from app.agents.applicant import conversation, intents, language
+                # (measured: ~1.5 s on the first request after a cold start)
+                from app.agents.applicant import conversation, language
+                from app.agents.applicant.copilot.semantics import intents
                 from app.security import guardrails
 
                 for sample in ("hi", "what is my stage?", "mera stage kya hai?"):
@@ -221,9 +244,10 @@ async def lifespan(app: FastAPI):
                     conversation.classify(sample)
                     language.detect(sample)
                     intents.understand(sample, has_case=True)
-            except Exception as exc:
-                logger.info("Copilot retrieval warmup skipped (%s)",
-                            type(exc).__name__)
+
+            for name, run in (("vector_store", vector_store), ("embedder", embedder),
+                              ("knowledge_index", knowledge_index), ("understanding", understanding)):
+                step(name, run)
 
         _threading.Thread(target=_warm_retrieval, name="copilot-warmup",
                           daemon=True).start()
@@ -482,8 +506,11 @@ async def _request_span(request, call_next):
     Never headers, query strings or bodies -- a JWT or a question has no
     attribute to travel under.
     """
+    from app.llm import trace as _llm_trace
     from app.observability.tracing import annotate, span
 
+    # one model-call ledger per request (app/llm/trace.py)
+    _llm_trace.begin()
     with span("http.request", http_method=request.method) as current:
         response = await call_next(request)
         route = request.scope.get("route")

@@ -619,6 +619,10 @@ def kyc_answer(memory: dict[str, Any], *, want_score: bool = False, want: str | 
         f"of {_and_list(codes)}" if codes else "")
     if raw_status in ("SKIPPED", "NOT_RUN", "NOT_EVALUATED"):
         score = None                 # a check that did not run scored nothing -- never "0"
+    elif str(score) in ("0", "0.0") and not comparisons and not [
+            f for f in (latest.get("checked") or [])
+            if isinstance(f, dict) and str(f.get("status") or "").upper() not in ("SKIPPED", "NOT_RUN", "MISSING")]:
+        score = None                 # nothing was compared ("insufficient sources"): a 0 is not a measurement
     because = f" because {why}" if why and raw_status not in ("PASS", "SUCCESS", "VERIFIED") else ""
     sources = _sources(findings=kyc)
     if want == "score":

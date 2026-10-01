@@ -31,6 +31,22 @@ sources: [WORKFLOW, LOS_INTEGRATION, OPERATOR]
 # Ordinary FOS / applicant tokens carry neither.
 transition_scope: "los.stage:write"
 
+# TWO EXPLICIT WAYS TO MOVE A CASE FORWARD (POST /api/v1/los/cases/{id}/stage `mode`):
+#
+#   GATED     (the default; what the Copilot's STAGE_TRANSITION action sends)
+#             the configured stage gate (app/config/stage_gates.yaml) is
+#             evaluated on the server, from the records, at the moment of the
+#             move. Not ready -> 409 GATE_NOT_MET; no criteria configured for
+#             the stage -> 409 GATE_CONFIGURATION_GAP. Never a silent pass.
+#   OVERRIDE  a deliberate, caller-decided ungated move (an operator, or a
+#             workflow integration that decides for itself -- the lifecycle's
+#             original contract): needs `override_scope` (or the service
+#             write-all scope); recorded on the history and in the response as
+#             an override, with the gate status it overrode.
+#
+# A status-only change within the current stage is not a move and is not gated.
+override_scope: "los.stage:override"
+
 stages:
   FOS:
     next: [CPA]

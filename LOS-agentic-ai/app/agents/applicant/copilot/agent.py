@@ -2708,6 +2708,13 @@ async def _gate_turn(req: Any, *, case_id: str, applicant_id: str | None, caller
                 finally:
                     credit_agent.CALLER.reset(token)
                 request_cache.invalidate()                          # an assessment may be new
+                try:
+                    # the case index follows the authoritative state it describes
+                    from app.store.ingest import _index_case
+
+                    _index_case(repository, case_id)
+                except Exception:  # noqa: BLE001 - retrieval also drops stale case text
+                    pass
                 if run.status == "SUCCEEDED":
                     ran.append("I ran credit underwriting.")
                 else:

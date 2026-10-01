@@ -145,3 +145,23 @@ def test_one_model_call_per_request(already, monkeypatch):
     assert calls == []
     assert out["answer"] == KNOWLEDGE_RESPONSE["answer"]
     assert out["understanding"]["natural_composition"]["reason"] == "MODEL_ALREADY_USED"
+
+
+def test_a_request_that_already_called_the_model_is_not_composed(monkeypatch):
+    """The ledger, not the answer's source, decides: an attempted-and-discarded call counts."""
+    from app.llm import trace
+
+    tokens = trace.begin()
+    try:
+        trace.record({"caller": "app.agents.applicant.knowledge_answer._phrase", "outcome": "OK", "ms": 1.0})
+        out = _run(KNOWLEDGE_RESPONSE, "Reworded.", monkeypatch)
+        assert out["understanding"]["natural_composition"]["reason"] == "MODEL_ALREADY_USED"
+    finally:
+        trace.end(tokens)
+
+
+def test_the_next_step_is_never_reworded(monkeypatch):
+    response = {**KNOWLEDGE_RESPONSE, "intent": "NEXT_ACTION", "category": "CASE_ONLY",
+                "answer": "Your next step is to collect and upload the missing document: Address Proof."}
+    out = _run(response, "Please upload your address proof next.", monkeypatch)
+    assert out["answer"] == response["answer"]

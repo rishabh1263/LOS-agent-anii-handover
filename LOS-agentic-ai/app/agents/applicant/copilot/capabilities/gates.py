@@ -332,7 +332,10 @@ def transition_action(case_id: str, gate: dict[str, Any]) -> dict[str, Any] | No
             "body": {"target_stage": gate["next_stage"], "expected_stage": gate["stage"],
                      "idempotency_key": transition_key(case_id, gate["stage"], gate["next_stage"], gate),
                      "reason": f"{gate['stage']} gate passed (Copilot evaluation, criteria "
-                               f"{gate.get('criteria_status')})", "source": "OPERATOR"}}
+                               f"{gate.get('criteria_status')})", "source": "OPERATOR",
+                     # re-evaluated by the server at the moment of the move: an
+                     # offer made when the case was ready never moves it once it is not
+                     "mode": "GATED"}}
 
 
 def transition_key(case_id: str, stage: str, target: str, gate: dict[str, Any]) -> str:

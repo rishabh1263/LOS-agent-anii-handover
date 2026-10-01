@@ -511,6 +511,16 @@ def _evidence(body: str, question: str, *, keep: int = 2) -> str:
     first = chosen[0]
     if pieces[first].endswith(":") and first + 1 < len(pieces) and first + 1 not in chosen:
         chosen = sorted(set(chosen[:keep - 1]) | {first, first + 1})
+    # A SENTENCE THAT POINTS BACK continues the one it points to: "KYC means
+    # cross-document consistency... It compares name, date of birth, PAN..."
+    # -- the second never repeats "KYC", so scored alone it was dropped and the
+    # answer lost what the check compares (a model rewording put it back at
+    # 2.4 s; the handbook already says it). Once, right after a chosen sentence.
+    elif len(chosen) < keep + 1:
+        follows = next((i + 1 for i in chosen if i + 1 < len(pieces) and i + 1 not in chosen
+                        and _re.match(r"(It|This|These|They|That)\b", pieces[i + 1])), None)
+        if follows is not None:
+            chosen = sorted(set(chosen) | {follows})
     return " ".join(pieces[i] for i in chosen)
 
 

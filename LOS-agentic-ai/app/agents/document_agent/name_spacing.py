@@ -193,10 +193,18 @@ def recover(image, token: OCRToken, value: str | None = None) -> str | None:
     if base.height > base.width * 1.3:
         variants += [base.rotate(90, expand=True), base.rotate(270, expand=True)]
 
+    from concurrent.futures import ThreadPoolExecutor
+
     for variant in variants:
         for target in CROP_HEIGHTS:
-            for mode in CROP_MODES:
-                recovered = _read_crop(variant, target, original, mode)
+            # THE MODES OF ONE CROP, CONCURRENTLY: each is its own Tesseract
+            # process, and the first success IN MODE ORDER is taken -- exactly
+            # what the sequential loop returned. A licence whose psm 7 read came
+            # back empty paid two reads in series (~350 ms); now it pays one.
+            with ThreadPoolExecutor(max_workers=len(CROP_MODES)) as pool:
+                results = list(pool.map(lambda mode: _read_crop(variant, target, original, mode),
+                                        CROP_MODES))
+            for recovered in results:
                 if recovered:
                     return recovered
     return None
