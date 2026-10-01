@@ -243,12 +243,27 @@ permissions:
 # names the destination and answers nothing on its behalf.
 # -----------------------------------------------------------------------------
 routing:
-  CREDIT_SCORE:      { route_to: CREDIT_AGENT,   message: "Credit and bureau information is handled by the downstream Credit process." }
-  RISK:              { route_to: RISK_AGENT,     message: "Risk scoring is handled by the downstream Risk process." }
-  KYC_DECISION:      { route_to: KYC_AGENT,      message: "The full KYC decision is handled by the downstream KYC process." }
-  RCU_FRAUD:         { route_to: RCU_AGENT,      message: "RCU and fraud investigation is handled by the downstream RCU process." }
-  FINANCIAL_ANALYSIS: { route_to: CREDIT_AGENT,   message: "Bank statement and income analysis is handled by the downstream Credit process." }
-  LOAN_DECISION:     { route_to: DECISION_AGENT, message: "The lending decision is made downstream, after CPA." }
+  CREDIT_SCORE:      { route_to: CREDIT_AGENT,   message: "Credit and bureau information is handled by the downstream Credit process.",
+                       suggestions: ["What is still pending on my case?", "What stage is my application at?"] }
+  RISK:              { route_to: RISK_AGENT,     message: "Risk scoring is handled by the downstream Risk process.",
+                       suggestions: ["What is still pending on my case?", "What stage is my application at?"] }
+  KYC_DECISION:      { route_to: KYC_AGENT,      message: "The full KYC decision is handled by the downstream KYC process.",
+                       suggestions: ["What is still pending on my case?", "What stage is my application at?"] }
+  RCU_FRAUD:         { route_to: RCU_AGENT,      message: "RCU and fraud investigation is handled by the downstream RCU process.",
+                       suggestions: ["What is still pending on my case?", "What stage is my application at?"] }
+  FINANCIAL_ANALYSIS: { route_to: CREDIT_AGENT,   message: "Bank statement and income analysis is handled by the downstream Credit process.",
+                       suggestions: ["What is still pending on my case?", "What stage is my application at?"] }
+  LOAN_DECISION:     { route_to: DECISION_AGENT, message: "The lending decision is made downstream, after CPA.",
+                       suggestions: ["What is still pending on my case?", "Is my case ready for CPA?"] }
+  # DOMAIN-ADJACENT (scope policy): a reason, a redirect, and what to ask instead.
+  ELIGIBILITY_AMOUNT: { route_to: CREDIT_AGENT,  message: "How much you can borrow, and when it is disbursed, are worked out by the credit team after CPA -- not at this stage.",
+                        suggestions: ["What loan amount did I apply for?", "What is still pending on my case?"] }
+  LOAN_TERMS:        { route_to: CREDIT_AGENT,   message: "Interest rate, EMI and fees are set when the loan is sanctioned after the credit assessment, so I can't quote or change them here. Your relationship manager can discuss terms.",
+                       suggestions: ["What is my loan amount and tenure?", "What is still pending on my case?"] }
+  INVESTMENT_ADVICE: { route_to: NONE,           message: "I can't give investment or financial advice -- I'm set up only for your loan application.",
+                       suggestions: ["What stage is my application at?", "Which documents are pending?"] }
+  PRODUCT_ADVICE:    { route_to: NONE,           message: "I can't recommend which loan to choose -- your relationship manager can help with that. I can tell you what each product needs.",
+                       suggestions: ["What documents do I need for a personal loan?", "What documents do I need for a home loan?"] }
 
 # -----------------------------------------------------------------------------
 # MCP RUNTIME -- how the Copilot reaches its case tools (app/mcp/runtime.py)

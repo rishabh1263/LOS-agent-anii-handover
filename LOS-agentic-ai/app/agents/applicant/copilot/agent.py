@@ -1237,7 +1237,9 @@ async def answer_question(
                 _access.authorize_conversation(caller.subject, caller.scopes,
                                                applicant_id=applicant_id, case_id=case_id)
                 standing, _src = case_memory_facts.explain(case_memory_facts.case_memory(case_id))
-                if standing:
+                # "Not yet. No findings have been recorded..." said nothing: with
+                # nothing recorded, the routed reason stands alone
+                if standing and not standing.lower().startswith("no findings"):
                     routed = f"Not yet. {standing} {routed}"
             except Exception:  # noqa: BLE001 - not provable: the routed answer alone
                 pass
@@ -1249,6 +1251,8 @@ async def answer_question(
             response_source=routing.ResponseSource.ROUTED.value,
             route_to=route.get("route_to", classification.route_to),
             answer=routed,
+            # WHAT TO ASK INSTEAD -- a fallback never dead-ends
+            suggested_questions=list(route.get("suggestions") or []),
         )
 
     # ---- a question about the rules, not about this case ---------------

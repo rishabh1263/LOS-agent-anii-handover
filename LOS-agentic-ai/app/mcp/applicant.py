@@ -376,10 +376,16 @@ async def document_verification_get(
                 "detail": f"No {wanted} document has been uploaded for this case.",
             }
         latest = sorted(matches, key=lambda d: d.updated_at)[-1]
+        row = _document_json(latest)
+        # THE PERSISTED VERIFICATION NUMBERS (same source as documents.get):
+        # the latest VERIFICATION finding's, null when none was produced
+        recorded = _verification_scores(cid).get(str(row.get("document_id"))) or {}
+        row["verification_score"] = recorded.get("score")
+        row["verification_confidence"] = recorded.get("confidence")
         return {
             "document_type": wanted,
             "found": True,
-            **_document_json(latest),
+            **row,
         }
 
     return await _envelope("documents.verification", run)

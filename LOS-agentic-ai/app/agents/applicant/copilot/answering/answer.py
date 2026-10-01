@@ -360,6 +360,11 @@ def deterministic_answer(
             status = payload.get("status")
             codes = payload.get("reason_codes") or []
             sentence = f"{name} is {status}."
+            score = payload.get("verification_score")
+            if score is not None:
+                confidence = payload.get("verification_confidence")
+                sentence = (f"{name} is {status} (verification score {score}"
+                            + (f", confidence {confidence}" if confidence is not None else "") + ").")
             if str(status).upper() in {"VERIFIED", "PASS"}:
                 sentence += " " + INTEGRITY_ONLY
             if codes:
