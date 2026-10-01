@@ -57,6 +57,8 @@ _STATE_QUESTION = re.compile(
     r"\bkya\b[^?]{0,30}\bverif", re.I)
 _ALL = re.compile(r"\b(all|every|sab|sabhi|saare|sare|sabko|everything|documents|docs)\b", re.I)
 _SCORE = re.compile(r"\b(score|confidence)\b", re.I)
+#: "score of my documents" -- the documents as a set, not one type
+_DOCUMENTS = re.compile(r"\b(documents?|docs?|kagaz\w*|dastavez\w*)\b", re.I)
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,8 @@ def request(message: str) -> Request | None:
     doc = intents._document_type(text)
     if _SCORE.search(text) and doc and not re.search(r"\bkyc\b", text, re.I):
         return Request(REPORT, doc)                 # "PAN ka score kitna hai?"
+    if _SCORE.search(text) and _DOCUMENTS.search(text) and not re.search(r"\b(kyc|credit|cibil|bureau)\b", text, re.I):
+        return Request(REPORT)                      # "score of my documents?"
     if not _VERIFY.search(text):
         return None
     if _STATE_QUESTION.search(text) and not re.search(r"\b(karo|kar\s*do|kardo|please|pls)\b", text, re.I):
@@ -329,7 +333,8 @@ def _line(entry: dict[str, Any], multi_party: bool) -> str:
             "MISSING": "not uploaded yet"}.get(verdict, verdict.lower())
     parts = [f"{label} -- {said}"]
     if entry.get("score_recorded"):
-        parts.append(f"score {entry['score']}")
+        parts.append(f"score {entry['score']}"
+                     + (f", confidence {entry['confidence']}" if entry.get("confidence") is not None else ""))
     if entry.get("reason") and verdict in ("FAIL", "REVIEW"):
         parts.append(entry["reason"].rstrip(".").lower())
     step = entry.get("next_action") or {}
@@ -419,10 +424,18 @@ async def run(req: Request, *, documents: list[dict[str, Any]], checklist: list[
     counts = block["summary"]
     lines = [_line(e, multi_party) for e in block["documents"]]
     reused = sum(1 for e in block["documents"] if e["source"] == "RECORDED" and e["verdict"] != "PENDING")
+    if req.scope == REPORT and not req.document_type:
+        # EVERY uploaded document's recorded numbers, one line each
+        lines = [_line(e, multi_party) for e in block["documents"]]
+        head = ("Recorded verification scores:\n" + "\n".join(f"- {line}" for line in lines)
+                if lines else "No documents have been uploaded on this application yet.")
+        return {"answer": head, "verification": block, "response_type": "DOCUMENT_VERIFICATION_RESULT",
+                "actions": [], "processing": None}
     if req.scope == REPORT:
         entry = block["documents"][0] if block["documents"] else None
         if entry and entry["score_recorded"]:
-            head = f"The recorded verification score for the {entry['label']} is {entry['score']}."
+            head = f"The recorded verification score for the {entry['label']} is {entry['score']}"
+            head += (f", with confidence {entry['confidence']}." if entry.get("confidence") is not None else ".")
         elif entry:
             head = (f"No verification score was recorded for the {entry['label']} -- its recorded result "
                     f"is: {_line(entry, multi_party).split(' -- ', 1)[1]}.")

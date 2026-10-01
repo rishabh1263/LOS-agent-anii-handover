@@ -1595,8 +1595,8 @@ async def _copilot_upload(
         # The single-document shape the earlier contract published, kept
         # alongside the list so a caller written against it still works.
         verification.update({
-            k: outcomes[0][k] for k in
-            ("document_type", "verification", "status", "reason_codes",
+            k: outcomes[0].get(k) for k in
+            ("document_type", "verification", "status", "reason_codes", "score", "confidence",
              "extraction_released", "expected_type",
              "authenticity", "verification_scope", "issuer_verified",
              "issuer_verification", "fraud_signals")
@@ -1619,7 +1619,11 @@ async def _copilot_upload(
 
         doc_name = _ustructured._readable_type(one.get("document_type"))
         doc_name = doc_name[:1].upper() + doc_name[1:]
-        answer = f"{doc_name} uploaded. Verification: {one['verification']}."
+        answer = f"{doc_name} uploaded. Verification: {one['verification']}"
+        if one.get("score") is not None:
+            answer += f" (score {one['score']}" + (
+                f", confidence {one['confidence']}" if one.get("confidence") is not None else "") + ")"
+        answer += "."
     else:
         # THE SAME FILE TWICE IN ONE REQUEST is stored once (keyed on case,
         # party and file): counted once here too, and said

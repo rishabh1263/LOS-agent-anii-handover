@@ -670,6 +670,15 @@ def clarification(frame: SemanticFrame | None, *, has_case: bool) -> dict[str, A
                             "What is pending for the co-applicant?"]}
     if frame.object is Object.NONE and frame.task is Task.UNKNOWN:
         return None
+    if frame.object in (Object.DOCUMENTS, Object.DOCUMENT) and frame.task is Task.UNKNOWN \
+            and frame.document_type:
+        # "help with PAN": the question is about ONE document -- ask about it
+        name = "PAN" if frame.document_type == "PAN" else frame.document_type.replace("_", " ").title()
+        return {"reason": "TASK_UNCLEAR",
+                "question": (f"What would you like to do with the {name} -- check its verification, "
+                             f"upload it, or know why it's needed?"),
+                "options": [f"Is my {name} verified?", f"How do I upload my {name}?",
+                            f"Why is {name} required?"]}
     if frame.object in (Object.DOCUMENTS, Object.DOCUMENT) and frame.task is Task.UNKNOWN:
         return {"reason": "TASK_UNCLEAR",
                 "question": ("About the documents: do you want the list that is required, "
