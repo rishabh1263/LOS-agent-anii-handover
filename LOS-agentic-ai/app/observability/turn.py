@@ -97,6 +97,25 @@ def build(*, request_id: str, surface: str, claims: dict[str, Any] | None,
         fallback += 1
     if routing.get("phrased_by_model") and source_upper not in ("LLM", "STRUCTURED_AND_LLM"):
         fallback += 1
+    # THE CALLS THAT ACTUALLY HAPPENED (app/llm/trace.py), not an inference
+    # from response fields; inference missed a second call in one request.
+    from app.llm import trace as _llm_trace
+
+    natural = ((understanding or {}).get("natural_composition") or {}) if isinstance(understanding, dict) else {}
+    for entry in _llm_trace.calls():
+        if entry.get("used") is not None:
+            continue
+        if str(entry.get("caller", "")).endswith("composer._reword"):
+            _llm_trace.mark_used("composer._reword", bool(natural.get("accepted")))
+        elif entry.get("outcome") == "OK":
+            _llm_trace.mark_used(str(entry.get("caller")), source_upper in ("LLM", "STRUCTURED_AND_LLM"))
+    ledger = _llm_trace.summary()
+    if ledger["calls"]:
+        attempted = True
+        completed = ledger["used"] > 0
+        fallback = max(fallback, ledger["calls"] - ledger["used"])
+        if model_used is None:
+            model_used = (ledger["detail"][0] or {}).get("model")
     guardrail = result.get("guardrail") if isinstance(result.get("guardrail"), dict) else None
     capability = _capability_for(str(result.get("intent") or ""))
     return {
@@ -117,6 +136,7 @@ def build(*, request_id: str, surface: str, claims: dict[str, Any] | None,
         "model_used": model_used,
         "model_attempted": int(attempted),
         "model_calls": int(completed),
+        "model_ledger": ledger,
         "model_fallbacks": fallback,
         "tools": tools,
         "tool_calls": len(tool_trace) if isinstance(tool_trace, list) else len(tools),

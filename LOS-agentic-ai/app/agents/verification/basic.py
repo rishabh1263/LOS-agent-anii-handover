@@ -210,6 +210,11 @@ MIN_CLASS_SCORE = 0.30
 
 #: MRZ line 2 after compaction: number (letter + 7 digits), its check digit,
 #: nationality (3, OCR may read IND as 1N0), DOB + check, sex, expiry + check.
+#: MRZ LINE 1 on the RAW text (fillers kept): "P<" then the issuing state and the
+#: name, separated and padded by "<" runs. The "<<" separator plus a long filler run
+#: is a passport signature no other Indian identity document carries; checked on the
+#: raw text because compaction strips every "<". Tolerates a garbled state code.
+_MRZ_LINE1 = re.compile(r"P<[A-Z0-9<]{3}[A-Z0-9<]*<<[A-Z0-9<]*<{5,}")
 _MRZ_LINE2 = re.compile(r"[A-Z]\d{7}\d[A-Z0-9]{3}\d{6}\d[MF]\d{6}\d")
 _MRZ_EXPIRY = re.compile(r"[A-Z]\d{7}\d[A-Z0-9]{3}\d{6}\d[MF](\d{6})(\d)")
 
@@ -238,6 +243,16 @@ def _mrz_expiry_check(detected, compact: str, checks: list, reasons: list) -> No
         return
     expiry = _mrz_expiry(compact)
     if expiry is None:
+        # AN MRZ IS THERE BUT ITS EXPIRY DOES NOT VERIFY: said specifically, never
+        # passed -- the expiry stays unestablished (no document_not_expired check)
+        match = _MRZ_EXPIRY.search(compact or "")
+        if match and "MRZ_CHECK_DIGIT_FAILED" not in reasons:
+            reasons.append("MRZ_CHECK_DIGIT_FAILED")
+        # A PASSPORT WITH NO ESTABLISHED EXPIRY IS NOT A PASS: neither a printed
+        # expiry nor a check-digit-verified MRZ expiry was read, so whether it is
+        # still valid is unknown -- REVIEW, said as such (never assumed valid)
+        if "EXPIRY_NOT_ESTABLISHED" not in reasons:
+            reasons.append("EXPIRY_NOT_ESTABLISHED")
         return
     from datetime import date as _date
 
@@ -490,7 +505,7 @@ def _verdict_from_text_ungated(
         ),
     )
 
-    detected, score = classify(compact)
+    detected, score = classify(compact, raw=text.upper())
 
     checks: list[QuickCheck] = [
         QuickCheck(
@@ -913,6 +928,7 @@ def _marker_hits(
 
 def classify(
     text_compact: str,
+    raw: str = "",
 ) -> tuple[DocumentClass, float]:
     """
     Score every supported document class and return the strongest match.
@@ -940,6 +956,11 @@ def classify(
     # nothing and the passport was rejected as unrecognised.
     if _MRZ_LINE2.search(text_compact):
         scores[DocumentClass.PASSPORT] = scores.get(DocumentClass.PASSPORT, 0.0) + 0.50
+    # LINE 1 TOO: measured on the 30 passport samples, 7 were UNRECOGNISED --
+    # among them a perfectly read line 1 ("P<INDNAGOOR<GANI<<SYED...") whose line 2
+    # lost its nationality to OCR, and one whose state code read as "120V".
+    if raw and _MRZ_LINE1.search(raw.replace(" ", "")):
+        scores[DocumentClass.PASSPORT] = scores.get(DocumentClass.PASSPORT, 0.0) + 0.40
 
     best = max(
         scores,
@@ -1120,7 +1141,7 @@ def _quick_verify_from_tokens(
             detected, score = classification
         else:
             detected, score = classify(
-                compact
+                compact, raw=raw_text
             )
 
         checks.append(
@@ -1423,6 +1444,10 @@ def _quick_verify_from_tokens(
             in reasons
             or "POOR_SCAN_QUALITY"
             in reasons
+            or "EXPIRY_NOT_ESTABLISHED"
+            in reasons
+            or "MRZ_CHECK_DIGIT_FAILED"
+            in reasons
             or score < min_confidence()
         ):
             status = "REVIEW"
@@ -1612,16 +1637,11 @@ def quick_verify(
     # ---------------------------------------------------------------
     # Initial classification probe
     # ---------------------------------------------------------------
-    detected_probe, probe_score = classify(
-        re.sub(
-            r"[^A-Z0-9]",
-            "",
-            " ".join(
-                token.text
-                for token in tokens
-            ).upper(),
-        )
-    )
+    # ORIENTATION PROBES DO NOT USE THE MRZ LINE-1 SIGNAL: it is legible even on a
+    # sideways scan, and accepting the sideways image skipped the rotation that
+    # lets the MRZ expiry be read (measured: 6 passports lost their expiry).
+    _probe_raw = " ".join(token.text for token in tokens).upper()
+    detected_probe, probe_score = classify(re.sub(r"[^A-Z0-9]", "", _probe_raw))
 
     # ---------------------------------------------------------------
     # Rotation fallback for legacy verification path
@@ -1657,16 +1677,8 @@ def quick_verify(
                 )
                 continue
 
-            probe, score_r = classify(
-                re.sub(
-                    r"[^A-Z0-9]",
-                    "",
-                    " ".join(
-                        token.text
-                        for token in rotated_tokens
-                    ).upper(),
-                )
-            )
+            _rot_raw = " ".join(token.text for token in rotated_tokens).upper()
+            probe, score_r = classify(re.sub(r"[^A-Z0-9]", "", _rot_raw))
 
             if (
                 probe
@@ -1740,7 +1752,7 @@ def quick_verify(
     )
 
     detected, score = classify(
-        compact
+        compact, raw=raw_text
     )
 
     checks.append(
@@ -2027,6 +2039,10 @@ def quick_verify(
         "IDENTIFIER_NOT_FOUND"
         in reasons
         or "POOR_SCAN_QUALITY"
+        in reasons
+        or "EXPIRY_NOT_ESTABLISHED"
+        in reasons
+        or "MRZ_CHECK_DIGIT_FAILED"
         in reasons
         or score < min_confidence()
     ):

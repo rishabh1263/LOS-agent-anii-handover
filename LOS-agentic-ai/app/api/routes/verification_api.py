@@ -153,5 +153,17 @@ async def verify_document(
         temp.unlink(missing_ok=True)
 
     result.processing_ms = round((time.perf_counter() - started) * 1000, 2)
+    # EVERY VERIFY CARRIES A SCORE AND A CONFIDENCE, from the shared scorer over
+    # this verification's own checks (no number is filled in where none was scored)
+    try:
+        from app.agents.verification import scoring
+
+        checks = scoring.from_named([c.model_dump() for c in result.checks])
+        if checks:
+            published = scoring.assess(str(result.document_type or asserted or "DOCUMENT"), checks).public()
+            result.verification_score = published.get("verification_score")
+            result.verification_confidence = published.get("verification_confidence")
+    except Exception as exc:  # noqa: BLE001 - a score that cannot be computed is absent, not invented
+        logger.warning("verification score not computed: %r", exc)
     _apply_status(result, response)
     return result

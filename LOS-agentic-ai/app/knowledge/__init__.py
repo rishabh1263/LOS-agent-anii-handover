@@ -29,6 +29,7 @@ from app.knowledge.models import Chunk, RetrievalResult, Retrieved
 from app.knowledge.repository import KnowledgeError, KnowledgeRepository
 from app.knowledge.retriever import (
     EmbeddingRetriever,
+    FallbackRetriever,
     LexicalRetriever,
     Retriever,
 )
@@ -53,7 +54,7 @@ _RETRIEVER: Retriever | None = None
 _DEFAULT_ROOT = Path(__file__).resolve().parents[2] / "knowledge"
 
 #: Retriever backends, by name. Adding one is adding an entry.
-_BACKENDS = {"lexical", "embedding"}
+_BACKENDS = {"lexical", "embedding", "vector"}
 
 
 def knowledge_root() -> Path:
@@ -67,8 +68,32 @@ def enabled() -> bool:
 
 
 def backend() -> str:
-    name = (os.getenv("KNOWLEDGE_BACKEND") or "lexical").strip().lower()
+    """
+    KNOWLEDGE_BACKEND, else `vector` when a real embedding model is
+    configured (EMBEDDING_PROVIDER=ollama), else `lexical`. The hashing
+    embedder is never a default: measured on the FOS corpus it ranked worse
+    than BM25 (P@1 0.268 vs 0.537) and was confident about 3 of 6 off-topic
+    questions.
+    """
+    from app.knowledge.embeddings import provider_name
+
+    default = "vector" if provider_name() == "ollama" else "lexical"
+    name = (os.getenv("KNOWLEDGE_BACKEND") or default).strip().lower()
     return name if name in _BACKENDS else "lexical"
+
+
+def vector_threshold() -> float:
+    """
+    LOS_KNOWLEDGE_VECTOR_MIN_SCORE: the cosine a dense hit must reach.
+    0.53 is CALIBRATED on the FOS corpus with nomic-embed-text: all 41
+    answerable questions scored >= 0.573 and all 14 off-topic questions
+    (English and Hinglish) <= 0.498. Recalibrate when the corpus or the
+    embedding model changes.
+    """
+    try:
+        return float(os.getenv("LOS_KNOWLEDGE_VECTOR_MIN_SCORE", "0.53"))
+    except (TypeError, ValueError):
+        return 0.53
 
 
 def default_threshold() -> float:
@@ -109,7 +134,18 @@ def get_retriever() -> Retriever:
         with _LOCK:
             if _RETRIEVER is None:
                 repository = get_repository()
-                if backend() == "embedding":
+                if backend() == "vector":
+                    from app.knowledge.embeddings import get_query_embedder, provider_name
+
+                    lexical = LexicalRetriever(repository, default_threshold=default_threshold())
+                    if provider_name() == "ollama":
+                        _RETRIEVER = FallbackRetriever(
+                            EmbeddingRetriever(repository, get_query_embedder(),
+                                               default_threshold=vector_threshold()),
+                            lexical)
+                    else:                  # no real model configured: never hashing
+                        _RETRIEVER = lexical
+                elif backend() == "embedding":
                     _RETRIEVER = EmbeddingRetriever(
                         repository, HashingEmbedding(),
                         default_threshold=default_threshold(),

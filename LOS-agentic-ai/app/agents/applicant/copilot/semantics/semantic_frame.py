@@ -806,24 +806,42 @@ async def llm_frame(message: str, *, timeout: float | None = None,
     limit = timeout or llm_timeout_seconds()
     started = time.perf_counter()
     trace["consulted"] = True
+    real = generator is _ollama_generate
+
+    def _ledger(outcome: str, output: str = "", used: bool = False) -> None:
+        # this call bypasses the client factory (raw /api/chat): recorded here
+        if not real:
+            return
+        from app.llm import trace as _llm_trace
+        from app.llm.config import ollama_model
+
+        _llm_trace.record({"caller": f"{__name__}.llm_frame", "model": ollama_model(), "host": "local",
+                           "prompt_chars": len(_SYSTEM) + min(len(str(message)), 400), "max_tokens": 64,
+                           "outcome": outcome, "ms": trace["ms"], "output_chars": len(output or ""),
+                           "used": used})
+
     try:
         call = generator(message, limit) if generator is _ollama_generate else generator(message)
         text = await asyncio.wait_for(call, timeout=limit)
     except (asyncio.TimeoutError, TimeoutError):
         trace.update(status="TIMEOUT", ms=round((time.perf_counter() - started) * 1000, 2))
+        _ledger("TIMEOUT")
         return None, trace
     except Exception as exc:
         trace.update(status=f"ERROR:{type(exc).__name__}",
                      ms=round((time.perf_counter() - started) * 1000, 2))
+        _ledger("ERROR")
         return None, trace
     trace["ms"] = round((time.perf_counter() - started) * 1000, 2)
     try:
         data = json.loads(_json_only(text))
     except (TypeError, ValueError):
         trace["status"] = "INVALID_JSON"
+        _ledger("OK", text, used=False)
         return None, trace
     frame = validate_llm_frame(data, language=_language(message))
     trace["status"] = "OK" if frame else "INVALID_FRAME"
+    _ledger("OK", text, used=frame is not None)
     return frame, trace
 
 

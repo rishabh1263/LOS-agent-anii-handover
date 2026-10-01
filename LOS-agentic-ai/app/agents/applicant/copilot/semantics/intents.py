@@ -18,6 +18,7 @@ data.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 from dataclasses import dataclass, field
@@ -363,7 +364,7 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
 _DOC_TYPES = (
     r"(pan|aadhaar|aadhar|driving\s*licence|driving\s*license|dl|voter\s*id|"
     r"voter|passport|bank\s*statement|bank\s*account|bank\s*details|"
-    r"account\s*statement|address\s*proof|photo|photograph|passport\s*size\s*photo|"
+    r"account\s*statement|address\s*proof|signature\s*photo|signature|photo|photograph|passport\s*size\s*photo|"
     # The lender's taxonomy: income, property and business evidence.
     r"salary\s*slip|pay\s*slip|payslip|itr|income\s*tax\s*return|form\s*16|"
     r"sale\s*deed|mark\s*sheet|marksheet|business\s*proof\s*[12])"
@@ -1108,6 +1109,7 @@ _DOC_ALIASES = {
     "account statement": "BANK_STATEMENT",
     "address proof": "ADDRESS_PROOF",
     "photo": "PHOTO", "photograph": "PHOTO", "passport size photo": "PHOTO",
+    "signature": "SIGNATURE", "signature photo": "SIGNATURE",
     "salary slip": "SALARY_SLIP", "pay slip": "SALARY_SLIP",
     "payslip": "SALARY_SLIP",
     "itr": "ITR", "income tax return": "ITR",
@@ -1798,10 +1800,101 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
 
     if normalised.changed:
         classification.normalized = text
+    why = _why_required(message, classification)
+    if why is not None:
+        return why
     general = _general_question(message, classification)
     if general is not None:
         return general
+    handbook = _answered_by_the_handbook(message, classification)
+    if handbook is not None:
+        return handbook
     return classification
+
+
+#: "WHY is <document> needed?" -- a why-word and a requirement-word, in any of the
+#: languages the lexicons read. With a NAMED document this asks for the reason that
+#: document is on the case's checklist (the configured reason), not for a list.
+_WHY_WORD = re.compile(r"\b(why|kyu|kyun|kyon|kyo|kaahe|kashasathi)\b|क्यों|क्यूँ|कशासाठी|का\s+कारण", re.IGNORECASE)
+_NEED_WORD = re.compile(r"\b(required|require|requires|need|needed|needs|necessary|mandatory|asked|ask|chahiye|"
+                        r"chaiye|zaroori|zaruri|jaruri|jaroori|lagta|lagega|lagtat|lagte)\b|"
+                        r"ज़रूरी|जरूरी|आवश्यक|चाहिए|लागतो|लागते|लागेल", re.IGNORECASE)
+
+
+def _why_required(message: str, classification: Classification) -> Classification | None:
+    """
+    Why a NAMED document is required -> product knowledge, answered from that
+    document's CONFIGURED reason (knowledge_facts.answer_for), cited as the
+    configured document policy. General, not about the customer's case.
+    """
+    text = message or ""
+    if not (_WHY_WORD.search(text) and _NEED_WORD.search(text)):
+        return None
+    from app.agents.applicant.copilot.semantics import semantic_frame
+
+    frame = getattr(classification, "frame", None)
+    document = (getattr(frame, "document_type", None) or classification.document_type
+                or semantic_frame._document_type(text))
+    if not document:
+        return None
+    return Classification(Intent.FOS_KNOWLEDGE, confidence="high", document_type=str(document).upper(),
+                          matched_on="why_required", frame=frame, understanding=classification.understanding)
+
+
+#: Words that tie a question to THIS case or person ("my", "mera", "iska", ...).
+_CASE_ANCHOR = re.compile(
+    r"\b(my|mine|our|ours|mera|meri|mere|hamara|hamari|hamare|iska|iski|iske|uska|uski|uske|"
+    r"majha|majhi|majhe|maza|mazi|maze|amcha|amchi)\b|मेरा|मेरी|मेरे|हमारा|हमारी|इसका|इसकी|माझा|माझी|माझे",
+    re.IGNORECASE)
+#: Live-state intents a process question can be mistaken for. NOT
+#: DOCUMENTS_REQUIRED: what a product requires is the configured policy's to
+#: say, and a handbook page about it may be older than the configuration.
+_HANDBOOK_CANDIDATES = frozenset({"DOCUMENTS_MISSING", "DOCUMENTS_PENDING",
+                                  "DOCUMENTS_UPLOADED", "DOCUMENT_VERIFICATION", "NEXT_ACTION",
+                                  "APPLICANT_PROFILE", "PENDING_ITEMS"})
+
+
+def _handbook_floor() -> float:
+    try:
+        return float(os.getenv("LOS_KNOWLEDGE_ROUTE_MIN_SCORE", "0.80"))
+    except ValueError:
+        return 0.80
+
+
+def _answered_by_the_handbook(message: str, classification: Classification) -> Classification | None:
+    """
+    A PROCESS QUESTION THE HANDBOOK ANSWERS ALMOST WORD FOR WORD.
+
+    The frame reads any upload/document question as a request for this case's
+    checklist: "can I upload several documents at once?" was answered with the
+    missing-documents list. Retrieval scores alone cannot route -- measured on
+    the FOS corpus, live questions score 0.58-0.80 and process questions
+    0.57-0.86 -- so this is deliberately narrow: ONLY a question that names no
+    case or person of its own (no "my", "mera", "iska", ...) AND whose dense
+    match to a handbook section is >= 0.80 (no anchor-free live question
+    reached 0.75). Only with the dense backend: BM25 scores are another scale.
+    Live truth is never read from the handbook; this only decides that the
+    question was not about live truth.
+    """
+    if classification.intent.value not in _HANDBOOK_CANDIDATES or _CASE_ANCHOR.search(message or ""):
+        return None
+    try:
+        from app import knowledge
+        from app.knowledge.retriever import FallbackRetriever
+
+        if knowledge.backend() != "vector":
+            return None
+        retriever = knowledge.get_retriever()
+        if not isinstance(retriever, FallbackRetriever):
+            return None
+        result = retriever.retrieve(message, "FOS", limit=1)
+        if retriever.last_used != "primary" or not result.hits or result.hits[0].score < _handbook_floor():
+            return None
+    except Exception:  # noqa: BLE001 - no handbook signal: the frame's reading stands
+        return None
+    return Classification(Intent.FOS_KNOWLEDGE, confidence="high", document_type=classification.document_type,
+                          matched_on=f"handbook:{result.hits[0].chunk.heading[:60]}",
+                          frame=classification.frame, understanding="HANDBOOK_MATCH")
 
 
 #: A question about THIS case names it: my / mera / I / our case ...
@@ -1935,8 +2028,8 @@ def _general_question(message: str, classification: Classification) -> Classific
     # "which documents are mandatory?" is this case's checklist; only a named
     # PRODUCT ("for a home loan", "होम लोन के लिए") makes it a general question
     if classification.intent is Intent.DOCUMENTS_REQUIRED and not re.search(
-            r"(for|of)\s+(a|an|any)?\s*(home|personal|business|vehicle|car|gold|education|"
-            r"housing|two[- ]wheeler|msme)\s+loans?|loan\s+ke\s+liye|लोन\s+के\s+लिए|"
+            r"\b(for|of)\s+(a|an|any)?\s*(home|personal|business|vehicle|car|gold|education|"
+            r"housing|two[- ]wheeler|msme)\s+loans?\b|\bloan\s+ke\s+liye\b|लोन\s+के\s+लिए|"
             r"कर्जासाठी", text, re.I):
         return None
     if classification.matched_on == "current_stage" and not re.search(

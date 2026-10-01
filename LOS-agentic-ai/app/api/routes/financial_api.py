@@ -101,6 +101,20 @@ async def verify_financial(
         temp.unlink(missing_ok=True)
 
     verdict = verify_financial_result(result, request_id, started)
+    # THE SAME SCORE AND CONFIDENCE every verify publishes: the shared scorer over
+    # this verdict's own checks (absent, never invented, when nothing scores)
+    try:
+        from app.agents.verification import scoring
+
+        checks = scoring.from_named([c.model_dump() if hasattr(c, "model_dump") else c for c in verdict.checks])
+        if checks:
+            published = scoring.assess(str(verdict.document_type or "FINANCIAL"), checks).public()
+            verdict.verification_score = published.get("verification_score")
+            verdict.verification_confidence = published.get("verification_confidence")
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning("financial verification score not computed: %r", exc)
     if verdict.status is VerificationStatus.FAIL:
         response.status_code = 422
     return verdict

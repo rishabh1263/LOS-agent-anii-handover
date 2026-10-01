@@ -206,7 +206,8 @@ def checklist_for(product: str | None) -> list[dict[str, Any]]:
     else:
         if resolution.policy_id != policy.LEGACY_POLICY_ID:
             return [{"slot": r.slot, "accepts": list(r.accepts),
-                     "mandatory": r.mandatory}
+                     "mandatory": r.mandatory,
+                     "reason": " ".join(str(r.reason or "").split())}
                     for r in resolution.requirements]
 
     return _checklist_from_yaml(product)
@@ -230,16 +231,18 @@ def _checklist_from_yaml(product: str | None) -> list[dict[str, Any]]:
         for item in (config.get(group) or []):
             # A bare string is accepted as shorthand for a slot that accepts
             # only the type of the same name.
+            reason = ""
             if isinstance(item, str):
                 slot, accepts = item.upper(), [item.upper()]
             else:
                 slot = str(item.get("slot") or "").upper()
                 accepts = [str(a).upper() for a in (item.get("accepts") or [])]
+                reason = " ".join(str(item.get("reason") or "").split())
                 if slot and not accepts:
                     accepts = [slot]
             if slot and accepts:
                 entries.append(
-                    {"slot": slot, "accepts": accepts, "mandatory": mandatory}
+                    {"slot": slot, "accepts": accepts, "mandatory": mandatory, "reason": reason}
                 )
     return entries
 

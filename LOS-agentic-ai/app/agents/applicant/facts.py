@@ -30,7 +30,7 @@ disagree with itself.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 from app.agents.applicant import config
@@ -87,6 +87,8 @@ class FactSet:
     accepts: dict[str, tuple[str, ...]]
     known_types: frozenset[str]
     known_slots: frozenset[str]
+    #: slot -> the configured reason it is on the checklist (may be empty)
+    reasons: dict[str, str] = field(default_factory=dict)
 
     def accepted_for(self, slot: str) -> tuple[str, ...]:
         return self.accepts.get(str(slot).upper(), ())
@@ -116,12 +118,14 @@ def fact_set(product: str | None = None) -> FactSet:
     accepts: dict[str, tuple[str, ...]] = {}
     required: list[str] = []
     optional: list[str] = []
+    reasons: dict[str, str] = {}
 
     for entry in entries:
         slot = str(entry.get("slot") or "").upper()
         if not slot:
             continue
         accepts[slot] = tuple(str(a).upper() for a in (entry.get("accepts") or []))
+        reasons[slot] = " ".join(str(entry.get("reason") or "").split())
         (required if entry.get("mandatory", True) else optional).append(slot)
 
     try:
@@ -153,6 +157,7 @@ def fact_set(product: str | None = None) -> FactSet:
         known_types=(known_types | policy_types
                      | {t for types in accepts.values() for t in types}),
         known_slots=frozenset(accepts) | policy_slots,
+        reasons=reasons,
     )
 
 
@@ -264,6 +269,56 @@ def _named_type(message: str, facts: FactSet) -> str | None:
     return None
 
 
+def _and_list(values) -> str:
+    names = [label(v) for v in values]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1] if names else ""
+
+
+def _why_required(message: str, facts: FactSet, slot: str | None) -> "Fact | None":
+    """
+    "Why is <document> required?" -- GENERIC product knowledge (this path reads no
+    case data): the document's configured reason, and which products ask for it,
+    required or optional. A question naming a product is answered for that one.
+    """
+    from app.agents.applicant.copilot.semantics import intents as _intents
+
+    if not (_intents._WHY_WORD.search(message or "") and _intents._NEED_WORD.search(message or "")):
+        return None
+    named = _intents._document_type(message) or slot
+    if not named:
+        return None
+    named = str(named).upper()
+    asked_product = product_in(message)
+    products = [asked_product] if asked_product else list(_products())
+    required_in, optional_in, reason, owner_slot = [], [], "", None
+    for product in products:
+        fs = facts if (asked_product and product == asked_product) else fact_set(product)
+        owner = named if named in fs.accepts else next(
+            (s for s, types in fs.accepts.items() if named in types), None)
+        if owner is None:
+            continue
+        owner_slot = owner_slot or owner
+        reason = reason or fs.reasons.get(owner, "")
+        (required_in if owner in fs.required_slots else optional_in).append(product)
+    if not (required_in or optional_in):
+        scope = f"the {label(asked_product)} checklist" if asked_product else "any product's checklist"
+        return Fact(f"{label(named)} isn't on {scope}, so it isn't required.",
+                    kind="why_required", values=())
+    parts = []
+    if required_in:
+        parts.append(f"required for {_and_list(required_in)}")
+    if optional_in:
+        parts.append(f"optional for {_and_list(optional_in)}")
+    reason = reason or "The product's document checklist lists it; no further reason is configured."
+    if owner_slot and owner_slot != named:
+        # one accepted option for a slot -- the SLOT is what is required
+        head = (f"{label(named)} is one of the documents accepted as {label(owner_slot)}, "
+                f"which is {' and '.join(parts)}.")
+    else:
+        head = f"{label(named)} is {' and '.join(parts)}."
+    return Fact(f"{head} {reason}", kind="why_required", values=tuple(v for v in (owner_slot, named) if v))
+
+
 def authoritative_answer(
     message: str,
     product: str | None = None,
@@ -284,6 +339,14 @@ def authoritative_answer(
         return None
 
     slot = _named_slot(message, facts)
+
+    # "Why is PAN required?" / "PAN kyu chahiye?" -- the CONFIGURED reason that
+    # document is on this product's checklist. General product knowledge, cited
+    # as the configured policy; a document the product does not ask for is said
+    # to be not required (never given an invented reason).
+    why = _why_required(message, facts, slot)
+    if why is not None:
+        return why
 
     # "Can I use a utility bill as address proof?"
     #

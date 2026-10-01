@@ -271,9 +271,22 @@ def extract_from_tokens(
                 # costs 368-419ms for the same result. The crop path also
                 # handles tokens that merged a label with its value
                 # ("S/D/W of: AJIT SINGH"), which the word map does not.
-                for field_name, value, token in suspicious_fields:
-                    spacing_calls += 1
-                    spaced = name_spacing.recover(image, token, value=value)
+                # CONCURRENTLY: each name is an independent Tesseract read of its
+                # own crop (a separate process), so two names cost one read's
+                # time instead of two -- the same reads, the same guard, the
+                # same results. Measured on a licence: 2 reads, ~345 ms in series.
+                spacing_calls += len(suspicious_fields)
+                if len(suspicious_fields) > 1:
+                    from concurrent.futures import ThreadPoolExecutor
+
+                    with ThreadPoolExecutor(max_workers=len(suspicious_fields)) as pool:
+                        recovered = list(pool.map(
+                            lambda item: name_spacing.recover(image, item[2], value=item[1]),
+                            suspicious_fields))
+                else:
+                    recovered = [name_spacing.recover(image, token, value=value)
+                                 for _, value, token in suspicious_fields]
+                for (field_name, _value, token), spaced in zip(suspicious_fields, recovered):
                     if spaced:
                         raw[field_name] = (spaced, token)
 

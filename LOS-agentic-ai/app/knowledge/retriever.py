@@ -323,4 +323,56 @@ class EmbeddingRetriever(Retriever):
                 "default_threshold": self._default_threshold}
 
 
-__all__ = ["Retriever", "LexicalRetriever", "EmbeddingRetriever"]
+# ==========================================================================
+# DENSE FIRST, LEXICAL WHEN THE MODEL IS AWAY
+# ==========================================================================
+
+class FallbackRetriever(Retriever):
+    """
+    The primary retriever (dense vectors), and BM25 whenever it cannot run.
+
+    MEASURED, NOT ASSUMED (41 labelled FOS questions, 14 off-topic):
+    nomic-embed-text vectors P@1 0.805 / MRR@5 0.854 against BM25's 0.537 /
+    0.690, 35 ms per query; fusing the two LOWERED P@1 to 0.610, and a
+    qwen2.5:3b reranker lowered it to 0.341 at 6 s. So no fusion and no
+    reranker: one dense ranking, with BM25 standing in only when the
+    embedding model is unreachable -- and then for a cooldown, so every
+    question in an outage does not pay the embedding timeout first.
+    """
+
+    def __init__(self, primary: Retriever, fallback: Retriever, *,
+                 cooldown_seconds: float = 60.0) -> None:
+        self._primary = primary
+        self._fallback = fallback
+        self._cooldown = cooldown_seconds
+        self._down_until = 0.0
+        self.last_used: str | None = None
+
+    def retrieve(self, query: str, stage: str, *, limit: int = 4,
+                 threshold: float | None = None) -> RetrievalResult:
+        import time
+
+        if time.monotonic() >= self._down_until:
+            try:
+                result = self._primary.retrieve(query, stage, limit=limit)
+                self.last_used = "primary"
+                return result
+            except Exception as exc:  # noqa: BLE001 - an outage costs ranking quality, never the answer
+                logger.warning("dense retrieval unavailable (%s); BM25 for %ss",
+                               type(exc).__name__, self._cooldown)
+                self._down_until = time.monotonic() + self._cooldown
+        self.last_used = "fallback"
+        # each retriever keeps ITS OWN threshold: cosine and BM25 scales differ
+        return self._fallback.retrieve(query, stage, limit=limit)
+
+    def invalidate(self) -> None:
+        for retriever in (self._primary, self._fallback):
+            if hasattr(retriever, "invalidate"):
+                retriever.invalidate()
+
+    def describe(self) -> dict:
+        return {"retriever": "FallbackRetriever", "primary": self._primary.describe(),
+                "fallback": self._fallback.describe(), "last_used": self.last_used}
+
+
+__all__ = ["Retriever", "LexicalRetriever", "EmbeddingRetriever", "FallbackRetriever"]
