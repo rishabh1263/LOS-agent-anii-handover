@@ -286,10 +286,38 @@ async def documents_get(case_id: str) -> ToolEnvelope:
     async def run() -> dict[str, Any]:
         cid = _require(case_id, "case_id")
         records = _repo().list_documents(cid)
-        return {"documents": [_document_json(d) for d in records],
-                "count": len(records)}
+        scores = _verification_scores(cid)
+        documents = []
+        for d in records:
+            row = _document_json(d)
+            # THE PERSISTED VERIFICATION NUMBERS, from the document's latest
+            # VERIFICATION finding -- null when the verifier produced none.
+            recorded = scores.get(str(row.get("document_id")))
+            row["verification_score"] = recorded.get("score") if recorded else None
+            row["verification_confidence"] = recorded.get("confidence") if recorded else None
+            documents.append(row)
+        return {"documents": documents, "count": len(records)}
 
     return await _envelope("documents.get", run)
+
+
+def _verification_scores(case_id: str) -> dict[str, dict[str, Any]]:
+    """
+    document_id -> the latest recorded verification score / confidence, from
+    ONE findings read for the case (never one per document). The score is
+    the verifier's own, persisted when it ran; nothing is computed here.
+    """
+    try:
+        # the CURRENT verification finding per document: a background re-read
+        # supersedes the upload's provisional verdict in the same slot
+        findings = _repo().get_current_findings(case_id, kind="VERIFICATION")
+    except Exception:  # noqa: BLE001 - no findings: no scores, never a guess
+        return {}
+    latest: dict[str, dict[str, Any]] = {}
+    for f in findings:                       # oldest-written first: the last one stands
+        if getattr(f, "document_id", None):
+            latest[str(f.document_id)] = {"score": f.score, "confidence": f.confidence}
+    return latest
 
 
 async def document_checklist(case_id: str) -> ToolEnvelope:

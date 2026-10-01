@@ -37,8 +37,21 @@ SMALL_TALK = "SMALL_TALK"
 HELP = "HELP"
 CAPABILITIES = "CAPABILITIES"
 HISTORY = "CONVERSATION_HISTORY"
+#: "ye kya bakwaas hai", "this is useless" -- answered calmly, never with the menu.
+FRUSTRATION = "FRUSTRATION"
+#: "tell me a joke", "capital of France?" -- outside the application, said so.
+OFF_TOPIC = "OFF_TOPIC"
 
-KINDS = (GREETING, THANKS, ACKNOWLEDGEMENT, GOODBYE, SMALL_TALK, HELP)
+KINDS = (GREETING, THANKS, ACKNOWLEDGEMENT, GOODBYE, SMALL_TALK, HELP, FRUSTRATION, OFF_TOPIC)
+
+#: A word of the application's own domain anywhere in the message makes it a
+#: business question, never frustration or off-topic chat.
+_DOMAIN = re.compile(
+    r"\b(loan|application|case|file|documents?|docs?|kyc|pan|aadhaa?r|passport|voter|licen[cs]e|stage|"
+    r"cpa|fos|emi|verif\w*|upload\w*|applicant|co-?applicant|status|interest|tenure|bank|cibil|credit|"
+    r"policy|checklist|pending|missing|mobile|email|address|dob|karj\w*|rakkam|statement|salary|itr)\b",
+    re.IGNORECASE)
+_FILLER_LEAD = r"^\s*((bhai|bro|yaar|yar|sir|madam|ji|please|pls|arre|arey|hey|hi|hello)\s*[,!]?\s+)*"
 
 #: Built-in vocabulary (configuration extends it). Word -> (kind, language).
 _VOCABULARY: dict[str, tuple[str, str]] = {
@@ -84,7 +97,16 @@ _PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
         (SMALL_TALK, r"^\s*(how\s+are\s+(you|u)|how\s+r\s+u|how('?s|\s+is)\s+(it\s+going|your\s+day)|"
                      r"what'?s\s+up|sup|how\s+do\s+you\s+do|kaise\s+ho|kaisa\s+hai|kya\s+haal|"
                      r"aap\s+kaise\s+hain?|who\s+are\s+you|what\s+are\s+you|are\s+you\s+a\s+(bot|human|robot))\b"),
-        (HELP, r"^\s*((i\s+)?(need|want)\s+(some\s+)?help|help(\s+me)?|can\s+you\s+help(\s+me)?|"
+        (FRUSTRATION, _FILLER_LEAD + r"(ye\s+|yeh\s+|this\s+(is\s+)?|what\s+(a\s+)?|kya\s+)?"
+                      r"(kya\s+)?(bakwaa?s|bekaa?r|faltu|useless|nonsense|rubbish|stupid|pathetic|worst|"
+                      r"ghatiya|not\s+helpful|no\s+help|waste(\s+of\s+time)?|irritating|frustrating|annoying)"
+                      r"(\s+(hai|h|he|hai\s+yaar|chatbot|bot|answer|reply|thing))*\s*[?.!]*\s*$"),
+        (OFF_TOPIC, r"\b(tell\s+(me\s+)?a\s+(joke|story|poem)|joke\s+sunao|kuch\s+funny|sing\s+a\s+song|"
+                    r"weather|temperature\s+(today|outside)|cricket|ipl|football|movie|film|recipe|"
+                    r"capital\s+of|prime\s+minister|president\s+of|who\s+won|latest\s+news|stock\s+price|"
+                    r"bitcoin|horoscope|write\s+(me\s+)?(a\s+)?(poem|story|code|program)|"
+                    r"what\s+is\s+\d+\s*[-+*/x]\s*\d+)\b"),
+        (HELP, _FILLER_LEAD + r"((i\s+)?(need|want)\s+(some\s+)?help|help(\s+me)?|can\s+you\s+help(\s+me)?|"
                r"what\s+can\s+you\s+do|what\s+do\s+you\s+do|how\s+can\s+you\s+help(\s+me)?|"
                r"what\s+can\s+i\s+ask(\s+you)?|madad(\s+chahiye)?|help\s+chahiye|"
                r"mujhe\s+madad\s+chahiye)\s*[?.!]*\s*$"),
@@ -139,9 +161,15 @@ def classify(message: str) -> Turn | None:
         return None
     for kind, pattern in _PHRASES:
         if pattern.search(text):
+            # frustration and off-topic chat never swallow a business question
+            if kind in (FRUSTRATION, OFF_TOPIC) and _DOMAIN.search(text):
+                continue
             return Turn(kind, _language_of(text))
     words = _words(text)
     if not words or len(words) > 8:
+        return None
+    # "everything okay?" / "sab theek hai?" ASKS about the case; "ok" answers
+    if "?" in text and any(w in {"everything", "all", "sab", "sabkuch", "kuch", "koi"} for w in words):
         return None
     vocabulary = _vocabulary()
     kinds = [vocabulary[w] for w in words if w in vocabulary]
@@ -220,6 +248,20 @@ _REPLIES: dict[str, dict[str, str]] = {
                    "aur agla kadam bata sakta hoon -- bas poochhiye.",
         "hi": "ज़रूर{smile} मैं आपके आवेदन का चरण, क्या बाकी है और अगला कदम बता सकता हूँ -- बस पूछिए।",
     },
+    FRUSTRATION: {
+        "en": "Sorry this hasn't been helpful. Tell me what you're trying to find -- your pending "
+              "documents, KYC, verification or the application status -- and I'll get it for you.",
+        "hi-Latn": "Maaf kijiye, jawab kaam ka nahi laga. Batayiye aap kya dhoondh rahe hain -- pending "
+                   "documents, KYC, verification ya application ka status -- main abhi nikaal deta hoon.",
+        "hi": "माफ़ कीजिए, जवाब काम का नहीं लगा। बताइए आप क्या ढूँढ रहे हैं -- बाकी दस्तावेज़, KYC या "
+              "आवेदन की स्थिति -- मैं अभी बता देता हूँ।",
+    },
+    OFF_TOPIC: {
+        "en": "That's outside what I can help with here -- I'm set up for your loan application. "
+              "I can check its status, documents, verification or KYC for you.",
+        "hi-Latn": "Yeh mere daayre se bahar hai -- main aapke loan application ke liye hoon. Status, "
+                   "documents, verification ya KYC dekhna ho to bataiye.",
+    },
     CAPABILITIES: {
         "en": "I can help with information from your authorised application and documents, but "
               "I can't provide other customers' private data or internal system details.",
@@ -233,12 +275,44 @@ _REPLIES: dict[str, dict[str, str]] = {
 _EMOJIS = {"wave": " \U0001F44B", "smile": " \U0001F642", "thumbs": " \U0001F44D"}
 
 
-def reply(kind: str, language: str = "en") -> tuple[str, str]:
-    """(answer, language it is written in). Deterministic; configurable."""
+#: Alternative wordings per kind and language: one is chosen per conversation
+#: turn (stable for a turn, varied across turns), so a conversation does not
+#: hear the same canned sentence every time. Facts: none -- these are courtesy.
+_VARIANTS: dict[str, dict[str, tuple[str, ...]]] = {
+    GREETING: {"en": ("Hi{wave} How can I help with your application today?",
+                      "Hello{wave} What would you like to check on your application?",
+                      "Hey{wave} Ask me anything about your application -- status, documents or KYC.")},
+    THANKS: {"en": ("You're welcome{smile} Anything else about your application?",
+                    "Happy to help{smile} Anything else you'd like to check?",
+                    "Anytime{smile} Let me know if you need anything else.")},
+    SMALL_TALK: {"en": ("I'm doing well, thanks for asking{smile} I can help you check your application's "
+                        "stage, documents and next steps.",
+                        "All good here{smile} What would you like to know about your application?")},
+    HELP: {"en": ("Of course{smile} I can tell you your application's stage, what's pending, why it's "
+                  "under review and what to do next -- just ask.",
+                  "Sure{smile} Ask me about your documents, verification, KYC, loan details or what "
+                  "to do next.")},
+    OFF_TOPIC: {"en": ("That's outside what I can help with here -- I'm set up for your loan application. "
+                       "I can check its status, documents, verification or KYC for you.",
+                       "I'll have to pass on that one -- I only work with your loan application. "
+                       "Want me to check what's pending on it?")},
+}
+_PART_OF_DAY = re.compile(r"\bgood\s+(morning|afternoon|evening)\b", re.IGNORECASE)
+
+
+def reply(kind: str, language: str = "en", *, seed: int = 0, text: str = "") -> tuple[str, str]:
+    """(answer, language it is written in). Deterministic for a seed; configurable."""
     configured = (_settings().get("replies") or {}).get(kind) or {}
     replies = {**_REPLIES.get(kind, {}), **configured}
     chosen = language if language in replies else "en"
     template = replies.get(chosen) or _REPLIES[HELP]["en"]
+    variants = (_VARIANTS.get(kind) or {}).get(chosen)
+    if variants and not configured:
+        template = variants[abs(int(seed)) % len(variants)]
+    part = _PART_OF_DAY.search(text or "")
+    if kind == GREETING and part and chosen == "en":
+        # "good morning" is answered in kind
+        template = f"Good {part.group(1).lower()}{{wave}} How can I help with your application today?"
     use_emoji = bool(_settings().get("emoji", True)) and kind not in (CAPABILITIES, HISTORY)
     marks = {k: (v if use_emoji else ("." if k != "thumbs" else ".")) for k, v in _EMOJIS.items()}
     text = template.format(**marks).replace("..", ".").replace(". ?", "?")
@@ -252,4 +326,5 @@ SUGGESTIONS = ["What is my stage?", "What's pending?", "Why is my application un
 
 __all__ = ["ACKNOWLEDGEMENT", "CAPABILITIES", "GOODBYE", "GREETING", "HELP", "HISTORY",
            "KINDS", "SMALL_TALK", "SUGGESTIONS", "THANKS", "Turn", "classify", "enabled",
+           "FRUSTRATION", "OFF_TOPIC",
            "reply", "without_greeting"]

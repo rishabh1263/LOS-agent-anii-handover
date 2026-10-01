@@ -52,7 +52,8 @@ _FIELDS: tuple[tuple[str, str, str], ...] = (
      r"^(?!.*\b(emi|instal\w*|foir|income|salary|balance|credit|fee|charges?|obligation\w*|"
      r"property)\b)(.*\b(loan\s+)?(amount|amt|principal)\b|.*\bhow\s+much\b[^?]{0,20}"
      r"\b(did|have|had)\s+(i|we|the\s+applicant|the\s+customer)\b|"
-     r".*\bkitna\s+loan\b|.*\bloan\s+(value|size)\b|.*\b(requested|asked\s+for)\s+loan\b|"
+     r".*\bkitna\s+loan\b|.*\bloan\s+(kitna|kitni|kitne)\b|.*\bhow\s+much\s+(is\s+)?(my\s+|the\s+)?loan\b|"
+     r".*\bloan\s+how\s+much\b|.*\bloan\s+(value|size)\b|.*\b(requested|asked\s+for)\s+loan\b|"
      r".*\bhow\s+(many|much)\s+rupees\b|.*\brupees\s+(ka|of|ke)\s+loan\b|.*\bhow\s+big\b[^?]{0,15}\bloan\b|"
      r".*\bloan\b[^?]{0,12}\bhow\s+much\b|.*\bhow\s+much\b[^?]{0,8}\bloan\b)"),
     ("tenure_months", "tenure",
@@ -261,9 +262,25 @@ def detect(text: str) -> Question | None:
     said = " ".join(str(text or "").split())
     if not said or _WRITE.search(said):
         return None
+    # WHICH CASE IS IN TROUBLE is about the cases, not a case ID: "kis case
+    # mein issue hai?", "which application is blocked?" (portfolio.py)
+    if re.search(r"\b(kis|kaun\w*|konse|konsa|which)\s+(case|application)s?\b", said, re.I) \
+            and re.search(r"\b(issues?|problems?|blocked|blocking|atk\w*|stuck|attention|dikkat|gadbad|"
+                          r"fail\w*|reject\w*)\b", said, re.I):
+        return None
     broad = _broad(said)
     if broad is not None:
         return broad
+    # WHETHER A DOCUMENT IS NEEDED is a requirement, not its number: "Is
+    # Aadhaar compulsory?", "PAN zaruri hai?" -- the checklist answers it
+    # ("chahiye" / "need" also mean "I want": "mera email chahiye" is a field)
+    if (re.search(r"\b(compulsory|mandatory|required|necessary|optional|zaruri|zaroori|anivarya)\b"
+                  r"|अनिवार्य|ज़रूरी|जरूरी", said, re.I)
+            or re.search(r"\b(do|does|will)\s+(i|we|they|he|she|the\s+customer)\s+(still\s+)?need\b", said, re.I)) \
+            and re.search(r"\b(aadhaa?r|pan|passport|voter|licen[cs]e|photo\w*|statement|proof|document\w*|"
+                          r"slip|itr|form\s*16)\b|आधार|पैन", said, re.I) \
+            and not re.search(r"\b(number|no|num|digits?)\b", said, re.I):
+        return None
     # A VALUE OFFERED FOR CONFIRMATION names its own field by its shape:
     # "Priya's is priya@example.com, right?" is about the email on record.
     offered = re.search(r"\b(right|correct|sahi|na|naa|isn'?t\s+it|hai\s+na)\b\s*\??\s*$|"

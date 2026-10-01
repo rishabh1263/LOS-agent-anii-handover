@@ -55,7 +55,14 @@ async def _read_upload(file: UploadFile) -> tuple[bytes, str]:
 
     if written == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-    return b"".join(chunks), suffix
+    data = b"".join(chunks)
+    # THE COMMON UPLOAD GATE: the bytes must be what the extension claims
+    from app.security import upload_gate
+
+    gate = upload_gate.check(data, file.filename)
+    if not gate.allowed:
+        raise HTTPException(status_code=415, detail=f"{gate.code}: {gate.message}")
+    return data, suffix
 
 
 def _apply_status(result: VerificationResult, response: Response) -> None:

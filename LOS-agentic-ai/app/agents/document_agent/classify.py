@@ -132,7 +132,11 @@ def classify(tokens: list[OCRToken]) -> tuple[DocumentType, float]:
         pan_score += 0.45
     dl_score = _score_markers(tuple(_DL_MARKERS), compact)
     passport_score = _score_markers(tuple(_PASSPORT_MARKERS), compact)
-    if _MRZ_RE.search(spaced):
+    # THE MRZ KEEPS ITS FILLERS. `spaced` turns every non-alphanumeric into a
+    # space, '<' included, so the MRZ pattern (which is made of '<') could
+    # never match there and a legible MRZ added nothing. Matched on the blob,
+    # where the OCR kept the '<' runs ("P<INDKAUSHAL<<SUKHDEEP<<<<").
+    if _MRZ_RE.search(blob.replace(" ", "")):
         passport_score += 0.50
 
     voter_score = _score_markers(tuple(_VOTER_MARKERS), compact)

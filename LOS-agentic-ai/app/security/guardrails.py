@@ -209,6 +209,10 @@ _INPUT_ALWAYS = (
     )),
     (Category.SECURITY, _rules(
         ("ignore_rules", r"\b(ignore|disregard|forget|override)\b[^?]{0,30}\b(instructions?|rules|prompts?|guardrails?|guidelines|polic(y|ies)|restrictions?)\b"),
+        # VERB-FINAL ORDER, as a question in Hindi, Tamil, Japanese-order
+        # languages reads once its words are canonical English: "previous
+        # instructions ignore", "all previous instructions forget".
+        ("ignore_rules_verb_final", r"\b(previous|prior|earlier|above|all|your|the|system)\s+(\w+\s+){0,2}(instructions?|rules|prompts?|guardrails?|guidelines|restrictions?)\s+(\w+\s+){0,2}(ignore|disregard|forget|override)\b"),
         # NOT "skip ... check": "can I skip the income check?" is a policy
         # question the handbook answers, not an attack on the service.
         ("bypass", r"\b(bypass|disable|turn\s+off|circumvent|get\s+around|switch\s+off)\b[^?]{0,30}\b(security|safety|guardrails?|filters?|restrictions?|authori[sz]ation|authentication|ownership|permissions?|access\s+control)\b"),
@@ -304,6 +308,16 @@ def check_input(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Ve
     decision = request_policy.classify(text, allowed_ids=allowed_ids)
     if decision is not None:
         return _blocked("input", Category(decision.category), decision.rule)
+    # LAST, so a category the rules above name is kept. THE SAME REQUEST IN ANOTHER LANGUAGE. The rules are written in English
+    # words; a question in Tamil or Nepali is judged by its canonical English
+    # form too -- under every language that shares its script, so a
+    # misdetected language never opens a hole (language.canonical_forms).
+    from app.agents.applicant import language as _language
+
+    for form in _language.canonical_forms(text):
+        verdict = _check_system_request(form)
+        if not verdict.allowed:
+            return verdict
     return ALLOWED
 
 

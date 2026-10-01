@@ -1,0 +1,67 @@
+# ---------------------------------------------------------------------------
+# COPILOT ACTION REGISTRY -- what the assistant may DO, not only say.
+#
+# Read by app/agents/applicant/copilot/capabilities/work.py. An action the
+# Copilot runs by itself ("jo pending hai kar do") must be listed here with
+# `auto_execute: true`; anything else is reported with who has to act.
+#
+#   owner                 who moves the item forward: SYSTEM (the assistant
+#                         can run it), USER (needs a file / input from the
+#                         person), REVIEWER (a human reviewer decides)
+#   auto_execute          run it without asking, when authorized
+#   confirmation_required ask before running (sensitive state change)
+#   required_scopes       ANY one of these on the caller's token
+#   job_mode              sync | durable_job (an existing background job)
+#   capability            the existing implementation it delegates to
+#
+# Only actions that exist in this service are listed. Stage moves (hold /
+# resume / rework / forward) are exposed by POST /api/v1/los/cases/{id}/stage
+# for an operator; they are NOT auto-executed by the assistant.
+# ---------------------------------------------------------------------------
+actions:
+  VERIFY_DOCUMENT:
+    owner: SYSTEM
+    auto_execute: true
+    confirmation_required: false
+    required_scopes: [documents:write, upload_document]
+    job_mode: durable_job
+    idempotency: one durable job per document (ocr_queue.submit); a finished document is reported, never re-read
+    capability: capabilities/verification.py -> store/ocr_queue.py (the existing job step)
+  UPLOAD_DOCUMENT:
+    owner: USER
+    auto_execute: false
+    confirmation_required: false
+    required_inputs: [file]
+    required_scopes: [documents:write, upload_document]
+    job_mode: sync
+    capability: POST /api/v1/fos/documents (slot- and party-aware; verified on upload)
+  AWAIT_REVIEW:
+    owner: REVIEWER
+    auto_execute: false
+    capability: a reviewer records the decision; the assistant reports it once recorded
+  AWAIT_VERIFICATION:
+    owner: SYSTEM
+    auto_execute: false
+    capability: an already-running durable job; reported as PROCESSING
+  STAGE_TRANSITION:
+    owner: USER
+    auto_execute: false
+    confirmation_required: true
+    required_scopes: [los.stage:write, los.write]
+    capability: POST /api/v1/los/cases/{case_id}/stage (hold / resume / rework / forward)
+  RUN_CREDIT_UNDERWRITING:
+    owner: SYSTEM
+    auto_execute: true
+    confirmation_required: false
+    required_scopes: [los.credit.underwrite]
+    job_mode: sync
+    idempotency: the credit agent persists one assessment per input hash (a repeat is REPLAYED)
+    capability: app.agents.credit.agent.underwrite (unchanged; enforces its own scope and stage)
+  AWAIT_ELIGIBILITY:
+    owner: SYSTEM
+    auto_execute: false
+    capability: eligibility is recorded by the LOS pipeline (read-only here, eligibility.get)
+  REQUEST_HUMAN_REVIEW:
+    owner: REVIEWER
+    auto_execute: false
+    capability: a human decision; the assistant never approves, declines or decides

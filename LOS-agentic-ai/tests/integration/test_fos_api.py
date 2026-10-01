@@ -39,6 +39,19 @@ ENVELOPE = {
     "observability",
     # conversation plumbing -- the caller carries it, this service does not
     "followed_up", "context",
+    # THE RENDERING CONTRACT, added with the Universal Copilot redesign:
+    # `response_type` picks the renderer, `subject` says whose answer it is,
+    # `language` the language asked in, `processing` a verification run.
+    "response_type", "subject", "language", "processing",
+    # every authorized case of the applicant, summarised (a portfolio question)
+    "portfolio",
+    # what the answer is about (CASE, APPLICANT, APPLICANT_CASES, NONE) and
+    # how the question was read (language_gateway.LanguageContract)
+    "scope", "language_contract",
+    # what is left on the case, who moves each item, what the assistant ran
+    "pending_work",
+    # the current stage's gate, from recorded results
+    "gate",
     # THE COMPACT BLOCKS, added for the frontend. Each is derived from
     # fields already above it: `status` from the stage and application,
     # `processing_queue` from the OCR jobs on the case, `grounded` from
@@ -744,3 +757,18 @@ def test_the_los_endpoint_is_untouched():
     operation = main.app.openapi()["paths"]["/api/v1/los/process"]["post"]
     schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
     assert schema["$ref"].endswith("LosProcessResponse")
+
+
+def test_one_customer_can_hold_several_cases_opened_through_fos(client):
+    """A second case for an applicant the caller already serves: a new case, the
+    same person, the recorded details untouched."""
+    first = client.post("/api/v1/fos/applicants", json={
+        "applicant": {"full_name": "Multi Case", "mobile": "9876500001"},
+        "application": {"product": "PERSONAL_LOAN", "loan_amount": 100000}}).json()
+    second = client.post("/api/v1/fos/applicants", json={
+        "applicant": {"full_name": "Someone Else Entirely"}, "applicant_id": first["applicant_id"],
+        "application": {"product": "HOME_LOAN", "loan_amount": 2500000}})
+    assert second.status_code == 201, second.text
+    body = second.json()
+    assert body["applicant_id"] == first["applicant_id"] and body["case_id"] != first["case_id"]
+    assert (body["applicant"] or {}).get("full_name") == "Multi Case"       # not overwritten

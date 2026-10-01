@@ -39,6 +39,78 @@ issuer_verification:
   forensics:
     review_on_high: false
 
+  # -------------------------------------------------------------------------
+  # AUTHENTICITY PROVIDERS (app/agents/verification/authenticity_providers.py)
+  # Shipped and registered, but NOT SWITCHED ON: a document type uses one only
+  # when its entry below names it, e.g.
+  #     BANK_STATEMENT: {provider: pdf_signature, mode: issuer}
+  #     AADHAAR: {providers: [pdf_signature, aadhaar_secure_qr], mode: issuer}
+  #     PAN: {providers: [pdf_signature, "http:pan_verification"], mode: issuer}
+  # Each answers ISSUER_CONFIRMED only with the evidence configured here --
+  # with nothing configured, every one answers NOT_ESTABLISHED and says why.
+  #
+  #   pdf_signature      a digitally signed PDF: the signed bytes unchanged,
+  #                      the signer chaining to a trust anchor in
+  #                      `trust_anchors_dir`, and the signer's organisation in
+  #                      `expected_signers` for the type. Revocation is not
+  #                      checked (reported as REVOCATION_NOT_CHECKED).
+  #   aadhaar_secure_qr  the UIDAI Secure QR, its signature checked with the
+  #                      UIDAI certificate at `aadhaar_qr_certificate`; name /
+  #                      date of birth / gender compared with the extraction.
+  #   http:<name>        a contracted issuer / registry API below; URL and
+  #                      credentials from the environment only.
+  # -------------------------------------------------------------------------
+  authenticity_providers:
+    # PEM/DER CA certificates the business trusts for document signatures
+    # (India CCA root and the issuing CAs of UIDAI, the Income Tax
+    # Department, DigiLocker and the lender's accepted banks). Empty here.
+    trust_anchors_dir: app/config/trust_anchors
+    # The organisation a signature must come from, per document type -- a
+    # validly signed PDF from someone else is NOT that issuer's document.
+    # An empty list means "not configured": nothing is confirmed.
+    expected_signers:
+      AADHAAR: ["UNIQUE IDENTIFICATION AUTHORITY OF INDIA"]
+      ITR: ["INCOME TAX DEPARTMENT"]
+      BANK_STATEMENT: []        # the lender's accepted bank signers
+      PAN: []                   # e.g. the DigiLocker / NeGD signer, when approved
+      DRIVING_LICENCE: []
+      VOTER_ID: []
+      PASSPORT: []
+    # UIDAI's public certificate for Secure QR signatures (download from UIDAI).
+    aadhaar_qr_certificate: ""
+    # Contracted APIs. Nothing is called unless `url_env` is set in the
+    # environment. `request` maps the API's field -> our extracted field;
+    # `response` says where the status / reference / per-field matches are.
+    http:
+      pan_verification:
+        document_types: [PAN]
+        url_env: ISSUER_PAN_API_URL
+        auth_env: ISSUER_PAN_API_KEY
+        request: {pan: pan_number, name: name, dob: date_of_birth}
+        response: {status: status, reference: reference_id, fields: fields,
+                   confirmed: [VALID, MATCH, CONFIRMED], mismatch: [MISMATCH, INVALID, NOT_FOUND]}
+      driving_licence_verification:
+        document_types: [DRIVING_LICENCE]
+        url_env: ISSUER_DL_API_URL
+        auth_env: ISSUER_DL_API_KEY
+        request: {dl_number: licence_number, dob: date_of_birth}
+        response: {status: status, reference: reference_id, fields: fields,
+                   confirmed: [VALID, MATCH, CONFIRMED], mismatch: [MISMATCH, INVALID, NOT_FOUND]}
+      voter_id_verification:
+        document_types: [VOTER_ID]
+        url_env: ISSUER_VOTER_API_URL
+        auth_env: ISSUER_VOTER_API_KEY
+        request: {epic_number: epic_number, name: name}
+        response: {status: status, reference: reference_id, fields: fields,
+                   confirmed: [VALID, MATCH, CONFIRMED], mismatch: [MISMATCH, INVALID, NOT_FOUND]}
+      passport_verification:
+        document_types: [PASSPORT]
+        url_env: ISSUER_PASSPORT_API_URL
+        auth_env: ISSUER_PASSPORT_API_KEY
+        request: {file_number: file_number, passport_number: passport_number, dob: date_of_birth}
+        response: {status: status, reference: reference_id, fields: fields,
+                   confirmed: [VALID, MATCH, CONFIRMED], mismatch: [MISMATCH, INVALID, NOT_FOUND]}
+
   documents:
     PAN:
       provider: none

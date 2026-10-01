@@ -203,6 +203,17 @@ def _expanded(text: str, state: "ConversationState") -> "Reading | None":
         return None
     last_intent = str((state.last_answer_reference or {}).get("intent") or "")
     about_co = state.active_party == "CO_APPLICANT"
+    if _MORE.match(text) and last_intent == "FOS_KNOWLEDGE":
+        topic = _knowledge_topic(state.last_message)
+        if topic:
+            return Reading(REPLAY, f"Explain {topic} in detail", note="the previous answer, expanded")
+    if _MORE.match(text) and last_intent == "STAGE_PROCESS":
+        # the stage guide was already given whole: more is the handbook's detail
+        from app.agents.applicant.copilot.semantics.intents import stage_in as _stage_in
+
+        stage = _stage_in(state.last_message)
+        if stage:
+            return Reading(REPLAY, f"Explain {stage} readiness in detail", note="the previous answer, expanded")
     if _MORE.match(text):
         if last_intent == "APPLICANT_PROFILE":
             from app.agents.applicant.copilot.answering import profile as _profile
@@ -247,17 +258,35 @@ _PARTY_FILLER = re.compile(r"\b(and|aur|what|about|how|the|my|our|of|for|ka|ki|k
                            r"ठीक|है|और|आणि|का|की|के|चा|ची|चे)\b|[?.!,'\u2019-]|ठीक|है|और|आणि", re.IGNORECASE)
 
 
+#: "the other one / guy / person", "dusra wala": a person named RELATIVE to the current one.
+_RELATIVE_OTHER = re.compile(r"\b(other|dusr[aie]|doosr[aie])\b", re.IGNORECASE)
+#: The whole relative reference, with the word for "one" that follows it.
+_RELATIVE_PERSON = re.compile(r"\b(the\s+)?(other|dusr\w*|doosr\w*)(\s+(one|guy|person|wala|wale|wali|vala|vale))?\b",
+                              re.IGNORECASE)
+#: The co-applicant named as such (not relatively).
+_NAMED_CO = re.compile(r"co[\s-]?(applicant|app|borrower)|सह-?\s?(आवेदक|अर्जदार)", re.IGNORECASE)
+
+
 def _bare_party_turn(text: str, state: "ConversationState") -> "Reading | None":
     from app.agents.applicant import normalize as _normalize
     from app.agents.applicant.copilot.routing import subjects as _subjects
 
     said = _normalize.normalise(text).text or text
-    if _subjects.mentioned(said) is not _subjects.Kind.CO:
+    relative = bool(_RELATIVE_OTHER.search(text))
+    if _subjects.mentioned(said) is not _subjects.Kind.CO and not relative:
         return None
+    if _subjects.mentioned(said) is not _subjects.Kind.CO and state.last_document             and any(d and d != state.last_document for d in state.last_documents):
+        return None        # "the other one" may be the other DOCUMENT: offered, not chosen
     remainder = _subjects._CO_RE.sub(" ", said)
+    remainder = _RELATIVE_PERSON.sub(" ", remainder)
     remainder = _PARTY_FILLER.sub(" ", remainder)
     if re.search(r"\w", remainder):
         return None
+    if state.last_message and _party_askable(state) and state.active_party == "CO_APPLICANT"             and _RELATIVE_OTHER.search(text) and not _NAMED_CO.search(text):
+        # "the other one" is RELATIVE to whoever the conversation is about:
+        # while it is about the co-applicant, the other person is the caller
+        return Reading(REPLAY, _for_self(state.last_message),
+                       note="the previous question, for the other person (the primary applicant)")
     if state.last_message and _party_askable(state) and state.active_party != "CO_APPLICANT":
         if _PARTY_NEGATION.search(text):
             return Reading(CORRECTION, _for_co(state.last_message),
@@ -280,6 +309,13 @@ def _same_question_other_document(text: str, state: "ConversationState") -> "Rea
     named = _frames._document_type(said)
     if not named or named == state.last_document or len(_strip(bare).split()) > 3:
         return None
+    from app.agents.applicant.copilot.semantics import intents as _dintents
+
+    leftover = _dintents._DOC_RE.sub(" ", said)
+    leftover = re.sub(r"\b(what|about|how|the|a|an|and|aur|ka|ki|ke|kya|bhi|also|too|one|wala|wali|"
+                      r"card|is|hai)\b|[?.!,]", " ", leftover, flags=re.IGNORECASE)
+    if leftover.strip():
+        return None            # "Is Aadhaar compulsory?" asks its own question
     old = _frames._document_type(state.last_message)
     if old != state.last_document:
         return None
@@ -287,8 +323,11 @@ def _same_question_other_document(text: str, state: "ConversationState") -> "Rea
 
     # "What documents are accepted as address proof?" then "and passport?":
     # asks whether THAT document serves the slot -- not "accepted as passport"
-    if re.search(r"\b(accepted|accept|accepts|valid|allowed|satisf\w*|count\w*|chalega|chalta)\s+(as|for)\b",
-                 state.last_message, re.IGNORECASE) and named != old:
+    if (re.search(r"\b(accepted|accept|accepts|valid|allowed|satisf\w*|count\w*|chalega|chalta)\s+(as|for)\b",
+                  state.last_message, re.IGNORECASE)
+            or (old.endswith("_PROOF")
+                and str((state.last_answer_reference or {}).get("intent") or "") == "FOS_KNOWLEDGE")) \
+            and named != old:
         return Reading(REPLAY, f"Is a {_display(named)} accepted as {_display(old).lower()}?",
                        note="the previous question, for another document")
     spoken = re.compile("|".join(re.escape(v) for v in {
@@ -297,6 +336,26 @@ def _same_question_other_document(text: str, state: "ConversationState") -> "Rea
     if not n:
         return None
     return Reading(REPLAY, replayed, note="the previous question, for another document")
+
+
+_GOAL = re.compile(r"^\s*(i|we)\s+(want|would\s+like|need|wanted|wish)\s+to\s+(know|understand|learn|find\s+out|"
+                   r"see|check)\s+(about\s+)?(?P<rest>.+?)\s*[.?!]*\s*$", re.IGNORECASE)
+
+
+def _goal_question(text: str) -> str | None:
+    """ "I want to know what's missing" -> "what's missing?"; "I want to
+    understand the CPA process" -> "How does the CPA process work?"."""
+    m = _GOAL.match(text)
+    if not m:
+        return None
+    rest, verb = m.group("rest"), m.group(3).lower()
+    if re.match(r"(what|why|which|who|how|when|where)\b", rest, re.IGNORECASE):
+        return rest[0].upper() + rest[1:] + "?"
+    if re.match(r"(whether|if)\s+", rest, re.IGNORECASE):
+        return re.sub(r"^(whether|if)\s+", "", rest, flags=re.IGNORECASE) + "?"
+    if verb in ("understand", "learn"):
+        return f"How does {rest} work?"
+    return f"What is {rest}?"
 
 
 def _knowledge_topic(message: str) -> str:
@@ -345,7 +404,11 @@ def _explicit_party_turn(text: str, state: "ConversationState") -> "Reading | No
     """
     if not state.last_message:
         return None
-    if (_BARE_MINE.match(text) or _has("FOR_SELF", text)) \
+    # a THIRD-PERSON word ("theirs", "unka", "her") is never the caller, however
+    # close the fuzzy match to "what about me" -- it is the other person
+    third_person = bool(_BARE_THEIRS.match(text) or _PERSON_POSSESSIVE.search(text)
+                        or re.search(r"\btheirs\b", text, re.I))
+    if (_BARE_MINE.match(text) or (_has("FOR_SELF", text) and not third_person)) \
             and state.active_party == "CO_APPLICANT" and _party_askable(state):
         return Reading(REPLAY, _for_self(state.last_message),
                        note="the previous question, for the primary applicant")
@@ -384,6 +447,46 @@ def _pronoun_referent(text: str, state: "ConversationState") -> str | None:
     if _PERSON_SUBJECT.search(text) and about_co:
         return _PERSON_SUBJECT.sub("the co-applicant", text, count=1)
     return None
+
+
+#: "iska / iski / this one's" -- a pointer at a PERSON'S record topic.
+_THIS_ONES = re.compile(r"\b(iska|iski|iske|isko|inka|inki|inke|uska|uski|uske|its|this\s+one'?s)\b"
+                        r"|इसका|इसकी|इसके|उसका|उसकी", re.IGNORECASE)
+#: Topics that belong to one person on the case (never to a document).
+_PERSON_TOPIC = re.compile(r"\b(kyc|verification|verified|documents?|status|pending|profile|details)\b",
+                           re.IGNORECASE)
+
+
+def _this_persons_topic(text: str, state: "ConversationState") -> "Reading | None":
+    """
+    "iska KYC?" -- a person-level topic behind a pointer. Resolved to the one
+    person the conversation is on; ASKED (yours, or the co-applicant's?) when
+    there is no one yet, or the last answer was about BOTH people. Never
+    guessed. A document the conversation is about ("iska score?" after a PAN
+    answer) is handled before this.
+    """
+    from app.agents.applicant.copilot.routing import subjects as _subjects
+    from app.agents.applicant.copilot.semantics import semantic_frame as _tframes
+
+    pointer = _THIS_ONES.search(text)
+    if not pointer or _SELF_WORDS.search(text) or _subjects.mentioned(text) is not None:
+        return None
+    if not _PERSON_TOPIC.search(text) or _tframes._document_type(text) \
+            or len(_strip(text).split()) > 6:
+        return None
+    rest = " ".join((text[:pointer.start()] + " " + text[pointer.end():]).split()).strip(" ?")
+    rest = re.sub(r"^(and|aur|what\s+about)\s+", "", rest, flags=re.IGNORECASE)
+    as_self, as_co = f"What is my {rest}?", f"What is the co-applicant's {rest}?"
+    whose = state.last_subject_party if state.last_message else None
+    if whose == "CO_APPLICANT":
+        return Reading(NEW_TOPIC, as_co, note="the person the conversation is on")
+    if whose == "PRIMARY_APPLICANT":
+        return Reading(NEW_TOPIC, as_self, note="the person the conversation is on")
+    return Reading(ASKED, text,
+                   reply=f"Whose {rest} do you mean -- yours, or the co-applicant's?",
+                   options=[as_self, as_co],
+                   note=("the last answer was about both people" if whose == "BOTH"
+                         else "a pointer with no one to point at"))
 
 
 def _pronoun_without_referent(text: str, state: "ConversationState") -> "Reading | None":
@@ -544,6 +647,9 @@ class ConversationState:
     last_tool_result_reference: list[str] = field(default_factory=list)
     last_message: str | None = None           # the last QUESTION, masked, for "again"
     language: str | None = None
+    #: WHOSE the last answer was: PRIMARY_APPLICANT / CO_APPLICANT / BOTH --
+    #: "iska KYC?" after an answer about BOTH people cannot be guessed.
+    last_subject_party: str | None = None
     last_activity_at: float = field(default_factory=time.time)
     turns_since_pending: int = 0
 
@@ -1060,6 +1166,13 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
                     rest = remainder
     if rest:
         state.pending_clarification = None
+        # "What is my application reference?" -> "nahi, mera matlab co-applicant
+        # ka PAN tha": the correction replaces the OBJECT of the question; the
+        # question (a recorded identifier) stays -- the co-applicant's PAN number.
+        if str((state.last_answer_reference or {}).get("intent") or "") == "APPLICANT_PROFILE" \
+                and re.search(r"\b(pan|aadhaa?r|passport|voter\s*id|driving\s+licen[cs]e)\b", rest, re.I) \
+                and not re.search(r"\b(number|no|status|verified|verify|rejected|uploaded|missing)\b", rest, re.I):
+            rest = re.sub(r"\s+(tha|thi|the|hai|h)\s*[.?!]*$", "", rest.strip(), flags=re.I) + " number"
         # A CORRECTION THAT NAMES ONLY A PARTY ("I meant the co-applicant") is
         # the previous question again, for that party.
         if _has("PARTY_ONLY", rest) and state.last_message \
@@ -1075,6 +1188,12 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
                            note="the previous question, for the primary applicant")
         return Reading(CORRECTION, _as_question(rest), note="the previous reading was corrected")
 
+    # A STATED GOAL -- "I want to know what's missing", "I want to understand
+    # the CPA process" -- is the question it names.
+    goal = _goal_question(text)
+    if goal is not None:
+        return Reading(NEW_TOPIC, goal, note="the stated goal")
+
     # A TURN THAT CONTINUES THE CONVERSATION ("and what should I do next?")
     # is the question after the conjunction.
     continued = re.sub(r"^\s*(and|aur|also|then|so|or|और|आणि)\s+(?=\S+\s+\S)", "", text,
@@ -1086,6 +1205,9 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
         first_turn = _pronoun_without_referent(text, state) if not state.last_message else None
         if first_turn is not None:
             return first_turn
+        this_one = _this_persons_topic(text, state)
+        if this_one is not None:
+            return this_one
 
     # A REFUSAL IS THE CONTEXT: "their KYC" / "that loan" after a refused
     # request points at what was refused -- even when nothing was answered
@@ -1101,9 +1223,37 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
     #    (optionally for the other party).
     if state.last_message:
         last_intent = str((state.last_answer_reference or {}).get("intent") or "")
+        # THE DOCUMENT THE CONVERSATION IS ABOUT: "kyun fail hua?" / "why did
+        # it fail?" / "iska score?" right after a PAN answer are about that
+        # PAN -- for the party the conversation is on.
+        if state.last_document and last_intent in ("DOCUMENT_VERIFICATION", "DOCUMENTS_UPLOADED",
+                                                   "DOCUMENT_DETAILS") and not _SELF_WORDS.search(text):
+            from app.agents.applicant.copilot.semantics import semantic_frame as _dframes
+            from app.agents.applicant.copilot.conversation.followup import _display as _ddisplay
+
+            if not _dframes._document_type(text):
+                doc = _ddisplay(state.last_document)
+                whose = "the co-applicant's " if state.active_party == "CO_APPLICANT" else "the "
+                if re.search(r"\b(why|kyu|kyun|kyon|reason|wajah|kaaran)\b", text, re.I) \
+                        and re.search(r"\b(fail\w*|reject\w*|review|atk\w*)\b", text, re.I):
+                    return Reading(NEW_TOPIC, f"Why was {whose}{doc} rejected?",
+                                   note="the document the conversation is about")
+                if re.search(r"\b(score|confidence)\b", text, re.I) and not re.search(r"\bkyc\b", text, re.I):
+                    return Reading(NEW_TOPIC, f"{doc} ka score kitna hai?",
+                                   note="the document the conversation is about")
         # A KNOWLEDGE FOLLOW-UP'S "IT": "Why is it required?" after a question
         # about address proof is about address proof -- the topic of the
         # knowledge exchange, never a record of the case.
+        if last_intent in ("FOS_KNOWLEDGE", "STAGE_PROCESS") and not _SELF_WORDS.search(text) \
+                and len(_strip(text).split()) <= 4 \
+                and re.match(r"^\s*(and\s+|aur\s+)?(what|how)\s+about\b|^\s*(and|aur)\b", text, re.I):
+            from app.agents.applicant.copilot.semantics import semantic_frame as _kframes2
+            from app.agents.applicant.copilot.conversation.followup import _display as _kdisplay
+
+            named_doc = _kframes2._document_type(text)
+            if named_doc and not state.last_document:
+                return Reading(NEW_TOPIC, f"What can a {_kdisplay(named_doc)} be used for?",
+                               note="the knowledge topic, for another document")
         if last_intent in ("FOS_KNOWLEDGE", "STAGE_PROCESS"):
             topic = _knowledge_topic(state.last_message)
             if topic and re.search(r"\b(it|this|that|iska|uska|ye|yeh)\b", text, re.IGNORECASE) \
@@ -1132,6 +1282,9 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
             unreferred = _pronoun_without_referent(text, state)
             if unreferred is not None:
                 return unreferred
+            this_one = _this_persons_topic(text, state)
+            if this_one is not None:
+                return this_one
             other_document = _same_question_other_document(text, state)
             if other_document is not None:
                 return other_document
@@ -1141,7 +1294,12 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
             expanded = _expanded(text, state)
             if expanded is not None:
                 return expanded
-        if _has("REFER_BACK", text) and not pending and not state.last_slot:
+        # "what about tenure?" NAMES something of its own: a new question in the
+        # same context, not "what about that?" (a fuzzy match of the phrase).
+        _after = re.sub(r"^\s*(and\s+|aur\s+)?(what|how)\s+about\s+|[?.!\s]+$", "", text, flags=re.I).strip()
+        _names_its_own = bool(_after) and not re.fullmatch(
+            r"(it|that|this|those|these|them|ye|yeh|yahi|woh|wo|vo|iska|uska|same)", _after, re.I)
+        if _has("REFER_BACK", text) and not pending and not state.last_slot and not _names_its_own:
             # (with ONE document referred to, "what about it?" is that
             # document -- followup.resolve rewrites it)
             # "what about that?" -- the previous answer, referred to (no "Again:")
@@ -1166,7 +1324,14 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
         other = _other_document_or_party(text, state, last_intent) if not pending else None
         if other is not None:
             return other
+        # "what about tenure?" names a FIELD: a new question in the same
+        # context, however close "what about her" is as a phrase
+        from app.agents.applicant.copilot.answering import profile as _field_profile
+
+        _named_field = bool(_after) and not _names_co(text) and (
+            _field_profile.detect(f"what is my {_after}") is not None)
         if (_has("OTHER_PARTY", text) or _has("FOR_PARTY", text)) and not pending \
+                and not _named_field \
                 and not (state.last_slot and _has("REFER_BACK", text)) \
                 and _party_askable(state) \
                 and (state.active_party or "SELF") != "CO_APPLICANT" \
@@ -1200,6 +1365,24 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
             pending.asked_times += 1
             return Reading(NEGATION, text, reply=_reask(pending, after_no=True),
                            options=[o.label for o in pending.options])
+        this_one = _this_persons_topic(text, state)
+        if this_one is not None:
+            # "iska KYC?" while another question is open: a new question about
+            # a person's topic -- the open one is dropped, not re-asked
+            state.pending_clarification = None
+            return this_one
+        if pending.reason == "ACTION_OFFER":
+            # an OFFER ("Shall I start the verification?") is answered yes or
+            # no; any other turn is a request of its own
+            state.pending_clarification = None
+            return Reading(NEW_TOPIC, text, note="an offer is answered yes or no; this stands alone")
+        from app.agents.applicant.copilot.routing import subjects as _pending_subjects
+
+        if _pending_subjects.mentioned(text) is not None and len(_match_option(text, pending.options)[0]) != 1:
+            # "what about the other applicant?" while "which document?" is open:
+            # a new question about a PERSON, not an answer to the old one
+            state.pending_clarification = None
+            return Reading(NEW_TOPIC, text, note="a question about a person supersedes the clarification")
         index = _ordinal(text, count)
         if index is not None:
             if index < 0:
@@ -1373,6 +1556,11 @@ def update_from_response(state: ConversationState, message: str,
     if stage:
         state.active_stage = str(stage)
     if answered:
+        subject = response.get("subject") if isinstance(response.get("subject"), dict) else {}
+        whose = str((subject or {}).get("kind") or (frame or {}).get("party") or "").upper()
+        state.last_subject_party = {"BOTH": "BOTH", "CO": "CO_APPLICANT", "CO_APPLICANT": "CO_APPLICANT",
+                                    "SELF": "PRIMARY_APPLICANT", "PRIMARY": "PRIMARY_APPLICANT",
+                                    "PRIMARY_APPLICANT": "PRIMARY_APPLICANT"}.get(whose)
         state.last_answer_reference = {
             "intent": response.get("intent"), "query_type": response.get("query_type"),
             "response_source": response.get("response_source"),

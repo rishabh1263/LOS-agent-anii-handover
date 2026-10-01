@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import contextvars
 import re
 import time
 import uuid
@@ -384,8 +385,18 @@ def _slot_requirement(document_type: str, results: dict[str, Any]) -> str:
         state = {"MISSING": "it is still missing (not uploaded yet)", "VERIFIED": "it is already verified",
                  "REVIEW": "it is under review", "REJECTED": "it was rejected",
                  "UPLOADED": "it has been uploaded"}.get(status, "")
+        slot = str(row.get("slot") or "").upper()
+        if slot != wanted:
+            # ONE OF THE OPTIONS for a slot, not a requirement of its own
+            slot_name = _readable(slot)
+            said = (f"{name} isn't required by itself -- it is one of the documents that can satisfy "
+                    f"{slot_name}, which is {need} for this application")
+            return said + (f"; {slot_name} {state.replace('it ', '', 1)}." if state else ".")
         said = f"{name} is {need} for this application"
         return said + (f", and {state}." if state else ".")
+    if checklist:
+        # the recorded checklist is the answer: a document on no row is not asked for
+        return f"{_readable(wanted)} is not on this application's checklist, so it isn't required."
     return ""
 
 
@@ -755,10 +766,30 @@ async def answer_question(
         if turn is None and request_policy.asks_own_history(message):
             turn = conversations.Turn(conversations.HISTORY)
     if turn is not None:
-        reply, reply_language = conversations.reply(turn.kind, turn.language)
+        from app.agents.applicant.copilot.answering import phrasing as _conv_phrasing
+
+        reply, reply_language = conversations.reply(
+            turn.kind, turn.language, seed=_conv_phrasing.TURN_SEED.get(), text=message)
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
                      intent=turn.kind, tools=[], status="CONVERSATION")
+        if turn.kind == conversations.OFF_TOPIC:
+            # NOT ANSWERED, SAID NATURALLY -- and still reported as unanswered:
+            # the options and the error a caller reads to tell the two apart.
+            return envelope(
+                intent=turn.kind,
+                category=routing.QueryCategory.UNSUPPORTED.value,
+                query_type=QueryType.CLARIFICATION.value,
+                answer=reply,
+                response_source=routing.ResponseSource.CONVERSATION.value,
+                suggested_questions=list(conversations.SUGGESTIONS),
+                clarification_required={"reason": "OFF_TOPIC", "question": reply,
+                                        "options": list(conversations.SUGGESTIONS),
+                                        "original_message": message[:200]},
+                errors=[{"code": "UNSUPPORTED_REQUEST",
+                         "message": "That is outside what this assistant covers."}],
+                _presented_language=reply_language,
+            )
         return envelope(
             intent=turn.kind,
             category=routing.QueryCategory.CONVERSATION.value,
@@ -771,6 +802,162 @@ async def answer_question(
 
     # A GREETING IN FRONT OF A QUESTION is courtesy, not a second clause.
     message = conversations.without_greeting(message)
+    # A FIELD NAME TYPED AS AN IDENTIFIER ("what is loan_amount?") is the same
+    # words; an upper-case code (READY_FOR_CPA) is left exactly as written.
+    message = re.sub(r"\b([a-z]+(?:_[a-z]+)+)\b", lambda m: m.group(1).replace("_", " "), message)
+
+    # VERIFY ("verify", "PAN verify karo", "sab verify kar do", "iska score?"):
+    # an orchestration over the existing verification pipeline
+    # (capabilities/verification.py). AUTHORIZE BEFORE RETRIEVE: ownership and
+    # the access policy are proven here, before any document is read.
+    from app.agents.applicant.copilot.capabilities import verification as _verify_cap
+
+    _vreq = _verify_cap.request(message) if case_id and intent_override is None else None
+    if _vreq is not None:
+        _authorize_capability(caller, applicant_id=applicant_id, case_id=case_id,
+                              request_id=request_id, message=message)
+        _vresults, _vtrace, _verrors = await _call_tools(
+            ("documents.get", "documents.checklist"), applicant_id=applicant_id, case_id=case_id,
+            document_type=_vreq.document_type, caller=caller, request_id=request_id,
+            stage=_stage_of(None, case_id), intent=Intent.DOCUMENT_VERIFICATION.value)
+        _vdocs = (_vresults.get("documents.get") or {}).get("documents") or []
+        _vcheck = (_vresults.get("documents.checklist") or {}).get("checklist") or []
+        _vmentioned = subjects.mentioned(message)
+        _vparty = ("CO_APPLICANT" if _vmentioned is subjects.Kind.CO
+                   else "PRIMARY_APPLICANT" if _OWN_WORDS.search(message) else None)
+        from app.store import get_repository as _verify_repo
+
+        _vout = await _verify_cap.run(
+            _vreq, documents=_vdocs, checklist=_vcheck, party=_vparty, repository=_verify_repo(),
+            case_id=case_id, applicant_id=applicant_id or "",
+            can_write=bool(set(caller.scopes or ()) & _verify_cap.WRITE_SCOPES), req_text=message)
+        audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
+                     case_id=case_id, intent=Intent.DOCUMENT_VERIFICATION.value,
+                     tools=["documents.get", "documents.checklist"], status="OK",
+                     detail=_vout["response_type"])
+        # what the next turn refers back to: the document and the party
+        _vunderstanding = dict(_understanding[0] or {})
+        _vframe = dict(_vunderstanding.get("frame") or {})
+        _vframe["document_type"] = _vreq.document_type
+        _vframe["party"] = {"CO_APPLICANT": "CO_APPLICANT", "PRIMARY_APPLICANT": "SELF"}.get(_vparty or "")
+        _vframe.setdefault("language", _language_code(message))
+        _vunderstanding.update({"frame": _vframe, "decided_by": "VERIFY_CAPABILITY",
+                                "capability": "DOCUMENT_VERIFICATION"})
+        return envelope(
+            understanding=_vunderstanding,
+            intent=Intent.DOCUMENT_VERIFICATION.value, answer=_vout["answer"],
+            documents=_vdocs, checklist=_vcheck, verification=_vout["verification"],
+            response_type=_vout["response_type"], processing=_vout["processing"],
+            actions=_vout["actions"], query_type=QueryType.DOCUMENT_STATUS.value,
+            errors=_verrors or [])
+
+    # STAGE GATES ("can my case move to CPA?", "credit ka pending kar do",
+    # "move it to CPA"): the CURRENT stage's configured gate, evaluated from
+    # recorded results; pending checks the registry lets the assistant run are
+    # run through the EXISTING agents and read back; a move needs an explicit
+    # request, the transition scope and a gate that passes on a fresh read
+    # (capabilities/gates.py). AUTHORIZE BEFORE RETRIEVE, as above.
+    from app.agents.applicant.copilot.capabilities import gates as _gate_cap
+
+    _greq = _gate_cap.request(message) if case_id and intent_override is None else None
+    if _greq is not None and _greq.kind == _gate_cap.EVALUATE:
+        # FOS READINESS IS ALREADY THE FOS GATE, answered by the READINESS path
+        # (party-aware, stage-aware); and a question about ANOTHER stage's
+        # move is the stage-aware path's to answer. Only the live stage's own
+        # next move, after FOS, is evaluated here.
+        _glive = _gate_cap.live_stage(case_id)
+        _gnext = (_gate_cap.lifecycle()["next"].get(str(_glive or "")) or [None])[0]
+        from app.agents.los import stages as _gstages
+
+        _gorder = [s.value for s in _gstages.ORDER]
+        _glater = bool(_greq.target and _glive in _gorder and _greq.target in _gorder
+                       and _gorder.index(_greq.target) > _gorder.index(_glive) + 1)
+        if _glater:
+            pass                        # a later stage: this stage's gate is what stands before it
+        elif _glive in (None, "FOS") or (_greq.target and _greq.target not in (_gnext, _glive)):
+            if _glive == "FOS" and _greq.target in (None, "CPA", "FOS") \
+                    and classify(message).intent is not Intent.READINESS:
+                # a FOS readiness question the rules word differently ("kya case
+                # aage badh sakta hai", Marathi): the READINESS path's own question
+                message = "is my case ready for CPA?"
+            _greq = None
+    if _greq is not None:
+        _authorize_capability(caller, applicant_id=applicant_id, case_id=case_id,
+                              request_id=request_id, message=message)
+        _gout = await _gate_turn(_greq, case_id=case_id, applicant_id=applicant_id, caller=caller,
+                                 request_id=request_id)
+        audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
+                     case_id=case_id, intent=Intent.READINESS.value,
+                     tools=["workflow.readiness", "eligibility.get"], status="OK",
+                     detail=f"{_greq.kind}:{_gout['gate']['status']}")
+        _gunderstanding = dict(_understanding[0] or {})
+        _gframe = dict(_gunderstanding.get("frame") or {})
+        _gframe.setdefault("language", _language_code(message))
+        _gunderstanding.update({"frame": _gframe, "decided_by": "GATE_CAPABILITY",
+                                "capability": f"STAGE_GATE_{_greq.kind}",
+                                "case_stage": _gout["gate"]["stage"]})
+        _goffer = _gout.get("offer")
+        return envelope(
+            understanding=_gunderstanding, intent=Intent.READINESS.value, answer=_gout["answer"],
+            response_type=_gout["response_type"], gate=_gout["gate"], stage=_gout["gate"]["stage"],
+            actions=_gout["actions"],
+            clarification_required=({"reason": _goffer["reason"], "question": _goffer["question"],
+                                     "options": _goffer["options"], "original_message": message[:200]}
+                                    if _goffer else None),
+            query_type=(QueryType.ACTION_REQUEST.value if _greq.kind != _gate_cap.EVALUATE
+                        else QueryType.CASE_FACT.value),
+            errors=_gout["errors"])
+
+    # PENDING WORK ("jo pending hai kar do", "abhi kya kar sakte ho?",
+    # "everything okay?", "what still needs me?"): what is left on the case,
+    # who moves each item, and -- for a request to act -- every item the
+    # action registry lets the assistant run, run through the existing
+    # verification capability and READ BACK (capabilities/work.py).
+    # AUTHORIZE BEFORE RETRIEVE, exactly as the verify path above.
+    from app.agents.applicant.copilot.capabilities import work as _work_cap
+
+    _wmode = _work_cap.request(message) if case_id and intent_override is None else None
+    if _wmode is not None:
+        _authorize_capability(caller, applicant_id=applicant_id, case_id=case_id,
+                              request_id=request_id, message=message)
+        _wresults, _wtrace, _werrors = await _call_tools(
+            ("documents.get", "documents.checklist"), applicant_id=applicant_id, case_id=case_id,
+            document_type=None, caller=caller, request_id=request_id,
+            stage=_stage_of(None, case_id), intent=Intent.PENDING_ITEMS.value)
+        _wdocs = (_wresults.get("documents.get") or {}).get("documents") or []
+        _wcheck = (_wresults.get("documents.checklist") or {}).get("checklist") or []
+        from app.store import get_repository as _work_repo
+
+        _wout = await _work_cap.run(_wmode, documents=_wdocs, checklist=_wcheck, repository=_work_repo(),
+                                    case_id=case_id, applicant_id=applicant_id or "",
+                                    scopes=set(caller.scopes or ()))
+        audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
+                     case_id=case_id, intent=Intent.PENDING_ITEMS.value,
+                     tools=["documents.get", "documents.checklist"], status="OK",
+                     detail=f"{_wout['response_type']}:{_wmode}")
+        _wunderstanding = dict(_understanding[0] or {})
+        _wframe = dict(_wunderstanding.get("frame") or {})
+        _wframe.setdefault("language", _language_code(message))
+        _wunderstanding.update({"frame": _wframe, "decided_by": "WORK_CAPABILITY",
+                                "capability": f"PENDING_WORK_{_wmode}"})
+        _woffer = _wout.get("offer")
+        # A HEALTH QUESTION ABOUT THE PAPERS ("is everything okay with my
+        # paperwork?") is a verification-state question; the answer is still
+        # the attention list, from the recorded state
+        _wintent = (Intent.DOCUMENT_VERIFICATION if _wmode == _work_cap.HEALTH
+                    and _work_cap.about_documents(message) else Intent.PENDING_ITEMS)
+        return envelope(
+            understanding=_wunderstanding,
+            intent=_wintent.value, answer=_wout["answer"],
+            documents=_wout["documents"], checklist=_wcheck,
+            response_type=_wout["response_type"], processing=_wout["processing"],
+            pending_work=_wout["pending_work"], actions=_wout["actions"],
+            clarification_required=({"reason": _woffer["reason"], "question": _woffer["question"],
+                                     "options": _woffer["options"], "original_message": message[:200]}
+                                    if _woffer else None),
+            query_type=(QueryType.ACTION_REQUEST.value if _wmode == _work_cap.DO
+                        else QueryType.DOCUMENT_STATUS.value),
+            errors=_werrors or [])
 
     # A BARE FOLLOW-UP BECOMES A WHOLE QUESTION FIRST.
     #
@@ -936,8 +1123,54 @@ async def answer_question(
             case_stage=getattr(getattr(stage_context, "stage", None), "value", None))
         understanding_trace["referents"] = resolved.resolutions
         referent_clarification = resolved.clarification or referent_clarification
+        if resolved.clarification and case_id and frame.referents.get("document") == "THAT":
+            # "this document" with no document in the last answer: the CASE
+            # settles it when exactly one document needs attention; a person
+            # named instead ("the other applicant") is not a document at all
+            if subjects.mentioned(message) is not None:
+                referent_clarification = None
+            else:
+                _only = _the_one_document_needing_attention(case_id, applicant_id, caller, message,
+                                                            request_id)
+                _several = _DOCUMENTS_NEEDING_ATTENTION.get() or []
+                if not _only and 2 <= len(_several) <= 4:
+                    from app.agents.applicant.copilot.answering import structured as _tstructured
+
+                    _labels = [_tstructured._readable_type(t) for t in _several]
+                    referent_clarification = ("Which document do you mean -- the "
+                                              + ", the ".join(_labels[:-1]) + f" or the {_labels[-1]}?")
+                    referent_options = [re.sub(r"\b(this|that|the)\s+(document|doc|one|file)\b|\bit\b",
+                                               f"my {label}", message, count=1, flags=re.IGNORECASE)
+                                        for label in _labels]
+                if _only:
+                    frame.document_type = _only
+                    frame.referents["document"] = _only
+                    classification.document_type = _only
+                    understanding_trace["referents"]["document"] = (
+                        f"THAT -> {_only} (the only document on the case needing attention)")
+                    referent_clarification = None
         if frame.document_type and not classification.document_type:
             classification.document_type = frame.document_type
+    # "REPLACE THIS DOCUMENT" / "re-upload the PAN" / "dobara upload": an upload
+    # request for ONE known document -- answered with that slot's upload action
+    # (the file comes from the person; nothing is uploaded or changed here)
+    _replace_type = classification.document_type or (frame.document_type if frame is not None else None)
+    if case_id and intent_override is None and _replace_type and _REPLACE.search(message):
+        _authorize_capability(caller, applicant_id=applicant_id, case_id=case_id,
+                              request_id=request_id, message=message)
+        from app.agents.applicant.copilot.answering import structured as _rstructured
+
+        _label = _rstructured._readable_type(_replace_type)
+        return envelope(
+            understanding={"frame": frame.public() if frame is not None else None,
+                           "decided_by": "UPLOAD_REQUEST", "capability": "UPLOAD_DOCUMENT",
+                           "referents": understanding_trace.get("referents") or {}},
+            intent=Intent.NEXT_ACTION.value, response_type="NEXT_ACTION",
+            answer=f"Upload the new {_label} here -- it's checked as part of the upload, and "
+                   f"the current one stays on record until the new one is in.",
+            actions=[{"action": "UPLOAD_DOCUMENT", "document_type": _replace_type,
+                      "label": f"Upload a new {_label}", "enabled": True}],
+            query_type=QueryType.ACTION_REQUEST.value)
     _understanding[0] = {
         "frame": frame.public() if frame is not None else None,
         "decided_by": getattr(classification, "understanding", None),
@@ -996,7 +1229,13 @@ async def answer_question(
         if (case_id and route.get("route_to") == "DECISION_AGENT"
                 and re.search(r"\b(my|mera|meri|mere|our|apna|apni)\b|मेरा|मेरी|माझ", message, re.I)):
             try:
+                # THE SAME TWO CHECKS as every case read: ownership, then the
+                # customer-facing access policy -- AUTHORIZE before RETRIEVE
                 permissions.check_ownership(applicant_id or "", case_id, caller=caller)
+                from app.security import access as _access
+
+                _access.authorize_conversation(caller.subject, caller.scopes,
+                                               applicant_id=applicant_id, case_id=case_id)
                 standing, _src = case_memory_facts.explain(case_memory_facts.case_memory(case_id))
                 if standing:
                     routed = f"Not yet. {standing} {routed}"
@@ -1450,6 +1689,32 @@ async def answer_question(
 
     elif intent is Intent.CASE_PORTFOLIO:
         answer = _portfolio_answer(results)
+        # EVERY AUTHORIZED CASE, SUMMARISED -- when there is anything to say
+        # beyond the list (portfolio.py); an unauthorized case never appears.
+        from app.agents.applicant.copilot.capabilities import portfolio as _portfolio
+
+        _focus = _portfolio.focus_of(message)
+        summarised = _portfolio.summarise(results, caller=caller, applicant_id=applicant_id,
+                                          focus=_focus)
+        if summarised is not None and _focus:
+            # ONE CASE BY POSITION, or the cases in trouble: the focused rows
+            answer, _block = summarised
+            from app.agents.applicant.copilot.answering import structured as _pstructured
+
+            _pstructured.put("portfolio", None, _block)
+        elif summarised is not None:
+            _detail, _block = summarised
+            # THE HEAD IS THE EXISTING CONTRACT ("Across N cases: 1) ..."),
+            # built from the AUTHORIZED cases only; the per-case detail follows
+            _listed = (results.get("applications.list") or {}).get("applications") or []
+            _kept = {c["case_id"] for c in _block["cases"]}
+            _authorized = [a for a in _listed if isinstance(a, dict) and str(a.get("case_id")) in _kept]
+            answer = _portfolio_answer({"applications.list": {"applications": _authorized,
+                                                              "count": len(_authorized)}})
+            answer = f"{answer}\n{_detail.split(chr(10), 1)[1] if chr(10) in _detail else ''}".rstrip()
+            from app.agents.applicant.copilot.answering import structured as _pstructured
+
+            _pstructured.put("portfolio", None, _block)
         source, llm_ms = "deterministic", 0.0
         # EACH CASE WITH ITS RECORDED STATUS -- a list of recorded values,
         # never rephrased: a composed "a total of 3 cases" dropped them all.
@@ -2051,6 +2316,10 @@ async def _named_people(message: str, kwargs: dict[str, Any],
     applicant_id = kwargs.get("applicant_id")
     if not case_id or not subjects.names_a_person(message):
         return {}
+    from app.agents.applicant import conversation as _chat
+
+    if _chat.classify(message) is not None:
+        return {}              # small talk names no one ("capital of France"): no read
     try:
         caller = Caller.from_claims(claims)
         permissions.check_ownership(applicant_id or "", case_id, caller=caller)
@@ -2081,8 +2350,66 @@ async def _named_people(message: str, kwargs: dict[str, Any],
         if _PARTY_CLAIM.search(message) and "?" not in message:
             return {"reply": "I can only go by the people recorded on this application, so "
                              "nothing has been changed. That name isn't one of them."}
+        if _WHO_IS.search(message) and not _RECORD_WORDS.search(message):
+            # "Who is Virat Kohli?" -- a bare question about someone not on the
+            # case, asking for no record: out of scope, said the SAME way for
+            # every such name (nothing about anyone's existence is disclosed)
+            return {"reply": "I can't look up people who aren't on this application -- I'm focused "
+                             "on your LOS workflow. I can help with this application's documents, "
+                             "KYC, verification, stage or pending items. What would you like to check?",
+                    "intent": "OFF_TOPIC"}
         return {"refuse": True}
     return {}
+
+
+#: Asking to put a new copy of a document in place of the one on record.
+_REPLACE = re.compile(r"\b(replace|re-?upload|upload\s+(it\s+|this\s+|that\s+)?again|"
+                      r"new\s+(copy|one)|dobara\s+upload|phir\s+se\s+upload|badal\w*)\b", re.IGNORECASE)
+
+def _settled_by_parties(reading: Any, message: str, kwargs: dict[str, Any],
+                        claims: dict[str, Any]) -> Any:
+    """
+    ONE PERSON ON THE CASE SETTLES "WHOSE". The conversation layer reads
+    nothing, so "iska KYC?" is asked back (yours, or the co-applicant's?) and
+    a bare "and co-applicant?" is asked what about. When the case RECORD has
+    no co-applicant -- read only after the caller is authorized on the case --
+    the first means the applicant, and the second is told so plainly.
+    """
+    from app.agents.applicant.copilot.conversation import state as conv
+
+    case_id = kwargs.get("case_id")
+    pointer = (reading.outcome == conv.ASKED and len(reading.options or []) == 2
+               and "co-applicant" in str(reading.options[1]))
+    co_named = reading.reply is not None and subjects.mentioned(message) in (subjects.Kind.CO,
+                                                                            subjects.Kind.BOTH)
+    if not case_id or not (pointer or co_named):
+        return reading
+    try:
+        caller = Caller.from_claims(claims)
+        permissions.check_ownership(kwargs.get("applicant_id") or "", case_id, caller=caller)
+        from app.security import access as _party_access
+
+        _party_access.authorize_conversation(caller.subject, caller.scopes,
+                                             applicant_id=kwargs.get("applicant_id"), case_id=case_id)
+        parties = subjects.parties_of(case_id)
+    except Exception:  # noqa: BLE001 - not provable here: the pipeline refuses as usual
+        return reading
+    if not parties or any(p.role is subjects.Kind.CO for p in parties):
+        return reading
+    if pointer:
+        return conv.Reading(conv.NEW_TOPIC, str(reading.options[0]), note="only one person on the case")
+    return conv.Reading(conv.NEW_TOPIC, message,
+                        reply="There's no co-applicant on this application -- only the primary applicant "
+                              "is on record.", note="no co-applicant on the case")
+
+
+#: "Who is X?" / "X kaun hai?" -- an identity question, asking for no record.
+_WHO_IS = re.compile(r"^\s*(who\s+is|who's|kaun\s+hai)\b|\bkaun\s+(hai|h|he)\s*\??\s*$", re.IGNORECASE)
+#: Any record, field or case word makes it a data request, refused as before.
+_RECORD_WORDS = re.compile(
+    r"\b(pan|aadhaa?r|kyc|loan|case|application|document\w*|mobile|phone|email|address|dob|"
+    r"birth|data|details?|status|account|salary|income|number|record\w*|customer|applicant|profile)\b",
+    re.IGNORECASE)
 
 
 #: A statement ABOUT who is on the case ("X is my co-applicant", "remember
@@ -2164,7 +2491,10 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
             state.last_document = str(context.get("last_document"))
         if not state.last_documents and isinstance(context.get("last_documents"), list):
             state.last_documents = [str(d) for d in context["last_documents"]][:6]
-    named = await _named_people(message, kwargs, claims)
+    # SMALL TALK NAMES NO ONE: "what is the capital of France?" reads no party
+    from app.agents.applicant import conversation as _small_talk
+
+    named = {} if _small_talk.classify(message) is not None         else await _named_people(message, kwargs, claims)
     if named.get("refuse"):
         reading = conv.Reading(conv.REFUSED, message, reply="", note="CROSS_CUSTOMER_DATA")
     elif named.get("ask"):
@@ -2175,6 +2505,7 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
                                note="a claim about the case's parties, not adopted")
     else:
         reading = conv.read_turn(named.get("message") or message, state)
+    reading = _settled_by_parties(reading, message, kwargs, claims)
     conversation_ms = round((time.perf_counter() - turn_started) * 1000, 2)
     from app.agents.applicant.copilot.answering import phrasing as _phrasing
 
@@ -2217,6 +2548,8 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
                               "llm": {"consulted": False, "status": "NOT_NEEDED"},
                               "parse_ms": 0.0, "case_stage": None},
         }
+        if named.get("intent"):
+            response["intent"] = named["intent"]
         if reading.outcome == conv.REFUSED:
             response["answer"] = guardrails.refusal(guardrails.Category.CROSS_CUSTOMER_DATA)
             response["intent"] = "GUARDRAIL_BLOCKED"
@@ -2268,6 +2601,143 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
     return response
 
 
+def _authorize_capability(caller: Any, *, applicant_id: str | None, case_id: str,
+                          request_id: str | None, message: str) -> None:
+    """
+    AUTHORIZE BEFORE RETRIEVE, for the capability paths (verify, pending work,
+    stage gates): the case must be the caller's and the access policy must
+    allow the conversation -- or the turn is refused exactly as the main
+    pipeline refuses it (audited DENIED, a 403 AgentError), before any read.
+    """
+    from app.security import access as _capability_access
+
+    try:
+        permissions.check_ownership(applicant_id or "", case_id, caller=caller)
+        try:
+            _capability_access.authorize_conversation(caller.subject, caller.scopes,
+                                                      applicant_id=applicant_id, case_id=case_id)
+        except _capability_access.AccessDenied:
+            raise PermissionDenied("CASE_NOT_ACCESSIBLE", "Not the caller's case.") from None
+    except PermissionDenied as exc:
+        audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
+                     case_id=case_id, intent=Intent.UNKNOWN.value, tools=[], status="DENIED",
+                     message=message, detail=exc.code)
+        raise AgentError(exc.code, exc.message, http_status=403) from exc
+
+
+def _the_one_document_needing_attention(case_id: str, applicant_id: str | None, caller: Any,
+                                        message: str, request_id: str | None) -> str | None:
+    """The single document type on the case that is REJECTED or in REVIEW (and
+    not since replaced by a verified one), or None. Read after authorization."""
+    _authorize_capability(caller, applicant_id=applicant_id, case_id=case_id,
+                          request_id=request_id, message=message)
+    from app.store import get_repository
+
+    try:
+        documents = get_repository().list_documents(case_id)
+    except Exception:  # noqa: BLE001 - unreadable: ask, as before
+        return None
+    verified = {str(d.document_type).upper() for d in documents
+                if str(getattr(d.status, "value", d.status)).upper() == "VERIFIED"}
+    open_types = sorted({str(d.document_type).upper() for d in documents
+                         if str(getattr(d.status, "value", d.status)).upper() in ("REJECTED", "REVIEW")
+                         and str(d.document_type).upper() not in verified})
+    _DOCUMENTS_NEEDING_ATTENTION.set(open_types)
+    return open_types[0] if len(open_types) == 1 else None
+
+
+#: The documents on the case needing attention, for a "which one?" with options.
+_DOCUMENTS_NEEDING_ATTENTION: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
+    "copilot_documents_needing_attention", default=None)
+
+
+async def _gate_turn(req: Any, *, case_id: str, applicant_id: str | None, caller: Any,
+                     request_id: str) -> dict[str, Any]:
+    """
+    One stage-gate turn (capabilities/gates.py), AFTER authorization: read the
+    live stage and every gate source fresh, run what the registry lets the
+    assistant run, read back, evaluate. A move is NEVER made here -- a gate
+    that passes yields a STAGE_TRANSITION action for the operator endpoint,
+    submitted by the user under their own authorization.
+    """
+    from app.agents.applicant.copilot.capabilities import gates, work
+    from app.store import get_repository, request_cache
+
+    repository = get_repository()
+    scopes = set(caller.scopes or ())
+
+    async def read() -> tuple[str | None, dict[str, Any], list[dict[str, str]]]:
+        results, _trace, errors = await _call_tools(
+            ("workflow.readiness", "eligibility.get"), applicant_id=applicant_id, case_id=case_id,
+            document_type=None, caller=caller, request_id=request_id, stage=_stage_of(None, case_id),
+            intent=Intent.READINESS.value)
+        stage = gates.live_stage(case_id)                          # ALWAYS the live stage
+        sources = gates.read_sources(case_id, results=results, repository=repository)
+        return stage, gates.evaluate(stage, sources), errors
+
+    stage, gate, errors = await read()
+    ran: list[str] = []
+    response_type = "STAGE_GATE"
+    if req.target and gate.get("next_stage") and req.target not in (stage, gate["next_stage"]):
+        ran.append(f"{gates._readable(req.target)} comes later -- your case is at "
+                   f"{gates._readable(stage)}, and first has to move on to "
+                   f"{gates._readable(gate['next_stage'])}.")
+
+    if req.kind == gates.RUN_PENDING:
+        response_type = "ACTION_RESULT"
+        if stage != "CREDIT":
+            ran.append(f"Credit checks run once the case is at the Credit stage; it is at "
+                       f"{gates._readable(stage)} now.")
+        for check in list(gate["blockers"]):
+            action = (check.get("next_action") or {}).get("action")
+            if action == "RUN_CREDIT_UNDERWRITING" and stage == "CREDIT":
+                if check.get("recorded"):
+                    ran.append(f"Credit underwriting has already been run; its recorded result is "
+                               f"{str(check.get('value') or 'not complete').replace('_', ' ').lower()}. "
+                               "Running it again on the same data gives the same result.")
+                    continue
+                if not work.may_run(action, scopes):
+                    ran.append("I can't run credit underwriting in this session -- it needs the "
+                               "credit-underwriting permission.")
+                    continue
+                from app.agents.credit import agent as credit_agent
+
+                token = credit_agent.CALLER.set(caller)
+                try:
+                    run = await credit_agent.underwrite(case_id, caller=caller, request_id=request_id)
+                finally:
+                    credit_agent.CALLER.reset(token)
+                request_cache.invalidate()                          # an assessment may be new
+                if run.status == "SUCCEEDED":
+                    ran.append("I ran credit underwriting.")
+                else:
+                    ran.append("Credit underwriting did not complete: "
+                               + (run.error.message if run.error else "the run failed") + ".")
+        stage, gate, errors = await read()                          # READ BACK, never assumed
+
+    can_move = bool(scopes & set(gates.lifecycle()["transition_scopes"]))
+    move = gates.transition_action(case_id, gate) if can_move else None
+    if req.kind == gates.MOVE:
+        response_type = "ACTION_RESULT"
+        target = req.target or gate["next_stage"]
+        if target and gate["next_stage"] and target != gate["next_stage"]:
+            ran.append(f"A case at {gates._readable(stage)} can only move to "
+                       f"{gates._readable(gate['next_stage'])}.")
+            move = None
+        elif gate["status"] == gates.PASS and not can_move:
+            ran.append("I can't move the case -- that needs stage-transition permission.")
+
+    # what was done (or refused) this turn travels with the gate, so a
+    # localized rendering never drops it
+    gate = {**gate, "notes": list(ran)}
+    answer, offer = gates.compose(gate, can_move=can_move, ran=ran)
+    actions = [dict(c["next_action"], check=c["id"]) for c in gate["blockers"] if c.get("next_action")]
+    if move:
+        actions.append(move)
+    return {"answer": answer, "gate": gate, "response_type": response_type, "actions": actions,
+            "errors": errors, "offer": offer}
+
+
 @functools.wraps(_answer_unguarded)
 async def answer_question(**kwargs: Any) -> dict[str, Any]:
     """
@@ -2282,13 +2752,48 @@ async def answer_question(**kwargs: Any) -> dict[str, Any]:
     from app.store import request_cache
     from app.agents.applicant.copilot.facts import field_state as _field_state
 
+    from app.agents.applicant.copilot.answering import structured as _structured
+
     evidence_token = _field_state.EVIDENCE.set([])
+    blocks_token = _structured.BLOCKS.set({})
+    from app.agents.applicant.copilot.answering import phrasing as _presented_phrasing
+
+    presented_token = _presented_phrasing.PRESENTED.set(None)
     try:
         with request_cache.scoped():
             response = await _conversational(**kwargs)
         _describe_answer(response, _field_state.EVIDENCE.get() or [])
+        # THE FRONTEND CONTRACT: response_type, subject, language and the
+        # structured blocks the answer was built from (structured.py).
+        _structured.enrich(response)
+        # THE LANGUAGE CONTRACT (language_gateway.py): how the question was
+        # read -- language, script, input mode, semantic text, confidence.
+        # Descriptive only: access was decided above, on the typed text.
+        from app.agents.applicant import language_gateway as _gateway
+
+        context = kwargs.get("context") if isinstance(kwargs.get("context"), dict) else {}
+        contract = _gateway.analyse(str(kwargs.get("message") or ""),
+                                    requested=kwargs.get("language") or None,
+                                    preferred=(context or {}).get("language"))
+        response["language_contract"] = contract.public()
+        # a whole-sentence answer written in the user's language says so
+        _written_in = _presented_phrasing.PRESENTED.get()
+        if _written_in and not response.get("_presented_language"):
+            response["_presented_language"] = _written_in
+        from app.agents.applicant.copilot.answering import localize as _localize_settle
+
+        _localize_settle.settle(response)
+        response.setdefault("_timings", {})["language_ms"] = contract.elapsed_ms
     finally:
         _field_state.EVIDENCE.reset(evidence_token)
+        _structured.BLOCKS.reset(blocks_token)
+        _presented_phrasing.PRESENTED.reset(presented_token)
+    # NATURAL RESPONSE: the plan always; a model rewording only behind
+    # CHATBOT_NATURAL_COMPOSITION, validated against the structured truth.
+    # Before the privacy guard below, which checks whatever is published.
+    from app.agents.applicant.copilot.answering import composer as _composer
+
+    response = await _composer.finish(response, str(kwargs.get("message") or ""))
     answer = response.get("answer")
     if isinstance(answer, str) and answer:
         cleaned, verdict = guardrails.published(answer)
@@ -2648,3 +3153,13 @@ async def confirm_action(
 
 
 __all__ = ["AgentError", "answer_question", "confirm_action"]
+
+
+def _language_code(text: str) -> str:
+    """The language a message is written in (language.detect), 'en' on any failure."""
+    try:
+        from app.agents.applicant import language as _language
+
+        return _language.detect(text).code
+    except Exception:  # noqa: BLE001
+        return "en"

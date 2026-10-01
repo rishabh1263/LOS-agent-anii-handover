@@ -118,7 +118,10 @@ _CROSS = _rx(
     rf"\b{_PEOPLE_ONLY}\s+(who\s+(was|came)\s+)?(before|after|ahead\s+of|behind)\s+(me|us|mine)\b",
     # Hinglish: sabka / sab ka data, dusre ka PAN
     r"\bsab\s*k[aei]\s+(data|details|pan|record\w*|number|info\w*|naam)",
-    rf"\b(dusr|doosr|pichl)\w*\s+(\w+\s+)?k[aei]\s+{_PROTECTED}",
+    # NOT the caller's own earlier / other case: "pichle case ka status",
+    # "dusri application ka stage" (every case is authorized before a read).
+    rf"\b(dusr|doosr|pichl)\w*\s+(?!(?:case|cases|application|applications|loan|loans|stage|file)\b)"
+    rf"(\w+\s+)?k[aei]\s+{_PROTECTED}",
 )
 
 _BULK = _rx(
@@ -137,6 +140,9 @@ _BULK = _rx(
     r"\b(everyone|everybody|everything)\b[^?]{0,30}\b(applied|data|records?|details?|"
     r"information|info|in\s+the\s+(system|database|db))\b",
     r"\b(show|list|give|tell)\s+(me\s+)?(everyone|everybody)\b",
+    # every bank account at once -- "all bank accounts" ("all my bank accounts"
+    # is the caller's own: the possessive breaks the match)
+    rf"\b{_EVERY}\s+(the\s+)?bank\s+(accounts|account\s+numbers)\b",
     # every co-applicant, every KYC record: bulk, whatever the noun
     rf"\b(list|show|dump|export|give|send|get|fetch|print|return)\s+(me\s+)?{_EVERY}\s+(the\s+)?"
     r"co[\s-]?(applicants|borrowers)\b",
@@ -341,6 +347,15 @@ def _canonical(text: str) -> str:
         return text
 
 
+def _canonical_forms(text: str) -> list[str]:
+    try:
+        from app.agents.applicant import language
+
+        return language.canonical_forms(text)
+    except Exception:  # pragma: no cover - normalisation must never open a hole
+        return []
+
+
 def classify(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Decision | None:
     """The policy category this request falls in, or None (ordinary request)."""
     raw = " ".join(str(message or "").split())
@@ -350,6 +365,10 @@ def classify(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Decis
     canonical = _canonical(raw)
     if canonical and canonical.lower() != raw.lower():
         texts.append(canonical)
+    # every language sharing the script (a misdetection never opens a hole)
+    for form in _canonical_forms(raw):
+        if form.lower() not in {t.lower() for t in texts}:
+            texts.append(form)
 
     # ENCODED PAYLOADS are opened and judged by what they say; asking for
     # one to be decoded and obeyed is an injection by itself.
@@ -430,11 +449,17 @@ def classify(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Decis
     if rule:
         return Decision("AUTHORITY_CLAIM", rule)
 
-    # BULK: "all my documents" is the caller's own case and passes.
+    # BULK: "all my documents" is the caller's own case and passes -- and so
+    # is "APP-123 ke saare cases" when APP-123 is the request's OWN applicant
+    # (an id already in `allowed_ids`) and what is asked for is its cases.
+    # Every case is still authorized one by one before anything is read.
+    own_named = any(i and re.search(re.escape(str(i)), raw, _I) for i in allowed_ids)
     for index, pattern in enumerate(_BULK):
         for text in texts:
             match = pattern.search(text)
-            if match and not re.search(_OWN, text[max(0, match.start() - 12):match.end() + 4], _I):
+            if match and not re.search(_OWN, text[max(0, match.start() - 12):match.end() + 4], _I) \
+                    and not (own_named and re.search(r"\b(cases?|applications?|files?|loans?)\b",
+                                                     match.group(0), _I)):
                 return Decision("BULK_DATA", f"bulk_{index}")
 
     rule = _first(_EXPORT, texts, "export")
