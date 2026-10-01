@@ -53,4 +53,15 @@ def read(repository: Any, method: str, *args: Any) -> Any:
     return cache[key]
 
 
-__all__ = ["active", "read", "scoped"]
+def invalidate() -> None:
+    """
+    Forget every read this request has memoized. Called right after a write
+    made INSIDE a request (the Copilot moving a stage, running an agent), so
+    the read-back that follows is live -- never the value from before the write.
+    """
+    cache = _CACHE.get()
+    if cache is not None:
+        cache.clear()
+
+
+__all__ = ["active", "invalidate", "read", "scoped"]

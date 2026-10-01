@@ -207,6 +207,8 @@ def available_actions(
     documents: Sequence[Mapping[str, Any]] | None,
     checklist: Sequence[Mapping[str, Any]] | None,
     readiness: Mapping[str, Any] | None,
+    *,
+    known: bool = True,
 ) -> list[dict[str, Any]]:
     """
     The actions this case supports right now, each with why or why not.
@@ -221,16 +223,21 @@ def available_actions(
     has_documents = bool(_collected_ids(documents, checklist))
     ready = (readiness or {}).get("status") == "READY"
 
+    # NOT READ IS NOT "NONE". An answer that did not read the checklist (or
+    # the documents) knows nothing about them; saying "every required
+    # document has been collected" beside two missing ones is a false claim.
+    checklist_read = known
+    documents_read = known
     conditions: dict[str, tuple[bool, str]] = {
         "UPLOAD_DOCUMENT": (
-            bool(outstanding),
-            "" if outstanding
+            bool(outstanding) or not checklist_read,
+            "" if outstanding or not checklist_read
             else "Every required document has been collected.",
         ),
         "GET_DOCUMENT_CHECKLIST": (True, ""),
         "GET_VERIFICATION_STATUS": (
-            has_documents,
-            "" if has_documents else "No document has been uploaded yet.",
+            has_documents or not documents_read,
+            "" if has_documents or not documents_read else "No document has been uploaded yet.",
         ),
         "MARK_FOR_REUPLOAD": (
             reviewable,
@@ -417,7 +424,10 @@ def contract(
             documents, checklist, readiness, envelope.get("stage"),
             case_id=envelope.get("case_id"), policy=policy,
         ),
-        "available_actions": available_actions(documents, checklist, readiness),
+        # an answer that read neither the checklist nor the documents knows
+        # nothing about them, and its panel claims nothing about them
+        "available_actions": available_actions(documents, checklist, readiness,
+                                               known=bool(checklist or documents)),
         "document_highlights": document_highlights(documents),
         "suggested_questions": suggested_questions(checklist, readiness, policy),
     }

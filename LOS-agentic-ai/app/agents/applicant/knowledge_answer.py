@@ -440,7 +440,9 @@ def _evidence(body: str, question: str, *, keep: int = 2) -> str:
     # a heading, a table row, a list item is its own piece
     pieces = [p.strip(" |") for p in _re.split(
         r"(?<=[.!?])(?<!\b\d\.)\s+(?=[A-Z0-9*`(-])|(?<=:)\s+(?=-\s|\d+\.\s)|\s+(?=\d+\.\s)|\s+(?=-\s+\*\*)"
-        r"|\s*#{2,}\s+|\s*\|\|\s*",
+        r"|\s*#{2,}\s+|\s*\|\|\s*"
+        # a bold list label ends where the next sentence starts ("- **Voter ID** Any one ...")
+        r"|(?<=\*\*)\s+(?=[A-Z][a-z]+\s)",
         body) if p.strip(" |")]
     pieces = [_re.sub(r"\s*\|\s*", " -- ", p) for p in pieces]
     # a list item keeps its own continuation sentences ("- **CONDITIONAL** --
@@ -462,7 +464,8 @@ def _evidence(body: str, question: str, *, keep: int = 2) -> str:
     # a heading on its own says nothing: joined to the line it heads
     joined: list[str] = []
     for p in pieces:
-        if joined and len(joined[-1].split()) <= 4 and not joined[-1].endswith((".", ":")):
+        if joined and len(joined[-1].split()) <= 4 and not joined[-1].endswith((".", ":")) \
+                and not _re.match(r"(-\s+|\d+\.\s)", joined[-1]):
             joined[-1] = f"{joined[-1]}: {p}"
         else:
             joined.append(p)
@@ -480,6 +483,21 @@ def _evidence(body: str, question: str, *, keep: int = 2) -> str:
     chosen = sorted(i for _c, _neg, i in sorted(scored, reverse=True)[:keep] if _c > 0)
     asks_list = _re.search(r"\b(which|what\s+are|list|steps|states|stages|kaun-?kaun|kin-?kin|kya\s+kya)\b|"
                            r"कौन-कौन|किन-किन", question, _re.I)
+    item = r"(-\s+|\d+\.\s)"
+    if chosen and _re.match(r"-\s+", pieces[chosen[0]]):
+        # A SHORT BULLET LIST is answered whole, with the line that introduces
+        # it: "the ADDRESS_PROOF slot accepts: Driving licence, Passport and Voter ID"
+        start = chosen[0]
+        while start > 0 and _re.match(item, pieces[start - 1]):
+            start -= 1
+        end = start
+        while end + 1 < len(pieces) and _re.match(item, pieces[end + 1]):
+            end += 1
+        items = [_re.sub(r"^-\s+", "", pieces[i]).replace("**", "").strip(" .") for i in range(start, end + 1)]
+        if all(len(i.split()) <= 4 for i in items) and len(items) <= 8:
+            intro = pieces[start - 1] if start > 0 and pieces[start - 1].endswith(":") else ""
+            listed = items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+            return (f"{intro} {listed}." if intro else f"{listed}.").strip()
     if asks_list and chosen and _re.match(r"\d+\.\s", pieces[chosen[0]]):
         start = chosen[0]
         while start > 0 and _re.match(r"\d+\.\s", pieces[start - 1]):
@@ -515,7 +533,11 @@ def deterministic_answer(result, *, max_sentences: int | None = None,
     body = " ".join(top.text.split())
 
     if question:
-        body = _evidence(body, question, keep=max(2, max_sentences or 2))
+        import re as _re
+
+        # "explain X in detail" / "tell me more": the next level of the passage
+        detailed = bool(_re.search(r"\bin\s+detail\b|\bdetail(ed|s)?\b|\bmore\b|\bvistaar\b", question, _re.I))
+        body = _evidence(body, question, keep=4 if detailed else max(2, max_sentences or 2))
     elif max_sentences:
         import re as _re
 

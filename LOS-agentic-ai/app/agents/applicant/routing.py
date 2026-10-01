@@ -119,7 +119,7 @@ RELEVANT_FIELDS: dict[Intent, tuple[str, ...]] = {
     # The explanation is the findings; the application says which case.
     Intent.CASE_HISTORY: ("application", "stage", "case_memory"),
     Intent.CASE_FINDINGS: ("application", "stage", "case_memory"),
-    Intent.KYC_RESULT: ("application", "stage", "case_memory"),
+    Intent.KYC_RESULT: ("application", "stage", "case_memory", "kyc"),
     Intent.INCOME_EVIDENCE: ("application", "case_memory"),
     Intent.ELIGIBILITY: ("application", "case_memory"),
     # The application says which case; the answer carries the value. NOT
@@ -211,7 +211,7 @@ PRUNABLE = (
 #: with no checklist is noise; dropping it from an answer WITH one leaves a
 #: requirement the caller cannot trace to a rule, which is the thing the
 #: policy block exists to prevent.
-FOLLOWS = {"policy": "checklist"}
+FOLLOWS = {"policy": "checklist", "verification": "documents"}
 
 
 def prune(

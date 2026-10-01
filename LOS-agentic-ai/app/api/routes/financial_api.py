@@ -56,7 +56,14 @@ async def _read_pdf(file: UploadFile) -> bytes:
         chunks.append(chunk)
     if written == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-    return b"".join(chunks)
+    data = b"".join(chunks)
+    # THE COMMON UPLOAD GATE: the bytes must be a PDF, not a renamed executable
+    from app.security import upload_gate
+
+    gate = upload_gate.check(data, file.filename, limit=MAX_UPLOAD_BYTES)
+    if not gate.allowed:
+        raise HTTPException(status_code=415, detail=f"{gate.code}: {gate.message}")
+    return data
 
 
 def _to_temp(data: bytes) -> Path:

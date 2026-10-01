@@ -173,6 +173,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } finally {
       clearSession()
+      // Drop KYC draft so next login starts clean
+      try {
+        localStorage.removeItem('los.kyc.wizard.v1')
+      } catch {
+        /* ignore */
+      }
       setIsLoading(false)
     }
   }, [clearSession])

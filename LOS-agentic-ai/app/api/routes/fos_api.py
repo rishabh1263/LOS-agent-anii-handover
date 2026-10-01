@@ -513,6 +513,42 @@ class FosResponse(BaseModel):
     )
 
     next_action: dict[str, Any] | None = None
+    response_type: str | None = Field(
+        None, description=(
+            "What kind of answer this is, for the UI to pick a renderer: CONVERSATION, REFUSAL, "
+            "CLARIFICATION, KNOWLEDGE_ANSWER, CASE_FACT, CASE_STATUS, DOCUMENT_CHECKLIST, "
+            "DOCUMENT_STATUS, DOCUMENT_VERIFICATION_SELECTION, DOCUMENT_VERIFICATION_RESULT, "
+            "KYC_RESULT, NEXT_ACTION, CASE_PORTFOLIO, PENDING_WORK, ACTION_RESULT, UPLOAD_RESULT, "
+            "UPLOAD_VALIDATION, ROUTED, HANDOFF."))
+    subject: dict[str, Any] | None = Field(
+        None, description="Whose answer this is: {\"party\": PRIMARY_APPLICANT | CO_APPLICANT | BOTH | null}.")
+    language: str | None = Field(None, description="The language the question was asked in (en, hi, hi-Latn, mr).")
+    scope: str | None = Field(
+        None, description=("What the answer is about: CASE (this application), APPLICANT (the person's "
+                           "recorded details), APPLICANT_CASES (every case the caller may see), NONE "
+                           "(a chat reply, a handbook answer or a refusal)."))
+    language_contract: dict[str, Any] | None = Field(
+        None, description=("How the question was read: `language`, `script`, `input_mode` (ENGLISH / "
+                           "NATIVE_SCRIPT / ROMANIZED / CODE_MIXED), `confidence`, `response_language` "
+                           "(asked for), `reply_language` (what the prose is really in), `localized`, "
+                           "`provider`. Never the user's words."))
+    portfolio: dict[str, Any] | None = Field(
+        None, description=("Every case of the applicant the caller may see: `count`, `blocked`, `focus` "
+                           "(LATEST / PREVIOUS / ATTENTION) and one row per case -- status, verification "
+                           "counts, KYC, blockers, next step. Unauthorized cases are never counted."))
+    gate: dict[str, Any] | None = Field(
+        None, description=("The current stage's gate (app/config/stage_gates.yaml, criteria UNCONFIRMED): "
+                           "`status` PASS / REVIEW / BLOCKED / NOT_READY / CONFIGURATION_GAP, one `checks` "
+                           "entry per criterion with the recorded value, `reason_code`, `evidence` and "
+                           "`next_action`, and `moved_to` when an authorized move was made."))
+    pending_work: dict[str, Any] | None = Field(
+        None, description=("What is left on the case: one item per document / slot / KYC check with its "
+                           "`state` and `owner` (USER, SYSTEM, REVIEWER, PROCESSING, COMPLETED), a "
+                           "`summary`, and -- after \"do what's pending\" -- what was `executed`, read "
+                           "back from the store."))
+    processing: dict[str, Any] | None = Field(
+        None, description=("A verification run: documents verified now, reused from the record, or still "
+                           "PROCESSING with their job ids -- poll GET_VERIFICATION_STATUS for the rest."))
     readiness: dict[str, Any] | None = Field(
         None,
         description="Whether the FOS stage is complete enough to hand to CPA. "
@@ -584,9 +620,41 @@ def _blank(request_id: str, **overrides: Any) -> dict[str, Any]:
         # else here, so a client binds one shape.
         "summary": None, "status": None, "processing_queue": [],
         "grounded": False,
+        # THE RENDERING CONTRACT (copilot/answering/structured.py): what kind
+        # of answer, whose, in which language, and a verification run.
+        "response_type": None, "subject": None, "language": None, "processing": None,
+        "portfolio": None, "scope": None, "language_contract": None,
+        # what is left on the case and who moves each item (capabilities/work.py)
+        "pending_work": None,
+        # the current stage's gate, evaluated from recorded results (capabilities/gates.py)
+        "gate": None,
     }
     base.update(overrides)
     return base
+
+
+#: Upload refusals as codes a frontend can switch on (the gate's own codes, and
+#: the file validation's messages mapped onto the same vocabulary).
+_UPLOAD_REFUSAL_WORDS = {
+    "EMPTY_FILE": "the file is empty", "FILE_TOO_LARGE": "the file is too large",
+    "UNSUPPORTED_FILE_TYPE": "that file type isn't supported",
+    "FILE_SIGNATURE_MISMATCH": "the file's content doesn't match its type",
+    "MALICIOUS_CONTENT": "it isn't a document file",
+}
+
+
+def _upload_refusal_code(message: str) -> str:
+    head = message.split(":", 1)[0].strip()
+    if head in _UPLOAD_REFUSAL_WORDS:
+        return head
+    lowered = message.lower()
+    if "unsupported file type" in lowered:
+        return "UNSUPPORTED_FILE_TYPE"
+    if "exceeds" in lowered or "too large" in lowered:
+        return "FILE_TOO_LARGE"
+    if "empty" in lowered:
+        return "EMPTY_FILE"
+    return "INVALID_UPLOAD"
 
 
 def _required_slots(checklist: list[dict[str, Any]]) -> list[str]:
@@ -632,13 +700,32 @@ async def create_case(
             "request_id": request_id, "error": exc.code, "message": exc.message,
         }) from exc
 
-    created = await tools.applicant_create(
-        **request.applicant.model_dump(exclude_none=True),
-        applicant_id=request.applicant_id,
-    )
-    if not created.ok:
-        _raise_from(request_id, created)
-    applicant_id = created.result["applicant"]["applicant_id"]
+    # ANOTHER CASE FOR A CUSTOMER THIS CALLER ALREADY SERVES. One applicant may
+    # hold several cases; naming an applicant the caller may WRITE opens a new
+    # case for them, and the recorded person is left exactly as captured (never
+    # re-created, never overwritten from this request). Any other applicant id
+    # is refused below exactly as before.
+    existing_applicant = None
+    if request.applicant_id:
+        from app.security import access as _existing_access
+        from app.store import get_repository as _existing_repo
+
+        try:
+            _existing_access.authorize(caller.subject, caller.scopes,
+                                       applicant_id=request.applicant_id, write=True)
+            existing_applicant = _existing_repo().get_applicant(request.applicant_id)
+        except Exception:  # noqa: BLE001 - not the caller's: the create below refuses it
+            existing_applicant = None
+    if existing_applicant is not None:
+        applicant_id = existing_applicant.applicant_id
+    else:
+        created = await tools.applicant_create(
+            **request.applicant.model_dump(exclude_none=True),
+            applicant_id=request.applicant_id,
+        )
+        if not created.ok:
+            _raise_from(request_id, created)
+        applicant_id = created.result["applicant"]["applicant_id"]
 
     application_details = request.application or ApplicationDetails()
     amount = application_details.loan_amount
@@ -1025,6 +1112,21 @@ async def _run_action(
     directly, and an AgentError (403 for a case the caller may not access)
     escaped them as an unhandled error -- a 500 instead of a refusal.
     """
+    # THE APPLICANT FROM THE CASE, when the caller named only the case (the
+    # contract marks applicant_id optional). Taken ONLY after the caller is
+    # authorized on the case; an unauthorized or unknown case leaves it unset
+    # and is refused below exactly as before -- the same 403 either way.
+    if case_id and not applicant_id:
+        from app.security import access as _read_access
+        from app.security.auth import get_scopes, get_subject
+        from app.store import get_repository as _read_repo
+
+        try:
+            _read_access.authorize(get_subject(claims), get_scopes(claims), case_id=case_id)
+            _record = _read_repo().get_application(case_id)
+            applicant_id = getattr(_record, "applicant_id", None) or applicant_id
+        except Exception:  # noqa: BLE001 - not the caller's: refused below, unchanged
+            pass
     try:
         result = await _answer_action(
             action, applicant_id=applicant_id, case_id=case_id, claims=claims,
@@ -1086,8 +1188,13 @@ async def _answer_action_scoped(
                 message, {"case_id": case_id, "applicant_id": applicant_id}, claims)
             if named.get("message"):
                 message = named["message"]
+    # A REQUEST TO ACT ON EVERYTHING PENDING is one request: "check kar aur
+    # jo pending hai kar de" is the work capability's, never two questions.
+    from app.agents.applicant.copilot.capabilities import work as _work_cap
+
     parts = (_intents.compound_parts(message)
-             if action is FosAction.CUSTOM_QUERY and message else None)
+             if action is FosAction.CUSTOM_QUERY and message
+             and _work_cap.request(message) != _work_cap.DO else None)
     result = await answer_question(
         message=(parts[0] if parts else message if message is not None
                  else _ACTION_PHRASE.get(action, action.value)),
@@ -1143,6 +1250,11 @@ async def _answer_action_scoped(
             described or ("I don't have a description of that stage in the configured stage "
                           "guide. I can tell you where your own application is and what is "
                           "pending on it."))[0]
+    # THE ANSWER IN THE QUESTION'S LANGUAGE where a template covers the fact;
+    # the language contract then says which language the prose is in.
+    from app.agents.applicant.copilot.answering import localize as _localize
+
+    _localize.apply(result, message or "")
     envelope = _from_agent(result, action.value, request_id,
                            concise=action is FosAction.CUSTOM_QUERY)
     # THE SUMMARY DESCRIBES THE CASE, NOT THE REPLY. A typed question
@@ -1374,6 +1486,14 @@ async def _copilot_upload(
         # call per upload that nobody sees.
         summarise=False,
     )
+    # THE BYTES A DEFERRED DOCUMENT WILL BE READ FROM -- kept BEFORE
+    # persistence queues its job, exactly as /api/v1/los/process does.
+    # Without this a FOS upload deferred to the background read queued a
+    # job pointing at bytes nobody kept: "the uploaded file is no longer
+    # available", on its first attempt, every time.
+    from app.api.routes.los_api import _retain_for_ocr
+
+    _retain_for_ocr(los, documents)
     persist_los_result(los)
 
     view = await tools.applicant_360(case_id)
@@ -1414,6 +1534,30 @@ async def _copilot_upload(
             "extraction_released": False, "authenticity": None,
         })
 
+    # WRONG DOCUMENT FOR ITS SLOT, OR A FILE THE UPLOAD GATE REFUSED: said per
+    # file, with what the slot expects and the upload action -- rendered by
+    # the frontend without reading the prose. Never persisted as a valid
+    # document of the slot's type (the verdict is FAIL, extraction withheld).
+    errors_by_source = {str(d.get("source_id")): d.get("errors") or []
+                        for d in (los.get("documents") or [])}
+    for outcome in outcomes:
+        codes = outcome.get("reason_codes") or []
+        gate = next((_upload_refusal_code(str(e.get("message") or ""))
+                     for e in errors_by_source.get(str(outcome.get("source_id")), [])
+                     if isinstance(e, dict) and e.get("code") == "INVALID_DOCUMENT"), None)
+        if "DOCUMENT_TYPE_MISMATCH" in codes and outcome.get("expected_type"):
+            outcome["upload_validation"] = {
+                "status": "REJECTED", "reason": "WRONG_DOCUMENT",
+                "expected_document": outcome["expected_type"],
+                "detected_document": outcome.get("document_type"),
+                "action": {"action": "UPLOAD_DOCUMENT", "document_type": outcome["expected_type"]}}
+        elif gate or "EMPTY_FILE" in codes:
+            outcome["upload_validation"] = {
+                "status": "REJECTED", "reason": "INVALID_UPLOAD", "code": gate or "EMPTY_FILE",
+                "expected_document": outcome.get("expected_type"),
+                "action": {"action": "UPLOAD_DOCUMENT", "document_type": outcome.get("expected_type")}}
+    rejected = [o for o in outcomes if o.get("upload_validation")]
+
     passed = sum(1 for o in outcomes if o["verification"] == "PASS")
 
     verification = {
@@ -1439,10 +1583,17 @@ async def _copilot_upload(
                         "applicant.360"],
                  write=True, confirmed=True, status="OK")
 
-    if len(outcomes) == 1:
+    if len(outcomes) == 1 and (outcomes[0].get("upload_validation") or {}).get("reason") == "INVALID_UPLOAD":
         one = outcomes[0]
-        doc_name = str(one.get("document_type") or "Document").replace(
-                               "_", " ").title()
+        answer = (f"{one['source_id']} couldn't be accepted: "
+                  f"{_UPLOAD_REFUSAL_WORDS.get(one['upload_validation']['code'], 'it is not a valid document file')}.")
+        rejected = []                       # said above, once
+    elif len(outcomes) == 1:
+        one = outcomes[0]
+        from app.agents.applicant.copilot.answering import structured as _ustructured
+
+        doc_name = _ustructured._readable_type(one.get("document_type"))
+        doc_name = doc_name[:1].upper() + doc_name[1:]
         answer = f"{doc_name} uploaded. Verification: {one['verification']}."
     else:
         answer = (
@@ -1461,6 +1612,19 @@ async def _copilot_upload(
                 for o in refused
             )
 
+    for o in rejected:
+        v = o["upload_validation"]
+        if v["reason"] == "WRONG_DOCUMENT":
+            slot = str(v["expected_document"]).replace("_", " ").title()
+            slot = {"Pan": "PAN", "Itr": "ITR"}.get(slot, slot)
+            answer += (f" {o['source_id']} doesn't match the {slot} slot -- please upload a {slot} "
+                       "document there.")
+        else:
+            answer += f" {o['source_id']} could not be accepted as a document file -- please upload it again."
+    if rejected:
+        verification["upload_validation"] = [dict(o["upload_validation"], source_id=o["source_id"])
+                                              for o in rejected]
+
     return _blank(
         request_id,
         applicant_id=applicant_id,
@@ -1468,6 +1632,7 @@ async def _copilot_upload(
         action=FosAction.UPLOAD_DOCUMENT.value,
         intent="UPLOAD_DOCUMENT",
         answer=answer,
+        response_type="UPLOAD_VALIDATION" if rejected else "UPLOAD_RESULT",
         applicant=result.get("applicant"),
         application=result.get("application"),
         stage=result.get("stage"),
@@ -1561,8 +1726,8 @@ def _from_agent(
     """Translate the Applicant Agent's envelope onto the FOS contract."""
     checklist = result.get("checklist") or []
 
-    verification = None
-    if action == FosAction.GET_VERIFICATION_STATUS.value:
+    verification = result.get("verification")
+    if verification is None and action == FosAction.GET_VERIFICATION_STATUS.value:
         documents = result.get("documents") or []
         verification = {
             "documents": [
@@ -1609,6 +1774,15 @@ def _from_agent(
         errors=result.get("errors") or [],
     )
     envelope["understanding"] = result.get("understanding") if concise else None
+    # THE FRONTEND CONTRACT (copilot/answering/structured.py): what kind of
+    # answer, whose, in which language -- and a verification job, if any.
+    for key in ("response_type", "language", "processing", "portfolio", "scope", "language_contract",
+                "pending_work", "gate"):
+        if result.get(key) is not None:
+            envelope[key] = result.get(key)
+    subject = dict(result.get("subject") or {}) if isinstance(result.get("subject"), dict) else {}
+    subject.setdefault("party", result.get("subject_party"))
+    envelope["subject"] = subject
     envelope.update(_compact(result, envelope))
     envelope.update(_frontend_contract(result, envelope))
     # Built from the COMPLETE envelope, before pruning: the slot a

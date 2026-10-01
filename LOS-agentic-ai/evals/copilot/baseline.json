@@ -1,0 +1,24 @@
+{
+  "_about": "Frozen green baseline for REGRESSION COMPARISON ONLY. Nothing at runtime reads this file. Recorded 2026-09-30 on the working tree of branch dev/rishabh (uncommitted), CHATBOT_NATURAL_COMPOSITION=false (deterministic arm).",
+  "assistant": {"passed": 341, "total": 343, "by_set": {"adversarial": "58/58", "multi_turn": "139/139", "rag": "36/36", "single_turn": "108/110"},
+                "known_failures": {"st_041": "delay answer is codes-only by the provenance contract (test_copilot_provenance::test_a_delay_is_explained_only_by_what_the_records_show); the corpus expects the recorded names",
+                                   "st_042": "same contract as st_041"},
+                "tool_calls": 215, "qwen_calls": 0, "latency_ms": {"p50": 24.0, "p95": 46.1}},
+  "families": {"passed": 59, "total": 59, "by_family": {"case_vs_knowledge": "11/11", "rag": "11/11", "party": "12/12", "conversation": "10/10", "field": "15/15"}},
+  "rag": {"retrieval_hit": "24/24", "top1_relevance": "23/24", "answer_correct": "26/26", "citation_correct": "26/26", "grounded": "26/26",
+          "no_answer_accuracy": "10/10", "false_confidence": "0/10", "latency_ms": {"retrieval_p50": 4.4, "retrieval_p95": 9.0}},
+  "gates": {"semantic": "pass", "conversation": "pass", "party_kyc": "pass", "security": "pass", "quality": "pass (latency bounds hold in isolation)",
+            "variants": "pass", "golden": "pass", "families": "pass", "rag_metrics": "pass"},
+  "http_smoke": {"passed": 40, "total": 40, "qwen_calls": 0, "tool_calls": 24, "p50_ms": 13.2, "p95_ms": 19.3},
+  "integration": {"files": 76, "passed": 2678, "failed": 0, "note": "4 shards: 714 + 523 + 818 + 623 (the one shard-3 failure was the quality latency bound under 5-way parallel load; it passes alone)"},
+  "non_integration": {"passed": 3101, "failed": 0, "agents_rerun_on_final_code": 2601},
+  "natural_composition_ab": {
+    "flag": "CHATBOT_NATURAL_COMPOSITION (default false)",
+    "model": "qwen2.5:3b (local Ollama)",
+    "arm_a_deterministic": {"assistant": "341/343", "qwen_calls": 0},
+    "arm_b_rag_set_20s_budget": {"eligible": 24, "accepted": 0, "fidelity_rejected": 24, "correctness": "36/36 (every rewording discarded)",
+                                 "top_rejections": {"dropped a clause": 13, "status changed": 12, "dropped codes": 8, "negation changed": 6, "unverifiable language": 3},
+                                 "added_latency_p50_ms": 3400},
+    "decision": "keep OFF: no measurable improvement, +3.4 s p50"
+  }
+}

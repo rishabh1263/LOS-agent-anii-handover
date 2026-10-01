@@ -1,0 +1,93 @@
+# ---------------------------------------------------------------------------
+# STAGE GATES -- what must be TRUE, per stage, before a case may move on.
+#
+# Read by app/agents/applicant/copilot/capabilities/gates.py. The stage ORDER
+# is not here: it is app/config/stage_lifecycle.yaml's (FOS -> CPA -> CREDIT ->
+# RCU -> BOPS -> HOPS -> DISBURSEMENT) and every move goes through
+# stage_lifecycle.transition (expected_stage guard, idempotency key, audit).
+#
+# STATUS: UNCONFIRMED. Every criterion below is a PROPOSAL built only from
+# results this service already records; none is business-approved. That is
+# why the assistant never moves a stage by itself: `transition.mode: CONFIRM`
+# -- it evaluates, explains, and moves only when an authorized person says
+# yes. A stage with no criteria reports CONFIGURATION_GAP, never PASS.
+#
+# A CHECK reads ONE authoritative source and maps its RECORDED value:
+#   source     readiness     the configured FOS readiness rules (applicant_agent.yaml `readiness`)
+#              kyc           the current KYC finding of every party on the case
+#              eligibility   the recorded eligibility verdict (eligibility.get)
+#              underwriting  the recorded credit assessment (credit persistence)
+#              human         a recorded human decision -- none exists in this build
+#   path       the field in that source, dotted
+#   pass / review / blocked / not_ready   recorded values -> gate outcome
+#   A value in none of the lists, or no record at all, is NOT_READY.
+#   missing_action  the action that would produce the record (action registry)
+# REVIEW and SKIPPED never become PASS.
+# ---------------------------------------------------------------------------
+policy_id: LOS_STAGE_GATES
+policy_version: "0.1.0"
+status: UNCONFIRMED
+
+transition:
+  mode: CONFIRM                       # CONFIRM | NEVER  (AUTO is not allowed while UNCONFIRMED)
+  action: STAGE_TRANSITION            # app/config/copilot_actions.yaml
+
+gates:
+  FOS:
+    status: UNCONFIRMED
+    checks:
+      - id: FOS_READINESS
+        label: FOS requirements
+        source: readiness
+        path: status
+        pass: [READY_FOR_CPA]
+        blocked: [NOT_READY]
+
+  CPA:
+    status: UNCONFIRMED
+    checks:
+      - id: KYC_CLEARED
+        label: KYC
+        source: kyc
+        path: status
+        pass: [PASS]
+        review: [REVIEW]
+        blocked: [FAIL]
+
+  CREDIT:
+    status: UNCONFIRMED
+    checks:
+      - id: ELIGIBILITY
+        label: Eligibility
+        source: eligibility
+        path: status
+        pass: [PASS]
+        review: [REVIEW]
+        blocked: [FAIL]
+        not_ready: [SKIPPED]
+        missing_action: AWAIT_ELIGIBILITY
+      - id: CREDIT_UNDERWRITING
+        label: Credit underwriting
+        source: underwriting
+        path: assessment.status
+        pass: [READY_FOR_DECISION]
+        review: [REVIEW_REQUIRED]
+        not_ready: [DATA_INSUFFICIENT]
+        missing_action: RUN_CREDIT_UNDERWRITING
+      - id: CREDIT_DECISION
+        label: Credit decision
+        source: human
+        missing_action: REQUEST_HUMAN_REVIEW
+
+  RCU:
+    status: UNCONFIRMED
+    checks: []
+  BOPS:
+    status: UNCONFIRMED
+    checks: []
+  HOPS:
+    status: UNCONFIRMED
+    checks: []
+  DISBURSEMENT:
+    status: UNCONFIRMED
+    checks: []

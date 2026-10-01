@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   processDocuments,
   LosApiError,
@@ -34,6 +34,11 @@ import {
   normalizeDecision,
   validateProfileFields,
 } from '../utils/validation'
+import {
+  clearWizardDraft,
+  loadWizardDraft,
+  saveWizardDraft,
+} from '../utils/wizardStorage'
 import { useAuth } from '../../auth'
 
 function makeId() {
@@ -95,33 +100,79 @@ export function useKycWizard() {
   const { accessToken, logout } = useAuth()
   const token = accessToken || ''
 
-  const [step, setStep] = useState<WizardStep>('details')
+  const draft = useMemo(() => loadWizardDraft(), [])
+
+  const [step, setStep] = useState<WizardStep>(() => draft?.step ?? 'details')
   const [profileFields, setProfileFields] = useState<ProfileField[]>(() =>
-    DEFAULT_PROFILE_FIELDS.map((f) => ({ ...f })),
+    draft?.profileFields?.length
+      ? draft.profileFields
+      : DEFAULT_PROFILE_FIELDS.map((f) => ({ ...f })),
   )
   const [application, setApplication] = useState<ApplicationDetails>(() => ({
-    ...DEFAULT_APPLICATION,
+    ...(draft?.application ?? DEFAULT_APPLICATION),
   }))
-  const [partySelection, setPartySelection] = useState<PartySelection>({
-    applicant: true,
-    coApplicant: false,
-  })
-  const [activeParty, setActiveParty] = useState<ActiveParty>('PRIMARY_APPLICANT')
-  const [applicantId, setApplicantId] = useState('')
-  const [coApplicantId, setCoApplicantId] = useState('')
-  const [caseId, setCaseId] = useState('')
+  const [partySelection, setPartySelection] = useState<PartySelection>(
+    () => draft?.partySelection ?? { applicant: true, coApplicant: false },
+  )
+  const [activeParty, setActiveParty] = useState<ActiveParty>(
+    () => draft?.activeParty ?? 'PRIMARY_APPLICANT',
+  )
+  const [applicantId, setApplicantId] = useState(() => draft?.applicantId ?? '')
+  const [coApplicantId, setCoApplicantId] = useState(() => draft?.coApplicantId ?? '')
+  const [caseId, setCaseId] = useState(() => draft?.caseId ?? '')
   /** Document checklist from FOS (POST create or GET checklist) */
-  const [fosChecklist, setFosChecklist] = useState<FosChecklistItem[]>([])
-  const [requiredDocuments, setRequiredDocuments] = useState<string[]>([])
-  const [fosStage, setFosStage] = useState<string | null>(null)
-  const [lastFosResponse, setLastFosResponse] = useState<FosResponse | null>(null)
+  const [fosChecklist, setFosChecklist] = useState<FosChecklistItem[]>(
+    () => draft?.fosChecklist ?? [],
+  )
+  const [requiredDocuments, setRequiredDocuments] = useState<string[]>(
+    () => draft?.requiredDocuments ?? [],
+  )
+  const [fosStage, setFosStage] = useState<string | null>(() => draft?.fosStage ?? null)
+  const [lastFosResponse, setLastFosResponse] = useState<FosResponse | null>(
+    () => draft?.lastFosResponse ?? null,
+  )
   const [verifiedDocs, setVerifiedDocs] = useState<VerifiedDoc[]>([])
   const [inFlightCount, setInFlightCount] = useState(0)
   const [verifying, setVerifying] = useState(false)
   const [submittingApplicant, setSubmittingApplicant] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<LosProcessResponse | null>(null)
+  const [result, setResult] = useState<LosProcessResponse | null>(
+    () => draft?.result ?? null,
+  )
   const [showOtherPartyPrompt, setShowOtherPartyPrompt] = useState(false)
+
+  /** Persist form + IDs across page reload (files cannot be restored). */
+  useEffect(() => {
+    saveWizardDraft({
+      step,
+      profileFields,
+      application,
+      partySelection,
+      activeParty,
+      applicantId,
+      coApplicantId,
+      caseId,
+      fosChecklist,
+      requiredDocuments,
+      fosStage,
+      lastFosResponse,
+      result,
+    })
+  }, [
+    step,
+    profileFields,
+    application,
+    partySelection,
+    activeParty,
+    applicantId,
+    coApplicantId,
+    caseId,
+    fosChecklist,
+    requiredDocuments,
+    fosStage,
+    lastFosResponse,
+    result,
+  ])
 
   // Keep latest docs for concurrent uploads without stale closures
   const docsRef = useRef<VerifiedDoc[]>([])
@@ -631,6 +682,7 @@ export function useKycWizard() {
   }, [token, logout, applicantId, coApplicantId, caseId, applyIdsFromResponse, inFlightCount])
 
   const reset = useCallback(() => {
+    clearWizardDraft()
     setStep('details')
     setProfileFields(DEFAULT_PROFILE_FIELDS.map((f) => ({ ...f })))
     setApplication({ ...DEFAULT_APPLICATION })

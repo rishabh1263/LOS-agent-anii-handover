@@ -263,7 +263,25 @@ def run_once(repository: Any) -> OcrJob | None:
     job = repository.claim_ocr_job()
     if job is None:
         return None
+    return finish(repository, job)
 
+
+def claim(repository: Any, job: OcrJob) -> OcrJob | None:
+    """
+    Claim ONE named job (an explicit "verify this" from a person waiting),
+    the same PROCESSING transition the worker's claim makes. None when it is
+    no longer queued -- somebody else is already reading it.
+    """
+    current = repository.get_ocr_job(job.document_id)
+    if current is None or current.status is not OcrJobStatus.QUEUED:
+        return None
+    current.status = OcrJobStatus.PROCESSING
+    current.attempts += 1
+    return repository.save_ocr_job(current)
+
+
+def finish(repository: Any, job: OcrJob) -> OcrJob:
+    """Read a CLAIMED job's document and record the outcome (the worker's step)."""
     logger.info("OCR job %s: reading %s", job.job_id, job.document_id)
     try:
         read, detail = _read(repository, job)
@@ -406,9 +424,25 @@ def _verdict(result: Any) -> tuple[str, list[str]]:
 
     # `status` is the verdict; `public()` deliberately withholds it
     # because it publishes the two numbers and the reasons, not the
-    # gate. The gate is exactly what has to be recorded here.
+    # gate. The gate is exactly what has to be recorded here -- and so are
+    # the two numbers the same assessment produced (_LAST_SCORES), which
+    # were computed and then thrown away.
+    try:
+        published = assessment.public()
+        _LAST_SCORES.set({"score": published.get("verification_score"),
+                          "confidence": published.get("verification_confidence")})
+    except Exception:                                 # pragma: no cover
+        _LAST_SCORES.set({})
     return (str(assessment.status or "REVIEW"),
             list(assessment.reason_codes or []))
+
+
+import contextvars as _contextvars
+
+#: The score and confidence of the verdict just computed, for the finding
+#: that records it (one job at a time per thread / context).
+_LAST_SCORES: "_contextvars.ContextVar[dict[str, Any]]" = _contextvars.ContextVar(
+    "ocr_queue_last_scores", default={})
 
 
 def _record_finding(repository: Any, job: OcrJob, document: Any,
@@ -440,12 +474,16 @@ def _record_finding(repository: Any, job: OcrJob, document: Any,
         payload = {"type": job.document_type or document.document_type,
                    "read_in_background": True}
         codes = list(document.reason_codes or [])
+        # THE NUMBERS THE VERIFIER PRODUCED, or null -- never a default.
+        scores = _LAST_SCORES.get() or {}
         repository.save_finding(CaseFinding(
             finding_id=uuid.uuid4().hex,
             case_id=job.case_id,
             party_id=job.party_id,
             finding_kind=FindingKind.VERIFICATION,
             status=status,
+            score=scores.get("score"),
+            confidence=scores.get("confidence"),
             reason_codes=codes,
             payload=payload,
             source_type="DOCUMENT",
@@ -497,7 +535,7 @@ def _controls(job: OcrJob, status: str, codes: list[str],
                                    "reason_codes": list(codes)}}
         forensics.apply(result, content, job.document_id)
         issuer.apply(result, case_id=job.case_id, applicant_id=job.applicant_id,
-                     request_id=job.job_id)
+                     request_id=job.job_id, content=content, filename=job.document_id)
         verification = result.get("verification") or {}
         final = str(verification.get("status") or status).upper()
         return final, list(verification.get("reason_codes") or codes)
@@ -639,6 +677,6 @@ def drain(repository: Any, limit: int = 20) -> int:
 __all__ = [
     "ENV_MAX_ATTEMPTS", "ENV_POLL_SECONDS", "ENV_WORKER", "ENV_WORKER_PAGES",
     "OPEN_STATUSES", "OcrJob", "OcrJobStatus", "drain", "jobs_for_case",
-    "run_once", "start_worker", "stop_worker", "submit", "worker_enabled",
+    "claim", "finish", "run_once", "start_worker", "stop_worker", "submit", "worker_enabled",
     "worker_timeout_seconds",
 ]

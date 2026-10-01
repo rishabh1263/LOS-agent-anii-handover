@@ -59,13 +59,20 @@ _SCRIPTS: tuple[tuple[int, int, str], ...] = (
     (0x0D00, 0x0D7F, "Malayalam"),
     (0x0600, 0x06FF, "Arabic"),
     (0x0750, 0x077F, "Arabic"),
+    (0xABC0, 0xABFF, "MeeteiMayek"),
 )
 
 #: A script with exactly one supported language.
 _SCRIPT_LANGUAGE = {
     "Gurmukhi": "pa", "Gujarati": "gu", "Odia": "or", "Tamil": "ta",
     "Telugu": "te", "Kannada": "kn", "Malayalam": "ml", "Arabic": "ur",
+    "MeeteiMayek": "mni",
 }
+
+#: Devanagari is shared by several supported languages: the one whose
+#: configured marker words the question carries most wins (ties go to the
+#: earlier entry); a question with none is Hindi.
+_DEVANAGARI = ("kok", "mr", "ne", "mai", "sa")
 
 #: Punctuation a token may carry, including the danda and Arabic question mark.
 _EDGE_PUNCT = "?!.,;:।॥؟،\"'()[]"
@@ -201,12 +208,12 @@ def detect(text: str) -> Language:
     script = max(indic, key=indic.get)
     tokens = set(_tokens(unicodedata.normalize("NFC", text)))
     if script == "Devanagari":
-        if tokens & _markers("kok"):
-            code = "kok"
-        elif tokens & _markers("mr"):
-            code = "mr"
-        else:
-            code = "hi"
+        hits = {c: len(tokens & _markers(c)) for c in _DEVANAGARI}
+        # Nepali, Maithili and Sanskrit share words with Hindi ("किए" is Hindi
+        # "did", Maithili "why"): one marker is not enough to leave Hindi
+        hits = {c: (n if c in ("kok", "mr") or n >= 2 else 0) for c, n in hits.items()}
+        best = max(_DEVANAGARI, key=lambda c: hits[c])
+        code = best if hits[best] else "hi"
     elif script == "Bengali":
         letters = set(text or "")
         code = "as" if (tokens & _markers("as")) or (letters & _markers("as")) else "bn"
@@ -222,7 +229,10 @@ def _lexicon(code: str) -> tuple[dict[tuple[str, ...], str], int]:
     if key not in _COMPILED:
         table: dict[tuple[str, ...], str] = {}
         longest = 1
-        for source, target in ((_load().get("lexicon") or {}).get(code) or {}).items():
+        # the security vocabulary first: the question lexicon wins a clash
+        entries = dict(((_load().get("security_lexicon") or {}).get(code) or {}))
+        entries.update(((_load().get("lexicon") or {}).get(code) or {}))
+        for source, target in entries.items():
             words = tuple(w.lower() for w in unicodedata.normalize(
                 "NFC", str(source)).split())
             if words:
@@ -285,6 +295,45 @@ def canonicalise(text: str) -> Canonical:
     language = detect(original)
     if language.code == "en" or not enabled():
         return Canonical(original, language)
+    return _canonical_as(original, language)
+
+
+#: Languages that share a script -- detection between them rests on marker words.
+_SCRIPT_FAMILY = {"Devanagari": ("hi", "mr", "kok", "ne", "mai", "sa"), "Bengali": ("bn", "as")}
+
+
+def canonical_forms(text: str) -> list[str]:
+    """
+    FOR THE SECURITY POLICY: the question's canonical English under EVERY
+    supported language sharing its script, not only the detected one. Marker
+    words tell Hindi from Nepali or Maithili; an attacker need not use them,
+    so the policy judges each reading. Never used to answer -- only to refuse.
+
+    NOT FOR LATIN TEXT: the English rules already read it as typed, and the
+    request policy reads its romanized-Hindi form (normalize.normalise). A
+    second, word-reordered reading of Hinglish only invents English phrases
+    nobody typed ("kya file me meri" -> "what file in my").
+    """
+    original = " ".join(str(text or "").split())
+    if not original or not enabled():
+        return []
+    detected = detect(original)
+    if detected.script == "Latin":
+        return []
+    codes = _SCRIPT_FAMILY.get(detected.script) or (detected.code,)
+    forms: list[str] = []
+    for code in codes:
+        if code == "en":
+            continue
+        reading = Language(code, detected.script, romanized=detected.romanized,
+                           code_mixed=detected.code_mixed, review_status=_review_status(code))
+        form = _canonical_as(original, reading).text
+        if form and form.lower() != original.lower() and form not in forms:
+            forms.append(form)
+    return forms
+
+
+def _canonical_as(original: str, language: Language) -> Canonical:
 
     changes: list[tuple[str, str]] = []
     question = original.rstrip().endswith(("?", "؟"))
@@ -411,6 +460,6 @@ def localized(fact: str, language: str, **values: str) -> str | None:
         return None
 
 
-__all__ = ["Canonical", "Language", "canonicalise", "detect", "enabled",
+__all__ = ["canonical_forms", "Canonical", "Language", "canonicalise", "detect", "enabled",
            "localized", "localized_pending", "reload", "response_language",
            "supported", "template"]

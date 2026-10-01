@@ -13,6 +13,13 @@ interface ChatMessagesProps {
   onRegenerate: (id: string) => void
   onEdit?: (messageId: string, newContent: string) => void
   onSuggested: (q: string) => void
+  onUploadDocuments?: (files: { file: File; documentType: string }[]) => Promise<{
+    results: Array<{
+      status: 'pass' | 'review' | 'fail' | 'validation'
+      detail?: string
+      detectedType?: string
+    }>
+  }>
   quickActions: { id: string; label: string; icon: string }[]
   onQuickAction: (label: string) => void
   status: string
@@ -27,6 +34,7 @@ export function ChatMessages({
   onRegenerate,
   onEdit,
   onSuggested,
+  onUploadDocuments,
   quickActions,
   onQuickAction,
   status,
@@ -79,6 +87,7 @@ export function ChatMessages({
             onRegenerate={() => onRegenerate(m.id)}
             onEdit={onEdit}
             onSuggested={onSuggested}
+            onUploadDocuments={onUploadDocuments}
           />
         ))}
         {(status === 'thinking' || status === 'generating') &&

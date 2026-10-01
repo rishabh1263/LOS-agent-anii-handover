@@ -141,6 +141,19 @@ class Repository(ABC):
     def list_documents(self, case_id: str) -> list[Document]:
         """Every document attached to one case, oldest first."""
 
+    def list_documents_for_cases(self, case_ids: list[str]) -> dict[str, list[Document]]:
+        """
+        Documents for SEVERAL cases in one call (case_id -> documents). The
+        default loops; a store that can answer in one query overrides it.
+        """
+        return {case_id: self.list_documents(case_id) for case_id in case_ids}
+
+    def get_current_findings_for_cases(self, case_ids: list[str],
+                                       kind: "FindingKind | str | None" = None
+                                       ) -> dict[str, list[CaseFinding]]:
+        """The CURRENT findings of several cases at once (case_id -> findings)."""
+        return {case_id: self.get_current_findings(case_id, kind=kind) for case_id in case_ids}
+
     # -- authorisation -----------------------------------------------------
 
     def applicant_owns_case(self, applicant_id: str, case_id: str) -> bool:

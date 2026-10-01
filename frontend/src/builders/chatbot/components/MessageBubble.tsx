@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import { Check, Copy, Pencil, RefreshCw, Volume2, VolumeX, X } from 'lucide-react'
 import type { ChatMessage } from '../../../runtime/chatbot'
 import { formatTime } from '../../../runtime/chatbot'
+import { DocumentUploadPanel } from './DocumentUploadPanel'
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -15,6 +16,13 @@ interface MessageBubbleProps {
   onRegenerate?: () => void
   onEdit?: (messageId: string, newContent: string) => void
   onSuggested?: (q: string) => void
+  onUploadDocuments?: (files: { file: File; documentType: string }[]) => Promise<{
+    results: Array<{
+      status: 'pass' | 'review' | 'fail' | 'validation'
+      detail?: string
+      detectedType?: string
+    }>
+  }>
 }
 
 function ActionBtn({
@@ -155,6 +163,7 @@ export function MessageBubble({
   onRegenerate,
   onEdit,
   onSuggested,
+  onUploadDocuments,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -403,6 +412,22 @@ export function MessageBubble({
                 {q}
               </button>
             ))}
+          </div>
+        )}
+
+      {/* Upload option — only from structured backend signals, never answer text */}
+      {!isUser &&
+        !message.isStreaming &&
+        onUploadDocuments &&
+        ((message.uploadTargets && message.uploadTargets.length > 0) ||
+          message.showGeneralUpload) && (
+          <div className="ml-9 max-w-[min(100%,380px)]">
+            <DocumentUploadPanel
+              targets={message.uploadTargets ?? []}
+              showGeneralUpload={message.showGeneralUpload}
+              onSubmit={onUploadDocuments}
+              disabled={editDisabled}
+            />
           </div>
         )}
     </div>

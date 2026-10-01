@@ -28,6 +28,15 @@ from typing import Any
 #: The seed of the turn being answered, set by the conversation layer so
 #: every sentence built for this turn varies together and stably.
 TURN_SEED: contextvars.ContextVar[int] = contextvars.ContextVar("copilot_turn_seed", default=0)
+#: The language a WHOLE-SENTENCE answer was written in (a field or state
+#: sentence in Hinglish, Hindi, Marathi), so the response's language contract
+#: says what the prose really is. An acknowledgement prefix does not count.
+PRESENTED: contextvars.ContextVar[str | None] = contextvars.ContextVar("copilot_presented", default=None)
+
+
+def _note(variants: dict[str, tuple[str, ...]], language: str | None) -> None:
+    if language and language != "en" and variants.get(language):
+        PRESENTED.set(language)
 
 
 def current_seed(field: str = "") -> int:
@@ -40,7 +49,7 @@ def current_seed(field: str = "") -> int:
 #: Acknowledgements by TURN TYPE and language. Short, then the answer.
 _ACK: dict[str, dict[str, tuple[str, ...]]] = {
     "CORRECTION": {
-        "en": ("Got it --", "Sure --", "Right --"),
+        "en": ("Got it --", "Okay --", "Right --"),
         "hi-Latn": ("Theek hai --", "Samajh gaya --", "Ji --"),
         "hi": ("ठीक है --", "समझ गया --", "जी --"),
         "mr": ("ठीक आहे --", "समजले --", "बरं --"),
@@ -71,6 +80,7 @@ _FIELD_VARIANTS: dict[str, dict[str, tuple[str, ...]]] = {
                     "Loan amount {value} record hai."),
         "hi": ("आपके आवेदन में ऋण राशि {value} है।", "आपने {value} का ऋण आवेदन किया है।"),
         "mr": ("तुमच्या अर्जात कर्जाची रक्कम {value} आहे.", "तुम्ही {value} च्या कर्जासाठी अर्ज केला आहे."),
+        "ne": ("तपाईंको आवेदनमा ऋण रकम {value} छ।",),
     },
     "mobile": {
         "en": ("The mobile number on your application is {value}.",
@@ -292,6 +302,7 @@ def party_sentence(state: str, who: str, field: str, value: str | None = None, *
                    language: str | None = None, seed: int = 0) -> str:
     """One field of a named party, in its state and the caller's language."""
     table = _PARTY_VARIANTS.get(state) or _PARTY_VARIANTS["UNKNOWN"]
+    _note(table, language)
     shapes = table.get(language or "en") or table["en"]
     shape = shapes[seed % len(shapes)]
     return shape.format(who=who, Who=who[:1].upper() + who[1:], field=field,
@@ -300,12 +311,18 @@ def party_sentence(state: str, who: str, field: str, value: str | None = None, *
 
 def field_sentence(field: str, value: str, *, language: str | None, seed: int) -> str | None:
     """A variant sentence for a PRESENT field, or None when the family has none."""
-    shape = _pick(_FIELD_VARIANTS.get(field, {}), language, seed)
+    variants = _FIELD_VARIANTS.get(field, {})
+    shape = _pick(variants, language, seed)
+    if shape:
+        _note(variants, language)
     return shape.format(value=value) if shape else None
 
 
 def state_sentence(state: str, label: str, *, language: str | None, seed: int) -> str | None:
-    shape = _pick(_STATE_VARIANTS.get(str(state).upper(), {}), language, seed)
+    variants = _STATE_VARIANTS.get(str(state).upper(), {})
+    shape = _pick(variants, language, seed)
+    if shape:
+        _note(variants, language)
     return shape.format(field=label) if shape else None
 
 

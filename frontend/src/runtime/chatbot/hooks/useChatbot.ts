@@ -5,7 +5,12 @@ import {
   formatChatAnswer,
   ChatApiError,
   type ChatApiConfig,
+  isDocumentRelatedQuery,
+  queryFosCopilot,
+  uploadFosDocuments,
+  mapUploadResults,
 } from '../api'
+import { getUploadTargets } from '../utils/uploadTargets'
 
 import type {
   AiStatus,
@@ -65,6 +70,8 @@ interface SpeechRecognitionResultEvent {
 const QUICK_ACTIONS = [
   { id: 'help', label: 'How can you help?', icon: 'Search' },
   { id: 'status', label: 'Check application status', icon: 'ClipboardList' },
+  { id: 'docs', label: 'List mandatory documents', icon: 'FileText' },
+  { id: 'pending', label: 'Which documents are pending?', icon: 'ClipboardList' },
 ]
 
 function createConversation(): Conversation {
@@ -181,7 +188,7 @@ export function useChatbot(context: ChatbotContext = {}) {
     let cancelled = false
     void ensureVoicesLoaded().then((voices) => {
       if (cancelled) return
-      const lang = settings.speechLanguage || 'hi-IN'
+      const lang = settings.speechLanguage || 'en-IN'
       if (!hasVoiceForLanguage(lang, voices)) {
         setVoiceWarning(
           `No system voice found for ${lang}. Speech may fall back or stay silent. Install a voice for this language in OS / browser settings.`,
@@ -352,37 +359,91 @@ export function useChatbot(context: ChatbotContext = {}) {
           baseUrl: ctx.apiBaseUrl,
           queryPath: ctx.apiQueryPath,
         }
-        const res = await queryChat(
-          {
-            message: content,
-            case_id: ctx.caseId,
-            applicant_id: ctx.applicantId,
-            party_id: ctx.partyId,
-            stage: ctx.stage,
-            conversation_id: conversationApiIdRef.current || convId,
-          },
-          ctx.accessToken,
-          apiConfig,
-          ac.signal,
-        )
 
-        if (stopRef.current || ac.signal.aborted) {
-          setStatus('online')
-          return
+        /**
+         * Document questions + verify flow → POST /api/v1/fos/copilot
+         * (returns checklist, actions, pending_items — needed for upload CTA).
+         * General chat → POST /api/v1/copilot/query.
+         */
+        const useFosCopilot =
+          isDocumentRelatedQuery(content) &&
+          Boolean(ctx.caseId?.trim()) &&
+          Boolean(ctx.applicantId?.trim())
+
+        let answer: string
+        let meta: {
+          suggestedQuestions?: string[]
+          routeTo?: string | null
+          grounded?: boolean
+          uploadTargets?: import('../types').ChatUploadTarget[]
+          showGeneralUpload?: boolean
         }
 
-        if (res.conversation_id) {
-          conversationApiIdRef.current = String(res.conversation_id)
-        }
+        if (useFosCopilot) {
+          const fosRes = await queryFosCopilot(
+            {
+              applicant_id: ctx.applicantId!.trim(),
+              case_id: ctx.caseId!.trim(),
+              action: 'CUSTOM_QUERY',
+              message: content,
+            },
+            ctx.accessToken,
+            ac.signal,
+          )
 
-        const formatted = formatChatAnswer(res)
-        const answer = formatted.text
-        const meta = {
-          suggestedQuestions: settingsRef.current.showSuggestedQuestions
-            ? formatted.suggestedQuestions
-            : undefined,
-          routeTo: formatted.routed,
-          grounded: formatted.grounded,
+          if (stopRef.current || ac.signal.aborted) {
+            setStatus('online')
+            return
+          }
+
+          if (fosRes.conversation_id) {
+            conversationApiIdRef.current = String(fosRes.conversation_id)
+          }
+
+          const decision = getUploadTargets(fosRes)
+          answer = (fosRes.answer || '').trim() || 'No answer returned for this question.'
+          meta = {
+            suggestedQuestions: settingsRef.current.showSuggestedQuestions
+              ? fosRes.suggested_questions
+              : undefined,
+            routeTo: fosRes.route_to ? String(fosRes.route_to) : null,
+            grounded: fosRes.grounded,
+            uploadTargets: decision.targets,
+            showGeneralUpload: decision.showGeneralUpload,
+          }
+        } else {
+          const res = await queryChat(
+            {
+              message: content,
+              case_id: ctx.caseId,
+              applicant_id: ctx.applicantId,
+              party_id: ctx.partyId,
+              stage: ctx.stage,
+              conversation_id: conversationApiIdRef.current || convId,
+            },
+            ctx.accessToken,
+            apiConfig,
+            ac.signal,
+          )
+
+          if (stopRef.current || ac.signal.aborted) {
+            setStatus('online')
+            return
+          }
+
+          if (res.conversation_id) {
+            conversationApiIdRef.current = String(res.conversation_id)
+          }
+
+          const formatted = formatChatAnswer(res)
+          answer = formatted.text
+          meta = {
+            suggestedQuestions: settingsRef.current.showSuggestedQuestions
+              ? formatted.suggestedQuestions
+              : undefined,
+            routeTo: formatted.routed,
+            grounded: formatted.grounded,
+          }
         }
 
         // Typing animation (skipped when user prefers reduced motion)
@@ -620,7 +681,7 @@ export function useChatbot(context: ChatbotContext = {}) {
 
     void (async () => {
       const s = settingsRef.current
-      const lang = s.speechLanguage || 'hi-IN'
+      const lang = s.speechLanguage || 'en-IN'
       const gender = s.speechGender || 'any'
 
       let speakBody = cleaned
@@ -808,23 +869,9 @@ export function useChatbot(context: ChatbotContext = {}) {
   const dismissVoiceError = useCallback(() => setVoiceError(null), [])
   const dismissVoiceWarning = useCallback(() => setVoiceWarning(null), [])
 
-  /** Settings “Test voice” — short sample in current language/gender. */
+  /** Settings “Test voice” — short sample in English. */
   const testVoice = useCallback(() => {
-    const lang = settingsRef.current.speechLanguage || 'hi-IN'
-    const primary = lang.split('-')[0].toLowerCase()
-    const samples: Record<string, string> = {
-      hi: 'नमस्ते, मैं आपका सहायक हूँ। आवाज़ सही से काम कर रही है।',
-      mr: 'नमस्कार, मी तुमचा सहाय्यक आहे. आवाज व्यवस्थित काम करत आहे.',
-      bn: 'নমস্কার, আমি আপনার সহায়ক। কণ্ঠস্বর ঠিকভাবে কাজ করছে।',
-      ta: 'வணக்கம், நான் உங்கள் உதவியாளர். குரல் சரியாக வேலை செய்கிறது.',
-      te: 'నమస్కారం, నేను మీ సహాయకుడిని. వాయిస్ సరిగ్గా పని చేస్తోంది.',
-      gu: 'નમસ્તે, હું તમારો સહાયક છું. અવાજ સારી રીતે કામ કરે છે.',
-      kn: 'ನಮಸ್ಕಾರ, ನಾನು ನಿಮ್ಮ ಸಹಾಯಕ. ಧ್ವನಿ ಸರಿಯಾಗಿ ಕೆಲಸ ಮಾಡುತ್ತಿದೆ.',
-      ml: 'നമസ്കാരം, ഞാൻ നിങ്ങളുടെ സഹായി. ശബ്ദം ശരിയായി പ്രവർത്തിക്കുന്നു.',
-      pa: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਮੈਂ ਤੁਹਾਡਾ ਸਹਾਇਕ ਹਾਂ। ਆਵਾਜ਼ ਠੀਕ ਕੰਮ ਕਰ ਰਹੀ ਹੈ।',
-      en: 'Hello, I am your assistant. The voice is working correctly.',
-    }
-    const sample = samples[primary] || samples.en
+    const sample = 'Hello, I am your assistant. The voice is working correctly.'
     speakText(sample)
   }, [speakText])
 
@@ -845,6 +892,45 @@ export function useChatbot(context: ChatbotContext = {}) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [mode, showSettings, close])
+
+  /**
+   * Multipart upload via POST /api/v1/fos/documents.
+   * Used by DocumentUploadPanel under assistant messages.
+   */
+  const submitDocuments = useCallback(
+    async (files: { file: File; documentType: string }[]) => {
+      const ctx = contextRef.current
+      const applicantId = ctx.applicantId?.trim()
+      const caseId = ctx.caseId?.trim()
+      if (!applicantId || !caseId) {
+        throw new Error('Case context missing. Open a case before uploading documents.')
+      }
+      if (!files.length) {
+        throw new Error('No files selected.')
+      }
+
+      const res = await uploadFosDocuments(
+        {
+          applicantId,
+          caseId,
+          files: files.map((f) => ({
+            file: f.file,
+            documentType: f.documentType || undefined,
+          })),
+        },
+        ctx.accessToken,
+      )
+
+      const results = mapUploadResults(res, files.length)
+      const decision = getUploadTargets(res)
+
+      return {
+        results,
+        refreshedTargets: decision.targets,
+      }
+    },
+    [],
+  )
 
   return {
     mode,
@@ -888,6 +974,7 @@ export function useChatbot(context: ChatbotContext = {}) {
     showSettings,
     setShowSettings,
     quickActions: QUICK_ACTIONS,
+    submitDocuments,
   }
 }
 

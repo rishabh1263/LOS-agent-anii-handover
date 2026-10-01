@@ -149,7 +149,7 @@ export function pickBestVoice(
     []
   if (!list.length) return null
 
-  const lang = (options.lang || 'hi-IN').replace('_', '-')
+  const lang = (options.lang || 'en-IN').replace('_', '-')
   const gender = options.gender || 'any'
 
   const sameLang = list.filter((v) => langMatches(v.lang, lang))
@@ -168,7 +168,7 @@ export function pickBestVoice(
     if (gender !== 'any') {
       if (g === gender) score += 40
       else if (g === 'unknown') score += 8
-      // wrong gender still kept — better Hindi female than silence for male request
+      // wrong gender still kept — better a matching-language voice than silence
     }
     return { v, score }
   })

@@ -101,6 +101,11 @@ class IssuerVerificationRequest:
     document_id: str | None = None
     consent_id: str | None = None
     request_id: str | None = None
+    #: The uploaded bytes, IN MEMORY ONLY, for a provider that checks the file
+    #: itself (a PDF's digital signature, a signed QR). Never stored, logged
+    #: or audited; excluded from repr.
+    content: bytes | None = field(default=None, repr=False)
+    filename: str | None = field(default=None, repr=False)
 
 
 class IssuerVerificationResult(BaseModel):
@@ -260,7 +265,19 @@ def provider_for(document_type: str) -> IssuerVerificationProvider:
         if key in _OVERRIDES:
             return _OVERRIDES[key]
     mode = mode_for(key)
-    name = str(_entry(key).get("provider") or "none").strip()
+    entry = _entry(key)
+    # the shipped providers (authenticity_providers.py) are nameable too
+    from app.agents.verification import authenticity_providers
+
+    authenticity_providers.register_all()
+    names = [str(n).strip() for n in (entry.get("providers") or []) if str(n).strip()]
+    if names:
+        # SEVERAL SOURCES FOR ONE TYPE, asked in order (the first answer wins)
+        with _LOCK:
+            chain = [_REGISTERED.get(n) or _Unregistered(n, mode) for n in names if n != "none"]
+        if chain:
+            return authenticity_providers.ChainProvider(chain)
+    name = str(entry.get("provider") or "none").strip()
     if name == "none":
         return NotConfiguredProvider(mode)
     with _LOCK:
@@ -376,9 +393,12 @@ def apply(
     applicant_id: str | None = None,
     request_id: str | None = None,
     consent_id: str | None = None,
+    content: bytes | None = None,
+    filename: str | None = None,
 ) -> dict[str, Any]:
     """
     Evaluate one processed document and record what the issuer said.
+    `content` (the uploaded bytes) is handed to the provider in memory only.
 
     CONFIRMED  may lift ONLY a hold placed for want of this evidence
                (REVIEW whose sole reason is AUTHENTICITY_NOT_ESTABLISHED).
@@ -410,7 +430,7 @@ def apply(
         answer = verify(IssuerVerificationRequest(
             document_type=document_type, fields=_fields(result), case_id=case_id,
             applicant_id=applicant_id, party_id=party_id, document_id=document_id,
-            consent_id=consent_id, request_id=request_id))
+            consent_id=consent_id, request_id=request_id, content=content, filename=filename))
         attempted = True
     else:
         answer = IssuerVerificationResult(

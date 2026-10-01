@@ -494,6 +494,7 @@ def post(h: Harness, message: str, context: dict | None, caller: str) -> dict[st
     obs = payload.get("observability") or {}
     return {"status": response.status_code, "r": payload, "text": response.text, "ms": ms,
             "reads": list(TRACE.reads), "read_args": list(READ_ARGS), "qwen": TRACE.qwen_calls,
+            "retrievals": TRACE.retrievals,
             "qwen_ms": TRACE.qwen_ms, "capability": obs.get("capability"),
             "model_route": obs.get("model_route")}
 

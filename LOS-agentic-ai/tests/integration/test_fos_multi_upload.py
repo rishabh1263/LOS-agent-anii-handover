@@ -720,3 +720,51 @@ def test_the_openapi_schema_tells_swagger_to_explode_the_arrays():
     encoding = content.get("encoding") or {}
     assert encoding.get("document_types", {}).get("explode") is True
     assert encoding.get("files", {}).get("explode") is True
+
+
+# ==========================================================================
+# WRONG DOCUMENT FOR ITS SLOT / A FILE THE UPLOAD GATE REFUSES
+# ==========================================================================
+
+def test_a_licence_in_the_pan_slot_is_rejected_for_that_slot(client):
+    applicant_id, case_id = open_case(client)
+    body = upload(client, applicant_id, case_id, [("dl.jpg", LICENCE)], types=["PAN"]).json()
+    assert body["response_type"] == "UPLOAD_VALIDATION"
+    check = body["verification"]["upload_validation"][0]
+    assert check["status"] == "REJECTED" and check["reason"] == "WRONG_DOCUMENT"
+    assert check["expected_document"] == "PAN"
+    assert check["action"] == {"action": "UPLOAD_DOCUMENT", "document_type": "PAN"}
+    assert "doesn't match the PAN slot" in body["answer"]
+    # never persisted as a valid PAN
+    assert slot(body, "PAN")["status"] != "VERIFIED"
+
+
+def test_a_renamed_executable_is_refused_and_the_real_file_beside_it_is_not(client):
+    applicant_id, case_id = open_case(client)
+    body = upload(client, applicant_id, case_id,
+                  [("pan.jpg", PAN), ("evil.jpg", b"MZ\x90\x00" + b"\x00" * 128)],
+                  types=["PAN", "PAN"]).json()
+    results = outcomes(body)
+    assert results["evil.jpg"]["upload_validation"]["reason"] == "INVALID_UPLOAD"
+    assert results["evil.jpg"]["upload_validation"]["code"] == "MALICIOUS_CONTENT"
+    assert results["pan.jpg"]["verification"] == "PASS"            # partial completion
+    assert body["response_type"] == "UPLOAD_VALIDATION"
+
+
+def test_a_clean_upload_is_an_upload_result(client):
+    applicant_id, case_id = open_case(client)
+    body = upload(client, applicant_id, case_id, [("pan.jpg", PAN)], types=["PAN"]).json()
+    assert body["response_type"] == "UPLOAD_RESULT"
+    assert "upload_validation" not in body["verification"]
+
+
+def test_a_wrong_document_never_satisfies_the_slot_it_was_aimed_at(client):
+    """A licence uploaded into the PAN slot is recorded as what it IS -- a
+    rejected licence, against the slot a licence fills -- and the PAN slot it was
+    aimed at stays empty (the contract test_fos_verification pins for the reverse
+    case). It never counts as a PAN."""
+    applicant_id, case_id = open_case(client)
+    body = upload(client, applicant_id, case_id, [("dl.jpg", LICENCE)], types=["PAN"]).json()
+    assert slot(body, "PAN")["status"] == "MISSING"
+    assert slot(body, "ADDRESS_PROOF")["status"] == "REJECTED"
+    assert body["readiness"]["status"] == "NOT_READY"

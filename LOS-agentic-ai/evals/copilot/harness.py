@@ -82,6 +82,11 @@ def _environment(live: bool, workdir: str) -> None:
     os.environ.pop("COPILOT_SERVICE_SCOPE_ACCESS", None)
     if not live:
         os.environ["OLLAMA_HOST"] = "http://127.0.0.1:9"     # no model: fallback paths
+    # A/B ARMS: EVAL_OVERRIDE_<NAME>=<value> sets <NAME> after the defaults
+    # ("EVAL_OVERRIDE_CHATBOT_NATURAL_COMPOSITION=true").
+    for key, value in list(os.environ.items()):
+        if key.startswith("EVAL_OVERRIDE_"):
+            os.environ[key[len("EVAL_OVERRIDE_"):]] = value
 
 
 class Harness:

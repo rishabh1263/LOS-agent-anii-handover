@@ -1664,7 +1664,7 @@ async def process_application(
     for upload, result in zip(every_upload, documents):
         _forensics.apply(result, upload.content, upload.filename)
         _issuer.apply(result, case_id=case_id, applicant_id=applicant_id,
-                      request_id=request_id)
+                      request_id=request_id, content=upload.content, filename=upload.filename)
 
     # ---------------------------------------------------------------
     # KYC. Consumes only what the agents already released: a document

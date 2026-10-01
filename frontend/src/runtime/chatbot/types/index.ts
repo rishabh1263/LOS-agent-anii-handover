@@ -14,6 +14,15 @@ export type SpeechGender = 'female' | 'male' | 'any'
 /** Chatbot panel only — does not change the host app theme */
 export type ChatThemeId = 'light' | 'dark' | 'orange'
 
+/** Upload targets attached from /fos/copilot structured fields only */
+export interface ChatUploadTarget {
+  slot: string
+  acceptedTypes: string[]
+  reason: string
+  label?: string
+  status?: string
+}
+
 export interface ChatMessage {
   id: string
   role: ChatRole
@@ -24,6 +33,9 @@ export interface ChatMessage {
   suggestedQuestions?: string[]
   routeTo?: string | null
   grounded?: boolean
+  /** From getUploadTargets() — never derived from answer text */
+  uploadTargets?: ChatUploadTarget[]
+  showGeneralUpload?: boolean
 }
 
 export interface Conversation {
@@ -52,7 +64,7 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   voiceInput: true,
   autoReadResponses: false,
   speechSpeed: 1,
-  speechLanguage: 'hi-IN',
+  speechLanguage: 'en-IN',
   speechGender: 'female',
   chatTheme: 'light',
   sendWithEnter: true,

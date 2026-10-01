@@ -55,7 +55,7 @@ _OWN = r"(?:'s|s'|’s)?"
 #: other applicant" are the co-applicant; "another applicant" is not
 #: (that asks about somebody else, which the input guardrail refuses).
 _CO = (r"(?:co[\s-]?(?:applicants?|apps?|borrowers?)\b|second\s+applicant|"
-       r"joint\s+applicant|(?:the|my|our)\s+other\s+applicant)")
+       r"joint\s+applicant|(?:the|my|our)\s+other\s+(?:applicant|guy|person|borrower))")
 #: Both parties, or a question that asks WHICH of them.
 _BOTH = (r"(?:both(?:\s+(?:of\s+)?(?:the\s+)?(?:applicants|parties|borrowers|"
          r"of\s+us|of\s+them))?(?!\s+(?:documents?|docs?|the\s+documents?|"
@@ -64,7 +64,12 @@ _BOTH = (r"(?:both(?:\s+(?:of\s+)?(?:the\s+)?(?:applicants|parties|borrowers|"
          r"|dono\s+(?:ke|ka|ki)\b|donon\s+(?:ke|ka|ki)\b"
          r"|every\s+applicant|which\s+(?:applicant|party|borrower|person)(?!\s+(?:id|number|no|ref)\b)"
          r"|(?:the\s+)?applicant\s+and\s+(?:the\s+|my\s+)?co[\s-]?applicant"
+         # "mere aur co-applicant ke", "my and my co-applicant's", "me and the co-applicant"
+         r"|(?:mere|mera|meri|my|me|mine)\s+(?:aur|and|&)\s+(?:the\s+|my\s+|mere\s+)?co[\s-]?applicant"
          r"|me\s+and\s+(?:my\s+)?co[\s-]?applicant"
+         # "my PAN verified? and the co-applicant too?", "mera PAN ... aur co-applicant ka bhi"
+         r"|(?:my|mera|meri|mere)\b[^.]{0,60}?\b(?:and|aur|&)\s+(?:the\s+|my\s+)?co[\s-]?applicant(?:'s)?"
+         r"\s*(?:ka|ki|ke)?\s*(?:bhi|too|also|as\s+well)\b"
          r"|co[\s-]?applicant\s+and\s+(?:the\s+|my\s+)?(?:primary\s+)?applicant)")
 #: The primary applicant, named as such. A bare "my" is NOT this: "my
 #: application" is the case.
@@ -89,6 +94,10 @@ def mentioned(message: str) -> Kind | None:
     return None
 
 
+_ALSO_TAIL = re.compile(r"[\s,?]*\b(?:and|aur|&)\s+(?:the\s+|my\s+)?co[\s-]?applicant(?:'s)?"
+                        r"\s*(?:ka|ki|ke)?\s*(?:bhi|too|also|as\s+well)\b\s*\??\s*$", _I)
+
+
 def neutral(message: str) -> str:
     """
     The question with its subject phrase replaced by "my documents", so the
@@ -103,7 +112,11 @@ def neutral(message: str) -> str:
         return "my" if re.search(r"(?:'s|s'|’s)$", match.group(0)) \
             else "my documents"
 
-    text = message or ""
+    # "is my PAN verified? and co-applicant too?": the tail only adds a
+    # person -- the question is the part before it, kept whole
+    text = _ALSO_TAIL.sub("?", message or "").strip(" ")
+    if not re.search(r"[^\W_]", text):
+        text = message or ""
     for pattern in (_BOTH_RE, _CO_RE, _PRIMARY_RE):
         text = pattern.sub(swap, text)
     return re.sub(r"\bmy\s+my\b", "my", text, flags=_I)
