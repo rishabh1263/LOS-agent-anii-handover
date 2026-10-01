@@ -46,6 +46,10 @@ languages:
   as:  {name: Assamese,  script: Bengali,    review_status: SEED_UNREVIEWED}
   ur:  {name: Urdu,      script: Arabic,     review_status: SEED_UNREVIEWED}
   kok: {name: Konkani,   script: Devanagari, review_status: SEED_UNREVIEWED}
+  ne:  {name: Nepali,    script: Devanagari, review_status: SEED_UNREVIEWED}
+  mai: {name: Maithili,  script: Devanagari, review_status: SEED_UNREVIEWED}
+  sa:  {name: Sanskrit,  script: Devanagari, review_status: SEED_UNREVIEWED}
+  mni: {name: Manipuri (Meitei), script: Meetei Mayek, review_status: SEED_UNREVIEWED}
 
 # Words that tell two languages sharing a script apart. Devanagari is Hindi
 # unless Marathi or Konkani markers appear; Bengali script is Bengali unless
@@ -56,6 +60,11 @@ markers:
        कोणत्या, कोणता, कोणती, कोणते, मध्ये, सध्या, काय, झाले, झालं, तुमच्या,
        लागतील, लागेल, कागदपत्रे, कागदपत्र, साठी, स्टेजसाठी, टप्प्यात, आता]
   kok: [म्हजो, म्हजी, म्हजें, कितें, आसा, खंयच्या, खंय]
+  # Nepali / Maithili / Sanskrit share many words with Hindi: they need
+  # TWO of their markers (language.py), and no marker is also a Hindi word
+  ne: [मेरो, छ, छन्, कति, भयो, कुन, गर्नुहोस्, हुन्छ, चरणमा, ऋणको]
+  mai: [हमर, अछि, कतेक, छै, भेल, कोन, कहू]
+  sa: [मम, अस्ति, सन्ति, किम्, कस्मिन्, कियत्, किमर्थम्, आवेदनं, आवेदनस्य, चरणे, पत्राणि]
   as: [ৰ, ৱ, মোৰ, আছেনে, কিয়]
   hi-Latn: [hai, hain, kya, kyu, kyun, kyon, mera, meri, mere, kis, kaha, kahan,
             hu, hoon, hun, mujhe, batao, bataiye, abhi, baaki, baki, nahi, kaunsa,
@@ -64,7 +73,9 @@ markers:
             shukriya, dhanyavad, dhanyawad, alvida, sab, sabhi, theek, thik, sahi,
             koi, kuch, dena, dene, deni, hoga, hogi, honge, mereko, mujhko, apna,
             apni, apne, aapka, aapki, aapke, karo, kijiye, kiya, kiye, ho, hun,
-            aage, abhi, kal, aaj, kab, jaldi, h, hv, kitne, kitna, kitni, mahine, mahino]
+            aage, abhi, kal, aaj, kab, jaldi, h, hv, kitne, kitna, kitni, mahine, mahino,
+            majhya, majha, majhi, majhe, mazya, aahe, aahet, kiti, karjachi, rakkam, kagadpatre, sanga,
+            jo, kar, kardo, ke, liye, ka, ki, bhej, badh, sakta, sakte, sakti, baaki]
 
 # ---------------------------------------------------------------------------
 # LEXICONS -- language word (or phrase) -> canonical English.
@@ -74,6 +85,36 @@ markers:
 # ---------------------------------------------------------------------------
 lexicon:
   hi-Latn:
+    # Marathi written in Latin script ("majhya karjachi rakkam kiti aahe?")
+    karjachi rakkam: loan amount
+    konatya tappyat: which stage in
+    konatya: which
+    tappyat: stage in
+    tappa: stage
+    arj: application
+    arjacha: application
+    arjachi: application
+    karjachi: loan
+    karjacha: loan
+    karja: loan
+    karj: loan
+    rakkam: amount
+    rakam: amount
+    majhya: my
+    majha: my
+    majhi: my
+    majhe: my
+    mazya: my
+    maza: my
+    mazi: my
+    maze: my
+    kiti: how much
+    aahe: is
+    ahe: is
+    kagadpatre: documents
+    kagadpatra: document
+    sanga: tell
+    kuthe: where
     kya karna hai: what should i do next
     kya karna chahiye: what should i do next
     kya karu: what should i do next
@@ -182,6 +223,15 @@ lexicon:
     ke: ""
     ko: ""
   hi:
+    जो बाकी है कर दो: do whatever is pending
+    जो पेंडिंग है कर दो: do whatever is pending
+    जो भी बाकी है कर दो: do whatever is pending
+    सब कर दो: handle everything
+    आगे बढ़ सकता है: aage badh sakta hai
+    आगे बढ़ सकता: aage badh sakta
+    आगे जा सकता है: aage ja sakta hai
+    में भेज दो: mein bhej do
+    के लिए तैयार है: ready for
     मोबाइल नंबर: mobile number
     मोबाइल: mobile
     नाम: name
@@ -191,6 +241,9 @@ lexicon:
     वेरिफाइड: verified
     वेरीफाई: verify
     सह-आवेदक का: co-applicant's
+    सह-अर्जदार का: co-applicant's
+    सह-अर्जदार की: co-applicant's
+    सह-अर्जदार: co-applicant
     कितने का: how much
     कितने की: how much
     लोन अमाउंट: loan amount
@@ -316,6 +369,15 @@ lexicon:
     के: ""
     को: ""
   mr:
+    जे बाकी आहे ते करा: do whatever is pending
+    जे बाकी आहे ते करून टाका: do whatever is pending
+    पुढे जाऊ शकतो का: aage ja sakta hai
+    पुढे जाऊ शकतो: aage ja sakta
+    मध्ये पाठवा: mein bhej do
+    कुठल्या: which
+    कुठला: which
+    कुठली: which
+    कुठे: where
     मोबाईल क्रमांक: mobile number
     मोबाईल: mobile
     नाव: name
@@ -506,6 +568,9 @@ lexicon:
     స్థితి: status
     పత్రాలు: documents
     పెండింగ్: pending
+    "పెండింగ్‌లో": pending
+    పెండింగ్లో: pending
+    ఉన్నాయి: are
     కేవైసీ: kyc
     ధృవీకరించబడింది: verified
   gu:
@@ -568,6 +633,9 @@ lexicon:
     സ്ഥിതി: status
     രേഖകൾ: documents
     ബാക്കി: pending
+    ബാക്കിയുണ്ട്: pending
+    ബാക്കിയുള്ള: pending
+    ഏതൊക്കെ: which
     കെവൈസി: kyc
     പരിശോധിച്ചു: verified
   pa:
@@ -643,6 +711,107 @@ lexicon:
 # Structural only: each rule reorders words the user typed; none adds a fact.
 # Applied in order, first match wins, only to non-English input.
 # ---------------------------------------------------------------------------
+  # -- Nepali, Maithili, Sanskrit (Devanagari) and Manipuri (Meetei Mayek):
+  #    SEED lexicons for the core LOS questions (stage, status, documents,
+  #    KYC, loan amount, next step). Unreviewed by native speakers.
+  ne:
+    मेरो: my
+    हाम्रो: my
+    आवेदन: application
+    आवेदनको: application
+    कुन चरणमा: which stage in
+    कुन: which
+    चरणमा: stage in
+    चरण: stage
+    अहिले: now
+    छ: is
+    छन्: are
+    के गर्ने: what should i do next
+    के: what
+    किन: why
+    कति: how much
+    ऋणको रकम: loan amount
+    ऋण रकम: loan amount
+    ऋण: loan
+    रकम: amount
+    कागजातहरू: documents
+    कागजात: documents
+    बाँकी: pending
+    प्रमाणित: verified
+    भयो: done
+    स्थिति: status
+    सह-आवेदक: co-applicant
+    सह-आवेदकको: co-applicant's
+    अर्को कदम: next step
+    केवाईसी: kyc
+    प्यान: pan
+    आधार: aadhaar
+    बताउनुहोस्: tell me
+    हो: is
+    लोन: loan
+    स्टेज: stage
+    स्टेटस: status
+    डकुमेन्ट: documents
+    डकुमेन्टहरू: documents
+  mai:
+    हमर: my
+    आवेदन: application
+    आवेदनक: application
+    कोन चरण मे: which stage in
+    कोन: which
+    चरण मे: stage in
+    चरण: stage
+    मे: in
+    एखन: now
+    अछि: is
+    छै: is
+    की: what
+    किए: why
+    कतेक: how much
+    ऋण राशि: loan amount
+    ऋण: loan
+    राशि: amount
+    कागजात: documents
+    बाँकी: pending
+    सत्यापित: verified
+    भेल: done
+    स्थिति: status
+    सह-आवेदक: co-applicant
+    अगिला कदम: next step
+    केवाईसी: kyc
+    कहू: tell me
+    लोन: loan
+    स्टेज: stage
+    स्टेटस: status
+    डकुमेन्ट: documents
+    डकुमेन्टहरू: documents
+  sa:
+    मम: my
+    आवेदनं: application
+    आवेदनस्य: application
+    कस्मिन् चरणे: which stage in
+    कस्मिन्: which
+    कानि: which
+    कः: which
+    चरणे: stage in
+    अधुना: now
+    अस्ति: is
+    सन्ति: are
+    किम्: what
+    किमर्थम्: why
+    कियत्: how much
+    ऋणराशिः: loan amount
+    ऋणस्य राशिः: loan amount
+    पत्राणि: documents
+    अवशिष्टानि: pending
+    सत्यापितम्: verified
+    स्थितिः: status
+    सह-आवेदकः: co-applicant
+    अग्रिमं पदम्: next step
+  mni:
+    ꯑꯩꯒꯤ: my
+    ꯑꯩꯈꯣꯌꯒꯤ: my
+
 rewrites:
   - {pattern: '\bwhat\s+should\s+i\s+do\s+next\b', replace: 'what should i do next', whole: true}
   - {pattern: '^(?:(?:now|currently)\s+)?i\s+(?:(?:now|currently)\s+)?which\s+(stage|step|phase)\s+(?:at|in|on)\s+(?:am|is)\b.*$', replace: 'which \1 am i in'}
@@ -685,6 +854,9 @@ templates:
     pa: "ਤੁਹਾਡੀ ਅਰਜ਼ੀ ਇਸ ਸਮੇਂ {stage} ਪੜਾਅ ਤੇ ਹੈ।"
     or: "ଆପଣଙ୍କ ଆବେଦନ ବର୍ତ୍ତମାନ {stage} ପର୍ଯ୍ୟାୟରେ ଅଛି।"
     ur: "آپ کی درخواست اس وقت {stage} مرحلے میں ہے۔"
+    ne: "तपाईंको आवेदन अहिले {stage} चरणमा छ।"
+    mai: "अहाँक आवेदन एखन {stage} चरणमे अछि।"
+    sa: "भवतः आवेदनम् अधुना {stage} चरणे अस्ति।"
 
   # Pending documents: {missing} and {awaiting} are the SAME lists the English
   # answer is built from (document labels and status codes untranslated),
@@ -693,6 +865,15 @@ templates:
   pending_documents:
     hi: {missing: "{missing} अभी बाकी है।", awaiting: "{awaiting} सत्यापन की प्रतीक्षा में है।", join: " और "}
     hi-Latn: {missing: "{missing} abhi baaki hai.", awaiting: "{awaiting} verification ke intezaar mein hai.", join: " aur "}
+    bn: {missing: "{missing} এখনও বাকি আছে।", awaiting: "{awaiting} যাচাইয়ের অপেক্ষায় আছে।", join: " এবং "}
+    ta: {missing: "{missing} இன்னும் நிலுவையில் உள்ளது.", awaiting: "{awaiting} சரிபார்ப்புக்காக காத்திருக்கிறது.", join: " மற்றும் "}
+    te: {missing: "{missing} ఇంకా పెండింగ్‌లో ఉంది.", awaiting: "{awaiting} ధృవీకరణ కోసం వేచి ఉంది.", join: " మరియు "}
+    gu: {missing: "{missing} હજુ બાકી છે.", awaiting: "{awaiting} ચકાસણીની રાહ જોઈ રહ્યું છે.", join: " અને "}
+    kn: {missing: "{missing} ಇನ್ನೂ ಬಾಕಿ ಇದೆ.", awaiting: "{awaiting} ಪರಿಶೀಲನೆಗಾಗಿ ಕಾಯುತ್ತಿದೆ.", join: " ಮತ್ತು "}
+    ml: {missing: "{missing} ഇനിയും ബാക്കിയുണ്ട്.", awaiting: "{awaiting} പരിശോധനയ്ക്കായി കാത്തിരിക്കുന്നു.", join: " ഒപ്പം "}
+    pa: {missing: "{missing} ਅਜੇ ਬਾਕੀ ਹੈ।", awaiting: "{awaiting} ਤਸਦੀਕ ਦੀ ਉਡੀਕ ਵਿੱਚ ਹੈ।", join: " ਅਤੇ "}
+    ur: {missing: "{missing} ابھی باقی ہے۔", awaiting: "{awaiting} تصدیق کے انتظار میں ہے۔", join: " اور "}
+    ne: {missing: "{missing} अझै बाँकी छ।", awaiting: "{awaiting} प्रमाणीकरणको प्रतीक्षामा छ।", join: " र "}
     mr: {missing: "{missing} अजून बाकी आहे.", awaiting: "{awaiting} पडताळणीच्या प्रतीक्षेत आहे.", join: " आणि "}
 
   # THE STATE OF A REQUESTED FIELD (field_state.py): the same sentence for
@@ -723,3 +904,319 @@ templates:
     hi: "मैंने नोट कर लिया है कि आप किसी व्यक्ति से मदद चाहते हैं। तब तक मैं इस आवेदन के दस्तावेज़, स्थिति और अगले कदम के बारे में बता सकता हूँ।"
     hi-Latn: "Maine note kar liya hai ki aap kisi vyakti se madad chahte hain. Tab tak main is application ke documents, status aur agle kadam ke baare mein bata sakta hoon."
     mr: "तुम्हाला एखाद्या व्यक्तीकडून मदत हवी आहे हे मी नोंदवले आहे. तोपर्यंत मी या अर्जाची कागदपत्रे, स्थिती आणि पुढील पायरी याबद्दल सांगू शकतो."
+
+# ---------------------------------------------------------------------------
+# SECURITY VOCABULARY -- the words an attack is made of, per language, so the
+# English-word security policy (guardrails + request_policy) judges a Tamil
+# "show every customer's data" exactly as it judges the English one. Merged
+# UNDER each lexicon above (a question-lexicon entry wins a clash). Seed,
+# unreviewed; the policy also reads a question under every language sharing
+# its script (language.canonical_forms), so a missing marker is no hole.
+# ---------------------------------------------------------------------------
+  # ACTIONS AND GATES (answering/localize.py): filled ONLY from the structured
+  # gate / pending-work blocks -- document and stage labels stay as recorded.
+  gate_ready:
+    hi: "बधाई हो -- {stage} की सभी तय जाँचें पूरी हैं। आपका केस {next} में जाने के लिए तैयार है।"
+    hi-Latn: "Badhai ho -- {stage} ki saari tay jaanch poori hain. Aapka case {next} mein jaane ke liye ready hai."
+    mr: "अभिनंदन -- {stage} च्या सर्व ठरलेल्या तपासण्या पूर्ण झाल्या आहेत. तुमचा केस {next} मध्ये जाण्यासाठी तयार आहे."
+  gate_blocked:
+    hi: "आपका केस अभी {stage} से {next} में नहीं जा सकता। बाकी: {items}।"
+    hi-Latn: "Aapka case abhi {stage} se {next} mein nahi ja sakta. Baaki: {items}."
+    mr: "तुमचा केस अजून {stage} मधून {next} मध्ये जाऊ शकत नाही. बाकी: {items}."
+  work_upload:
+    hi: "{items} अपलोड करना बाकी है।"
+    hi-Latn: "{items} upload karna baaki hai."
+    mr: "{items} अपलोड करणे बाकी आहे."
+  work_review:
+    hi: "{items} समीक्षा के लिए रुका है।"
+    hi-Latn: "{items} review ke liye ruka hai."
+    mr: "{items} पुनरावलोकनासाठी थांबले आहे."
+  work_verified:
+    hi: "{items} का सत्यापन हो गया।"
+    hi-Latn: "{items} ka verification ho gaya."
+    mr: "{items} ची पडताळणी झाली."
+  work_processing:
+    hi: "{items} का सत्यापन चल रहा है।"
+    hi-Latn: "{items} ka verification chal raha hai."
+    mr: "{items} ची पडताळणी सुरू आहे."
+  work_no_permission:
+    hi: "इस सत्र में {items} का सत्यापन मैं शुरू नहीं कर सकता -- अपलोड की अनुमति चाहिए।"
+    hi-Latn: "Is session mein {items} ka verification main shuru nahi kar sakta -- upload permission chahiye."
+    mr: "या सत्रात {items} ची पडताळणी मी सुरू करू शकत नाही -- अपलोडची परवानगी हवी."
+  work_nothing:
+    hi: "इस केस पर अभी कुछ भी बाकी नहीं है।"
+    hi-Latn: "Is case par abhi kuch bhi baaki nahi hai."
+    mr: "या केसवर सध्या काहीही बाकी नाही."
+  # KYC, from the recorded status per person (localize._kyc_sentence)
+  kyc_who_self:
+    hi: "आपका"
+    hi-Latn: "Aapka"
+    mr: "तुमचे"
+  kyc_who_co:
+    hi: "सह-आवेदक का"
+    hi-Latn: "Co-applicant ka"
+    mr: "सह-अर्जदाराचे"
+  kyc_PASS:
+    hi: "{who} KYC पूरा हो गया है।"
+    hi-Latn: "{who} KYC complete ho gaya hai."
+    mr: "{who} KYC पूर्ण झाले आहे."
+  kyc_REVIEW:
+    hi: "{who} KYC समीक्षा में है।"
+    hi-Latn: "{who} KYC review mein hai."
+    mr: "{who} KYC पुनरावलोकनात आहे."
+  kyc_FAIL:
+    hi: "{who} KYC विफल दर्ज हुआ है।"
+    hi-Latn: "{who} KYC fail record hua hai."
+    mr: "{who} KYC अयशस्वी नोंदले आहे."
+  kyc_SKIPPED:
+    hi: "{who} KYC जाँच नहीं हो पाई (छोड़ी गई)।"
+    hi-Latn: "{who} KYC check nahi ho paya (skip hua)."
+    mr: "{who} KYC तपासणी होऊ शकली नाही (वगळली)."
+  kyc_NOT_RECORDED:
+    hi: "{who} KYC परिणाम अभी दर्ज नहीं हुआ है।"
+    hi-Latn: "{who} KYC result abhi record nahi hua hai."
+    mr: "{who} KYC निकाल अजून नोंदलेला नाही."
+  kyc_because:
+    hi: "कारण: {reason}।"
+    hi-Latn: "Kaaran: {reason}."
+    mr: "कारण: {reason}."
+  kyc_reason_INSUFFICIENT_SOURCES:
+    hi: "तुलना के लिए पर्याप्त दस्तावेज़ नहीं हैं"
+    hi-Latn: "compare karne ke liye kaafi documents nahi hain"
+    mr: "तुलनेसाठी पुरेशी कागदपत्रे नाहीत"
+
+security_lexicon:
+  # NO ROMANIZED-HINDI ENTRIES: those words are everyday Hinglish ("dusre
+  # applicant ke?" = the co-applicant's), and this vocabulary is merged into
+  # the question lexicon. Latin-script attacks are caught by the policy's own
+  # Hinglish rules on the text as typed.
+  hi:
+    सब: all
+    दिखाओ: show
+    दिखाइए: show
+    दिखा दो: show
+    दूसरे: other
+    दूसरा: other
+    दूसरी: other
+    अन्य: other
+    पिछले: previous
+    पिछला: previous
+    निर्देश: instructions
+    निर्देशों: instructions
+    भूल जाओ: forget
+    अनदेखा करो: ignore
+    नजरअंदाज करो: ignore
+    सिस्टम प्रॉम्प्ट: system prompt
+    प्रॉम्प्ट: prompt
+    एडमिन: admin
+    नंबर: number
+    जानकारी: details
+    डाटा: data
+  mr:
+    सर्व: all
+    सगळ्या: all
+    ग्राहकांचा: customers
+    ग्राहकांची: customers
+    ग्राहकांचे: customers
+    ग्राहकाचा: customer
+    ग्राहकाची: customer
+    ग्राहक: customer
+    डेटा: data
+    दाखवा: show
+    दुसऱ्या: other
+    इतर: other
+    पॅन: pan
+    नंबर: number
+    मागील: previous
+    सूचना: instructions
+    विसरा: forget
+    दुर्लक्ष करा: ignore
+    सिस्टम प्रॉम्प्ट: system prompt
+  kok:
+    सगळ्या: all
+    सगळे: all
+    गिरायकांचो: customers
+    गिरायकांचे: customers
+    गिरायक: customer
+    डेटा: data
+    दाखय: show
+    दुसऱ्या: other
+  ne:
+    सबै: all
+    ग्राहकहरूको: customers
+    ग्राहकहरू: customers
+    ग्राहकको: customer
+    ग्राहक: customer
+    डाटा: data
+    विवरण: details
+    देखाउनुहोस्: show
+    देखाऊ: show
+    अरू: other
+    अर्को: other
+    अघिल्ला: previous
+    निर्देशनहरू: instructions
+    निर्देशन: instructions
+    बिर्सनुहोस्: forget
+    बेवास्ता गर्नुहोस्: ignore
+  mai:
+    सब: all
+    ग्राहकक: customers
+    ग्राहक: customer
+    डाटा: data
+    देखाउ: show
+    दोसर: other
+    पछिला: previous
+    निर्देश: instructions
+    बिसरि जाउ: forget
+  sa:
+    सर्वेषां: all
+    सर्वे: all
+    ग्राहकाणां: customers
+    ग्राहकस्य: customer
+    दत्तांशं: data
+    दर्शय: show
+    अन्यस्य: other
+    पूर्व: previous
+    निर्देशान्: instructions
+    उपेक्षस्व: ignore
+  bn:
+    সব: all
+    সকল: all
+    গ্রাহকের: customers
+    গ্রাহকদের: customers
+    গ্রাহক: customer
+    তথ্য: data
+    ডেটা: data
+    দেখাও: show
+    দেখান: show
+    অন্য: other
+    আগের: previous
+    নির্দেশ: instructions
+    নির্দেশনা: instructions
+    ভুলে যাও: forget
+    উপেক্ষা করো: ignore
+    সিস্টেম প্রম্পট: system prompt
+    এবং: and
+    প্যান: pan
+    নম্বর: number
+  as:
+    সকলো: all
+    গ্ৰাহকৰ: customers
+    গ্ৰাহক: customer
+    তথ্য: data
+    দেখুৱাওক: show
+    দেখুৱা: show
+    আন: other
+    আগৰ: previous
+    নিৰ্দেশ: instructions
+    পাহৰি যোৱা: forget
+  ta:
+    எல்லா: all
+    அனைத்து: all
+    வாடிக்கையாளர்களின்: customers
+    வாடிக்கையாளர்கள்: customers
+    வாடிக்கையாளர்: customer
+    தரவையும்: data
+    தரவு: data
+    காட்டு: show
+    காட்டவும்: show
+    மற்ற: other
+    வேறு: other
+    முந்தைய: previous
+    வழிமுறைகளை: instructions
+    புறக்கணித்து: ignore
+    புறக்கணி: ignore
+  te:
+    అన్ని: all
+    కస్టమర్ల: customers
+    వినియోగదారుల: customers
+    కస్టమర్: customer
+    డేటా: data
+    చూపించు: show
+    చూపండి: show
+    ఇతర: other
+    మునుపటి: previous
+    సూచనలను: instructions
+    విస్మరించు: ignore
+  gu:
+    બધા: all
+    ગ્રાહકોનો: customers
+    ગ્રાહકોનું: customers
+    ગ્રાહક: customer
+    ડેટા: data
+    બતાવો: show
+    બીજા: other
+    અન્ય: other
+    અગાઉની: previous
+    સૂચનાઓ: instructions
+    ભૂલી જાઓ: forget
+    અવગણો: ignore
+  pa:
+    ਸਾਰੇ: all
+    ਗਾਹਕਾਂ: customers
+    ਗਾਹਕ: customer
+    ਡਾਟਾ: data
+    ਦਿਖਾਓ: show
+    ਦੂਜੇ: other
+    ਪਿਛਲੀਆਂ: previous
+    ਹਦਾਇਤਾਂ: instructions
+    ਭੁੱਲ ਜਾਓ: forget
+  kn:
+    ಎಲ್ಲಾ: all
+    ಗ್ರಾಹಕರ: customers
+    ಗ್ರಾಹಕ: customer
+    ಡೇಟಾ: data
+    ತೋರಿಸು: show
+    ತೋರಿಸಿ: show
+    ಬೇರೆ: other
+    ಇತರ: other
+    ಹಿಂದಿನ: previous
+    ಸೂಚನೆಗಳನ್ನು: instructions
+    ನಿರ್ಲಕ್ಷಿಸಿ: ignore
+  ml:
+    എല്ലാ: all
+    ഉപഭോക്താക്കളുടെയും: customers
+    ഉപഭോക്താക്കളുടെ: customers
+    ഉപഭോക്താവ്: customer
+    ഡാറ്റ: data
+    കാണിക്കൂ: show
+    കാണിക്കുക: show
+    മറ്റ്: other
+    മറ്റൊരു: other
+    മുൻ: previous
+    നിർദ്ദേശങ്ങൾ: instructions
+    അവഗണിക്കുക: ignore
+  or:
+    ସମସ୍ତ: all
+    ଗ୍ରାହକଙ୍କ: customers
+    ଗ୍ରାହକ: customer
+    ଡାଟା: data
+    ଦେଖାନ୍ତୁ: show
+    ଦେଖାଅ: show
+    ଅନ୍ୟ: other
+    ପୂର୍ବ: previous
+    ନିର୍ଦ୍ଦେଶ: instructions
+  ur:
+    تمام: all
+    سب: all
+    سارے: all
+    کسٹمرز: customers
+    گراہکوں: customers
+    گراہک: customer
+    دکھا دو: show
+    بتاؤ: show
+    صارفین: customers
+    کسٹمر: customer
+    ڈیٹا: data
+    دکھاؤ: show
+    دکھائیں: show
+    دوسرے: other
+    پچھلی: previous
+    پچھلے: previous
+    ہدایات: instructions
+    بھول جاؤ: forget
+    نظرانداز کرو: ignore
+  mni:
+    ꯃꯤ ꯈꯨꯗꯤꯡꯃꯛꯀꯤ: all customers
+    ꯈꯨꯗꯤꯡꯃꯛꯀꯤ: all
+    ꯎꯠꯄꯤꯌꯨ: show

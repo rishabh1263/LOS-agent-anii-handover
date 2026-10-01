@@ -620,6 +620,40 @@ class SQLiteRepository(Repository):
         )
         return [self._document(r) for r in rows]
 
+    def list_documents_for_cases(self, case_ids: list[str]) -> dict[str, list[Document]]:
+        """ONE query for every case's documents (no N+1 over a portfolio)."""
+        wanted = [c for c in dict.fromkeys(case_ids) if c]
+        out: dict[str, list[Document]] = {c: [] for c in wanted}
+        if not wanted:
+            return out
+        marks = ",".join("?" for _ in wanted)
+        for row in self._all(f"SELECT * FROM documents WHERE case_id IN ({marks}) ORDER BY uploaded_at",
+                             tuple(wanted)):
+            document = self._document(row)
+            out.setdefault(document.case_id, []).append(document)
+        return out
+
+    def get_current_findings_for_cases(self, case_ids: list[str],
+                                       kind: "FindingKind | str | None" = None
+                                       ) -> dict[str, list[CaseFinding]]:
+        """ONE query for every case's findings, then the current row of each."""
+        from app.store.repository import current_findings
+
+        wanted = [c for c in dict.fromkeys(case_ids) if c]
+        grouped: dict[str, list[CaseFinding]] = {c: [] for c in wanted}
+        if not wanted:
+            return grouped
+        marks = ",".join("?" for _ in wanted)
+        sql = f"SELECT * FROM case_findings WHERE case_id IN ({marks})"
+        args: list[object] = list(wanted)
+        if kind:
+            sql += " AND finding_kind = ?"
+            args.append(_kind_value(kind))
+        for row in self._all(sql + " ORDER BY created_at, rowid", tuple(args)):
+            finding = self._finding(row)
+            grouped.setdefault(finding.case_id, []).append(finding)
+        return {c: current_findings(f) for c, f in grouped.items()}
+
     # -- plumbing ----------------------------------------------------------
 
     # -- access grants -------------------------------------------------------

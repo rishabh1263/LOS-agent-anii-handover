@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 #: Slot and type names that are acronyms. `.title()` turns PAN into "Pan"
 #: and ITR into "Itr", which reads as a typo in an answer a customer is
 #: shown.
-_ACRONYMS = frozenset({"PAN", "ITR", "DL", "KYC", "NOC", "GST", "CPA",
+_ACRONYMS = frozenset({"PAN", "ITR", "DL", "KYC", "NOC", "GST", "CPA", "ID",
                        "FORM_16"})
 
 
@@ -284,16 +284,28 @@ def deterministic_answer(
         # actually needs.
         required = [e for e in checklist if e.get("mandatory", True)]
         optional = [e for e in checklist if not e.get("mandatory", True)]
+
+        def _row(e: dict) -> str:
+            # THE CONFIGURED ALTERNATIVES where there is still something to do:
+            # a ONE_OF slot names what satisfies it; a CONDITIONAL one says why.
+            said = f"{_readable(e['slot'])} — {e['status']}"
+            accepts = [str(a) for a in e.get("accepts") or []]
+            if str(e.get("status") or "").upper() in ("MISSING", "REJECTED", "REVIEW") \
+                    and accepts and accepts != [str(e.get("slot"))]:
+                said += f" (any one of: {_and_list([_readable(a) for a in accepts])})"
+            if str(e.get("requirement") or "").upper() == "CONDITIONAL":
+                said += " (required because of this case's details)"
+            return said
+
         parts = [
             f"{len(required)} required: "
-            + "; ".join(f"{_readable(e['slot'])} — {e['status']}" for e in required)
+            + "; ".join(_row(e) for e in required)
             + "."
         ]
         if optional:
             parts.append(
                 f"{len(optional)} optional: "
-                + "; ".join(f"{_readable(e['slot'])} — {e['status']}"
-                            for e in optional)
+                + "; ".join(_row(e) for e in optional)
                 + "."
             )
 
@@ -325,10 +337,15 @@ def deterministic_answer(
             names = [_readable(i.get("slot")) for i in not_collected]
             sentences.append(f"{_and_list(names)} "
                              f"{'are' if len(names) > 1 else 'is'} still pending.")
-        if awaiting:
-            sentences.append(
-                f"{_and_list([_doc_line(d) for d in awaiting])} "
-                f"{'are' if len(awaiting) > 1 else 'is'} awaiting verification.")
+        # a document IN REVIEW has been read; it waits on a person, not a check
+        in_review = [_readable(d.get("document_type")) for d in awaiting if d.get("status") == "REVIEW"]
+        unchecked = [_readable(d.get("document_type")) for d in awaiting if d.get("status") != "REVIEW"]
+        if unchecked:
+            sentences.append(f"{_and_list(unchecked)} "
+                             f"{'are' if len(unchecked) > 1 else 'is'} awaiting verification.")
+        if in_review:
+            sentences.append(f"{_and_list(in_review)} "
+                             f"{'need' if len(in_review) > 1 else 'needs'} a reviewer's decision.")
         if not sentences:
             return "No documents are pending."
         return " ".join(sentences)

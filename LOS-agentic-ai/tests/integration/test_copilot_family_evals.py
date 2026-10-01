@@ -30,5 +30,5 @@ def test_semantic_families_pass_against_the_real_http_api(tmp_path):
     summary = json.loads(report.read_text(encoding="utf-8"))["summary"]
     failures = "\n".join(line for line in completed.stdout.splitlines() if line.startswith("FAIL"))
     assert summary["passed"] == summary["total"], failures or summary
-    for family in ("case_vs_knowledge", "rag", "party", "conversation", "field"):
+    for family in ("case_vs_knowledge", "rag", "party", "conversation", "field", "verification", "kyc"):
         assert family in summary["by_family"], summary

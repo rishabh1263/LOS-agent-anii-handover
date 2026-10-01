@@ -558,7 +558,7 @@ def _converse(request: "CopilotQueryRequest", envelope: dict[str, Any],
     elif (target != "en" and gated is None
             and str(envelope.get("intent") or "") == "DOCUMENTS_PENDING"
             and str(envelope.get("category") or "") == "CASE_ONLY"
-            and not envelope.get("subject") and not envelope.get("guardrail")
+            and not (envelope.get("subject") or {}).get("parties") and not envelope.get("guardrail")
             and str(envelope.get("response_source") or "") == "STRUCTURED"):
         # THE SAME TWO LISTS the English answer is built from (answer.py):
         # documents not yet collected, and documents awaiting verification.
@@ -595,7 +595,10 @@ def _converse(request: "CopilotQueryRequest", envelope: dict[str, Any],
         "canonical": canonical,
         "channel": channel if channel in _CHANNELS else "api",
         "language": {**detected.public(), "response_language": target,
-                     "localized": localized},
+                     "localized": localized,
+                     # the gateway's reading (language_gateway.py), when the agent ran
+                     **{k: v for k, v in (envelope.get("language_contract") or {}).items()
+                        if k in ("input_mode", "confidence", "provider", "provider_fallback")}},
         # FOR THE AUDIT TRAIL (answer_basis.presentation): which deterministic
         # template worded the answer, and whether a tone line was added.
         "presentation": {"localized_template": template_used,
@@ -648,7 +651,10 @@ def _composition_skip(envelope: dict[str, Any], category: str) -> str | None:
         return "RECORDED_VALUES"
     if category == "MIXED" and str(envelope.get("response_source") or "")             == routing.ResponseSource.MIXED.value:
         return "BOTH_HALVES_AS_BUILT"
-    if envelope.get("subject") or envelope.get("next_actions")             or envelope.get("history") or envelope.get("delay"):
+    # a PARTY answer carries resolved parties; the frontend contract's bare
+    # {"party": ...} marker (copilot/answering/structured.py) is not one
+    if (envelope.get("subject") or {}).get("parties") or envelope.get("next_actions") \
+            or envelope.get("history") or envelope.get("delay"):
         return "DETERMINISTIC_ANSWER"
     if category in ("KNOWLEDGE_ONLY", "PROCESS_KNOWLEDGE"):
         return None
@@ -862,7 +868,8 @@ async def _grounded(
     # A PER-PARTY ANSWER IS PUBLISHED AS BUILT: a composer held to two
     # sentences is how "the co-applicant's PAN" becomes "the PAN". So is a
     # next-best-action answer: the action is established, not phrased.
-    if envelope.get("subject") or envelope.get("next_actions") or envelope.get("_compound"):
+    if (envelope.get("subject") or {}).get("parties") or envelope.get("next_actions") \
+            or envelope.get("_compound"):
         return gathered, gathered.grounded
     # A MIXED ANSWER WITH BOTH HALVES IS PUBLISHED AS BUILT. The agent wrote
     # the case half from the records and the general half from the handbook,

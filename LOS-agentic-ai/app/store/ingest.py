@@ -113,6 +113,14 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
         if not source_id:
             continue
 
+        # NOT A DOCUMENT AT ALL: refused by the upload gate or file validation
+        # (empty, unsupported, too large, not what its extension says). Nothing
+        # valid to store -- stored, it sat on the case as an "Unknown" upload
+        # the assistant then offered to verify. The refusal is in the response.
+        if any(isinstance(e, dict) and e.get("code") == "INVALID_DOCUMENT"
+               for e in entry.get("errors") or []):
+            continue
+
         document_type = (entry.get("type") or "UNKNOWN").strip().upper()
 
         # KEYED ON CASE + PARTY + SOURCE.

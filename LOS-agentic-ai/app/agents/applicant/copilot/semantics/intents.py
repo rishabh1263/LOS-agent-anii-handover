@@ -615,7 +615,17 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\b(all|other|previous|past)\s+(of\s+)?(my\s+)?(cases?|applications?)\b",
      Intent.CASE_PORTFOLIO),
     (r"\bmy\s+(cases|applications)\b", Intent.CASE_PORTFOLIO),
+    # "saare cases ka summary", "sab applications", "all my cases" -- every case
+    (r"\b(saare|sare|sab|sabhi|all|every)\s+(\w+\s+)?(cases|applications|case|application)\b"
+     r"(?![^?]{0,10}\b(documents?|docs?)\b)", Intent.CASE_PORTFOLIO),
     (r"\bacross\b.{0,20}\b(cases?|applications?)\b", Intent.CASE_PORTFOLIO),
+    # ONE CASE BY ITS POSITION among the person's cases, or the ones in
+    # trouble: "latest case", "pichle case ka status", "kis case mein issue hai".
+    (r"\b(latest|newest|most\s+recent|pichl\w*|puran[aie]|older|earlier)\s+(case|application|loan)s?\b",
+     Intent.CASE_PORTFOLIO),
+    (r"\b(kis|kaun\w*|konse|konsa|which)\s+(case|application)s?\b.{0,25}"
+     r"\b(issues?|problems?|blocked|blocking|atk\w*|stuck|attention|dikkat|gadbad|fail\w*|reject\w*)\b",
+     Intent.CASE_PORTFOLIO),
     (r"\b(list|show)\b.{0,20}\b(cases|applications|all\s+(my\s+)?(cases?|applications?))\b(?!\s+(status|stage|details?))",
      Intent.CASE_PORTFOLIO),
     # AFFORDABILITY, BEFORE INCOME AND BEFORE VERIFICATION.
@@ -1205,8 +1215,10 @@ _STATUS_WORDS_TO_FILTER = {
 #: "Why was my PAN rejected?" / "why did the bank statement fail?" -- a
 #: named document and a failure word.
 _DOCUMENT_REJECTED = re.compile(
-    rf"\bwhy\b.{{0,40}}\b{_DOC_TYPES}\b.{{0,30}}\b(rejected|declined|failed)\b"
-    rf"|\b{_DOC_TYPES}\b.{{0,20}}\b(rejected|declined|failed)\b.{{0,12}}\bwhy\b",
+    rf"\bwhy\b.{{0,40}}\b{_DOC_TYPES}\b.{{0,30}}\b(rejected|declined|failed|fail|reject)\b"
+    rf"|\b{_DOC_TYPES}\b.{{0,20}}\b(rejected|declined|failed|fail|reject)\b.{{0,12}}\bwhy\b"
+    # "ye PAN kyun fail hua" -> "this pan why fail hua"
+    rf"|\b{_DOC_TYPES}\b.{{0,20}}\bwhy\b.{{0,15}}\b(rejected|declined|failed|fail|reject)\b",
     re.IGNORECASE)
 #: ...unless it is the loan or application that was rejected.
 _LOAN_REJECTED = re.compile(
@@ -1259,7 +1271,9 @@ def _mixed_with_knowledge_tail(text: str) -> Classification | None:
     # dressed as one ("... and what is the KYC decision?").
     knowledge = (asks_for_a_definition(tail) or looks_like_knowledge(tail)
                  or bool(_STRONG_KNOWLEDGE.search(tail))
-                 or _asks_how_a_stage_works(tail))
+                 or _asks_how_a_stage_works(tail)
+                 # "X ka matlab kya hai" normalises to "what is x means what"
+                 or bool(re.search(r"\b(means?|meaning|matlab|arth)\b", tail, re.IGNORECASE)))
     if not knowledge:
         return None
     if not _asks_how_a_stage_works(tail) and any(
@@ -1267,6 +1281,10 @@ def _mixed_with_knowledge_tail(text: str) -> Classification | None:
         return None
 
     case = classify(head)
+    if case.intent is Intent.UNKNOWN and stage_in(head) is not None \
+            and re.search(r"\b(my|mera|meri|mere|our)\b", head, re.IGNORECASE):
+        # "why is my application (in) CPA" -- where the case stands
+        case = Classification(Intent.APPLICATION_STAGE, matched_on="stage_history")
     if case.intent not in _MIXED_BASES:
         return None
     return Classification(Intent.MIXED, document_type=case.document_type,
@@ -1294,6 +1312,14 @@ def classify(message: str) -> Classification:
     # history and process rules below both key on the word "stage" and
     # used to take "what is my stage?" as a question about how a stage
     # works.
+    # A CASE QUESTION WITH A DEFINITION ATTACHED ("... CPA mein kyun hai aur
+    # KYC review ka matlab kya hai?") is split before the stage rules, which
+    # would otherwise answer the whole message from its first half.
+    if re.search(r"\b(means?|meaning|matlab|arth)\b", text, re.IGNORECASE):
+        early = _mixed_with_knowledge_tail(text)
+        if early is not None:
+            return early
+
     if asks_current_stage(text):
         return Classification(Intent.APPLICATION_STAGE,
                               matched_on="current_stage")
@@ -1526,6 +1552,16 @@ def compound_parts(message: str) -> list[str] | None:
 
     if _subjects_both.mentioned(text) is _subjects_both.Kind.BOTH             and _subjects_both.mentioned(pieces[0]) is not _subjects_both.Kind.BOTH             and not any(_subjects_both.mentioned(p) is _subjects_both.Kind.BOTH for p in pieces):
         return None
+    # "is my PAN verified? and co-applicant ka bhi?": a later part that only
+    # names a person ("and the co-applicant too") asks the SAME question about
+    # them -- one question about both people, not a second question with no ask.
+    from app.agents.applicant.copilot.semantics import semantic_frame as _frame_of
+
+    for p in pieces[1:]:
+        if _subjects_both.mentioned(p) in (_subjects_both.Kind.CO, _subjects_both.Kind.BOTH):
+            f = _frame_of.parse(p)
+            if f.task is _frame_of.Task.UNKNOWN and f.object is _frame_of.Object.NONE                     and _profile.detect(p) is None and not _QUESTION_CUE.search(p):
+                return None
     questions = [_part_as_question(p) for p in pieces]
     # "the co-applicant's name and KYC status": a later part that is only a
     # noun phrase names no one of its own -- it is about the party named
@@ -1914,6 +1950,10 @@ def _general_question(message: str, classification: Classification) -> Classific
 
     if _subjects_general.mentioned(text) is not None or re.match(
             r"\s*(and|aur|also|then|ok|okay|theek|thik|accha|haan|और|आणि|ठीक)\b", text, re.I):
+        return None
+    # "what about the other guy on the application?" continues the conversation
+    # (a person, a field, a document): never a general policy question
+    if re.match(r"\s*(what|how)\s+about\b", text, re.I):
         return None
     question_shaped = bool(re.search(r"\?\s*$|^\s*(what|which|who|how|is|are|can|could|does|do|"
                                      r"will|should|kya|kaun|kab|kitna|kitne)\b", text, re.I))

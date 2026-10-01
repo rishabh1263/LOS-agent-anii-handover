@@ -339,7 +339,10 @@ def readiness(
     return {
         "status": "READY_FOR_CPA" if not blocking else "NOT_READY",
         "blocking_items": [
-            {"type": i["type"], "code": i["code"], "detail": i["detail"]}
+            # the slot a document item is about travels with it, so a caller
+            # can name it in any language without parsing `detail`
+            {"type": i["type"], "code": i["code"], "detail": i["detail"],
+             **({"slot": i["slot"]} if i.get("slot") else {})}
             for i in blocking
         ],
         "blocking_count": len(blocking),

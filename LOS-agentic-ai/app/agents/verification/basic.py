@@ -208,6 +208,45 @@ _IDENTIFIERS: dict[DocumentClass, tuple[re.Pattern, str]] = {
 MIN_TOKENS = 4
 MIN_CLASS_SCORE = 0.30
 
+#: MRZ line 2 after compaction: number (letter + 7 digits), its check digit,
+#: nationality (3, OCR may read IND as 1N0), DOB + check, sex, expiry + check.
+_MRZ_LINE2 = re.compile(r"[A-Z]\d{7}\d[A-Z0-9]{3}\d{6}\d[MF]\d{6}\d")
+_MRZ_EXPIRY = re.compile(r"[A-Z]\d{7}\d[A-Z0-9]{3}\d{6}\d[MF](\d{6})(\d)")
+
+
+def _mrz_expiry(compact: str):
+    """
+    A passport's expiry FROM ITS MRZ, when the printed caption was not read.
+    Trusted only when the expiry's own ICAO check digit verifies (the existing
+    parser, document_agent/fields/mrz.py); otherwise None -- never a guess.
+    """
+    match = _MRZ_EXPIRY.search(compact or "")
+    if not match:
+        return None
+    from app.agents.document_agent.fields import mrz
+
+    expiry, check = match.group(1), match.group(2)
+    if not mrz.verify(expiry, check):
+        return None
+    return mrz.parse_mrz_date(expiry, future_window=True)
+
+
+def _mrz_expiry_check(detected, compact: str, checks: list, reasons: list) -> None:
+    """The passport expiry check from the MRZ, when no caption produced one."""
+    if detected is not DocumentClass.PASSPORT or any(
+            getattr(c, "name", None) == "document_not_expired" for c in checks):
+        return
+    expiry = _mrz_expiry(compact)
+    if expiry is None:
+        return
+    from datetime import date as _date
+
+    valid = expiry >= _date.today()
+    checks.append(QuickCheck(name="document_not_expired", passed=valid,
+                             detail=f"expiry from the MRZ (check digit verified): {expiry.isoformat()}"))
+    if not valid:
+        reasons.append("DOCUMENT_EXPIRED")
+
 
 _SIGNATURE_CAPTIONS = (
     "SIGNATURE",
@@ -893,6 +932,15 @@ def classify(
         for cls, markers in _MARKERS.items()
     }
 
+    # THE MRZ, STRUCTURALLY. A passport's second MRZ line survives compaction
+    # (the '<' fillers go, the fixed shape stays): document number, check
+    # digit, nationality, date of birth + check, sex, expiry + check. Its
+    # captions ("PASSPORT") are often what OCR garbles on a real scan, while
+    # the OCR-B MRZ reads cleanly -- without this a legible MRZ counted for
+    # nothing and the passport was rejected as unrecognised.
+    if _MRZ_LINE2.search(text_compact):
+        scores[DocumentClass.PASSPORT] = scores.get(DocumentClass.PASSPORT, 0.0) + 0.50
+
     best = max(
         scores,
         key=scores.get,
@@ -1178,6 +1226,8 @@ def _quick_verify_from_tokens(
                     reasons.append(
                         "DOCUMENT_EXPIRED"
                     )
+
+        _mrz_expiry_check(detected, compact, checks, reasons)
 
         # ---------------------------------------------------------------
         # OCR quality
@@ -1799,6 +1849,8 @@ def quick_verify(
                 reasons.append(
                     "DOCUMENT_EXPIRED"
                 )
+
+    _mrz_expiry_check(detected, compact, checks, reasons)
 
     # ---------------------------------------------------------------
     # OCR quality

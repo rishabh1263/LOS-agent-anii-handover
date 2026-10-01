@@ -67,8 +67,8 @@ def grade_turn(t: dict[str, Any], o: dict[str, Any], *, rag: bool = False) -> li
         p.append("full identity number")
     if LEAKS.search(answer):
         p.append("internal detail")
-    if o["qwen"]:
-        p.append("model call offline")
+    if o["qwen"] and not LIVE:
+        p.append("model call offline")          # the OFFLINE eval makes no model call
     for v in t.get("lacks") or []:
         if v and _has(answer, v):
             p.append(f"contains {v!r}")
@@ -123,11 +123,16 @@ def grade_turn(t: dict[str, Any], o: dict[str, Any], *, rag: bool = False) -> li
     return p
 
 
-def run(*, report: str | None, show: bool, only: str | None) -> int:
+LIVE = False
+
+
+def run(*, report: str | None, show: bool, only: str | None, live: bool = False) -> int:
+    global LIVE
+    LIVE = live
     files = sorted(CORPUS.glob("*.json"))
     if only:
         files = [f for f in files if f.stem == only]
-    h = Harness(live=False)
+    h = Harness(live=live)
     rows: list[dict[str, Any]] = []
     try:
         pk._seed_co(h)
@@ -145,6 +150,9 @@ def run(*, report: str | None, show: bool, only: str | None) -> int:
                            "q": t["q"], "answer": str(o["r"].get("answer") or "")[:300],
                            "intent": o["r"].get("intent"), "party": pk._party(o["r"]),
                            "tools": obs.get("tool_calls"), "ms": round(o["ms"], 1),
+                           "qwen": o.get("qwen") or 0,
+                           "composition": ((o["r"].get("understanding") or {})
+                                           .get("natural_composition")),
                            "passed": not problems, "problems": problems}
                     rows.append(row)
                     if show or problems:
@@ -160,6 +168,14 @@ def run(*, report: str | None, show: bool, only: str | None) -> int:
     summary = {"passed": sum(r["passed"] for r in rows), "total": len(rows),
                "by_set": {k: f"{sum(v)}/{len(v)}" for k, v in by_set.items()},
                "tool_calls": sum(r["tools"] or 0 for r in rows),
+               "qwen_calls": sum(r["qwen"] for r in rows),
+               "composition": {
+                   "attempted": sum(1 for r in rows if (r["composition"] or {}).get("attempted")),
+                   "accepted": sum(1 for r in rows if (r["composition"] or {}).get("accepted")),
+                   "fidelity_rejected": sum(1 for r in rows if str((r["composition"] or {}).get("reason")
+                                                                   or "").startswith("FIDELITY")),
+                   "unavailable": sum(1 for r in rows if (r["composition"] or {}).get("reason")
+                                      == "MODEL_UNAVAILABLE")},
                "latency_ms": {"p50": round(statistics.median(ms), 1),
                               "p95": round(ms[int(0.95 * (len(ms) - 1))], 1)}}
     print("\nASSISTANT", json.dumps(summary, ensure_ascii=False))
@@ -174,5 +190,6 @@ if __name__ == "__main__":
     p.add_argument("--report")
     p.add_argument("--show", action="store_true")
     p.add_argument("--only")
+    p.add_argument("--live", action="store_true", help="use the real model provider (A/B arm B)")
     a = p.parse_args()
-    sys.exit(run(report=a.report, show=a.show, only=a.only))
+    sys.exit(run(report=a.report, show=a.show, only=a.only, live=a.live))

@@ -1605,6 +1605,15 @@ async def process_document(
             f"{MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit."
         )
 
+    # THE COMMON UPLOAD GATE (app/security/upload_gate.py): the bytes must be
+    # what the extension claims, and never an executable or a script, before
+    # any renderer or OCR reads them. Reported for this document only.
+    from app.security import upload_gate
+
+    gate = upload_gate.check(file_bytes, filename, limit=MAX_UPLOAD_BYTES)
+    if not gate.allowed:
+        raise ValueError(f"{gate.code}: {gate.message}")
+
     # Off the event loop from here: decoding, rasterisation, recognition and
     # the financial parsers all block, some of them for seconds.
     return await run_document(

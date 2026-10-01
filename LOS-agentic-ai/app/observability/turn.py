@@ -27,7 +27,7 @@ _LOG = logging.getLogger("los.copilot.turn")
 _LATENCY_KEYS = ("security_ms", "conversation_ms", "routing_ms", "semantic_ms", "tools_ms",
                  "mcp_ms", "rag_ms", "compose_ms", "qwen_ms", "agent_llm_ms", "summary_ms",
                  "validation_ms", "guardrail_ms", "nba_ms", "agent_ms", "stage_ms", "auth_ms",
-                 "total_ms")
+                 "language_ms", "total_ms")
 
 
 def _scope_class(claims: dict[str, Any] | None) -> str:

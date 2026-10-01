@@ -594,6 +594,13 @@ def kyc_answer(memory: dict[str, Any], *, want_score: bool = False, want: str | 
                             party=("CO_APPLICANT" if who else None))
     except Exception:  # noqa: BLE001 - evidence is a record of the answer, never its cause
         pass
+    try:
+        from app.agents.applicant.copilot.answering import structured as _structured
+
+        _role = "CO_APPLICANT" if who and "co-applicant" in str(who) else "PRIMARY_APPLICANT"
+        _structured.put("kyc", _role, _structured.kyc_block(kyc[-1] if kyc else None, party_role=_role))
+    except Exception:  # noqa: BLE001 - the structured block never costs the answer
+        pass
     if not kyc:
         if who:
             return (f"No KYC result has been recorded for {who} yet, so I can't tell you "
@@ -609,7 +616,9 @@ def kyc_answer(memory: dict[str, Any], *, want_score: bool = False, want: str | 
     codes = [str(c).replace("_", " ").lower() for c in latest.get("reason_codes") or []]
     comparisons = latest.get("comparisons") or []
     why = _kyc_mismatch(comparisons) if comparisons else (
-        f"of {_and_list(['a ' + c for c in codes])}" if codes else "")
+        f"of {_and_list(codes)}" if codes else "")
+    if raw_status in ("SKIPPED", "NOT_RUN", "NOT_EVALUATED"):
+        score = None                 # a check that did not run scored nothing -- never "0"
     because = f" because {why}" if why and raw_status not in ("PASS", "SUCCESS", "VERIFIED") else ""
     sources = _sources(findings=kyc)
     if want == "score":
@@ -633,7 +642,7 @@ def kyc_answer(memory: dict[str, Any], *, want_score: bool = False, want: str | 
         if raw_status in ("PASS", "SUCCESS", "VERIFIED"):
             return f"Nothing failed in {whose} KYC check -- it passed.", sources
         if codes:
-            return f"{Whose} KYC check {state} because of {_and_list(['a ' + c for c in codes])}.", sources
+            return f"{Whose} KYC check {state} because of {_and_list(codes)}.", sources
         return (f"{Whose} KYC check {state}, but no field-level reason was recorded with it.",
                 sources)
     said = f"{Whose} KYC check {state}{because}."
