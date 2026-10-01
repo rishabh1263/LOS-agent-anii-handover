@@ -156,7 +156,7 @@ class UploadedDocument:
     stamps it before processing.
     """
 
-    __slots__ = ("source_id", "filename", "content", "expected_type", "party")
+    __slots__ = ("source_id", "filename", "content", "expected_type", "party", "reference")
 
     def __init__(
         self,
@@ -165,12 +165,16 @@ class UploadedDocument:
         content: bytes,
         expected_type: str | None = None,
         party=None,
+        reference: tuple[str, bytes] | None = None,
     ) -> None:
         self.source_id = source_id
         self.filename = filename
         self.content = content
         self.expected_type = expected_type
         self.party = party
+        #: (filename, bytes) of a known-good specimen signature for this party --
+        #: the only input that lets the signature capability compare (and so PASS)
+        self.reference = reference
 
 
 
@@ -326,6 +330,19 @@ def _specialist_scores(
     try:
         from app.agents.verification import scoring
 
+        # A SIGNATURE THAT WAS NOT COMPARED HAS NO SCORE. Its checks (ink present,
+        # quality adequate) scored 92/100, which a reader takes for a match score;
+        # with no reference nothing was matched, so nothing is published.
+        signature = result.get("signature") if isinstance(result.get("signature"), dict) else {}
+        if signature and signature.get("comparison") not in ("MATCH", "MISMATCH", "INCONCLUSIVE"):
+            return {}
+        if signature:
+            # A COMPARED SIGNATURE'S SCORE IS THE COMPARISON'S: the generic
+            # check score said 92 for a MISMATCH (match 0.12) that FAILED.
+            # Only what the comparator measured is published; no confidence
+            # is invented for it.
+            measured = signature.get("match_score")
+            return {} if measured is None else {"verification_score": round(float(measured) * 100)}
         checks = scoring.from_named(result.get("checks") or [])
         if not checks:
             return {}
@@ -389,6 +406,13 @@ async def _run_specialist(
             payload["slot"] = expected
         elif agent_id == "signature_verification":
             payload["document_type"] = _SIGNATURE_ALIASES.get(expected, expected)
+            reference = getattr(document, "reference", None)
+            if reference:
+                # the specimen is staged in the same sandbox the capability reads
+                # from, and removed with the upload (finally, below)
+                reference_staged = root / f"los_ref_{uuid.uuid4().hex}{Path(reference[0]).suffix.lower()}"
+                reference_staged.write_bytes(reference[1])
+                payload["reference_path"] = str(reference_staged)
 
         state = await run_agent(
             agent_id=agent_id, payload=payload, request_id=source_request_id
@@ -478,6 +502,8 @@ async def _run_specialist(
         }
     finally:
         staged.unlink(missing_ok=True)
+        if "reference_staged" in locals():
+            reference_staged.unlink(missing_ok=True)
 
 
 async def _process_one(

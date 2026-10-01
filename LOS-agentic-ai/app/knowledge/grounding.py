@@ -145,6 +145,32 @@ def _source(item: Evidence) -> dict[str, Any]:
     }
 
 
+def _current_only(case: RetrievalResult, scope: Scope | None) -> RetrievalResult:
+    """
+    INDEXED CASE TEXT IS NEVER OLDER THAN THE CASE. Each chunk carries the stage
+    the case was at when it was indexed; a chunk from another stage describes a
+    state that has since changed (a transition or a credit run the index has not
+    caught up with) and could otherwise support a claim about the CURRENT state.
+    Dropped here -- the authoritative records answer; the index only evidences.
+    """
+    if not case.evidence or scope is None or not getattr(scope, "case_id", None):
+        return case
+    try:
+        from app.agents.los import stages
+
+        live = stages.resolve(scope.case_id).stage
+        live = getattr(live, "value", live)
+    except Exception:  # noqa: BLE001 - stage unknown: nothing can be shown current
+        return RetrievalResult(scope=case.scope, considered=case.considered, threshold=case.threshold)
+    if not live:
+        return case
+    kept = tuple(e for e in case.evidence if not e.stage or str(e.stage).upper() == str(live).upper())
+    if len(kept) == len(case.evidence):
+        return case
+    return RetrievalResult(evidence=kept, sufficient=case.sufficient and bool(kept), scope=case.scope,
+                           considered=case.considered, threshold=case.threshold)
+
+
 def gather(
     question: str,
     *,
@@ -176,6 +202,7 @@ def gather(
                                    embedder=embedder)
         if wants_case else RetrievalResult()
     )
+    case = _current_only(case, scope)
     process = (
         retrieval.process_context(question, stages=stages, store=store,
                                   embedder=embedder)

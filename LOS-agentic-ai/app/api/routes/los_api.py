@@ -360,6 +360,18 @@ async def process(
             "Positionally matched to `co_applicant_expected_types`."
         ),
     ),
+    reference_signature: UploadFile | str | None = File(
+        default=None,
+        description=(
+            "**PRIMARY APPLICANT** known-good specimen signature (an image). Used ONLY "
+            "to compare this applicant's SIGNATURE uploads in this request; without it "
+            "a signature is REVIEW (no reference), never PASS."
+        ),
+    ),
+    co_applicant_reference_signature: UploadFile | str | None = File(
+        default=None,
+        description="**CO-APPLICANT** known-good specimen signature, for their SIGNATURE uploads.",
+    ),
     co_applicant_expected_types: list[str] | None = Form(
         default=None,
         description=(
@@ -554,6 +566,30 @@ async def process(
     co_uploads = await build(co_files, co_applicant_expected_types,
                              "Co-applicant")
 
+    # A SPECIMEN SIGNATURE, per party: screened like any upload, then attached
+    # only to that party's signature uploads (the signature capability already
+    # compares against a reference; this is its HTTP intake).
+    async def specimen(upload, label: str):
+        if upload is None or isinstance(upload, str):
+            return None
+        content = await upload.read()
+        from app.security import upload_gate
+
+        verdict = upload_gate.check(content, upload.filename or "specimen.png", limit=MAX_UPLOAD_BYTES)
+        if not verdict.allowed:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
+                "request_id": request_id, "error": verdict.code,
+                "message": f"{label} reference signature: {verdict.message}"})
+        return (upload.filename or "specimen.png", content)
+
+    for party_uploads, upload, label in ((uploads, reference_signature, "Applicant"),
+                                         (co_uploads, co_applicant_reference_signature, "Co-applicant")):
+        ref = await specimen(upload, label)
+        if ref is not None:
+            for document in party_uploads:
+                if str(document.expected_type or "").upper().endswith("SIGNATURE"):
+                    document.reference = ref
+
     try:
         result = await process_application(
             uploads,
@@ -671,6 +707,13 @@ class StageTransitionRequest(BaseModel):
     source: str = Field(default="WORKFLOW", max_length=40,
                         description="WORKFLOW, LOS_INTEGRATION or OPERATOR.")
     correlation_id: str | None = Field(default=None, max_length=128)
+    mode: str = Field(
+        default="GATED", max_length=16,
+        description="GATED (default): the configured stage gate is evaluated now, from the records; "
+                    "not ready -> 409 GATE_NOT_MET, no criteria configured -> 409 "
+                    "GATE_CONFIGURATION_GAP. OVERRIDE: a deliberate, caller-decided ungated move -- "
+                    "needs the override scope (or the service write-all scope); recorded on the "
+                    "history and in the response as an override, with the gate status it overrode.")
 
 
 @router.post(
@@ -699,10 +742,63 @@ async def transition_stage(
     except access.AccessDenied as exc:
         raise access.http_denied(exc, request_id) from None
 
+    # ---- GATED or OVERRIDE: explicit, and decided before anything is written ----
+    # malformed input first (as the lifecycle reports it), then the gate
+    if not (body.reason or "").strip():
+        raise HTTPException(status_code=422, detail={"request_id": request_id, "code": "REASON_REQUIRED",
+                                                     "message": "A transition must record its reason."})
+    mode = str(body.mode or "GATED").strip().upper()
+    gate_view = None
+    reason = body.reason
+    if mode not in ("GATED", "OVERRIDE"):
+        raise HTTPException(status_code=422, detail={"request_id": request_id, "code": "INVALID_MODE",
+                                                     "message": "mode must be GATED or OVERRIDE."})
+    from app.agents.los import stages
+
+    current = stages.resolve(case_id).stage
+    current_name = getattr(current, "value", current)
+    target = stages.parse(body.target_stage)
+    expected = stages.parse(body.expected_stage) if body.expected_stage else None
+    # THE GATE GOVERNS A LEGAL FORWARD MOVE from the stage the caller saw. A stale
+    # read, a backward or an unconfigured move is refused by the lifecycle itself
+    # (STALE_STAGE / INVALID_TRANSITION) -- with its own, more precise reason.
+    moves = (target is not None and current is not None and target != current
+             and (expected is None or expected == current)
+             and target in stage_lifecycle.config().allowed_next(current))
+    if moves:
+        from app.agents.los import stage_gate
+
+        gate = stage_gate.evaluate_live(case_id, current_name)
+        gate_view = stage_gate.public(gate)
+        if mode == "GATED" and gate.get("status") != "PASS":
+            code = "GATE_CONFIGURATION_GAP" if gate.get("status") == "CONFIGURATION_GAP" else "GATE_NOT_MET"
+            message = ("No gate criteria are configured for leaving this stage; a normal move cannot be "
+                       "made. Configure the criteria, or use an explicit OVERRIDE."
+                       if code == "GATE_CONFIGURATION_GAP" else
+                       "The case does not meet the configured gate for leaving this stage.")
+            logger.info("stage_transition result=REFUSED case_id=%s code=%s gate=%s request_id=%s",
+                        case_id, code, gate.get("status"), request_id)
+            raise HTTPException(status_code=409, detail={"request_id": request_id, "code": code,
+                                                         "message": message, "gate": gate_view})
+        if mode == "OVERRIDE":
+            from app.security.auth import get_scopes
+            from app.security.access import write_all_scope
+
+            held = set(get_scopes(claims))
+            # the override scope, or the workflow service's write-all scope (which
+            # the lifecycle already lets drive transitions); never the plain stage scope
+            if stage_lifecycle.override_scope() not in held and write_all_scope() not in held:
+                raise HTTPException(status_code=403, detail={
+                    "request_id": request_id, "code": "OVERRIDE_NOT_PERMITTED",
+                    "message": "An ungated move needs the override permission."})
+            logger.warning("stage_transition OVERRIDE case_id=%s from=%s to=%s gate=%s actor=%s request_id=%s",
+                           case_id, current_name, body.target_stage, gate.get("status"),
+                           get_subject(claims), request_id)
+
     try:
         result = stage_lifecycle.transition(
             case_id, body.target_stage,
-            reason=body.reason, actor=get_subject(claims), source=body.source,
+            reason=reason, actor=get_subject(claims), source=body.source,
             stage_status=body.stage_status, expected_stage=body.expected_stage,
             idempotency_key=body.idempotency_key, request_id=request_id,
             correlation_id=body.correlation_id,
@@ -715,7 +811,40 @@ async def transition_stage(
             detail={"request_id": request_id, **exc.public()},
         ) from None
 
-    return {"request_id": request_id, **result}
+    override = mode == "OVERRIDE" and moves
+    if moves:
+        # THE CASE INDEX FOLLOWS THE STAGE: its texts are stamped with the stage
+        # they describe (best effort; retrieval also drops other-stage text)
+        try:
+            from app.store import get_repository
+            from app.store.ingest import _index_case
+
+            _index_case(get_repository(), case_id)
+        except Exception:  # noqa: BLE001 - the transition stands; the guard covers the index
+            logger.warning("case index not rebuilt after transition case_id=%s", case_id)
+    if override and result.get("transition", {}).get("result", result.get("result")) != "NO_CHANGE":
+        # AUDITABLE, BESIDE THE HISTORY (whose reason stays exactly as given): an
+        # OVERRIDE event on the case timeline and the service audit log, naming the
+        # gate status that was overridden and its blockers.
+        try:
+            from app.agents.applicant import audit
+            from app.store import get_repository
+            from app.store.models import CaseEvent
+
+            blockers = ",".join(str(b.get("id")) for b in (gate_view or {}).get("blockers") or [])
+            get_repository().record_event(CaseEvent(
+                event_id=f"EV-OVR-{request_id}", case_id=case_id, event_type="STAGE_TRANSITION_OVERRIDE",
+                stage=str(body.target_stage).upper(), ref_id=request_id,
+                summary=(f"Ungated move {current_name} -> {str(body.target_stage).upper()} by "
+                         f"{get_subject(claims)} ({body.source}); gate was {(gate_view or {}).get('status')}"
+                         + (f" (blockers: {blockers})" if blockers else "") + f"; reason: {body.reason}")[:400]))
+            audit.record(request_id=request_id, subject=get_subject(claims), applicant_id=None, case_id=case_id,
+                         intent="STAGE_TRANSITION_OVERRIDE", tools=["los.stage"], write=True, confirmed=True,
+                         status="OK")
+        except Exception:  # noqa: BLE001 - the transition is recorded; the audit failure is logged
+            logger.exception("stage override audit failed case_id=%s request_id=%s", case_id, request_id)
+    return {"request_id": request_id, **result, "mode": mode if moves else "STATUS_ONLY",
+            "override": override, "gate": gate_view}
 
 
 @router.get(

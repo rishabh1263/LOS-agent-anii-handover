@@ -431,7 +431,7 @@ def _legacy(product: str | None) -> PolicyResolution:
             accepts=tuple(str(a).upper() for a in e["accepts"]),
             requirement=REQUIRED if e.get("mandatory", True) else OPTIONAL,
             rule_ids=(LEGACY_POLICY_ID,),
-            reason="",
+            reason=str(e.get("reason") or ""),
             policy_status="UNVERSIONED",
         )
         for e in entries

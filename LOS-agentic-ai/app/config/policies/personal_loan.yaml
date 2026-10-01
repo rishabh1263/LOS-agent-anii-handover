@@ -30,7 +30,7 @@
 # ===========================================================================
 
 policy_id: PERSONAL_LOAN_FOS_DOCUMENTS
-policy_version: "0.1.0-DEMO"
+policy_version: "0.1.1-DEMO"   # 0.1.1: optional PHOTO replaced by SIGNATURE (signature photo)
 product: PERSONAL_LOAN
 
 #: UNCONFIRMED until a lender signs the matrix off. Carried into every
@@ -53,8 +53,9 @@ base:
     - slot: PAN
       accepts: [PAN]
       reason: >-
-        PAN is required to identify the applicant for tax purposes on a
-        credit facility.
+        PAN is the applicant's identity proof at the FOS stage: it establishes
+        who is applying, and its name, date of birth and PAN number are what the
+        other documents are matched against in the KYC check.
     - slot: ADDRESS_PROOF
       accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
       reason: >-
@@ -66,9 +67,12 @@ base:
         A bank statement evidences the applicant's banking relationship and
         is passed to the credit stage for assessment.
   optional:
-    - slot: PHOTO
-      accepts: [PHOTO]
-      reason: A photograph for the application record.
+    - slot: SIGNATURE
+      accepts: [SIGNATURE]
+      reason: >-
+        A photo of the applicant's signature for the application record. It is
+        checked by the signature service; without a reference specimen it is
+        REVIEW, never PASS.
 
 # ---------------------------------------------------------------------------
 # AMOUNT BANDS — PLACEHOLDER STRUCTURE
@@ -206,6 +210,6 @@ documents:
     required_fields: []
     verification_required: true
 
-  PHOTO:
+  SIGNATURE:
     required_fields: []
-    verification_required: false
+    verification_required: true

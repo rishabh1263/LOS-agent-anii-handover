@@ -1449,6 +1449,19 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
             state.pending_clarification = None
             return Reading(OPTION_RESOLVED, f"What is my {_profile_pending.label(named_field.field)}?",
                            note="the reply named the detail")
+        if pending.asked_times >= 2 and pending.question_type != YES_NO and len(pending.options) >= 2:
+            # NOT THE SAME QUESTION A THIRD TIME. Measured live: "why?", "that
+            # document", "same one" each got the identical three-way question.
+            # Asked twice and still unresolved, the overview option is answered
+            # (a status overview covers the others best); the rest stay offered.
+            from app.agents.applicant.copilot.semantics.intents import understand as _understand
+
+            overview = next((i for i, o in enumerate(pending.options)
+                             if _understand(o.label, has_case=True).intent.value
+                             in ("PENDING_ITEMS", "DOCUMENTS_PENDING", "APPLICATION_STATUS")), 0)
+            state.pending_clarification = None
+            return Reading(OPTION_RESOLVED, pending.options[overview].label, option_index=overview,
+                           note="asked twice and still open: the overview was answered")
         pending.asked_times += 1
         return Reading(STILL_AMBIGUOUS, text, reply=_reask(pending),
                        options=[o.label for o in pending.options])
@@ -1574,6 +1587,10 @@ def update_from_response(state: ConversationState, message: str,
                                             or clarification.get("options")):
         options = [_option_from_label(str(o)) for o in (clarification.get("options") or [])
                    if str(o).strip()][:6]
+        # THE SAME QUESTION ASKED AGAIN keeps its count: re-stored from the
+        # reply, it restarted at 1 and the "not a third time" rule never fired
+        previous = state.pending_clarification
+        same = previous is not None and [o.label for o in previous.options] == [o.label for o in options]
         state.pending_clarification = PendingClarification(
             reason=clarification.get("reason"), question=str(response.get("answer") or
                                                              clarification.get("question") or ""),
@@ -1582,7 +1599,8 @@ def update_from_response(state: ConversationState, message: str,
             unresolved_field=("REFERENT" if clarification.get("reason") == "REFERENT_UNRESOLVED"
                               else "INTENT"),
             options=options, created_turn_id=state.turn_id,
-            expires_at=time.time() + _cfg_int("pending_ttl_seconds", 600))
+            expires_at=time.time() + _cfg_int("pending_ttl_seconds", 600),
+            asked_times=previous.asked_times if same else 1)
         state.pending_options = [o.label for o in options]
         state.turns_since_pending = 0
     else:

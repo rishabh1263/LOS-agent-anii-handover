@@ -113,6 +113,11 @@ def officer(make_token) -> TestClient:
 
 
 def move(client, target, reason="WORKFLOW_HANDOFF", case_id=CASE, **extra):
+    # These tests exercise the LIFECYCLE MECHANICS (graph, idempotency, staleness,
+    # history) on cases with no data, so they move as the workflow service deciding
+    # for itself: an explicit OVERRIDE. Gate enforcement (the GATED default) is
+    # tested in test_stage_transition_modes.py.
+    extra.setdefault("mode", "OVERRIDE")
     return client.post(url(case_id), json={"target_stage": target,
                                            "reason": reason, **extra})
 
@@ -570,7 +575,9 @@ def test_k_the_stage_scope_still_needs_the_case(case, make_token, repo):
     assert response.json()["detail"]["code"] == "CASE_ACCESS_DENIED"
 
     repo.grant_access("wf-owner", "APPLICANT", APP)
-    owner = _client(make_token, subject="wf-owner", scopes=["los.stage:write"])
+    # an ungated move of a case with no data: the owner needs the override
+    # permission as well (GATED moves are covered in test_stage_transition_modes.py)
+    owner = _client(make_token, subject="wf-owner", scopes=["los.stage:write", "los.stage:override"])
     assert moved(owner, "CPA")["transition"]["actor"] == "wf-owner"
 
 

@@ -364,7 +364,7 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
 _DOC_TYPES = (
     r"(pan|aadhaar|aadhar|driving\s*licence|driving\s*license|dl|voter\s*id|"
     r"voter|passport|bank\s*statement|bank\s*account|bank\s*details|"
-    r"account\s*statement|address\s*proof|photo|photograph|passport\s*size\s*photo|"
+    r"account\s*statement|address\s*proof|signature\s*photo|signature|photo|photograph|passport\s*size\s*photo|"
     # The lender's taxonomy: income, property and business evidence.
     r"salary\s*slip|pay\s*slip|payslip|itr|income\s*tax\s*return|form\s*16|"
     r"sale\s*deed|mark\s*sheet|marksheet|business\s*proof\s*[12])"
@@ -1109,6 +1109,7 @@ _DOC_ALIASES = {
     "account statement": "BANK_STATEMENT",
     "address proof": "ADDRESS_PROOF",
     "photo": "PHOTO", "photograph": "PHOTO", "passport size photo": "PHOTO",
+    "signature": "SIGNATURE", "signature photo": "SIGNATURE",
     "salary slip": "SALARY_SLIP", "pay slip": "SALARY_SLIP",
     "payslip": "SALARY_SLIP",
     "itr": "ITR", "income tax return": "ITR",
@@ -1799,6 +1800,9 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
 
     if normalised.changed:
         classification.normalized = text
+    why = _why_required(message, classification)
+    if why is not None:
+        return why
     general = _general_question(message, classification)
     if general is not None:
         return general
@@ -1806,6 +1810,35 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
     if handbook is not None:
         return handbook
     return classification
+
+
+#: "WHY is <document> needed?" -- a why-word and a requirement-word, in any of the
+#: languages the lexicons read. With a NAMED document this asks for the reason that
+#: document is on the case's checklist (the configured reason), not for a list.
+_WHY_WORD = re.compile(r"\b(why|kyu|kyun|kyon|kyo|kaahe|kashasathi)\b|क्यों|क्यूँ|कशासाठी|का\s+कारण", re.IGNORECASE)
+_NEED_WORD = re.compile(r"\b(required|require|requires|need|needed|needs|necessary|mandatory|asked|ask|chahiye|"
+                        r"chaiye|zaroori|zaruri|jaruri|jaroori|lagta|lagega|lagtat|lagte)\b|"
+                        r"ज़रूरी|जरूरी|आवश्यक|चाहिए|लागतो|लागते|लागेल", re.IGNORECASE)
+
+
+def _why_required(message: str, classification: Classification) -> Classification | None:
+    """
+    Why a NAMED document is required -> product knowledge, answered from that
+    document's CONFIGURED reason (knowledge_facts.answer_for), cited as the
+    configured document policy. General, not about the customer's case.
+    """
+    text = message or ""
+    if not (_WHY_WORD.search(text) and _NEED_WORD.search(text)):
+        return None
+    from app.agents.applicant.copilot.semantics import semantic_frame
+
+    frame = getattr(classification, "frame", None)
+    document = (getattr(frame, "document_type", None) or classification.document_type
+                or semantic_frame._document_type(text))
+    if not document:
+        return None
+    return Classification(Intent.FOS_KNOWLEDGE, confidence="high", document_type=str(document).upper(),
+                          matched_on="why_required", frame=frame, understanding=classification.understanding)
 
 
 #: Words that tie a question to THIS case or person ("my", "mera", "iska", ...).

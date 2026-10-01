@@ -18,7 +18,8 @@ Base, for every personal loan whatever the amount:
 
 Optional:
 
-- **PHOTO**
+- **SIGNATURE** - a photo of the applicant's signature, checked by signature
+  verification. Without a reference specimen it is REVIEW, never PASS.
 
 Additional slots the policy can add:
 

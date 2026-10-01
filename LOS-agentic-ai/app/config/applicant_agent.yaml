@@ -15,7 +15,16 @@ agent:
   enabled: true
 
   # The summary sentence only. Every fact it states comes from a tool result.
-  llm_enabled: true
+  #
+  # OFF BY DEFAULT on the current CPU deployment (a product decision taken on
+  # measurement): with qwen2.5:3b, knowledge phrasing took ~1.9 s P50 against
+  # ~28 ms deterministic, 7 of 16 calls hit the 2.5 s budget, only 4 of 16
+  # outputs were used, and content inspection found invented attributes and
+  # changed meanings (all caught by the fidelity checks, at the cost of the
+  # latency). The capability stays pluggable: APPLICANT_AGENT_LLM_ENABLED=true
+  # turns it on for hardware/models that measure better. Live-state answers are
+  # never phrased by the model either way (model_routing.never below).
+  llm_enabled: false
   temperature: 0.1
 
   # Deterministic answers skip the model entirely. A single-fact question --
@@ -65,8 +74,15 @@ documents:
     required:
       - slot: PAN
         accepts: [PAN]
+        reason: >-
+          PAN is the applicant's identity proof at the FOS stage: it establishes
+          who is applying, and its name, date of birth and PAN number are what the
+          other documents are matched against in the KYC check.
       - slot: ADDRESS_PROOF
         accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+        reason: >-
+          An officially valid document evidencing the applicant's address. Any
+          one of the accepted types satisfies the requirement.
 
   # PERSONAL_LOAN IS RESOLVED FROM config/policies/personal_loan.yaml.
   #
@@ -84,29 +100,66 @@ documents:
     required:
       - slot: PAN
         accepts: [PAN]
+        reason: >-
+          PAN is the applicant's identity proof at the FOS stage: it establishes
+          who is applying, and its name, date of birth and PAN number are what the
+          other documents are matched against in the KYC check.
       - slot: ADDRESS_PROOF
         accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+        reason: >-
+          An officially valid document evidencing the applicant's address. Any
+          one of the accepted types satisfies the requirement.
       - slot: BANK_STATEMENT
         accepts: [BANK_STATEMENT]
+        reason: >-
+          A bank statement evidences the applicant's banking relationship and
+          is passed to the credit stage for assessment.
     optional:
-      - slot: PHOTO
-        accepts: [PHOTO]
+      - slot: SIGNATURE
+        accepts: [SIGNATURE]
+        reason: >-
+          A photo of the applicant's signature for the application record. It is
+          checked by the signature service; without a reference specimen it is
+          REVIEW, never PASS.
 
+  # `reason` is what the Copilot says when asked WHY a document is needed --
+  # what the document is used for in this process, never a lending rule.
   HOME_LOAN:
     required:
       - slot: PAN
         accepts: [PAN]
+        reason: >-
+          PAN is the applicant's identity proof at the FOS stage: it establishes
+          who is applying, and its name, date of birth and PAN number are what the
+          other documents are matched against in the KYC check.
       - slot: BANK_STATEMENT
         accepts: [BANK_STATEMENT]
+        reason: >-
+          A bank statement evidences the applicant's banking relationship and
+          is passed to the credit stage for assessment.
       - slot: ADDRESS_PROOF
         accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+        reason: >-
+          An officially valid document evidencing the applicant's address. Any
+          one of the accepted types satisfies the requirement.
     optional:
       - slot: ITR
         accepts: [ITR]
+        reason: Income tax returns evidence declared income for the credit stage.
       - slot: SALARY_SLIP
         accepts: [SALARY_SLIP]
+        reason: Salary slips evidence current salaried income for the credit stage.
       - slot: EMPLOYMENT_PROOF
         accepts: [EMPLOYMENT_PROOF]
+        reason: Employment proof evidences the applicant's current employer.
+      # As for Personal Loan: a photo of the applicant's signature for the
+      # record, verified by the signature service (REVIEW without a specimen).
+      - slot: SIGNATURE
+        accepts: [SIGNATURE]
+        reason: >-
+          A photo of the applicant's signature for the application record. It is
+          checked by the signature service; without a reference specimen it is
+          REVIEW, never PASS.
 
 # The FOS-stage taxonomy. Naming a type here makes it selectable on upload and
 # renderable in a dropdown; it does NOT make it required anywhere. A product
@@ -122,7 +175,8 @@ document_types:
   - ITR
   - FORM_16
   - EMPLOYMENT_PROOF
-  - PHOTO
+  # PHOTO removed: the signature photo (SIGNATURE, verified by the signature
+  # service) takes its place on the checklists.
   - SIGNATURE
 
 # -----------------------------------------------------------------------------
@@ -593,7 +647,12 @@ chatbot:
   model_routing:
     enabled: true
     model: []
-    never: []
+    # DETERMINISTIC ROUTING for live state (product decision): the next action,
+    # readiness, the case summary and the portfolio are recorded facts, worded
+    # deterministically even when the model is enabled. Measured: NEXT_ACTION's
+    # rewording took 1.9 s and was discarded; FULL_SUMMARY timed out every run
+    # and once invented "His PAN". The model may still word knowledge prose.
+    never: [NEXT_ACTION, READINESS, FULL_SUMMARY, CASE_PORTFOLIO]
     compound_uses_model: false
     corrections_use_model: false
 

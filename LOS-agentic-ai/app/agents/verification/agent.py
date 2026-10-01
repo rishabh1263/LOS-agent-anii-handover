@@ -61,6 +61,10 @@ class VerificationResult(BaseModel):
 
     enabled: bool = True
     confidence: float = 0.0
+    #: 0-100 from the shared scorer (verification/scoring.py) over this result's
+    #: own checks -- the scale the upload cards publish. None when unscored.
+    verification_score: int | None = None
+    verification_confidence: int | None = None
     checks: list[Check] = Field(default_factory=list)
     reason_codes: list[str] = Field(default_factory=list)
     identifier: str | None = None

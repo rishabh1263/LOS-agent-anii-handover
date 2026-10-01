@@ -1522,6 +1522,11 @@ async def _copilot_upload(
             "issuer_verified": bool(document.get("issuer_verified")),
             "issuer_verification": document.get("issuer_verification"),
             "fraud_signals": document.get("fraud_signals") or [],
+            # THE SCORE AND CONFIDENCE THE VERIFIER COMPUTED (0-100), as it
+            # computed them -- None when nothing was scored (a signature with no
+            # reference, a file refused at the gate), never a filled-in number.
+            "score": document.get("verification_score"),
+            "confidence": document.get("verification_confidence"),
         }
         for document in (los.get("documents") or [])
     ]
@@ -1557,6 +1562,26 @@ async def _copilot_upload(
                 "expected_document": outcome.get("expected_type"),
                 "action": {"action": "UPLOAD_DOCUMENT", "document_type": outcome.get("expected_type")}}
     rejected = [o for o in outcomes if o.get("upload_validation")]
+    # A VALID DOCUMENT AIMED AT A SLOT IT CANNOT FILL ("a bank statement as
+    # address proof"): it is kept as what it is -- it may fill its own slot --
+    # but the slot it was aimed at is still empty, and the user is told so.
+    # Before this it read "Bank Statement uploaded. Verification: PASS." and
+    # the address-proof slot silently stayed MISSING.
+    accepts_by_slot = {str(r.get("slot") or "").upper(): {str(a).upper() for a in r.get("accepts") or []}
+                       for r in (checklist or []) if isinstance(r, dict)}
+    filed_elsewhere = []
+    for outcome in outcomes:
+        aimed = str(outcome.get("expected_type") or "").upper()
+        found = str(outcome.get("document_type") or "").upper()
+        if outcome.get("upload_validation") or not aimed or not found or found == "UNKNOWN":
+            continue
+        fits = accepts_by_slot.get(aimed) or {aimed}
+        if found not in fits:
+            outcome["upload_validation"] = {
+                "status": "FILED_ELSEWHERE", "reason": "SLOT_MISMATCH", "expected_document": aimed,
+                "detected_document": found, "filed_under": found,
+                "action": {"action": "UPLOAD_DOCUMENT", "document_type": aimed}}
+            filed_elsewhere.append(outcome)
 
     passed = sum(1 for o in outcomes if o["verification"] == "PASS")
 
@@ -1596,10 +1621,20 @@ async def _copilot_upload(
         doc_name = doc_name[:1].upper() + doc_name[1:]
         answer = f"{doc_name} uploaded. Verification: {one['verification']}."
     else:
+        # THE SAME FILE TWICE IN ONE REQUEST is stored once (keyed on case,
+        # party and file): counted once here too, and said
+        seen: dict[str, int] = {}
+        for o in outcomes:
+            seen[str(o.get("source_id"))] = seen.get(str(o.get("source_id")), 0) + 1
+        repeated = [name for name, n in seen.items() if n > 1]
+        distinct = {str(o.get("source_id")): o for o in outcomes}.values()
+        passed_distinct = sum(1 for o in distinct if o["verification"] == "PASS")
         answer = (
-            f"{len(outcomes)} documents uploaded. {passed} passed "
-            f"verification, {len(outcomes) - passed} did not."
+            f"{len(seen)} document{'s' if len(seen) != 1 else ''} uploaded. {passed_distinct} passed "
+            f"verification, {len(seen) - passed_distinct} did not."
         )
+        if repeated:
+            answer += f" {', '.join(repeated)} was sent more than once and kept once."
         refused = [o for o in outcomes if o["verification"] != "PASS"]
         if refused:
             # Named, not counted. "One did not pass" leaves the officer
@@ -1612,6 +1647,14 @@ async def _copilot_upload(
                 for o in refused
             )
 
+    from app.agents.applicant.copilot.answering import structured as _slot_names
+
+    for o in filed_elsewhere:
+        v = o["upload_validation"]
+        found_name = _slot_names._readable_type(v["detected_document"])
+        aimed_name = _slot_names._readable_type(v["expected_document"])
+        answer += (f" {o['source_id']} is a {found_name}, so it was filed as {found_name} -- "
+                   f"{aimed_name} still needs its own document.")
     for o in rejected:
         v = o["upload_validation"]
         if v["reason"] == "WRONG_DOCUMENT":
@@ -1621,9 +1664,9 @@ async def _copilot_upload(
                        "document there.")
         else:
             answer += f" {o['source_id']} could not be accepted as a document file -- please upload it again."
-    if rejected:
+    if rejected or filed_elsewhere:
         verification["upload_validation"] = [dict(o["upload_validation"], source_id=o["source_id"])
-                                              for o in rejected]
+                                              for o in [*rejected, *filed_elsewhere]]
 
     return _blank(
         request_id,

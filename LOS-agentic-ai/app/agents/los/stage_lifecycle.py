@@ -89,6 +89,7 @@ class LifecycleConfig:
     next_stages: dict[LosStage, tuple[LosStage, ...]]
     requires_status: dict[LosStage, str | None]
     status: str
+    override_scope: str = "los.stage:override"
 
     def allowed_next(self, stage: LosStage | None) -> tuple[LosStage, ...]:
         return self.next_stages.get(stage, ()) if stage is not None else ()
@@ -131,6 +132,7 @@ def config() -> LifecycleConfig:
         next_stages=next_stages,
         requires_status=requires,
         status=str(raw.get("status") or "UNCONFIRMED"),
+        override_scope=str(raw.get("override_scope") or "los.stage:override"),
     )
 
 
@@ -140,6 +142,11 @@ def reload() -> None:
 
 def transition_scope() -> str:
     return config().transition_scope
+
+
+def override_scope() -> str:
+    """The extra scope an ungated (OVERRIDE) move needs."""
+    return config().override_scope
 
 
 # ==========================================================================

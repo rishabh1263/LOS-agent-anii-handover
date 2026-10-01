@@ -42,8 +42,10 @@ ANSWER_ONLY, EXPLANATION, NEXT_STEP, SUMMARY, EXPANSION, KNOWLEDGE = (
     "PROGRESSIVE_EXPANSION", "KNOWLEDGE_EXPLANATION")
 REFUSAL, CLARIFICATION, CONVERSATION = "REFUSAL", "CLARIFICATION", "CONVERSATION"
 
-#: Plans the model may reword (when the flag is on).
-_COMPOSABLE = frozenset({KNOWLEDGE, SUMMARY, EXPANSION, NEXT_STEP})
+#: Plans the model may reword (when the flag is on). NOT NEXT_STEP: the next
+#: step is a recorded fact about the case (what to upload, who acts next);
+#: measured over HTTP, its rewording cost 1.9 s and was discarded every time.
+_COMPOSABLE = frozenset({KNOWLEDGE, SUMMARY, EXPANSION})
 #: Intents whose truth is never reworded, whatever the plan.
 _NEVER = frozenset({"GUARDRAIL_BLOCKED", "KYC_RESULT", "DOCUMENT_VERIFICATION", "DOCUMENTS_UPLOADED",
                     "CASE_HISTORY", "APPLICATION_STATUS", "UNKNOWN", "GREETING", "HELP",
@@ -257,7 +259,9 @@ async def finish(response: dict[str, Any], question: str) -> dict[str, Any]:
     # is not handed to it again: measured, the second call doubled the latency
     # (2.2 s + a 2.5 s timeout) to reword the model's own sentence.
     u = understanding if isinstance(understanding, dict) else {}
-    if str(response.get("response_source") or "") == "LLM"             or (u.get("model_routing") or {}).get("phrased_by_model")             or (u.get("llm") or {}).get("consulted"):
+    from app.llm import trace as _llm_trace
+
+    if _llm_trace.calls() or str(response.get("response_source") or "") == "LLM"             or (u.get("model_routing") or {}).get("phrased_by_model")             or (u.get("llm") or {}).get("consulted"):
         record["reason"] = "MODEL_ALREADY_USED"
         return response
     if plan_name not in _COMPOSABLE or intent in _NEVER or not isinstance(answer, str) or not answer.strip()             or "don't have enough information" in answer:          # an honest no-answer is said as is

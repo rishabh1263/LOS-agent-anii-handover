@@ -168,6 +168,7 @@ class RapidOCREngine:
         try:
             from rapidocr_onnxruntime import RapidOCR
 
+            _no_spinning_sessions()
             if threads > 0:
                 try:
                     self._engine = RapidOCR(
@@ -784,6 +785,46 @@ _RENDER_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(1, _int_env("DOCUMENT_RENDER_WORKERS", 2)),
     thread_name_prefix="render",
 )
+
+
+_SPIN_PATCHED = False
+
+
+def _no_spinning_sessions() -> None:
+    """
+    ONNX RUNTIME THREADS WAIT WITHOUT SPINNING (DOCUMENT_OCR_SPINNING=true restores it).
+
+    By default an intra-op thread busy-waits for its next piece of work. On an idle
+    host that shaves microseconds; with three OCR workers in parallel and endpoint
+    security on the same cores, the spinning threads fight each other for CPU.
+    Measured on this host, the same images, interleaved, identical OCR text:
+
+        3 concurrent docs, per-doc   spinning      not spinning
+        P50                          2624 ms       2118 ms
+        P95                          11254 ms      4511 ms
+
+    RapidOCR builds its session options internally, so the one method that builds
+    them is wrapped -- once, and the switch is read per session, so engines built in
+    parallel by the warm-up see one consistent setting.
+    """
+    global _SPIN_PATCHED
+    if _SPIN_PATCHED:
+        return
+    try:
+        from rapidocr_onnxruntime.utils import infer_engine
+
+        original = infer_engine.OrtInferSession._init_sess_opts
+
+        def _options(config):
+            options = original(config)
+            if os.getenv("DOCUMENT_OCR_SPINNING", "false").strip().lower() != "true":
+                options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+            return options
+
+        infer_engine.OrtInferSession._init_sess_opts = staticmethod(_options)
+        _SPIN_PATCHED = True
+    except Exception as exc:  # noqa: BLE001 - a RapidOCR without this hook keeps its defaults
+        logger.info("OCR session spinning left at its default: %r", exc)
 
 
 def get_ocr_executor() -> ThreadPoolExecutor:

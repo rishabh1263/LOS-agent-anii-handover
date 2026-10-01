@@ -167,7 +167,8 @@ stateDiagram-v2
 | Documents of a case | `GET /api/v1/fos/documents/{case_id}` | — |
 | Application status | `GET /api/v1/fos/applications/{case_id}` | — |
 | Background processing (jobs) | `GET /api/v1/los/cases/{case_id}/processing` | — |
-| Stage transition (after user confirms) | `POST /api/v1/los/cases/{case_id}/stage` | `{target_stage, expected_stage, idempotency_key, reason, ...}` |
+| Stage transition (after user confirms) | `POST /api/v1/los/cases/{case_id}/stage` | `{target_stage, expected_stage, idempotency_key, reason, mode: "GATED"}` — send the Copilot's action body as is |
+| Signature with a specimen | `POST /api/v1/los/process` | multipart `files[]` + `expected_types=SIGNATURE` + optional `reference_signature` (and `co_applicant_reference_signature`) |
 | Universal copilot (all stages) | `POST /api/v1/copilot/query` | `{message, case_id, applicant_id, conversation_id, context, ...}` |
 | Standalone verifiers | `POST /api/v1/verify`, `POST /api/v1/financial/verify` | multipart `file` (+ `expected_type`) |
 | Health | `GET /health`, `GET /ready` | — |
@@ -228,6 +229,7 @@ flowchart LR
 | Value | Meaning | UI |
 |---|---|---|
 | `PASS` | Verified (structure + fields). **Not** "genuine". | green tick |
+| `REVIEW` + `EXPIRY_NOT_ESTABLISHED` | A passport was read but its expiry could not be established | amber, "needs a check" |
 | `REVIEW` | Read, but a person must decide | amber, "with reviewer" |
 | `FAIL` | Wrong / unreadable / invalid | red, show reason + re-upload |
 | `PROCESSING` | Still running in background | spinner, poll |
@@ -321,11 +323,22 @@ sequenceDiagram
     FE->>U: Confirm dialog
     U->>FE: Confirm
     FE->>API: POST /api/v1/los/cases/{id}/stage {target_stage, expected_stage, idempotency_key}
-    API-->>FE: new stage (re-read)  |  409 STALE_STAGE if stage changed meanwhile
+    API-->>FE: new stage (re-read) | 409 GATE_NOT_MET (re-checked now) | 409 GATE_CONFIGURATION_GAP | 409 STALE_STAGE
 ```
 
 `expected_stage` protects against stale screens; `idempotency_key` makes a
 double-click safe. Requires the stage-write scope.
+
+**`mode: "GATED"` (the default)** — the server re-evaluates the configured gate at
+the moment of the move. If the case changed after the Copilot offered the move, you
+get `409 GATE_NOT_MET` with `detail.gate.blockers[]` (render them as the blocker
+list). A stage whose criteria are not configured returns `409
+GATE_CONFIGURATION_GAP` — show "pending configuration", never "passed".
+
+**`mode: "OVERRIDE"`** — an explicit, ungated move for operators/integrations. Needs
+the `los.stage:override` scope; the response has `override: true` and the gate it
+overrode, and the case timeline gets a `STAGE_TRANSITION_OVERRIDE` event. A normal
+user screen should never send it.
 
 ### 6.8 Errors
 

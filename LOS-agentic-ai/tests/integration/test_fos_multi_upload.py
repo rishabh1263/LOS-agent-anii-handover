@@ -768,3 +768,22 @@ def test_a_wrong_document_never_satisfies_the_slot_it_was_aimed_at(client):
     assert slot(body, "PAN")["status"] == "MISSING"
     assert slot(body, "ADDRESS_PROOF")["status"] == "REJECTED"
     assert body["readiness"]["status"] == "NOT_READY"
+
+
+def test_a_valid_document_aimed_at_the_wrong_slot_is_filed_as_what_it_is_and_said(client):
+    """A bank statement uploaded as ADDRESS_PROOF: kept as a bank statement, the
+    address-proof slot stays empty, and the response says so in structure and words."""
+    applicant_id, case_id = open_case(client)
+    body = upload(client, applicant_id, case_id, [("st.pdf", BANK_STATEMENT)], types=["ADDRESS_PROOF"]).json()
+    v = outcomes(body)["st.pdf"]["upload_validation"]
+    assert v["reason"] == "SLOT_MISMATCH" and v["status"] == "FILED_ELSEWHERE"
+    assert v["filed_under"] == "BANK_STATEMENT" and v["expected_document"] == "ADDRESS_PROOF"
+    assert slot(body, "ADDRESS_PROOF")["status"] == "MISSING"
+    assert "still needs its own document" in body["answer"]
+
+
+def test_the_same_file_twice_is_counted_once(client):
+    applicant_id, case_id = open_case(client)
+    body = upload(client, applicant_id, case_id, [("pan.jpg", PAN), ("pan.jpg", PAN)], types=["PAN", "PAN"]).json()
+    assert body["answer"].startswith("1 documents uploaded") or body["answer"].startswith("1 document")
+    assert "sent more than once" in body["answer"]

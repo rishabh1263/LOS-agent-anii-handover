@@ -18,8 +18,12 @@ def test_simple_answers_take_the_fast_path_and_prose_the_model_path():
     for intent in ("APPLICATION_STAGE", "APPLICATION_STATUS", "DOCUMENTS_PENDING",
                    "DOCUMENTS_REQUIRED", "PENDING_ITEMS"):
         assert model_routing.decide(intent).route is model_routing.Route.FAST, intent
-    for intent in ("FOS_KNOWLEDGE", "FULL_SUMMARY", "NEXT_ACTION", "READINESS", "STAGE_PROCESS"):
+    for intent in ("FOS_KNOWLEDGE", "STAGE_PROCESS"):
         assert model_routing.decide(intent).route is model_routing.Route.MODEL, intent
+    # PRODUCT DECISION (measured): live-state answers are never worded by the model,
+    # even when it is enabled -- the next action, readiness, the summary, the portfolio
+    for intent in ("NEXT_ACTION", "READINESS", "FULL_SUMMARY", "CASE_PORTFOLIO"):
+        assert model_routing.decide(intent).route is model_routing.Route.NEVER, intent
 
 
 def test_an_unreachable_model_means_the_fast_path():
