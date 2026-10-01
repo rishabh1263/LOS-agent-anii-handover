@@ -18,6 +18,7 @@ data.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 from dataclasses import dataclass, field
@@ -1801,7 +1802,66 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
     general = _general_question(message, classification)
     if general is not None:
         return general
+    handbook = _answered_by_the_handbook(message, classification)
+    if handbook is not None:
+        return handbook
     return classification
+
+
+#: Words that tie a question to THIS case or person ("my", "mera", "iska", ...).
+_CASE_ANCHOR = re.compile(
+    r"\b(my|mine|our|ours|mera|meri|mere|hamara|hamari|hamare|iska|iski|iske|uska|uski|uske|"
+    r"majha|majhi|majhe|maza|mazi|maze|amcha|amchi)\b|मेरा|मेरी|मेरे|हमारा|हमारी|इसका|इसकी|माझा|माझी|माझे",
+    re.IGNORECASE)
+#: Live-state intents a process question can be mistaken for. NOT
+#: DOCUMENTS_REQUIRED: what a product requires is the configured policy's to
+#: say, and a handbook page about it may be older than the configuration.
+_HANDBOOK_CANDIDATES = frozenset({"DOCUMENTS_MISSING", "DOCUMENTS_PENDING",
+                                  "DOCUMENTS_UPLOADED", "DOCUMENT_VERIFICATION", "NEXT_ACTION",
+                                  "APPLICANT_PROFILE", "PENDING_ITEMS"})
+
+
+def _handbook_floor() -> float:
+    try:
+        return float(os.getenv("LOS_KNOWLEDGE_ROUTE_MIN_SCORE", "0.80"))
+    except ValueError:
+        return 0.80
+
+
+def _answered_by_the_handbook(message: str, classification: Classification) -> Classification | None:
+    """
+    A PROCESS QUESTION THE HANDBOOK ANSWERS ALMOST WORD FOR WORD.
+
+    The frame reads any upload/document question as a request for this case's
+    checklist: "can I upload several documents at once?" was answered with the
+    missing-documents list. Retrieval scores alone cannot route -- measured on
+    the FOS corpus, live questions score 0.58-0.80 and process questions
+    0.57-0.86 -- so this is deliberately narrow: ONLY a question that names no
+    case or person of its own (no "my", "mera", "iska", ...) AND whose dense
+    match to a handbook section is >= 0.80 (no anchor-free live question
+    reached 0.75). Only with the dense backend: BM25 scores are another scale.
+    Live truth is never read from the handbook; this only decides that the
+    question was not about live truth.
+    """
+    if classification.intent.value not in _HANDBOOK_CANDIDATES or _CASE_ANCHOR.search(message or ""):
+        return None
+    try:
+        from app import knowledge
+        from app.knowledge.retriever import FallbackRetriever
+
+        if knowledge.backend() != "vector":
+            return None
+        retriever = knowledge.get_retriever()
+        if not isinstance(retriever, FallbackRetriever):
+            return None
+        result = retriever.retrieve(message, "FOS", limit=1)
+        if retriever.last_used != "primary" or not result.hits or result.hits[0].score < _handbook_floor():
+            return None
+    except Exception:  # noqa: BLE001 - no handbook signal: the frame's reading stands
+        return None
+    return Classification(Intent.FOS_KNOWLEDGE, confidence="high", document_type=classification.document_type,
+                          matched_on=f"handbook:{result.hits[0].chunk.heading[:60]}",
+                          frame=classification.frame, understanding="HANDBOOK_MATCH")
 
 
 #: A question about THIS case names it: my / mera / I / our case ...
@@ -1935,8 +1995,8 @@ def _general_question(message: str, classification: Classification) -> Classific
     # "which documents are mandatory?" is this case's checklist; only a named
     # PRODUCT ("for a home loan", "होम लोन के लिए") makes it a general question
     if classification.intent is Intent.DOCUMENTS_REQUIRED and not re.search(
-            r"(for|of)\s+(a|an|any)?\s*(home|personal|business|vehicle|car|gold|education|"
-            r"housing|two[- ]wheeler|msme)\s+loans?|loan\s+ke\s+liye|लोन\s+के\s+लिए|"
+            r"\b(for|of)\s+(a|an|any)?\s*(home|personal|business|vehicle|car|gold|education|"
+            r"housing|two[- ]wheeler|msme)\s+loans?\b|\bloan\s+ke\s+liye\b|लोन\s+के\s+लिए|"
             r"कर्जासाठी", text, re.I):
         return None
     if classification.matched_on == "current_stage" and not re.search(

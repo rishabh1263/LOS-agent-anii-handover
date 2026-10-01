@@ -85,3 +85,44 @@ def test_calibrated_cutoff_separates_answerable_from_off_topic():
         assert retriever.retrieve(question, "FOS").confident, question
     for question in ("what is the capital of france", "kal mausam kaisa rahega", "best mutual fund to invest"):
         assert not retriever.retrieve(question, "FOS").confident, question
+
+
+class _Scored(Retriever):
+    """A dense retriever returning one hit at a fixed score."""
+
+    def __init__(self, score):
+        self.score = score
+
+    def retrieve(self, query, stage, *, limit=4, threshold=None):
+        from app.knowledge.models import Retrieved
+
+        chunk = knowledge.get_repository().chunks("FOS")[0]
+        return RetrievalResult(query=query, stage="FOS", hits=[Retrieved(chunk=chunk, score=self.score)],
+                               confident=True, threshold=0.53)
+
+
+@pytest.mark.parametrize("question, score, expected", [
+    ("can I upload several documents at once?", 0.85, "FOS_KNOWLEDGE"),   # strong match, no anchor
+    ("can I upload several documents at once?", 0.75, None),              # below the floor: frame stands
+    ("which documents are missing on my case", 0.95, None),               # anchored to the case
+])
+def test_only_a_strong_unanchored_handbook_match_reroutes(question, score, expected, monkeypatch):
+    from app.agents.applicant.copilot.semantics import intents
+
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "ollama")
+    lexical = LexicalRetriever(knowledge.get_repository(), default_threshold=knowledge.default_threshold())
+    knowledge.set_retriever(FallbackRetriever(_Scored(score), lexical))
+    before = intents.understand(question, has_case=True)
+    if expected is None:
+        assert before.intent.value != "FOS_KNOWLEDGE"
+    else:
+        assert before.intent.value == expected and before.understanding == "HANDBOOK_MATCH"
+
+
+def test_requirement_lists_stay_with_the_configured_policy(monkeypatch):
+    from app.agents.applicant.copilot.semantics import intents
+
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "ollama")
+    lexical = LexicalRetriever(knowledge.get_repository(), default_threshold=knowledge.default_threshold())
+    knowledge.set_retriever(FallbackRetriever(_Scored(0.99), lexical))
+    assert intents.understand("what documents do I need", has_case=True).intent.value == "DOCUMENTS_REQUIRED"
