@@ -178,6 +178,10 @@ def issue_access_token(
 ) -> str:
     """Issue a short-lived RS256 access token that require_jwt will accept."""
     now = int(time.time())
+
+    # role: pehla role lo, warna default "fos"
+    role = next(iter(roles), "fos") if roles else "fos"
+
     payload: dict[str, Any] = {
         "sub": subject,
         "iss": issuer,
@@ -185,13 +189,19 @@ def issue_access_token(
         "iat": now,
         "nbf": now,
         "exp": now + ACCESS_TOKEN_TTL_SECONDS,
+        "jti": f"{role}-{now}",          # ← "fos-1790246656" style
+        "role": role,                    # ← singular "role", not "roles"
     }
+
     if scopes:
         payload["scope"] = " ".join(scopes)
-    if roles:
-        payload["roles"] = list(roles)
 
-    return jwt.encode(payload, _keypair().private_pem, algorithm="RS256", headers={"kid": _KEY_ID})
+    return jwt.encode(
+        payload,
+        _keypair().private_pem,
+        algorithm="RS256",
+        headers={"kid": _KEY_ID},
+    )
 
 
 # ============================================================================

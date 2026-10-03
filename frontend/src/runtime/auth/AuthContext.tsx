@@ -1,5 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
-import type { LoginRequest, AuthUser } from './types'
+import type { LoginRequest, AuthUser, AuthStage } from './types'
+
+const VALID_STAGES: AuthStage[] = ['FOS', 'CPA', 'HOPS', 'BOPS', 'CREDIT']
+
+function normalizeStage(value: unknown): AuthStage {
+  const s = String(value || '').toUpperCase()
+  return (VALID_STAGES.includes(s as AuthStage) ? s : 'FOS') as AuthStage
+}
 import { loginApi, logoutApi, refreshApi } from './authClient'
 import { AuthContext, type AuthContextValue } from './authContextDef'
 
@@ -7,6 +14,7 @@ const STORAGE_KEY_USER = 'los_auth_user'
 const STORAGE_KEY_ACCESS = 'los_auth_access_token'
 const STORAGE_KEY_REFRESH = 'los_auth_refresh_token'
 const STORAGE_KEY_EXPIRES_AT = 'los_auth_expires_at'
+const STORAGE_KEY_STAGE = 'los_auth_stage'
 
 /** Milliseconds before expiry when we proactively refresh */
 const REFRESH_SKEW_MS = 60_000
@@ -31,7 +39,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_USER)
-      return saved ? JSON.parse(saved) : null
+      if (!saved) return null
+      const parsed = JSON.parse(saved) as AuthUser
+      return {
+        username: parsed.username,
+        stage: normalizeStage(parsed.stage || localStorage.getItem(STORAGE_KEY_STAGE)),
+      }
     } catch {
       return null
     }
@@ -58,11 +71,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(STORAGE_KEY_ACCESS)
     localStorage.removeItem(STORAGE_KEY_REFRESH)
     localStorage.removeItem(STORAGE_KEY_EXPIRES_AT)
+    localStorage.removeItem(STORAGE_KEY_STAGE)
   }, [])
 
   const saveSession = useCallback(
-    (username: string, access: string, refresh: string, expiresIn: number) => {
-      const authUser: AuthUser = { username }
+    (username: string, access: string, refresh: string, expiresIn: number, stage: AuthStage) => {
+      const authUser: AuthUser = { username, stage: normalizeStage(stage) }
       const expiresAt = Date.now() + expiresIn * 1000
 
       setUser(authUser)
@@ -73,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem(STORAGE_KEY_ACCESS, access)
       localStorage.setItem(STORAGE_KEY_REFRESH, refresh)
       localStorage.setItem(STORAGE_KEY_EXPIRES_AT, String(expiresAt))
+      localStorage.setItem(STORAGE_KEY_STAGE, authUser.stage)
     },
     [],
   )
@@ -102,7 +117,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               return 'User'
             }
           })()
-        saveSession(currentUsername, data.access_token, data.refresh_token, data.expires_in)
+        const stage = normalizeStage(
+          data.stage || localStorage.getItem(STORAGE_KEY_STAGE) || user?.stage || 'FOS',
+        )
+        saveSession(
+          currentUsername,
+          data.access_token,
+          data.refresh_token,
+          data.expires_in,
+          stage,
+        )
         return true
       } catch {
         clearSession()
@@ -121,11 +145,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true)
       try {
         const data = await loginApi(credentials)
+        const stage = normalizeStage(data.stage || credentials.stage || 'FOS')
         saveSession(
           credentials.username,
           data.access_token,
           data.refresh_token,
           data.expires_in,
+          stage,
         )
       } finally {
         setIsLoading(false)
@@ -147,6 +173,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } finally {
       clearSession()
+      // Drop KYC draft so next login starts clean
+      try {
+        localStorage.removeItem('los.kyc.wizard.v1')
+      } catch {
+        /* ignore */
+      }
       setIsLoading(false)
     }
   }, [clearSession])
