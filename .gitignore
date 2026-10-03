@@ -55,6 +55,7 @@ lerna-debug.log*
 # Python virtual environments
 .venv/
 venv/
+venv310/
 env/
 ENV/
 env.bak/
