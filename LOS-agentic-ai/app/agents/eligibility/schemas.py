@@ -37,6 +37,74 @@ class EligibilityStatus(str, Enum):
     SKIPPED = "SKIPPED"
 
 
+class EligibilityState(str, Enum):
+    """
+    THE AUTHORITATIVE ELIGIBILITY STATE -- what the Copilot, the API and a
+    reviewer read. Derived by this agent from its own verdict and nothing else.
+
+        ELIGIBLE           every configured criterion was evaluated and met
+        NOT_ELIGIBLE       a configured criterion failed, and the policy says a
+                           failure is final (breach_status FAIL / fail band)
+        REVIEW             a criterion failed under a review policy, or one
+                           could not be relied on: a person decides
+        PENDING            information the assessment needs is not captured yet
+        CONFIGURATION_GAP  no policy, or the policy lacks a rule the assessment
+                           cannot be made without -- never filled in by a guess
+
+    `status` (PASS / REVIEW / FAIL / SKIPPED) stays beside it, unchanged, for
+    the readers that already band it (risk, credit, the stage gates).
+    """
+
+    ELIGIBLE = "ELIGIBLE"
+    NOT_ELIGIBLE = "NOT_ELIGIBLE"
+    REVIEW = "REVIEW"
+    PENDING = "PENDING"
+    CONFIGURATION_GAP = "CONFIGURATION_GAP"
+
+
+class RuleOutcome(str, Enum):
+    """One configured criterion's outcome on this application."""
+
+    PASS = "PASS"
+    #: Evaluated and not met. Whether that makes the case NOT_ELIGIBLE or
+    #: REVIEW is the policy's `breach_status`, not the rule's.
+    FAIL = "FAIL"
+    #: Evaluated on evidence that is itself under review.
+    REVIEW = "REVIEW"
+    #: The policy has the criterion; the input it needs was not captured.
+    NOT_EVALUATED = "NOT_EVALUATED"
+    #: The policy sets no value for this criterion. Reported, never assumed.
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    #: The criterion does not apply to this product (LTV on an unsecured loan).
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
+class RuleResult(BaseModel):
+    """One criterion: what was compared with what, from where, and the outcome."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str
+    label: str
+    outcome: RuleOutcome
+    actual: str | None = None
+    limit: str | None = None
+    #: Where `actual` came from (SALARY_SLIP_NET, APPLICATION, COMPUTED, KYC ...).
+    source: str | None = None
+    reason_code: str | None = None
+
+
+class MissingInformation(BaseModel):
+    """An input the assessment needs and does not have -- and who supplies it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    reason_code: str
+    owner: str
+    action: str
+
+
 class ReasonCode(str, Enum):
     """
     One condition each, and one code per condition.
@@ -89,6 +157,18 @@ class ReasonCode(str, Enum):
     EMPLOYMENT_TYPE_NOT_ELIGIBLE = "EMPLOYMENT_TYPE_NOT_ELIGIBLE"
     #: The policy has an employment criterion and none was captured.
     EMPLOYMENT_TYPE_NOT_CAPTURED = "EMPLOYMENT_TYPE_NOT_CAPTURED"
+
+    # -- the applicant's age, where the policy sets an age range
+    AGE_BELOW_MINIMUM = "AGE_BELOW_MINIMUM"
+    AGE_ABOVE_MAXIMUM = "AGE_ABOVE_MAXIMUM"
+    #: The policy has an age criterion and no usable date of birth was captured.
+    AGE_NOT_CAPTURED = "AGE_NOT_CAPTURED"
+
+    # -- the KYC prerequisite, where the policy requires one
+    #: KYC has not reached a status the policy accepts (pending / in review).
+    KYC_PREREQUISITE_NOT_MET = "KYC_PREREQUISITE_NOT_MET"
+    #: KYC failed, and the policy requires it to pass.
+    KYC_FAILED = "KYC_FAILED"
 
 
 class IncomeSource(str, Enum):
@@ -171,6 +251,15 @@ class EligibilityInputs(BaseModel):
     # -- collateral, for a product LTV applies to ----------------------------
     property_value: float | None = None
     property_value_source: PropertyValueSource = PropertyValueSource.NONE
+
+    # -- prerequisites, used only where the policy configures them ----------
+    #: As captured at intake (YYYY-MM-DD or DD/MM/YYYY). Age is computed here.
+    date_of_birth: str | None = None
+    #: The party's recorded KYC status (PASS / REVIEW / FAIL / SKIPPED ...).
+    kyc_status: str | None = None
+    #: The date the assessment is made as of (YYYY-MM-DD); today when absent.
+    #: Pinned so an audit replaying a stored assessment gets the same age.
+    as_of: str | None = None
 
 
 class EligibilityMetrics(BaseModel):
@@ -264,6 +353,17 @@ class EligibilityResult(BaseModel):
     #: kind of figure.
     basis: str = ""
 
+    # -- the authoritative, auditable view (engine._complete) ---------------
+    state: EligibilityState | None = None
+    rules: list[RuleResult] = Field(default_factory=list)
+    missing_information: list[MissingInformation] = Field(default_factory=list)
+    #: Rules / inputs standing between this case and ELIGIBLE, by rule id.
+    blockers: list[str] = Field(default_factory=list)
+    #: Criteria the policy leaves unset (CONFIGURATION_GAP when one is essential).
+    configuration_gaps: list[str] = Field(default_factory=list)
+    #: The configured next steps for the codes on this result.
+    next_actions: list[dict[str, str]] = Field(default_factory=list)
+
     def public(self) -> dict[str, Any]:
         """
         The result as the API, case memory and the Copilot carry it.
@@ -292,7 +392,36 @@ class EligibilityResult(BaseModel):
                     for k, v in block.items()
                     if v is not None and not (isinstance(v, Enum) and v.value == "NONE")}
 
+        state = self.state.value if self.state is not None else None
+        # PUBLISHED COMPACTLY: the label is presentation (the Copilot maps the
+        # rule id), and a criterion the policy does not set or the product does
+        # not use is already named in `configuration_gaps` / the ltv block.
+        rules = [clean(r.model_dump(exclude={"label"})) for r in self.rules
+                 if r.outcome.value not in ("NOT_CONFIGURED", "NOT_APPLICABLE")]
+        extra: dict[str, Any] = {}
+        if state is not None:
+            extra["state"] = state
+            # True / False only when the state settles it; omitted otherwise
+            if state in ("ELIGIBLE", "NOT_ELIGIBLE"):
+                extra["eligible"] = state == "ELIGIBLE"
+        if rules:
+            extra["rules"] = rules
+            for name, outcomes in (("passed_rules", ("PASS",)), ("failed_rules", ("FAIL",)),
+                                   ("unevaluated_rules", ("NOT_EVALUATED", "REVIEW"))):
+                ids = [r["rule_id"] for r in rules if r["outcome"] in outcomes]
+                if ids:
+                    extra[name] = ids
+        if self.missing_information:
+            extra["missing_information"] = [m.model_dump() for m in self.missing_information]
+        if self.blockers:
+            extra["blockers"] = list(self.blockers)
+        if self.configuration_gaps:
+            extra["configuration_gaps"] = list(self.configuration_gaps)
+        if self.next_actions:
+            extra["next_actions"] = list(self.next_actions)
+
         return {
+            **extra,
             "status": self.status.value,
             "reason_codes": [code.value for code in self.reason_codes],
             "foir": clean({"status": m.foir_status,
@@ -324,6 +453,6 @@ class EligibilityResult(BaseModel):
 
 __all__ = [
     "EligibilityEvidence", "EligibilityInputs", "EligibilityMetrics",
-    "EligibilityResult", "EligibilityStatus", "IncomeSource",
-    "ObligationsSource", "ReasonCode",
+    "EligibilityResult", "EligibilityState", "EligibilityStatus", "IncomeSource",
+    "MissingInformation", "ObligationsSource", "ReasonCode", "RuleOutcome", "RuleResult",
 ]

@@ -526,7 +526,10 @@ def _write_case_memory(repository, result: dict, case_id: str) -> dict:
             _finding(
                 FindingKind.PROFILE_MATCH,
                 {"fields_compared": match.get("fields_compared"),
-                 "fields_expected": match.get("fields_expected")},
+                 "fields_expected": match.get("fields_expected"),
+                 # WHICH field matched the application form, and how -- codes only
+                 "fields": [{k: f.get(k) for k in ("field", "status", "reason_code") if f.get(k) is not None}
+                            for f in match.get("fields") or [] if isinstance(f, dict)]},
                 party_id=party_id,
                 score=match.get("score"),
                 confidence=match.get("confidence"),

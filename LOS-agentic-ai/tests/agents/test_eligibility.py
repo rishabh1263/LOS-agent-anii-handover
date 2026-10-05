@@ -638,9 +638,19 @@ def test_risk_bands_the_published_ltv_and_computes_none_of_its_own():
 # ==========================================================================
 
 
-def test_the_published_result_has_exactly_six_blocks():
-    assert set(assess().public()) == {
-        "status", "reason_codes", "foir", "ltv", "inputs", "policy"}
+def test_the_published_result_is_the_six_blocks_plus_the_authoritative_view():
+    """
+    The six affordability blocks, unchanged, plus the agent's authoritative view
+    (2026-10-03 contract): state, rules and their pass / fail / unevaluated ids,
+    missing information, blockers, configuration gaps and next actions -- each
+    present only when it has something to say.
+    """
+    core = {"status", "reason_codes", "foir", "ltv", "inputs", "policy"}
+    view = {"state", "eligible", "rules", "passed_rules", "failed_rules", "unevaluated_rules",
+            "missing_information", "blockers", "configuration_gaps", "next_actions"}
+    published = set(assess().public())
+    assert core <= published and published <= core | view
+    assert "state" in published and "rules" in published
 
 
 def test_the_published_result_carries_no_nulls_and_no_duplication():

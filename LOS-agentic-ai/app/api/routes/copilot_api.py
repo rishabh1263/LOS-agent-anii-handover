@@ -189,6 +189,12 @@ class CopilotQueryResponse(BaseModel):
     """One answered question."""
 
     request_id: str
+    eligibility: dict[str, Any] | None = Field(
+        None,
+        description=("The Eligibility Agent's recorded result, verbatim, on an eligibility answer: "
+                     "state (ELIGIBLE / NOT_ELIGIBLE / REVIEW / PENDING / CONFIGURATION_GAP), rules, "
+                     "passed / failed rule ids, missing information, blockers, next actions. Never "
+                     "computed by the Copilot."))
     case_id: str | None = None
     applicant_id: str | None = None
     party_id: str | None = None
@@ -1753,6 +1759,8 @@ async def query(
     provenance = _provenance(request, envelope, context, evidence, request_id)
 
     published = {key: envelope.get(key) for key in _PUBLIC}
+    if isinstance(envelope.get("eligibility"), dict):
+        published["eligibility"] = envelope["eligibility"]
     published.update(context.public())
     # GROUNDED MEANS AUTHORITATIVE EVIDENCE SUPPORTS THE ANSWER: either
     # retrieval was confident, or the case's own records answered it.

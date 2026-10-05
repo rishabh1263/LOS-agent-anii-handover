@@ -226,3 +226,45 @@ __all__ = [
     # Targeted transforms, selected from quality findings.
     "boost_contrast", "brighten", "denoise", "deskew", "sharpen", "upscale",
 ]
+
+def flatten(img):
+    """
+    PERSPECTIVE CORRECTION: a document photographed at an angle on a desk, warped
+    flat. The document is the largest four-cornered outline covering at least a
+    quarter of the frame; with none found, the image is returned UNCHANGED (the
+    pipeline then skips this variant at no OCR cost). OpenCV only.
+    """
+    try:
+        import cv2
+        import numpy as np
+        from PIL import Image
+
+        rgb = np.asarray(img.convert("RGB"))
+        scale = 1000 / max(rgb.shape[:2])
+        small = cv2.resize(rgb, None, fx=scale, fy=scale) if scale < 1 else rgb
+        grey = cv2.GaussianBlur(cv2.cvtColor(small, cv2.COLOR_RGB2GRAY), (5, 5), 0)
+        edges = cv2.dilate(cv2.Canny(grey, 50, 150), np.ones((3, 3), np.uint8))
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        area = small.shape[0] * small.shape[1]
+        quad = None
+        for c in sorted(contours, key=cv2.contourArea, reverse=True)[:5]:
+            approx = cv2.approxPolyDP(c, 0.02 * cv2.arcLength(c, True), True)
+            if len(approx) == 4 and cv2.contourArea(approx) >= 0.25 * area:
+                quad = approx.reshape(4, 2).astype("float32") / (scale if scale < 1 else 1)
+                break
+        if quad is None:
+            return img
+        s, d = quad.sum(axis=1), np.diff(quad, axis=1).ravel()
+        tl, br, tr, bl = quad[np.argmin(s)], quad[np.argmax(s)], quad[np.argmin(d)], quad[np.argmax(d)]
+        width = int(max(np.linalg.norm(br - bl), np.linalg.norm(tr - tl)))
+        height = int(max(np.linalg.norm(tr - br), np.linalg.norm(tl - bl)))
+        if width < 200 or height < 120:
+            return img
+        # an outline already filling the frame is not a perspective problem
+        if width * height >= 0.92 * rgb.shape[0] * rgb.shape[1]:
+            return img
+        target = np.array([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], dtype="float32")
+        matrix = cv2.getPerspectiveTransform(np.array([tl, tr, br, bl], dtype="float32"), target)
+        return Image.fromarray(cv2.warpPerspective(rgb, matrix, (width, height)))
+    except Exception:  # noqa: BLE001 - no OpenCV / odd image: unchanged
+        return img

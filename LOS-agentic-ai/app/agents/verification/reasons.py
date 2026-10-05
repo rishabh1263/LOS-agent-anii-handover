@@ -492,6 +492,11 @@ DISTINCT_OUTCOMES = (
     "DOCUMENT_QUEUED_FOR_PROCESSING",
 )
 
+#: Codes that report something FOUND OR CONFIRMED (see the signature block of
+#: the catalogue). Kept on the record; never offered as a reason something is
+#: not passing.
+POSITIVE_CODES = frozenset({"SIGNATURE_PRESENT", "COMPARISON_MATCH", "INCOME_CONSISTENT"})
+
 _WORD = re.compile(r"[^A-Za-z0-9]+")
 
 

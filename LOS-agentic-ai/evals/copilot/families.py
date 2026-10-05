@@ -41,7 +41,8 @@ MY_MOBILE, CO_MOBILE = "9876501234", "9811122233"
 # Each case: id, family, turns. A turn: q + checks:
 #   kind: "case" | "knowledge" | "refused" | "no_answer" | "clarify"
 #   has: all of / any: any of / lacks: none of / party: SELF | CO
-#   cite: True -> a "Source:" line naming the handbook or configured policy
+#   cite: True -> a structured citation (knowledge.citation) naming the handbook or
+#                 configured policy; the answer TEXT carries no "Source:" line (2026-10-03)
 CASES: list[dict[str, Any]] = [
     # ---- CASE VS KNOWLEDGE ----------------------------------------------------
     {"id": "cvk_01", "family": "case_vs_knowledge", "turns": [
@@ -415,10 +416,12 @@ def _check(turn: dict[str, Any], out: dict[str, Any]) -> list[str]:
     if kind == "no_answer":
         if NO_ANSWER not in answer:
             problems.append("no honest no-answer")
-        if "Source:" in answer:
+        if "Source:" in answer or (r.get("knowledge") or {}).get("citation"):
             problems.append("no-answer carries a citation")
-    if turn.get("cite") and "Source:" not in answer:
+    if turn.get("cite") and not (r.get("knowledge") or {}).get("citation"):
         problems.append("no citation")
+    if "Source:" in answer or re.search(r"\bversion [0-9a-f]{7}\b", answer):
+        problems.append("internal source/version in the answer text")
     for v in turn.get("has", []):
         if v not in answer:
             problems.append(f"lacks {v!r}")

@@ -55,6 +55,9 @@ def _explained(code: str | None) -> str:
 
 def _readable(value: str | None) -> str:
     raw = str(value or "")
+    if raw.upper() == "UNKNOWN":
+        # a file the classifier could not identify: never "the Unknown"
+        return "Unidentified document"
     if raw.upper() in _ACRONYMS:
         return raw.upper().replace("_", " ")
     return " ".join(
@@ -65,6 +68,8 @@ def _readable(value: str | None) -> str:
 
 def _document_phrase(value: str | None) -> str:
     """A document type inside a sentence: an acronym shouts, a noun does not."""
+    if str(value or "").upper() == "UNKNOWN":
+        return "unidentified document"
     return " ".join(
         word.upper() if word.upper() in _ACRONYMS else word.lower()
         for word in str(value or "").replace("_", " ").split()
@@ -477,8 +482,13 @@ def _summary_text(view: dict[str, Any]) -> str:
 
     verified = [d for d in documents if d.get("status") == "VERIFIED"]
     if verified:
+        # WHOSE document, on a two-party case: "PAN, Bank Statement, PAN" named
+        # the co-applicant's PAN as if it were a second one of the applicant's
+        two_party = len({str(d.get("party_role") or "PRIMARY_APPLICANT") for d in documents}) > 1
         lines.append("Completed: "
-                     + ", ".join(_readable(d.get("document_type")) for d in verified) + ".")
+                     + ", ".join(_readable(d.get("document_type"))
+                                 + (" (co-applicant)" if two_party and d.get("party_role") == "CO_APPLICANT" else "")
+                                 for d in verified) + ".")
 
     outstanding = [b["detail"] for b in (readiness.get("blocking_items") or [])]
     lines.append("Pending: " + " ".join(outstanding) if outstanding

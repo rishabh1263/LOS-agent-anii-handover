@@ -284,32 +284,185 @@ def _extract_address(
     return normalize_address(combined), label
 
 
-def _extract_pin(tokens: list[OCRToken]) -> tuple[str | None, OCRToken | None]:
-    for token in tokens:
+#: An Indian PIN: six digits, never starting with 0, not part of a longer number.
+_PIN_RE = re.compile(r"(?<!\d)[1-9]\d{5}(?!\d)")
+
+
+def _extract_pin(tokens: list[OCRToken], address: str | None = None) -> tuple[str | None, OCRToken | None]:
+    """
+    The PIN: after a "PIN" / "PIN CODE" caption -- in the same token or the
+    next one -- or, when no caption was read, the ONE six-digit PIN the address
+    ends with ("... BENGALURU 560074"). Real licences mostly print it the second
+    way: 4 of 6 ground-truth licences lost their PIN to the caption-only rule.
+    Two different six-digit numbers in the address are ambiguous: none is taken.
+    """
+    for index, token in enumerate(tokens):
         key = compact(token.text)
-        if key.startswith("PIN"):
-            pin = normalize_pin(key.replace("PIN", "", 1))
-            if pin:
-                return pin, token
+        at = key.find("PIN")
+        if at < 0:
+            continue
+        rest = re.sub(r"^PIN(CODE|NO)?", "", key[at:])
+        pin = normalize_pin(rest[:6]) if _PIN_RE.match(rest) else None
+        if pin:
+            return pin, token
+        if not rest and index + 1 < len(tokens):
+            nxt = re.sub(r"\D", "", tokens[index + 1].text)
+            if _PIN_RE.fullmatch(nxt or ""):
+                return nxt, tokens[index + 1]
+    if address:
+        found = set(_PIN_RE.findall(address))
+        if len(found) == 1:
+            pin = found.pop()
+            evidence = next((t for t in tokens if pin in re.sub(r"\D", "", t.text)), None)
+            return pin, evidence
     return None, None
+
+
+#: India Post PIN zones: the FIRST digit of a PIN is fixed by the state (public,
+#: India Post). A licence's state code (its first two letters) therefore bounds
+#: the PIN printed on it.
+_PIN_ZONE = {
+    **dict.fromkeys(("DL", "HR", "PB", "HP", "JK", "CH", "LA"), "1"),
+    **dict.fromkeys(("UP", "UK", "UA"), "2"),
+    **dict.fromkeys(("RJ", "GJ", "DD", "DN"), "3"),
+    **dict.fromkeys(("MH", "MP", "CG", "GA"), "4"),
+    **dict.fromkeys(("AP", "TS", "TG", "KA"), "5"),
+    **dict.fromkeys(("TN", "KL", "PY", "LD"), "6"),
+    **dict.fromkeys(("WB", "OR", "OD", "AS", "AR", "MN", "ML", "MZ", "NL", "TR", "SK", "AN"), "7"),
+    **dict.fromkeys(("BR", "JH"), "8"),
+}
+
+
+def _pin_fits_state(pin: str | None, dl_number: str | None) -> bool:
+    """Whether a PIN's zone digit agrees with the licence's state. Unknown -> True."""
+    zone = _PIN_ZONE.get((dl_number or "")[:2].upper())
+    return not (pin and zone) or pin[0] == zone
 
 
 def _extract_vehicle_classes(tokens: list[OCRToken]) -> tuple[list[str] | None, OCRToken | None]:
     found: list[str] = []
     evidence: OCRToken | None = None
+    codes = sorted(((compact(c), c.upper()) for c in VEHICLE_CLASSES if compact(c)), key=lambda c: -len(c[0]))
     for token in tokens:
         key = compact(token.text)
-        for cov in VEHICLE_CLASSES:
-            code = compact(cov)
-            if code and key == code and cov.upper() not in found:
-                found.append(cov.upper())
+        for code, cov in codes:
+            if key == code and cov not in found:
+                found.append(cov)
                 evidence = evidence or token
+        # "COV:MCWG" / "COV:MCWG,LMV" -- the classes after the COV caption, in
+        # one token. Read greedily against the KNOWN codes only (longest first),
+        # so nothing outside the configured list is ever emitted.
+        if key.startswith("COV") and len(key) > 3:
+            rest = key[3:]
+            while rest:
+                hit = next(((code, cov) for code, cov in codes if rest.startswith(code)), None)
+                if hit is None:
+                    break
+                if hit[1] not in found:
+                    found.append(hit[1])
+                    evidence = evidence or token
+                rest = rest[len(hit[0]):]
     return (found or None), evidence
+
+
+#: A date whose day/month or month/year separator OCR dropped: "2204/2015", "22/042015".
+_GLUED_DATE = re.compile(r"(?<!\d)(\d{2})(\d{2})([/.\-])(\d{4})(?!\d)|(?<!\d)(\d{2})([/.\-])(\d{2})(\d{4})(?!\d)")
+
+
+#: A date caption followed by eight glued digits (DDMMYYYY).
+_CAPTIONED_8 = re.compile(r"((?:DOI|D\.?O\.?B|DOB|VALID\s*TILL|ISSUE\s*DATE)\s*[:：.\-]?\s*)(\d{8})(?!\d)", re.IGNORECASE)
+
+
+def _repair_dates(tokens: list[OCRToken]) -> list[OCRToken]:
+    """
+    Restore the ONE separator OCR dropped from a date, only where the result is
+    a real calendar date: "DOI：2204/2015" -> "DOI：22/04/2015". Without it the
+    real issue date was unreadable and the card's reprint date ("CDOI") answered
+    instead (dl1, 2026-10-05). A value that is not a valid day and month is left
+    exactly as read.
+    """
+    def fix(m: re.Match) -> str:
+        if m.group(1):
+            d, mo, sep, y = m.group(1), m.group(2), m.group(3), m.group(4)
+        else:
+            d, sep, mo, y = m.group(5), m.group(6), m.group(7), m.group(8)
+        try:
+            date(int(y), int(mo), int(d))
+        except ValueError:
+            return m.group(0)
+        return f"{d}{sep}{mo}{sep}{y}"
+
+    def fix_captioned(m: re.Match) -> str:
+        d, mo, y = m.group(2)[:2], m.group(2)[2:4], m.group(2)[4:]
+        try:
+            date(int(y), int(mo), int(d))
+        except ValueError:
+            return m.group(0)
+        return f"{m.group(1)}{d}/{mo}/{y}"
+
+    out = []
+    for token in tokens:
+        text = _GLUED_DATE.sub(fix, token.text)
+        # BOTH separators lost, right after a date caption: "DOI：22042015"
+        text = _CAPTIONED_8.sub(fix_captioned, text)
+        out.append(token if text == token.text else token.model_copy(update={"text": text}))
+    return out
+
+
+#: The guardian caption as a rotated card prints it -- "S/O", read "So" / "Sio" --
+#: matched as a WHOLE token only ("SO" is inside "SOUTH", "SOLAPUR" ...).
+_GUARDIAN_SHORT = {"SO", "SIO", "S0", "DO", "DIO", "WO", "WIO", "SDW", "SWD"}
+
+
+def _guardian_label(tokens: list[OCRToken]) -> OCRToken | None:
+    label = find_label(tokens, _GUARDIAN_LABELS, exclude=FOREIGN_NAME_LABELS)
+    if label is not None:
+        return label
+    return next((t for t in sorted(tokens, key=lambda t: (t.cy, t.x0)) if compact(t.text) in _GUARDIAN_SHORT), None)
+
+
+#: Caption words that are never a person's name ("Sign. Of Holder", "COV:MCWG").
+_CAPTION_WORDS = ("SIGN", "HOLDER", "COV", "VALID", "DOI", "ADDRESS", "BLOOD", "FORM", "RULE", "AUTHORI",
+                  "LICENCE", "LICENSE", "INDIA", "TRANSPORT")
+
+
+def _person_name_token(token: OCRToken) -> bool:
+    """A token that can be a person's name: name-shaped and carrying no caption word."""
+    key = compact(token.text)
+    return looks_like_name(token) and not any(word in key for word in _CAPTION_WORDS)
+
+
+def _value_in_column(tokens: list[OCRToken], label: OCRToken, predicate) -> OCRToken | None:
+    """On a rotated card, the value printed UNDER a caption in the caption's own column."""
+    width = max(label.height, 8.0) * 3
+    below = [t for t in tokens if t is not label and t.cy > label.cy + label.height * 0.5
+             and abs(t.x0 - label.x0) <= width and predicate(t)]
+    return min(below, key=lambda t: (t.cy - label.cy) + abs(t.x0 - label.x0), default=None)
+
+
+def _column_owner(value: OCRToken | None, name_label: OCRToken | None,
+                  guardian_label: OCRToken | None) -> str | None:
+    """
+    On a ROTATED card the captions form one row and each value sits under its
+    own caption: the value belongs to the caption sharing its column. Returns
+    "guardian" when the value read for the name sits in the guardian's column
+    (dl1: the holder's name line was not read, and the father's name under
+    "S/O" was taken as the holder's), else None.
+    """
+    if not (value and name_label and guardian_label):
+        return None
+    same_row = abs(name_label.cy - guardian_label.cy) <= max(name_label.height, guardian_label.height, 8.0) * 1.5
+    if not same_row or abs(name_label.x0 - guardian_label.x0) < 20:
+        return None
+    if abs(value.x0 - guardian_label.x0) < abs(value.x0 - name_label.x0):
+        return "guardian"
+    return None
 
 
 def extract_dl_fields(tokens: list[OCRToken]) -> dict[str, tuple]:
     """Returns {field: (value, evidence_token)}."""
     out: dict[str, tuple] = {}
+    tokens = _repair_dates(tokens)
 
     dl_number, dl_token = _extract_dl_number(tokens)
     out["dl_number"] = (dl_number, dl_token)
@@ -339,6 +492,24 @@ def extract_dl_fields(tokens: list[OCRToken]) -> dict[str, tuple]:
         ],
         exclude=FOREIGN_NAME_LABELS,
     )
+    guardian_label = _guardian_label(scope)
+    name_label = find_label(scope, _NAME_LABELS, exclude=_GUARDIAN_LABELS + FOREIGN_NAME_LABELS)
+    rotated = _column_owner(guardian_label, name_label, guardian_label) == "guardian"
+    if out["guardian_name"][0] is None and guardian_label is not None:
+        # a rotated card: the value under the caption, in its column; otherwise
+        # the ordinary label search -- never a caption ("Sign. Of Holder")
+        value = (_value_in_column(scope, guardian_label, _person_name_token) if rotated
+                 else value_after_label(scope, guardian_label, _person_name_token))
+        if value is not None and normalize_name(value.text):
+            out["guardian_name"] = (normalize_name(value.text), value)
+    name_cleared = False
+    if _column_owner(out["name"][1], name_label, guardian_label) == "guardian":
+        # the value is the guardian's; the holder's own name was not read --
+        # MISSING, not the father's name and not a fallback guess
+        if out["guardian_name"][0] is None:
+            out["guardian_name"] = out["name"]
+        out["name"] = (None, None)
+        name_cleared = True
     out["date_of_birth"] = _labelled_date(scope, _DOB_LABELS)
 
     # A reading that cannot be a birth date is evidence the search landed on
@@ -353,6 +524,11 @@ def extract_dl_fields(tokens: list[OCRToken]) -> dict[str, tuple]:
     out["date_of_issue"] = _labelled_date(
         scope, _DOI_LABELS, exclude_labels=_DOI_EXCLUDE
     )
+    # A date read off the CARD REPRINT caption ("CDOI") is not the licence's
+    # issue date, however near it sits: missing beats wrong (dl1, 2026-10-05).
+    if out["date_of_issue"][1] is not None and any(
+            e in compact(out["date_of_issue"][1].text) for e in _DOI_EXCLUDE):
+        out["date_of_issue"] = (None, None)
 
     # A licence cannot be issued in the future -- unlike the earlier
     # collision-retry (which guessed between two EQUALLY plausible dates and
@@ -388,7 +564,11 @@ def extract_dl_fields(tokens: list[OCRToken]) -> dict[str, tuple]:
         out["date_of_birth"] = (None, None)
 
     out["address"] = _extract_address(scope)
-    out["pin_code"] = _extract_pin(scope)
+    out["pin_code"] = _extract_pin(scope, out["address"][0])
+    # an OCR digit slip ("841434" read "341434" on a Bihar licence) puts the PIN
+    # in another state's zone: dropped, never reported -- missing beats wrong
+    if not _pin_fits_state(out["pin_code"][0], out["dl_number"][0]):
+        out["pin_code"] = (None, None)
     out["vehicle_classes"] = _extract_vehicle_classes(scope)
 
     # Fallback for layouts with no "Name" caption at all. A real Bihar DL
@@ -397,7 +577,7 @@ def extract_dl_fields(tokens: list[OCRToken]) -> dict[str, tuple]:
     # the same situation PAN already handles for its own unlabelled layouts.
     # Anchored on the DL number using the identical invariant: the name sits
     # below the identifier and above the guardian/address block.
-    if out["name"][0] is None:
+    if out["name"][0] is None and not name_cleared:
         dl_tok = out["dl_number"][1]
         used = {id(t) for t in (out["guardian_name"][1], out["address"][1]) if t}
         candidates = [

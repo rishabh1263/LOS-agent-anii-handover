@@ -113,7 +113,10 @@ _EVALUATE = re.compile(
     r"|\b" + _STAGE_WORD + r"\s+(ka|ki|ke)\s+(kya\s+)?(scene|status|haal|update|kya\s+hua)\b"
     r"|\b" + _STAGE_WORD + r"\s+(me|mein)\s+kya\s+(atka|atki|ruka|ruki|pending)\b"
     r"|\b(fos|cpa|credit)\s+(complete|poora|pura)\s+(hua|ho\s+gaya|hai)\b"
-    r"|\baage\s+(badh|ja|bhej)\s*(sakt\w*|payega|paega)\b",
+    r"|\baage\s+(badh|ja|bhej)\s*(sakt\w*|payega|paega)\b"
+    r"|\b(underwriting|credit)\b[^?]{0,20}\b(mein|me|in)\b[^?]{0,15}\b(kya\s+)?(issue|problem|dikkat|atka|ruka)\b"
+    r"|\b(underwriting|credit)\s+(issue|problem|blocker)s?\b"
+    r"|\b(pending|baaki|baki|blocking|stuck)\s+(in|for|at|mein|me)\s+(the\s+)?(credit|underwriting)\b",
     re.IGNORECASE)
 _MOVE = re.compile(
     r"^\s*(please\s+|pls\s+)?(move|send|forward|push|proceed)\b[^?]{0,30}\b(to|into)\s+"
@@ -141,6 +144,8 @@ def _request_as_typed(message: str) -> Request | None:
         return None
     named = re.search(r"\b(fos|cpa|credit|rcu|bops|hops|disbursement)\b", text, re.I)
     target = named.group(1).upper() if named else None
+    if target is None and re.search(r"\bunderwriting\b", text, re.I):
+        target = "CREDIT"                   # underwriting is the Credit stage's work
     if _RUN_PENDING.search(text):
         return Request(RUN_PENDING, "CREDIT")
     if _MOVE.search(text):
@@ -180,9 +185,19 @@ def read_sources(case_id: str, *, results: dict[str, Any], repository: Any) -> d
         underwriting = persistence.latest(case_id)
     except Exception:  # noqa: BLE001
         underwriting = None
+    # OUTSTANDING QUERIES / PENDING DEVIATIONS, as the gate checks configuration
+    # (app/config/queries.yaml) says they are -- read, never decided here
+    open_checks: list[dict[str, Any]] = []
+    try:
+        from app.agents.los import queries
+
+        open_checks = queries.gate_checks(case_id, repository=repository)
+    except Exception:  # noqa: BLE001 - unreadable: no extra check, logged by the service
+        open_checks = []
     return {"readiness": readiness if isinstance(readiness, dict) else None,
             "eligibility": (eligibility.get("eligibility") if eligibility.get("recorded") else None),
-            "kyc": kyc or None, "underwriting": underwriting, "human": None}
+            "kyc": kyc or None, "underwriting": underwriting, "human": None,
+            "open_items": open_checks}
 
 
 # ---- evaluation ----------------------------------------------------------------------
@@ -258,7 +273,12 @@ def evaluate(stage: str | None, sources: dict[str, Any]) -> dict[str, Any]:
     checks = [_check(c, sources) for c in gate.get("checks") or []]
     if not checks:
         status = GAP
+        # an open query / pending deviation is still named on an unconfigured gate
+        checks = [dict(c, next_action=None, recorded=True, value=c["status"])
+                  for c in sources.get("open_items") or []]
     else:
+        checks += [dict(c, next_action=None, recorded=True, value=c["status"])
+                   for c in sources.get("open_items") or []]
         status = max((c["status"] for c in checks), key=lambda s: _RANK[s])
     return {"stage": stage, "next_stage": nexts[0] if nexts else None, "status": status,
             "criteria_status": gate.get("status") or cfg.get("status") or "UNCONFIRMED",

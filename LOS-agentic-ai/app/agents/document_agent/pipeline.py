@@ -727,6 +727,8 @@ class Recognition:
     #: customer uploaded, and reporting its quality would describe our own
     #: preprocessing back to them.
     quality: Any = None
+    #: The second-engine vote (voting.py): ran, filled fields, disagreements.
+    voting: Any = None
 
 
 def recognise(
@@ -847,7 +849,10 @@ def recognise(
         if current is None or not satisfied(current):
             for variant in preprocess_plan.plan(report):
                 try:
-                    candidate = attempt(variant.label, variant.build(image))
+                    built = variant.build(image)
+                    if built is image:          # nothing to change (e.g. no outline to flatten)
+                        continue
+                    candidate = attempt(variant.label, built)
                 except Exception:
                     # A transform that fails costs its own variant and
                     # nothing else. The document still has every other
@@ -916,6 +921,16 @@ def recognise(
     best.result.processing.ocr_thread = telemetry["ocr_thread"]
     best.result.processing.ocr_passes = telemetry["ocr_passes"]
     best.quality = report
+
+    # TWO-ENGINE VOTING (voting.py): a required field the primary engine left
+    # missing or invalid gets a second opinion; accepted only if it validates,
+    # and a valid-but-different value is reported, never silently chosen.
+    try:
+        from app.agents.document_agent import voting
+
+        best.voting = voting.second_opinion(best)
+    except Exception:  # noqa: BLE001 - the primary result stands
+        logger.warning("Second OCR opinion failed", exc_info=True)
 
     return best
 

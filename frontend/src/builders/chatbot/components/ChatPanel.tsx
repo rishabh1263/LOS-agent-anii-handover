@@ -62,6 +62,7 @@ export function ChatPanel({ api }: ChatPanelProps) {
     setShowSettings,
     quickActions,
     submitDocuments,
+    persistUploadResults,
   } = api
 
   const panelRef = useRef<HTMLDivElement>(null)
@@ -231,6 +232,7 @@ export function ChatPanel({ api }: ChatPanelProps) {
                       <ChatMessages
                         messages={messages}
                         onUploadDocuments={submitDocuments}
+                        onPersistUploadResults={persistUploadResults}
                         showTimestamps={settings.showTimestamps}
                         showSuggestedQuestions={settings.showSuggestedQuestions}
                         speakingMessageId={speakingMessageId}

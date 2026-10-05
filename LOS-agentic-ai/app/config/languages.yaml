@@ -35,6 +35,9 @@ languages:
   hi:  {name: Hindi,     script: Devanagari, review_status: SEED_UNREVIEWED}
   hi-Latn: {name: Hindi (Romanized / Hinglish), script: Latin, review_status: SEED_UNREVIEWED}
   mr:  {name: Marathi,   script: Devanagari, review_status: SEED_UNREVIEWED}
+  # Marathi typed in Latin letters ("KYC zala ka?"): understood with its own
+  # words on top of the Hinglish lexicon, ANSWERED in Marathi (reply_as)
+  mr-Latn: {name: Marathi (Romanized), script: Latin, review_status: SEED_UNREVIEWED, reply_as: mr}
   bn:  {name: Bengali,   script: Bengali,    review_status: SEED_UNREVIEWED}
   ta:  {name: Tamil,     script: Tamil,      review_status: SEED_UNREVIEWED}
   te:  {name: Telugu,    script: Telugu,     review_status: SEED_UNREVIEWED}
@@ -58,8 +61,22 @@ markers:
   mr: [आहे, आहेत, माझं, माझा, माझी, माझे, माझ्या, मी, किती, सांगा, होते, केसचा, कर्ज, रक्कम, रकमेचे, मागितले,
        आणि, सह-अर्जदाराचा, सह-अर्जदाराची, सह-अर्जदाराचे,
        कोणत्या, कोणता, कोणती, कोणते, मध्ये, सध्या, काय, झाले, झालं, तुमच्या,
-       लागतील, लागेल, कागदपत्रे, कागदपत्र, साठी, स्टेजसाठी, टप्प्यात, आता]
+       लागतील, लागेल, कागदपत्रे, कागदपत्र, साठी, स्टेजसाठी, टप्प्यात, आता,
+       लागतो, लागते, लागतात, जुळत, नाव, मधून, माहिती, मिळाली, पाहिजे, कागदपत्रांची, पडताळणी,
+       ग्राहकाचा, ग्राहकाची, ग्राहकाचे, ग्राहकाच्या, अर्जदाराचा, अर्जदाराची, अर्जदाराचे, झाली, झाला]
   kok: [म्हजो, म्हजी, म्हजें, कितें, आसा, खंयच्या, खंय]
+  # A LETTER only Marathi writes among these: "ळ" (जुळत, मिळाली, पडताळणी)
+  "letters:mr": [ळ]
+  # PLAINLY HINDI words: with one present the statistical detector (below)
+  # never turns a question Marathi
+  hi: [है, हैं, था, थी, क्या, क्यों, कैसे, कौन, कौनसा, किस, मेरा, मेरी, मेरे, आपका, आपकी, आपके,
+       नहीं, चाहिए, हुआ, हुई, गया, गई, करना, बताओ, बताइए, में, और, भी, अभी, यह, वह, दस्तावेज़]
+  # ROMAN MARATHI ("KYC zala ka?", "pudhe kay karaycha?", "kay baki ahe?")
+  mr-Latn: [zala, zale, zali, jhala, jhale, jhali, zhala, kay, ahe, aahe, aahet, ahet, pudhe, karaycha,
+            karayche, karaychi, madhun, mahiti, milali, milala, lagto, lagte, lagtat, lagel, lagtil,
+            julat, jult, majhya, majha, majhi, majhe, mazya, maza, mazi, maze, kiti, karjachi, kagadpatre,
+            kagadpatra, sanga, konte, konti, konta, konatya, kuthe, kevha, kashala, cha, chi, che, chya,
+            tapasla, tapasle, tapasli, padtalni, zalay, zalat, naav, grahakacha, grahakachi, grahakache]
   # Nepali / Maithili / Sanskrit share many words with Hindi: they need
   # TWO of their markers (language.py), and no marker is also a Hindi word
   ne: [मेरो, छ, छन्, कति, भयो, कुन, गर्नुहोस्, हुन्छ, चरणमा, ऋणको]
@@ -74,7 +91,7 @@ markers:
             koi, kuch, dena, dene, deni, hoga, hogi, honge, mereko, mujhko, apna,
             apni, apne, aapka, aapki, aapke, karo, kijiye, kiya, kiye, ho, hun,
             aage, abhi, kal, aaj, kab, jaldi, h, hv, kitne, kitna, kitni, mahine, mahino,
-            majhya, majha, majhi, majhe, mazya, aahe, aahet, kiti, karjachi, rakkam, kagadpatre, sanga,
+            rakkam, se, mili, mila, nikla, nikli,
             jo, kar, kardo, ke, liye, ka, ki, bhej, badh, sakta, sakte, sakti, baaki]
 
 # ---------------------------------------------------------------------------
@@ -83,8 +100,85 @@ markers:
 # Longest phrase first, whole tokens only. An inflected form is listed as its
 # own entry ("चरण में" -> "stage in") rather than guessed by stemming.
 # ---------------------------------------------------------------------------
+# A language whose lexicon builds on another's (its own entries win a clash).
+lexicon_inherits:
+  mr-Latn: [hi-Latn]
+
+# THE OPTIONAL STATISTICAL DETECTOR (pip: lingua-language-detector). Used ONLY
+# for Devanagari text that carries no marker word above, to tell Marathi from
+# Hindi ("कागदपत्रांची पडताळणी झाली का?"); markers.hi veto it. Without the
+# library, or with LANGUAGE_DETECTOR=off, the markers decide alone.
+detector:
+  library: lingua
+  devanagari: [hi, mr]
+  min_confidence: 0.75
+
 lexicon:
+  mr-Latn:
+    # Roman Marathi; the Hinglish lexicon below fills in what is not here
+    pudhe kay karaycha: what should i do next
+    pudhe kay karayche: what should i do next
+    ata kay karaycha: what should i do next
+    pudhe kay: what next
+    kay karaycha: what should i do next
+    kay karayche: what should i do next
+    kay mahiti milali: what details extracted
+    kay mahiti: what details
+    ka lagto: why is needed
+    ka lagte: why is needed
+    ka lagtat: why is needed
+    kashala lagto: why is needed
+    kashala lagte: why is needed
+    kasha sathi lagto: why is needed
+    ka pahije: why is needed
+    julat nahi: not matching
+    jult nahi: not matching
+    match hot nahi: not matching
+    zala: done
+    zale: done
+    zali: done
+    zalay: done
+    jhala: done
+    jhale: done
+    jhali: done
+    zhala: done
+    purna zala: done
+    kay: what
+    madhun: from
+    mahiti: details
+    milali: found
+    lagto: needed
+    lagte: needed
+    lagtat: needed
+    lagel: needed
+    lagtil: needed
+    naav: name
+    nav: name
+    konte: which
+    konti: which
+    konta: which
+    kevha: when
+    kasa: how
+    kashi: how
+    tapasla: verified
+    tapasle: verified
+    tapasli: verified
+    padtalni: verification
+    grahakacha: customer's
+    grahakachi: customer's
+    grahakache: customer's
+    cha: ""
+    chi: ""
+    che: ""
+    chya: ""
   hi-Latn:
+    # "bank statement se kya details mili?" -- what was read from a document
+    se kya details mili: from what details extracted
+    se kya details nikli: from what details extracted
+    se kya jaankari mili: from what details extracted
+    se kya mila: from what details extracted
+    se kya nikla: from what details extracted
+    se kya kya nikla: from what details extracted
     # Marathi written in Latin script ("majhya karjachi rakkam kiti aahe?")
     karjachi rakkam: loan amount
     konatya tappyat: which stage in
@@ -223,6 +317,11 @@ lexicon:
     ke: ""
     ko: ""
   hi:
+    # "KYC हुआ?" / "PAN सत्यापित हुआ?" -- done, not a definition request
+    हो गया: done
+    हो गई: done
+    हुआ: done
+    हुई: done
     जो बाकी है कर दो: do whatever is pending
     जो पेंडिंग है कर दो: do whatever is pending
     जो भी बाकी है कर दो: do whatever is pending
@@ -369,6 +468,51 @@ lexicon:
     के: ""
     को: ""
   mr:
+    का लागतो: why is needed
+    का लागते: why is needed
+    का लागतात: why is needed
+    कशाला लागतो: why is needed
+    कशाला लागते: why is needed
+    कशासाठी लागतो: why is needed
+    कशासाठी लागते: why is needed
+    का पाहिजे: why is needed
+    का हवा: why is needed
+    का हवे: why is needed
+    जुळत नाही: not matching
+    जुळत नाहीत: not matching
+    जुळले नाही: not matching
+    काय माहिती मिळाली: what details extracted
+    मधून: from
+    माहिती: details
+    मिळाली: found
+    लागतो: needed
+    लागते: needed
+    लागतात: needed
+    पूर्ण झाले: done
+    झाले: done
+    झाला: done
+    झाली: done
+    झालं: done
+    झालेत: done
+    नाही: not
+    बँक स्टेटमेंट: bank statement
+    पगाराची स्लिप: salary slip
+    पगार स्लिप: salary slip
+    मतदार ओळखपत्र: voter id
+    ड्रायव्हिंग लायसन्स: driving licence
+    वाहन परवाना: driving licence
+    पासपोर्ट: passport
+    आधार: aadhaar
+    ग्राहकाचा: customer's
+    ग्राहकाची: customer's
+    ग्राहकाचे: customer's
+    ग्राहकाच्या: customer's
+    अर्जदाराचा: applicant's
+    अर्जदाराची: applicant's
+    अर्जदाराचे: applicant's
+    कागदपत्रांची: documents
+    नंबर: number
+    स्कोअर: score
     जे बाकी आहे ते करा: do whatever is pending
     जे बाकी आहे ते करून टाका: do whatever is pending
     पुढे जाऊ शकतो का: aage ja sakta hai
@@ -813,6 +957,12 @@ lexicon:
     ꯑꯩꯈꯣꯌꯒꯤ: my
 
 rewrites:
+  # "PAN का लागतो?" -> "pan why is needed" -> "why is pan needed"
+  - {pattern: '^(?P<x>.+?)\s+why\s+is\s+needed\s*[?.!]*$', replace: 'why is \g<x> needed'}
+  # "नाव जुळत नाही का?" -> "name not matching" -> "why is name not matching"
+  - {pattern: '^(?P<x>.+?)\s+not\s+matching\s*[?.!]*$', replace: 'why is \g<x> not matching'}
+  # "bank statement madhun kay mahiti milali?" -> "what details extracted from bank statement"
+  - {pattern: '^(?P<x>.+?)\s+from\s+what\s+details(?:\s+extracted)?\s*[?.!]*$', replace: 'what details extracted from \g<x>'}
   - {pattern: '\bwhat\s+should\s+i\s+do\s+next\b', replace: 'what should i do next', whole: true}
   - {pattern: '^(?:(?:now|currently)\s+)?i\s+(?:(?:now|currently)\s+)?which\s+(stage|step|phase)\s+(?:at|in|on)\s+(?:am|is)\b.*$', replace: 'which \1 am i in'}
   - {pattern: '^(?:(?:now|currently)\s+)?(?P<x>.+?)\s+(?:(?:now|currently)\s+)?which\s+(?P<n>stage|step|phase)\s+(?:at|in|on)(?:\s+is)?\s*[?.!]*$', replace: 'which \g<n> is \g<x> at'}
@@ -984,6 +1134,270 @@ templates:
     hi: "तुलना के लिए पर्याप्त दस्तावेज़ नहीं हैं"
     hi-Latn: "compare karne ke liye kaafi documents nahi hain"
     mr: "तुलनेसाठी पुरेशी कागदपत्रे नाहीत"
+
+  # KYC reasons and score (localize._kyc_sentence): a reason with no template
+  # keeps the whole KYC answer in English.
+  kyc_reason_NAME_MISMATCH:
+    hi: "दस्तावेज़ों में नाम अलग है"
+    hi-Latn: "documents mein naam alag hai"
+    mr: "कागदपत्रांमध्ये नाव वेगळे आहे"
+  kyc_reason_DOB_MISMATCH:
+    hi: "दस्तावेज़ों में जन्मतिथि अलग है"
+    hi-Latn: "documents mein date of birth alag hai"
+    mr: "कागदपत्रांमध्ये जन्मतारीख वेगळी आहे"
+  kyc_reason_ADDRESS_MISMATCH:
+    hi: "दस्तावेज़ों में पता अलग है"
+    hi-Latn: "documents mein address alag hai"
+    mr: "कागदपत्रांमध्ये पत्ता वेगळा आहे"
+  kyc_reason_PAN_MISMATCH:
+    hi: "दस्तावेज़ों में PAN नंबर अलग है"
+    hi-Latn: "documents mein PAN number alag hai"
+    mr: "कागदपत्रांमध्ये PAN क्रमांक वेगळा आहे"
+  kyc_reason_FATHER_NAME_MISMATCH:
+    hi: "दस्तावेज़ों में पिता का नाम अलग है"
+    hi-Latn: "documents mein father ka naam alag hai"
+    mr: "कागदपत्रांमध्ये वडिलांचे नाव वेगळे आहे"
+  kyc_reason_PAN_NAME_INITIAL_MISMATCH:
+    hi: "PAN पर नाम के आद्याक्षर मेल नहीं खाते"
+    hi-Latn: "PAN par naam ke initials match nahi karte"
+    mr: "PAN वरील नावाची आद्याक्षरे जुळत नाहीत"
+  kyc_reason_DOCUMENT_UNREADABLE:
+    hi: "दस्तावेज़ पढ़ा नहीं जा सका"
+    hi-Latn: "document padha nahi ja saka"
+    mr: "कागदपत्र वाचता आले नाही"
+  kyc_score:
+    hi: "दर्ज स्कोर {score} है।"
+    hi-Latn: "Recorded score {score} hai."
+    mr: "नोंदलेला स्कोअर {score} आहे."
+  # the values the English answer quoted ("the PAN says A, but the bank
+  # statement says B"), copied verbatim -- names are never translated
+  kyc_values:
+    hi: "{doc_a} पर {value_a} है, लेकिन {doc_b} पर {value_b}।"
+    hi-Latn: "{doc_a} par {value_a} hai, lekin {doc_b} par {value_b}."
+    mr: "{doc_a} वर {value_a} आहे, पण {doc_b} वर {value_b}."
+
+  # DOCUMENT VERIFICATION (localize._verification_sentence), per document from
+  # the verification block; {document} is the recorded label.
+  doc_VERIFIED:
+    hi: "{document} का सत्यापन पास हुआ"
+    hi-Latn: "{document} ka verification pass hua"
+    mr: "{document} ची पडताळणी पास झाली"
+  doc_REVIEW:
+    hi: "{document} समीक्षा में है"
+    hi-Latn: "{document} review mein hai"
+    mr: "{document} पुनरावलोकनात आहे"
+  doc_REJECTED:
+    hi: "{document} अस्वीकार हुआ"
+    hi-Latn: "{document} reject hua"
+    mr: "{document} नाकारले गेले"
+  doc_UPLOADED:
+    hi: "{document} अपलोड हुआ है, सत्यापन बाकी है"
+    hi-Latn: "{document} upload hua hai, verification baaki hai"
+    mr: "{document} अपलोड झाले आहे, पडताळणी बाकी आहे"
+  doc_PROCESSING:
+    hi: "{document} का सत्यापन चल रहा है"
+    hi-Latn: "{document} ka verification chal raha hai"
+    mr: "{document} ची पडताळणी सुरू आहे"
+  doc_MISSING:
+    hi: "{document} अभी अपलोड नहीं हुआ"
+    hi-Latn: "{document} abhi upload nahi hua"
+    mr: "{document} अजून अपलोड केलेले नाही"
+  doc_score_confidence:
+    hi: " (स्कोर {score}, भरोसा {confidence})"
+    hi-Latn: " (score {score}, confidence {confidence})"
+    mr: " (स्कोअर {score}, विश्वास {confidence})"
+  doc_score:
+    hi: " (स्कोर {score})"
+    hi-Latn: " (score {score})"
+    mr: " (स्कोअर {score})"
+  doc_of_co:
+    hi: "सह-आवेदक का {document}"
+    hi-Latn: "co-applicant ka {document}"
+    mr: "सह-अर्जदाराचे {document}"
+  sentence_end:
+    hi: "।"
+    hi-Latn: "."
+    mr: "."
+  doc_integrity_only:
+    hi: "ये दस्तावेज़ की जाँचें हैं; जारी करने वाली संस्था ने दस्तावेज़ की पुष्टि नहीं की है।"
+    hi-Latn: "Ye document checks hain; issuing authority ne document confirm nahi kiya hai."
+    mr: "या कागदपत्रांच्या तपासण्या आहेत; जारी करणाऱ्या संस्थेने कागदपत्राची पुष्टी केलेली नाही."
+  # the case's own hold, its reason quoted as recorded
+  case_under_review:
+    hi: "फिर भी आवेदन समीक्षा में है, कारण: {reason}।"
+    hi-Latn: "Phir bhi application review mein hai, kaaran: {reason}."
+    mr: "तरीही अर्ज पुनरावलोकनात आहे, कारण: {reason}."
+  case_declined:
+    hi: "फिर भी आवेदन अस्वीकार हुआ, कारण: {reason}।"
+    hi-Latn: "Phir bhi application decline hua, kaaran: {reason}."
+    mr: "तरीही अर्ज नाकारला गेला, कारण: {reason}."
+
+  # THE NEXT STEP (localize._next_sentence): the steps are the configured
+  # action phrases (impact_rules.yaml phrases.<language>); a workflow step is
+  # the workflow's own pending item, below.
+  next_first:
+    hi: "अगला कदम: {action}।"
+    hi-Latn: "Agla step: {action}."
+    mr: "पुढची पायरी: {action}."
+  next_also:
+    hi: "साथ ही, {actions}।"
+    hi-Latn: "Saath hi, {actions}."
+    mr: "तसेच, {actions}."
+  next_join:
+    hi: " और "
+    hi-Latn: " aur "
+    mr: " आणि "
+  next_for_primary:
+    hi: " (आवेदक के लिए)"
+    hi-Latn: " (applicant ke liye)"
+    mr: " (अर्जदारासाठी)"
+  next_for_co:
+    hi: " (सह-आवेदक के लिए)"
+    hi-Latn: " (co-applicant ke liye)"
+    mr: " (सह-अर्जदारासाठी)"
+  workflow_APPLICANT_NOT_FOUND:
+    hi: "आवेदक का रिकॉर्ड बनाएँ"
+    hi-Latn: "applicant ka record banayein"
+    mr: "अर्जदाराची नोंद तयार करा"
+  workflow_APPLICATION_NOT_FOUND:
+    hi: "इस आवेदक के लिए आवेदन बनाएँ"
+    hi-Latn: "is applicant ke liye application banayein"
+    mr: "या अर्जदारासाठी अर्ज तयार करा"
+  workflow_MISSING_FULL_NAME:
+    hi: "आवेदक का पूरा नाम दर्ज करें"
+    hi-Latn: "applicant ka poora naam darj karein"
+    mr: "अर्जदाराचे पूर्ण नाव नोंदवा"
+  workflow_MISSING_MOBILE:
+    hi: "आवेदक का मोबाइल नंबर दर्ज करें"
+    hi-Latn: "applicant ka mobile number darj karein"
+    mr: "अर्जदाराचा मोबाइल क्रमांक नोंदवा"
+  workflow_MISSING_DATE_OF_BIRTH:
+    hi: "आवेदक की जन्मतिथि दर्ज करें"
+    hi-Latn: "applicant ki date of birth darj karein"
+    mr: "अर्जदाराची जन्मतारीख नोंदवा"
+  workflow_MISSING_ADDRESS:
+    hi: "आवेदक का पता दर्ज करें"
+    hi-Latn: "applicant ka address darj karein"
+    mr: "अर्जदाराचा पत्ता नोंदवा"
+  workflow_MISSING_PRODUCT:
+    hi: "इस आवेदन के लिए लोन प्रोडक्ट चुनें"
+    hi-Latn: "is application ke liye loan product chunein"
+    mr: "या अर्जासाठी कर्ज उत्पादन निवडा"
+  workflow_DOCUMENT_REJECTED:
+    hi: "अस्वीकार हुए दस्तावेज़ की जगह नया लें: {document}"
+    hi-Latn: "reject hue document ki jagah naya lein: {document}"
+    mr: "नाकारलेल्या कागदपत्राऐवजी नवीन घ्या: {document}"
+  workflow_DOCUMENT_MISSING:
+    hi: "बाकी दस्तावेज़ लेकर अपलोड करें: {document}"
+    hi-Latn: "baaki document lekar upload karein: {document}"
+    mr: "राहिलेले कागदपत्र गोळा करून अपलोड करा: {document}"
+  workflow_DOCUMENT_UNDER_REVIEW:
+    hi: "समीक्षा में पड़े दस्तावेज़ का निपटारा करें: {document}"
+    hi-Latn: "review mein pade document ka niptara karein: {document}"
+    mr: "पुनरावलोकनात असलेले कागदपत्र निकाली काढा: {document}"
+  workflow_DOCUMENT_NOT_VERIFIED:
+    hi: "दस्तावेज़ का सत्यापन पूरा होने का इंतज़ार करें: {document}"
+    hi-Latn: "document ka verification poora hone ka intezaar karein: {document}"
+    mr: "कागदपत्राची पडताळणी पूर्ण होण्याची वाट पहा: {document}"
+  workflow_SUBMIT_TO_CPA:
+    hi: "FOS चरण की सभी ज़रूरी चीज़ें पूरी हैं। केस CPA को सौंपें"
+    hi-Latn: "FOS stage ki saari zaroori cheezein poori hain. Case CPA ko saunpein"
+    mr: "FOS टप्प्यातील सर्व आवश्यक गोष्टी पूर्ण आहेत. केस CPA कडे सोपवा"
+
+  # THE DOCUMENT CHECKLIST (localize._checklist_sentence), from the checklist
+  # block: labels as recorded, statuses in words.
+  checklist_required:
+    hi: "{count} ज़रूरी: {items}।"
+    hi-Latn: "{count} zaroori: {items}."
+    mr: "{count} आवश्यक: {items}."
+  checklist_optional:
+    hi: "{count} वैकल्पिक: {items}।"
+    hi-Latn: "{count} optional: {items}."
+    mr: "{count} पर्यायी: {items}."
+  checklist_any_one_of:
+    hi: " (इनमें से कोई एक: {items})"
+    hi-Latn: " (inmein se koi ek: {items})"
+    mr: " (यापैकी कोणतेही एक: {items})"
+  checklist_conditional:
+    hi: " (इस केस के विवरण की वजह से ज़रूरी)"
+    hi-Latn: " (is case ki details ki wajah se zaroori)"
+    mr: " (या केसच्या तपशिलांमुळे आवश्यक)"
+  checklist_provisional:
+    hi: "यह सूची अंतिम नहीं है: {attributes} अभी दर्ज नहीं हुआ, इसलिए उस पर निर्भर नियम लागू नहीं हो सके।"
+    hi-Latn: "Ye list final nahi hai: {attributes} abhi darj nahi hua, isliye us par depend karne wale rules apply nahi ho sake."
+    mr: "ही यादी अंतिम नाही: {attributes} अजून नोंदवलेले नाही, त्यामुळे त्यावर अवलंबून असलेले नियम लागू करता आले नाहीत."
+  # WHAT WAS READ FROM A DOCUMENT (localize._details_sentence): field names
+  # and values stay exactly as read
+  details_all:
+    hi: "{document} से पढ़ी गई जानकारी (सत्यापन पास हुआ):"
+    hi-Latn: "{document} se padhi gayi jaankari (verification pass hua):"
+    mr: "{document} मधून वाचलेली माहिती (पडताळणी पास झाली):"
+  details_one:
+    hi: "{document} पर {field} {value} है।"
+    hi-Latn: "{document} par {field} {value} hai."
+    mr: "{document} वर {field} {value} आहे."
+  # THE CASE STATUS (localize._status_sentence): stage label as recorded,
+  # the hold's reason quoted as recorded
+  status_now:
+    hi: "आवेदन अभी {stage} में है।"
+    hi-Latn: "Application abhi {stage} mein hai."
+    mr: "अर्ज सध्या {stage} मध्ये आहे."
+  status_review:
+    hi: "यह समीक्षा में है, कारण: {reason}।"
+    hi-Latn: "Ye review mein hai, kaaran: {reason}."
+    mr: "तो पुनरावलोकनात आहे, कारण: {reason}."
+  status_declined:
+    hi: "यह अस्वीकार हुआ, कारण: {reason}।"
+    hi-Latn: "Ye decline hua, kaaran: {reason}."
+    mr: "तो नाकारला गेला, कारण: {reason}."
+  status_review_plain:
+    hi: "यह समीक्षा में है।"
+    hi-Latn: "Ye review mein hai."
+    mr: "तो पुनरावलोकनात आहे."
+  status_declined_plain:
+    hi: "यह अस्वीकार हुआ।"
+    hi-Latn: "Ye decline hua."
+    mr: "तो नाकारला गेला."
+  status_VERIFIED:
+    hi: "सत्यापित"
+    hi-Latn: "verified"
+    mr: "पडताळले"
+  status_REVIEW:
+    hi: "समीक्षा में"
+    hi-Latn: "review mein"
+    mr: "पुनरावलोकनात"
+  status_REJECTED:
+    hi: "अस्वीकृत"
+    hi-Latn: "rejected"
+    mr: "नाकारले"
+  status_UPLOADED:
+    hi: "अपलोड हुआ"
+    hi-Latn: "upload hua"
+    mr: "अपलोड झाले"
+  status_PROCESSING:
+    hi: "प्रक्रिया में"
+    hi-Latn: "processing mein"
+    mr: "प्रक्रियेत"
+  status_MISSING:
+    hi: "बाकी"
+    hi-Latn: "baaki"
+    mr: "बाकी"
+
+# A WHOLE ANSWER THAT IS ONE FIXED ENGLISH SENTENCE, in other languages
+# (answering/localize.py). Exact match only; seed, unreviewed.
+fixed_sentences:
+  "There is no co-applicant on this application.":
+    hi: "इस आवेदन पर कोई सह-आवेदक नहीं है।"
+    hi-Latn: "Is application par koi co-applicant nahi hai."
+    mr: "या अर्जावर सह-अर्जदार नाही."
+  "There's no co-applicant on this application -- only the primary applicant is on record.":
+    hi: "इस आवेदन पर कोई सह-आवेदक नहीं है -- केवल मुख्य आवेदक दर्ज है।"
+    hi-Latn: "Is application par koi co-applicant nahi hai -- sirf primary applicant record mein hai."
+    mr: "या अर्जावर सह-अर्जदार नाही -- फक्त मुख्य अर्जदाराची नोंद आहे."
+  "This application has only one applicant.":
+    hi: "इस आवेदन पर केवल एक आवेदक है।"
+    hi-Latn: "Is application par sirf ek applicant hai."
+    mr: "या अर्जावर फक्त एकच अर्जदार आहे."
 
 security_lexicon:
   # NO ROMANIZED-HINDI ENTRIES: those words are everyday Hinglish ("dusre

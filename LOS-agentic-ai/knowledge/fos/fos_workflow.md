@@ -1,3 +1,14 @@
+---
+id: fos.fos_workflow
+knowledge_type: HANDBOOK
+title: The FOS stage
+description: What the FOS stage does and does not do, and its case lifecycle.
+domain: workflow
+language: en
+source: LOS curated knowledge (this repository)
+related:
+- fos.cpa_readiness
+---
 # The FOS stage
 
 The Field Officer Sales (FOS) stage is the first stage of a loan application.

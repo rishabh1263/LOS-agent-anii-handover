@@ -312,6 +312,45 @@ def is_bare(message: str) -> bool:
                               for pattern in (*_BARE, _WHY_ANSWER))
 
 
+#: BARE FOLLOW-UPS IN THE AGENT'S OWN LANGUAGE, read as their English forms so
+#: the rules below apply unchanged: "क्यों?" / "kyu?" / Marathi "का?" -> why;
+#: "continue" / "aage" / "पुढे" -> what next; "address ka?" -> what about address.
+_LOCAL_WHY = re.compile(r"^\s*(क्यों|क्यूँ|क्यूं|kyu|kyun|kyon|kyo|का|kashala|कशाला|ka)\s*[?？।!]*\s*$", re.IGNORECASE)
+_LOCAL_NEXT = re.compile(
+    r"^\s*(continue|carry\s+on|proceed|go\s+ahead|next|aage(\s+(badho|chalo))?|आगे(\s+बढ़ो)?|पुढे|pudhe|chalo)"
+    r"\s*[?？.!।]*\s*$", re.IGNORECASE)
+_LOCAL_SUBJECT = re.compile(
+    r"^\s*([A-Za-z][A-Za-z _-]{2,40}?)\s+(ka|ki|ke|ka\s+kya|ke\s+baare\s+mein|baddal|cha|chi|che|"
+    r"का|की|के|बद्दल)\s*[?？।]*\s*$", re.IGNORECASE)
+
+
+def _in_english(text: str) -> str:
+    if _LOCAL_WHY.match(text):
+        return "why?"
+    if _LOCAL_NEXT.match(text):
+        return "what next?"
+    subject = _LOCAL_SUBJECT.match(text)
+    if subject:
+        return f"what about {subject.group(1).strip()}?"
+    return text
+
+
+#: Follow-ups to an eligibility answer -> the eligibility question each one asks.
+_AFTER_ELIGIBILITY = [
+    (re.compile(r"(which|what|kaunsa|kaun\s*sa|konta|kuthla).{0,20}rules?|failed\s+rules?|rules?\s+(failed|fail)", re.I),
+     "Which eligibility rules failed?", "the previous answer was the eligibility result"),
+    (re.compile(r"(missing|baaki|baki|pending)|kya\s+chahiye|बाकी|काय\s+बाकी", re.I),
+     "What is missing for my eligibility?", "the previous answer was the eligibility result"),
+    (re.compile(r"(block\w*|stopp\w*|holding)|kya\s+rok", re.I),
+     "What is blocking eligibility?", "the previous answer was the eligibility result"),
+    (re.compile(r"what\s+(should|do|can|must)\s+i\s+do|what\s+to\s+do|next|kya\s+karu|kya\s+karna|"
+                r"pudhe\s+kay|आगे\s+क्या|पुढे\s+काय", re.I),
+     "What should I do next for eligibility?", "the previous answer was the eligibility result"),
+    (re.compile(r"^\s*(why(\s+not)?|why\s+not\s+eligible|but\s+why|how\s+come)\s*[?.!]*\s*$", re.I),
+     "Why is my eligibility in this state?", "the previous answer was the eligibility result"),
+]
+
+
 def resolve(message: str, context: Context | None) -> Resolution:
     """
     Expand a bare follow-up into a question that stands on its own.
@@ -324,6 +363,8 @@ def resolve(message: str, context: Context | None) -> Resolution:
     text = (message or "").strip()
     if not text or context is None or context.is_empty():
         return Resolution(message=text)
+    original = text
+    text = _in_english(text)
 
     # ONLY A SLOT THIS SERVICE RECOGNISES.
     #
@@ -362,6 +403,16 @@ def resolve(message: str, context: Context | None) -> Resolution:
                 reason=f"the previous answer was about {target}")
 
     bare = _bare_form(text)
+    # AFTER AN ELIGIBILITY ANSWER the follow-ups stay on eligibility: "Why?",
+    # "Which rule failed?", "What is missing?", "What should I do?" drifted to
+    # pending documents, document verification and next action (HTTP E2E,
+    # 2026-10-05). Each is rewritten to the eligibility question it asks, which
+    # the Eligibility Agent's recorded result answers.
+    if context.last_intent == "ELIGIBILITY":
+        for pattern, question, why in _AFTER_ELIGIBILITY:
+            if pattern.search(bare) or pattern.search(text):
+                return Resolution(message=question, rewritten_from=original, reason=why)
+
     # AFTER A CASE-HISTORY ANSWER, "why?" / "explain that" ask for the
     # recorded reason again -- never a handbook paragraph, never a model.
     if (context.last_intent == "CASE_HISTORY"
@@ -373,6 +424,17 @@ def resolve(message: str, context: Context | None) -> Resolution:
         )
 
     if _BARE_WHY.match(bare) or _BARE_WHY.match(text):
+        # "PAN verified?" -> "why?": the reason for THAT verdict, about THAT
+        # document -- not the requirement behind some checklist slot
+        document = context.last_document if _is_known(context.last_document or "") else None
+        if context.last_intent == "DOCUMENT_VERIFICATION" and document:
+            return Resolution(
+                message=f"Why does my {_readable(document)} have this verification result?",
+                rewritten_from=original,
+                reason=f"the previous answer was {document}'s verification")
+        if context.last_intent == "KYC_RESULT":
+            return Resolution(message="Why is my KYC in this state?", rewritten_from=original,
+                              reason="the previous answer was the KYC result")
         if slot:
             return Resolution(
                 message=f"Why is {_readable(slot)} required for this application?",
@@ -722,8 +784,17 @@ def context_from_response(envelope: Mapping[str, Any]) -> dict[str, Any]:
         "last_object": frame.get("object"),
         "last_stage": str(stage_code) if stage_code else None,
         "last_source": envelope.get("response_source"),
-        "last_language": frame.get("language"),
+        # the language the turn was read in -- or, for a turn with no frame
+        # ("धन्यवाद"), the one it was answered in, so the next turn keeps it
+        "last_language": frame.get("language") or _spoken_in(envelope),
     }
+
+
+def _spoken_in(envelope: Mapping[str, Any]) -> str | None:
+    contract = envelope.get("language_contract")
+    said = envelope.get("_presented_language") or (
+        contract.get("reply_language") if isinstance(contract, Mapping) else None)
+    return str(said) if said and said != "en" else None
 
 
 def _only_implicated_document(envelope: Mapping[str, Any]) -> str | None:

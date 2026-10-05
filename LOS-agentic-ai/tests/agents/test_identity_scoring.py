@@ -420,7 +420,12 @@ def test_the_verdict_is_unchanged_by_scoring():
             await verdict("samples/real_batch/dl1.jpg", "DRIVING_LICENCE"),
         ]
 
-    assert asyncio.run(go()) == ["PASS", "PASS", "PASS"]
+    # dl1 is REVIEW (2026-10-05), not PASS: its PASS rested on the FATHER's name
+    # (read from the S/O column of the rotated card) filling the holder-name
+    # field -- a wrong required field passing. The holder's name is now
+    # honestly MISSING on this route, so REQUIRED_FIELD_MISSING -> REVIEW.
+    # Scoring still changes no verdict: these are the pipeline's own verdicts.
+    assert asyncio.run(go()) == ["PASS", "PASS", "REVIEW"]
 
 
 def test_a_passing_document_carries_no_quality_reason_codes():
@@ -433,8 +438,10 @@ def test_a_passing_document_carries_no_quality_reason_codes():
     from app.agents.los.flow import PROCESS, UploadedDocument, process_application
 
     result = asyncio.run(process_application(
-        [UploadedDocument(source_id="dl1.jpg", filename="dl1.jpg",
-                          content=open("samples/real_batch/dl1.jpg", "rb").read(),
+        # a licence every required field of which is read correctly (8/8 against
+        # samples/ground_truth.json); dl1's old PASS rested on the father's name
+        [UploadedDocument(source_id="driving_license.jpg", filename="driving_license.jpg",
+                          content=open("samples/documents/driving_license.jpg", "rb").read(),
                           expected_type="DRIVING_LICENCE")],
         operation=PROCESS, applicant_id="A", case_id="C", request_id="r",
         summarise=False, cross_document_checks=False, financial_analysis=False,

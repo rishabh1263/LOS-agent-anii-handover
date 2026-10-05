@@ -333,9 +333,14 @@ async def applicant_360(
 @router.get(
     "/config",
     summary="The agent's resolved configuration",
-    description="Switches, states, readiness rules and routes. No secrets.",
+    description="Switches, states, readiness rules and routes. No secrets. OPERATORS ONLY: "
+                "it names internal switches (model, MCP transport, timeouts), so it needs the "
+                "ops scope, like /ops/analytics.",
 )
 async def agent_config(claims: dict[str, Any] = Depends(require_jwt)):
+    from app.api.routes.ops import _require_analytics_scope
+
+    _require_analytics_scope(claims)
     return config.snapshot()
 
 

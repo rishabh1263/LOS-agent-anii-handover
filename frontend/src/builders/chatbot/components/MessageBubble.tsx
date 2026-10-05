@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Check, Copy, Pencil, RefreshCw, Volume2, VolumeX, X } from 'lucide-react'
-import type { ChatMessage } from '../../../runtime/chatbot'
+import type { ChatMessage, ChatUploadResult } from '../../../runtime/chatbot'
 import { formatTime } from '../../../runtime/chatbot'
 import { DocumentUploadPanel } from './DocumentUploadPanel'
 import { TypingDots } from './TypingDots'
@@ -24,6 +24,7 @@ interface MessageBubbleProps {
       detectedType?: string
     }>
   }>
+  onPersistUploadResults?: (messageId: string, results: ChatUploadResult[]) => void
 }
 
 function ActionBtn({
@@ -165,6 +166,7 @@ export function MessageBubble({
   onEdit,
   onSuggested,
   onUploadDocuments,
+  onPersistUploadResults,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -419,10 +421,16 @@ export function MessageBubble({
         onUploadDocuments &&
         message.uploadTargets &&
         message.uploadTargets.length > 0 && (
-          <div className="ml-9 max-w-[min(100%,380px)]">
+          <div className="ml-9 max-w-[min(100%,380px)] overflow-x-hidden">
             <DocumentUploadPanel
               targets={message.uploadTargets}
+              initialResults={message.uploadResults}
               onSubmit={onUploadDocuments}
+              onResultsPersist={
+                onPersistUploadResults
+                  ? (results) => onPersistUploadResults(message.id, results)
+                  : undefined
+              }
               disabled={editDisabled}
             />
           </div>

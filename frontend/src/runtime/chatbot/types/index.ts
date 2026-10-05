@@ -23,6 +23,16 @@ export interface ChatUploadTarget {
   status?: string
 }
 
+/** Persisted per-slot upload outcome (no File — survives page refresh) */
+export interface ChatUploadResult {
+  slot: string
+  status: 'pass' | 'review' | 'fail' | 'validation'
+  detail?: string
+  detectedType?: string
+  fileName?: string
+  fileSize?: number
+}
+
 export interface ChatMessage {
   id: string
   role: ChatRole
@@ -35,6 +45,8 @@ export interface ChatMessage {
   grounded?: boolean
   /** From getUploadTargets() — never derived from answer text */
   uploadTargets?: ChatUploadTarget[]
+  /** After submit: keeps verified / review / fail state across refresh */
+  uploadResults?: ChatUploadResult[]
 }
 
 export interface Conversation {

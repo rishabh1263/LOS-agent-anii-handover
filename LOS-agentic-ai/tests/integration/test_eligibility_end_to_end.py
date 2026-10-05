@@ -243,7 +243,7 @@ def test_the_copilot_quotes_the_recorded_verdict(client):
                 "Am I eligible based on the current eligibility assessment?")
 
     assert reply["intent"] == "ELIGIBILITY"
-    assert reply["answer"].startswith("Eligibility: PASS")
+    assert reply["answer"].startswith("Eligibility: ELIGIBLE")
     assert "FOIR 43.27% (limit 50.0%) -- PASS" in reply["answer"]
     assert "LTV: not applicable" in reply["answer"]
     assert "demonstration policy" in reply["answer"]
@@ -256,7 +256,7 @@ def test_the_copilot_explains_a_skip_from_its_reason_codes(client):
     reply = ask(client, applicant_id, case_id, "Why is my eligibility under review?")
 
     assert reply["intent"] == "ELIGIBILITY"
-    assert reply["answer"].startswith("Eligibility: SKIPPED")
+    assert reply["answer"].startswith("Eligibility: PENDING")
     assert "already repays each month" in reply["answer"]
     assert "FOIR: not computed" in reply["answer"], \
         "a ratio was quoted for a case that computed none"
@@ -381,7 +381,12 @@ def test_the_copilot_answers_ltv_from_the_record(client):
 
 
 def test_the_published_result_is_short():
-    """Structured and short: the whole verdict stays well under a kilobyte."""
+    """
+    Structured and bounded. The six affordability blocks stayed under 800
+    bytes; the authoritative view (2026-10-03: state and one compact row per
+    evaluated rule with its actual, limit and source -- the audit evidence)
+    stays under 2 KB.
+    """
     import json
 
     from app.agents.eligibility.engine import evaluate
@@ -394,4 +399,4 @@ def test_the_published_result_is_short():
         employment_type="SALARIED", property_value=3000000,
         property_value_source="DECLARED")).public()
 
-    assert len(json.dumps(public)) < 800
+    assert len(json.dumps(public)) < 2048

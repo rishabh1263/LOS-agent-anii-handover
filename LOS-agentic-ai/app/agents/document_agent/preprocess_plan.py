@@ -81,6 +81,15 @@ def plan(report: quality.QualityReport) -> list[Variant]:
     variants: list[Variant] = []
 
     # -- 1. geometry --------------------------------------------------
+    # PERSPECTIVE FIRST: a card photographed at an angle on a desk -- which the
+    # analysis reports as a cropped or rotated page. Only then: a clean scan
+    # plans nothing, and every variant names the finding that asked for it.
+    # flatten() returns the image unchanged when no document outline is found,
+    # and the pipeline skips an unchanged variant without an OCR pass.
+    for finding in (quality.PARTIALLY_CROPPED, quality.ROTATED):
+        if report.has(finding):
+            variants.append(Variant(label="flatten", build=preprocess.flatten, because=finding))
+            break
     deskewed = _deskew_for(report)
     if deskewed is not None:
         variants.append(deskewed)

@@ -1,3 +1,18 @@
+---
+id: fos.document_policy
+knowledge_type: POLICY_EXPLAINER
+title: How the document checklist is decided
+description: The document policy engine - base, amount and conditional rules, requirement vs fulfilment, unconfirmed thresholds, pinned versions.
+domain: documents
+language: en
+source: LOS curated knowledge (this repository)
+derived_from:
+- app/config/policies/personal_loan.yaml
+policy_status: UNCONFIRMED
+related:
+- fos.document_requirements
+- fos.document_requirements.personal_loan
+---
 # How the document checklist is decided
 
 A case's checklist is not a fixed list. It is resolved, per case, by the
@@ -99,6 +114,6 @@ built from a different one.
 ## What the policy engine does not decide
 
 It says what should be collected. It does not say whether a collected
-document is genuine — that is verification — and it does not say anything
-about the applicant's creditworthiness, risk or KYC status. Those belong to
-stages after FOS.
+document is genuine — that is verification — and it does not decide KYC:
+the cross-document consistency check runs separately, on the documents that
+passed verification. Creditworthiness and risk belong to stages after FOS.

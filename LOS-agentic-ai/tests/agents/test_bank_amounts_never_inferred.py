@@ -306,7 +306,13 @@ def test_real_digital_statements_reconcile_without_inference(name):
     assert all(t.amount_source == "READ" for t in result.transactions)
 
 
-def test_real_kotak_reports_its_unread_rows_instead_of_absorbing_them():
+def test_real_kotak_is_read_completely_and_reconciles_from_read_amounts():
+    """
+    UPDATED 2026-10-03. This test pinned 104 unread Kotak rows being REPORTED
+    (INCONCLUSIVE) rather than absorbed -- the honest outcome while a page's 2-row
+    second table was dropped. That table is now read (extract._page_table), so the
+    statement is complete. The guarantee stays: every amount is READ, none inferred.
+    """
     from app.agents.bank_statement import extract_bank_statement
 
     path = Path("samples/real_batch/bank_kotak.pdf")
@@ -316,9 +322,10 @@ def test_real_kotak_reports_its_unread_rows_instead_of_absorbing_them():
     if result.status is ExtractionStatus.REQUIRES_OCR or any(
             "time budget" in w or "Stopped after page" in w for w in result.warnings):
         pytest.skip("40-page sample deferred by the time budget on this run")
-    assert result.reconciliation == "INCONCLUSIVE"
-    assert result.rows_not_read and result.rows_not_read > 0
-    assert result.status is ExtractionStatus.PARTIAL
+    assert result.reconciliation == "RECONCILED"
+    assert not result.rows_not_read
+    assert all(t.amount_source == "READ" for t in result.transactions)
+    assert result.status is ExtractionStatus.SUCCESS
 
 
 def test_real_scanned_statement_stays_inconclusive():

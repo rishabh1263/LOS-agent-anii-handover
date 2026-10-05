@@ -913,6 +913,25 @@ export function useChatbot(context: ChatbotContext = {}) {
     [],
   )
 
+  /** Persist upload outcomes on the assistant message so refresh does not reset to empty upload UI */
+  const persistUploadResults = useCallback(
+    (messageId: string, results: import('../types').ChatUploadResult[]) => {
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== activeId) return c
+          return {
+            ...c,
+            updatedAt: Date.now(),
+            messages: c.messages.map((m) =>
+              m.id === messageId ? { ...m, uploadResults: results } : m,
+            ),
+          }
+        }),
+      )
+    },
+    [activeId],
+  )
+
   return {
     mode,
     setMode,
@@ -956,6 +975,7 @@ export function useChatbot(context: ChatbotContext = {}) {
     setShowSettings,
     quickActions: QUICK_ACTIONS,
     submitDocuments,
+    persistUploadResults,
   }
 }
 

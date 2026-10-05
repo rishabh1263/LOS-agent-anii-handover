@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import type { ChatMessage } from '../../../runtime/chatbot'
+import type { ChatMessage, ChatUploadResult } from '../../../runtime/chatbot'
 import { MessageBubble } from './MessageBubble'
 import { QuickActions } from './QuickActions'
 import { TypingDots } from './TypingDots'
@@ -22,6 +22,7 @@ interface ChatMessagesProps {
       detectedType?: string
     }>
   }>
+  onPersistUploadResults?: (messageId: string, results: ChatUploadResult[]) => void
   quickActions: { id: string; label: string; icon: string }[]
   onQuickAction: (label: string) => void
   status: string
@@ -43,6 +44,7 @@ export function ChatMessages({
   onEdit,
   onSuggested,
   onUploadDocuments,
+  onPersistUploadResults,
   quickActions,
   onQuickAction,
   status,
@@ -103,6 +105,7 @@ export function ChatMessages({
             onEdit,
             onSuggested,
             onUploadDocuments,
+            onPersistUploadResults,
           }
 
           if (reduceMotion || !isRecent) {

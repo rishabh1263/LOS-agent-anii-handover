@@ -119,7 +119,49 @@ def recorded_eligibility(memory: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def answer(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+#: What a follow-up asks of the recorded result.
+SUMMARY, RULES, MISSING, EVIDENCE, NEXT = "summary", "rules", "missing", "evidence", "next"
+
+#: How each rule id reads (the agent publishes ids; labels are presentation).
+_RULE_LABEL = {
+    "INCOME_EVIDENCE": "verified income evidence", "MINIMUM_INCOME": "minimum income",
+    "EMPLOYMENT_TYPE": "employment type", "LOAN_AMOUNT": "loan amount", "TENURE": "tenure",
+    "FOIR": "FOIR", "LTV": "loan-to-value", "AGE": "applicant age", "KYC_PREREQUISITE": "KYC prerequisite",
+}
+
+#: The agent's authoritative state, as a person says it.
+_STATE_SAID = {
+    "ELIGIBLE": "eligible under the configured policy",
+    "NOT_ELIGIBLE": "not eligible under the configured policy",
+    "REVIEW": "under review",
+    "PENDING": "pending -- information it needs is not captured yet",
+    "CONFIGURATION_GAP": "not assessable -- the policy for this product is not fully configured",
+}
+
+
+def want(message: str) -> str:
+    """Which part of the recorded result a question asks for."""
+    import re
+
+    text = str(message or "")
+    if re.search(r"\b(which|what)\s+(rule|criteri\w*|check)s?\b|\brules?\s+(failed|fail\\w*|broke)\b"
+                 r"|\bkaun\s*sa\s+rule\b|\bfailed\s+rules?\b", text, re.I):
+        return RULES
+    if re.search(r"\b(missing|not\s+captured|baaki|baki|kya\s+chahiye|information\s+needed)\b", text, re.I):
+        return MISSING
+    if re.search(r"\b(evidence|documents?|proof|source|kis\s+document)\b", text, re.I):
+        return EVIDENCE
+    if re.search(r"\b(next|what\s+should\s+(i|we)\s+do|ab\s+kya|aage\s+kya)\b", text, re.I):
+        return NEXT
+    return SUMMARY
+
+
+def structured(memory: dict[str, Any]) -> dict[str, Any] | None:
+    """The agent's recorded result, as the frontend renders it -- verbatim."""
+    return recorded_eligibility(memory)
+
+
+def answer(memory: dict[str, Any], want: str = SUMMARY) -> tuple[str, list[dict[str, Any]]]:
     """
     One eligibility answer, SHORT AND STRUCTURED, from the recorded verdict.
 
@@ -141,7 +183,13 @@ def answer(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
                 "policy_id": policy.get("id"),
                 "policy_version": policy.get("version")}]
 
-    lines = [_headline(status, recorded.get("reason_codes") or [])]
+    state = str(recorded.get("state") or "").upper()
+    if want != SUMMARY and state:
+        focused = _focused(recorded, want, state)
+        if focused:
+            return focused, sources
+
+    lines = [_headline(state or status, recorded.get("reason_codes") or [])]
     lines.append(_ratios(recorded.get("foir") or {}, recorded.get("ltv") or {}))
 
     basis = _basis(recorded.get("inputs") or {})
@@ -152,14 +200,66 @@ def answer(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     if policy_line:
         lines.append(policy_line)
 
+    # THE AGENT'S CONFIGURED NEXT STEP -- read, never invented
+    steps = [a.get("action") for a in recorded.get("next_actions") or [] if a.get("action")]
+    if steps and state != "ELIGIBLE":
+        lines.append("Next: " + steps[0].rstrip(".") + "." + (f" (+{len(steps) - 1} more)" if len(steps) > 1 else ""))
+
     return " ".join(line for line in lines if line), sources
 
 
+def _focused(recorded: dict[str, Any], want: str, state: str) -> str:
+    """A follow-up, answered from the agent's rules, missing information and next steps."""
+    rules = recorded.get("rules") or []
+    lead = f"Eligibility is {_STATE_SAID.get(state, state.lower())}."
+    if want == RULES:
+        failed = [r for r in rules if r.get("outcome") in ("FAIL", "REVIEW")]
+        if not failed:
+            open_ = [r for r in rules if r.get("outcome") == "NOT_EVALUATED"]
+            if open_:
+                return (f"{lead} No rule failed; these could not be evaluated yet: "
+                        + ", ".join(_RULE_LABEL.get(r["rule_id"], r["rule_id"]) for r in open_) + ".")
+            return f"{lead} No configured rule failed."
+        said = "; ".join(
+            f"{_RULE_LABEL.get(r['rule_id'], r['rule_id'])}"
+            + (f" -- {r['actual']} against {r['limit']}" if r.get("actual") and r.get("limit") else "")
+            + (" (under review)" if r.get("outcome") == "REVIEW" else "")
+            for r in failed)
+        return f"{lead} Failed: {said}."
+    if want == MISSING:
+        missing = recorded.get("missing_information") or []
+        if not missing:
+            return f"{lead} Nothing the assessment needs is missing."
+        return lead + " Missing:\n" + "\n".join(
+            f"- {m['field'].replace('_', ' ')} ({m['owner'].lower()}): {m['action']}" for m in missing)
+    if want == EVIDENCE:
+        used = [r for r in rules if r.get("source") and r.get("actual")]
+        if not used:
+            return f"{lead} No figures were recorded for it yet."
+        return lead + " It rests on: " + "; ".join(
+            f"{_RULE_LABEL.get(r['rule_id'], r['rule_id'])} {r['actual']} ({_SOURCE_SAID.get(r['source'], r['source'].replace('_', ' ').lower())})"
+            for r in used) + "."
+    if want == NEXT:
+        steps = recorded.get("next_actions") or []
+        if not steps:
+            return f"{lead} No further step is configured for it."
+        return lead + " Next:\n" + "\n".join(f"- {s['action']}" for s in steps[:4])
+    return ""
+
+
+#: Where a figure came from, in words.
+_SOURCE_SAID = {
+    "SALARY_SLIP_NET": "salary slip, net", "SALARY_SLIP_GROSS": "salary slip, gross",
+    "BANK_RECURRING_CREDIT": "bank statement credits", "DECLARED": "declared", "APPLICATION": "application",
+    "COMPUTED": "computed", "KYC": "KYC record", "APPLICANT_DATE_OF_BIRTH": "date of birth",
+}
+
+
 def _headline(status: str, codes: list[Any]) -> str:
-    """The verdict, and the reason in words -- one sentence."""
+    """The verdict (the agent's state where recorded), and the reason in words."""
     shown = [str(c) for c in codes if str(c) != "ELIGIBILITY_WITHIN_POLICY"]
-    if status == "PASS":
-        return "Eligibility: PASS -- within policy."
+    if status in ("PASS", "ELIGIBLE"):
+        return f"Eligibility: {status} -- within policy."
 
     reasons = [_READABLE.get(c, c.replace("_", " ").lower()) for c in shown]
     if not reasons:
@@ -236,4 +336,5 @@ _INCOME_SOURCE_SHORT = {
 }
 
 
-__all__ = ["NOT_ASSESSED", "answer", "recorded_eligibility"]
+__all__ = ["EVIDENCE", "MISSING", "NEXT", "NOT_ASSESSED", "RULES", "SUMMARY", "answer",
+           "recorded_eligibility", "structured", "want"]

@@ -215,7 +215,13 @@ def _from_itr(path: str) -> FinancialResult:
 
     # The acknowledgement number and PAN are what tie the return to a filing
     # and a person, so their presence is the verification signal here.
-    verified = bool(raw.acknowledgement_number and raw.pan)
+    #
+    # NOT READ IS NOT FAILED (the sale-deed rule below). False here becomes
+    # VERIFICATION_INTEGRITY_FAILED -- an accusation -- and on real samples it
+    # fired for scanned ITRs whose fields simply could not be read. Unread is
+    # "not established" (None): the document goes to REVIEW with the missing
+    # fields named, never to an integrity failure nobody established.
+    verified = True if (raw.acknowledgement_number and raw.pan) else None
 
     return FinancialResult(
         document_type=FinancialDocumentType.ITR,

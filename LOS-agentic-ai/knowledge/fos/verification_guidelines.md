@@ -1,3 +1,15 @@
+---
+id: fos.verification_guidelines
+knowledge_type: HANDBOOK
+title: Document verification
+description: Classification, verification verdicts, the extraction gate, what PASS means, common reason codes.
+domain: verification
+language: en
+source: LOS curated knowledge (this repository)
+related:
+- fos.document_statuses
+- fos.faq
+---
 # Document verification
 
 Every uploaded document goes through the same three stages, in order:

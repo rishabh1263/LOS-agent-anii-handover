@@ -56,7 +56,46 @@ _SYSTEM = (
 )
 
 
-def retrieve(question: str, *, limit: int = 3):
+def retrieve(question: str, *, limit: int = 3, product: str | None = None):
+    """
+    Retrieve FOS knowledge for a question, METADATA-FILTERED (OKF front-matter):
+    only items in effect today, and -- when the question names a product, or
+    the caller passes one -- only items about that product. The filter runs on
+    EVERY retrieval, before any ranking or rewrite sees a hit: a passage about
+    another product can neither win the ranking nor leave the answer.
+    """
+    from app.agents.applicant import facts as _facts
+
+    return _retrieve(question, limit=limit, wanted=product or _facts.product_in(question))
+
+
+class _Admissible:
+    """A retriever that returns only admissible passages (in effect, about the
+    product asked), fetching more so a filtered-out passage costs no place."""
+
+    def __init__(self, inner, wanted: str | None) -> None:
+        self._inner, self._wanted = inner, wanted
+
+    @property
+    def last_used(self):
+        return getattr(self._inner, "last_used", None)
+
+    def retrieve(self, query, stage, *, limit=4, threshold=None):
+        from dataclasses import replace
+
+        from app.knowledge.markdown_repo import applies, in_effect
+
+        result = self._inner.retrieve(query, stage, limit=limit + 8, threshold=threshold)
+        kept = [h for h in result.hits
+                if in_effect(h.chunk.metadata or {}) and applies(h.chunk.metadata or {}, self._wanted)]
+        if kept == list(result.hits[:limit]) and len(result.hits) <= limit:
+            return result
+        top = kept[:limit]
+        return replace(result, hits=top, confident=bool(result.confident and top
+                                                        and top[0].score >= result.threshold))
+
+
+def _retrieve(question: str, *, limit: int = 3, wanted: str | None = None):
     """
     Retrieve FOS knowledge for a question. Never raises.
 
@@ -74,7 +113,7 @@ def retrieve(question: str, *, limit: int = 3):
     if not knowledge_layer.enabled():
         return None
     try:
-        retriever = knowledge_layer.get_retriever()
+        retriever = _Admissible(knowledge_layer.get_retriever(), wanted)
         first = retriever.retrieve(question, STAGE, limit=max(limit, 5))
     except Exception:
         # The knowledge base failing must not take a case question with it.
@@ -349,6 +388,22 @@ def _second_look(retriever, question: str, first, limit: int):
     common = _common_terms()
     rank_groups = [g for g in groups if not all(t in common for t in g)] or groups
     codes = _codes(question)
+    if first.confident and getattr(retriever, "last_used", None) == "primary":
+        # A DENSE "confident" hit IS NOT EVIDENCE BY ITSELF. Cosine similarity
+        # rewards sharing the TOPIC: "maximum interest rate on a personal loan"
+        # scored 0.62 against the personal-loan checklist (cutoff 0.53), and 9
+        # of 10 unanswerable questions came back confident (rag_metrics,
+        # 2026-10-04). The grounding guards the rescued path applies -- the
+        # subject must exist in the handbook, a threshold needs a stated number,
+        # and a passage must cover what was asked -- apply here as well.
+        top = first.hits[:3]
+        covers = not groups or len(groups) < 2 or any(
+            _group_coverage(groups, h)[0] >= _ACCEPT_COVERAGE and _group_coverage(groups, h)[1] >= _MIN_MATCHED
+            for h in top)
+        states_number = not _asks_threshold(canonical) or any(
+            ch.isdigit() for h in top for ch in h.chunk.text)
+        if not covers or _unknown_subject(terms) or not states_number:
+            return replace(first, hits=list(first.hits[:limit]), confident=False)
     if first.confident:
         # A WEAK "confident" hit that answers almost nothing asked is declined.
         if first.hits and first.hits[0].score < _WEAK_CONFIDENT and len(groups) >= 2 \

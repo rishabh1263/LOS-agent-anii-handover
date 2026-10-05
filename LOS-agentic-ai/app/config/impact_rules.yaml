@@ -130,3 +130,51 @@ phrases:
       CAPTURE_APPLICATION_INFORMATION: "capture the missing application details"
       CONTINUE: "continue with the next stage's processing"
       NOT_CONFIGURED: "no next step is configured for the current stage"
+  # THE SAME STEPS IN THE AGENT'S LANGUAGE (answering/localize.py). Seed,
+  # not reviewed by native speakers; {document} stays the recorded label.
+  # A language missing a code keeps the whole next-step answer in English.
+  mr:
+    action:
+      REQUEST_CORRECT_DOCUMENT: "योग्य {document} अपलोड करा"
+      REQUEST_VALID_DOCUMENT: "स्पष्ट आणि वैध {document} अपलोड करा"
+      COLLECT_DOCUMENT: "{document} गोळा करून अपलोड करा"
+      RESOLVE_DOCUMENT_REVIEW: "{document} चे पुनरावलोकन पूर्ण करा"
+      AWAIT_VERIFICATION: "{document} ची पडताळणी पूर्ण होण्याची वाट पहा"
+      MANUAL_REVIEW: "समीक्षक नोंदलेला मुद्दा तपासेपर्यंत वाट पहा"
+      SUBMIT_TO_CPA: "केस CPA कडे सोपवा"
+      CREATE_APPLICANT: "अर्जदाराची नोंद तयार करा"
+      CREATE_APPLICATION: "अर्ज तयार करा"
+      CAPTURE_APPLICANT_INFORMATION: "अर्जदाराची राहिलेली माहिती नोंदवा"
+      CAPTURE_APPLICATION_INFORMATION: "अर्जाची राहिलेली माहिती नोंदवा"
+      CONTINUE: "पुढच्या टप्प्याची प्रक्रिया सुरू ठेवा"
+      NOT_CONFIGURED: "सध्याच्या टप्प्यासाठी पुढची पायरी ठरवलेली नाही"
+  hi:
+    action:
+      REQUEST_CORRECT_DOCUMENT: "सही {document} अपलोड करें"
+      REQUEST_VALID_DOCUMENT: "साफ़ और वैध {document} अपलोड करें"
+      COLLECT_DOCUMENT: "{document} लेकर अपलोड करें"
+      RESOLVE_DOCUMENT_REVIEW: "{document} की समीक्षा पूरी करें"
+      AWAIT_VERIFICATION: "{document} का सत्यापन पूरा होने का इंतज़ार करें"
+      MANUAL_REVIEW: "समीक्षक के दर्ज मुद्दे की जाँच तक इंतज़ार करें"
+      SUBMIT_TO_CPA: "केस CPA को सौंपें"
+      CREATE_APPLICANT: "आवेदक का रिकॉर्ड बनाएँ"
+      CREATE_APPLICATION: "आवेदन बनाएँ"
+      CAPTURE_APPLICANT_INFORMATION: "आवेदक की बाकी जानकारी दर्ज करें"
+      CAPTURE_APPLICATION_INFORMATION: "आवेदन की बाकी जानकारी दर्ज करें"
+      CONTINUE: "अगले चरण की प्रक्रिया जारी रखें"
+      NOT_CONFIGURED: "मौजूदा चरण के लिए अगला कदम तय नहीं है"
+  hi-Latn:
+    action:
+      REQUEST_CORRECT_DOCUMENT: "sahi {document} upload karein"
+      REQUEST_VALID_DOCUMENT: "saaf aur valid {document} upload karein"
+      COLLECT_DOCUMENT: "{document} lekar upload karein"
+      RESOLVE_DOCUMENT_REVIEW: "{document} ka review poora karein"
+      AWAIT_VERIFICATION: "{document} ka verification poora hone ka intezaar karein"
+      MANUAL_REVIEW: "reviewer ke recorded issue check karne tak intezaar karein"
+      SUBMIT_TO_CPA: "case CPA ko saunpein"
+      CREATE_APPLICANT: "applicant ka record banayein"
+      CREATE_APPLICATION: "application banayein"
+      CAPTURE_APPLICANT_INFORMATION: "applicant ki baaki jaankari darj karein"
+      CAPTURE_APPLICATION_INFORMATION: "application ki baaki jaankari darj karein"
+      CONTINUE: "agle stage ki processing jaari rakhein"
+      NOT_CONFIGURED: "is stage ke liye agla step tay nahi hai"

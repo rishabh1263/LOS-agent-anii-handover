@@ -91,6 +91,10 @@ class Language:
     code_mixed: bool = False
     #: SEED_UNREVIEWED / NATIVE, from configuration.
     review_status: str = "NATIVE"
+    #: Nothing in the text decided between languages sharing its script (a
+    #: bare "धन्यवाद" is Hindi and Marathi alike): the default was taken, and
+    #: the conversation's remembered language may choose the reply instead.
+    ambiguous: bool = False
 
     def public(self) -> dict[str, Any]:
         return {"detected": self.code, "script": self.script,
@@ -199,10 +203,15 @@ def detect(text: str) -> Language:
     mixed = bool(indic) and counts.get("Latin", 0) > 0
     if not indic:
         tokens = {t.lower() for t in _tokens(text)}
-        hits = len(tokens & _markers("hi-Latn"))
+        hindi = tokens & _markers("hi-Latn")
+        marathi = tokens & _markers("mr-Latn")
+        hits = len(hindi | marathi)
         if hits >= 2 or (hits == 1 and len(tokens) <= 3):
-            return Language("hi-Latn", "Latin", romanized=True,
-                            review_status=_review_status("hi-Latn"))
+            # ROMAN MARATHI ("KYC zala ka?", "pudhe kay karaycha?") is not
+            # Hinglish: Marathi markers that Hindi ones do not outnumber decide
+            # it. Particles both share ("ka", "nahi") are Hindi markers only.
+            code = "mr-Latn" if marathi and len(marathi) >= len(hindi - marathi) else "hi-Latn"
+            return Language(code, "Latin", romanized=True, review_status=_review_status(code))
         return Language()
 
     script = max(indic, key=indic.get)
@@ -212,14 +221,76 @@ def detect(text: str) -> Language:
         # Nepali, Maithili and Sanskrit share words with Hindi ("किए" is Hindi
         # "did", Maithili "why"): one marker is not enough to leave Hindi
         hits = {c: (n if c in ("kok", "mr") or n >= 2 else 0) for c, n in hits.items()}
+        # A LETTER only one of them writes ("ळ" is Marathi's, not Hindi's)
+        for c in _DEVANAGARI:
+            if set(text or "") & _markers(f"letters:{c}"):
+                hits[c] = hits.get(c, 0) + 1
         best = max(_DEVANAGARI, key=lambda c: hits[c])
         code = best if hits[best] else "hi"
+        if not hits[best]:
+            # NO MARKER WORD: a statistical detector may tell Marathi from
+            # Hindi ("कागदपत्रांची पडताळणी झाली का?"), but only when it is
+            # confident and no plainly Hindi word is present.
+            guessed = _statistical_devanagari(text, tokens)
+            if guessed:
+                code = guessed
+            else:
+                return Language("hi", script, code_mixed=mixed, review_status=_review_status("hi"),
+                                ambiguous=not (tokens & _markers("hi")))
     elif script == "Bengali":
         letters = set(text or "")
         code = "as" if (tokens & _markers("as")) or (letters & _markers("as")) else "bn"
     else:
         code = _SCRIPT_LANGUAGE.get(script, "en")
     return Language(code, script, code_mixed=mixed, review_status=_review_status(code))
+
+
+#: The optional statistical detector (lingua), built once with only the
+#: languages configured for it. False when it is unavailable or switched off.
+_DETECTOR: Any = None
+_LINGUA_NAMES = {"hi": "HINDI", "mr": "MARATHI", "ne": "NEPALI", "sa": "SANSKRIT"}
+
+
+def _statistical_devanagari(text: str, tokens: set[str]) -> str | None:
+    """
+    The Devanagari language a statistical detector is confident of, or None.
+
+    Configured under `detector:` (library, devanagari, min_confidence) and
+    switched off with LANGUAGE_DETECTOR=off. A plainly Hindi word ("है",
+    "क्या" -- markers.hi) keeps the question Hindi whatever the detector says:
+    on a few words it is a hint, never an authority. Without the library the
+    marker words decide alone, exactly as before.
+    """
+    global _DETECTOR
+    settings = _load().get("detector") or {}
+    library = (os.getenv("LANGUAGE_DETECTOR") or str(settings.get("library") or "")).strip().lower()
+    if library in {"", "off", "none", "false"} or tokens & _markers("hi"):
+        return None
+    codes = [str(c) for c in settings.get("devanagari") or [] if str(c) in _LINGUA_NAMES]
+    if len(codes) < 2:
+        return None
+    if _DETECTOR is None:
+        try:
+            from lingua import Language as _Lingua, LanguageDetectorBuilder
+
+            _DETECTOR = LanguageDetectorBuilder.from_languages(
+                *[getattr(_Lingua, _LINGUA_NAMES[c]) for c in codes]).build()
+        except Exception as exc:  # noqa: BLE001 - optional dependency
+            logger.info("Statistical language detector unavailable: %s", type(exc).__name__)
+            _DETECTOR = False
+    if not _DETECTOR:
+        return None
+    try:
+        values = _DETECTOR.compute_language_confidence_values(text or "")
+    except Exception:  # noqa: BLE001
+        return None
+    if not values:
+        return None
+    by_name = {v: k for k, v in _LINGUA_NAMES.items()}
+    code = by_name.get(values[0].language.name)
+    if code and code != "hi" and float(values[0].value) >= float(settings.get("min_confidence") or 0.75):
+        return code
+    return None
 
 
 # -- canonicalisation -------------------------------------------------------
@@ -230,8 +301,12 @@ def _lexicon(code: str) -> tuple[dict[tuple[str, ...], str], int]:
         table: dict[tuple[str, ...], str] = {}
         longest = 1
         # the security vocabulary first: the question lexicon wins a clash
-        entries = dict(((_load().get("security_lexicon") or {}).get(code) or {}))
-        entries.update(((_load().get("lexicon") or {}).get(code) or {}))
+        entries: dict[str, Any] = {}
+        # A LANGUAGE MAY BUILD ON ANOTHER (Roman Marathi on Hinglish: an agent
+        # mixes both in one line); its own words win a clash.
+        for base in list((_load().get("lexicon_inherits") or {}).get(code) or []) + [code]:
+            entries.update(((_load().get("security_lexicon") or {}).get(base) or {}))
+            entries.update(((_load().get("lexicon") or {}).get(base) or {}))
         for source, target in entries.items():
             words = tuple(w.lower() for w in unicodedata.normalize(
                 "NFC", str(source)).split())
@@ -338,10 +413,11 @@ def _canonical_as(original: str, language: Language) -> Canonical:
     changes: list[tuple[str, str]] = []
     question = original.rstrip().endswith(("?", "؟"))
     source = original
-    if language.code == "mr":
-        # A sentence-final "का" is Marathi's yes/no question tag ("तपासले
-        # का?" = "checked?"), not the "why" it means at the front.
-        tagless = re.sub(r"\s+का\s*[?？]*$", "", original)
+    if language.code in ("mr", "mr-Latn"):
+        # A sentence-final "का" / "ka" is Marathi's yes/no question tag
+        # ("तपासले का?" = "checked?"), not the "why" it means at the front.
+        tag = r"\s+का\s*[?？]*$" if language.code == "mr" else r"\s+ka\s*[?？]*$"
+        tagless = re.sub(tag, "", original, flags=re.IGNORECASE)
         if tagless != original:
             changes.append((original, tagless))
             source, question = tagless, True
@@ -398,14 +474,25 @@ def response_language(requested: str | None, detected: Language,
     fact, and an unsupported value is ignored.
     """
     if requested and str(requested).strip():
-        return str(requested).strip()
+        return reply_as(str(requested).strip())
     if detected.code != "en":
-        return detected.code
+        if detected.ambiguous and preferred and str(preferred).strip() != detected.code:
+            # "धन्यवाद" in a Marathi conversation is answered in Marathi
+            family = _SCRIPT_FAMILY.get(detected.script) or ()
+            if reply_as(str(preferred).strip()) in family:
+                return reply_as(str(preferred).strip())
+        return reply_as(detected.code)
     if preferred and str(preferred).strip() in supported():
         words = {t.lower() for t in _tokens(text)}
         if not (words & _ENGLISH_WORDS):
             return str(preferred).strip()
     return str(_load().get("default_response_language") or "en")
+
+
+def reply_as(code: str) -> str:
+    """The language a question in `code` is ANSWERED in (languages.<code>.reply_as):
+    Roman Marathi is answered in Marathi, whose templates exist."""
+    return str((supported().get(code) or {}).get("reply_as") or code)
 
 
 def template(fact: str, language: str) -> Any:
@@ -461,5 +548,5 @@ def localized(fact: str, language: str, **values: str) -> str | None:
 
 
 __all__ = ["canonical_forms", "Canonical", "Language", "canonicalise", "detect", "enabled",
-           "localized", "localized_pending", "reload", "response_language",
+           "localized", "localized_pending", "reload", "reply_as", "response_language",
            "supported", "template"]

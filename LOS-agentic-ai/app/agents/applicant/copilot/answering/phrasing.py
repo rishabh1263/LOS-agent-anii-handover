@@ -34,7 +34,18 @@ TURN_SEED: contextvars.ContextVar[int] = contextvars.ContextVar("copilot_turn_se
 PRESENTED: contextvars.ContextVar[str | None] = contextvars.ContextVar("copilot_presented", default=None)
 
 
+def _as_reply(language: str | None) -> str | None:
+    """The language a question in `language` is answered in: Roman Marathi
+    ("mr-Latn") is answered with the Marathi wording (languages.yaml reply_as)."""
+    if not language:
+        return language
+    from app.agents.applicant import language as _languages
+
+    return _languages.reply_as(language)
+
+
 def _note(variants: dict[str, tuple[str, ...]], language: str | None) -> None:
+    language = _as_reply(language)
     if language and language != "en" and variants.get(language):
         PRESENTED.set(language)
 
@@ -261,6 +272,7 @@ def seed_for(conversation_id: str | None, turn_id: int | None, field: str = "") 
 
 
 def _pick(variants: dict[str, tuple[str, ...]], language: str | None, seed: int) -> str | None:
+    language = _as_reply(language)
     shapes = variants.get(language or "en") or variants.get("en") or ()
     if not shapes:
         return None
@@ -303,7 +315,7 @@ def party_sentence(state: str, who: str, field: str, value: str | None = None, *
     """One field of a named party, in its state and the caller's language."""
     table = _PARTY_VARIANTS.get(state) or _PARTY_VARIANTS["UNKNOWN"]
     _note(table, language)
-    shapes = table.get(language or "en") or table["en"]
+    shapes = table.get(_as_reply(language) or "en") or table["en"]
     shape = shapes[seed % len(shapes)]
     return shape.format(who=who, Who=who[:1].upper() + who[1:], field=field,
                         value="" if value is None else value)

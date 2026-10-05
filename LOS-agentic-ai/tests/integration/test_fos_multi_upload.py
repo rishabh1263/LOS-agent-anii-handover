@@ -467,7 +467,7 @@ def test_the_whole_case_state_advances_on_one_batch(client):
     assert "DOCUMENT_MISSING" in blocking
 
 
-def test_a_multi_document_upload_runs_no_kyc(client):
+def test_a_multi_document_upload_runs_no_kyc(client, monkeypatch):
     """
     THIS ASSERTION IS THE REVERSE OF WHAT IT WAS, deliberately.
 
@@ -484,7 +484,11 @@ def test_a_multi_document_upload_runs_no_kyc(client):
 
     KYC itself is unchanged and still runs on /api/v1/los/process. What
     changed is who calls it.
+
+    2026-10-04: the FOS upload now runs KYC by default after verification
+    passes (test_fos_upload_kyc.py); this is the FOS_KYC_ON_UPLOAD=false case.
     """
+    monkeypatch.setenv("FOS_KYC_ON_UPLOAD", "false")
     applicant_id, case_id = open_case(client)
     body = upload(client, applicant_id, case_id,
                   [("pan.jpg", PAN), ("dl.jpg", LICENCE)],

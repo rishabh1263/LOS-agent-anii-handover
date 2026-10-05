@@ -173,11 +173,23 @@ def _ocr_texts(path: str) -> list[str]:
         logger.debug("ITR OCR unavailable: %s", exc)
         return []
 
-    try:
-        images = convert_from_path(path, dpi=200)
-    except Exception as exc:
-        logger.warning("Could not rasterise ITR PDF: %s", exc)
-        return []
+    # A PHOTOGRAPHED / SCANNED ITR UPLOADED AS AN IMAGE is read as that image:
+    # rasterising it as a PDF produced nothing, and every image ITR read as
+    # "unreadable" (real samples ITR.jpeg, ITR_2.jpeg).
+    if Path(path).suffix.lower() in (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"):
+        try:
+            from PIL import Image
+
+            images = [Image.open(path)]
+        except Exception as exc:
+            logger.warning("Could not open ITR image: %s", exc)
+            return []
+    else:
+        try:
+            images = convert_from_path(path, dpi=200)
+        except Exception as exc:
+            logger.warning("Could not rasterise ITR PDF: %s", exc)
+            return []
 
     engine = get_engine()
     out: list[str] = []

@@ -102,6 +102,21 @@ class EligibilityPolicy(BaseModel):
     #: price is never one: it is a transacted price, not a valuation.
     property_value_accepted_sources: tuple[str, ...] = Field(default_factory=tuple)
 
+    # -- the applicant's age: null = not a configured criterion -------------
+    age_minimum_years: int | None = None
+    age_maximum_years: int | None = None
+
+    # -- the KYC prerequisite: None = not a configured criterion -------------
+    #: KYC statuses that satisfy the prerequisite (e.g. PASS). Empty = none set.
+    kyc_accepted_statuses: tuple[str, ...] = Field(default_factory=tuple)
+
+    #: Criteria the assessment cannot be made without. A policy missing one is
+    #: a CONFIGURATION_GAP, never a pass. FOIR is the affordability rule itself.
+    essential_rules: tuple[str, ...] = ("FOIR",)
+
+    #: reason code -> {owner, action}: the configured next step for each code.
+    next_actions: dict[str, dict[str, str]] = Field(default_factory=dict)
+
     @property
     def is_production(self) -> bool:
         """Only a policy explicitly marked CONFIRMED is treated as real."""
@@ -239,8 +254,13 @@ def _from_config(raw: dict[str, Any], *, product: str, provider: str) -> Eligibi
     employment = _section(raw, "employment")
     obligations = _section(raw, "obligations")
     ltv = _section(raw, "ltv")
+    age = _section(raw, "age")
+    prerequisites = _section(raw, "prerequisites")
+    kyc = prerequisites.get("kyc") if isinstance(prerequisites.get("kyc"), dict) else {}
 
     allowed = employment.get("allowed")
+    essential = raw.get("essential_rules")
+    actions = policy_file.document().get("next_actions")
 
     try:
         return EligibilityPolicy(
@@ -269,6 +289,14 @@ def _from_config(raw: dict[str, Any], *, product: str, provider: str) -> Eligibi
             ltv_maximum_percent=ltv.get("maximum_percent"),
             property_value_accepted_sources=tuple(
                 str(s).upper() for s in (ltv.get("accepted_value_sources") or [])),
+            age_minimum_years=age.get("minimum_years"),
+            age_maximum_years=age.get("maximum_years"),
+            kyc_accepted_statuses=tuple(str(s).upper() for s in (kyc.get("accepted_statuses") or [])),
+            essential_rules=(tuple(str(r).upper() for r in essential)
+                             if isinstance(essential, list) else ("FOIR",)),
+            next_actions={str(k): {"owner": str((v or {}).get("owner") or ""),
+                                   "action": str((v or {}).get("action") or "")}
+                          for k, v in (actions or {}).items() if isinstance(v, dict)},
         )
     except Exception as exc:
         # A malformed file is a policy nobody can apply.
