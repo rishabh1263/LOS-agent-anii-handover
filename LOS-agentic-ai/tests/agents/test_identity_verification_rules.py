@@ -212,7 +212,10 @@ def test_voter_no_name_equality_rule_was_introduced():
 # ==========================================================================
 
 SAMPLES = Path(__file__).resolve().parents[2] / "samples"
-DL_REAL = SAMPLES / "real_batch" / "dl1.jpg"
+# A licence read fully correctly (8/8 fields against samples/ground_truth.json).
+# real_batch/dl1.jpg was used until 2026-10-05; its PASS rested on the father's
+# name filling the holder field, and it is honestly REVIEW now.
+DL_REAL = SAMPLES / "documents" / "driving_license.jpg"
 VOTER_REAL = SAMPLES / "real_batch" / "voter_id2.jpg"
 FOS_SCOPES = ["read_applicant", "read_application", "read_documents",
               "read_verification", "read_pending_items", "read_next_action",

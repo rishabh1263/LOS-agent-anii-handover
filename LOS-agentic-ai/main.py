@@ -525,6 +525,8 @@ async def _request_span(request, call_next):
 
 # /health, /ready and /metrics all live in ops_router. Defining another
 # /health here would shadow the readiness contract the platform relies on.
+from app.api.contract import COMMON_ERRORS  # noqa: E402 - the documented error union
+
 app.include_router(ops_router)
 
 # Every business API requires JWT authentication.
@@ -533,32 +535,38 @@ app.include_router(
     agent_service_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 app.include_router(
     document_extraction_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 app.include_router(
     document_agent_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 app.include_router(
     verification_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 app.include_router(
     financial_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 
 app.include_router(
     los_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 
 # The FOS copilot. Reaches applicant, application and document records only
@@ -568,6 +576,7 @@ app.include_router(
     applicant_agent_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 
 # The Universal LOS Copilot. Same agent as the FOS copilot below, a
@@ -577,6 +586,7 @@ app.include_router(
     copilot_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 
 # The consolidated FOS surface: two endpoints a field-officer frontend
@@ -586,6 +596,7 @@ app.include_router(
     fos_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 
 # The recorded eligibility verdict, read-only. Evaluation happens in the LOS
@@ -594,6 +605,7 @@ app.include_router(
     eligibility_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 
 # Credit underwriting: an evidence-linked ASSESSMENT for the Decision Agent,
@@ -603,6 +615,7 @@ app.include_router(
     credit_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
 )
 
 # KYC may already exist in this V21 checkout. Protect it automatically.
@@ -616,6 +629,7 @@ if kyc_router is not None:
         kyc_router,
         prefix="/api/v1",
         dependencies=[Depends(require_jwt)],
+        responses=COMMON_ERRORS,
     )
 
 

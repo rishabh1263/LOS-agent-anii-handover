@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# QUERIES AND DEVIATIONS -- read by app/agents/los/queries.py.
+#
+# A QUERY asks somebody for something: a clarification, missing information,
+# an explanation of a discrepancy, more evidence. A DEVIATION is an exception
+# to a configured policy rule that somebody with authority must approve.
+# They are different things with different lifecycles and are never merged.
+#
+# STATUS: UNCONFIRMED. The vocabulary and lifecycle below are the product
+# contract for the Raise Query button; who may raise / answer / resolve, and
+# whether an open item blocks a forward stage move, need business sign-off.
+# ---------------------------------------------------------------------------
+status: UNCONFIRMED
+
+queries:
+  # what a query may be about (target_type) and what kind it is (query_type)
+  target_types: [DOCUMENT, PARTY, CASE, FINDING, STAGE]
+  query_types:
+    CLARIFICATION:        "A clarification is needed."
+    MISSING_INFORMATION:  "Information is missing."
+    DOCUMENT_DISCREPANCY: "Documents disagree with each other or with the application."
+    ADDITIONAL_EVIDENCE:  "Further evidence is needed."
+    EXPLANATION_REQUIRED: "An explanation is needed."
+    VERIFICATION_ISSUE:   "A document did not pass verification and needs follow-up."
+    OPERATIONAL:          "An unresolved operational question."
+  # lifecycle: status -> the statuses it may move to
+  lifecycle:
+    OPEN:      [RESPONDED, RESOLVED, CANCELLED]
+    RESPONDED: [RESOLVED, REOPENED]
+    REOPENED:  [RESPONDED, RESOLVED, CANCELLED]
+    RESOLVED:  [REOPENED]
+    CANCELLED: []
+  # STAGE ROUTING: from the case's current stage, which stages a query may be
+  # sent to. FOS -> CPA and CPA -> FOS today; a new route is a line here, never
+  # code. A target the route does not list is refused (INVALID_TARGET_STAGE).
+  routes:
+    FOS: [CPA]
+    CPA: [FOS]
+  severities: [LOW, MEDIUM, HIGH, CRITICAL]
+  default_severity: MEDIUM
+  # statuses in which a query is still outstanding
+  open_statuses: [OPEN, RESPONDED, REOPENED]
+  # ANY one of these scopes may raise / move a query (or the service write-all scope)
+  raise_scopes: [los.query:write, documents:write, upload_document, los.stage:write]
+  # resolving needs a reviewer-side scope: the person who answers is not the one who closes
+  resolve_scopes: [los.query:resolve, los.stage:write]
+  # UNCONFIRMED: an outstanding query blocks the gate out of its stage
+  blocks_forward_move: true
+  max_text_length: 1000
+
+deviations:
+  # A deviation is raised ONLY by a configured rule. No rule is configured
+  # here, so none is ever raised automatically: deviation detection is a
+  # CONFIGURATION_GAP until the business supplies the rules (metric, limit,
+  # approving authority). Thresholds are never invented in code.
+  rules: []
+  lifecycle:
+    PENDING_APPROVAL: [APPROVED, REJECTED, WITHDRAWN]
+    APPROVED:  []
+    REJECTED:  []
+    WITHDRAWN: []
+  open_statuses: [PENDING_APPROVAL]
+  # the authority that may decide; the person who raised one may never approve it
+  approve_scopes: [los.deviation:approve]
+  raise_scopes: [los.deviation:write, los.stage:write]
+  blocks_forward_move: true

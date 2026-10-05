@@ -104,6 +104,16 @@ def _score_markers(
     return total
 
 
+#: Words a financial document prints and an identity card never does
+#: (compared on the separator-free upper-case text).
+_FINANCIAL_MARKERS = (
+    "STATEMENTOFACCOUNT", "ACCOUNTSTATEMENT", "OPENINGBALANCE", "CLOSINGBALANCE", "TRANSACTION",
+    "WITHDRAWAL", "DEPOSIT", "IFSC", "CHEQUE", "NARRATION",
+    "SALARYSLIP", "PAYSLIP", "EARNINGS", "DEDUCTIONS", "NETPAY", "GROSSSALARY",
+    "ACKNOWLEDGEMENT", "ASSESSMENTYEAR", "TOTALINCOME", "TAXPAYABLE",
+)
+
+
 def classify(tokens: list[OCRToken]) -> tuple[DocumentType, float]:
     """Return (document_type, confidence 0-1)."""
     if not tokens:
@@ -151,6 +161,15 @@ def classify(tokens: list[OCRToken]) -> tuple[DocumentType, float]:
         pan_score += 0.40
     if _DL_NUMBER.search(blob.replace(" ", "")):
         dl_score += 0.25
+
+    # A FINANCIAL DOCUMENT IS NOT A PAN CARD. Bank statements, salary slips and
+    # ITRs print the holder's PAN number (+0.85), and their own words hit the
+    # PAN captions: "Account Number" (0.30) on every statement, "Income Tax"
+    # (0.30) on every ITR -- the demo bank statement, the demo salary slip and
+    # an ITR all classified as PAN (2026-10-05). A PAN card carries none of
+    # the markers below; two of them on one page say it is not a card.
+    if sum(1 for marker in _FINANCIAL_MARKERS if marker in compact) >= 2:
+        pan_score = 0.0
 
     best = max(pan_score, dl_score, voter_score, passport_score)
     if best < 0.30:

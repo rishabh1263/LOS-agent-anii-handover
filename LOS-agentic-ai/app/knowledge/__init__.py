@@ -69,16 +69,25 @@ def enabled() -> bool:
 
 def backend() -> str:
     """
-    KNOWLEDGE_BACKEND, else `vector` when a real embedding model is
-    configured (EMBEDDING_PROVIDER=ollama), else `lexical`. The hashing
-    embedder is never a default: measured on the FOS corpus it ranked worse
-    than BM25 (P@1 0.268 vs 0.537) and was confident about 3 of 6 off-topic
-    questions.
-    """
-    from app.knowledge.embeddings import provider_name
+    The retriever HANDBOOK ANSWERS are built from: KNOWLEDGE_BACKEND, else
+    `lexical` (BM25 + the deterministic second look).
 
-    default = "vector" if provider_name() == "ollama" else "lexical"
-    name = (os.getenv("KNOWLEDGE_BACKEND") or default).strip().lower()
+    MEASURED, NOT ASSUMED (evals/copilot/rag_metrics, 36 questions, 2026-10-04):
+
+                             lexical    dense (nomic)   dense + grounding guard
+        top-1 relevance        23/24        22/24              21/24
+        answer correct         26/26        24/26              23/26
+        false confidence        0/10         9/10               1/10
+        retrieval p50          4.6 ms      65 ms              55 ms
+
+    The dense cutoff (0.53) no longer separates answerable from unanswerable
+    questions on this corpus ("maximum interest rate on a personal loan"
+    scored 0.62), so dense is opt-in (KNOWLEDGE_BACKEND=vector) and the
+    embedding model keeps the jobs it measured well on: the handbook ROUTING
+    signal (`dense_retriever`, floor 0.80) and case-memory search. The hashing
+    embedder is never a default (P@1 0.268 vs 0.537).
+    """
+    name = (os.getenv("KNOWLEDGE_BACKEND") or "lexical").strip().lower()
     return name if name in _BACKENDS else "lexical"
 
 
@@ -122,10 +131,11 @@ def get_repository() -> KnowledgeRepository:
 
 def set_repository(repository: KnowledgeRepository | None) -> None:
     """Replace the corpus. None restores the default on next use."""
-    global _REPOSITORY, _RETRIEVER
+    global _REPOSITORY, _RETRIEVER, _DENSE
     with _LOCK:
         _REPOSITORY = repository
         _RETRIEVER = None
+        _DENSE = None
 
 
 def get_retriever() -> Retriever:
@@ -157,6 +167,33 @@ def get_retriever() -> Retriever:
     return _RETRIEVER
 
 
+_DENSE: Retriever | None = None
+
+
+def dense_retriever() -> Retriever | None:
+    """
+    Dense retrieval over the handbook (BM25 when the model is unreachable),
+    whatever backend ANSWERS use -- or None without a real embedding model.
+    For signals calibrated on the dense scale (the handbook routing match,
+    floor 0.80), never for building an answer.
+    """
+    global _DENSE
+    from app.knowledge.embeddings import get_query_embedder, provider_name
+
+    if provider_name() != "ollama":
+        return None
+    if backend() == "vector" or isinstance(_RETRIEVER, FallbackRetriever):
+        return get_retriever()            # the configured (or injected) dense retriever
+    if _DENSE is None:
+        with _LOCK:
+            if _DENSE is None:
+                repository = get_repository()
+                _DENSE = FallbackRetriever(
+                    EmbeddingRetriever(repository, get_query_embedder(), default_threshold=vector_threshold()),
+                    LexicalRetriever(repository, default_threshold=default_threshold()))
+    return _DENSE
+
+
 def set_retriever(retriever: Retriever | None) -> None:
     global _RETRIEVER
     with _LOCK:
@@ -165,11 +202,12 @@ def set_retriever(retriever: Retriever | None) -> None:
 
 def reload() -> None:
     """Re-read the corpus and drop every index built from it."""
-    global _RETRIEVER
+    global _RETRIEVER, _DENSE
     with _LOCK:
         if _REPOSITORY is not None:
             _REPOSITORY.reload()
         _RETRIEVER = None
+        _DENSE = None
 
 
 def describe() -> dict:

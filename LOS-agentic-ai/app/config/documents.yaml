@@ -311,4 +311,9 @@ los:
   # The LLM writes the summary sentence and nothing else. Off means the
   # deterministic summary is used, which is also what happens when the model
   # is unreachable.
-  llm_summary_enabled: true
+  #
+  # OFF BY DEFAULT ON CPU (2026-10-03, measured): qwen2.5:3b generates ~16
+  # tokens/s here, so a summary sentence costs seconds and the startup warm-up
+  # 4.7 s, for text the deterministic summary already states. Turn on with
+  # LOS_LLM_SUMMARY_ENABLED=true on a host that serves the model fast enough.
+  llm_summary_enabled: false

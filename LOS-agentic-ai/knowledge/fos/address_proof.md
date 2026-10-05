@@ -1,3 +1,17 @@
+---
+id: fos.address_proof
+knowledge_type: HANDBOOK
+title: Address proof
+description: Which documents satisfy the ADDRESS_PROOF slot, and why a PAN card does not.
+domain: documents
+language: en
+source: LOS curated knowledge (this repository)
+derived_from:
+- app/config/applicant_agent.yaml
+related:
+- fos.document_requirements
+- fos.verification_guidelines
+---
 # Address proof
 
 ADDRESS_PROOF is a checklist slot, not a document type. No document is called

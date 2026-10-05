@@ -1519,7 +1519,7 @@ def _identity_response(
             for finding in rule_detail.get("findings", [])
         )
 
-    return _envelope(
+    envelope = _envelope(
         request_id=request_id,
         status=status,
         document_type=(
@@ -1542,6 +1542,60 @@ def _identity_response(
         errors=errors,
         timings=timings,
     )
+    envelope.update(_capture_and_review(
+        verdict=str((verification_payload or {}).get("status") or status),
+        quality_report=quality_report, result=recognition_result))
+    return envelope
+
+
+#: Field OCR confidence below which a reviewer should check the value.
+def _review_threshold() -> float:
+    try:
+        return float(os.getenv("DOCUMENT_FIELD_REVIEW_CONFIDENCE", "0.80"))
+    except ValueError:
+        return 0.80
+
+
+def _capture_and_review(*, verdict: str, quality_report: Any, result: Any) -> dict[str, Any]:
+    """
+    CAPTURE GATE AND CONFIDENCE ROUTING -- structured, never a verdict change.
+
+    capture        retake_recommended when the ORIGINAL photo had a SEVERE quality
+                   finding AND the document did not verify cleanly: "retake the
+                   photo" is said only when a better photo would plausibly help.
+                   A clean PASS is never told to retake.
+    review_fields  fields read below DOCUMENT_FIELD_REVIEW_CONFIDENCE, plus any
+                   field the two OCR engines read differently: what a reviewer
+                   should check, field by field.
+    """
+    from app.agents.document_agent import quality as image_quality
+
+    out: dict[str, Any] = {}
+    severe = []
+    if quality_report is not None and getattr(quality_report, "analysed", False):
+        severe = [getattr(f, "reason_code", None) for f in getattr(quality_report, "findings", ())
+                  if getattr(f, "severity", None) == image_quality.SEVERE]
+        severe = [c for c in severe if c]
+    retake = bool(severe) and verdict.upper() != "PASS"
+    out["capture"] = {"retake_recommended": retake, "issues": severe,
+                      **({"hint": "Retake the photo: flat, in good light, without glare, all four "
+                                  "edges of the document inside the frame."} if retake else {})}
+    fields = getattr(result, "fields", None) or {}
+    threshold = _review_threshold()
+    low = [{"field": name, "reason": "LOW_OCR_CONFIDENCE"}
+           for name, f in fields.items()
+           if getattr(f, "value", None) not in (None, "")
+           and getattr(f, "ocr_confidence", None) is not None and f.ocr_confidence < threshold]
+    disagree = [w.split("=", 1)[1] for w in (getattr(result, "warnings", None) or [])
+                if str(w).startswith("engine_disagreement=")]
+    for names in disagree:
+        low.extend({"field": n, "reason": "ENGINES_DISAGREE"} for n in names.split(",") if n)
+    filled = [w.split("=", 1)[1] for w in (getattr(result, "warnings", None) or [])
+              if str(w).startswith("second_engine_filled=")]
+    out["review_fields"] = low
+    if filled:
+        out["second_engine_fields"] = [n for names in filled for n in names.split(",") if n]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1749,9 +1803,15 @@ def _process_image(
     timings.ocr_ms += recognition.ocr_ms
     timings.extraction_ms += recognition.result.processing.extraction_ms
 
+    # THE FINAL CLASSIFICATION SEES THE RAW TEXT TOO -- the passport MRZ line
+    # (`P<IND...`) is a signal only the raw, spaced text carries. Without it a
+    # sideways / upside-down passport photo the recogniser had identified was
+    # re-classified UNKNOWN here and FAILed as the wrong document (real samples:
+    # 15 of 30 passport photos). Orientation probes still classify without it.
     classification = _timed(
         timings, "classification_ms",
         classify_document_class, _compact_text(tokens),
+        " ".join(str(getattr(t, "text", "") or "") for t in tokens).upper(),
     )
 
     document_class, classification_confidence = classification

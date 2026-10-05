@@ -1280,6 +1280,146 @@ async def _answer_action_scoped(
     return envelope
 
 
+def _upload_kyc(los: dict[str, Any]) -> dict[str, Any] | None:
+    """The KYC this upload ran, identifiers masked; None when nothing reached KYC."""
+    kyc = los.get("kyc")
+    if not isinstance(kyc, dict) or not kyc:
+        return None
+    # NO DOCUMENT PASSED VERIFICATION: nothing was released, so KYC had nothing
+    # to compare -- that is "not run", not a SKIPPED verdict to show
+    if not any(str(d.get("verification") or "").upper() in _PASSED for d in los.get("documents") or []):
+        return None
+    from app.security import sensitivity
+
+    block = dict(kyc)
+    # CROSS-APPLICATION: each party's documents against what the application
+    # form recorded for that party (profile_match) -- beside the cross-document
+    # result, never merged into it
+    matches = los.get("profile_match")
+    if matches:
+        block["application_match"] = matches
+    return sensitivity.mask_payload(block)
+
+
+def _pipeline_sentence(outcomes: list[dict[str, Any]], kyc: dict[str, Any] | None) -> str:
+    """One plain sentence on what happened after verification -- extraction and KYC."""
+    passed = [o for o in outcomes if str(o.get("verification") or "").upper() in _PASSED]
+    stopped = [o for o in outcomes if o.get("verification") and str(o.get("verification")).upper() not in _PASSED]
+    parts: list[str] = []
+    if passed:
+        extracted = [o for o in passed if o.get("extracted_fields")]
+        if extracted:
+            parts.append(f"Details were read from {len(extracted)} verified document"
+                         f"{'s' if len(extracted) != 1 else ''}.")
+    if stopped and not passed:
+        parts.append("It did not pass verification, so no details were read and KYC was not run.")
+    elif stopped:
+        parts.append(f"{len(stopped)} document{'s' if len(stopped) != 1 else ''} that did not pass verification "
+                     f"{'were' if len(stopped) != 1 else 'was'} not processed further.")
+    codes_now = [str(c) for c in (kyc or {}).get("reason_codes") or []] if isinstance(kyc, dict) else []
+    if passed and codes_now == ["INSUFFICIENT_SOURCES"]:
+        # ONE DOCUMENT IS NOT A KYC PROBLEM: there is simply nothing to compare it with yet
+        parts.append("KYC will compare the details once another verified identity or bank document is on the case.")
+    elif passed and isinstance(kyc, dict) and kyc.get("status"):
+        status = str(kyc["status"]).upper()
+        said = {"PASS": "KYC passed", "REVIEW": "KYC needs review", "FAIL": "KYC did not pass",
+                "PARTIAL": "KYC partly matched", "SKIPPED": "KYC could not compare anything yet"}.get(status,
+                                                                                                    f"KYC: {status}")
+        codes = [str(c) for c in kyc.get("reason_codes") or []]
+        if codes and status != "PASS":
+            from app.agents.applicant import case_memory_facts
+
+            readable = [case_memory_facts._readable(c) for c in codes[:2]]
+            said += " (" + "; ".join(r for r in readable if r) + ")"
+        parts.append(said + ".")
+    return " ".join(parts)
+
+
+def _application_sentence(matches: list[dict[str, Any]] | None) -> str:
+    """Fields a document contradicts on the APPLICATION FORM, by party -- named, never valued."""
+    said = []
+    for party in matches or []:
+        bad = [str(f.get("field") or "").replace("_", " ").lower() for f in party.get("fields") or []
+               if str(f.get("status") or "").upper() in ("FAIL", "MISMATCH", "REVIEW")]
+        if bad:
+            who = "the co-applicant's" if party.get("party_role") == "CO_APPLICANT" else "the applicant's"
+            said.append(f"{', '.join(bad)} on the document differ{'s' if len(bad) == 1 else ''} from "
+                        f"{who} application form")
+    return ("Also, " + "; ".join(said) + ".") if said else ""
+
+
+def _fos_kyc_on_upload() -> bool:
+    """Whether the FOS chat upload runs KYC after verification (FOS_KYC_ON_UPLOAD, default on)."""
+    import os
+
+    return (os.getenv("FOS_KYC_ON_UPLOAD", "true") or "true").strip().lower() == "true"
+
+
+_PASSED = {"PASS", "VERIFIED", "SUCCESS"}
+
+
+def _document_pipeline(document: dict[str, Any], kyc: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """
+    One file's steps, as the frontend renders them. THE GATE IS THE VERDICT:
+    extraction runs only behind a PASS, and KYC only reads released fields --
+    a document that did not pass verification shows EXTRACT and KYC as SKIPPED,
+    with the reason, never as pending work.
+    """
+    verdict = str(document.get("verification") or "").upper()
+    processing = str(document.get("status") or "").upper() in ("PROCESSING", "QUEUED") \
+        or "DOCUMENT_QUEUED_FOR_PROCESSING" in (document.get("reason_codes") or [])
+    steps: list[dict[str, Any]] = []
+    if processing and not verdict:
+        steps.append({"step": "VERIFY", "status": "PROCESSING"})
+        steps.append({"step": "EXTRACT", "status": "WAITING", "reason": "AWAITING_VERIFICATION"})
+        steps.append({"step": "KYC", "status": "WAITING", "reason": "AWAITING_VERIFICATION"})
+        return steps
+    steps.append({"step": "VERIFY", "status": verdict or "NOT_RUN",
+                  "reason_codes": list(document.get("reason_codes") or [])})
+    if verdict not in _PASSED:
+        why = "VERIFICATION_FAILED" if verdict in ("FAIL", "FAILED", "REJECTED") else "VERIFICATION_NOT_PASSED"
+        steps.append({"step": "EXTRACT", "status": "SKIPPED", "reason": why})
+        steps.append({"step": "KYC", "status": "SKIPPED", "reason": why})
+        return steps
+    released = document.get("extraction") is not None
+    steps.append({"step": "EXTRACT", "status": "DONE" if released else "NOT_RELEASED",
+                  **({} if released else {"reason": "NO_FIELDS_RELEASED"})})
+    if not kyc:
+        steps.append({"step": "KYC", "status": "NOT_RUN",
+                      "reason": "KYC_OFF_AT_THIS_STAGE" if not _fos_kyc_on_upload() else "NO_KYC_RESULT"})
+    else:
+        steps.append({"step": "KYC", "status": str(kyc.get("status") or "").upper() or "NOT_RUN",
+                      "reason_codes": list(kyc.get("reason_codes") or [])})
+    return steps
+
+
+def _extracted_fields(document: dict[str, Any]) -> dict[str, Any] | None:
+    """The released OCR fields as {field: value}, identifiers masked per the disclosure policy."""
+    extraction = document.get("extraction")
+    if not isinstance(extraction, dict):
+        return None
+    fields = extraction.get("fields") if isinstance(extraction.get("fields"), dict) else extraction
+    flat: dict[str, Any] = {}
+    for name, value in (fields or {}).items():
+        if isinstance(value, dict):
+            value = value.get("value")
+        if value not in (None, "", [], {}):
+            flat[str(name)] = value
+    from app.security import sensitivity
+
+    # IDENTIFIERS BY FIELD NAME -- the text patterns cover PAN / Aadhaar /
+    # accounts only, and a DL or EPIC number is an identifier too
+    for key in list(flat):
+        if key in _IDENTIFIER_FIELDS and isinstance(flat[key], str) and "X" not in flat[key][:4]:
+            flat[key] = sensitivity.mask(flat[key])
+    return sensitivity.mask_payload(flat) if flat else None
+
+
+#: Extracted fields that are identifiers, always masked in a response.
+_IDENTIFIER_FIELDS = frozenset({"pan_number", "pan", "dl_number", "epic_number", "passport_number",
+                                "aadhaar_number", "account_number", "personal_number"})
+
+
 def _declared_types(form) -> list[str | None]:
     """
     The asserted document types, however the client chose to send them.
@@ -1432,9 +1572,22 @@ async def _copilot_upload(
     # malformed is refused whole rather than half-applied.
     documents: list[UploadedDocument] = []
     empty: list[str] = []
+    # THE SAME LIMITS AS POST /los/process, enforced here too: this route read
+    # every part whole with no cap (a 30 MB file was accepted, 2026-10-05).
+    from app.agents.document_agent.workflow import MAX_UPLOAD_BYTES as _MAX_BYTES
+    from app.api.routes.los_api import MAX_DOCUMENTS as _MAX_DOCS
+
+    if len(uploads) > _MAX_DOCS:
+        raise HTTPException(413, detail={"request_id": request_id, "error": "TOO_MANY_FILES",
+                                         "message": f"At most {_MAX_DOCS} files per upload."})
 
     for index, upload in enumerate(uploads):
-        content = await upload.read()
+        content = await upload.read(_MAX_BYTES + 1)
+        if len(content) > _MAX_BYTES:
+            raise HTTPException(413, detail={
+                "request_id": request_id, "error": "FILE_TOO_LARGE",
+                "message": f"{getattr(upload, 'filename', None) or 'A file'} exceeds the "
+                           f"{_MAX_BYTES // (1024 * 1024)}MB limit."})
         filename = getattr(upload, "filename", None) or f"upload-{index + 1}"
         if not content:
             empty.append(filename)
@@ -1476,6 +1629,11 @@ async def _copilot_upload(
         # name -- and returned it from an upload endpoint at a stage with no
         # authority to act on it.
         cross_document_checks=False,
+        # KYC NOW RUNS ON THE FOS UPLOAD (2026-10-04): verification first; only a
+        # PASSED document releases its OCR fields, and only released fields
+        # reach KYC -- a document that failed verification goes no further.
+        # Income comparison and eligibility stay off at FOS.
+        kyc_checks=_fos_kyc_on_upload(),
         # And no income analysis. A bank statement is verified here as a
         # DOCUMENT; `signals` carries average monthly credit and net salary,
         # which is the credit stage's output and has no business in a FOS
@@ -1527,6 +1685,11 @@ async def _copilot_upload(
             # reference, a file refused at the gate), never a filled-in number.
             "score": document.get("verification_score"),
             "confidence": document.get("verification_confidence"),
+            # THE DOCUMENT'S JOURNEY, renderable without reading prose:
+            # VERIFY -> EXTRACT -> KYC, each DONE / SKIPPED (with why) / ...
+            "pipeline": _document_pipeline(document, los.get("kyc")),
+            # THE OCR FIELDS, released only behind a PASS, identifiers masked
+            "extracted_fields": _extracted_fields(document),
         }
         for document in (los.get("documents") or [])
     ]
@@ -1608,6 +1771,9 @@ async def _copilot_upload(
                         "applicant.360"],
                  write=True, confirmed=True, status="OK")
 
+    stage_sentence = " ".join(x for x in (_pipeline_sentence(outcomes, los.get("kyc")),
+                                          _application_sentence(los.get("profile_match"))) if x)
+
     if len(outcomes) == 1 and (outcomes[0].get("upload_validation") or {}).get("reason") == "INVALID_UPLOAD":
         one = outcomes[0]
         answer = (f"{one['source_id']} couldn't be accepted: "
@@ -1672,6 +1838,9 @@ async def _copilot_upload(
         verification["upload_validation"] = [dict(o["upload_validation"], source_id=o["source_id"])
                                               for o in [*rejected, *filed_elsewhere]]
 
+    if stage_sentence:
+        answer = f"{answer} {stage_sentence}"
+
     return _blank(
         request_id,
         applicant_id=applicant_id,
@@ -1689,13 +1858,11 @@ async def _copilot_upload(
         policy=result.get("policy"),
         pending_items=result.get("pending_items") or [],
         verification=verification,
-        # Null on an upload, and deliberately.
-        #
-        # KYC is a downstream stage. A FOS upload does not compute one, so
-        # there is nothing to report -- and reporting SKIPPED would be a KYC
-        # verdict where none was reached. A persisted downstream result, once
-        # one exists, is surfaced by the read actions rather than minted here.
-        kyc=None,
+        # THE KYC THE UPLOAD RAN (2026-10-04): over the fields released by the
+        # documents that PASSED verification -- identifiers masked. Null when
+        # nothing reached KYC (no passed document, or KYC off at FOS), never a
+        # SKIPPED verdict minted for a check that did not run.
+        kyc=_upload_kyc(los),
         next_action=result.get("next_action"),
         readiness=result.get("readiness"),
         # DOCUMENT_STATUS, not ACTION_REQUEST. The write has already
@@ -1824,7 +1991,8 @@ def _from_agent(
     # THE FRONTEND CONTRACT (copilot/answering/structured.py): what kind of
     # answer, whose, in which language -- and a verification job, if any.
     for key in ("response_type", "language", "processing", "portfolio", "scope", "language_contract",
-                "pending_work", "gate"):
+                "pending_work", "gate", "queries", "deviations", "deviation_rules", "raise_query_action",
+                "eligibility"):
         if result.get(key) is not None:
             envelope[key] = result.get(key)
     subject = dict(result.get("subject") or {}) if isinstance(result.get("subject"), dict) else {}

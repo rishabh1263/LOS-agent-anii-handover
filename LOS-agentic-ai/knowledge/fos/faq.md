@@ -1,3 +1,15 @@
+---
+id: fos.faq
+knowledge_type: FAQ
+title: Frequently asked questions
+description: Field officers' common questions on uploads, REVIEW, name differences, KYC, file types and speed.
+domain: general
+language: en
+source: LOS curated knowledge (this repository)
+related:
+- fos.verification_guidelines
+- fos.document_statuses
+---
 # Frequently asked questions
 
 ## Can I upload several documents at once?

@@ -768,8 +768,17 @@ async def answer_question(
     if turn is not None:
         from app.agents.applicant.copilot.answering import phrasing as _conv_phrasing
 
+        # THE LANGUAGE THE CONVERSATION IS IN, as the response's language
+        # contract will state it: a word Hindi and Marathi share ("धन्यवाद",
+        # "नमस्कार"), or a bare "hello" in a Marathi conversation, is answered in
+        # it (language.response_language) -- where a reply in it exists
+        from app.agents.applicant import language as _turn_lang
+
+        remembered = (context or {}).get("language") or (context or {}).get("last_language")
+        spoken = _turn_lang.response_language(None, _turn_lang.detect(message), remembered, message)
+        turn_language = spoken if conversations.has_reply(turn.kind, spoken) else turn.language
         reply, reply_language = conversations.reply(
-            turn.kind, turn.language, seed=_conv_phrasing.TURN_SEED.get(), text=message)
+            turn.kind, turn_language, seed=_conv_phrasing.TURN_SEED.get(), text=message)
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
                      intent=turn.kind, tools=[], status="CONVERSATION")
@@ -805,6 +814,37 @@ async def answer_question(
     # A FIELD NAME TYPED AS AN IDENTIFIER ("what is loan_amount?") is the same
     # words; an upper-case code (READY_FOR_CPA) is left exactly as written.
     message = re.sub(r"\b([a-z]+(?:_[a-z]+)+)\b", lambda m: m.group(1).replace("_", " "), message)
+
+    # QUERIES ("query raise kar do", "which queries are open?"): the live
+    # subject of the query, offered as the SAME structured RAISE_QUERY action
+    # the frontend button posts (capabilities/queries.py -> app/agents/los/
+    # queries.py). Nothing is created without that confirmation. AUTHORIZE
+    # BEFORE RETRIEVE, as every capability below.
+    from app.agents.applicant.copilot.capabilities import queries as _query_cap
+
+    _qreq = _query_cap.request(message) if case_id and intent_override is None else None
+    if _qreq is not None:
+        _authorize_capability(caller, applicant_id=applicant_id, case_id=case_id,
+                              request_id=request_id, message=message)
+        _qresults, _qtrace, _qerrors = await _call_tools(
+            ("documents.get",), applicant_id=applicant_id, case_id=case_id, document_type=None,
+            caller=caller, request_id=request_id, stage=_stage_of(None, case_id), intent="CASE_QUERY")
+        _qdocs = (_qresults.get("documents.get") or {}).get("documents") or []
+        _qout = _query_cap.run(_qreq, case_id=case_id, message=message, documents=_qdocs)
+        audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
+                     case_id=case_id, intent=f"CASE_QUERY_{_qreq.kind}", tools=["documents.get", "los.query"],
+                     status="OK", detail=_qout["response_type"])
+        _qunderstanding = dict(_understanding[0] or {})
+        _qframe = dict(_qunderstanding.get("frame") or {})
+        _qframe.setdefault("language", _language_code(message))
+        _qunderstanding.update({"frame": _qframe, "decided_by": "QUERY_CAPABILITY",
+                                "capability": f"CASE_QUERY_{_qreq.kind}"})
+        return envelope(
+            understanding=_qunderstanding, intent=f"CASE_QUERY_{_qreq.kind}", answer=_qout["answer"],
+            documents=_qdocs, response_type=_qout["response_type"], actions=_qout["actions"],
+            queries=_qout.get("queries") or [], deviations=_qout.get("deviations"),
+            deviation_rules=_qout.get("deviation_rules"), raise_query_action=_qout.get("raise_query_action"),
+            query_type=QueryType.CASE_FACT.value, errors=_qerrors or [])
 
     # VERIFY ("verify", "PAN verify karo", "sab verify kar do", "iska score?"):
     # an orchestration over the existing verification pipeline
@@ -860,6 +900,16 @@ async def answer_question(
     from app.agents.applicant.copilot.capabilities import gates as _gate_cap
 
     _greq = _gate_cap.request(message) if case_id and intent_override is None else None
+    if _greq is None and case_id and intent_override is None and re.search(
+            r"\b(what'?s|what\s+is|kya\s+hai|ab)\b[^?]{0,15}\bnext\b|\bnext\s+(step|kya)\b|\baage\s+kya\b",
+            message, re.I):
+        # "WHAT'S NEXT" AFTER FOS: next-step rules are configured for FOS only
+        # (impact_rules.yaml); a later stage's next step is its configured gate.
+        # AUTHORIZE BEFORE RETRIEVE: the stage is read only once allowed.
+        _authorize_capability(caller, applicant_id=applicant_id, case_id=case_id,
+                              request_id=request_id, message=message)
+        if _gate_cap.live_stage(case_id) not in (None, "FOS"):
+            _greq = _gate_cap.Request(_gate_cap.EVALUATE, None)
     if _greq is not None and _greq.kind == _gate_cap.EVALUATE:
         # FOS READINESS IS ALREADY THE FOS GATE, answered by the READINESS path
         # (party-aware, stage-aware); and a question about ANOTHER stage's
@@ -1732,8 +1782,14 @@ async def answer_question(
         # a chat turn's context would produce a second answer for one
         # applicant.
         memory = case_memory_facts.case_memory(case_id or "", party_id)
-        answer, case_sources = eligibility_facts.answer(memory)
+        answer, case_sources = eligibility_facts.answer(memory, eligibility_facts.want(message))
         case_memory_block = memory
+        # THE AGENT'S RESULT, STRUCTURED, for the frontend -- verbatim
+        _erecorded = eligibility_facts.structured(memory)
+        if _erecorded:
+            from app.agents.applicant.copilot.answering import structured as _estructured
+
+            _estructured.put("eligibility", None, _erecorded)
         source, llm_ms = "deterministic", 0.0
 
     elif intent is Intent.DOCUMENT_DETAILS:
@@ -1758,7 +1814,20 @@ async def answer_question(
 
     elif intent in (Intent.CASE_HISTORY, Intent.CASE_FINDINGS, Intent.KYC_RESULT):
         memory = case_memory_facts.case_memory(case_id or "", party_id)
-        if intent is Intent.CASE_FINDINGS:
+        if intent is Intent.CASE_FINDINGS and re.search(
+                r"\b(suspicious|suspicion|suspect\w*|gadbad\w*|tamper\w*|sandigdh|shak)\b", message, re.I):
+            # "IS ANYTHING SUSPICIOUS?": only what a check FLAGGED -- a passed
+            # check is not a suspicion -- and never a fraud verdict
+            flagged = [f for f in memory.get("findings") or []
+                       if str(f.get("status") or "").upper() not in ("PASS", "SUCCESS", "SKIPPED", "VERIFIED")]
+            if not flagged:
+                answer, case_sources = ("Nothing is flagged on this case: no verification, KYC or risk check "
+                                        "has recorded a problem.", [])
+            else:
+                answer, case_sources = case_memory_facts.findings_summary({**memory, "findings": flagged})
+                answer = answer.replace("recorded on this case:", "flagged on this case (checks that need "
+                                        "attention -- not a fraud finding):", 1)
+        elif intent is Intent.CASE_FINDINGS:
             answer, case_sources = case_memory_facts.findings_summary(memory)
         elif intent is Intent.KYC_RESULT:
             # THE CALLER'S OWN CHECK: on a two-party case the co-applicant's
@@ -1766,9 +1835,12 @@ async def answer_question(
             _parties = subjects.parties_of(case_id) if case_id else []
             _primary = next((p.party_id for p in _parties
                              if p.role is subjects.Kind.PRIMARY), None)
-            answer, case_sources = case_memory_facts.kyc_answer(
-                memory, want=(classification.fields or {}).get("want") or "result",
-                party_id=_primary if len(_parties) > 1 else None, primary_id=_primary)
+            if (classification.fields or {}).get("want") == "application":
+                answer, case_sources = _application_match_answer(case_id, party_id, _primary)
+            else:
+                answer, case_sources = case_memory_facts.kyc_answer(
+                    memory, want=(classification.fields or {}).get("want") or "result",
+                    party_id=_primary if len(_parties) > 1 else None, primary_id=_primary)
         else:
             answer, case_sources = case_memory_facts.explain(memory)
         case_memory_block = memory
@@ -2785,7 +2857,8 @@ async def answer_question(**kwargs: Any) -> dict[str, Any]:
         context = kwargs.get("context") if isinstance(kwargs.get("context"), dict) else {}
         contract = _gateway.analyse(str(kwargs.get("message") or ""),
                                     requested=kwargs.get("language") or None,
-                                    preferred=(context or {}).get("language"))
+                                    preferred=((context or {}).get("language")
+                                               or (context or {}).get("last_language")))
         response["language_contract"] = contract.public()
         # a whole-sentence answer written in the user's language says so
         _written_in = _presented_phrasing.PRESENTED.get()
@@ -2805,6 +2878,12 @@ async def answer_question(**kwargs: Any) -> dict[str, Any]:
     from app.agents.applicant.copilot.answering import composer as _composer
 
     response = await _composer.finish(response, str(kwargs.get("message") or ""))
+    # THE AUDIENCE (voice.py): a loan agent hears ABOUT the customer
+    # ("The customer's PAN number is ..."), never "Your PAN number ..."
+    from app.agents.applicant.copilot.answering import voice as _voice
+
+    if isinstance(response.get("answer"), str):
+        response["answer"] = _voice.for_audience(response["answer"])
     answer = response.get("answer")
     if isinstance(answer, str) and answer:
         cleaned, verdict = guardrails.published(answer)
@@ -2949,23 +3028,36 @@ async def _knowledge_reply(
 
 def _cited(text: str, detail: dict[str, Any] | None) -> str:
     """
-    A KNOWLEDGE ANSWER NAMES WHERE IT COMES FROM: the handbook document and
-    section it was grounded in (and the version, when recorded), or the
-    configured policy -- in words, never a path. A refused or unconfident
-    retrieval cites nothing; a customer fact never reaches this function.
+    A KNOWLEDGE ANSWER'S SOURCE, KEPT STRUCTURED -- NOT IN THE ANSWER TEXT.
+
+    The answer a person reads carries no "Source: FOS handbook ..., version
+    2ec11a4" line: a content hash and a file title are internals. The label
+    ("FOS handbook -- Kyc (What is the KYC check?)") goes on
+    `knowledge.citation` for the frontend to show as a chip; the exact
+    documents, sections and versions stay on `knowledge.sources` /
+    `knowledge.versions` for audit. A refused or unconfident retrieval cites
+    nothing; a customer fact never reaches this function.
     """
-    if not text or not isinstance(detail, dict) or detail.get("refused") \
+    label = _citation_label(detail)
+    if label and isinstance(detail, dict):
+        detail["citation_label"] = label
+    return text
+
+
+def _citation_label(detail: dict[str, Any] | None) -> str | None:
+    """The plain-words source of a knowledge answer -- never a path, hash or version."""
+    if not isinstance(detail, dict) or detail.get("refused") \
             or not (detail.get("confident") or detail.get("authoritative")):
-        return text
+        return None
     citations = [str(c) for c in (detail.get("citations") or []) if c]
     if not citations:
-        return text
+        return None
     if citations[0].startswith("configuration:"):
         page = next((c.partition("#")[0] for c in citations[1:] if "#" in c or c.endswith(".md")), "")
         if page:
             title = page.rsplit("/", 1)[-1].rsplit(".", 1)[0].replace("_", " ").strip().capitalize()
-            return f"{text}\n\nSource: the configured document policy (FOS handbook, {title})."
-        return f"{text}\n\nSource: the configured document policy."
+            return f"Configured document policy (FOS handbook -- {title})"
+        return "Configured document policy"
     document = citations[0].partition("#")[0]
     sections: list[str] = []
     for c in citations:
@@ -2973,14 +3065,10 @@ def _cited(text: str, detail: dict[str, Any] | None) -> str:
         if doc == document and section and section not in sections:
             sections.append(section)
     title = document.rsplit("/", 1)[-1].rsplit(".", 1)[0].replace("_", " ").strip().capitalize()
-    version = next((str(v.get("version") or "") for v in detail.get("versions") or []
-                    if isinstance(v, dict) and v.get("document") == document), "")
-    said = f"Source: FOS handbook, {title}"
+    said = f"FOS handbook -- {title}"
     if sections:
         said += " (" + ", ".join(sections[:2]) + ")"
-    if version:
-        said += f", version {version.split(':')[-1][:7]}"
-    return f"{text}\n\n{said}."
+    return said
 
 
 def _knowledge_source(source: str, detail: dict[str, Any]) -> str:
@@ -3006,6 +3094,8 @@ def _public_knowledge(detail: dict[str, Any]) -> dict[str, Any]:
         "stage": detail.get("stage"),
         "grounded": bool(detail.get("confident")),
         "sources": list(detail.get("citations") or []),
+        # what a person may be shown as the source: words only, no version / hash
+        "citation": detail.get("citation_label") or _citation_label(detail),
         "top_score": detail.get("top_score", 0.0),
         # WHICH VERSION of the handbook answered: declared, or the content
         # hash of the file -- never an invented release number.
@@ -3164,6 +3254,40 @@ async def confirm_action(
 
 
 __all__ = ["AgentError", "answer_question", "confirm_action"]
+
+
+def _application_match_answer(case_id: str | None, party_id: str | None,
+                              primary_id: str | None) -> tuple[str, list[dict[str, Any]]]:
+    """
+    THE DOCUMENTS AGAINST THE APPLICATION FORM (profile match), read from the
+    recorded PROFILE_MATCH finding -- which fields agreed, which did not. Values
+    are never repeated; nothing is compared here.
+    """
+    try:
+        from app.store import get_repository
+
+        rows = [f for f in get_repository().get_current_findings(case_id or "", kind="PROFILE_MATCH") or []]
+    except Exception:  # noqa: BLE001
+        rows = []
+    who = party_id or primary_id
+    rows = [f for f in rows if not who or str(f.party_id or "") == str(who)] or rows
+    if not rows:
+        return ("No comparison against the application form has been recorded yet -- it runs when a "
+                "verified document is uploaded.", [])
+    latest = rows[-1]
+    fields = (latest.payload or {}).get("fields") or []
+    if not fields:
+        return (f"The documents were compared with the application form (score {latest.score}); the "
+                f"field-by-field result is not recorded for this upload.", [{"kind": "PROFILE_MATCH"}])
+    said = {"PASS": "matches", "MATCH": "matches", "PARTIAL": "partly matches", "REVIEW": "needs review",
+            "FAIL": "does not match", "MISMATCH": "does not match", "SKIPPED": "was not compared"}
+    lines = [f"- {str(f.get('field') or '').replace('_', ' ').lower()}: "
+             f"{said.get(str(f.get('status') or '').upper(), str(f.get('status') or '').lower())}"
+             for f in fields]
+    bad = [f for f in fields if str(f.get("status") or "").upper() in ("FAIL", "MISMATCH", "REVIEW", "PARTIAL")]
+    head = ("The documents agree with the application form." if not bad else
+            f"{len(bad)} field{'s' if len(bad) != 1 else ''} on the documents do not agree with the application form.")
+    return head + "\n" + "\n".join(lines), [{"kind": "PROFILE_MATCH", "score": latest.score}]
 
 
 def _language_code(text: str) -> str:

@@ -46,6 +46,11 @@ FOS_SCOPES = [
 @pytest.fixture(autouse=True)
 def _store(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
+    # THE OFF SWITCH (2026-10-04). The FOS upload now runs KYC after a PASSED
+    # verification by default (tests/integration/test_fos_upload_kyc.py). These
+    # tests keep the boundary they were written for -- verification only, no
+    # KYC anywhere -- as what FOS_KYC_ON_UPLOAD=false must still guarantee.
+    monkeypatch.setenv("FOS_KYC_ON_UPLOAD", "false")
     agent_config.reload()
     repository = SQLiteRepository(tmp_path / "boundary.sqlite3")
     repository.initialise()

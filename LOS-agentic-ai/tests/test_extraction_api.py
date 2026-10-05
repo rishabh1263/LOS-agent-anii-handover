@@ -205,3 +205,28 @@ def test_batch_extraction():
     body = response.json()
     assert body["total"] == 2
     assert body["succeeded"] == 2
+
+def test_a_long_pdf_is_refused_at_once_not_ocrd(monkeypatch):
+    """A 50-page statement sent to the ID extractor was rendered and OCR'd four pages
+    deep (133 s) to conclude UNKNOWN. Longer than any identity document: refused at once."""
+    import io
+
+    from pypdf import PdfWriter
+
+    from app.api.routes import document_extraction_api as api
+
+    def never(*_a, **_k):
+        raise AssertionError("a long PDF was rendered")
+
+    monkeypatch.setattr(api, "_pdf_pages_to_images", never)
+    monkeypatch.setattr(api, "_pdf_first_page_to_image", never)
+    writer = PdfWriter()
+    for _ in range(api.MAX_PDF_PAGES + 1):
+        writer.add_blank_page(width=595, height=842)
+    buf = io.BytesIO()
+    writer.write(buf)
+    response = build_client().post("/api/v1/extract-document",
+                                   files={"file": ("statement.pdf", buf.getvalue(), "application/pdf")})
+    body = response.json()
+    assert body["status"] == "UNSUPPORTED" and body["document_type"] == "UNKNOWN"
+    assert "financial/extract" in body["errors"][0] and response.headers.get("X-Request-ID")

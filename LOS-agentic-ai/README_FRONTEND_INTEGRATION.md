@@ -168,6 +168,10 @@ stateDiagram-v2
 | Application status | `GET /api/v1/fos/applications/{case_id}` | — |
 | Background processing (jobs) | `GET /api/v1/los/cases/{case_id}/processing` | — |
 | Stage transition (after user confirms) | `POST /api/v1/los/cases/{case_id}/stage` | `{target_stage, expected_stage, idempotency_key, reason, mode: "GATED"}` — send the Copilot's action body as is |
+| **Raise Query** (the button) | `POST /api/v1/los/cases/{case_id}/queries` | send the `RAISE_QUERY` action's `body` as is: `{target_type, target_id?, query_type, text, evidence_refs?, idempotency_key?}` |
+| Queries & deviations of a case | `GET /api/v1/los/cases/{case_id}/queries` | — → `{queries[], deviations[], deviation_rules, query_types[], target_types[]}` |
+| Answer / resolve / reopen a query | `POST /api/v1/los/cases/{case_id}/queries/{query_id}/status` | `{status: RESPONDED\|RESOLVED\|REOPENED\|CANCELLED, note?}` |
+| Decide a deviation (authority only) | `POST /api/v1/los/cases/{case_id}/deviations/{deviation_id}/decision` | `{decision: APPROVED\|REJECTED\|WITHDRAWN, justification}` |
 | Signature with a specimen | `POST /api/v1/los/process` | multipart `files[]` + `expected_types=SIGNATURE` + optional `reference_signature` (and `co_applicant_reference_signature`) |
 | Universal copilot (all stages) | `POST /api/v1/copilot/query` | `{message, case_id, applicant_id, conversation_id, context, ...}` |
 | Standalone verifiers | `POST /api/v1/verify`, `POST /api/v1/financial/verify` | multipart `file` (+ `expected_type`) |
@@ -340,7 +344,55 @@ the `los.stage:override` scope; the response has `override: true` and the gate i
 overrode, and the case timeline gets a `STAGE_TRANSITION_OVERRIDE` event. A normal
 user screen should never send it.
 
-### 6.8 Errors
+### 6.8 Raise Query button (queries and deviations)
+
+The chat and the button use **one action and one endpoint**. The frontend never
+parses the message and never invents query semantics.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant FE as Frontend
+    participant API as Backend
+    U->>FE: "query raise kar do" (or a REVIEW / FAIL document card)
+    FE->>API: CUSTOM_QUERY (or any answer with document cards)
+    API-->>FE: response_type QUERY_PROPOSED + raise_query_action (also in actions[] / a card's actions[])
+    FE->>U: [Raise Query] button, prefilled text editable
+    U->>FE: Confirm
+    FE->>API: POST raise_query_action.endpoint with raise_query_action.body
+    API-->>FE: 201 {query{query_id, status: OPEN, history[]}, open_items, gate (re-read)}
+```
+
+The `RAISE_QUERY` action:
+
+```json
+{"action_id": "RAISE_QUERY", "available": true, "label": "Raise Query", "stage": "FOS",
+ "target_type": "DOCUMENT", "target_id": "<document id>", "query_type": "VERIFICATION_ISSUE",
+ "prefill": "Please review the Signature: it needs a reviewer (...).", "evidence_refs": [...],
+ "requires_confirmation": true, "method": "POST",
+ "endpoint": "/api/v1/los/cases/<case_id>/queries", "body": {...}}
+```
+
+- **Nothing is created until the button is posted.** A second click (or the same
+  question on the same subject while it is open) returns the existing query with
+  `result: "EXISTING"`. If one is already open, the chat says so (`QUERY_EXISTS`).
+- **Lifecycle** (configured in `app/config/queries.yaml`): `OPEN → RESPONDED →
+  RESOLVED`, `RESOLVED → REOPENED`, `OPEN/REOPENED → CANCELLED`. An illegal move
+  returns `409 INVALID_QUERY_TRANSITION`. Resolving needs the reviewer-side scope
+  (`los.query:resolve` or `los.stage:write`); the person answering is not the
+  person who closes it.
+- **An open query blocks the gate.** It appears as gate blocker `OPEN_QUERIES`
+  (configured, UNCONFIRMED). **RESOLVED is not a stage pass**: the gate's own
+  criteria still apply.
+- **Deviations** are exceptions to a configured rule, decided by the configured
+  authority (`los.deviation:approve`), never by the person who raised them
+  (`403 SELF_APPROVAL_FORBIDDEN`), and always with a justification. **No deviation
+  rule is configured yet**, so `deviation_rules` is `CONFIGURATION_GAP` and none is
+  raised automatically. A pending deviation blocks the gate (`PENDING_DEVIATIONS`).
+- Keep these apart in the UI: QUERY, DEVIATION, BLOCKER, HUMAN_REVIEW,
+  PROCESSING, PASS, FAIL.
+
+### 6.9 Errors
 
 | Situation | What you get |
 |---|---|
@@ -372,6 +424,12 @@ flowchart LR
   actually in. If a template does not exist for a fact, the answer stays in
   English and `localized: false` — show it as is (set `dir="rtl"` for Urdu).
 - Numbers, names, IDs, statuses never change with language.
+- Marathi typed in Latin letters ("KYC zala ka?") is detected as `mr-Latn` and
+  answered in Marathi (`response_language: "mr"`). Verification, next step,
+  required documents, KYC, case status and document details are localized
+  from their structured blocks; document labels and quoted values stay as recorded.
+- A word Hindi and Marathi share ("धन्यवाद", "नमस्कार") is answered in the
+  conversation's language — another reason to always send `context` back.
 
 ---
 

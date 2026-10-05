@@ -103,6 +103,22 @@ policies:
       # loan against, so LTV is reported as NOT_APPLICABLE.
       enabled: false
 
+    # AGE AND THE KYC PREREQUISITE ARE CRITERIA THE ENGINE SUPPORTS AND THIS
+    # POLICY DOES NOT SET. null / [] = not configured: each is reported in
+    # `rules` as NOT_CONFIGURED and in `configuration_gaps`, never assumed.
+    # The business sets them; nothing here invents an age band or decides
+    # that KYC gates affordability.
+    age:
+      minimum_years: null
+      maximum_years: null
+    prerequisites:
+      kyc:
+        # e.g. [PASS] once approved: KYC must reach one of these first
+        accepted_statuses: []
+
+    # Rules the assessment cannot be made without: missing = CONFIGURATION_GAP.
+    essential_rules: [FOIR]
+
   # -------------------------------------------------------------------------
   # HOME LOAN -- also a demonstration policy, and the product where LTV is
   # exercised. Every number is invented for the demo.
@@ -152,3 +168,47 @@ policies:
       # consideration price is never accepted -- it is not a valuation.
       accepted_value_sources:
         - DECLARED
+
+    # AGE AND THE KYC PREREQUISITE ARE CRITERIA THE ENGINE SUPPORTS AND THIS
+    # POLICY DOES NOT SET. null / [] = not configured: each is reported in
+    # `rules` as NOT_CONFIGURED and in `configuration_gaps`, never assumed.
+    # The business sets them; nothing here invents an age band or decides
+    # that KYC gates affordability.
+    age:
+      minimum_years: null
+      maximum_years: null
+    prerequisites:
+      kyc:
+        # e.g. [PASS] once approved: KYC must reach one of these first
+        accepted_statuses: []
+
+    # Rules the assessment cannot be made without: missing = CONFIGURATION_GAP.
+    essential_rules: [FOIR]
+
+# ---------------------------------------------------------------------------
+# WHAT TO DO NEXT, per reason code -- operational wording for the officer, not
+# a lending rule. `owner` is who acts: APPLICANT, FOS, SYSTEM or REVIEWER.
+# ---------------------------------------------------------------------------
+next_actions:
+  INCOME_EVIDENCE_MISSING:       {owner: APPLICANT, action: "Upload income evidence (salary slip or bank statement) so a verified monthly income can be established."}
+  INCOME_EVIDENCE_UNDER_REVIEW:  {owner: REVIEWER,  action: "Resolve the income evidence review (salary slip vs bank statement)."}
+  OBLIGATIONS_NOT_CAPTURED:      {owner: FOS,       action: "Capture the applicant's existing monthly loan obligations (EMIs) on the application."}
+  LOAN_AMOUNT_MISSING:           {owner: FOS,       action: "Capture the requested loan amount on the application."}
+  EMI_INPUTS_MISSING:            {owner: FOS,       action: "Capture the loan tenure (and interest rate, where the product sets none)."}
+  EMPLOYMENT_TYPE_NOT_CAPTURED:  {owner: FOS,       action: "Capture the applicant's employment type."}
+  LTV_NOT_AVAILABLE:             {owner: FOS,       action: "Capture the property value from an accepted source."}
+  AGE_NOT_CAPTURED:              {owner: FOS,       action: "Capture the applicant's date of birth."}
+  KYC_PREREQUISITE_NOT_MET:      {owner: SYSTEM,    action: "Complete KYC; eligibility is re-assessed once KYC reaches an accepted status."}
+  KYC_FAILED:                    {owner: REVIEWER,  action: "Review the failed KYC check before eligibility can be considered."}
+  FOIR_ABOVE_THRESHOLD:          {owner: REVIEWER,  action: "Review affordability: obligations plus the proposed EMI exceed the configured FOIR limit."}
+  INCOME_BELOW_MINIMUM:          {owner: REVIEWER,  action: "Review: the verified income is below the product minimum."}
+  LOAN_AMOUNT_BELOW_MINIMUM:     {owner: FOS,       action: "Revise the loan amount to the product's configured range."}
+  LOAN_AMOUNT_ABOVE_MAXIMUM:     {owner: FOS,       action: "Revise the loan amount to the product's configured range."}
+  TENURE_BELOW_MINIMUM:          {owner: FOS,       action: "Revise the tenure to the product's configured range."}
+  TENURE_ABOVE_MAXIMUM:          {owner: FOS,       action: "Revise the tenure to the product's configured range."}
+  EMPLOYMENT_TYPE_NOT_ELIGIBLE:  {owner: REVIEWER,  action: "Review: this employment type is not accepted for the product."}
+  LTV_ABOVE_MAXIMUM:             {owner: REVIEWER,  action: "Review: the loan exceeds the configured share of the property value."}
+  AGE_BELOW_MINIMUM:             {owner: REVIEWER,  action: "Review: the applicant's age is outside the configured range."}
+  AGE_ABOVE_MAXIMUM:             {owner: REVIEWER,  action: "Review: the applicant's age is outside the configured range."}
+  POLICY_UNAVAILABLE:            {owner: SYSTEM,    action: "Configure an eligibility policy for this product."}
+  POLICY_THRESHOLD_NOT_CONFIGURED: {owner: SYSTEM,  action: "Configure the missing policy threshold for this product."}

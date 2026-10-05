@@ -24,6 +24,7 @@ Environment:
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from functools import lru_cache
@@ -32,6 +33,8 @@ from typing import Any
 import jwt
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -370,8 +373,24 @@ def auth_enabled() -> bool:
                 and environment() in _DEV_ENVIRONMENTS)
 
 
+#: Names that look like an auth switch but are read by nothing. Setting one
+#: changes nothing -- which is exactly what made `API_AUTH_ENABLED=false` in a
+#: deployment .env misleading. They are reported at startup, never honoured
+#: (honouring a "false" would switch authentication off under a second name).
+_DEAD_AUTH_FLAGS = ("API_AUTH_ENABLED",)
+
+
+def dead_auth_flags() -> list[str]:
+    """The ignored auth-looking variables this process was started with."""
+    return [name for name in _DEAD_AUTH_FLAGS if os.getenv(name) is not None]
+
+
 def validate_auth_mode() -> None:
     """Refuse to start when authentication is switched off outside dev."""
+    for name in dead_auth_flags():
+        logger.warning("%s is set but IGNORED: authentication is controlled only by AUTH_ENABLED "
+                       "(currently %s). Remove %s from the environment.",
+                       name, "ON" if auth_enabled() else "OFF (development)", name)
     if auth_disabled_requested() and environment() not in _DEV_ENVIRONMENTS:
         raise RuntimeError(
             "AUTH_ENABLED=false is only permitted when ENVIRONMENT is one of "

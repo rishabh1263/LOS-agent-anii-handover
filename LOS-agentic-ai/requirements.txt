@@ -132,6 +132,14 @@ pymupdf>=1.24,<2
 pdf2image>=1.17,<2
 
 
+# ── Language detection (optional) ────────────────────────────────────────────
+# lingua-language-detector -- tells Marathi from Hindi in Devanagari text that
+#                             carries no marker word (app/agents/applicant/
+#                             language.py, languages.yaml `detector`). Offline,
+#                             ~170 MB wheel; without it the marker words decide
+#                             alone. LANGUAGE_DETECTOR=off disables it.
+lingua-language-detector>=2.0,<3
+
 # ── REMOVED, with the reason ─────────────────────────────────────────────────
 #
 # agent-framework          -> replaced by agent-framework-core +
