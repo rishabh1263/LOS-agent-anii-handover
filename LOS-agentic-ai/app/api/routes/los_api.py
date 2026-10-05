@@ -883,3 +883,170 @@ async def processing_status(case_id: str,
             "worker_enabled": ocr_queue.worker_enabled(),
             "jobs": ocr_queue.jobs_for_case(repository, case_id),
             "documents": documents}
+
+
+# ==========================================================================
+# QUERIES AND DEVIATIONS -- the frontend's Raise Query button posts here, and
+# the Copilot's RAISE_QUERY action points here: one service
+# (app/agents/los/queries.py), one vocabulary (app/config/queries.yaml).
+# ==========================================================================
+class RaiseQueryRequest(BaseModel):
+    target_type: str = Field(..., max_length=20, description="DOCUMENT, PARTY, CASE, FINDING or STAGE.")
+    target_id: str | None = Field(default=None, max_length=128,
+                                  description="The document id for a DOCUMENT target; must be on this case.")
+    query_type: str = Field(default="CLARIFICATION", max_length=40,
+                            description="A configured query type (see GET .../queries -> query_types).")
+    text: str = Field(..., max_length=1000, description="What is being asked.")
+    party_id: str | None = Field(default=None, max_length=128)
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list, max_length=10)
+    idempotency_key: str | None = Field(default=None, max_length=64,
+                                        description="A retry with the same key returns the same query.")
+    target_stage: str | None = Field(default=None, max_length=20,
+                                     description="The stage the query is sent to (configured routes, e.g. FOS -> CPA).")
+    severity: str | None = Field(default=None, max_length=10, description="LOW, MEDIUM, HIGH or CRITICAL.")
+    subject: str | None = Field(default=None, max_length=200, description="What the query is about, in words.")
+    related_field: str | None = Field(default=None, max_length=60)
+
+
+class QueryStatusRequest(BaseModel):
+    status: str = Field(..., max_length=20, description="RESPONDED, RESOLVED, REOPENED or CANCELLED.")
+    note: str | None = Field(default=None, max_length=500)
+
+
+class DeviationDecisionRequest(BaseModel):
+    decision: str = Field(..., max_length=20, description="APPROVED, REJECTED or WITHDRAWN.")
+    justification: str | None = Field(default=None, max_length=500)
+
+
+def _query_call(case_id: str, claims: dict[str, Any], prefix: str, write: bool, run):
+    from app.agents.los import queries, stage_gate
+    from app.security.auth import get_scopes
+
+    request_id = f"{prefix}_{uuid.uuid4().hex}"
+    try:
+        access.authorize_claims(claims, case_id=case_id, write=write)
+    except access.AccessDenied as exc:
+        raise access.http_denied(exc, request_id) from None
+    try:
+        result = run(queries, set(get_scopes(claims)), get_subject(claims), request_id)
+    except queries.QueryError as exc:
+        raise HTTPException(status_code=exc.http_status,
+                            detail={"request_id": request_id, **exc.public()}) from None
+    # REFRESHED, NOT ASSUMED: what is outstanding and the gate, read again now
+    from app.agents.los import stages
+
+    current = stages.resolve(case_id).stage
+    gate = stage_gate.public(stage_gate.evaluate_live(case_id, getattr(current, "value", current)))
+    return {"request_id": request_id, "case_id": case_id, **result,
+            "open_items": queries.open_items(case_id), "gate": gate}
+
+
+@router.post("/cases/{case_id}/queries", summary="Raise a query on a case (the Raise Query action)",
+             status_code=201)
+async def raise_case_query(case_id: str, body: RaiseQueryRequest,
+                           claims: dict[str, Any] = Depends(require_jwt)) -> dict[str, Any]:
+    return _query_call(case_id, claims, "qry", True, lambda q, scopes, actor, rid: {"query": q.raise_query(
+        case_id, target_type=body.target_type, query_type=body.query_type, text=body.text, actor=actor,
+        scopes=scopes, target_id=body.target_id, party_id=_party_or_none(body.party_id),
+        evidence_refs=body.evidence_refs, idempotency_key=body.idempotency_key, request_id=rid,
+        target_stage=body.target_stage, severity=body.severity, subject=body.subject,
+        related_field=body.related_field)})
+
+
+@router.get("/cases/{case_id}/queries", summary="Queries and deviations on a case")
+async def list_case_queries(case_id: str, claims: dict[str, Any] = Depends(require_jwt)) -> dict[str, Any]:
+    return _query_call(case_id, claims, "qry", False, lambda q, scopes, actor, rid: {
+        "queries": q.list_queries(case_id), "deviations": q.list_deviations(case_id),
+        "deviation_rules": q.deviation_rules_status(),
+        "query_types": sorted(q.config("queries").get("query_types") or {}),
+        "target_types": list(q.config("queries").get("target_types") or [])})
+
+
+@router.post("/cases/{case_id}/queries/{query_id}/status", summary="Respond to / resolve / reopen a query")
+async def move_case_query(case_id: str, query_id: str, body: QueryStatusRequest,
+                          claims: dict[str, Any] = Depends(require_jwt)) -> dict[str, Any]:
+    return _query_call(case_id, claims, "qry", True, lambda q, scopes, actor, rid: {"query": q.move_query(
+        case_id, query_id, to_status=body.status, actor=actor, scopes=scopes, note=body.note, request_id=rid)})
+
+
+@router.post("/cases/{case_id}/deviations/{deviation_id}/decision",
+             summary="Decide a deviation (configured approving authority only; never the raiser)")
+async def decide_case_deviation(case_id: str, deviation_id: str, body: DeviationDecisionRequest,
+                                claims: dict[str, Any] = Depends(require_jwt)) -> dict[str, Any]:
+    return _query_call(case_id, claims, "dev", True, lambda q, scopes, actor, rid: {
+        "deviation": q.decide_deviation(case_id, deviation_id, decision=body.decision, actor=actor,
+                                        scopes=scopes, justification=body.justification, request_id=rid)})
+
+
+# ==========================================================================
+# FIELD CORRECTIONS -- the reviewer's fix to an extracted field, and the label
+# the extraction is measured / retrained against. The ORIGINAL value is never
+# overwritten: the correction sits beside it, audited, on the document.
+# ==========================================================================
+class FieldCorrectionRequest(BaseModel):
+    field: str = Field(..., max_length=60, description="The extracted field, e.g. pan_number, net_pay.")
+    corrected_value: str = Field(..., max_length=300)
+    reason: str = Field(..., min_length=3, max_length=300, description="Why the extracted value was wrong.")
+
+
+_CORRECTION_SCOPES = ("documents:review", "los.stage:write")
+
+
+@router.post("/cases/{case_id}/documents/{document_id}/corrections",
+             summary="Correct an extracted field (reviewer); kept beside the original, audited, and labelled")
+async def correct_document_field(case_id: str, document_id: str, body: FieldCorrectionRequest,
+                                 claims: dict[str, Any] = Depends(require_jwt)) -> dict[str, Any]:
+    import json
+    import os
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from app.agents.applicant import audit
+    from app.security.auth import get_scopes
+    from app.store import get_repository
+    from app.store.models import CaseEvent
+
+    request_id = f"fix_{uuid.uuid4().hex}"
+    try:
+        access.authorize_claims(claims, case_id=case_id, write=True)
+    except access.AccessDenied as exc:
+        raise access.http_denied(exc, request_id) from None
+    held = set(get_scopes(claims))
+    if not held & set(_CORRECTION_SCOPES) and access.write_all_scope() not in held:
+        raise HTTPException(status_code=403, detail={"request_id": request_id, "code": "CORRECTION_NOT_PERMITTED",
+                                                     "message": "Correcting an extracted field needs the reviewer permission."})
+    repository = get_repository()
+    document = repository.get_document(document_id)
+    if document is None or document.case_id != case_id:
+        raise HTTPException(status_code=404, detail={"request_id": request_id, "code": "TARGET_NOT_FOUND",
+                                                     "message": "That document is not on this case."})
+    fields = dict(document.extracted_fields or {})
+    previous = fields.get(body.field)
+    previous_value = previous.get("value") if isinstance(previous, dict) else previous
+    actor, now = get_subject(claims), datetime.now(timezone.utc).isoformat()
+    corrections = dict(fields.get("_corrections") or {})
+    corrections[body.field] = {"value": body.corrected_value, "by": actor, "at": now, "reason": body.reason}
+    fields["_corrections"] = corrections
+    document.extracted_fields = fields
+    repository.save_document(document)
+    # the TIMELINE says what changed and why -- never the values themselves
+    repository.record_event(CaseEvent(
+        event_id=f"EV-FIX-{uuid.uuid4().hex[:12]}", case_id=case_id, event_type="DOCUMENT_FIELD_CORRECTED",
+        party_id=document.party_id, summary=f"{document.document_type}.{body.field} corrected by {actor}: {body.reason}"[:400],
+        ref_id=document_id))
+    audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id,
+                 intent="DOCUMENT_FIELD_CORRECTED", tools=["documents.correct"], write=True, confirmed=True, status="OK")
+    # THE LABEL: a training / evaluation example. Contains applicant data, so it
+    # lives in the configured, access-controlled runtime store (never the repo).
+    labels = Path(os.getenv("DOCUMENT_LABELS_PATH", "runtime/labels/field_corrections.jsonl"))
+    try:
+        labels.parent.mkdir(parents=True, exist_ok=True)
+        with labels.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"document_id": document_id, "document_type": document.document_type,
+                                     "source_id": document.source_id, "field": body.field,
+                                     "extracted": previous_value, "corrected": body.corrected_value,
+                                     "reason": body.reason, "by": actor, "at": now}) + "\n")
+    except OSError:
+        logger.warning("correction label not written request_id=%s", request_id)
+    return {"request_id": request_id, "case_id": case_id, "document_id": document_id, "field": body.field,
+            "status": "CORRECTED", "original_kept": previous_value is not None}

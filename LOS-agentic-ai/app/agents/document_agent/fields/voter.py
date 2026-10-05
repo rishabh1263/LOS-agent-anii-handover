@@ -264,6 +264,20 @@ def _extract_gender(tokens: list[OCRToken]) -> tuple[str | None, OCRToken | None
             key = re.sub(r"[^A-Z]", "", value.text.upper())
             return _GENDER_MAP.get(key), value
 
+        # A BILINGUAL MARKER "पुरुष/Male" reads as Hindi noise glued to the English
+        # word ("geuMale", real sample voter5). BESIDE the Sex label only, a short
+        # token ENDING in FEMALE / MALE is that marker -- FEMALE first, since it
+        # contains MALE. Nowhere else on the card, so a name cannot set it.
+        glued = value_after_label(
+            tokens,
+            label,
+            lambda t: (len(re.sub(r"[^A-Za-z]", "", t.text)) <= 10
+                       and re.sub(r"[^A-Z]", "", t.text.upper()).endswith(("FEMALE", "MALE"))),
+        )
+        if glued is not None:
+            key = re.sub(r"[^A-Z]", "", glued.text.upper())
+            return ("FEMALE" if key.endswith("FEMALE") else "MALE"), glued
+
     # The reverse of the card prints "लिंग / Sex : स्त्री / Female" as one
     # line, so the bilingual prefix has to be stripped before the marker is
     # readable. Falling back to a standalone marker anywhere on the page

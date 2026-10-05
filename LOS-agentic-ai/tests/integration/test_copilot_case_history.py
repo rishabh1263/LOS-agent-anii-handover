@@ -399,6 +399,9 @@ def test_the_response_carries_only_the_published_keys(client, repo):
         "next_actions", "handoff", "sentiment",
         # Slice 10, additive: the structured basis of a delay answer.
         "delay",
+        # 2026-10-03, additive: the Eligibility Agent's recorded result on an
+        # eligibility answer (null otherwise) -- verbatim, never computed here.
+        "eligibility",
         "timeline", "answer_basis", "timings", "processing_ms",
         "correlation_id"}
 

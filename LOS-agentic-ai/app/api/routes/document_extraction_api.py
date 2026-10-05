@@ -62,6 +62,17 @@ _STATUS_MAP = {
 MAX_PDF_PAGES = 4
 
 
+def _pdf_page_count(pdf_path: Path) -> int:
+    """Pages in a PDF, from its index (no rendering). 0 when it cannot be read --
+    the renderer then reports the problem as before."""
+    try:
+        from pypdf import PdfReader
+
+        return len(PdfReader(str(pdf_path)).pages)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def _pdf_pages_to_images(pdf_path: Path) -> list[Path]:
     """Render the first few pages of an ID-card PDF, not just the first."""
     from pdf2image import convert_from_path
@@ -254,6 +265,19 @@ async def extract_document_upload(
 
     try:
         target = stored
+        if stored.suffix == ".pdf" and _pdf_page_count(stored) > MAX_PDF_PAGES:
+            # NOT AN IDENTITY CARD. A PAN / licence / voter ID / passport is a
+            # front and a back; a 50-page bank statement sent here was rendered
+            # and OCR'd four pages deep (133 s measured) to conclude UNKNOWN.
+            # Said at once, with where the document belongs instead.
+            from app.agents.document_agent.schemas import DocumentStatus, DocumentType
+
+            return _finalise({"status": "success", "result": DocumentExtractionResult(
+                document_type=DocumentType.UNKNOWN, status=DocumentStatus.UNSUPPORTED,
+                errors=[f"DOCUMENT_TOO_LONG_FOR_ID_EXTRACTION: {MAX_PDF_PAGES} pages is the most an identity "
+                        "document has. Send bank statements, salary slips and ITRs to "
+                        "POST /api/v1/financial/extract."],
+            ).model_dump(mode="json")}, response, request_id)
         if stored.suffix == ".pdf":
             try:
                 # An ID card scanned to PDF has the front on page one and

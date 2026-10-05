@@ -314,6 +314,14 @@ _VARIANTS: dict[str, dict[str, tuple[str, ...]]] = {
 _PART_OF_DAY = re.compile(r"\bgood\s+(morning|afternoon|evening)\b", re.IGNORECASE)
 
 
+def has_reply(kind: str, language: str | None) -> bool:
+    """Whether a reply of this kind is written in `language` (built in or configured)."""
+    if not language:
+        return False
+    configured = (_settings().get("replies") or {}).get(kind) or {}
+    return language in {**_REPLIES.get(kind, {}), **configured}
+
+
 def reply(kind: str, language: str = "en", *, seed: int = 0, text: str = "") -> tuple[str, str]:
     """(answer, language it is written in). Deterministic for a seed; configurable."""
     configured = (_settings().get("replies") or {}).get(kind) or {}

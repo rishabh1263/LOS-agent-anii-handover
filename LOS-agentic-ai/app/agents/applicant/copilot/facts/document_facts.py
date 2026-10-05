@@ -81,6 +81,12 @@ def document_asked(message: str) -> str | None:
     return None
 
 
+#: "what details were extracted", "kya kya nikla" -- the whole document, not one field
+_ALL_FIELDS = re.compile(r"\b(details?|fields?|information|info|data|kya\s+kya|values?)\b[^?]{0,40}"
+                         r"\b(extracted|read|captured|pulled|found|nikla|nikle|nikali)\b"
+                         r"|\b(kya\s+kya|what)\b[^?]{0,20}\b(nikla|nikle|extracted|read)\b", re.I)
+
+
 def field_asked(message: str) -> tuple[str, str, str]:
     """(extracted key, KYC field, label) for the field the question names."""
     text = message or ""
@@ -168,6 +174,24 @@ def answer(
          and f.party_id == verification.party_id),
         None,
     )
+    # EVERY RELEASED FIELD, when the question asks what was read -- not one field
+    if extraction and _ALL_FIELDS.search(message or ""):
+        payload = dict(extraction.payload or {})
+        fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else payload
+        shown = {k: (v.get("value") if isinstance(v, dict) else v) for k, v in (fields or {}).items()
+                 if not str(k).startswith("_")}
+        shown = {k: v for k, v in shown.items() if v not in (None, "", [], {}) and not isinstance(v, (dict, list))}
+        if shown:
+            from app.security import sensitivity
+
+            masked = sensitivity.mask_payload(shown)
+            for k in list(masked):
+                if k in ("pan_number", "pan", "dl_number", "epic_number", "passport_number", "account_number",
+                         "aadhaar_number") and "X" not in str(masked[k])[:4]:
+                    masked[k] = sensitivity.mask(str(masked[k]))
+            lines = "\n".join(f"- {k.replace('_', ' ')}: {v}" for k, v in masked.items())
+            return (f"Details read from your {words} (it passed verification):\n{lines}",
+                    [_source(extraction, document_type), verification_source])
     value = (extraction.payload or {}).get(key) if extraction else None
     if value:
         return (f"The {label} on your {words} is {value}.",

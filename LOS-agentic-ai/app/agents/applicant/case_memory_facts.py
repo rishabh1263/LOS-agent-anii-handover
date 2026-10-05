@@ -143,6 +143,10 @@ def case_memory(case_id: str, party_id: str | None = None) -> dict[str, Any]:
         logger.warning("Case memory unavailable for %s: %r", case_id, exc)
         return _empty()
 
+    # QUERIES AND DEVIATIONS ARE NOT VERDICTS: they are read as their own
+    # block (app/agents/los/queries.py), never explained as a finding
+    findings = [f for f in findings
+                if str(getattr(f.finding_kind, "value", f.finding_kind)) not in ("QUERY", "DEVIATION")]
     return {
         "findings": [_public_finding(f) for f in findings],
         "decisions": [_public_decision(d) for d in decisions],
@@ -236,7 +240,9 @@ def _eligibility(finding: Any) -> dict[str, Any]:
     # subset here made the read endpoint differ from the response it was
     # reading. `evidence` is figures and their provenance -- no identity
     # data, no document content.
-    keep = ("status", "reason_codes", "foir", "ltv", "inputs", "policy")
+    keep = ("state", "eligible", "status", "reason_codes", "foir", "ltv", "inputs", "policy",
+            "rules", "passed_rules", "failed_rules", "unevaluated_rules", "missing_information",
+            "blockers", "configuration_gaps", "next_actions")
     return {k: payload[k] for k in keep if payload.get(k) is not None}
 
 
@@ -442,9 +448,13 @@ def review_reason(
         return concrete, _sources(findings=explaining or findings,
                                   decisions=decisions)
 
+    from app.agents.verification.reasons import POSITIVE_CODES
+
     codes: list[str] = []
     for finding in explaining:
         for code in finding.get("reason_codes") or []:
+            if str(code).upper() in POSITIVE_CODES:
+                continue                    # found / confirmed: not a reason
             if code not in codes:
                 codes.append(code)
 

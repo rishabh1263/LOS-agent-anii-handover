@@ -684,6 +684,14 @@ _PATTERNS: list[tuple[str, Intent]] = [
      Intent.DOCUMENT_DETAILS),
     (r"\bwho\s+is\s+the\s+(bank\s+)?account\s+holder\b",
      Intent.DOCUMENT_DETAILS),
+    # EVERY RELEASED FIELD of one document: "what details were extracted from the
+    # bank statement?", "PAN se kya kya nikla", "show the fields read from the licence"
+    (r"^(?!.*\b(mis)?match)(?!.*\bdiffer).*\b(details?|fields?|information|info|data|kya\s+kya|values?)\b[^?]{0,30}"
+     r"\b(extracted|read|captured|pulled|found|nikla|nikle|nikali)\b[^?]{0,25}"
+     r"(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|driving\s*licen[cs]e|licen[cs]e|voter\s*id|passport|itr|aadhaa?r)\b"
+     r"|^(?!.*\b(mis)?match).*\b(pan(\s*card)?|salary\s*slip|bank\s*statement|driving\s*licen[cs]e|voter\s*id|passport|itr)\b"
+     r"[^?]{0,20}\b(se|from)\b[^?]{0,15}\b(kya\s+kya|what)\b[^?]{0,20}\b(nikla|nikle|extracted|read)\b",
+     Intent.DOCUMENT_DETAILS),
 
     # INCOME, BEFORE THE VERIFICATION PATTERNS.
     #
@@ -1423,6 +1431,8 @@ def classify(message: str) -> Classification:
     # my KYC score" as nothing at all.
     if _FINDINGS_ASK.search(text) and not asks_for_a_definition(text):
         return Classification(Intent.CASE_FINDINGS, matched_on="findings")
+    if _APPLICATION_MATCH.search(text) and not asks_for_a_definition(text):
+        return Classification(Intent.KYC_RESULT, matched_on="application_match", fields={"want": "application"})
     if _KYC_ASK.search(text) and not asks_for_a_definition(text) \
             and not re.search(r"\bdecision\b", text, re.I):
         return Classification(Intent.KYC_RESULT, matched_on="kyc",
@@ -1623,7 +1633,8 @@ def compound_parts(message: str) -> list[str] | None:
 
 #: The recorded findings / reason codes, by concept.
 _FINDINGS_ASK = re.compile(
-    r"\b(findings?|reason\s*codes?|red\s+flags?|flags\s+(raised|recorded)|observations?\s+"
+    r"\b(suspicious|suspicion|suspect\w*|gadbad\w*|tamper\w*|sandigdh|shak)\b(?![^?]{0,20}\bfraud)"
+    r"|\b(findings?|reason\s*codes?|red\s+flags?|flags\s+(raised|recorded)|observations?\s+"
     r"(recorded|noted)|remarks\s+(recorded|noted)|what\s+(was|were|got)\s+recorded|"
     r"recorded\s+(findings?|reasons?|observations?)|any\s+(findings?|reason\s*codes?|flags?))\b",
     re.I)
@@ -1640,6 +1651,18 @@ _KYC_ASK = re.compile(
     r"|\bkyc\b[^?]{0,25}\b(problem|issue|mismatch\w*|galat|pending|baaki|baki|kya\s+hua)\b"
     r"|\b(why|kyon|kyu|kyun)\b[^?]{0,30}\bkyc\b(?![^?]{0,20}\b(mean|matter|required|needed|important))"
     r"|\b(which|what)\s+kyc\s+\w+"
+    # "which fields did not match?", "kya match nahi hua", "what differs between the documents"
+    r"|\b(which|what)\s+(fields?|details?|values?|things?)\b[^?]{0,25}\b(not\s+match\w*|did\s*n[o']?t\s+match|mismatch\w*|differ\w*)\b"
+    r"|\b(kya|what|which|kaun\s*sa|kaunsa|kaun\s*se)\b[^?]{0,20}\bmatch\s+nahi\b"
+    r"|\bwhat\s+(differs|is\s+different)\s+(between|across)\b"
+    r"|\b(what|which)\b[^?]{0,20}\b(is|are)\s+not\s+matching\b"
+    # "why is the name not matching?", "naam match nahi ho raha" -- a detail that disagrees
+    r"|\b(name|naam|naav|dob|date\s+of\s+birth|address|pata|father'?s?\s+name)\b[^?]{0,15}"
+    r"\b(not\s+match\w*|does\s*n[o']?t\s+match|did\s*n[o']?t\s+match|match\s+nahi)\b"
+    # "what is missing / failed in KYC?", "what should I do for KYC?" -- the case's KYC
+    r"|\b(what|kya)\b[^?]{0,20}\b(missing|failed|fail\w*|wrong|left|baaki|baki|galat)\b[^?]{0,12}"
+    r"\b(in|for|with|mein|me)\s+(my\s+|the\s+|our\s+)?kyc\b"
+    r"|\bwhat\s+(should|do|can|must)\s+(i|we)\s+do\s+(for|about|to\s+(clear|fix|complete))\s+(my\s+|the\s+|our\s+)?kyc\b"
     r"|\b(name|naam|dob|date\s+of\s+birth)\s+mismatch\b|\bmismatch\b[^?]{0,25}\b(kya|what|exactly|details?|batao)\b"
     r"|\b(pan|bank\s+statement|passport|aadhaa?r)\b[^?]{0,30}\b(vs\.?|versus|compared\s+to|aur)\b[^?]{0,15}"
     r"\b(pan|bank\s+statement|passport|aadhaa?r)\b[^?]*\b(name|naam|show|says?)\b"
@@ -1648,12 +1671,20 @@ _KYC_ASK = re.compile(
     re.I)
 
 
+#: The documents against the APPLICATION FORM (profile match), not each other.
+_APPLICATION_MATCH = re.compile(
+    r"\b(match\w*|same|differ\w*|mismatch\w*|consistent)\b[^?]{0,40}\b(application(\s+form)?|declared|form|profile|"
+    r"what\s+(the\s+)?(customer|applicant)\s+(gave|filled|declared))\b"
+    r"|\bapplication(\s+form)?\b[^?]{0,30}\b(match\w*|same|differ\w*|mismatch\w*)\b"
+    r"|\bform\s+(se|ke\s+saath)\s+match\b", re.I)
+
+
 def kyc_want(text: str) -> str:
     """What a KYC question wants: the score, why it did not match, the
     fields compared, or the result."""
     if re.search(r"\bscore\b", text or "", re.I):
         return "score"
-    if re.search(r"\b(why|kyon|kyu|kyun|reason\w*|mismatch\w*|did\s*n[o']?t\s+match|not\s+match\w*|"
+    if re.search(r"\b(why|kyon|kyu|kyun|reason\w*|mismatch\w*|did\s*n[o']?t\s+match|not\s+match\w*|match\s+nahi|"
                  r"problems?|issues?|galat|wrong|review|fail\w*)\b", text or "", re.I):
         return "mismatch"
     if re.search(r"\b(fields?|information|info|details|what\s+all|compared|checked)\b",
@@ -1846,7 +1877,10 @@ def _why_required(message: str, classification: Classification) -> Classificatio
     configured document policy. General, not about the customer's case.
     """
     text = message or ""
-    if not (_WHY_WORD.search(text) and _NEED_WORD.search(text)):
+    # AS TYPED, OR AS THE LEXICONS READ IT: Marathi "PAN का लागतो?" carries its
+    # "why" in "का" only together with the verb ("why is pan needed?")
+    canonical = str(getattr(classification, "normalized", None) or "")
+    if not any(_WHY_WORD.search(t) and _NEED_WORD.search(t) for t in (text, canonical) if t):
         return None
     from app.agents.applicant.copilot.semantics import semantic_frame
 
@@ -1900,9 +1934,8 @@ def _answered_by_the_handbook(message: str, classification: Classification) -> C
         from app import knowledge
         from app.knowledge.retriever import FallbackRetriever
 
-        if knowledge.backend() != "vector":
-            return None
-        retriever = knowledge.get_retriever()
+        # the DENSE signal, whichever backend builds answers (knowledge.backend)
+        retriever = knowledge.dense_retriever()
         if not isinstance(retriever, FallbackRetriever):
             return None
         result = retriever.retrieve(message, "FOS", limit=1)
@@ -2034,6 +2067,8 @@ def _general_question(message: str, classification: Classification) -> Classific
     text = str(message or "")
     if classification.intent not in _CASE_ROUTED or not text.strip():
         return None
+    if classification.matched_on in ("application_match",):
+        return None                   # this case's documents vs this case's form: live data
     from app.agents.applicant import handoff as _handoff
 
     if _handoff.asks_for_person(text):

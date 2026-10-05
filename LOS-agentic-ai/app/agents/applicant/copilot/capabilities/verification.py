@@ -343,6 +343,9 @@ def _line(entry: dict[str, Any], multi_party: bool) -> str:
     return "; ".join(parts)
 
 
+#: "show all documents", "sab dikhao", "full list" -- every document, not only pending
+_SHOW_ALL = re.compile(r"\b(show|list|give)\s+(me\s+)?(all|every|the\s+full)\b|\b(all|every)\s+(the\s+)?documents?\b"
+                       r"|\bfull\s+(list|status)\b|\bsab\s+(dikha\w*|batao)\b|\bsaare\s+documents?\b", re.I)
 _AGAIN = re.compile(r"\b(re-?verify|re-?check|again|dobara|phir\s+se|fir\s+se)\b", re.I)
 
 
@@ -454,6 +457,13 @@ async def run(req: Request, *, documents: list[dict[str, Any]], checklist: list[
     else:
         head = "Done -- here's where each document stands:"
     answer = head + "\n" + "\n".join(f"- {line}" for line in lines)
+    # PENDING-ONLY BY DEFAULT: with some documents verified and some needing
+    # action, only the ones needing action are listed -- "show all" lists every one
+    _done = [e for e in block["documents"] if e["verdict"] == "PASS"]
+    _needs = [line for e, line in zip(block["documents"], lines) if e["verdict"] != "PASS"]
+    if req.scope != ONE and _done and _needs and not _SHOW_ALL.search(req_text or ""):
+        answer = ("Needs attention:\n" + "\n".join(f"- {line}" for line in _needs)
+                  + f"\n{len(_done)} other document{'s are' if len(_done) != 1 else ' is'} already verified.")
     # A RE-VERIFICATION of a type with no background reader cannot be run from
     # the chat: said plainly, with the upload route (verification_adapters.py)
     if req.scope == ONE and not pending and _AGAIN.search(req_text or ""):

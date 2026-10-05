@@ -282,7 +282,11 @@ def _why_required(message: str, facts: FactSet, slot: str | None) -> "Fact | Non
     """
     from app.agents.applicant.copilot.semantics import intents as _intents
 
-    if not (_intents._WHY_WORD.search(message or "") and _intents._NEED_WORD.search(message or "")):
+    from app.agents.applicant import normalize as _normalize
+
+    # as typed, or as the lexicons read it (Marathi "PAN का लागतो?" -> "why is pan needed?")
+    readings = (message or "", _normalize.normalise(message or "").text or "")
+    if not any(_intents._WHY_WORD.search(t) and _intents._NEED_WORD.search(t) for t in readings if t):
         return None
     named = _intents._document_type(message) or slot
     if not named:

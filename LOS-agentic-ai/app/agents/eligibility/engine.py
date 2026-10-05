@@ -42,11 +42,15 @@ from app.agents.eligibility.schemas import (
     EligibilityInputs,
     EligibilityMetrics,
     EligibilityResult,
+    EligibilityState,
     EligibilityStatus,
     IncomeSource,
+    MissingInformation,
     ObligationsSource,
     PropertyValueSource,
     ReasonCode,
+    RuleOutcome,
+    RuleResult,
 )
 
 #: A ratio's outcome when the policy does not use it for this product.
@@ -76,6 +80,23 @@ def _evidence(field: str, value: Any, source: str) -> EligibilityEvidence:
 
 
 def evaluate(
+    inputs: EligibilityInputs,
+    policy: EligibilityPolicy | None = None,
+) -> EligibilityResult:
+    """
+    Assess one application: the affordability verdict (`_affordability`), then
+    the configured prerequisites, every rule's outcome, what is missing, what
+    blocks, the configured next steps and the authoritative state (`_complete`).
+    """
+    if policy is None:
+        try:
+            policy = get_policy(inputs.product)
+        except PolicyUnavailable as exc:
+            return _complete(_no_policy(inputs, str(exc)), inputs, None)
+    return _complete(_affordability(inputs, policy), inputs, policy)
+
+
+def _affordability(
     inputs: EligibilityInputs,
     policy: EligibilityPolicy | None = None,
 ) -> EligibilityResult:
@@ -449,6 +470,291 @@ def _basis(result: EligibilityResult, inputs: EligibilityInputs,
 
     return (f"FOIR is existing obligations plus the proposed EMI over "
             f"{described}, read {against} under {where}.")
+
+
+# ==========================================================================
+# COMPLETION: prerequisites, per-rule results, missing information, blockers,
+# next actions and the authoritative state. Same inputs, same policy, no model.
+# ==========================================================================
+
+#: Codes that name an input nobody captured: (field, default owner).
+_MISSING = {
+    ReasonCode.INCOME_EVIDENCE_MISSING: ("monthly_income", "APPLICANT"),
+    ReasonCode.OBLIGATIONS_NOT_CAPTURED: ("monthly_obligations", "FOS"),
+    ReasonCode.LOAN_AMOUNT_MISSING: ("loan_amount", "FOS"),
+    ReasonCode.EMI_INPUTS_MISSING: ("tenure_months / interest_rate_pct", "FOS"),
+    ReasonCode.EMPLOYMENT_TYPE_NOT_CAPTURED: ("employment_type", "FOS"),
+    ReasonCode.LTV_NOT_AVAILABLE: ("property_value", "FOS"),
+    ReasonCode.AGE_NOT_CAPTURED: ("date_of_birth", "FOS"),
+    ReasonCode.KYC_PREREQUISITE_NOT_MET: ("kyc_status", "SYSTEM"),
+}
+
+#: Codes that say the POLICY lacks something -- configuration, not the case.
+_CONFIG_CODES = {ReasonCode.POLICY_UNAVAILABLE, ReasonCode.POLICY_THRESHOLD_NOT_CONFIGURED}
+
+
+def _date(value: str | None):
+    """A captured date, or None. Never a default date."""
+    from datetime import datetime
+
+    text = str(value or "").strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(text[:10], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _age(dob: str | None, as_of: str | None) -> int | None:
+    """Completed years on the assessment date. None when the date is unusable."""
+    from datetime import date
+
+    born = _date(dob)
+    if born is None:
+        return None
+    on = _date(as_of) or date.today()
+    if born > on:
+        return None
+    return on.year - born.year - ((on.month, on.day) < (born.month, born.day))
+
+
+def _fmt(value: Any) -> str:
+    """A published figure: whole numbers as integers, others to 2 places. Never 2e+06."""
+    number = _number(value)
+    if number is None:
+        return str(value)
+    return str(int(number)) if float(number).is_integer() else f"{number:.2f}"
+
+
+def _escalate(result: EligibilityResult, policy: EligibilityPolicy, *, breach: bool) -> None:
+    """A prerequisite outcome folded into the verdict by the engine's own order."""
+    if result.status is EligibilityStatus.FAIL:
+        return
+    if breach:
+        result.status = _breach(policy)
+    elif result.status is EligibilityStatus.PASS:
+        result.status = EligibilityStatus.REVIEW
+
+
+def _prerequisites(result: EligibilityResult, inputs: EligibilityInputs,
+                   policy: EligibilityPolicy) -> list[RuleResult]:
+    """AGE and KYC -- evaluated only where the policy configures them."""
+    rules: list[RuleResult] = []
+    codes = list(result.reason_codes)
+
+    lo, hi = policy.age_minimum_years, policy.age_maximum_years
+    if lo is None and hi is None:
+        rules.append(RuleResult(rule_id="AGE", label="Applicant age", outcome=RuleOutcome.NOT_CONFIGURED))
+    else:
+        age = _age(inputs.date_of_birth, inputs.as_of)
+        limit = f"{lo if lo is not None else '-'}-{hi if hi is not None else '-'} years"
+        if age is None:
+            codes.append(ReasonCode.AGE_NOT_CAPTURED)
+            rules.append(RuleResult(rule_id="AGE", label="Applicant age", outcome=RuleOutcome.NOT_EVALUATED,
+                                    limit=limit, reason_code=ReasonCode.AGE_NOT_CAPTURED.value))
+            _escalate(result, policy, breach=False)
+        else:
+            code = (ReasonCode.AGE_BELOW_MINIMUM if lo is not None and age < lo
+                    else ReasonCode.AGE_ABOVE_MAXIMUM if hi is not None and age > hi else None)
+            rules.append(RuleResult(rule_id="AGE", label="Applicant age",
+                                    outcome=RuleOutcome.FAIL if code else RuleOutcome.PASS,
+                                    actual=f"{age} years", limit=limit, source="APPLICANT_DATE_OF_BIRTH",
+                                    reason_code=code.value if code else None))
+            if code:
+                codes.insert(0, code)
+                _escalate(result, policy, breach=True)
+
+    accepted = policy.kyc_accepted_statuses
+    if not accepted:
+        rules.append(RuleResult(rule_id="KYC_PREREQUISITE", label="KYC completed",
+                                outcome=RuleOutcome.NOT_CONFIGURED))
+    else:
+        kyc = str(inputs.kyc_status or "").strip().upper()
+        if kyc in accepted:
+            rules.append(RuleResult(rule_id="KYC_PREREQUISITE", label="KYC completed", outcome=RuleOutcome.PASS,
+                                    actual=kyc, limit=" / ".join(accepted), source="KYC"))
+        elif kyc in ("FAIL", "FAILED", "REJECTED"):
+            codes.insert(0, ReasonCode.KYC_FAILED)
+            rules.append(RuleResult(rule_id="KYC_PREREQUISITE", label="KYC completed", outcome=RuleOutcome.FAIL,
+                                    actual=kyc, limit=" / ".join(accepted), source="KYC",
+                                    reason_code=ReasonCode.KYC_FAILED.value))
+            _escalate(result, policy, breach=True)
+        else:
+            codes.append(ReasonCode.KYC_PREREQUISITE_NOT_MET)
+            rules.append(RuleResult(rule_id="KYC_PREREQUISITE", label="KYC completed",
+                                    outcome=RuleOutcome.REVIEW if kyc == "REVIEW" else RuleOutcome.NOT_EVALUATED,
+                                    actual=kyc or None, limit=" / ".join(accepted), source="KYC",
+                                    reason_code=ReasonCode.KYC_PREREQUISITE_NOT_MET.value))
+            _escalate(result, policy, breach=False)
+
+    result.reason_codes = list(dict.fromkeys(codes))
+    return rules
+
+
+def _range_rule(rule_id: str, label: str, actual: float | int | None, lo: Any, hi: Any,
+                below: ReasonCode, above: ReasonCode, missing: ReasonCode | None,
+                source: str, codes: set[ReasonCode], unit: str = "") -> RuleResult:
+    if lo is None and hi is None:
+        return RuleResult(rule_id=rule_id, label=label, outcome=RuleOutcome.NOT_CONFIGURED)
+    limit = f"{_fmt(lo) if lo is not None else '-'} to {_fmt(hi) if hi is not None else '-'}{unit}"
+    if actual is None:
+        return RuleResult(rule_id=rule_id, label=label, outcome=RuleOutcome.NOT_EVALUATED, limit=limit,
+                          reason_code=missing.value if missing else None)
+    code = below if below in codes else above if above in codes else None
+    return RuleResult(rule_id=rule_id, label=label, outcome=RuleOutcome.FAIL if code else RuleOutcome.PASS,
+                      actual=f"{_fmt(actual)}{unit}",
+                      limit=limit, source=source, reason_code=code.value if code else None)
+
+
+def _ratio_rule(rule_id: str, label: str, status: str | None, value: float | None,
+                limit: float | None, breach: ReasonCode, missing: ReasonCode | None) -> RuleResult:
+    status = str(status or "").upper()
+    if status == NOT_APPLICABLE:
+        return RuleResult(rule_id=rule_id, label=label, outcome=RuleOutcome.NOT_APPLICABLE)
+    if limit is None:
+        return RuleResult(rule_id=rule_id, label=label, outcome=RuleOutcome.NOT_CONFIGURED,
+                          actual=f"{_fmt(value)}%" if value is not None else None,
+                          reason_code=ReasonCode.POLICY_THRESHOLD_NOT_CONFIGURED.value)
+    if value is None:
+        return RuleResult(rule_id=rule_id, label=label, outcome=RuleOutcome.NOT_EVALUATED, limit=f"max {_fmt(limit)}%",
+                          reason_code=missing.value if missing else None)
+    failed = status in ("FAIL", "REVIEW")
+    return RuleResult(rule_id=rule_id, label=label, outcome=RuleOutcome.FAIL if failed else RuleOutcome.PASS,
+                      actual=f"{_fmt(value)}%", limit=f"max {_fmt(limit)}%", source="COMPUTED",
+                      reason_code=breach.value if failed else None)
+
+
+def _rules(result: EligibilityResult, inputs: EligibilityInputs,
+           policy: EligibilityPolicy) -> list[RuleResult]:
+    """Every configured affordability criterion, as the engine evaluated it."""
+    m, codes = result.metrics, set(result.reason_codes)
+    rules: list[RuleResult] = []
+
+    # income evidence: released, under review, or absent
+    if ReasonCode.INCOME_EVIDENCE_MISSING in codes:
+        rules.append(RuleResult(rule_id="INCOME_EVIDENCE", label="Verified income evidence",
+                                outcome=RuleOutcome.NOT_EVALUATED,
+                                reason_code=ReasonCode.INCOME_EVIDENCE_MISSING.value))
+    else:
+        reviewed = ReasonCode.INCOME_EVIDENCE_UNDER_REVIEW in codes
+        rules.append(RuleResult(rule_id="INCOME_EVIDENCE", label="Verified income evidence",
+                                outcome=RuleOutcome.REVIEW if reviewed else RuleOutcome.PASS,
+                                actual=_fmt(m.income_used) if m.income_used is not None else None,
+                                source=m.income_source.value,
+                                reason_code=ReasonCode.INCOME_EVIDENCE_UNDER_REVIEW.value if reviewed else None))
+
+    minimum = _number(policy.minimum_monthly_income)
+    if minimum is None:
+        rules.append(RuleResult(rule_id="MINIMUM_INCOME", label="Minimum monthly income",
+                                outcome=RuleOutcome.NOT_CONFIGURED))
+    elif m.income_used is None:
+        rules.append(RuleResult(rule_id="MINIMUM_INCOME", label="Minimum monthly income",
+                                outcome=RuleOutcome.NOT_EVALUATED, limit=f"min {_fmt(minimum)}",
+                                reason_code=ReasonCode.INCOME_EVIDENCE_MISSING.value))
+    else:
+        low = ReasonCode.INCOME_BELOW_MINIMUM in codes
+        rules.append(RuleResult(rule_id="MINIMUM_INCOME", label="Minimum monthly income",
+                                outcome=RuleOutcome.FAIL if low else RuleOutcome.PASS,
+                                actual=_fmt(m.income_used), limit=f"min {_fmt(minimum)}", source=m.income_source.value,
+                                reason_code=ReasonCode.INCOME_BELOW_MINIMUM.value if low else None))
+
+    if policy.employment_allowed is None:
+        rules.append(RuleResult(rule_id="EMPLOYMENT_TYPE", label="Employment type",
+                                outcome=RuleOutcome.NOT_CONFIGURED))
+    else:
+        employment = (inputs.employment_type or "").strip().upper() or None
+        bad = ReasonCode.EMPLOYMENT_TYPE_NOT_ELIGIBLE in codes
+        rules.append(RuleResult(
+            rule_id="EMPLOYMENT_TYPE", label="Employment type",
+            outcome=(RuleOutcome.NOT_EVALUATED if employment is None
+                     else RuleOutcome.FAIL if bad else RuleOutcome.PASS),
+            actual=employment, limit=" / ".join(policy.employment_allowed), source="APPLICATION",
+            reason_code=(ReasonCode.EMPLOYMENT_TYPE_NOT_CAPTURED.value if employment is None
+                         else ReasonCode.EMPLOYMENT_TYPE_NOT_ELIGIBLE.value if bad else None)))
+
+    amount = _number(inputs.loan_amount)
+    rules.append(_range_rule("LOAN_AMOUNT", "Loan amount", amount if amount and amount > 0 else None,
+                             policy.loan_minimum_amount, policy.loan_maximum_amount,
+                             ReasonCode.LOAN_AMOUNT_BELOW_MINIMUM, ReasonCode.LOAN_AMOUNT_ABOVE_MAXIMUM,
+                             ReasonCode.LOAN_AMOUNT_MISSING, "APPLICATION", codes))
+    tenure = inputs.tenure_months if inputs.tenure_months and inputs.tenure_months > 0 else None
+    rules.append(_range_rule("TENURE", "Loan tenure", tenure,
+                             policy.tenure_minimum_months, policy.tenure_maximum_months,
+                             ReasonCode.TENURE_BELOW_MINIMUM, ReasonCode.TENURE_ABOVE_MAXIMUM,
+                             ReasonCode.EMI_INPUTS_MISSING, "APPLICATION", codes, unit=" months"))
+
+    foir_missing = next((c for c in (ReasonCode.INCOME_EVIDENCE_MISSING, ReasonCode.LOAN_AMOUNT_MISSING,
+                                     ReasonCode.EMI_INPUTS_MISSING, ReasonCode.OBLIGATIONS_NOT_CAPTURED)
+                         if c in codes), None)
+    rules.append(_ratio_rule("FOIR", "FOIR (obligations + EMI over income)", m.foir_status,
+                             m.foir_percentage, _number(policy.foir_maximum_percent),
+                             ReasonCode.FOIR_ABOVE_THRESHOLD, foir_missing))
+    rules.append(_ratio_rule("LTV", "Loan-to-value", m.ltv_status if policy.ltv_enabled else NOT_APPLICABLE,
+                             m.ltv_percentage, _number(policy.ltv_maximum_percent),
+                             ReasonCode.LTV_ABOVE_MAXIMUM, ReasonCode.LTV_NOT_AVAILABLE))
+    return rules
+
+
+def _state(result: EligibilityResult, policy: EligibilityPolicy | None) -> EligibilityState:
+    """The authoritative state, from this agent's own verdict and rules."""
+    codes = set(result.reason_codes)
+    if policy is None or ReasonCode.POLICY_UNAVAILABLE in codes or (policy is not None and not policy.enabled):
+        return EligibilityState.CONFIGURATION_GAP
+    if result.status is EligibilityStatus.FAIL:
+        return EligibilityState.NOT_ELIGIBLE
+    if result.status is EligibilityStatus.REVIEW:
+        return EligibilityState.REVIEW
+    if result.status is EligibilityStatus.PASS:
+        return EligibilityState.ELIGIBLE
+    # SKIPPED: the policy lacks an essential rule, or the case lacks inputs
+    essential = set(policy.essential_rules)
+    if any(r.rule_id in essential and r.outcome is RuleOutcome.NOT_CONFIGURED for r in result.rules) \
+            or codes & _CONFIG_CODES:
+        return EligibilityState.CONFIGURATION_GAP
+    return EligibilityState.PENDING
+
+
+def _complete(result: EligibilityResult, inputs: EligibilityInputs,
+              policy: EligibilityPolicy | None) -> EligibilityResult:
+    """Prerequisites, rules, missing information, blockers, next steps, state."""
+    if policy is not None and policy.enabled:
+        prerequisite_rules = _prerequisites(result, inputs, policy)
+        result.rules = _rules(result, inputs, policy) + prerequisite_rules
+        if result.status is EligibilityStatus.PASS:
+            result.reason_codes = [ReasonCode.ELIGIBILITY_WITHIN_POLICY] + [
+                c for c in result.reason_codes if c is not ReasonCode.ELIGIBILITY_WITHIN_POLICY]
+        else:
+            result.reason_codes = [c for c in result.reason_codes if c is not ReasonCode.ELIGIBILITY_WITHIN_POLICY]
+        result.configuration_gaps = [r.rule_id for r in result.rules if r.outcome is RuleOutcome.NOT_CONFIGURED]
+    elif policy is None:
+        result.configuration_gaps = ["POLICY"]
+
+    actions = (policy.next_actions if policy is not None else {}) or {}
+    seen: set[str] = set()
+    for code in result.reason_codes:
+        if code in _MISSING and code.value not in seen:
+            seen.add(code.value)
+            field, owner = _MISSING[code]
+            step = actions.get(code.value) or {}
+            result.missing_information.append(MissingInformation(
+                field=field, reason_code=code.value, owner=step.get("owner") or owner,
+                action=step.get("action") or f"Provide {field.replace('_', ' ')}."))
+
+    result.blockers = [r.rule_id for r in result.rules
+                       if r.outcome in (RuleOutcome.FAIL, RuleOutcome.REVIEW, RuleOutcome.NOT_EVALUATED)]
+    result.state = _state(result, policy)
+    if result.state is EligibilityState.CONFIGURATION_GAP and "POLICY" not in result.configuration_gaps \
+            and not result.configuration_gaps:
+        result.configuration_gaps = ["POLICY"]
+
+    # THE CONFIGURED NEXT STEP for each code on the result, in the result's order
+    for code in result.reason_codes:
+        step = actions.get(code.value)
+        if step and step.get("action"):
+            result.next_actions.append({"reason_code": code.value, "owner": step.get("owner") or "",
+                                        "action": step["action"]})
+    return result
 
 
 __all__ = ["evaluate"]

@@ -141,13 +141,18 @@ def _page_texts(path: str) -> tuple[list[str], int]:
     """
     from pypdf import PdfReader
 
-    texts: list[str] = []
-    try:
-        reader = PdfReader(path)
-        texts = [(page.extract_text() or "") for page in reader.pages]
-    except Exception as exc:
-        logger.debug("pypdf extraction failed (%s); falling back", exc)
-        texts = []
+    from app.agents.bank_statement import fastpdf
+
+    # PYMUPDF FIRST (fastpdf.py): measured 0.12 s against pypdf's 8.0 s for the
+    # same 39 pages. pypdf, then pdfplumber, remain the fallbacks.
+    texts: list[str] = fastpdf.page_texts(path) or []
+    if not texts:
+        try:
+            reader = PdfReader(path)
+            texts = [(page.extract_text() or "") for page in reader.pages]
+        except Exception as exc:
+            logger.debug("pypdf extraction failed (%s); falling back", exc)
+            texts = []
 
     with_text = sum(1 for t in texts if len(t.strip()) >= MIN_CHARS_PER_PAGE)
 
@@ -167,6 +172,29 @@ def _page_texts(path: str) -> tuple[list[str], int]:
             logger.debug("pdfplumber fallback failed: %s", exc)
 
     return texts, with_text
+
+
+def _page_table(page):
+    """
+    EVERY transaction table on the page, top to bottom, as one table.
+
+    MEASURED (real Kotak statement): a page's transactions can be split into two
+    tables of the same width -- a 35-row table and a 2-row one. `extract_table()`
+    returns only the largest, so the 2-row tail was dropped on every such page:
+    104 rows unread, 11 breaks in the balance chain, no reconciliation. Tables of
+    the main table's column count are joined in page order; anything else on the
+    page (a summary box of another width) is left out as before.
+    """
+    finder = getattr(page, "find_tables", None)
+    if finder is None:                      # an engine without table geometry
+        return page.extract_table()
+    tables = [t.extract() for t in sorted(finder(), key=lambda t: t.bbox[1])]
+    tables = [t for t in tables if t and t[0]]
+    if not tables:
+        return None
+    width = len(max(tables, key=len)[0])
+    merged = [row for t in tables if len(t[0]) == width for row in t]
+    return merged or None
 
 
 def extract_via_tables(
@@ -208,7 +236,11 @@ def extract_via_tables(
     sample = projection_sample_pages()
 
     try:
-        with pdfplumber.open(path) as pdf:
+        from app.agents.bank_statement import fastpdf
+
+        # PyMuPDF tables, pdfplumber-shaped (fastpdf.py); a page it finds no
+        # table on falls back to pdfplumber for that page.
+        with fastpdf.open_pdf(path) as pdf:
             total_pages = len(pdf.pages)
             rate_started = None
             for index, page in enumerate(pdf.pages, start=1):
@@ -245,7 +277,7 @@ def extract_via_tables(
                             total_pages, per_page_ms, projected_ms, budget)
                         return [], True
                 try:
-                    table = page.extract_table()
+                    table = _page_table(page)
                 except Exception:
                     continue
                 if not table:
@@ -577,12 +609,22 @@ def _ocr_pages(path: str) -> list[str]:
         logger.warning("Could not rasterise PDF for inline OCR: %s", exc)
         return []
 
+    import os
+
+    from app.agents.document_agent import scan_text
+
+    # Opt-in (BANK_STATEMENT_OCR_DESKEW=true) until measured to help: straighten a
+    # skewed photocopy before OCR. Off, the page is read exactly as before.
+    straighten = (os.getenv("BANK_STATEMENT_OCR_DESKEW", "false") or "false").lower() == "true"
     engine = get_engine()
     out: list[str] = []
     for image in images:
         try:
+            page = image.convert("RGB")
+            if straighten:
+                page = scan_text.deskew(scan_text.orient(page))
             tokens, _ = engine.read_array(
-                PP.to_array(PP.standard(image.convert("RGB")))
+                PP.to_array(PP.standard(page))
             )
         except Exception as exc:
             logger.warning("Inline OCR failed on a page: %s", exc)

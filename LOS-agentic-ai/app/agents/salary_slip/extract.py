@@ -97,6 +97,14 @@ _MONTH_RE = re.compile(
 )
 
 
+_GLUED_MONTH_RE = re.compile(
+    r"(?:MONTHOF|PERIOD|FORTHEMONTH|SALARYFOR|PAYSLIPFOR)(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|"
+    r"SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|JUN|JUL|AUG|SEPT|SEP|OCT|NOV|DEC)[-/,]?(\d{4})")
+
+#: A company suffix OCR glued to the name ("ACMEINDUSTRIESLIMITED").
+_GLUED_SUFFIX_RE = re.compile(r"(?<=[A-Z])(PRIVATELIMITED|PVTLTD|LIMITED|LTD)$")
+
+
 def _parse_amount(text: str) -> Decimal | None:
     text = (text or "").strip()
     if not _AMOUNT_RE.match(text):
@@ -151,6 +159,34 @@ def _value_inline(lines: list[str], captions: tuple[str, ...]) -> str | None:
     return None
 
 
+#: Captions that start a NEW cell on an OCR'd two-column line, where a value ends.
+_STOP_CAPTIONS = (
+    "Bank Name", "BankName", "Bank A/c No", "Bank A/C No", "Account No", "UAN NO", "UAN No", "UAN",
+    "PF No", "ESI No", "PAN No", "PAN", "Aadhar No", "Aadhaar No", "PaySlip No", "Payslip No",
+    "Department", "Region", "Branch", "Location", "Designation", "Grade", "Date of Joining",
+    "Paid Days", "Days Paid", "Employee Code", "Employee Name", "Regime Type", "RegimeType",
+)
+
+
+def _value_spaced(lines: list[str], captions: tuple[str, ...]) -> str | None:
+    """
+    An OCR'd line: "Employee Name  A PERSON  BankName AXIS BANK". The value is
+    what follows the caption, up to the next known caption -- a value never runs
+    into the next cell. Only consulted when the table and colon forms found nothing.
+    """
+    stop = re.compile(r"\s+(?:" + "|".join(re.escape(c) for c in _STOP_CAPTIONS) + r")\b\.?", re.IGNORECASE)
+    for caption in captions:
+        pattern = re.compile(r"^\s*" + re.escape(caption) + r"\s+(\S.*)$", re.IGNORECASE)
+        for line in lines:
+            match = pattern.match(line)
+            if not match:
+                continue
+            value = stop.split(match.group(1), maxsplit=1)[0].strip(" :-")
+            if value:
+                return value
+    return None
+
+
 def _value_after(lines: list[str], captions: tuple[str, ...]) -> str | None:
     """
     The value for a caption: the next cell, or the rest of the same line.
@@ -161,7 +197,7 @@ def _value_after(lines: list[str], captions: tuple[str, ...]) -> str | None:
     """
     index = _find_caption_line(lines, captions)
     if index is None:
-        return _value_inline(lines, captions)
+        return _value_inline(lines, captions) or _value_spaced(lines, captions)
 
     for offset in range(1, 3):
         if index + offset >= len(lines):
@@ -186,10 +222,19 @@ def _amount_after(lines: list[str], captions: tuple[str, ...]) -> Decimal | None
         for i, line in enumerate(lines):
             if caption.lower() not in line.lower():
                 continue
-            trailing = re.sub(r"[^\d.,]", "", line.split(caption, 1)[-1])
+            rest = line.split(caption, 1)[-1]
+            trailing = re.sub(r"[^\d.,]", "", rest)
             amount = _parse_amount(trailing) if trailing else None
             if amount is not None:
                 return amount
+            # AN OCR'D TABLE ROW keeps its columns on one line ("Total Earnings (A)
+            # 31986.00 0.00 63972.00"): gluing the digits made it unparseable and
+            # the search fell through to another caption's figure. The FIRST
+            # amount after the caption is the current-month cell.
+            for piece in re.findall(r"-?\d[\d,]*(?:\.\d{1,2})?", rest):
+                amount = _parse_amount(piece)
+                if amount is not None:
+                    return amount
             for offset in range(1, 4):
                 if i + offset >= len(lines):
                     break
@@ -221,7 +266,11 @@ def _find_employer_name(lines: list[str]) -> str | None:
     candidates = [
         i for i, line in enumerate(lines[:200])
         if _COMPANY_SUFFIX_RE.search(line)
+        or _GLUED_SUFFIX_RE.search(line.strip().upper().replace(" ", ""))
     ]
+    # the glued suffix gets its space back ("ACMELIMITED" -> "ACME LIMITED")
+    lines = [_GLUED_SUFFIX_RE.sub(lambda m: " " + m.group(1), l.strip())
+             if _GLUED_SUFFIX_RE.search(l.strip()) else l for l in lines]
     if not candidates:
         return None
 
@@ -234,6 +283,22 @@ def _find_employer_name(lines: list[str]) -> str | None:
     return lines[candidates[0]].strip()[:120]
 
 
+def ocr_enabled() -> bool:
+    """Whether a slip with no text layer is OCR'd (SALARY_SLIP_OCR_ENABLED, default on)."""
+    import os
+
+    return (os.getenv("SALARY_SLIP_OCR_ENABLED", "true") or "true").lower() == "true"
+
+
+def max_ocr_pages() -> int:
+    import os
+
+    try:
+        return max(1, int(os.getenv("SALARY_SLIP_OCR_PAGES", "2")))
+    except ValueError:
+        return 2
+
+
 def extract_salary_slip(path: str) -> SalarySlipResult:
     """Read a salary slip's identity, period and pay figures."""
     started = time.perf_counter()
@@ -241,39 +306,60 @@ def extract_salary_slip(path: str) -> SalarySlipResult:
     if not Path(path).exists():
         return SalarySlipResult(status=SalarySlipStatus.FAILED, errors=[f"File not found: {path}"])
 
-    try:
-        from pypdf import PdfReader
+    from app.agents.document_agent import scan_text
 
-        reader = PdfReader(path)
-        pages = len(reader.pages)
-        text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    except Exception as exc:
-        logger.warning("Could not read salary slip: %s", exc)
-        return SalarySlipResult(
-            status=SalarySlipStatus.FAILED,
-            errors=[f"Could not read PDF: {type(exc).__name__}: {exc}"],
-            processing_ms=round((time.perf_counter() - started) * 1000, 2),
-        )
+    text, pages, ocr_note = "", 0, None
+    if not scan_text.is_image(path):
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(path)
+            pages = len(reader.pages)
+            text = "\n".join((page.extract_text() or "") for page in reader.pages)
+        except Exception as exc:
+            # not readable as a PDF text layer -- the scan path below may still read it
+            logger.warning("Could not read salary slip text layer: %s", exc)
+
+    # A SCANNED OR PHOTOGRAPHED SLIP IS OCR'D INTO THE SAME PARSER (scan_text.py).
+    # Measured: 0/7 fields from a real slip as an image before this path existed.
+    # Whatever OCR reads still has to pass the parser's own checks -- net pay must
+    # equal gross minus deductions -- or the slip is PARTIAL, never a quiet PASS.
+    if len(text.strip()) < 100 and ocr_enabled():
+        page_texts, how = scan_text.scanned_text(path, document_type="SALARY_SLIP",
+                                                 max_pages=max_ocr_pages())
+        if len("".join(page_texts).strip()) >= 100:
+            text = "\n".join(page_texts)
+            pages = pages or how["pages"]
+            ocr_note = (f"Read by OCR ({how['engine']}"
+                        + (f", {how['rotated_pages']} page(s) auto-rotated" if how["rotated_pages"] else "")
+                        + "): check the figures against the slip.")
 
     if len(text.strip()) < 100:
         return SalarySlipResult(
             status=SalarySlipStatus.UNSUPPORTED,
             pages=pages,
             warnings=[
-                "No usable text layer. A scanned salary slip needs OCR, "
-                "which this extractor does not perform."
+                "No usable text could be read from this slip, from its text layer or "
+                "by OCR. Upload a clearer scan or the original PDF."
             ],
             processing_ms=round((time.perf_counter() - started) * 1000, 2),
         )
 
     lines = [l for l in text.split("\n") if l.strip()]
     result = SalarySlipResult(status=SalarySlipStatus.SUCCESS, pages=pages)
+    if ocr_note:
+        result.warnings.append(ocr_note)
 
     result.employer_name = _find_employer_name(lines)
 
     month_match = _MONTH_RE.search(text)
     if month_match:
         result.pay_period = f"{month_match.group(1).upper()} {month_match.group(2)}"
+    else:
+        # OCR glues a caption line's words ("PAYSLIPFORTHEMONTHOFMAY2026")
+        glued = _GLUED_MONTH_RE.search(re.sub(r"\s+", "", text).upper())
+        if glued:
+            result.pay_period = f"{glued.group(1)} {glued.group(2)}"
 
     result.employee_name = _value_after(lines, _EMPLOYEE_NAME_CAPTIONS)
     result.employee_code = _value_after(lines, _EMPLOYEE_CODE_CAPTIONS)

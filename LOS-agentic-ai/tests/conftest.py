@@ -45,6 +45,12 @@ for _name, _value in (("QDRANT_PATH", ""), ("EMBEDDING_PROVIDER", "hashing"),
 # mode itself (tests/integration/test_mcp_runtime.py does, over real
 # transports).
 os.environ["LOS_MCP_MODE"] = "in_process"
+# THE AUDIENCE THESE SUITES WERE WRITTEN FOR. Production speaks to the LOAN AGENT
+# ("The customer's PAN number is ...", app/agents/applicant/copilot/answering/
+# voice.py); the existing suites assert the customer channel's wording ("Your PAN
+# number is ..."), which APPLICANT_AGENT_AUDIENCE=customer still serves. The agent
+# voice is pinned by tests/agents/test_answer_voice.py.
+os.environ.setdefault("APPLICANT_AGENT_AUDIENCE", "customer")
 
 # AND AUTHENTICATION: ON, explicitly, whatever a developer's .env says. A test
 # that exercises the local no-auth mode switches it off itself.

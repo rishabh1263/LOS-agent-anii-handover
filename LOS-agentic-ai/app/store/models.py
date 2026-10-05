@@ -328,6 +328,12 @@ class FindingKind(str, Enum):
     #: REVIEW_REQUIRED / DATA_INSUFFICIENT) -- an interpretation of the
     #: findings above, never a decision. Read by the Decision Agent.
     UNDERWRITING = "UNDERWRITING"
+    #: A question raised on the case (app/agents/los/queries.py), keyed by its
+    #: query id; its lifecycle status is the row's status. Not a verdict.
+    QUERY = "QUERY"
+    #: An exception to a configured policy rule awaiting its approving
+    #: authority. Raised only by a configured rule; never self-approved.
+    DEVIATION = "DEVIATION"
 
 
 @dataclass

@@ -44,9 +44,24 @@ _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*$", re.MULTILINE)
 #:     ---
 _FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
-#: Keys a knowledge file may declare. Anything else is ignored.
-_DECLARABLE = ("knowledge_type", "version", "effective_date", "applies_to",
-               "product", "source", "owner")
+#: Keys a knowledge file may declare (OKF-style front-matter). Anything else
+#: is ignored. Only what a file DECLARES is carried -- no key is invented:
+#:
+#:   id            stable concept id ("fos.address_proof"), what `related` points at
+#:   knowledge_type HANDBOOK / FAQ / POLICY_EXPLAINER / GLOSSARY
+#:   title, description, domain, language
+#:   applies_to    the products the item is about (absent = every product)
+#:   status        CURRENT (default) / SUPERSEDED / RETIRED / DRAFT -- only CURRENT is retrievable
+#:   effective_from / effective_to   the window it is in force (absent = no bound)
+#:   derived_from  the configuration files the text restates (provenance)
+#:   related       ids of related items
+_DECLARABLE = ("id", "knowledge_type", "title", "description", "domain", "language",
+               "version", "effective_date", "effective_from", "effective_to", "status",
+               "applies_to", "product", "source", "owner", "derived_from", "related",
+               "policy_status")
+
+#: The statuses a retrieval may return. Anything else is kept out of the index.
+RETRIEVABLE = frozenset({"CURRENT"})
 
 
 def knowledge_metadata(stage: str, filename: str, text: str) -> tuple[dict, str]:
@@ -81,17 +96,60 @@ def knowledge_metadata(stage: str, filename: str, text: str) -> tuple[dict, str]
         body = text[match.end():]
     digest = hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:12]
     applies = declared.get("applies_to", declared.get("product"))
+    starts = declared.get("effective_from", declared.get("effective_date"))
+
+    def listed(value) -> list[str] | None:
+        return [str(v) for v in value] if isinstance(value, list) else ([str(value)] if value else None)
+
+    okf = {key: declared[key] for key in ("id", "title", "description", "domain", "language",
+                                          "owner", "policy_status") if declared.get(key)}
     return {
+        **okf,
+        "status": str(declared.get("status") or "CURRENT").upper(),
+        "effective_from": str(starts) if starts else None,
+        "effective_to": str(declared["effective_to"]) if declared.get("effective_to") else None,
+        "derived_from": listed(declared.get("derived_from")),
+        "related": listed(declared.get("related")),
+        "metadata_source": "DECLARED" if declared else "NONE",
         "knowledge_type": str(declared.get("knowledge_type") or "HANDBOOK").upper(),
         "version": str(declared["version"]) if declared.get("version") else f"sha256:{digest}",
         "version_source": "DECLARED" if declared.get("version") else "CONTENT_HASH",
-        "effective_date": str(declared["effective_date"]) if declared.get("effective_date") else None,
+        "effective_date": str(starts) if starts else None,
         "applies_to": ([str(a) for a in applies] if isinstance(applies, list)
                        else [str(applies)] if applies else None),
         "document": str(declared.get("source") or filename),
         "stage": stage,
         "authoritative_for": "PROCESS",
     }, body
+
+def in_effect(metadata: dict, today: str | None = None) -> bool:
+    """
+    Whether an item may be retrieved TODAY: status CURRENT and inside its
+    declared window. An item with no window is always in effect; a superseded
+    or retired one never is, so obsolete text cannot outrank current text.
+    Dates compare as ISO strings (YYYY-MM-DD).
+    """
+    from datetime import date
+
+    meta = metadata or {}
+    if str(meta.get("status") or "CURRENT").upper() not in RETRIEVABLE:
+        return False
+    today = today or date.today().isoformat()
+    starts, ends = meta.get("effective_from"), meta.get("effective_to")
+    if starts and str(starts) > today:
+        return False
+    if ends and str(ends) < today:
+        return False
+    return True
+
+
+def applies(metadata: dict, product: str | None) -> bool:
+    """Whether an item is about `product` (an item naming no product is about every one)."""
+    products = (metadata or {}).get("applies_to")
+    if not product or not products:
+        return True
+    return str(product).upper() in {str(p).upper() for p in products}
+
 
 #: Headings at or below this level start a new chunk. Deeper headings stay
 #: inside the chunk they belong to, so a rule keeps its sub-points.
@@ -135,6 +193,11 @@ class MarkdownKnowledgeRepository(KnowledgeRepository):
                     logger.warning("Could not read %s: %s", path, exc)
                     continue
                 meta, body = knowledge_metadata(stage, path.name, text)
+                if not in_effect(meta):
+                    # SUPERSEDED / RETIRED / DRAFT, or outside its window: kept
+                    # on disk for provenance, never indexed, never retrieved
+                    logger.info("Knowledge: %s not in effect (%s), not indexed", path.name, meta.get("status"))
+                    continue
                 chunks.extend(
                     Chunk(chunk_id=c.chunk_id, stage=c.stage, source=c.source,
                           heading=c.heading, text=c.text,
@@ -238,4 +301,4 @@ class MarkdownKnowledgeRepository(KnowledgeRepository):
         }
 
 
-__all__ = ["MarkdownKnowledgeRepository"]
+__all__ = ["MarkdownKnowledgeRepository", "RETRIEVABLE", "applies", "in_effect", "knowledge_metadata"]

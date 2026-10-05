@@ -93,7 +93,10 @@ def _reason(codes: list[str]) -> str | None:
     if not codes:
         return None
     from app.agents.applicant import case_memory_facts
+    from app.agents.verification.reasons import POSITIVE_CODES
 
+    # a positive code ("signature present") is not a reason something failed
+    codes = [c for c in codes if str(c).upper() not in POSITIVE_CODES] or codes
     said = list(dict.fromkeys(s for s in (case_memory_facts._readable(str(c)) for c in codes) if s))
     # the leading reasons, then how many more -- every code stays in reason_codes
     text = "; ".join(said[:2]) + (f" (+{len(said) - 2} more)" if len(said) > 2 else "")
@@ -152,6 +155,23 @@ def document_entry(document: dict[str, Any], *, score: Any = None, confidence: A
                 **({} if verdict == "PENDING" else {"disabled_reason": "Already verified -- result shown."})}]
     if verdict == "FAIL":
         actions.append(entry["next_action"])
+    if verdict in ("FAIL", "REVIEW") and document.get("document_id"):
+        # THE RAISE QUERY BUTTON, structured -- the same action the chat offers
+        # (app/agents/los/queries.raise_action); posting it creates the query
+        try:
+            from app.agents.los import queries as _queries
+
+            reason = (entry["reason"] or "").rstrip(".")
+            actions.append(_queries.raise_action(
+                case_id=str(document.get("case_id") or "{case_id}"), stage=None, target_type="DOCUMENT",
+                target_id=document.get("document_id"), query_type="VERIFICATION_ISSUE",
+                prefill=(f"Please review the {entry['label']}: it "
+                         f"{'did not pass verification' if verdict == 'FAIL' else 'needs a reviewer'}"
+                         + (f" ({reason.lower()})." if reason else ".")),
+                evidence_refs=[{"type": "DOCUMENT", "document_id": document.get("document_id"),
+                                "reason_codes": codes}]))
+        except Exception:  # noqa: BLE001 - no query config: no button, never a broken card
+            pass
     entry["actions"] = actions
     return entry
 
@@ -235,7 +255,8 @@ def _kyc_policy() -> dict[str, Any]:
 def kyc_block(latest: dict[str, Any] | None, *, party_role: str | None) -> dict[str, Any]:
     """ONE person's recorded KYC result, as structured data."""
     if not latest:
-        return {"party_role": party_role or "PRIMARY_APPLICANT", "status": "NOT_RECORDED", "score": None,
+        return {"party_role": party_role or "PRIMARY_APPLICANT", "status": "NOT_RECORDED", "state": "PENDING",
+                "score": None,
                 "score_recorded": False, "checks": [], "passed": [], "review": [], "failed": [],
                 "reason_codes": [], "reason": None, "next_action": None}
     status = str(latest.get("status") or "").upper()
@@ -250,9 +271,19 @@ def kyc_block(latest: dict[str, Any] | None, *, party_role: str | None) -> dict[
     codes = [str(c) for c in latest.get("reason_codes") or []]
     score = latest.get("score")
     policy = _kyc_policy()
+    # THE KYC STATE, read from the agent's recorded status -- never re-decided.
+    # SKIPPED splits by WHY: switched off / no policy is a configuration gap;
+    # nothing released to compare yet is pending.
+    if status in ("PASS", "PARTIAL", "REVIEW", "FAIL"):
+        state = status
+    elif status == "SKIPPED" and set(codes) & {"KYC_DISABLED", "POLICY_UNAVAILABLE", "KYC_POLICY_UNAVAILABLE"}:
+        state = "CONFIGURATION_GAP"
+    else:
+        state = "PENDING"
     block = {
         "party_role": party_role or "PRIMARY_APPLICANT",
         "status": status or None,
+        "state": state,
         "score": score if score not in ("",) else None,
         "score_recorded": score not in (None, ""),
         "checks": checks, "passed": passed, "review": review, "failed": failed,
@@ -312,6 +343,8 @@ def enrich(response: dict[str, Any]) -> dict[str, Any]:
     if gathered.get("portfolio"):
         response["portfolio"] = next(iter(gathered["portfolio"].values()))
         response["response_type"] = "CASE_PORTFOLIO"
+    if response.get("eligibility") is None and gathered.get("eligibility"):
+        response["eligibility"] = next(iter(gathered["eligibility"].values()))
     if response.get("kyc") is None and gathered.get("kyc"):
         response["kyc"] = {"parties": list(gathered["kyc"].values())}
     if response.get("verification") is None and intent in ("DOCUMENT_VERIFICATION", "DOCUMENTS_UPLOADED") \

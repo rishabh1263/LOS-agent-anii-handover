@@ -732,6 +732,48 @@ def _match_profiles(
 # ==========================================================================
 
 
+def _prior_released(case_id: str | None, party_id: str | None, *,
+                    exclude: set[str]) -> list[dict[str, Any]]:
+    """
+    One party's EARLIER verified documents on the case, rebuilt as pipeline
+    results for cross-document KYC.
+
+    FROM THE EXTRACTION FINDINGS, which hold the fields the verification gate
+    RELEASED (written only for a PASS) -- the same fields the original upload
+    published. They still pass through `_released_for_matching`, so nothing that
+    was withheld can reach KYC this way. A file uploaded again in this batch is
+    taken from the batch (`exclude`), never twice. Never raises: no history is
+    no extra source.
+    """
+    if not case_id or not party_id:
+        return []
+    try:
+        from app.store import get_repository
+
+        repository = get_repository()
+        out: list[dict[str, Any]] = []
+        for finding in repository.get_current_findings(case_id, kind="EXTRACTION") or []:
+            if str(getattr(finding, "party_id", "") or "") != str(party_id):
+                continue
+            if str(getattr(finding, "status", "") or "").upper() not in ("PASS", "VERIFIED"):
+                continue
+            source_id = str(getattr(finding, "source_id", "") or "")
+            if not source_id or source_id in exclude:
+                continue
+            payload = dict(getattr(finding, "payload", None) or {})
+            fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else payload
+            document = repository.get_document(finding.document_id) if finding.document_id else None
+            if not fields or document is None or not document.document_type:
+                continue
+            out.append({"source_id": source_id, "document": {"type": document.document_type},
+                        "verification": {"status": "PASS"}, "party_id": party_id,
+                        "extraction": {"fields": fields}, "_prior_upload": True})
+        return out
+    except Exception:  # noqa: BLE001 - history unavailable: this batch alone
+        logger.warning("Earlier documents not read for KYC case_id=%s", case_id)
+        return []
+
+
 def _kyc_for_party(
     documents: list[dict[str, Any]], *, party_id: str, request_id: str,
     party_role: str = "PRIMARY_APPLICANT",
@@ -1338,7 +1380,8 @@ def _income_consistency_for(documents: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _eligibility_inputs(
-    income: dict[str, Any], application: Any,
+    income: dict[str, Any], application: Any, *, date_of_birth: str | None = None,
+    kyc_status: str | None = None,
 ) -> "EligibilityInputs":
     """
     What affordability is assessed from, assembled and nothing more.
@@ -1402,6 +1445,11 @@ def _eligibility_inputs(
             PropertyValueSource.DECLARED
             if getattr(application, "property_value", None)
             else PropertyValueSource.NONE),
+        # PREREQUISITES, AS RECORDED: the party's date of birth from intake and
+        # the party's own KYC verdict from this run. The policy decides whether
+        # either is a criterion; absent stays absent.
+        date_of_birth=(str(date_of_birth).strip() or None) if date_of_birth else None,
+        kyc_status=(str(kyc_status).strip().upper() or None) if kyc_status else None,
     )
 
 
@@ -1421,7 +1469,8 @@ def _as_int(value: Any) -> int | None:
 
 
 async def _eligibility_for(
-    income: dict[str, Any], case_id: str | None,
+    income: dict[str, Any], case_id: str | None, *, party_id: str | None = None,
+    kyc_status: str | None = None,
 ) -> dict[str, Any] | None:
     """
     One party's affordability verdict, through the registered agent.
@@ -1457,7 +1506,16 @@ async def _eligibility_for(
         except Exception:
             application = None
 
-    inputs = _eligibility_inputs(income, application)
+    date_of_birth = None
+    try:
+        from app.store import get_repository as _dob_repo
+
+        person = _dob_repo().get_applicant(party_id or getattr(application, "applicant_id", None) or "")
+        date_of_birth = getattr(person, "date_of_birth", None)
+    except Exception:  # noqa: BLE001 - no record: absent, reported by the policy if it needs one
+        date_of_birth = None
+    inputs = _eligibility_inputs(income, application, date_of_birth=date_of_birth,
+                                 kyc_status=kyc_status)
 
     state = await run_agent(
         agent_id="eligibility_agent",
@@ -1580,6 +1638,11 @@ async def process_application(
     cross_document_checks: bool = True,
     summarise: bool = True,
     financial_analysis: bool = True,
+    # KYC ON ITS OWN SWITCH (2026-10-04). None = follow `cross_document_checks`
+    # (every existing caller unchanged). The FOS chat upload runs KYC without
+    # the income comparison and eligibility that `cross_document_checks` also
+    # governs.
+    kyc_checks: bool | None = None,
 ) -> dict[str, Any]:
     """
     Run every document, cross-check them, and return one response.
@@ -1727,8 +1790,9 @@ async def process_application(
                 documents, co_applicant.party_id, is_primary=False)))
 
     party_kyc: dict[str, dict[str, Any]] = {}
+    run_kyc_checks = cross_document_checks if kyc_checks is None else kyc_checks
 
-    if not cross_document_checks:
+    if not run_kyc_checks:
         # The caller's stage does not own KYC. Nothing is computed and
         # nothing is claimed: `kyc` is absent from the envelope rather than
         # reported as SKIPPED, because SKIPPED is a KYC verdict and this is
@@ -1744,8 +1808,13 @@ async def process_application(
         kyc_rank = _rank(CheckStatus.SKIPPED.value)
     else:
         for party, owned in kyc_parties:
+            # ACROSS UPLOADS, NOT ONLY THIS BATCH (2026-10-04): the party's
+            # earlier VERIFIED documents on the case join this upload's, so a
+            # licence uploaded today is checked against yesterday's PAN.
+            prior = _prior_released(case_id, party.party_id,
+                                    exclude={str(d.get("source_id")) for d in owned})
             party_kyc[party.party_id] = _kyc_for_party(
-                owned, party_id=party.party_id, request_id=request_id,
+                owned + prior, party_id=party.party_id, request_id=request_id,
                 party_role=party.party_role.value)
 
         kyc_payload, kyc_rank = _case_kyc(
@@ -1808,7 +1877,8 @@ async def process_application(
         for party, _owned in kyc_parties:
             try:
                 verdict = await _eligibility_for(
-                    party_income.get(party.party_id) or {}, case_id)
+                    party_income.get(party.party_id) or {}, case_id, party_id=party.party_id,
+                    kyc_status=(party_kyc.get(party.party_id) or {}).get("status"))
             except Exception as exc:
                 # An affordability failure must not take a document
                 # pipeline down with it.

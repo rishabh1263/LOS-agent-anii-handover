@@ -236,9 +236,21 @@ def test_the_demo_policies_are_marked_non_production():
 # ==========================================================================
 
 
-def test_eligibility_takes_no_kyc_risk_or_decision_input():
+def test_eligibility_takes_no_risk_or_decision_input():
     fields = set(EligibilityInputs.model_fields)
-    assert not {f for f in fields if any(w in f for w in ("kyc", "risk", "decision"))}
+    assert not {f for f in fields if any(w in f for w in ("risk", "decision"))}
+
+
+def test_kyc_enters_only_as_a_prerequisite_the_policy_must_configure():
+    """
+    KYC is a PREREQUISITE input (2026-10-03), never a scoring input: one field,
+    the recorded status, and it changes nothing unless the policy names the
+    statuses it accepts -- which the shipped policies do not.
+    """
+    fields = set(EligibilityInputs.model_fields)
+    assert {f for f in fields if "kyc" in f} == {"kyc_status"}
+    for product in ("PERSONAL_LOAN", "HOME_LOAN"):
+        assert get_policy(product).kyc_accepted_statuses == ()
 
 
 # ==========================================================================

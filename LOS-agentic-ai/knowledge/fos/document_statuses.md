@@ -1,3 +1,15 @@
+---
+id: fos.document_statuses
+knowledge_type: GLOSSARY
+title: Statuses, and what each one means
+description: Document status, verification verdict, checklist slot status and case stage - and what SKIPPED means.
+domain: statuses
+language: en
+source: LOS curated knowledge (this repository)
+related:
+- fos.verification_guidelines
+- fos.cpa_readiness
+---
 # Statuses, and what each one means
 
 There are four different status fields on a case, and they answer different

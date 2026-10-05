@@ -323,8 +323,12 @@ def test_retrieval_never_returns_a_prompt_or_a_chunk_id_to_a_caller():
 
     # `versions` (Phase 3 RAG hardening): which handbook file and which
     # version of it answered -- metadata, never a chunk id or passage text.
+    # `citation` (2026-10-03): the source in plain words for a chip -- the
+    # answer text no longer carries a "Source: ..., version ..." line.
     assert set(published) == {"stage", "grounded", "sources", "top_score",
-                              "versions"}
+                              "versions", "citation"}
+    assert published["citation"] is None or ("version" not in published["citation"].lower()
+                                             and "/" not in published["citation"])
     assert all(isinstance(s, str) for s in published["sources"])
     for version in published["versions"]:
         assert set(version) <= {"document", "knowledge_type", "version",

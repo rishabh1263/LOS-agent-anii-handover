@@ -1,44 +1,23 @@
+---
+id: fos.document_requirements
+knowledge_type: HANDBOOK
+title: Document requirements
+description: How a product's document checklist is defined - slots, the documents that satisfy them, and where the list comes from.
+domain: documents
+language: en
+source: LOS curated knowledge (this repository)
+derived_from: [app/config/applicant_agent.yaml, app/config/policies/personal_loan.yaml]
+policy_status: UNCONFIRMED
+related: [fos.document_requirements.personal_loan, fos.document_requirements.home_loan, fos.document_policy, fos.document_statuses, fos.address_proof]
+---
 # Document requirements
 
 The documents a case requires depend on the loan product. The list is
 configuration, not code, and it can change without a release.
 
-## Personal loan
-
-The personal loan checklist is resolved by the document policy engine from
-`app/config/policies/personal_loan.yaml`, not from a fixed list. Every
-application needs the base documents; a larger loan or a particular
-employment type can add more.
-
-Base, for every personal loan whatever the amount:
-
-- **PAN** - satisfied by a PAN card
-- **ADDRESS_PROOF** - satisfied by a driving licence, a passport or a voter ID
-- **BANK_STATEMENT** - satisfied by a bank statement
-
-Optional:
-
-- **SIGNATURE** - a photo of the applicant's signature, checked by signature
-  verification. Without a reference specimen it is REVIEW, never PASS.
-
-Additional slots the policy can add:
-
-- **INCOME_PROOF** - satisfied by a salary slip, an ITR or a Form 16
-- **EMPLOYMENT_PROOF**
-
-Which of those apply to a given case depends on the loan amount and on the
-applicant's employment type. The case's own response says which rules
-applied, in the `policy.applied_rules` field, and every checklist row names
-the rule that put it there in `rule_ids`.
-
-An optional document never blocks the handoff to CPA. It appears on the
-checklist so a field officer can see what has been collected beyond the
-minimum, but its absence is not a pending item.
-
-## Home loan
-
-Mandatory: PAN, BANK_STATEMENT, ADDRESS_PROOF.
-Optional: ITR, SALARY_SLIP, EMPLOYMENT_PROOF.
+Each product's list is its own knowledge item: the personal loan checklist
+and the home loan checklist. What each checklist status means is described
+once, in the statuses item; only VERIFIED satisfies a slot.
 
 ## Slots and document types
 
@@ -51,30 +30,23 @@ Uploading a document against a slot name is allowed. The service resolves the
 slot to the document types it accepts and checks the uploaded file against
 that set.
 
-## Checklist statuses
-
-| Status | Meaning |
-|---|---|
-| MISSING | Nothing has been uploaded for this slot |
-| UPLOADED | A file is held but has not completed verification |
-| PROCESSING | Verification is running |
-| VERIFIED | A document passed verification and satisfies the slot |
-| REVIEW | A document needs a person to look at it |
-| REJECTED | A document failed verification and must be replaced |
-
-Only VERIFIED satisfies a slot.
+An optional document never blocks the handoff to CPA. It appears on the
+checklist so a field officer can see what has been collected beyond the
+minimum, but its absence is not a pending item.
 
 ## Where this list comes from
 
-The requirements above are **this service's configuration**, in
-`app/config/applicant_agent.yaml`, and nothing else. They are not a copy of
-any lender's published policy and they are not an industry standard.
+The requirements are **this service's configuration** and nothing else: the
+personal loan checklist is resolved by the document policy engine from
+`app/config/policies/personal_loan.yaml`; every other product's checklist is
+read from `app/config/applicant_agent.yaml`. They are not a copy of any
+lender's published policy and they are not an industry standard.
 
 Indian lenders commonly ask for more than this at the personal-loan stage —
 Aadhaar, Form 16, ITR, employment proof and photographs all appear on public
 lender checklists. **None of them is mandatory here**, because a document
 becomes required only by being listed as a mandatory slot for a product in
-that file.
+the configuration.
 
 The document taxonomy is deliberately wider than the checklist: this service
 can classify and verify more types than any product currently requires, so a

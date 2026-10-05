@@ -27,13 +27,29 @@ def test_default_is_lexical_without_a_real_embedding_model():
     assert isinstance(knowledge.get_retriever(), LexicalRetriever)
 
 
-def test_default_is_vector_when_an_embedding_model_is_configured(monkeypatch):
+def test_answers_stay_lexical_when_an_embedding_model_is_configured(monkeypatch):
+    """MEASURED 2026-10-04 (rag_metrics): dense answered 9 of 10 unanswerable questions
+    confidently, BM25 none -- answers default to lexical; dense is opt-in."""
     monkeypatch.setenv("EMBEDDING_PROVIDER", "ollama")
     monkeypatch.setenv("OLLAMA_URL", "http://127.0.0.1:9")
+    assert knowledge.backend() == "lexical"
+    assert isinstance(knowledge.get_retriever(), LexicalRetriever)
+    # the dense signal (handbook routing) is still available, separately
+    dense = knowledge.dense_retriever()
+    assert isinstance(dense, FallbackRetriever)
+    assert dense.describe()["primary"]["default_threshold"] == knowledge.vector_threshold() == 0.53
+
+
+def test_vector_answers_are_opt_in(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "ollama")
+    monkeypatch.setenv("OLLAMA_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("KNOWLEDGE_BACKEND", "vector")
     assert knowledge.backend() == "vector"
-    retriever = knowledge.get_retriever()
-    assert isinstance(retriever, FallbackRetriever)
-    assert retriever.describe()["primary"]["default_threshold"] == knowledge.vector_threshold() == 0.53
+    assert isinstance(knowledge.get_retriever(), FallbackRetriever)
+
+
+def test_no_dense_signal_without_a_real_embedding_model():
+    assert knowledge.dense_retriever() is None
 
 
 def test_vector_backend_never_uses_the_hashing_embedder(monkeypatch):
