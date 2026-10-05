@@ -1,7 +1,5 @@
 /**
  * builders/auth — UI only
- * LoginPage, RequireAuth
- * Logic: import from runtime/auth
  */
-export * from './LoginPage'
-export * from './RequireAuth'
+export { LoginPage } from './LoginPage'
+export { RequireAuth } from './RequireAuth'

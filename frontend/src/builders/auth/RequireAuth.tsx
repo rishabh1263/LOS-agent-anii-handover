@@ -5,7 +5,7 @@ import { LoginPage } from './LoginPage'
 /**
  * Renders children only when the user has a valid session.
  * Empty or expired token (after refresh failure) shows the login page.
- * While the auth store is hydrating, shows a brief loading state to avoid flicker.
+ * While hydrating, shows a brief loading state to avoid flicker.
  */
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -16,6 +16,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
         className="flex min-h-[calc(100vh-5rem)] items-center justify-center"
         role="status"
         aria-live="polite"
+        aria-busy="true"
       >
         <div className="flex items-center gap-2 text-content-secondary">
           <Loader2 className="h-5 w-5 animate-spin" aria-hidden />

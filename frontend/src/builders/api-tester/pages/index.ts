@@ -1,1 +1,1 @@
-export * from './ProcessPage'
+export { ProcessPage } from './ProcessPage'

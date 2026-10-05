@@ -30,10 +30,6 @@ export function LoginPage() {
       setErrorMessage('Please enter your password.')
       return
     }
-    if (!stage) {
-      setErrorMessage('Please select a stage.')
-      return
-    }
 
     try {
       await login({
@@ -43,9 +39,19 @@ export function LoginPage() {
       })
     } catch (err) {
       if (err instanceof AuthApiError) {
-        setErrorMessage(err.detail)
+        if (err.status === 401 || err.status === 403) {
+          setErrorMessage('Invalid username or password.')
+        } else if (err.status === 429) {
+          setErrorMessage('Too many attempts. Please wait and try again.')
+        } else if (err.status >= 500) {
+          setErrorMessage('Server error. Please try again later.')
+        } else {
+          setErrorMessage(err.detail || 'Failed to log in. Please try again.')
+        }
+      } else if (err instanceof TypeError) {
+        setErrorMessage('Network error. Check your connection and try again.')
       } else if (err instanceof Error) {
-        setErrorMessage(err.message)
+        setErrorMessage(err.message || 'Failed to log in. Please try again.')
       } else {
         setErrorMessage('Failed to log in. Please try again.')
       }
@@ -55,21 +61,27 @@ export function LoginPage() {
   return (
     <div className="flex min-h-[calc(100vh-5rem)] items-center justify-center py-10 px-4 sm:px-6">
       <div className="w-full max-w-md space-y-6">
-        {/* Login Card */}
         <div className="card shadow-sm border border-line bg-surface p-6 sm:p-8">
+          <div className="mb-6">
+            <h2 className="font-display text-lg font-semibold text-content tracking-tight">
+              Sign in
+            </h2>
+            <p className="mt-1 text-[13px] text-content-secondary">
+              Use your LOS credentials to continue.
+            </p>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            {/* Error Message */}
             {errorMessage && (
               <div
                 role="alert"
-                className="flex items-start gap-2.5 rounded-sm border border-danger/30 bg-danger-subtle p-3 text-[13px] text-danger-text animate-in fade-in"
+                className="flex items-start gap-2.5 rounded-sm border border-danger/30 bg-danger-subtle p-3 text-[13px] text-danger-text"
               >
-                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />
                 <span className="leading-snug">{errorMessage}</span>
               </div>
             )}
 
-            {/* Stage */}
             <div>
               <label htmlFor="login-stage" className="label">
                 Stage
@@ -90,18 +102,17 @@ export function LoginPage() {
                 ))}
               </select>
               <p className="mt-1 text-[12px] text-content-secondary">
-                Selects workflow context (FOS, CPA, HOPS, BOPS, Credit).
+                Workflow context (FOS, CPA, HOPS, BOPS, Credit).
               </p>
             </div>
 
-            {/* Username Field */}
             <div>
-              <label htmlFor="login-username" className="label flex items-center justify-between">
-                <span>Username</span>
+              <label htmlFor="login-username" className="label">
+                Username
               </label>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-content-secondary">
-                  <User className="h-4 w-4" />
+                  <User className="h-4 w-4" aria-hidden />
                 </div>
                 <input
                   id="login-username"
@@ -115,18 +126,18 @@ export function LoginPage() {
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="e.g. AniketDev"
                   className="input pl-9"
+                  aria-invalid={Boolean(errorMessage && !username.trim())}
                 />
               </div>
             </div>
 
-            {/* Password Field */}
             <div>
-              <label htmlFor="login-password" className="label flex items-center justify-between">
-                <span>Password</span>
+              <label htmlFor="login-password" className="label">
+                Password
               </label>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-content-secondary">
-                  <Lock className="h-4 w-4" />
+                  <Lock className="h-4 w-4" aria-hidden />
                 </div>
                 <input
                   id="login-password"
@@ -139,24 +150,24 @@ export function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   className="input pl-9 pr-10"
+                  aria-invalid={Boolean(errorMessage && !password)}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
                   tabIndex={-1}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-content-secondary hover:text-content transition-colors focus:outline-none"
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-content-secondary hover:text-content transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember rounded-sm"
                 >
                   {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
+                    <EyeOff className="h-4 w-4" aria-hidden />
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-4 w-4" aria-hidden />
                   )}
                 </button>
               </div>
             </div>
 
-            {/* Submit Button */}
             <div className="pt-2">
               <button
                 type="submit"
@@ -165,12 +176,12 @@ export function LoginPage() {
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Signing in...</span>
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    <span>Signing in…</span>
                   </>
                 ) : (
                   <>
-                    <KeyRound className="h-4 w-4" />
+                    <KeyRound className="h-4 w-4" aria-hidden />
                     <span>Sign In</span>
                   </>
                 )}
@@ -178,18 +189,17 @@ export function LoginPage() {
             </div>
           </form>
 
-          {/* Demo autofill — development builds only */}
           {import.meta.env.DEV && (
             <div className="mt-6 border-t border-line-divider pt-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-[12px] text-content-secondary">
-                  Test environment credentials:
+                  Test credentials (dev only)
                 </span>
                 <button
                   type="button"
                   onClick={handleFillDemo}
                   className="chip hover:bg-raised-hover hover:text-content transition-colors cursor-pointer text-[11px]"
-                  title="Fill demo username & password (dev only)"
+                  title="Fill demo username & password"
                 >
                   Auto-fill Demo
                 </button>

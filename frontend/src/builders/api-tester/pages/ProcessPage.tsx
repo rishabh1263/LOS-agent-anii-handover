@@ -1,7 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useKycWizard } from '../../../runtime/api-tester'
 import { useAuth } from '../../../runtime/auth'
-import { RequireAuth } from '../../auth'
 import { Chatbot } from '../../chatbot'
 import {
   ApplicationDetailsStep,
@@ -16,18 +15,10 @@ import {
 const FADE = { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const }
 
 /**
- * Login (stage) → Basic details → Application → POST/GET FOS applicant →
- * Party → Documents → Report. Chatbot uses copilot query with case context.
+ * KYC wizard: details → application → party → documents → report.
+ * Auth is handled by App (RequireAuth). Chatbot receives case context.
  */
 export function ProcessPage() {
-  return (
-    <RequireAuth>
-      <ProcessPageContent />
-    </RequireAuth>
-  )
-}
-
-function ProcessPageContent() {
   const { user, accessToken } = useAuth()
   const {
     step,

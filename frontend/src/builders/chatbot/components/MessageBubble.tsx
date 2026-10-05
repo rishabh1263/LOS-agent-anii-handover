@@ -3,6 +3,7 @@ import { Check, Copy, Pencil, RefreshCw, Volume2, VolumeX, X } from 'lucide-reac
 import type { ChatMessage } from '../../../runtime/chatbot'
 import { formatTime } from '../../../runtime/chatbot'
 import { DocumentUploadPanel } from './DocumentUploadPanel'
+import { TypingDots } from './TypingDots'
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -46,7 +47,7 @@ function ActionBtn({
       aria-label={label}
       title={label}
       aria-pressed={active}
-      className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40 ${active
+      className={`relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40 ${active
         ? 'bg-ember/10 text-ember'
         : 'text-content-secondary hover:bg-raised hover:text-content'
         }`}
@@ -82,7 +83,7 @@ function renderContent(text: string) {
             </span>
             <button
               type="button"
-              className="font-sans text-[11px] text-ember hover:underline"
+              className="cursor-pointer font-sans text-[11px] text-ember hover:underline"
               onClick={() => navigator.clipboard?.writeText(code.join('\n'))}
             >
               Copy
@@ -98,7 +99,7 @@ function renderContent(text: string) {
     }
     if (line.startsWith('• ') || line.startsWith('- ')) {
       nodes.push(
-        <li key={`li-${i}`} className="ml-4 list-disc">
+        <li key={`li-${i}`} className="ml-4 list-disc break-words [overflow-wrap:anywhere]">
           {inlineFormat(line.slice(2))}
         </li>,
       )
@@ -107,7 +108,7 @@ function renderContent(text: string) {
     }
     if (line.startsWith('**') && line.endsWith('**') && line.length > 4) {
       nodes.push(
-        <p key={`h-${i}`} className="mt-2 font-medium text-content">
+        <p key={`h-${i}`} className="mt-2 break-words font-medium text-content [overflow-wrap:anywhere]">
           {line.slice(2, -2)}
         </p>,
       )
@@ -118,7 +119,7 @@ function renderContent(text: string) {
       nodes.push(<div key={`sp-${i}`} className="h-1.5" />)
     } else {
       nodes.push(
-        <p key={`p-${i}`} className="leading-[1.55]">
+        <p key={`p-${i}`} className="break-words leading-[1.55] [overflow-wrap:anywhere]">
           {inlineFormat(line)}
         </p>,
       )
@@ -238,7 +239,7 @@ export function MessageBubble({
   if (isUser && isEditing) {
     return (
       <div className="flex flex-col items-end gap-1.5 px-4 py-1.5">
-        <div className="w-full max-w-[92%] rounded-2xl rounded-br-md border border-ember/40 bg-raised px-3 py-2 shadow-sm">
+        <div className="w-full min-w-0 max-w-[92%] rounded-2xl rounded-br-md border border-ember/40 bg-raised px-3 py-2 shadow-sm">
           <textarea
             ref={editRef}
             value={draft}
@@ -250,14 +251,14 @@ export function MessageBubble({
             }}
             onKeyDown={onEditKey}
             rows={1}
-            className="max-h-[200px] min-h-[36px] w-full resize-none overflow-y-auto bg-transparent font-sans text-[14.5px] leading-[1.5] text-content placeholder:text-content-disabled focus:outline-none"
+            className="max-h-[200px] min-h-[36px] w-full min-w-0 resize-none overflow-y-auto break-words bg-transparent font-sans text-[14.5px] leading-[1.5] text-content placeholder:text-content-disabled focus:outline-none [overflow-wrap:anywhere]"
             aria-label="Edit message"
           />
           <div className="mt-2 flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={cancelEdit}
-              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-sans text-[12px] font-medium text-content-secondary transition-colors hover:bg-surface hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+              className="flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 font-sans text-[12px] font-medium text-content-secondary transition-colors hover:bg-surface hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
             >
               <X className="h-3.5 w-3.5" strokeWidth={2} />
               Cancel
@@ -266,7 +267,7 @@ export function MessageBubble({
               type="button"
               onClick={submitEdit}
               disabled={!draft.trim()}
-              className="flex items-center gap-1 rounded-lg bg-ember px-2.5 py-1.5 font-sans text-[12px] font-medium text-oncolor transition-colors hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex cursor-pointer items-center gap-1 rounded-lg bg-ember px-2.5 py-1.5 font-sans text-[12px] font-medium text-oncolor transition-colors hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
               Save &amp; submit
@@ -284,7 +285,8 @@ export function MessageBubble({
     <div
       className={`group flex flex-col gap-1 px-4 py-1.5 ${isUser ? 'items-end' : 'items-start'}`}
     >
-      <div className={`flex max-w-[85%] gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+      {/* min-w-0 lets the flex child shrink so long unbroken text can wrap */}
+      <div className={`flex min-w-0 max-w-[85%] gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
         {!isUser && (
           <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-raised text-content-secondary">
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
@@ -298,7 +300,7 @@ export function MessageBubble({
 
         <div
           data-role={isUser ? 'user-bubble' : 'ai-bubble'}
-          className={`rounded-2xl px-3.5 py-2.5 font-sans text-[14.5px] leading-[1.5] ${isUser
+          className={`min-w-0 max-w-full break-words rounded-2xl px-3.5 py-2.5 font-sans text-[14.5px] leading-[1.5] [overflow-wrap:anywhere] ${isUser
             ? 'rounded-br-md text-white'
             : isSpeaking
               ? 'rounded-bl-md border border-ember/30 shadow-[0_0_0_3px_rgba(37,99,235,0.08)]'
@@ -306,17 +308,13 @@ export function MessageBubble({
             }`}
         >
           {message.error ? (
-            <p className="text-danger-text">{message.error}</p>
+            <p className="break-words text-danger-text [overflow-wrap:anywhere]">{message.error}</p>
           ) : (
-            <div className="space-y-0.5">
+            <div className="min-w-0 space-y-0.5 break-words [overflow-wrap:anywhere]">
               {message.content ? (
                 renderContent(message.content)
               ) : message.isStreaming ? (
-                <span className="flex items-center gap-1.5 py-0.5" aria-label="Loading">
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:0ms] [animation-duration:0.6s]" />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:150ms] [animation-duration:0.6s]" />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:300ms] [animation-duration:0.6s]" />
-                </span>
+                <TypingDots />
               ) : null}
               {message.isStreaming && message.content ? (
                 <span
@@ -401,13 +399,13 @@ export function MessageBubble({
       {showSuggestedQuestions &&
         message.suggestedQuestions &&
         message.suggestedQuestions.length > 0 && (
-          <div className="ml-9 mt-1.5 flex flex-wrap gap-1.5">
+          <div className="ml-9 mt-1.5 flex max-w-full flex-wrap gap-1.5">
             {message.suggestedQuestions.map((q) => (
               <button
                 key={q}
                 type="button"
                 onClick={() => onSuggested?.(q)}
-                className="rounded-full border border-line bg-surface px-3 py-1.5 font-sans text-[12px] font-medium text-content-secondary transition-colors hover:border-ember/40 hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+                className="max-w-full cursor-pointer break-words rounded-full border border-line bg-surface px-3 py-1.5 font-sans text-[12px] font-medium text-content-secondary transition-all duration-150 hover:border-ember/40 hover:bg-raised hover:text-content hover:shadow-sm active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-ember [overflow-wrap:anywhere]"
               >
                 {q}
               </button>
@@ -415,16 +413,15 @@ export function MessageBubble({
           </div>
         )}
 
-      {/* Upload option — only from structured backend signals, never answer text */}
+      {/* Upload option — only when backend lists specific pending docs */}
       {!isUser &&
         !message.isStreaming &&
         onUploadDocuments &&
-        ((message.uploadTargets && message.uploadTargets.length > 0) ||
-          message.showGeneralUpload) && (
+        message.uploadTargets &&
+        message.uploadTargets.length > 0 && (
           <div className="ml-9 max-w-[min(100%,380px)]">
             <DocumentUploadPanel
-              targets={message.uploadTargets ?? []}
-              showGeneralUpload={message.showGeneralUpload}
+              targets={message.uploadTargets}
               onSubmit={onUploadDocuments}
               disabled={editDisabled}
             />

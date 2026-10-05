@@ -3,28 +3,26 @@
  *
  * Flow:
  *  1. Compact CTA under the assistant message
- *  2. Expand → one row per required document
- *  3. Choose file per row, then Submit (one or more)
+ *  2. Expand → one row per pending document
+ *  3. Choose a file for every row, then Submit
  *  4. Show PASS / REVIEW / FAIL per row
  *
- * Shown only when upload targets are provided — not inferred from answer text.
+ * Rendered only when the backend provides concrete upload targets.
  */
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import {
   AlertCircle,
   AlertTriangle,
-  Check,
   CheckCircle2,
   ChevronDown,
-  FileText,
   Loader2,
   Paperclip,
   Upload,
   X,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import type { UploadTarget } from '../../../runtime/chatbot/utils/uploadTargets'
+import type { UploadTarget } from '../../../runtime/chatbot'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -43,31 +41,28 @@ export interface DocRowState {
   acceptedTypes: string[]
   status: DocRowStatus
   file?: File
-  documentType?: string
   detectedType?: string
   progress?: number
   detail?: string
-  verdict?: string
 }
 
 export interface DocumentUploadPanelProps {
   targets: UploadTarget[]
-  showGeneralUpload?: boolean
   onSubmit: (files: { file: File; documentType: string }[]) => Promise<{
     results: Array<{
       status: 'pass' | 'review' | 'fail' | 'validation'
       detail?: string
       detectedType?: string
     }>
-    refreshedTargets?: UploadTarget[]
   }>
-  onClose?: () => void
   disabled?: boolean
 }
 
 const ACCEPT =
   '.pdf,.jpg,.jpeg,.png,.bmp,.tif,.tiff,.webp,application/pdf,image/jpeg,image/png,image/bmp,image/tiff,image/webp'
 const MAX_BYTES = 25 * 1024 * 1024
+
+const PENDING_STATUSES: DocRowStatus[] = ['idle', 'picked', 'validation', 'fail']
 
 function formatBytes(n: number) {
   if (n < 1024) return `${n} B`
@@ -82,18 +77,33 @@ function slotLabel(slot: string) {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+function rowsFromTargets(targets: UploadTarget[]): DocRowState[] {
+  return targets.map((t) => ({
+    slot: t.slot,
+    label: t.label || slotLabel(t.slot),
+    acceptedTypes: t.acceptedTypes,
+    status: 'idle' as DocRowStatus,
+  }))
+}
+
+function isPending(status: DocRowStatus) {
+  return PENDING_STATUSES.includes(status)
+}
+
+function isReadyToUpload(row: DocRowState) {
+  return Boolean(row.file && (row.status === 'picked' || row.status === 'validation'))
+}
+
 // ── Status pill ────────────────────────────────────────────────────────────
 
 function StatusPill({ status, detail }: { status: DocRowStatus; detail?: string }) {
+  // Idle is marked with a red * on the title instead of a chip
+  if (status === 'idle') return null
+
   const cfg: Record<
-    DocRowStatus,
-    { label: string; icon: typeof Check; className: string }
+    Exclude<DocRowStatus, 'idle'>,
+    { label: string; icon: typeof Paperclip; className: string }
   > = {
-    idle: {
-      label: 'Required',
-      icon: FileText,
-      className: 'bg-raised text-content-secondary ring-1 ring-line',
-    },
     picked: {
       label: 'Ready',
       icon: Paperclip,
@@ -125,8 +135,10 @@ function StatusPill({ status, detail }: { status: DocRowStatus; detail?: string 
       className: 'bg-danger/10 text-danger-text ring-1 ring-danger/20',
     },
   }
+
   const c = cfg[status]
   const Icon = c.icon
+
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${c.className}`}
@@ -146,19 +158,15 @@ function DocRow({
   row,
   onPick,
   onClear,
-  onTypeChange,
   disabled,
 }: {
   row: DocRowState
   onPick: (file: File) => void
   onClear: () => void
-  onTypeChange: (type: string) => void
   disabled?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
-  const needsUpload =
-    row.status === 'idle' || row.status === 'picked' || row.status === 'validation'
-  const multiType = row.acceptedTypes.length > 1
+  const needsUpload = isPending(row.status)
   const isBad = row.status === 'fail' || row.status === 'validation'
 
   const borderClass =
@@ -179,6 +187,11 @@ function DocRow({
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-[13px] font-semibold text-content">
               {row.label || slotLabel(row.slot)}
+              {needsUpload && (
+                <span className="ml-0.5 font-bold text-danger" aria-label="required">
+                  *
+                </span>
+              )}
             </p>
             <StatusPill status={row.status} detail={row.detail} />
           </div>
@@ -188,10 +201,10 @@ function DocRow({
               {row.file.name}
               <span className="mx-1 text-content-disabled">·</span>
               {formatBytes(row.file.size)}
-              {(row.detectedType || row.documentType) && (
+              {row.detectedType && (
                 <>
                   <span className="mx-1 text-content-disabled">·</span>
-                  {slotLabel(row.detectedType || row.documentType || '')}
+                  {slotLabel(row.detectedType)}
                 </>
               )}
             </p>
@@ -216,22 +229,6 @@ function DocRow({
               {row.detail}
             </p>
           )}
-
-          {needsUpload && multiType && (
-            <select
-              value={row.documentType || ''}
-              onChange={(e) => onTypeChange(e.target.value)}
-              disabled={disabled}
-              className="mt-1.5 w-full max-w-[200px] rounded-lg border border-line bg-raised px-2 py-1 text-[12px] text-content focus:border-ember/40 focus:outline-none focus:ring-1 focus:ring-ember/20 disabled:opacity-50"
-            >
-              <option value="">Auto-detect type</option>
-              {row.acceptedTypes.map((t) => (
-                <option key={t} value={t}>
-                  {slotLabel(t)}
-                </option>
-              ))}
-            </select>
-          )}
         </div>
 
         {needsUpload && (
@@ -242,7 +239,7 @@ function DocRow({
                 onClick={onClear}
                 disabled={disabled}
                 aria-label="Remove file"
-                className="rounded-lg p-1.5 text-content-secondary hover:bg-danger/10 hover:text-danger disabled:opacity-40"
+                className="cursor-pointer rounded-lg p-1.5 text-content-secondary hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={2} />
               </button>
@@ -251,7 +248,7 @@ function DocRow({
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={disabled}
-              className="rounded-lg border border-line bg-raised px-2.5 py-1.5 text-[12px] font-semibold text-content hover:border-ember/35 hover:text-ember-text disabled:opacity-40"
+              className="cursor-pointer rounded-lg border border-line bg-raised px-2.5 py-1.5 text-[12px] font-semibold text-content hover:border-ember/35 hover:text-ember-text disabled:cursor-not-allowed disabled:opacity-40"
             >
               {row.file ? 'Change' : 'Choose'}
             </button>
@@ -300,43 +297,26 @@ function DocRow({
 
 export function DocumentUploadPanel({
   targets,
-  showGeneralUpload = false,
   onSubmit,
-  onClose,
   disabled = false,
 }: DocumentUploadPanelProps) {
   const [expanded, setExpanded] = useState(false)
-  const [rows, setRows] = useState<DocRowState[]>(() =>
-    targets.map((t) => ({
-      slot: t.slot,
-      label: t.label || slotLabel(t.slot),
-      acceptedTypes: t.acceptedTypes,
-      status: 'idle' as DocRowStatus,
-      documentType: t.acceptedTypes.length === 1 ? t.acceptedTypes[0] : undefined,
-    })),
-  )
+  const [rows, setRows] = useState<DocRowState[]>(() => rowsFromTargets(targets))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const targetsKey = targets.map((t) => t.slot).join('|')
   useEffect(() => {
     if (targets.length === 0) return
-    setRows(
-      targets.map((t) => ({
-        slot: t.slot,
-        label: t.label || slotLabel(t.slot),
-        acceptedTypes: t.acceptedTypes,
-        status: 'idle' as DocRowStatus,
-        documentType: t.acceptedTypes.length === 1 ? t.acceptedTypes[0] : undefined,
-      })),
-    )
+    setRows(rowsFromTargets(targets))
   }, [targetsKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const pickedCount = rows.filter(
-    (r) => r.file && (r.status === 'picked' || r.status === 'validation'),
-  ).length
+  const pickedCount = rows.filter(isReadyToUpload).length
   const verifiedCount = rows.filter((r) => r.status === 'pass').length
-  const canSubmit = pickedCount > 0 && !submitting && !disabled
+  const pendingRows = rows.filter((r) => isPending(r.status))
+  const allMandatoryPicked =
+    pendingRows.length > 0 && pendingRows.every(isReadyToUpload)
+  const canSubmit = allMandatoryPicked && !submitting && !disabled
 
   const updateRow = useCallback((slot: string, patch: Partial<DocRowState>) => {
     setRows((prev) => prev.map((r) => (r.slot === slot ? { ...r, ...patch } : r)))
@@ -367,7 +347,6 @@ export function DocumentUploadPanel({
         status: 'idle',
         detail: undefined,
         progress: undefined,
-        verdict: undefined,
         detectedType: undefined,
       })
     },
@@ -379,13 +358,12 @@ export function DocumentUploadPanel({
     setSubmitting(true)
     setError(null)
 
-    const toUpload = rows
-      .filter((r) => r.file && (r.status === 'picked' || r.status === 'validation'))
-      .map((r) => ({
-        slot: r.slot,
-        file: r.file!,
-        documentType: r.documentType || '',
-      }))
+    const toUpload = rows.filter(isReadyToUpload).map((r) => ({
+      slot: r.slot,
+      file: r.file!,
+      // Type is optional for the user; send first accepted type or slot for the API
+      documentType: r.acceptedTypes[0] || r.slot,
+    }))
 
     toUpload.forEach((u) => updateRow(u.slot, { status: 'uploading', progress: 35 }))
 
@@ -402,7 +380,6 @@ export function DocumentUploadPanel({
           detail: res.detail,
           progress: 100,
           detectedType: res.detectedType,
-          verdict: res.status,
         })
       })
     } catch (err) {
@@ -413,19 +390,15 @@ export function DocumentUploadPanel({
     }
   }
 
+  if (targets.length === 0 && rows.length === 0) return null
+
   // ── Collapsed CTA ──────────────────────────────────────────────────────
   if (!expanded) {
     const count = targets.length
-    const label =
-      count > 0
-        ? count === 1
-          ? 'Upload 1 pending document'
-          : `Upload ${count} pending documents`
-        : showGeneralUpload
-          ? 'Upload documents'
-          : null
+    if (count === 0) return null
 
-    if (!label) return null
+    const label =
+      count === 1 ? 'Upload 1 pending document' : `Upload ${count} pending documents`
 
     return (
       <div className="mt-2">
@@ -433,7 +406,7 @@ export function DocumentUploadPanel({
           type="button"
           onClick={() => setExpanded(true)}
           disabled={disabled}
-          className="flex w-full items-center gap-3 rounded-xl border border-ember/20 bg-ember/[0.04] px-3 py-2.5 text-left transition hover:border-ember/35 hover:bg-ember/[0.07] focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-50"
+          className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-ember/20 bg-ember/[0.04] px-3 py-2.5 text-left transition hover:border-ember/35 hover:bg-ember/[0.07] focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ember text-oncolor">
             <Upload className="h-4 w-4" strokeWidth={2.25} />
@@ -441,11 +414,9 @@ export function DocumentUploadPanel({
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
               <span className="text-[13px] font-semibold text-content">{label}</span>
-              {count > 0 && (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-ember px-1.5 text-[10px] font-bold text-oncolor">
-                  {count}
-                </span>
-              )}
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-ember px-1.5 text-[10px] font-bold text-oncolor">
+                {count}
+              </span>
             </span>
             <span className="mt-0.5 block text-[11.5px] text-content-secondary">
               PDF, JPG, PNG · up to 25 MB each
@@ -458,34 +429,32 @@ export function DocumentUploadPanel({
   }
 
   // ── Expanded panel ─────────────────────────────────────────────────────
+  const subtitle =
+    verifiedCount > 0 && pickedCount === 0
+      ? `${verifiedCount} verified`
+      : allMandatoryPicked
+        ? 'All files chosen · ready to submit'
+        : pickedCount > 0
+          ? `${pickedCount} of ${pendingRows.length} chosen · pick remaining to submit`
+          : `${rows.length} document${rows.length === 1 ? '' : 's'} · choose a file for each`
+
   return (
     <div className="mt-2 overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
-      {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5">
         <div>
           <p className="text-[13px] font-semibold text-content">Documents</p>
-          <p className="text-[11px] text-content-secondary">
-            {verifiedCount > 0 && pickedCount === 0
-              ? `${verifiedCount} verified`
-              : pickedCount > 0
-                ? `${pickedCount} ready to submit`
-                : `${rows.length} required · choose file per row`}
-          </p>
+          <p className="text-[11px] text-content-secondary">{subtitle}</p>
         </div>
         <button
           type="button"
-          onClick={() => {
-            setExpanded(false)
-            onClose?.()
-          }}
+          onClick={() => setExpanded(false)}
           aria-label="Collapse panel"
-          className="rounded-lg p-1.5 text-content-secondary hover:bg-raised hover:text-content"
+          className="cursor-pointer rounded-lg p-1.5 text-content-secondary hover:bg-raised hover:text-content"
         >
           <ChevronDown className="h-4 w-4 rotate-180" strokeWidth={2} />
         </button>
       </div>
 
-      {/* Rows */}
       <div className="flex flex-col gap-2 p-3">
         {rows.map((row) => (
           <DocRow
@@ -494,12 +463,10 @@ export function DocumentUploadPanel({
             disabled={disabled || submitting}
             onPick={(f) => handlePick(row.slot, f)}
             onClear={() => handleClear(row.slot)}
-            onTypeChange={(t) => updateRow(row.slot, { documentType: t || undefined })}
           />
         ))}
       </div>
 
-      {/* Error */}
       <AnimatePresence>
         {error && (
           <motion.div
@@ -516,26 +483,20 @@ export function DocumentUploadPanel({
         )}
       </AnimatePresence>
 
-      {/* Footer */}
       <div className="flex items-center justify-between gap-3 border-t border-line px-3 py-2.5">
         <p className="text-[11px] text-content-secondary">PDF · JPG · PNG · max 25 MB</p>
         <button
           type="button"
           onClick={handleSubmit}
           disabled={!canSubmit}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-ember px-3.5 py-2 text-[12.5px] font-semibold text-oncolor transition hover:bg-ember-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-ember px-3.5 py-2 text-[12.5px] font-semibold text-oncolor transition hover:bg-ember-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40"
         >
           {submitting ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Uploading…
-            </>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.25} />
           ) : (
-            <>
-              <Upload className="h-3.5 w-3.5" strokeWidth={2.5} />
-              {pickedCount > 0 ? `Submit ${pickedCount}` : 'Submit'}
-            </>
+            <Upload className="h-3.5 w-3.5" strokeWidth={2.25} />
           )}
+          Submit
         </button>
       </div>
     </div>

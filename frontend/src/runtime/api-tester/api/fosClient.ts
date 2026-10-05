@@ -181,9 +181,6 @@ export interface FosResponse {
   [key: string]: unknown
 }
 
-/** @deprecated Prefer FosResponse — kept for existing call sites */
-export type FosApplicantRecord = FosResponse
-
 async function parseResponse(res: Response): Promise<FosResponse> {
   const text = await res.text()
   let body: unknown
@@ -242,40 +239,6 @@ export async function getApplicant(
     ? `?case_id=${encodeURIComponent(query.case_id)}`
     : ''
   const res = await fetch(`${FOS_BASE}/applicants/${id}${qs}`, {
-    method: 'GET',
-    headers: authHeaders(token),
-  })
-  return parseResponse(res)
-}
-
-/** GET /api/v1/fos/applications/{case_id} */
-export async function getApplication(
-  caseId: string,
-  token?: string,
-  query?: { applicant_id?: string },
-): Promise<FosResponse> {
-  const id = encodeURIComponent(caseId.trim())
-  const qs = query?.applicant_id
-    ? `?applicant_id=${encodeURIComponent(query.applicant_id)}`
-    : ''
-  const res = await fetch(`${FOS_BASE}/applications/${id}${qs}`, {
-    method: 'GET',
-    headers: authHeaders(token),
-  })
-  return parseResponse(res)
-}
-
-/** GET /api/v1/fos/documents/{case_id} */
-export async function getDocuments(
-  caseId: string,
-  token?: string,
-  query?: { applicant_id?: string },
-): Promise<FosResponse> {
-  const id = encodeURIComponent(caseId.trim())
-  const qs = query?.applicant_id
-    ? `?applicant_id=${encodeURIComponent(query.applicant_id)}`
-    : ''
-  const res = await fetch(`${FOS_BASE}/documents/${id}${qs}`, {
     method: 'GET',
     headers: authHeaders(token),
   })

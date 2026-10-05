@@ -1,3 +1,7 @@
+/**
+ * runtime/chatbot/utils
+ */
+
 export function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
@@ -11,16 +15,13 @@ export {
   pickBestVoice,
   textForSpeech,
   naturalSpeechParams,
-  listAvailableLanguages,
   listIndianLanguages,
   languageLabel,
   speakUtterance,
   hasVoiceForLanguage,
-  INDIAN_SPEECH_LOCALES,
-  type VoicePickOptions,
 } from './speech'
 
-export { translateForSpeech, isEnglishLang, looksLikeLatin } from './translate'
+export { translateForSpeech } from './translate'
 
 export {
   loadConversations,
@@ -31,10 +32,11 @@ export {
   prefersReducedMotion,
 } from './storage'
 
+export { getUploadTargets, type UploadTarget } from './uploadTargets'
+
 export {
-  getUploadTargets,
-  getStatusChip,
-  type UploadTarget,
-  type UploadDecision,
-  type FosUploadResponse,
-} from './uploadTargets'
+  getSpeechRecognitionCtor,
+  mapMicError,
+  type SpeechRecognitionLike,
+  type SpeechRecognitionResultEvent,
+} from './mic'

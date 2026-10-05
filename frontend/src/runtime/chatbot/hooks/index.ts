@@ -1,2 +1,2 @@
-export { useChatbot } from './useChatbot'
-export type { ChatbotApi } from './useChatbot'
+export { useChatbot, type ChatbotApi } from './useChatbot'
+export type { ChatbotContext } from './useChatbot'

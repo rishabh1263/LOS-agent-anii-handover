@@ -35,7 +35,6 @@ export interface ChatMessage {
   grounded?: boolean
   /** From getUploadTargets() — never derived from answer text */
   uploadTargets?: ChatUploadTarget[]
-  showGeneralUpload?: boolean
 }
 
 export interface Conversation {
@@ -48,6 +47,11 @@ export interface Conversation {
 export interface ChatSettings {
   voiceInput: boolean
   autoReadResponses: boolean
+  /**
+   * When true, finishing voice input (speech ends or user stops the mic)
+   * automatically sends the transcribed message — no need to press Enter/Send.
+   */
+  autoSendOnVoice: boolean
   speechSpeed: number
   /** BCP-47 tag from system voices, e.g. en-IN, hi-IN */
   speechLanguage: string
@@ -56,20 +60,19 @@ export interface ChatSettings {
   chatTheme: ChatThemeId
   sendWithEnter: boolean
   showTimestamps: boolean
-  compactMode: boolean
   showSuggestedQuestions: boolean
 }
 
 export const DEFAULT_SETTINGS: ChatSettings = {
   voiceInput: true,
   autoReadResponses: false,
+  autoSendOnVoice: false,
   speechSpeed: 1,
   speechLanguage: 'en-IN',
   speechGender: 'female',
   chatTheme: 'light',
   sendWithEnter: true,
   showTimestamps: true,
-  compactMode: false,
   showSuggestedQuestions: true,
 }
 

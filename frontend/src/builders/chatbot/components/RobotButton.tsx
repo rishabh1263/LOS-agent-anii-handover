@@ -162,9 +162,9 @@ export function RobotButton({ onClick, visible, modelUrl }: RobotButtonProps) {
       }}
       transition={{
         type: 'spring',
-        stiffness: 420,
-        damping: 28,
-        mass: 0.7,
+        stiffness: 400,
+        damping: 32,
+        mass: 0.75,
       }}
       aria-hidden={!visible}
     >

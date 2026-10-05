@@ -19,7 +19,6 @@ import type {
   ChatSettings,
   Conversation,
 } from '../types'
-import { DEFAULT_SETTINGS } from '../types'
 import {
   uid,
   ensureVoicesLoaded,
@@ -35,6 +34,10 @@ import {
   saveSettings,
   prefersReducedMotion,
   hasVoiceForLanguage,
+  getSpeechRecognitionCtor,
+  mapMicError,
+  type SpeechRecognitionLike,
+  type SpeechRecognitionResultEvent,
 } from '../utils'
 
 /** Context + optional API config — only this needs changing in another project. */
@@ -50,23 +53,6 @@ export interface ChatbotContext {
   apiQueryPath?: string
 }
 
-/** Minimal SpeechRecognition shape for browsers that expose it (incl. webkit prefix). */
-interface SpeechRecognitionLike {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  onresult: ((event: SpeechRecognitionResultEvent) => void) | null
-  onerror: ((event: { error: string }) => void) | null
-  onend: (() => void) | null
-  start: () => void
-  stop: () => void
-}
-
-interface SpeechRecognitionResultEvent {
-  resultIndex: number
-  results: ArrayLike<{ isFinal: boolean; 0?: { transcript: string } }>
-}
-
 const QUICK_ACTIONS = [
   { id: 'help', label: 'How can you help?', icon: 'Search' },
   { id: 'status', label: 'Check application status', icon: 'ClipboardList' },
@@ -80,50 +66,6 @@ function createConversation(): Conversation {
     title: 'New conversation',
     updatedAt: Date.now(),
     messages: [],
-  }
-}
-
-function getSpeechRecognitionCtor(): (new () => SpeechRecognitionLike) | undefined {
-  if (typeof window === 'undefined') return undefined
-  const w = window as unknown as Record<string, unknown>
-  return (w.SpeechRecognition || w.webkitSpeechRecognition) as
-    | (new () => SpeechRecognitionLike)
-    | undefined
-}
-
-function mapMicError(code: string): string {
-  switch (code) {
-    case 'not-allowed':
-    case 'permission-denied':
-    case 'PermissionDeniedError':
-    case 'NotAllowedError':
-      return 'Microphone access denied. Allow mic permission in your browser settings, then try again.'
-    case 'service-not-allowed':
-      return 'Microphone blocked by the browser or site policy. Check site permissions and try again.'
-    case 'audio-capture':
-    case 'NotFoundError':
-    case 'DevicesNotFoundError':
-      return 'No microphone found. Connect a mic and try again.'
-    case 'NotReadableError':
-    case 'TrackStartError':
-      return 'Microphone is in use by another app. Close it and try again.'
-    case 'OverconstrainedError':
-      return 'Could not access this microphone. Try a different device.'
-    case 'SecurityError':
-    case 'insecure':
-      return 'Microphone requires a secure connection (HTTPS). Open the app over HTTPS and try again.'
-    case 'network':
-      return 'Network error during voice input. Check your connection and try again.'
-    case 'no-speech':
-      return 'No speech detected. Click the mic and speak clearly.'
-    case 'aborted':
-      return ''
-    case 'language-not-supported':
-      return 'Speech recognition is not available for this language.'
-    case 'unsupported':
-      return 'Voice input is not supported in this browser. Try Chrome or Edge.'
-    default:
-      return 'Voice input failed. Check microphone access and try again.'
   }
 }
 
@@ -154,6 +96,27 @@ export function useChatbot(context: ChatbotContext = {}) {
   const contextRef = useRef(context)
   contextRef.current = context
   const conversationApiIdRef = useRef<string | null>(null)
+  /** Full draft built during the current voice session (avoids setState race on auto-send). */
+  const voiceDraftRef = useRef('')
+  /** Prevents double auto-send when both stop() and onend fire. */
+  const voiceAutoSentRef = useRef(false)
+  /** Latest sendMessage for use inside recognition callbacks. */
+  const sendMessageRef = useRef<
+    (text?: string, opts?: { skipUserMessage?: boolean }) => Promise<void>
+  >(async () => { })
+  const inputRef = useRef(input)
+  inputRef.current = input
+
+  /** Send voice draft once when auto-send is enabled. */
+  const tryAutoSendVoice = useCallback(() => {
+    if (!settingsRef.current.autoSendOnVoice) return
+    if (voiceAutoSentRef.current) return
+    const text = voiceDraftRef.current.trim()
+    if (!text) return
+    voiceAutoSentRef.current = true
+    voiceDraftRef.current = ''
+    void sendMessageRef.current(text)
+  }, [])
 
   // Restore history + settings once on mount (drop empty conversations)
   useEffect(() => {
@@ -288,7 +251,7 @@ export function useChatbot(context: ChatbotContext = {}) {
   )
 
   const sendMessage = useCallback(
-    async (text?: string) => {
+    async (text?: string, opts?: { skipUserMessage?: boolean }) => {
       const content = (text ?? input).trim()
       if (!content) return
       if (status === 'generating' || status === 'thinking') return
@@ -301,29 +264,33 @@ export function useChatbot(context: ChatbotContext = {}) {
         convId = conv.id
       }
 
-      const userMsg: ChatMessage = {
-        id: uid('msg'),
-        role: 'user',
-        content,
-        timestamp: Date.now(),
+      // Normal send appends a user bubble; regenerate skips so the question is not duplicated
+      if (!opts?.skipUserMessage) {
+        const userMsg: ChatMessage = {
+          id: uid('msg'),
+          role: 'user',
+          content,
+          timestamp: Date.now(),
+        }
+
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === convId
+              ? {
+                ...c,
+                title:
+                  c.messages.length === 0
+                    ? content.slice(0, 40) || 'New conversation'
+                    : c.title,
+                updatedAt: Date.now(),
+                messages: [...c.messages, userMsg],
+              }
+              : c,
+          ),
+        )
+        setInput('')
       }
 
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === convId
-            ? {
-              ...c,
-              title:
-                c.messages.length === 0
-                  ? content.slice(0, 40) || 'New conversation'
-                  : c.title,
-              updatedAt: Date.now(),
-              messages: [...c.messages, userMsg],
-            }
-            : c,
-        ),
-      )
-      setInput('')
       setStatus('thinking')
       stopRef.current = false
       abortRef.current?.abort()
@@ -376,7 +343,6 @@ export function useChatbot(context: ChatbotContext = {}) {
           routeTo?: string | null
           grounded?: boolean
           uploadTargets?: import('../types').ChatUploadTarget[]
-          showGeneralUpload?: boolean
         }
 
         if (useFosCopilot) {
@@ -408,8 +374,8 @@ export function useChatbot(context: ChatbotContext = {}) {
               : undefined,
             routeTo: fosRes.route_to ? String(fosRes.route_to) : null,
             grounded: fosRes.grounded,
-            uploadTargets: decision.targets,
-            showGeneralUpload: decision.showGeneralUpload,
+            // Only attach when there are concrete pending docs (avoids empty upload UI)
+            uploadTargets: decision.targets.length > 0 ? decision.targets : undefined,
           }
         } else {
           const res = await queryChat(
@@ -560,6 +526,7 @@ export function useChatbot(context: ChatbotContext = {}) {
     },
     [input, activeId, status],
   )
+  sendMessageRef.current = sendMessage
 
   const stopGenerating = useCallback(() => {
     stopRef.current = true
@@ -575,11 +542,13 @@ export function useChatbot(context: ChatbotContext = {}) {
   const regenerate = useCallback(
     (messageId: string) => {
       if (!activeId) return
+      if (status === 'generating' || status === 'thinking') return
       const conv = conversations.find((c) => c.id === activeId)
       if (!conv) return
       const idx = conv.messages.findIndex((m) => m.id === messageId)
       if (idx < 0) return
 
+      // Find the user question that this assistant reply belongs to
       let userContent = ''
       for (let i = idx - 1; i >= 0; i--) {
         if (conv.messages[i].role === 'user') {
@@ -587,17 +556,21 @@ export function useChatbot(context: ChatbotContext = {}) {
           break
         }
       }
+      if (!userContent.trim()) return
 
+      // Drop this assistant reply (and anything after it); keep the original user bubble
       setConversations((prev) =>
         prev.map((c) =>
           c.id === activeId
-            ? { ...c, messages: c.messages.filter((m) => m.id !== messageId) }
+            ? { ...c, updatedAt: Date.now(), messages: c.messages.slice(0, idx) }
             : c,
         ),
       )
-      void sendMessage(userContent)
+
+      // Re-run the model without appending another user message
+      void sendMessage(userContent, { skipUserMessage: true })
     },
-    [activeId, conversations, sendMessage],
+    [activeId, conversations, sendMessage, status],
   )
 
   /**
@@ -730,9 +703,8 @@ export function useChatbot(context: ChatbotContext = {}) {
     const rec = recognitionRef.current
     if (rec) {
       try {
-        rec.onresult = null
+        // Keep onend for cleanup; onerror cleared so stop does not surface as an error
         rec.onerror = null
-        rec.onend = null
         rec.stop()
       } catch {
         /* ignore */
@@ -742,7 +714,9 @@ export function useChatbot(context: ChatbotContext = {}) {
     setInterimTranscript('')
     setIsListening(false)
     setStatus((s) => (s === 'listening' ? 'online' : s))
-  }, [])
+    // Manual mic stop — auto-send when the setting is on
+    tryAutoSendVoice()
+  }, [tryAutoSendVoice])
 
   const ensureMicAccess = useCallback(async (): Promise<string | null> => {
     if (typeof window === 'undefined') return mapMicError('unsupported')
@@ -803,6 +777,10 @@ export function useChatbot(context: ChatbotContext = {}) {
         (typeof navigator !== 'undefined' ? navigator.language : undefined) ||
         'en-IN'
 
+      // Seed draft with any text already in the composer so voice appends correctly
+      voiceDraftRef.current = inputRef.current.trim()
+      voiceAutoSentRef.current = false
+
       recognition.onresult = (event: SpeechRecognitionResultEvent) => {
         let interim = ''
         let finalText = ''
@@ -814,10 +792,13 @@ export function useChatbot(context: ChatbotContext = {}) {
         }
         if (finalText) {
           setInterimTranscript('')
-          setInput((prev) => {
-            const base = prev.trim()
-            return base ? `${base} ${finalText.trim()}` : finalText.trim()
-          })
+          const chunk = finalText.trim()
+          if (chunk) {
+            const base = voiceDraftRef.current.trim()
+            const next = base ? `${base} ${chunk}` : chunk
+            voiceDraftRef.current = next
+            setInput(next)
+          }
         } else {
           setInterimTranscript(interim.trim())
         }
@@ -830,6 +811,8 @@ export function useChatbot(context: ChatbotContext = {}) {
         setInterimTranscript('')
         setIsListening(false)
         setStatus((s) => (s === 'listening' ? 'online' : s))
+        // Skip auto-send on error (no-speech, aborted, permission, etc.)
+        voiceAutoSentRef.current = true
       }
 
       recognition.onend = () => {
@@ -837,6 +820,8 @@ export function useChatbot(context: ChatbotContext = {}) {
         setInterimTranscript('')
         setIsListening(false)
         setStatus((s) => (s === 'listening' ? 'online' : s))
+        // Natural end of speech (or after stop()) — auto-send when setting is on
+        tryAutoSendVoice()
       }
 
       recognitionRef.current = recognition
@@ -853,7 +838,7 @@ export function useChatbot(context: ChatbotContext = {}) {
       setIsListening(false)
       setStatus((s) => (s === 'listening' ? 'online' : s))
     }
-  }, [settings.voiceInput, isListening, stopSpeaking, ensureMicAccess])
+  }, [settings.voiceInput, isListening, stopSpeaking, ensureMicAccess, tryAutoSendVoice])
 
   const toggleSpeak = useCallback(
     (text: string, messageId?: string) => {
@@ -921,12 +906,8 @@ export function useChatbot(context: ChatbotContext = {}) {
         ctx.accessToken,
       )
 
-      const results = mapUploadResults(res, files.length)
-      const decision = getUploadTargets(res)
-
       return {
-        results,
-        refreshedTargets: decision.targets,
+        results: mapUploadResults(res, files.length),
       }
     },
     [],

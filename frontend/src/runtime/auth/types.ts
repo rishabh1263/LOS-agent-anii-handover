@@ -9,6 +9,13 @@ export const AUTH_STAGES: { value: AuthStage; label: string }[] = [
   { value: 'CREDIT', label: 'Credit' },
 ]
 
+const VALID_STAGES: AuthStage[] = ['FOS', 'CPA', 'HOPS', 'BOPS', 'CREDIT']
+
+export function normalizeStage(value: unknown): AuthStage {
+  const s = String(value || '').toUpperCase()
+  return (VALID_STAGES.includes(s as AuthStage) ? s : 'FOS') as AuthStage
+}
+
 export interface LoginRequest {
   username: string
   password: string
@@ -36,12 +43,4 @@ export interface LogoutRequest {
 export interface AuthUser {
   username: string
   stage: AuthStage
-}
-
-export interface AuthState {
-  user: AuthUser | null
-  accessToken: string | null
-  refreshToken: string | null
-  isAuthenticated: boolean
-  isLoading: boolean
 }

@@ -31,8 +31,9 @@ async function handleResponse<T>(res: Response): Promise<T> {
     if (typeof data.detail === 'string') {
       detail = data.detail
     } else if (Array.isArray(data.detail)) {
-      // Pydantic 422 validation errors
-      detail = data.detail.map((err: { msg?: string }) => err.msg || 'Invalid field').join(', ')
+      detail = data.detail
+        .map((err: { msg?: string }) => err.msg || 'Invalid field')
+        .join(', ')
     } else if (typeof data.message === 'string') {
       detail = data.message
     } else if (typeof data.error === 'string') {
@@ -44,40 +45,36 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return data as T
 }
 
+const defaultFetchInit: RequestInit = {
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json' },
+}
+
 export async function loginApi(payload: LoginRequest): Promise<TokenResponse> {
   const res = await fetch(apiUrl(PATHS.authLogin), {
+    ...defaultFetchInit,
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify(payload),
   })
-
   return handleResponse<TokenResponse>(res)
 }
 
 export async function refreshApi(refreshToken: string): Promise<TokenResponse> {
   const payload: RefreshRequest = { refresh_token: refreshToken }
   const res = await fetch(apiUrl(PATHS.authRefresh), {
+    ...defaultFetchInit,
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify(payload),
   })
-
   return handleResponse<TokenResponse>(res)
 }
 
 export async function logoutApi(refreshToken: string): Promise<void> {
   const payload: LogoutRequest = { refresh_token: refreshToken }
   const res = await fetch(apiUrl(PATHS.authLogout), {
+    ...defaultFetchInit,
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify(payload),
   })
-
   await handleResponse<void>(res)
 }

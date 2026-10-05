@@ -80,14 +80,14 @@ export function ChatComposer({
                 type="button"
                 onClick={onStartListen}
                 disabled={disabled || isGenerating}
-                className="rounded-md bg-white px-2.5 py-1 font-sans text-[12px] font-medium text-content shadow-sm ring-1 ring-line transition-colors hover:bg-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40"
+                className="cursor-pointer rounded-md bg-white px-2.5 py-1 font-sans text-[12px] font-medium text-content shadow-sm ring-1 ring-line transition-colors hover:bg-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Try again
               </button>
               <button
                 type="button"
                 onClick={onDismissVoiceError}
-                className="rounded-md px-2 py-1 font-sans text-[12px] font-medium text-red-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+                className="cursor-pointer rounded-md px-2 py-1 font-sans text-[12px] font-medium text-red-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
               >
                 Dismiss
               </button>
@@ -114,7 +114,7 @@ export function ChatComposer({
           <button
             type="button"
             onClick={onStopListen}
-            className="shrink-0 rounded-md px-2 py-1 font-sans text-[12px] font-medium text-blue-700 hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            className="shrink-0 cursor-pointer rounded-md px-2 py-1 font-sans text-[12px] font-medium text-blue-700 hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
           >
             Stop
           </button>
@@ -122,8 +122,9 @@ export function ChatComposer({
       )}
 
       <div
-        className={`flex min-w-0 items-end gap-1 rounded-2xl border bg-raised px-2 py-1.5 transition-colors focus-within:border-ember/60 focus-within:bg-surface focus-within:ring-2 focus-within:ring-ember/10 ${isListening ? 'border-blue-400' : 'border-line'
-          }`}
+        className={`flex min-w-0 items-end gap-1 rounded-2xl border bg-raised px-2 py-1.5 transition-all duration-200 focus-within:border-ember/60 focus-within:bg-surface focus-within:shadow-[0_0_0_3px_rgba(37,99,235,0.08)] focus-within:ring-1 focus-within:ring-ember/25 ${
+          isListening ? 'border-blue-400 ring-1 ring-blue-400/30' : 'border-line'
+        }`}
       >
         <textarea
           ref={taRef}
@@ -145,7 +146,7 @@ export function ChatComposer({
             onClick={isListening ? onStopListen : onStartListen}
             disabled={disabled || isGenerating}
             title={isListening ? 'Stop listening' : 'Voice input'}
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-40 ${isListening
+            className={`flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40 ${isListening
               ? 'bg-blue-500 text-white shadow-sm'
               : 'text-content-secondary hover:bg-surface hover:text-content'
               }`}
@@ -163,7 +164,7 @@ export function ChatComposer({
             type="button"
             aria-label="Stop generating"
             onClick={onStop}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-content text-surface transition-colors hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-content text-surface transition-colors hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
           >
             <Square className="h-3 w-3 fill-current" strokeWidth={0} />
           </button>
@@ -173,7 +174,7 @@ export function ChatComposer({
             aria-label="Send message"
             onClick={onSend}
             disabled={!canSend}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-ember text-oncolor transition-colors hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-30"
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-ember text-oncolor transition-colors hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-30"
           >
             <Send className="h-3.5 w-3.5" strokeWidth={2.2} />
           </button>

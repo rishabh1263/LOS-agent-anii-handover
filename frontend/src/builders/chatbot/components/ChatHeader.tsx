@@ -55,7 +55,7 @@ function IconBtn({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-content-secondary transition-colors hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+      className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-content-secondary transition-colors hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
     >
       {children}
     </button>

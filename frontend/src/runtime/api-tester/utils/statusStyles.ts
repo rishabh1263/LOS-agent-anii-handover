@@ -1,11 +1,4 @@
-import type {
-  AppStatus,
-  CheckStatus,
-  Decision,
-  DocStatus,
-  NextAction,
-  VerificationStatus,
-} from '../types'
+import type { CheckStatus, DocStatus, VerificationStatus } from '../types'
 
 const STATUS_MAP: Record<string, string> = {
   SUCCESS: 'bg-success-subtle text-success-text',
@@ -21,10 +14,6 @@ const STATUS_MAP: Record<string, string> = {
 
 const FALLBACK = 'bg-raised text-content-secondary'
 
-export function appStatusClass(status: AppStatus): string {
-  return STATUS_MAP[status] ?? FALLBACK
-}
-
 export function docStatusClass(status: DocStatus): string {
   return STATUS_MAP[status] ?? FALLBACK
 }
@@ -33,25 +22,6 @@ export function verificationClass(v: VerificationStatus): string {
   return STATUS_MAP[v] ?? FALLBACK
 }
 
-export function decisionClass(d: Decision): string {
-  return STATUS_MAP[d] ?? FALLBACK
-}
-
 export function checkStatusClass(s: CheckStatus): string {
   return STATUS_MAP[s] ?? FALLBACK
-}
-
-export function nextActionLabel(a: NextAction): string {
-  switch (a) {
-    case 'CONTINUE':
-      return 'Continue'
-    case 'MANUAL_REVIEW':
-      return 'Manual review'
-    case 'REQUEST_VALID_DOCUMENT':
-      return 'Request clearer document'
-    case 'REQUEST_CORRECT_DOCUMENT':
-      return 'Request correct document type'
-    default:
-      return a
-  }
 }
