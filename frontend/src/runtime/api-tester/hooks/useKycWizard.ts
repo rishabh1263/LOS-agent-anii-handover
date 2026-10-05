@@ -36,6 +36,7 @@ import {
 } from '../utils/validation'
 import {
   clearWizardDraft,
+  consumePendingCaseResume,
   loadWizardDraft,
   saveWizardDraft,
 } from '../utils/wizardStorage'
@@ -140,6 +141,8 @@ export function useKycWizard() {
     () => draft?.result ?? null,
   )
   const [showOtherPartyPrompt, setShowOtherPartyPrompt] = useState(false)
+  const [resumingCase, setResumingCase] = useState(false)
+  const resumeAttempted = useRef(false)
 
   /** Persist form + IDs across page reload (files cannot be restored). */
   useEffect(() => {
@@ -364,6 +367,142 @@ export function useKycWizard() {
     setActiveParty(partySelection.applicant ? 'PRIMARY_APPLICANT' : 'CO_APPLICANT')
     setStep('documents')
   }, [canProceedFromParty, partySelection.applicant])
+
+  /**
+   * Load an existing FOS applicant + case (GET applicant, GET checklist),
+   * hydrate profile/application when the API returns them, jump to party step.
+   */
+  const resumeExistingCase = useCallback(
+    async (applicantIdInput: string, caseIdInput: string) => {
+      const appId = applicantIdInput.trim()
+      const cId = caseIdInput.trim()
+      if (!appId || !cId) {
+        setError('Applicant ID and Case ID are both required.')
+        return false
+      }
+      if (!token) {
+        setError('Sign in first, then resume the case.')
+        return false
+      }
+
+      setResumingCase(true)
+      setError(null)
+
+      try {
+        const record = await getApplicant(appId, token, { case_id: cId })
+        setLastFosResponse(record)
+        const ids = extractIds(record)
+        const resolvedApplicant = ids.applicantId || appId
+        const resolvedCase = ids.caseId || cId
+
+        setApplicantId(resolvedApplicant)
+        setCaseId(resolvedCase)
+        if (!coApplicantId) setCoApplicantId(makePartyId('CO_APPLICANT'))
+
+        // Hydrate profile fields from API applicant object
+        const ap = record.applicant
+        if (ap && typeof ap === 'object') {
+          setProfileFields((prev) =>
+            prev.map((f) => {
+              const raw = ap[f.key]
+              if (raw == null || String(raw).trim() === '') return f
+              return { ...f, value: String(raw) }
+            }),
+          )
+        }
+
+        // Hydrate application fields when present
+        const appl = record.application
+        if (appl && typeof appl === 'object') {
+          setApplication((prev) => ({
+            ...prev,
+            product:
+              appl.product != null && String(appl.product).trim()
+                ? String(appl.product)
+                : prev.product,
+            loan_amount:
+              appl.loan_amount != null && String(appl.loan_amount).trim() !== ''
+                ? String(appl.loan_amount)
+                : prev.loan_amount,
+            employment_type:
+              appl.employment_type != null && String(appl.employment_type).trim()
+                ? String(appl.employment_type)
+                : prev.employment_type,
+            tenure_months:
+              appl.tenure_months != null && String(appl.tenure_months).trim() !== ''
+                ? String(appl.tenure_months)
+                : prev.tenure_months,
+            interest_rate_pct:
+              appl.interest_rate_pct != null && String(appl.interest_rate_pct).trim() !== ''
+                ? String(appl.interest_rate_pct)
+                : prev.interest_rate_pct,
+            declared_monthly_obligations:
+              appl.declared_monthly_obligations != null &&
+              String(appl.declared_monthly_obligations).trim() !== ''
+                ? String(appl.declared_monthly_obligations)
+                : prev.declared_monthly_obligations,
+            property_value:
+              appl.property_value != null && String(appl.property_value).trim() !== ''
+                ? String(appl.property_value)
+                : prev.property_value,
+          }))
+        }
+
+        if (record.checklist?.length) setFosChecklist(record.checklist)
+        if (record.required_documents?.length) {
+          setRequiredDocuments(record.required_documents)
+        }
+        if (record.stage) setFosStage(String(record.stage))
+
+        try {
+          const checklistRes = await getChecklist(resolvedCase, token, {
+            applicant_id: resolvedApplicant,
+          })
+          setLastFosResponse(checklistRes)
+          if (checklistRes.checklist?.length) setFosChecklist(checklistRes.checklist)
+          if (checklistRes.required_documents?.length) {
+            setRequiredDocuments(checklistRes.required_documents)
+          }
+          if (checklistRes.stage) setFosStage(String(checklistRes.stage))
+          const cIds = extractIds(checklistRes)
+          if (cIds.applicantId) setApplicantId(cIds.applicantId)
+          if (cIds.caseId) setCaseId(cIds.caseId)
+        } catch {
+          // Checklist enrichment is optional
+        }
+
+        setPartySelection({ applicant: true, coApplicant: false })
+        setActiveParty('PRIMARY_APPLICANT')
+        setStep('party')
+        return true
+      } catch (err) {
+        if (err instanceof FosApiError && err.status === 401) {
+          await logout()
+          return false
+        }
+        if (err instanceof FosApiError && (err.status === 404 || err.status === 400)) {
+          setError(
+            'Case or applicant not found. Check the Applicant ID and Case ID, then try again.',
+          )
+        } else {
+          setError(errorMessage(err))
+        }
+        return false
+      } finally {
+        setResumingCase(false)
+      }
+    },
+    [token, logout, coApplicantId],
+  )
+
+  // After login with "Resume existing case", consume pending IDs once
+  useEffect(() => {
+    if (!token || resumeAttempted.current) return
+    const pending = consumePendingCaseResume()
+    if (!pending) return
+    resumeAttempted.current = true
+    void resumeExistingCase(pending.applicantId, pending.caseId)
+  }, [token, resumeExistingCase])
 
   const applyIdsFromResponse = useCallback((res: LosProcessResponse) => {
     setCaseId((prev) => prev || res.case_id || '')
@@ -766,5 +905,7 @@ export function useKycWizard() {
     runVerification,
     reset,
     addMoreDocuments,
+    resumeExistingCase,
+    resumingCase,
   }
 }

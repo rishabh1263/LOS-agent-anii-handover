@@ -12,5 +12,8 @@ export {
   loadWizardDraft,
   saveWizardDraft,
   clearWizardDraft,
+  savePendingCaseResume,
+  consumePendingCaseResume,
   type WizardDraft,
+  type PendingCaseResume,
 } from './wizardStorage'

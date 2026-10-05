@@ -87,7 +87,7 @@ export function ChatMessages({
     <div className="relative min-h-0 flex-1">
       <div
         ref={scrollRef}
-        className="h-full overflow-y-auto scroll-smooth py-3"
+        className="h-full overflow-x-hidden overflow-y-auto scroll-smooth py-3"
         role="log"
         aria-live="polite"
         aria-relevant="additions"

@@ -432,13 +432,13 @@ function DocRow({
 
   return (
     <div
-      className={`min-w-0 overflow-hidden rounded-xl border px-3 py-2.5 ${
+      className={`w-full min-w-0 max-w-full overflow-hidden rounded-xl border px-3 py-2.5 ${
         ROW_BORDER[row.status] ?? ROW_BORDER.idle
       }`}
     >
-      <div className="flex min-w-0 items-start gap-2">
+      <div className="flex w-full min-w-0 max-w-full items-start gap-2">
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
             <p className="min-w-0 max-w-full truncate text-[13px] font-semibold text-content">
               {row.label || slotLabel(row.slot)}
               {isPending(row.status) && (
@@ -476,7 +476,7 @@ function DocRow({
 
           {showDetail && detail && (
             <p
-              className={`mt-1 text-[11.5px] leading-snug [overflow-wrap:anywhere] ${
+              className={`mt-1 max-w-full break-words text-[11.5px] leading-snug [overflow-wrap:anywhere] [word-break:break-word] ${
                 DETAIL_TONE[row.status] ?? 'text-content-secondary'
               }`}
             >
@@ -485,7 +485,7 @@ function DocRow({
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex max-w-[40%] shrink-0 flex-wrap items-center justify-end gap-1">
           {showView && (
             <button
               type="button"
@@ -880,7 +880,7 @@ export function DocumentUploadPanel({
 
   return (
     <>
-      <div className="mt-2 max-w-full overflow-x-hidden">
+      <div className="mt-2 w-full min-w-0 max-w-full overflow-x-hidden">
         {!expanded ? (
           <CollapsedCta
             allDone={allDone}
@@ -890,7 +890,7 @@ export function DocumentUploadPanel({
             onExpand={() => setExpanded(true)}
           />
         ) : (
-          <div className="max-w-full overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+          <div className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
             <div className="flex min-w-0 items-center justify-between gap-2 border-b border-line px-3 py-2.5">
               <div className="min-w-0 flex-1 overflow-hidden">
                 <p className="truncate text-[13px] font-semibold text-content">Documents</p>
@@ -906,7 +906,7 @@ export function DocumentUploadPanel({
               </button>
             </div>
 
-            <div className="flex max-w-full flex-col gap-2 overflow-x-hidden p-3">
+            <div className="flex w-full min-w-0 max-w-full flex-col gap-2 overflow-x-hidden p-3">
               {rows.map((row) => (
                 <DocRow
                   key={row.slot}

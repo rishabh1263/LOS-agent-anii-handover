@@ -285,7 +285,7 @@ export function MessageBubble({
 
   return (
     <div
-      className={`group flex flex-col gap-1 px-4 py-1.5 ${isUser ? 'items-end' : 'items-start'}`}
+      className={`group flex w-full min-w-0 max-w-full flex-col gap-1 overflow-x-hidden px-4 py-1.5 ${isUser ? 'items-end' : 'items-start'}`}
     >
       {/* min-w-0 lets the flex child shrink so long unbroken text can wrap */}
       <div className={`flex min-w-0 max-w-[85%] gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -421,7 +421,7 @@ export function MessageBubble({
         onUploadDocuments &&
         message.uploadTargets &&
         message.uploadTargets.length > 0 && (
-          <div className="ml-9 max-w-[min(100%,380px)] overflow-x-hidden">
+          <div className="w-full min-w-0 max-w-full overflow-x-hidden pl-9 pr-1">
             <DocumentUploadPanel
               targets={message.uploadTargets}
               initialResults={message.uploadResults}

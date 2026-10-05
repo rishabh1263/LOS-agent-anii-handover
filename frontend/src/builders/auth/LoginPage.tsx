@@ -1,12 +1,27 @@
 import React, { useState } from 'react'
-import { AlertCircle, Eye, EyeOff, KeyRound, Loader2, Lock, User } from 'lucide-react'
+import {
+  AlertCircle,
+  Eye,
+  EyeOff,
+  FolderOpen,
+  KeyRound,
+  Loader2,
+  Lock,
+  User,
+} from 'lucide-react'
 import { useAuth, AuthApiError, AUTH_STAGES, type AuthStage } from '../../runtime/auth'
+import { savePendingCaseResume } from '../../runtime/api-tester'
+
+type LoginMode = 'new' | 'resume'
 
 export function LoginPage() {
   const { login, isLoading } = useAuth()
+  const [mode, setMode] = useState<LoginMode>('new')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [stage, setStage] = useState<AuthStage>('FOS')
+  const [applicantId, setApplicantId] = useState('')
+  const [caseId, setCaseId] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -31,7 +46,23 @@ export function LoginPage() {
       return
     }
 
+    if (mode === 'resume') {
+      const appId = applicantId.trim()
+      const cId = caseId.trim()
+      if (!appId) {
+        setErrorMessage('Please enter the Applicant ID (APP id).')
+        return
+      }
+      if (!cId) {
+        setErrorMessage('Please enter the Case ID.')
+        return
+      }
+    }
+
     try {
+      if (mode === 'resume') {
+        savePendingCaseResume(applicantId.trim(), caseId.trim())
+      }
       await login({
         username: trimmedUsername,
         password,
@@ -59,11 +90,11 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-5rem)] items-center justify-center py-10 px-4 sm:px-6">
+    <div className="flex min-h-[calc(100vh-5rem)] items-center justify-center px-4 py-10 sm:px-6">
       <div className="w-full max-w-md space-y-6">
-        <div className="card shadow-sm border border-line bg-surface p-6 sm:p-8">
+        <div className="card border border-line bg-surface p-6 shadow-sm sm:p-8">
           <div className="mb-6">
-            <h2 className="font-display text-lg font-semibold text-content tracking-tight">
+            <h2 className="font-display text-lg font-semibold tracking-tight text-content">
               Sign in
             </h2>
             <p className="mt-1 text-[13px] text-content-secondary">
@@ -71,13 +102,65 @@ export function LoginPage() {
             </p>
           </div>
 
+          {/* Mode toggle */}
+          <div
+            className="mb-5 grid grid-cols-2 gap-1 rounded-lg border border-line bg-raised p-1"
+            role="tablist"
+            aria-label="Login mode"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'new'}
+              disabled={isLoading}
+              onClick={() => {
+                setMode('new')
+                setErrorMessage(null)
+              }}
+              className={`cursor-pointer rounded-md px-3 py-2 text-[12.5px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-50 ${
+                mode === 'new'
+                  ? 'bg-surface text-content shadow-xs'
+                  : 'text-content-secondary hover:text-content'
+              }`}
+            >
+              New session
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'resume'}
+              disabled={isLoading}
+              onClick={() => {
+                setMode('resume')
+                setErrorMessage(null)
+              }}
+              className={`inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-50 ${
+                mode === 'resume'
+                  ? 'bg-surface text-content shadow-xs'
+                  : 'text-content-secondary hover:text-content'
+              }`}
+            >
+              <FolderOpen className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+              Existing case
+            </button>
+          </div>
+
+          {mode === 'resume' && (
+            <div className="mb-4 rounded-lg border border-ember/20 bg-ember/[0.04] px-3 py-2.5 text-[12px] leading-snug text-content-secondary">
+              Sign in with credentials, then open an existing{' '}
+              <span className="font-medium text-content">Applicant ID</span> and{' '}
+              <span className="font-medium text-content">Case ID</span> to load checklist and
+              continue verification.
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             {errorMessage && (
               <div
                 role="alert"
                 className="flex items-start gap-2.5 rounded-sm border border-danger/30 bg-danger-subtle p-3 text-[13px] text-danger-text"
               >
-                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                 <span className="leading-snug">{errorMessage}</span>
               </div>
             )}
@@ -157,7 +240,7 @@ export function LoginPage() {
                   onClick={() => setShowPassword((prev) => !prev)}
                   tabIndex={-1}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-content-secondary hover:text-content transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ember rounded-sm"
+                  className="absolute inset-y-0 right-0 flex items-center rounded-sm pr-3 text-content-secondary transition-colors hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
                 >
                   {showPassword ? (
                     <EyeOff className="h-4 w-4" aria-hidden />
@@ -168,6 +251,47 @@ export function LoginPage() {
               </div>
             </div>
 
+            {mode === 'resume' && (
+              <>
+                <div>
+                  <label htmlFor="login-applicant-id" className="label">
+                    Applicant ID
+                  </label>
+                  <input
+                    id="login-applicant-id"
+                    name="applicantId"
+                    type="text"
+                    autoComplete="off"
+                    required
+                    disabled={isLoading}
+                    value={applicantId}
+                    onChange={(e) => setApplicantId(e.target.value)}
+                    placeholder="e.g. APP-xxxx or applicant uuid"
+                    className="input font-mono text-[13px]"
+                    aria-invalid={Boolean(errorMessage && mode === 'resume' && !applicantId.trim())}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="login-case-id" className="label">
+                    Case ID
+                  </label>
+                  <input
+                    id="login-case-id"
+                    name="caseId"
+                    type="text"
+                    autoComplete="off"
+                    required
+                    disabled={isLoading}
+                    value={caseId}
+                    onChange={(e) => setCaseId(e.target.value)}
+                    placeholder="e.g. CASE-xxxx or case uuid"
+                    className="input font-mono text-[13px]"
+                    aria-invalid={Boolean(errorMessage && mode === 'resume' && !caseId.trim())}
+                  />
+                </div>
+              </>
+            )}
+
             <div className="pt-2">
               <button
                 type="submit"
@@ -177,7 +301,12 @@ export function LoginPage() {
                 {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                    <span>Signing in…</span>
+                    <span>{mode === 'resume' ? 'Signing in & loading…' : 'Signing in…'}</span>
+                  </>
+                ) : mode === 'resume' ? (
+                  <>
+                    <FolderOpen className="h-4 w-4" aria-hidden />
+                    <span>Sign in & open case</span>
                   </>
                 ) : (
                   <>
@@ -198,7 +327,7 @@ export function LoginPage() {
                 <button
                   type="button"
                   onClick={handleFillDemo}
-                  className="chip hover:bg-raised-hover hover:text-content transition-colors cursor-pointer text-[11px]"
+                  className="chip cursor-pointer text-[11px] transition-colors hover:bg-raised-hover hover:text-content"
                   title="Fill demo username & password"
                 >
                   Auto-fill Demo

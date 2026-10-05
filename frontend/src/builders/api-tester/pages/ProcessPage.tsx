@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
+import { FolderOpen, Loader2 } from 'lucide-react'
 import { useKycWizard } from '../../../runtime/api-tester'
 import { useAuth } from '../../../runtime/auth'
 import { Chatbot } from '../../chatbot'
@@ -61,6 +63,8 @@ export function ProcessPage() {
     runVerification,
     reset,
     addMoreDocuments,
+    resumeExistingCase,
+    resumingCase,
   } = useKycWizard()
 
   const partyId =
@@ -89,9 +93,22 @@ export function ProcessPage() {
               {caseId && <span>Case: {caseId}</span>}
             </p>
           )}
+          {resumingCase && (
+            <p className="mt-2 text-[13px] font-medium text-ember-text">
+              Loading existing case…
+            </p>
+          )}
         </div>
         <WizardProgress current={step === 'report' ? 'report' : step} />
       </div>
+
+      {/* Resume existing case while already signed in (details step only) */}
+      {step === 'details' && !applicantId && !caseId && (
+        <ResumeCaseCard
+          loading={resumingCase}
+          onResume={(appId, cId) => void resumeExistingCase(appId, cId)}
+        />
+      )}
 
       <AnimatePresence mode="wait">
         {step === 'details' && (
@@ -237,6 +254,82 @@ export function ProcessPage() {
         stage={user?.stage}
         accessToken={accessToken || undefined}
       />
+    </div>
+  )
+}
+
+function ResumeCaseCard({
+  loading,
+  onResume,
+}: {
+  loading: boolean
+  onResume: (applicantId: string, caseId: string) => void
+}) {
+  const [appId, setAppId] = useState('')
+  const [cId, setCId] = useState('')
+
+  return (
+    <div className="card space-y-3 border border-ember/20 bg-ember/[0.03] p-4 sm:p-5">
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ember/10 text-ember">
+          <FolderOpen className="h-4 w-4" strokeWidth={2} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-semibold text-content">Open existing case</p>
+          <p className="mt-0.5 text-[12.5px] leading-snug text-content-secondary">
+            Already have an Applicant ID and Case ID? Load them to continue verification and see
+            checklist status in the chatbot.
+          </p>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor="resume-app-id" className="label">
+            Applicant ID
+          </label>
+          <input
+            id="resume-app-id"
+            className="input font-mono text-[13px]"
+            value={appId}
+            disabled={loading}
+            onChange={(e) => setAppId(e.target.value)}
+            placeholder="APP-… or uuid"
+            autoComplete="off"
+          />
+        </div>
+        <div>
+          <label htmlFor="resume-case-id" className="label">
+            Case ID
+          </label>
+          <input
+            id="resume-case-id"
+            className="input font-mono text-[13px]"
+            value={cId}
+            disabled={loading}
+            onChange={(e) => setCId(e.target.value)}
+            placeholder="CASE-… or uuid"
+            autoComplete="off"
+          />
+        </div>
+      </div>
+      <button
+        type="button"
+        disabled={loading || !appId.trim() || !cId.trim()}
+        onClick={() => onResume(appId.trim(), cId.trim())}
+        className="btn btn-primary inline-flex items-center gap-2"
+      >
+        {loading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading…
+          </>
+        ) : (
+          <>
+            <FolderOpen className="h-4 w-4" />
+            Load case
+          </>
+        )}
+      </button>
     </div>
   )
 }
