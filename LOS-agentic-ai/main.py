@@ -677,6 +677,16 @@ app.include_router(
     responses=COMMON_ERRORS,
 )
 
+# BACKEND TEXT-TO-SPEECH: one voice per response language (app/tts).
+from app.api.routes.tts_api import router as tts_router  # noqa: E402
+
+app.include_router(
+    tts_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+
 # KYC may already exist in this V21 checkout. Protect it automatically.
 try:
     from app.api.routes.kyc_api import router as kyc_router
@@ -781,7 +791,17 @@ def custom_openapi() -> dict[str, Any]:
         tags=app.openapi_tags,
     )
 
-    schemas = schema.get("components", {}).get("schemas", {})
+    schemas = schema.setdefault("components", {}).setdefault("schemas", {})
+    # THE CHAT REQUEST BODY. /fos/copilot reads its JSON by hand (it also takes
+    # multipart uploads), so FastAPI never registered CopilotRequest -- and the
+    # body's $ref pointed at nothing: the main chat endpoint had no request
+    # schema in Swagger (found 2026-10-06). Registered here from the model.
+    from app.api.routes.fos_api import CopilotRequest as _CopilotRequest
+
+    _request_schema = _CopilotRequest.model_json_schema(ref_template="#/components/schemas/{model}")
+    for _name, _definition in (_request_schema.pop("$defs", None) or {}).items():
+        schemas.setdefault(_name, _definition)
+    schemas.setdefault("CopilotRequest", _request_schema)
     # Order matters: collapse the tolerance union first, then annotate
     # the binary that is left.
     _collapse_upload_unions(schemas)

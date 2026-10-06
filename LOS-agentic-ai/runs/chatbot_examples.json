@@ -1,0 +1,270 @@
+[
+ {
+  "user": "documents verify ho gaye?",
+  "selected_language": null,
+  "message": "The customer's PAN, driving licence, salary slip and bank statement passed document verification. Its issuing authority has not been independently confirmed. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
+  "ui": {
+   "response_type": "STATUS",
+   "response_depth": "BRIEF",
+   "language": "en",
+   "status": "OK",
+   "next_action": {
+    "type": "GET_DOCUMENT_CHECKLIST",
+    "document_type": null,
+    "label": "What is still needed"
+   },
+   "documents": [
+    {
+     "label": "PAN",
+     "status": "Verified",
+     "action": null
+    },
+    {
+     "label": "Driving Licence",
+     "status": "Verified",
+     "action": null
+    },
+    {
+     "label": "Salary Slip",
+     "status": "Verified",
+     "action": null
+    },
+    {
+     "label": "Bank Statement",
+     "status": "Verified",
+     "action": null
+    }
+   ],
+   "audio": {
+    "status": "AVAILABLE",
+    "language": "en",
+    "text": "The customer's PAN, driving licence, salary slip and bank statement passed document verification. Its issuing authority has not been independently confirmed. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI."
+   }
+  }
+ },
+ {
+  "user": "what is pending?",
+  "selected_language": null,
+  "message": "Nothing is missing from the checklist, but one thing still needs attention:\n⚠ KYC needs a review — These details differ across the documents: name.",
+  "ui": {
+   "response_type": "STATUS",
+   "response_depth": "BRIEF",
+   "language": "en",
+   "status": "INFO",
+   "next_action": {
+    "type": "GET_DOCUMENT_CHECKLIST",
+    "document_type": null,
+    "label": "What is still needed"
+   },
+   "documents": [],
+   "audio": {
+    "status": "AVAILABLE",
+    "language": "en",
+    "text": "Nothing is missing from the checklist, but one thing still needs attention: KYC needs a review, These details differ across the documents: name."
+   }
+  }
+ },
+ {
+  "user": "KYC kyun fail hua?",
+  "selected_language": null,
+  "message": "Customer ka KYC review mein hai. Kaaran: documents mein naam alag hai.",
+  "ui": {
+   "response_type": "RESULT",
+   "response_depth": "BRIEF",
+   "language": "hi-Latn",
+   "status": "INFO",
+   "next_action": {
+    "type": "GET_DOCUMENT_CHECKLIST",
+    "document_type": null,
+    "label": "What is still needed"
+   },
+   "documents": [],
+   "audio": {
+    "status": "NO_VOICE_FOR_LANGUAGE",
+    "language": "hi-Latn",
+    "text": "Customer ka KYC review mein hai. Kaaran: documents mein naam alag hai."
+   }
+  }
+ },
+ {
+  "user": "KYC kyun fail hua?",
+  "selected_language": "mr",
+  "message": "ग्राहकाचे KYC पुनरावलोकनात आहे. कारण: कागदपत्रांमध्ये नाव वेगळे आहे.",
+  "ui": {
+   "response_type": "RESULT",
+   "response_depth": "BRIEF",
+   "language": "mr",
+   "status": "INFO",
+   "next_action": {
+    "type": "GET_DOCUMENT_CHECKLIST",
+    "document_type": null,
+    "label": "What is still needed"
+   },
+   "documents": [],
+   "audio": {
+    "status": "NO_VOICE_FOR_LANGUAGE",
+    "language": "mr",
+    "text": "ग्राहकाचे KYC पुनरावलोकनात आहे. कारण: कागदपत्रांमध्ये नाव वेगळे आहे."
+   }
+  }
+ },
+ {
+  "user": "why is the name not matching?",
+  "selected_language": "hi",
+  "message": "ग्राहक का KYC समीक्षा में है। कारण: दस्तावेज़ों में नाम अलग है।",
+  "ui": {
+   "response_type": "RESULT",
+   "response_depth": "BRIEF",
+   "language": "hi",
+   "status": "INFO",
+   "next_action": {
+    "type": "GET_DOCUMENT_CHECKLIST",
+    "document_type": null,
+    "label": "What is still needed"
+   },
+   "documents": [],
+   "audio": {
+    "status": "NO_VOICE_FOR_LANGUAGE",
+    "language": "hi",
+    "text": "ग्राहक का KYC समीक्षा में है। कारण: दस्तावेज़ों में नाम अलग है।"
+   }
+  }
+ },
+ {
+  "user": "eligibility ka status?",
+  "selected_language": null,
+  "message": "Is case ki eligibility abhi check nahi hui hai. Income documents aur loan terms aane par iska assessment hoga.",
+  "ui": {
+   "response_type": "RESULT",
+   "response_depth": "BRIEF",
+   "language": "hi-Latn",
+   "status": "INFO",
+   "next_action": {
+    "type": "GET_DOCUMENT_CHECKLIST",
+    "document_type": null,
+    "label": "What is still needed"
+   },
+   "documents": [],
+   "audio": {
+    "status": "NO_VOICE_FOR_LANGUAGE",
+    "language": "hi-Latn",
+    "text": "Is case ki eligibility abhi check nahi hui hai. Income documents aur loan terms aane par iska assessment hoga."
+   }
+  }
+ },
+ {
+  "user": "credit ka kya hua?",
+  "selected_language": null,
+  "message": "Credit comes later -- the case is at FOS, and first has to move on to CPA. Every configured FOS check is complete, so the case is ready to move to CPA. (These gate rules are not yet business-approved.) Someone with stage-transition permission can move it to CPA.",
+  "ui": {
+   "response_type": "STATUS",
+   "response_depth": "BRIEF",
+   "language": "en",
+   "status": "INFO",
+   "next_action": {
+    "type": "GET_DOCUMENT_CHECKLIST",
+    "document_type": null,
+    "label": "What is still needed"
+   },
+   "documents": [],
+   "audio": {
+    "status": "AVAILABLE",
+    "language": "en",
+    "text": "Credit comes later, the case is at FOS, and first has to move on to CPA. Every configured FOS check is complete, so the case is ready to move to CPA. (These gate rules are not yet business-approved.) Someone with stage-transition permission can move it to CPA."
+   }
+  }
+ },
+ {
+  "user": "pudhe kay karaycha?",
+  "selected_language": null,
+  "message": "पुढची पायरी: FOS टप्प्यातील सर्व आवश्यक गोष्टी पूर्ण आहेत. केस CPA कडे सोपवा. तसेच, समीक्षक नोंदलेला मुद्दा तपासेपर्यंत वाट पहा.",
+  "ui": {
+   "response_type": "ACTION",
+   "response_depth": "NORMAL",
+   "language": "mr",
+   "status": "INFO",
+   "next_action": {
+    "type": "SUBMIT_TO_CPA",
+    "document_type": null,
+    "label": "SUBMIT_TO_CPA"
+   },
+   "documents": [],
+   "audio": {
+    "status": "NO_VOICE_FOR_LANGUAGE",
+    "language": "mr",
+    "text": "पुढची पायरी: FOS टप्प्यातील सर्व आवश्यक गोष्टी पूर्ण आहेत. केस CPA कडे सोपवा. तसेच, समीक्षक नोंदलेला मुद्दा तपासेपर्यंत वाट पहा."
+   }
+  }
+ },
+ {
+  "user": "show all documents",
+  "selected_language": "en",
+  "message": "Documents on this application:\n✓ PAN — Verified\n✓ Driving Licence — Verified\n✓ Salary Slip — Verified\n✓ Bank Statement — Verified",
+  "ui": {
+   "response_type": "STATUS",
+   "response_depth": "BRIEF",
+   "language": "en",
+   "status": "OK",
+   "next_action": {
+    "type": "GET_DOCUMENT_CHECKLIST",
+    "document_type": null,
+    "label": "What is still needed"
+   },
+   "documents": [
+    {
+     "label": "PAN",
+     "status": "Verified",
+     "action": null
+    },
+    {
+     "label": "Driving Licence",
+     "status": "Verified",
+     "action": null
+    },
+    {
+     "label": "Salary Slip",
+     "status": "Verified",
+     "action": null
+    },
+    {
+     "label": "Bank Statement",
+     "status": "Verified",
+     "action": null
+    }
+   ],
+   "audio": {
+    "status": "AVAILABLE",
+    "language": "en",
+    "text": "Documents on this application: PAN, Verified. Driving Licence, Verified. Salary Slip, Verified. Bank Statement, Verified."
+   }
+  }
+ },
+ {
+  "user": "bank statement ka kya hua?",
+  "selected_language": null,
+  "message": "Bank Statement ka verification pass hua. Issuing authority se iski alag se pushti nahi hui hai. Phir bhi application review mein hai, kaaran: PAN par naam RISHABH AJIT SINGH hai, lekin salary slip par VENKATESH GOUD MARAGOUNI.",
+  "ui": {
+   "response_type": "STATUS",
+   "response_depth": "BRIEF",
+   "language": "hi-Latn",
+   "status": "OK",
+   "next_action": {
+    "type": "GET_DOCUMENT_CHECKLIST",
+    "document_type": null,
+    "label": "What is still needed"
+   },
+   "documents": [
+    {
+     "label": "Bank Statement",
+     "status": "Verified",
+     "action": null
+    }
+   ],
+   "audio": {
+    "status": "NO_VOICE_FOR_LANGUAGE",
+    "language": "hi-Latn",
+    "text": "Bank Statement ka verification pass hua. Issuing authority se iski alag se pushti nahi hui hai. Phir bhi application review mein hai, kaaran: PAN par naam RISHABH AJIT SINGH hai, lekin salary slip par VENKATESH GOUD MARAGOUNI."
+   }
+  }
+ }
+]

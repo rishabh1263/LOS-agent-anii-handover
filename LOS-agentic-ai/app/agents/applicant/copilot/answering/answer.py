@@ -203,8 +203,8 @@ def _explain_policy(policy: dict[str, Any] | None,
 
 #: What "verified" means in a Copilot answer, stated where it is said. The
 #: checks establish document integrity; no issuer has confirmed anything.
-INTEGRITY_ONLY = ("These are document checks; the issuing authority has not "
-                  "confirmed the document.")
+# Short on purpose (2026-10-06): the earlier two-clause sentence dominated status answers.
+INTEGRITY_ONLY = "Its issuing authority has not been independently confirmed."
 
 
 def deterministic_answer(

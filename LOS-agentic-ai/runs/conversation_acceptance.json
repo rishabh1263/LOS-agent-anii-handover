@@ -3,7 +3,7 @@
   "q": "documents verify ho gaye?",
   "intent": "DOCUMENT_VERIFICATION",
   "language": "en",
-  "answer": "The customer's PAN, driving licence, salary slip and bank statement passed document verification. These are document checks; the issuing authority has not confirmed the document. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
+  "answer": "The customer's PAN, driving licence, bank statement and salary slip passed document verification. Its issuing authority has not been independently confirmed. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
   "problems": []
  },
  {
@@ -44,8 +44,8 @@
  {
   "q": "eligibility ka status kya hai?",
   "intent": "ELIGIBILITY",
-  "language": "en",
-  "answer": "Eligibility has not been evaluated for this case yet. It is assessed once the income evidence and the loan terms are in place.",
+  "language": "hi-Latn",
+  "answer": "Is case ki eligibility abhi check nahi hui hai. Income documents aur loan terms aane par iska assessment hoga.",
   "problems": []
  },
  {
@@ -73,7 +73,7 @@
   "q": "show all documents",
   "intent": "DOCUMENTS_UPLOADED",
   "language": "en",
-  "answer": "Documents on this application:\n✓ PAN — Verified\n✓ Driving Licence — Verified\n✓ Salary Slip — Verified\n✓ Bank Statement — Verified",
+  "answer": "Documents on this application:\n✓ PAN — Verified\n✓ Driving Licence — Verified\n✓ Bank Statement — Verified\n✓ Salary Slip — Verified",
   "problems": []
  },
  {
@@ -87,14 +87,14 @@
   "q": "verify documents",
   "intent": "DOCUMENT_VERIFICATION",
   "language": "en",
-  "answer": "All 4 documents are verified (PAN, Driving Licence, Salary Slip and Bank Statement) -- nothing needs action on them.",
+  "answer": "All 4 documents are verified (PAN, Driving Licence, Bank Statement and Salary Slip) -- nothing needs action on them.",
   "problems": []
  },
  {
   "q": "what happened to my bank statement?",
   "intent": "DOCUMENT_VERIFICATION",
   "language": "en",
-  "answer": "Bank Statement is verified. These are document checks; the issuing authority has not confirmed the document. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
+  "answer": "Bank Statement is verified. Its issuing authority has not been independently confirmed. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
   "problems": []
  },
  {
@@ -129,7 +129,7 @@
   "q": "PAN verified hai?",
   "chain": true,
   "intent": "DOCUMENT_VERIFICATION",
-  "answer": "PAN ka verification pass hua. Ye document checks hain; issuing authority ne document confirm nahi kiya hai. Phir bhi application review mein hai, kaaran: the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
+  "answer": "PAN ka verification pass hua. Issuing authority se iski alag se pushti nahi hui hai. Phir bhi application review mein hai, kaaran: PAN par naam RISHABH AJIT SINGH hai, lekin salary slip par VENKATESH GOUD MARAGOUNI.",
   "followed_up": null,
   "problems": []
  },
@@ -137,7 +137,7 @@
   "q": "why?",
   "chain": true,
   "intent": "DOCUMENT_VERIFICATION",
-  "answer": "PAN is verified. These are document checks; the issuing authority has not confirmed the document. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
+  "answer": "PAN is verified. Its issuing authority has not been independently confirmed. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
   "followed_up": {
    "original_message": "why?",
    "interpreted_as": "Why does my PAN have this verification result?",
@@ -149,7 +149,7 @@
   "q": "what about address?",
   "chain": true,
   "intent": "APPLICANT_PROFILE",
-  "answer": "We have the customer's address as Mumbai.",
+  "answer": "The address on the application is Mumbai.",
   "followed_up": null,
   "problems": []
  },

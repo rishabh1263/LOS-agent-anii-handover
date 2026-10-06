@@ -213,17 +213,68 @@ def issue_access_token(
 # client has already rotated past it.
 # ============================================================================
 
+def _psycopg_dsn() -> str:
+    """
+    Convert the LOS store connection string into a PostgreSQL/libpq DSN
+    understood by psycopg.
+
+    The existing LOS_STORE_DSN may be in .NET/Npgsql format:
+
+        Host=localhost;Port=5432;Database=los;Username=postgres;Password=...
+
+    while psycopg expects:
+
+        host=localhost port=5432 dbname=los user=postgres password=...
+
+    Keep this conversion local to the dev IdP so the working case-store
+    configuration is not changed.
+    """
+    from app.store import _embedded_dsn, store_dsn
+
+    raw = (store_dsn() or "").strip()
+
+    if not raw:
+        return _embedded_dsn()
+
+    # Already a PostgreSQL URI.
+    if raw.startswith(("postgresql://", "postgres://")):
+        return raw
+
+    parts: dict[str, str] = {}
+
+    for item in raw.split(";"):
+        item = item.strip()
+
+        if not item or "=" not in item:
+            continue
+
+        key, value = item.split("=", 1)
+        parts[key.strip().lower()] = value.strip().strip('"')
+
+    return " ".join(
+        f"{key}={value}"
+        for key, value in (
+            ("host", parts.get("host", "localhost")),
+            ("port", parts.get("port", "5432")),
+            ("dbname", parts.get("database", parts.get("dbname", ""))),
+            ("user", parts.get("username", parts.get("user", ""))),
+            ("password", parts.get("password", "")),
+        )
+        if value != ""
+    )
+
+
 def _db():
     """
-    The refresh-token table, in the SAME PostgreSQL database as the case store
-    (LOS_STORE_DSN, or the development embedded server). Dev-only: this module
-    never runs in production, but it no longer keeps a second database file.
+    The refresh-token table lives in the SAME PostgreSQL database as the
+    case store.
+
+    Dev-only: this module never runs in production.
     """
     import psycopg
 
-    from app.store import _embedded_dsn, store_dsn
+    conn = psycopg.connect(_psycopg_dsn())
 
-    conn = psycopg.connect(store_dsn() or _embedded_dsn())
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS dev_idp_refresh_tokens (
@@ -237,6 +288,7 @@ def _db():
     )
     conn.commit()
     return conn
+
 
 
 def _hash_refresh_token(token: str) -> str:

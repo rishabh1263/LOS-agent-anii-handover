@@ -1,0 +1,30 @@
+# TEXT-TO-SPEECH (app/tts/service.py) -- backend-side, one voice per language.
+#
+# The chat text and the spoken text come from the SAME canonical response
+# (presentation.audio.text): TTS never words anything itself.
+#
+# NO TTS MODEL SHIPS WITH THIS REPOSITORY. Point `provider.base_url` (or env
+# TTS_PROVIDER_URL) at a local/offline TTS service -- e.g. an AI4Bharat Indic-TTS
+# or Piper server -- that accepts POST {path} with JSON {"text", "voice",
+# "language"} and returns audio bytes. Until then the contract reports
+# CONFIGURATION_GAP honestly; nothing is faked.
+enabled: true
+provider:
+  base_url: ""            # e.g. http://127.0.0.1:5002 (env TTS_PROVIDER_URL overrides)
+  path: /synthesize
+  timeout_seconds: 20
+  format: wav
+max_chars: 1200
+# response language -> voice on the provider. A language with NO voice gets no
+# audio (NO_VOICE_FOR_LANGUAGE) -- never another language's voice reading it.
+#
+# Measured on this machine (2026-10-06): only English voices are installed
+# (Microsoft Zira / David). To speak Hindi, install the Windows Hindi speech
+# voice ("Microsoft Kalpana") and set hi: Kalpana. Marathi has no Windows voice:
+# run an offline Indic TTS server (e.g. AI4Bharat) behind the same API and map mr.
+voices:
+  en: Zira                # the local server matches an installed voice by name
+  hi: ""
+  hi-Latn: ""
+  mr: ""
+  mr-Latn: ""
