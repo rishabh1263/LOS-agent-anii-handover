@@ -73,13 +73,13 @@ langgraph>=1.0,<2
 mcp>=1.12,<2
 
 # ── Case store ───────────────────────────────────────────────────────────────
-# The repository layer (app/store/) runs on SQLite through the standard-library
-# sqlite3 module -- no package needed. It is Postgres-READY by interface
-# (app/store/repository.py), but no Postgres repository exists yet, so no
-# driver (psycopg / asyncpg) is listed: add one with that implementation.
-# Only used with LOS_STORE_BACKEND=postgres (app/store/postgres_repo.py). The
-# default sqlite backend is the standard library and needs nothing.
+# PostgreSQL is the ONLY case store (app/store/postgres_repo.py): psycopg 3 for
+# the driver, psycopg-pool for the connection pool (imported at startup -- the
+# service does not start without it). Production needs LOS_STORE_DSN and
+# LOS_DATA_ENCRYPTION_KEY. Development without a DSN uses an embedded server
+# from `pgserver` (requirements-dev.txt).
 psycopg[binary]>=3.1,<4
+psycopg-pool>=3.2,<4
 
 # ── Retrieval (RAG) ──────────────────────────────────────────────────────────
 # Qdrant is the vector store for case-derived text and process knowledge

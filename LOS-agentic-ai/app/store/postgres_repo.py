@@ -1,30 +1,26 @@
 """
-PostgreSQL implementation of the repository contract.
+THE PRODUCTION CASE STORE: PostgreSQL behind the same Repository contract.
 
-SELECTED WITH ``LOS_STORE_BACKEND=postgres`` and ``LOS_STORE_DSN``. Nothing
-above `app.store` changes: every caller still goes through `Repository`.
+    LOS_STORE_BACKEND=postgres
+    LOS_STORE_DSN=postgresql://user:password@host:5432/los   (never logged)
 
-BUILT ON THE SQLITE REPOSITORY, NOT BESIDE IT. Every query, row mapper and
-business rule in `sqlite_repo.py` is reused unchanged; this class replaces
-only what is genuinely dialect-specific:
+THE ONLY CASE-STORE BACKEND (development, tests, production). It subclasses
+SqlRepository (app/store/sql_repo.py), which holds every query and every
+domain mapping; this module adds the connection layer:
 
-    - the connection (psycopg 3, dict rows, autocommit)
-    - the schema (COALESCE for IFNULL, a plpgsql append-only trigger, and a
-      `seq BIGSERIAL` column where SQLite ordered by its implicit `rowid`)
-    - placeholders (``?`` -> ``%s``), rewritten once per statement in `_pg`
-    - INSERT OR IGNORE -> ON CONFLICT DO NOTHING
-    - BEGIN IMMEDIATE -> an explicit transaction with SELECT ... FOR UPDATE
+  - a pooled psycopg 3 connection (psycopg_pool), dict rows -- the same
+    row["column"] / row.keys() the repository already reads
+  - a narrow, tested SQL translation (`translate`): `?` -> `%s`, IFNULL ->
+    COALESCE, INSERT OR IGNORE -> ON CONFLICT DO NOTHING, the SQLite-only
+    `rowid` tie-break dropped, BEGIN IMMEDIATE -> BEGIN
+  - driver errors raised as StoreIntegrityError (a constraint) / StoreDbError
+    (the rest), which every fail-closed path in SqlRepository handles
 
-A second copy of the queries would drift from the first; one set of queries
-translated at the edge cannot.
-
-AUTOCOMMIT, DELIBERATELY. The SQLite code commits after every write and never
-spans a transaction across calls, except `apply_stage_transition`, which opens
-its own. Autocommit reproduces that exactly and never leaves a connection idle
-inside an open transaction.
-
-Times and JSON stay TEXT, as in SQLite, so `_iso`, `_parse` and `json.loads`
-work unchanged.
+SCHEMA, VERSIONED. `MIGRATIONS` are applied in order inside one transaction
+under a Postgres advisory lock (two servers starting together cannot race),
+and recorded in `schema_migrations`. 0001 is the baseline generated from the
+schema declared in sql_repo._SCHEMA -- tables, constraints, foreign keys, unique and
+expression indexes, append-only triggers -- so the two backends cannot drift.
 """
 
 from __future__ import annotations
@@ -34,337 +30,227 @@ import re
 import threading
 from typing import Any
 
-from app.store.models import CaseEvent, CaseStage, StageTransition, utcnow
+from app.store import sql_repo
+from app.store.sql_repo import StoreDbError, StoreIntegrityError
 from app.store.repository import RepositoryError
-from app.store.sqlite_repo import (
-    _ADDED_COLUMNS,
-    _ADDED_INDEXES,
-    SQLiteRepository,
-    _iso,
-)
-
-try:  # pragma: no cover - import guard
-    import psycopg
-    from psycopg.conninfo import conninfo_to_dict
-    from psycopg.rows import dict_row
-except ImportError:  # pragma: no cover - reported when the backend is built
-    psycopg = None
-    conninfo_to_dict = None
-    dict_row = None
 
 logger = logging.getLogger(__name__)
 
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS applicants (
-    applicant_id   TEXT PRIMARY KEY,
-    full_name      TEXT,
-    mobile         TEXT,
-    email          TEXT,
-    date_of_birth  TEXT,
-    address        TEXT,
-    created_at     TEXT NOT NULL,
-    updated_at     TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS applications (
-    case_id                      TEXT PRIMARY KEY,
-    applicant_id                 TEXT NOT NULL,
-    status                       TEXT NOT NULL,
-    product                      TEXT,
-    loan_amount                  TEXT,
-    tenure_months                TEXT,
-    interest_rate_pct            TEXT,
-    declared_monthly_obligations TEXT,
-    property_value               TEXT,
-    employment_type              TEXT,
-    co_applicant_id              TEXT,
-    policy_id                    TEXT,
-    policy_version               TEXT,
-    policy_pinned_at             TEXT,
-    created_at                   TEXT NOT NULL,
-    updated_at                   TEXT NOT NULL,
-    FOREIGN KEY (applicant_id) REFERENCES applicants (applicant_id)
-);
-CREATE INDEX IF NOT EXISTS idx_applications_applicant
-    ON applications (applicant_id, updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS documents (
-    document_id         TEXT PRIMARY KEY,
-    case_id             TEXT NOT NULL,
-    applicant_id        TEXT NOT NULL,
-    party_id            TEXT,
-    party_role          TEXT NOT NULL DEFAULT 'PRIMARY_APPLICANT',
-    document_type       TEXT NOT NULL,
-    status              TEXT NOT NULL,
-    source_id           TEXT,
-    verification_status TEXT,
-    reason_codes        TEXT NOT NULL DEFAULT '[]',
-    extracted_fields    TEXT NOT NULL DEFAULT '{}',
-    uploaded_at         TEXT NOT NULL,
-    updated_at          TEXT NOT NULL,
-    FOREIGN KEY (case_id) REFERENCES applications (case_id)
-);
-CREATE INDEX IF NOT EXISTS idx_documents_case
-    ON documents (case_id, uploaded_at);
-CREATE INDEX IF NOT EXISTS idx_documents_party
-    ON documents (case_id, party_id);
-
--- `seq` stands in for SQLite's implicit rowid in ORDER BY tie-breaks.
-CREATE TABLE IF NOT EXISTS case_findings (
-    finding_id    TEXT PRIMARY KEY,
-    case_id       TEXT NOT NULL,
-    party_id      TEXT,
-    finding_kind  TEXT NOT NULL,
-    stage         TEXT,
-    status        TEXT,
-    score         INTEGER,
-    confidence    INTEGER,
-    reason_codes  TEXT NOT NULL DEFAULT '[]',
-    payload       TEXT NOT NULL DEFAULT '{}',
-    source_type   TEXT,
-    source_id     TEXT,
-    document_id   TEXT,
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT,
-    version       INTEGER NOT NULL DEFAULT 1,
-    content_hash  TEXT,
-    seq           BIGSERIAL,
-    FOREIGN KEY (case_id) REFERENCES applications (case_id)
-);
-CREATE INDEX IF NOT EXISTS idx_findings_case
-    ON case_findings (case_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_findings_party
-    ON case_findings (case_id, party_id);
-CREATE INDEX IF NOT EXISTS idx_findings_kind
-    ON case_findings (case_id, finding_kind);
-CREATE INDEX IF NOT EXISTS idx_findings_document
-    ON case_findings (document_id);
--- Must match save_finding()'s ON CONFLICT target exactly, after `_pg`
--- rewrites IFNULL to COALESCE.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_identity
-    ON case_findings (case_id, finding_kind, COALESCE(party_id, ''),
-                      COALESCE(source_id, ''), COALESCE(content_hash, ''));
-
-CREATE TABLE IF NOT EXISTS document_versions (
-    document_version_id TEXT PRIMARY KEY,
-    document_id         TEXT NOT NULL,
-    case_id             TEXT NOT NULL,
-    party_id            TEXT,
-    version             INTEGER NOT NULL DEFAULT 1,
-    source_id           TEXT,
-    content_hash        TEXT,
-    created_at          TEXT NOT NULL,
-    seq                 BIGSERIAL,
-    FOREIGN KEY (document_id) REFERENCES documents (document_id),
-    FOREIGN KEY (case_id) REFERENCES applications (case_id)
-);
-CREATE INDEX IF NOT EXISTS idx_docversions_document
-    ON document_versions (document_id, version);
-CREATE INDEX IF NOT EXISTS idx_docversions_case
-    ON document_versions (case_id, created_at);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_docversions_identity
-    ON document_versions (document_id, version);
-
-CREATE TABLE IF NOT EXISTS case_decisions (
-    decision_id    TEXT PRIMARY KEY,
-    case_id        TEXT NOT NULL,
-    decision       TEXT,
-    next_action    TEXT,
-    status         TEXT,
-    reason_codes   TEXT NOT NULL DEFAULT '[]',
-    policy_id      TEXT,
-    policy_version TEXT,
-    created_at     TEXT NOT NULL,
-    seq            BIGSERIAL,
-    FOREIGN KEY (case_id) REFERENCES applications (case_id)
-);
-CREATE INDEX IF NOT EXISTS idx_decisions_case
-    ON case_decisions (case_id, created_at);
-
-CREATE TABLE IF NOT EXISTS case_events (
-    event_id   TEXT PRIMARY KEY,
-    case_id    TEXT NOT NULL,
-    party_id   TEXT,
-    event_type TEXT NOT NULL,
-    stage      TEXT,
-    summary    TEXT,
-    ref_id     TEXT,
-    created_at TEXT NOT NULL,
-    sequence   INTEGER NOT NULL DEFAULT 0,
-    seq        BIGSERIAL,
-    FOREIGN KEY (case_id) REFERENCES applications (case_id)
-);
-CREATE INDEX IF NOT EXISTS idx_events_case
-    ON case_events (case_id, sequence);
-CREATE INDEX IF NOT EXISTS idx_events_created
-    ON case_events (case_id, created_at);
-
-CREATE TABLE IF NOT EXISTS ocr_jobs (
-    job_id        TEXT PRIMARY KEY,
-    document_id   TEXT NOT NULL,
-    case_id       TEXT NOT NULL,
-    applicant_id  TEXT NOT NULL,
-    party_id      TEXT,
-    document_type TEXT,
-    status        TEXT NOT NULL,
-    attempts      INTEGER NOT NULL DEFAULT 0,
-    detail        TEXT,
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ocr_jobs_document
-    ON ocr_jobs (document_id);
-CREATE INDEX IF NOT EXISTS idx_ocr_jobs_status
-    ON ocr_jobs (status, created_at);
-CREATE INDEX IF NOT EXISTS idx_ocr_jobs_case
-    ON ocr_jobs (case_id);
-
-CREATE TABLE IF NOT EXISTS access_grants (
-    subject       TEXT NOT NULL,
-    resource_type TEXT NOT NULL,
-    resource_id   TEXT NOT NULL,
-    granted_at    TEXT NOT NULL,
-    PRIMARY KEY (subject, resource_type, resource_id)
-);
-CREATE INDEX IF NOT EXISTS idx_access_grants_resource
-    ON access_grants (resource_type, resource_id);
-
-CREATE TABLE IF NOT EXISTS case_stage (
-    case_id          TEXT PRIMARY KEY,
-    stage            TEXT NOT NULL,
-    stage_status     TEXT NOT NULL,
-    stage_started_at TEXT NOT NULL,
-    updated_at       TEXT NOT NULL,
-    version          INTEGER NOT NULL,
-    FOREIGN KEY (case_id) REFERENCES applications (case_id)
-);
-
-CREATE TABLE IF NOT EXISTS stage_transitions (
-    transition_id             TEXT PRIMARY KEY,
-    case_id                   TEXT NOT NULL,
-    version                   INTEGER NOT NULL,
-    kind                      TEXT NOT NULL,
-    from_stage                TEXT,
-    to_stage                  TEXT NOT NULL,
-    from_status               TEXT,
-    to_status                 TEXT NOT NULL,
-    previous_stage_started_at TEXT,
-    source                    TEXT NOT NULL,
-    actor                     TEXT,
-    reason                    TEXT,
-    request_id                TEXT,
-    correlation_id            TEXT,
-    created_at                TEXT NOT NULL,
-    UNIQUE (case_id, version),
-    FOREIGN KEY (case_id) REFERENCES applications (case_id)
-);
-
--- THE STAGE HISTORY IS APPEND-ONLY, as in SQLite's RAISE(ABORT) triggers.
-CREATE OR REPLACE FUNCTION stage_transitions_append_only()
-RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-    RAISE EXCEPTION 'stage history is append-only';
-END;
-$$;
-DROP TRIGGER IF EXISTS stage_transitions_no_update ON stage_transitions;
-CREATE TRIGGER stage_transitions_no_update
-    BEFORE UPDATE ON stage_transitions
-    FOR EACH ROW EXECUTE FUNCTION stage_transitions_append_only();
-DROP TRIGGER IF EXISTS stage_transitions_no_delete ON stage_transitions;
-CREATE TRIGGER stage_transitions_no_delete
-    BEFORE DELETE ON stage_transitions
-    FOR EACH ROW EXECUTE FUNCTION stage_transitions_append_only();
-"""
+_LOCK_KEY = 7_410_257_001          # pg_advisory_lock key for schema migration
 
 
-#: .NET / Npgsql connection-string keys -> libpq keywords.
-_KEYWORDS = {
-    "host": "host", "server": "host",
-    "port": "port",
-    "database": "dbname", "db": "dbname",
-    "username": "user", "user id": "user", "userid": "user", "user": "user",
-    "password": "password", "pwd": "password",
-    "sslmode": "sslmode", "ssl mode": "sslmode",
-    "timeout": "connect_timeout",
-}
+# ---------------------------------------------------------------------------
+# SQL translation (the only dialect knowledge in this backend)
+# ---------------------------------------------------------------------------
+
+_PLACEHOLDER = re.compile(r"\?")
 
 
-def _libpq_dsn(dsn: str) -> str:
+def translate(sql: str) -> str:
+    """One repository statement, in Postgres dialect. Pure, unit-tested."""
+    out = sql
+    out = re.sub(r"\bBEGIN IMMEDIATE\b", "BEGIN", out)
+    out = re.sub(r"\bIFNULL\s*\(", "COALESCE(", out, flags=re.I)
+    out = re.sub(r",\s*rowid\b", "", out)
+    if re.search(r"\bINSERT\s+OR\s+IGNORE\s+INTO\b", out, re.I):
+        out = re.sub(r"\bINSERT\s+OR\s+IGNORE\s+INTO\b", "INSERT INTO", out, flags=re.I).rstrip().rstrip(";")
+        out += " ON CONFLICT DO NOTHING"
+    # a literal % must survive psycopg's own % placeholders
+    out = out.replace("%", "%%")
+    # `?` outside quoted strings -> %s
+    parts = re.split(r"('(?:[^']|'')*')", out)
+    return "".join(p if p.startswith("'") else _PLACEHOLDER.sub("%s", p) for p in parts)
+
+
+def _trigger(match: re.Match) -> str:
+    name, when, event, table, message = match.groups()
+    function = f"{name}_fn"
+    return (f"CREATE OR REPLACE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS $$ "
+            f"BEGIN RAISE EXCEPTION '{message}'; END $$;\n"
+            f"CREATE OR REPLACE TRIGGER {name} {when} {event} ON {table} "
+            f"FOR EACH ROW EXECUTE FUNCTION {function}();")
+
+
+def schema_ddl() -> str:
+    """The baseline schema in Postgres DDL, from the portable declaration in sql_repo._SCHEMA."""
+    ddl = sql_repo._SCHEMA
+    ddl = re.sub(r"--[^\n]*", "", ddl)
+    ddl = re.sub(r"\bIFNULL\s*\(", "COALESCE(", ddl, flags=re.I)
+    # REAL as declared means 8 bytes; Postgres REAL is a 4-byte float, which rounds an
+    # epoch timestamp by about a minute (the conversation TTL broke on it).
+    ddl = re.sub(r"\bREAL\b", "DOUBLE PRECISION", ddl)
+    ddl = re.sub(
+        r"CREATE TRIGGER IF NOT EXISTS (\w+)\s+(BEFORE|AFTER)\s+(UPDATE|DELETE|INSERT)\s+ON\s+(\w+)\s+"
+        r"BEGIN SELECT RAISE\(ABORT, '([^']*)'\); END;", _trigger, ddl)
+    added = []
+    for table, columns in sql_repo._ADDED_COLUMNS.items():
+        for name, sql_type in columns:
+            added.append(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {sql_type};")
+    return ddl + "\n" + "\n".join(added) + "\n" + ";\n".join(sql_repo._ADDED_INDEXES) + ";\n"
+
+
+#: (version, description, ddl()) -- append-only. Never edit an applied one.
+def _conversation_state_ddl() -> str:
+    return ("CREATE TABLE IF NOT EXISTS conversation_state (subject_key TEXT NOT NULL, "
+            "conversation_id TEXT NOT NULL, state TEXT NOT NULL, last_activity_at DOUBLE PRECISION NOT NULL, "
+            "PRIMARY KEY (subject_key, conversation_id));\n"
+            "CREATE INDEX IF NOT EXISTS idx_conversation_activity ON conversation_state (last_activity_at);")
+
+
+MIGRATIONS: tuple[tuple[str, str, Any], ...] = (
+    ("0001", "baseline: the case store schema", schema_ddl),
+    ("0002", "copilot conversation state in the case store (multi-worker memory)", _conversation_state_ddl),
+    ("0003", "REAL columns as DOUBLE PRECISION (Postgres REAL is 4-byte)",
+     lambda: ("ALTER TABLE jev_runs ALTER COLUMN latency_ms TYPE DOUBLE PRECISION;\n"
+              "ALTER TABLE conversation_state ALTER COLUMN last_activity_at TYPE DOUBLE PRECISION;")),
+)
+
+
+# ---------------------------------------------------------------------------
+# the connection adapter: the small connection API SqlRepository uses
+# ---------------------------------------------------------------------------
+
+class _Result:
+    """A statement's rows, read in full before the connection goes back to the pool."""
+
+    def __init__(self, rows: list, rowcount: int):
+        self._rows, self.rowcount = rows, rowcount
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self):
+        return list(self._rows)
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+class _Connection:
     """
-    A connection string psycopg accepts.
+    What SqlRepository calls on a connection, served by the pool PER STATEMENT.
 
-    Takes the URL form (``postgresql://user:pass@host:5432/db``) as is, and
-    rewrites the .NET form (``Host=localhost;Port=5432;Database=db;
-    Username=postgres;Password=...``) into libpq keywords. Empty values are
-    dropped, so ``Password=`` means "no password", not an empty one.
+    A pooled connection is borrowed for one statement and returned at once --
+    or held from BEGIN until COMMIT / ROLLBACK, the repository's only
+    multi-statement transactions. Pinning one connection per thread made the
+    count follow the server's threads (~40 a process), not its concurrent
+    queries, and exhausted max_connections under load (2026-10-05).
     """
-    text = (dsn or "").strip()
-    if "://" in text or ";" not in text:
-        return text
 
-    parts: list[str] = []
-    for item in text.split(";"):
-        key, sep, value = item.partition("=")
-        if not sep or not value.strip():
-            continue
-        keyword = _KEYWORDS.get(key.strip().lower())
-        if keyword is None:
-            raise RepositoryError(
-                f"LOS_STORE_DSN: unsupported key {key.strip()!r}. "
-                f"Use Host, Port, Database, Username, Password.")
-        escaped = value.strip().replace("\\", "\\\\").replace("'", "\\'")
-        parts.append(f"{keyword}='{escaped}'")
-    return " ".join(parts)
+    def __init__(self, pool):
+        self._pool = pool
+        self._conn = None
+
+    def _acquire(self):
+        if self._conn is None:
+            self._conn = self._pool.getconn()
+        return self._conn
+
+    def _release_if_idle(self) -> None:
+        if self._conn is not None and not self._in_transaction():
+            self._pool.putconn(self._conn)
+            self._conn = None
+
+    def _run(self, sql: str, args: tuple = ()):
+        import psycopg
+
+        conn = self._acquire()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(translate(sql), tuple(args) if args else None)
+            rows = cursor.fetchall() if cursor.description else []
+            return _Result(rows, cursor.rowcount)
+        except psycopg.errors.IntegrityError as exc:
+            self.rollback()
+            raise StoreIntegrityError(str(exc).splitlines()[0]) from exc
+        except psycopg.Error as exc:
+            self.rollback()
+            raise StoreDbError(str(exc).splitlines()[0]) from exc
+        finally:
+            self._release_if_idle()
+
+    def execute(self, sql: str, args: tuple = ()):
+        if sql.strip().upper().startswith("PRAGMA"):
+            return _Result([], 0)
+        if args and any(isinstance(a, str) and "\x00" in a for a in args):
+            # NUL CANNOT BE STORED IN A POSTGRES TEXT FIELD, so nothing stored can
+            # match it: a read finds nothing (an id like "CASE-X\0" is not found,
+            # never a 500), and free text written has the byte dropped.
+            if sql.lstrip().upper().startswith("SELECT"):
+                return _Result([], 0)
+            args = tuple(a.replace("\x00", "") if isinstance(a, str) else a for a in args)
+        return self._run(sql, args)
+
+    def raw_cursor(self):
+        """A cursor on the HELD connection (DDL inside BEGIN ... COMMIT)."""
+        return self._acquire().cursor()
+
+    # AUTOCOMMIT, explicit transactions only. A read left the connection "idle in
+    # transaction" holding its locks -- a schema drop hung behind it, and in
+    # production it blocks migrations and vacuum (live test, 2026-10-05).
+    def _in_transaction(self) -> bool:
+        from psycopg.pq import TransactionStatus
+
+        return self._conn is not None and self._conn.info.transaction_status != TransactionStatus.IDLE
+
+    @property
+    def in_transaction(self) -> bool:
+        """Whether a transaction is open (SqlRepository reads it before BEGIN)."""
+        return self._in_transaction()
+
+    def commit(self) -> None:
+        if self._in_transaction():
+            self._conn.execute("COMMIT")
+        self._release_if_idle()
+
+    def rollback(self) -> None:
+        if self._in_transaction():
+            try:
+                self._conn.execute("ROLLBACK")
+            except Exception:  # noqa: BLE001 - a broken connection: the pool replaces it
+                pass
+        self._release_if_idle()
+
+    def close(self) -> None:
+        self.rollback()
+        if self._conn is not None:
+            self._pool.putconn(self._conn)
+            self._conn = None
 
 
-_IFNULL = re.compile(r"\bIFNULL\s*\(", re.IGNORECASE)
-_ROWID = re.compile(r",\s*rowid\b", re.IGNORECASE)
+class PostgresRepository(sql_repo.SqlRepository):
+    """The case store on PostgreSQL: SqlRepository's queries over a pooled psycopg connection."""
 
+    backend = "postgres"
 
-def _pg(sql: str) -> str:
-    """
-    One SQLite statement as PostgreSQL.
+    # ONE CONNECTION PER THREAD (the repository's model), so the
+    # pool must cover the server's worker threads: 40 by default (anyio).
+    def __init__(self, dsn: str, *, min_size: int = 1, max_size: int = 16) -> None:
+        if not dsn:
+            raise RepositoryError("LOS_STORE_DSN is not set for the postgres backend")
+        super().__init__()
+        self._dsn = dsn
+        self._pool = None
+        self._pool_sizes = (min_size, max_size)
 
-    `%` is escaped FIRST, because psycopg reads it as a placeholder marker
-    once parameters are passed; only then do `?` become `%s`. No statement
-    in the repository carries a `?` or `%` inside a string literal.
-    """
-    sql = sql.replace("%", "%%").replace("?", "%s")
-    sql = _IFNULL.sub("COALESCE(", sql)
-    return _ROWID.sub(", seq", sql)
+    def _pool_get(self):
+        if self._pool is None:
+            from psycopg.rows import dict_row
+            from psycopg_pool import ConnectionPool
 
-
-class PostgresRepository(SQLiteRepository):
-    """The case store, on a PostgreSQL server."""
-
-    def __init__(self, dsn: str) -> None:
-        if psycopg is None:
-            raise RepositoryError(
-                "LOS_STORE_BACKEND=postgres needs psycopg. "
-                "Install it with: pip install \"psycopg[binary]\"")
-        if not (dsn or "").strip():
-            raise RepositoryError(
-                "LOS_STORE_BACKEND=postgres needs LOS_STORE_DSN, e.g. "
-                "Host=localhost;Port=5432;Database=los;Username=postgres;"
-                "Password=...")
-        self._dsn = _libpq_dsn(dsn)
-        self._local = threading.local()
-        self._init_lock = threading.Lock()
-        self._initialised = False
-
-    # -- connection --------------------------------------------------------
+            self._pool = ConnectionPool(self._dsn, min_size=self._pool_sizes[0], max_size=self._pool_sizes[1],
+                                        kwargs={"row_factory": dict_row, "autocommit": True}, open=True,
+                                        timeout=10)
+        return self._pool
 
     def _connect(self):
-        """One connection per thread, created on first use in that thread."""
         conn = getattr(self._local, "conn", None)
-        if conn is not None and not conn.closed:
+        if conn is not None:
             return conn
         try:
-            conn = psycopg.connect(self._dsn, row_factory=dict_row,
-                                   autocommit=True, connect_timeout=10)
-        except psycopg.Error as exc:
-            raise RepositoryError(f"Could not open the case store: {exc}") from exc
+            conn = _Connection(self._pool_get())
+        except Exception as exc:  # noqa: BLE001 - one message, never the DSN
+            raise RepositoryError(f"Could not open the Postgres case store: {type(exc).__name__}") from exc
         self._local.conn = conn
         return conn
 
@@ -372,175 +258,45 @@ class PostgresRepository(SQLiteRepository):
         with self._init_lock:
             if self._initialised:
                 return
+            conn = self._connect()
             try:
-                conn = self._connect()
-                # No parameters, so psycopg sends the whole script at once.
-                conn.execute(_SCHEMA)
-                # A database created by an older build of this schema.
-                for table, columns in _ADDED_COLUMNS.items():
-                    for name, sql_type in columns:
-                        conn.execute(f"ALTER TABLE {table} "
-                                     f"ADD COLUMN IF NOT EXISTS {name} {sql_type}")
-                for statement in _ADDED_INDEXES:
-                    conn.execute(statement)
-            except psycopg.Error as exc:
-                raise RepositoryError(f"Could not create the schema: {exc}") from exc
+                conn.execute("SELECT pg_advisory_lock(?)", (_LOCK_KEY,))
+                conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations ("
+                             "version TEXT PRIMARY KEY, description TEXT NOT NULL, "
+                             "applied_at TIMESTAMPTZ NOT NULL DEFAULT now())")
+                applied = {r["version"] for r in conn.execute("SELECT version FROM schema_migrations").fetchall()}
+                for version, description, ddl in MIGRATIONS:
+                    if version in applied:
+                        continue
+                    conn.execute("BEGIN")
+                    raw = conn.raw_cursor()
+                    raw.execute(ddl())             # DDL as written: no placeholder translation
+                    conn.execute("INSERT INTO schema_migrations (version, description) VALUES (?, ?)",
+                                 (version, description))
+                    logger.info("Postgres case store: applied migration %s", version)
+                conn.commit()
+            except StoreDbError as exc:
+                conn.rollback()
+                raise RepositoryError(f"Could not migrate the Postgres schema: {exc}") from exc
+            finally:
+                try:
+                    conn.execute("SELECT pg_advisory_unlock(?)", (_LOCK_KEY,))
+                    conn.commit()
+                except Exception:  # noqa: BLE001
+                    pass
             self._initialised = True
-            logger.info("Case store ready on PostgreSQL (%s)", self._where())
+            logger.info("Case store ready on PostgreSQL (%d migration(s))", len(MIGRATIONS))
 
-    def close(self) -> None:
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            try:
-                conn.close()
-            except psycopg.Error:
-                pass
-            self._local.conn = None
-
-    def _where(self) -> str:
-        """Host and database, never the password."""
-        try:
-            info = conninfo_to_dict(self._dsn)
-        except Exception:
-            return "unknown"
-        return f"{info.get('host', 'localhost')}:{info.get('port', 5432)}/" \
-               f"{info.get('dbname', '')}"
+    def dispose(self) -> None:
+        """Close the pool (every connection). The repository is unusable afterwards."""
+        self.close()
+        if self._pool is not None:
+            self._pool.close()
+            self._pool = None
 
     def health(self) -> dict[str, Any]:
         try:
-            self._connect().execute("SELECT 1").fetchone()
-            return {"backend": "postgres", "available": True,
-                    "database": self._where()}
-        except Exception as exc:
-            return {"backend": "postgres", "available": False,
-                    "error": str(exc)[:200]}
-
-    # -- plumbing ----------------------------------------------------------
-
-    def _one(self, sql: str, args: tuple):
-        self.initialise()
-        try:
-            return self._connect().execute(_pg(sql), args).fetchone()
-        except psycopg.Error as exc:
-            raise RepositoryError(f"Case store read failed: {exc}") from exc
-
-    def _all(self, sql: str, args: tuple) -> list:
-        self.initialise()
-        try:
-            return list(self._connect().execute(_pg(sql), args).fetchall())
-        except psycopg.Error as exc:
-            raise RepositoryError(f"Case store read failed: {exc}") from exc
-
-    def _write(self, sql: str, args: tuple) -> None:
-        self.initialise()
-        try:
-            self._connect().execute(_pg(sql), args)
-        except psycopg.Error as exc:
-            raise RepositoryError(f"Case store write failed: {exc}") from exc
-
-    def _write_count(self, sql: str, args: tuple) -> int:
-        self.initialise()
-        try:
-            cursor = self._connect().execute(_pg(sql), args)
-            return int(cursor.rowcount or 0)
-        except psycopg.Error as exc:
-            raise RepositoryError(f"Case store write failed: {exc}") from exc
-
-    # -- dialect-specific writes ---------------------------------------------
-
-    def grant_access(self, subject: str, resource_type: str,
-                     resource_id: str) -> None:
-        if not subject or not resource_id:
-            return
-        self._write(
-            "INSERT INTO access_grants (subject, resource_type, resource_id, "
-            "granted_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
-            (str(subject), str(resource_type).upper(), str(resource_id),
-             _iso(utcnow())),
-        )
-
-    def apply_stage_transition(self, expected_version: int, state: CaseStage,
-                               transition: StageTransition,
-                               event: CaseEvent) -> bool:
-        """
-        One transaction, everything or nothing.
-
-        SELECT ... FOR UPDATE takes the row lock before the version is
-        compared, which is what BEGIN IMMEDIATE did in SQLite. A case with
-        no stage row yet has nothing to lock; two first transitions then
-        collide on the primary key or on UNIQUE (case_id, version), and the
-        loser gets False, exactly as before.
-        """
-        self.initialise()
-        conn = self._connect()
-        try:
-            with conn.transaction():
-                row = conn.execute(
-                    "SELECT version FROM case_stage WHERE case_id = %s "
-                    "FOR UPDATE", (state.case_id,)).fetchone()
-                current = int(row["version"]) if row is not None else 0
-                if current != expected_version:
-                    return False
-
-                conn.execute(
-                    """
-                    INSERT INTO case_stage (case_id, stage, stage_status,
-                        stage_started_at, updated_at, version)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT(case_id) DO UPDATE SET
-                        stage = excluded.stage,
-                        stage_status = excluded.stage_status,
-                        stage_started_at = excluded.stage_started_at,
-                        updated_at = excluded.updated_at,
-                        version = excluded.version
-                    """,
-                    (state.case_id, state.stage, state.stage_status,
-                     _iso(state.stage_started_at), _iso(state.updated_at),
-                     state.version),
-                )
-                conn.execute(
-                    """
-                    INSERT INTO stage_transitions (transition_id, case_id,
-                        version, kind, from_stage, to_stage, from_status,
-                        to_status, previous_stage_started_at, source, actor,
-                        reason, request_id, correlation_id, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s)
-                    """,
-                    (transition.transition_id, transition.case_id,
-                     transition.version, transition.kind, transition.from_stage,
-                     transition.to_stage, transition.from_status,
-                     transition.to_status,
-                     _iso(transition.previous_stage_started_at)
-                     if transition.previous_stage_started_at else None,
-                     transition.source, transition.actor, transition.reason,
-                     transition.request_id, transition.correlation_id,
-                     _iso(transition.created_at)),
-                )
-                # THE SAME TRANSITION ON THE CASE TIMELINE, sequenced inside
-                # the transaction.
-                seq = conn.execute(
-                    "SELECT COALESCE(MAX(sequence), 0) AS s FROM case_events "
-                    "WHERE case_id = %s", (event.case_id,)).fetchone()
-                event.sequence = int((seq["s"] if seq else 0) or 0) + 1
-                conn.execute(
-                    """
-                    INSERT INTO case_events (event_id, case_id, party_id,
-                        event_type, stage, summary, ref_id, created_at,
-                        sequence)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (event.event_id, event.case_id, event.party_id,
-                     event.event_type, event.stage, event.summary,
-                     event.ref_id, _iso(event.created_at), event.sequence),
-                )
-            return True
-        except psycopg.IntegrityError:
-            # Another writer recorded this version (or this transition id)
-            # first. The transaction rolled back; nothing of ours was written.
-            return False
-        except psycopg.Error as exc:
-            raise RepositoryError(f"Case store write failed: {exc}") from exc
-
-
-__all__ = ["PostgresRepository"]
+            row = self._connect().execute("SELECT max(version) AS v FROM schema_migrations").fetchone()
+            return {"backend": "postgres", "available": True, "schema_version": row["v"] if row else None}
+        except Exception as exc:  # noqa: BLE001
+            return {"backend": "postgres", "available": False, "error": type(exc).__name__}

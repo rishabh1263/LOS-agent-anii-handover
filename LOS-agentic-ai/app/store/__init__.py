@@ -1,19 +1,17 @@
 """
-The case store, and the one place its backend is chosen.
+The case store, and the one place its backend is chosen: PostgreSQL.
 
-Callers ask for `get_repository()` and receive something implementing
-`Repository`. Which implementation that is comes from configuration, so
-replacing SQLite with PostgreSQL or with an adapter onto an existing LOS is a
-configuration change plus one new class -- not an edit to the Applicant Agent,
-the MCP tools or the orchestrator.
+Callers ask for `get_repository()` and receive the PostgreSQL repository
+(app/store/postgres_repo.py over the queries in app/store/sql_repo.py). One
+engine everywhere -- development, tests and production -- so what is tested
+is what runs; there is no second (SQLite) code path to drift from it.
 
-    LOS_STORE_BACKEND   sqlite (default) or postgres. The implementation.
-    LOS_STORE_PATH      ./runtime/los_store.sqlite3, for the sqlite backend.
-    LOS_STORE_DSN       Host=...;Port=5432;Database=...;Username=...;Password=...
-                        (or postgresql://user:password@host:5432/db), for postgres.
-
-To add a backend: implement Repository, register it in _BACKENDS, and set
-LOS_STORE_BACKEND. Nothing above this module changes.
+    LOS_STORE_DSN          postgresql://user:password@host:5432/los   (never logged)
+    LOS_STORE_POOL_MIN/MAX pool bounds (1 / 16; connections are borrowed per statement)
+    LOS_DEV_EMBEDDED_PG    development only, when LOS_STORE_DSN is unset: start a
+                           private local PostgreSQL under runtime/pgdata (pgserver,
+                           real PostgreSQL binaries; no install, no credentials).
+                           Default true outside production; never in production.
 """
 
 from __future__ import annotations
@@ -47,26 +45,61 @@ def store_dsn() -> str:
     return (os.getenv("LOS_STORE_DSN") or "").strip()
 
 
-def store_dsn() -> str:
-    return (os.getenv("LOS_STORE_DSN") or "").strip()
+def _environment() -> str:
+    return (os.getenv("ENVIRONMENT") or "development").strip().lower()
 
 
-def _build_sqlite() -> Repository:
-    from app.store.sqlite_repo import SQLiteRepository
+def _embedded_dsn() -> str:
+    """
+    DEVELOPMENT ONLY: a private PostgreSQL under runtime/pgdata, started on
+    first use and left running for the next start. Never in production -- a
+    production deployment names its database (LOS_STORE_DSN) or does not start.
+    """
+    import pgserver
 
+    import subprocess
+    import time
+
+    root = os.getenv("LOS_DEV_PGDATA") or os.path.join("runtime", "pgdata")
+    # CRASH RECOVERY OUTLASTS pgserver's 10 s start timeout: after an unclean
+    # stop the server fsyncs and replays WAL first (33 s measured, 2026-10-06),
+    # the start "times out", and the app refused to boot while PostgreSQL went on
+    # to become ready. Retried while recovery finishes, then the real error.
+    for attempt in range(6):
+        try:
+            server = pgserver.get_server(os.path.abspath(root), cleanup_mode=None)
+            break
+        except subprocess.TimeoutExpired:
+            if attempt == 5:
+                raise
+            logger.warning("Embedded PostgreSQL still starting (crash recovery?) -- retrying")
+            time.sleep(10)
+    logger.warning("Case store: embedded development PostgreSQL at %s (set LOS_STORE_DSN for a real one)", root)
+    return server.get_uri()
 
 
 def _build_postgres() -> Repository:
     from app.store.postgres_repo import PostgresRepository
 
-    return PostgresRepository(store_dsn())
+    configured = (os.getenv("LOS_STORE_BACKEND") or "postgres").strip().lower()
+    if configured != "postgres":
+        raise RepositoryError(f"LOS_STORE_BACKEND={configured!r} is not supported: the case store is PostgreSQL")
+    # document values are encrypted at rest; production refuses to run without the key
+    from app.store import crypto
 
-
-#: backend name -> factory. The seam a new storage technology plugs into.
-_BACKENDS: dict[str, Callable[[], Repository]] = {
-    "sqlite": _build_sqlite,
-    "postgres": _build_postgres,
-}
+    try:
+        crypto.require_in_production()
+    except crypto.EncryptionConfigError as exc:
+        raise RepositoryError(str(exc)) from exc
+    dsn = store_dsn()
+    if not dsn:
+        embedded = (os.getenv("LOS_DEV_EMBEDDED_PG") or "true").strip().lower() == "true"
+        if _environment() in {"production", "prod"} or not embedded:
+            raise RepositoryError("LOS_STORE_DSN is not set: the case store needs a PostgreSQL database")
+        dsn = _embedded_dsn()
+    return PostgresRepository(dsn,
+                              min_size=int(os.getenv("LOS_STORE_POOL_MIN") or 1),
+                              max_size=int(os.getenv("LOS_STORE_POOL_MAX") or 16))
 
 
 def get_repository() -> Repository:
@@ -126,5 +159,4 @@ __all__ = [
     "status_for_verdict",
     "store_backend",
     "store_dsn",
-    "store_path",
 ]
