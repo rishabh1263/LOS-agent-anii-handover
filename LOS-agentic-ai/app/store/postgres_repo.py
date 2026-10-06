@@ -218,6 +218,43 @@ class _Connection:
             self._conn = None
 
 
+#: .NET / Npgsql connection-string keys -> libpq keywords (kept from the team's
+#: earlier Postgres store, merged 2026-10-06: a .env written for .NET works as is).
+_DOTNET_KEYWORDS = {
+    "host": "host", "server": "host",
+    "port": "port",
+    "database": "dbname", "db": "dbname",
+    "username": "user", "user id": "user", "userid": "user", "user": "user",
+    "password": "password", "pwd": "password",
+    "sslmode": "sslmode", "ssl mode": "sslmode",
+    "timeout": "connect_timeout",
+}
+
+
+def libpq_dsn(dsn: str) -> str:
+    """
+    A connection string psycopg accepts. The URL form (postgresql://user:pass@host:5432/db)
+    and libpq keywords pass unchanged; the .NET form (Host=localhost;Port=5432;Database=db;
+    Username=postgres;Password=...) is rewritten. Empty values are dropped ("Password="
+    means no password). An unknown key is refused with a message naming it -- never ignored.
+    """
+    text = (dsn or "").strip()
+    if "://" in text or ";" not in text:
+        return text
+    parts: list[str] = []
+    for item in text.split(";"):
+        key, sep, value = item.partition("=")
+        if not sep or not value.strip():
+            continue
+        keyword = _DOTNET_KEYWORDS.get(key.strip().lower())
+        if keyword is None:
+            raise RepositoryError(f"LOS_STORE_DSN: unsupported key {key.strip()!r}. "
+                                  f"Use Host, Port, Database, Username, Password.")
+        escaped = value.strip().replace("\\", "\\\\").replace("'", "\\'")
+        parts.append(f"{keyword}='{escaped}'")
+    return " ".join(parts)
+
+
 class PostgresRepository(sql_repo.SqlRepository):
     """The case store on PostgreSQL: SqlRepository's queries over a pooled psycopg connection."""
 
@@ -229,7 +266,9 @@ class PostgresRepository(sql_repo.SqlRepository):
         if not dsn:
             raise RepositoryError("LOS_STORE_DSN is not set for the postgres backend")
         super().__init__()
-        self._dsn = dsn
+        # BOTH DSN FORMS: the URL / libpq form, and the .NET form a .NET team
+        # writes (Host=...;Port=...;Database=...;Username=...;Password=...).
+        self._dsn = libpq_dsn(dsn)
         self._pool = None
         self._pool_sizes = (min_size, max_size)
 

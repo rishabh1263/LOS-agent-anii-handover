@@ -94,11 +94,21 @@ def _groups(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{"party": party, "documents": docs} for party, docs in groups.items()]
 
 
+_ACRONYMS = {"cpa", "fos", "kyc", "rcu", "pan", "itr", "dl", "emi"}
+
+
+def _readable_action(code: Any) -> str:
+    """An action code a user can read: SUBMIT_TO_CPA -> 'Submit to CPA' (never the raw enum)."""
+    words = str(code or "").replace("_", " ").lower().split()
+    out = [w.upper() if w in _ACRONYMS else w for w in words]
+    return (out[0][:1].upper() + out[0][1:] + (" " + " ".join(out[1:]) if out[1:] else "")) if out else ""
+
+
 def _next_actions(envelope: dict[str, Any]) -> list[dict[str, Any]]:
     actions: list[dict[str, Any]] = []
     nxt = envelope.get("next_action")
     if isinstance(nxt, dict) and (nxt.get("label") or nxt.get("message") or nxt.get("action")):
-        actions.append({"label": nxt.get("label") or nxt.get("message") or nxt.get("action"),
+        actions.append({"label": nxt.get("label") or nxt.get("message") or _readable_action(nxt.get("action")),
                         "action": nxt.get("action")})
     for row in envelope.get("available_actions") or []:
         if isinstance(row, dict) and row.get("label") and row.get("label") not in {a["label"] for a in actions}:
@@ -152,17 +162,105 @@ def _status(envelope: dict[str, Any], documents: list[dict[str, Any]]) -> str:
     return "OK" if documents else "INFO"
 
 
+#: intent -> the response type a renderer picks (brief: STATUS / RESULT / REFUSAL ...)
+_RESPONSE_TYPE = {
+    "GREETING": "ANSWER", "THANKS": "ANSWER", "ACKNOWLEDGEMENT": "ANSWER",
+    "GUARDRAIL_BLOCKED": "REFUSAL", "UNKNOWN": "CLARIFICATION",
+    "DOCUMENTS_UPLOADED": "STATUS", "DOCUMENT_VERIFICATION": "STATUS", "APPLICATION_STATUS": "STATUS",
+    "KYC_RESULT": "RESULT", "ELIGIBILITY": "RESULT", "DOCUMENT_DETAILS": "RESULT",
+    "PENDING_ITEMS": "STATUS", "DOCUMENTS_PENDING": "STATUS", "DOCUMENTS_MISSING": "STATUS",
+    "NEXT_ACTION": "ACTION", "READINESS": "STATUS", "CASE_HISTORY": "SUMMARY",
+    "FOS_KNOWLEDGE": "ANSWER", "STAGE_PROCESS": "ANSWER",
+}
+_DETAILED = ("explain properly", "explain in detail", "in detail", "detail mein", "vistar", "sab batao",
+             "show everything", "everything", "full details", "poora", "विस्तार", "savistar")
+_BRIEF_TYPES = {"STATUS", "RESULT"}
+
+
+def _response_type(envelope: dict[str, Any], status: str) -> str:
+    if envelope.get("clarification_required"):
+        return "CLARIFICATION"
+    if envelope.get("route_to"):
+        return "HANDOFF"
+    kind = _RESPONSE_TYPE.get(str(envelope.get("intent") or ""), "ANSWER")
+    return "REVIEW" if kind == "STATUS" and status == "REVIEW" else kind
+
+
+def _depth(envelope: dict[str, Any], kind: str) -> str:
+    """BRIEF / NORMAL / DETAILED: how much the user asked for (a presentation hint, never a fact)."""
+    asked = str((envelope.get("language_contract") or {}).get("normalized_text") or "").lower() \
+        if isinstance(envelope.get("language_contract"), dict) else ""
+    if any(w in asked for w in _DETAILED):
+        return "DETAILED"
+    if asked.startswith(("why", "kyun", "kyu", "ka ", "kasa")):
+        return "NORMAL"
+    return "BRIEF" if kind in _BRIEF_TYPES else "NORMAL"
+
+
+#: actions that ask the user to upload -- only offered when something is actually uploadable
+_UPLOAD_ACTIONS = {"UPLOAD_DOCUMENT", "MARK_FOR_REUPLOAD", "UPLOAD", "REUPLOAD"}
+
+
+def _missing_slots(envelope: dict[str, Any]) -> list[str]:
+    return [str(i["slot"]) for i in envelope.get("pending_items") or []
+            if isinstance(i, dict) and i.get("code") == "DOCUMENT_MISSING" and i.get("slot")]
+
+
+def _supported(actions: list[dict[str, Any]], envelope: dict[str, Any],
+               documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    THE ACTIONS THE CURRENT STATE SUPPORTS. A generic "Upload a document" was
+    offered on a case with nothing to upload (2026-10-06): an upload action now
+    survives only when a document is missing or must be re-uploaded.
+    """
+    uploadable = bool(_missing_slots(envelope)) or any(d["state"] == "REJECTED" for d in documents)
+    return [a for a in actions if uploadable or str(a.get("action") or "").upper() not in _UPLOAD_ACTIONS]
+
+
+def _next_action(envelope: dict[str, Any], documents: list[dict[str, Any]],
+                 actions: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """ONE structured next step the UI can render as a button -- only an action the state supports."""
+    from app.agents.applicant.copilot.answering.answer import _readable
+
+    for d in documents:
+        if d["state"] == "REJECTED":
+            return {"type": "UPLOAD_DOCUMENT", "document_type": d["document_type"],
+                    "label": f"Re-upload {d['label']}"}
+    missing = _missing_slots(envelope)
+    if missing:
+        return {"type": "UPLOAD_DOCUMENT", "document_type": missing[0], "label": f"Upload {_readable(missing[0])}"}
+    for d in documents:
+        if d["state"] == "REVIEW":
+            return {"type": "REVIEW_DOCUMENT", "document_type": d["document_type"],
+                    "label": f"Review {d['label']}"}
+    if actions:
+        return {"type": actions[0].get("action") or "ACTION", "document_type": None, "label": actions[0]["label"]}
+    return None
+
+
 def build(envelope: dict[str, Any]) -> dict[str, Any]:
+    from app.tts import service as _tts
+
     message, sections = _sections(str(envelope.get("answer") or ""))
     documents = _documents(envelope.get("documents") or [])
-    actions = _next_actions(envelope)
+    actions = _supported(_next_actions(envelope), envelope, documents)
     sources = _knowledge_sources(envelope)
     contract = envelope.get("language_contract") if isinstance(envelope.get("language_contract"), dict) else {}
+    status = _status(envelope, documents)
+    kind = _response_type(envelope, status)
+    language = (contract or {}).get("reply_language") or envelope.get("language")
+    next_action = _next_action(envelope, documents, actions)
     return {
         "message": message or None,
         "intent": envelope.get("intent"),
-        "status": _status(envelope, documents),
-        "next_step": actions[0]["label"] if actions else None,
+        "response_type": kind,
+        "response_depth": _depth(envelope, kind),
+        "language": language,
+        "status": status,
+        "next_step": next_action["label"] if next_action else None,
+        "next_action": next_action,
+        # the SAME text the screen shows, speakable, in the response language's voice
+        "audio": _tts.audio_block(str(envelope.get("answer") or ""), language),
         "case_context": {"case_id": envelope.get("case_id"), "applicant_id": envelope.get("applicant_id"),
                          "stage": envelope.get("stage")},
         "sections": sections,

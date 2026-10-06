@@ -88,6 +88,93 @@ def _documents_list_sentence(result: dict[str, Any], language: str) -> str | Non
     return text
 
 
+def _missing_labels(result: dict[str, Any]) -> list[str] | None:
+    """Readable names of the missing documents, or None when a pending item is not a missing document."""
+    from app.agents.applicant.copilot.answering import answer as answers
+
+    items = [i for i in result.get("pending_items") or [] if isinstance(i, dict)]
+    if any(i.get("code") != "DOCUMENT_MISSING" or not i.get("slot") for i in items):
+        return None                       # an item only English describes: keep English, never guess
+    return [answers._readable(i["slot"]) for i in items]
+
+
+def _pending_list_sentence(result: dict[str, Any], language: str) -> str | None:
+    """'Pending:' + one '⏳ <doc> — not uploaded yet' line per missing document."""
+    from app.agents.applicant import language as languages
+
+    labels = _missing_labels(result)
+    heading = languages.localized("pending_heading", language)
+    words = languages.localized("doc_status_missing", language)
+    if not labels or not heading or not words:
+        return None
+    return "\n".join([heading] + [f"⏳ {label} — {words}" for label in labels])
+
+
+_STILL_MISSING = re.compile(r"^(?P<docs>[A-Z][\w ,'/&-]+?) (?:is|are) still missing\.$")
+
+
+def _documents_missing_sentence(result: dict[str, Any], language: str) -> str | None:
+    from app.agents.applicant import language as languages
+
+    labels = _missing_labels(result)
+    if not labels:
+        # the pruned answer carries no items: read the fixed English shape, exactly or not at all
+        m = _STILL_MISSING.match(str(result.get("answer") or "").strip())
+        labels = [d.strip() for d in re.split(r",| and ", m.group("docs")) if d.strip()] if m else []
+    return languages.localized("documents_missing", language, documents=_listed(labels)) if labels else None
+
+
+#: "the name on the PAN, A B, does not match the driving licence name, C D" -- the
+#: recorded mismatch clause, localized with its VALUES QUOTED EXACTLY as recorded.
+_MISMATCH = re.compile(r"^the (?P<field>name|date of birth|PAN|father's name) on the (?P<doc1>.+?), (?P<v1>.+?), "
+                       r"does not match the (?P<doc2>.+?) (?P=field), (?P<v2>.+)$")
+_FIELD_WORDS = {"hi": {"name": "नाम", "date of birth": "जन्मतिथि", "PAN": "PAN", "father's name": "पिता का नाम"},
+                "hi-Latn": {"name": "naam", "date of birth": "janmatithi", "PAN": "PAN", "father's name": "pita ka naam"},
+                "mr": {"name": "नाव", "date of birth": "जन्मतारीख", "PAN": "PAN", "father's name": "वडिलांचे नाव"}}
+
+
+def _reason(reason: str, language: str) -> str:
+    """The recorded reason in `language` when it is the standard mismatch clause; else as recorded."""
+    from app.agents.applicant import language as languages
+
+    m = _MISMATCH.match(reason.strip())
+    words = _FIELD_WORDS.get(language) or {}
+    if not m or m.group("field") not in words:
+        return reason
+    said = languages.localized("mismatch_clause", language, field=words[m.group("field")], doc1=m.group("doc1"),
+                               v1=m.group("v1"), doc2=m.group("doc2"), v2=m.group("v2"))
+    return said or reason
+
+
+_NOT_UPLOADED = re.compile(r"^No (?P<doc>.+?) document has been uploaded for this case\.(?: However, (?:your|the) "
+                           r"application is under review because (?P<reason>.+?)\.)?$", re.S)
+_UNDER_REVIEW = re.compile(r"^(?:Your|The) application is under review because (?P<reason>.+?)\.$", re.S)
+
+
+def _not_uploaded_sentence(result: dict[str, Any], language: str) -> str | None:
+    """'No X has been uploaded' (+ the case's recorded hold, its reason quoted as recorded)."""
+    from app.agents.applicant import language as languages
+
+    m = _NOT_UPLOADED.match(str(result.get("answer") or "").strip())
+    if not m:
+        return None
+    head = languages.localized("document_not_uploaded", language, document=m.group("doc"))
+    if not head:
+        return None
+    if m.group("reason"):
+        hold = languages.localized("case_under_review", language, reason=_reason(m.group("reason"), language))
+        return f"{head} {hold}" if hold else None
+    return head
+
+
+def _under_review_sentence(result: dict[str, Any], language: str) -> str | None:
+    from app.agents.applicant import language as languages
+
+    m = _UNDER_REVIEW.match(str(result.get("answer") or "").strip())
+    return languages.localized("application_under_review", language,
+                               reason=_reason(m.group("reason"), language)) if m else None
+
+
 def _listed(items: list[str]) -> str:
     return ", ".join(dict.fromkeys(i for i in items if i))
 
@@ -264,7 +351,7 @@ def _case_hold(english: str, language: str) -> str | None:
     if not hold:
         return ""
     fact = "case_declined" if hold.group(1) == "was declined" else "case_under_review"
-    return languages.localized(fact, language, reason=hold.group(2))
+    return languages.localized(fact, language, reason=_reason(hold.group(2), language))
 
 
 def _verification_sentence(result: dict[str, Any], language: str) -> str | None:
@@ -553,8 +640,16 @@ def apply(result: dict[str, Any], message: str) -> dict[str, Any]:
             sentence = _current_stage_sentence(result, message, wanted)
         elif intent == "DOCUMENTS_PENDING" and str(result.get("category") or "CASE_ONLY") == "CASE_ONLY":
             sentence = _pending_sentence(result, wanted)
+        elif intent == "PENDING_ITEMS" and str(result.get("answer") or "").startswith("Pending:"):
+            sentence = _pending_list_sentence(result, wanted)
+        elif intent == "DOCUMENTS_MISSING" and "still missing" in str(result.get("answer") or ""):
+            sentence = _documents_missing_sentence(result, wanted)
+        elif intent == "DOCUMENT_VERIFICATION" and _NOT_UPLOADED.match(str(result.get("answer") or "").strip()):
+            sentence = _not_uploaded_sentence(result, wanted)
         elif intent == "DOCUMENT_VERIFICATION":
             sentence = _verification_sentence(result, wanted)
+        elif intent == "CASE_HISTORY" and _UNDER_REVIEW.match(str(result.get("answer") or "").strip()):
+            sentence = _under_review_sentence(result, wanted)
         elif intent == "NEXT_ACTION":
             sentence = _next_sentence(result, wanted)
         elif intent == "DOCUMENTS_REQUIRED":

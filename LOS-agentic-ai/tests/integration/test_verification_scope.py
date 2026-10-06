@@ -177,7 +177,7 @@ def test_the_fos_upload_outcome_states_the_scope(store, make_token):
         from app.agents.applicant.copilot.answering.answer import INTEGRITY_ONLY
         assert INTEGRITY_ONLY in answer, (question, answer)
         for claim in ("genuine", "authentic", "issued by the bank", "confirmed by the bank"):
-            assert claim not in answer.lower().replace("the issuing authority has not confirmed", "")
+            assert claim not in answer.lower().replace("its issuing authority has not been independently confirmed", "")
 
 
 def test_no_response_ever_claims_the_issuer_confirmed(store, make_token):

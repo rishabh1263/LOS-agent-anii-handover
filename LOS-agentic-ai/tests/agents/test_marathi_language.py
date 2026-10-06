@@ -127,14 +127,15 @@ def test_verification_is_answered_in_marathi_keeping_scores_and_the_recorded_rea
     monkeypatch.setenv("APPLICANT_AGENT_SHOW_SCORES", "true")
     out = _localized({
         "intent": "DOCUMENT_VERIFICATION",
-        "answer": ("PAN is VERIFIED (verification score 100, confidence 90). These are document checks; "
-                   "the issuing authority has not confirmed the document. However, the application is under "
+        "answer": ("PAN is VERIFIED (verification score 100, confidence 90). "
+                   "Its issuing authority has not been independently confirmed. However, the application is under "
                    "review because the name on the PAN, A B, does not match the bank account holder name, C D."),
         "verification": {"documents": [{"document_type": "PAN", "label": "PAN", "status": "VERIFIED",
                                         "score": 100, "confidence": 90, "score_recorded": True}]},
     })
     assert out["answer"].startswith("PAN ची पडताळणी पास झाली (स्कोअर 100, विश्वास 90).")
-    assert "the name on the PAN, A B, does not match the bank account holder name, C D" in out["answer"]
+    # the recorded reason, localized with its values quoted exactly (2026-10-06)
+    assert "A B" in out["answer"] and "C D" in out["answer"] and "does not match" not in out["answer"]
     assert out["language_contract"]["localized"] is True and out["answer_en"].startswith("PAN is VERIFIED")
 
 
@@ -142,7 +143,7 @@ def test_by_default_no_score_is_said_in_marathi_either(monkeypatch):
     monkeypatch.delenv("APPLICANT_AGENT_SHOW_SCORES", raising=False)
     out = _localized({
         "intent": "DOCUMENT_VERIFICATION",
-        "answer": "PAN is verified. These are document checks; the issuing authority has not confirmed the document.",
+        "answer": "PAN is verified. Its issuing authority has not been independently confirmed.",
         "verification": {"documents": [{"document_type": "PAN", "label": "PAN", "status": "VERIFIED",
                                         "score": 100, "confidence": 90, "score_recorded": True}]},
     })
