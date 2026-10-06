@@ -481,6 +481,41 @@ def signature_ink_threshold() -> float:
         return 0.02
 
 
+def _passed(by_name: dict, name: str) -> bool:
+    return name not in by_name or by_name[name].passed
+
+
+def _readable(by_name: dict) -> bool:
+    """Something was actually read: the page is not blank and it is legible."""
+    return _passed(by_name, "page_not_blank") and _passed(by_name, "document_legible")
+
+
+def _could_not_establish(by_name: dict) -> bool:
+    """
+    "COULD NOT ESTABLISH": a blank or illegible page, or nothing identified on a page
+    that could not be read. Not evidence the document is false -> REVIEW, never FAIL
+    (unreadable != invalid: a mis-rasterised genuine scan was being rejected, 2026-10-06).
+    """
+    return not _readable(by_name) or not _passed(by_name, "document_class_identified")
+
+
+def _hard_failed(by_name: dict) -> bool:
+    """
+    FAIL ONLY ON POSITIVE EVIDENCE:
+      - the document is expired;
+      - it was identified as a DIFFERENT class than requested (a mismatch counts only
+        when a class WAS identified -- "requested X, found UNKNOWN" is not a mismatch);
+      - it was READ and is no supported document at all (legible meeting notes are the
+        wrong document; an illegible scan is not -- that is REVIEW).
+    """
+    if not _passed(by_name, "document_not_expired"):
+        return True
+    identified = _passed(by_name, "document_class_identified")
+    if not _passed(by_name, "matches_requested_class") and identified:
+        return True
+    return not identified and _readable(by_name)
+
+
 def _verdict_from_text_ungated(
     text: str,
     requested_class: str | None,
@@ -1411,17 +1446,7 @@ def _quick_verify_from_tokens(
             for check in checks
         }
 
-        hard_failed = any(
-            not by_name[name].passed
-            for name in (
-                "page_not_blank",
-                "document_legible",
-                "document_class_identified",
-                "matches_requested_class",
-                "document_not_expired",
-            )
-            if name in by_name
-        )
+        hard_failed = _hard_failed(by_name)
 
         confidence = round(
             sum(
@@ -1440,7 +1465,8 @@ def _quick_verify_from_tokens(
             status = "FAIL"
 
         elif (
-            "IDENTIFIER_NOT_FOUND"
+            _could_not_establish(by_name)
+            or "IDENTIFIER_NOT_FOUND"
             in reasons
             or "POOR_SCAN_QUALITY"
             in reasons
@@ -2020,23 +2046,14 @@ def quick_verify(
         for check in checks
     }
 
-    hard_failed = any(
-        not by_name[name].passed
-        for name in (
-            "page_not_blank",
-            "document_legible",
-            "document_class_identified",
-            "matches_requested_class",
-            "document_not_expired",
-        )
-        if name in by_name
-    )
+    hard_failed = _hard_failed(by_name)
 
     if hard_failed:
         status = "FAIL"
 
     elif (
-        "IDENTIFIER_NOT_FOUND"
+        _could_not_establish(by_name)
+        or "IDENTIFIER_NOT_FOUND"
         in reasons
         or "POOR_SCAN_QUALITY"
         in reasons

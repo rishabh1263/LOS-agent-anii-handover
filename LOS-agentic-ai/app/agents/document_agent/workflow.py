@@ -789,6 +789,32 @@ def _identity_score(
         return {}
 
 
+#: per document type: (published key, where it is read from on the FinancialResult)
+_PRINTED = {
+    "SALARY_SLIP": (("net_pay", "signals.monthly_net_salary"), ("gross_pay", "signals.monthly_gross_salary"),
+                    ("pay_period", "detail.pay_period"), ("total_deductions", "detail.total_deductions")),
+    "ITR": (("assessment_year", "detail.assessment_year"), ("form_number", "detail.form_number"),
+            ("acknowledgement_number", "detail.acknowledgement_number"), ("filing_date", "detail.filing_date"),
+            ("total_income", "signals.declared_annual_income"), ("taxes_paid", "detail.taxes_paid")),
+    "BANK_STATEMENT": (("closing_balance", "signals.closing_balance"),),
+    "SALE_DEED": (("article_type", "detail.article_type"),
+                  ("registration_reference", "detail.registration_reference")),
+}
+
+
+def _printed_fields(result: FinancialResult) -> dict[str, Any]:
+    """The values PRINTED on a financial document (see the call site), never derived analysis."""
+    out: dict[str, Any] = {}
+    kind = getattr(result.document_type, "value", str(result.document_type))
+    for key, where in _PRINTED.get(kind, ()):
+        source, _, name = where.partition(".")
+        container = result.signals.model_dump(mode="json") if source == "signals" else (result.detail or {})
+        value = container.get(name) if isinstance(container, dict) else None
+        if value not in (None, "", [], {}):
+            out[key] = value
+    return out
+
+
 def _serialise_financial_extraction(
     result: FinancialResult,
     include_detail: bool = True,
@@ -871,6 +897,18 @@ def _serialise_financial_extraction(
     if (result.document_type is FinancialDocumentType.BANK_STATEMENT
             and "name" in fields):
         fields["account_holder_name"] = fields["name"]
+
+    # WHAT IS PRINTED ON THE DOCUMENT, at every stage (2026-10-06). A salary
+    # slip's net and gross pay, an ITR's assessment year, acknowledgement and
+    # total income, a statement's closing balance are the document's own
+    # contents -- read, not computed -- and "what does my salary slip say?"
+    # showed only the employee and employer names. They are released behind
+    # the same verification gate as every other field. Derived ANALYSIS
+    # (average monthly credit, total credits/debits, evidence, income evidence)
+    # stays with `signals` above and stays withheld from FOS.
+    for key, value in _printed_fields(result).items():
+        if value not in (None, "", [], {}):
+            fields.setdefault(key, value)
 
     # Document-specific parser output remains nested rather than changing
     # the outer API contract.
@@ -1915,9 +1953,15 @@ def _render_pdf_page(path: str, number: int):
     from pdf2image import convert_from_path
 
     options: dict[str, Any] = {}
-    poppler_path = (os.getenv("POPPLER_PATH") or "").strip()
-    if poppler_path:
+    poppler_path = (os.getenv("POPPLER_PATH") or "").strip().strip('"')
+    if poppler_path and os.path.isdir(poppler_path):
         options["poppler_path"] = poppler_path
+    elif poppler_path:
+        # A POPPLER_PATH FROM ANOTHER MACHINE (a copied .env naming a folder that
+        # does not exist here) made every scanned PDF fail in milliseconds while
+        # pdftoppm sat on PATH (2026-10-06). The missing folder is ignored, PATH
+        # is used, and the misconfiguration is logged rather than silently fatal.
+        logger.warning("POPPLER_PATH %r does not exist; using pdftoppm from PATH", poppler_path)
 
     pages = convert_from_path(
         path,

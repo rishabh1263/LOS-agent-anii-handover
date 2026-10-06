@@ -1341,6 +1341,50 @@ _DOC_STATUS = re.compile(
 _NOT_STATUS = re.compile(r"\b(details?|number|name|why|kyun|kyu|kyon|reject\w*|mean\w*|required|upload)\b",
                          re.IGNORECASE)
 
+#: WHY ONE NAMED DOCUMENT IS IN REVIEW / REJECTED: "why is the signature under review?"
+#: is that document's verification reason -- the case-level "why in review" rule answered
+#: it with the CASE's hold (a name mismatch) instead (2026-10-06).
+_DOC_WHY = re.compile(
+    rf"\b(why|kyun|kyu|kyon|kaahe|reason)\b[^?]{{0,40}}\b{_DOC_TYPES}\b[^?]{{0,40}}"
+    rf"\b(review|pending|reject\w*|fail\w*|flag\w*|hold|stuck|not\s+verified)\b"
+    rf"|\b{_DOC_TYPES}\b[^?]{{0,30}}\b(review|pending|reject\w*|fail\w*)\b[^?]{{0,15}}\b(why|kyun|kyu|kyon)\b",
+    re.IGNORECASE)
+
+#: WHICH STAGE THE CASE IS AT: "case fos me hai?", "is the case at FOS?", "case kis stage me hai?"
+#: (2026-10-06: UNKNOWN, answered with the review reason).
+_CASE_STAGE_NAMES = r"(fos|cpa|credit|rcu|legal|technical|sanction|disburs\w*)"   # not _STAGE_WORDS (a dict)
+_CASE_STAGE = re.compile(
+    rf"\b(case|application|file|loan)\b[^?]{{0,25}}\b{_CASE_STAGE_NAMES}\b[^?]{{0,12}}"
+    rf"\b(me|mein|main|madhe|madhye|at|in|par|pe|stage)\b"
+    rf"|\b(is|are)\s+(the|my|this|our)\s+(case|application|file|loan)\s+(at|in)\s+(the\s+)?{_CASE_STAGE_NAMES}\b"
+    rf"|\b(kis|which|what|kaun\s*s[ae]|konsy?a|kuthlya)\s+stage\b"
+    rf"|\bstage\s+(kya|kaunsa|konta|kuthla)\b",
+    re.IGNORECASE)
+
+#: WHAT A NAMED DOCUMENT SAYS: "PAN se kya details mila?", "PAN me kya likha hai?",
+#: "PAN ki jaankari", "what did you read from my PAN?", "PAN extract kya hua?" -- its
+#: released extraction (2026-10-06: UNKNOWN, so the extracted fields were never shown).
+_DOC_DETAILS = re.compile(
+    rf"\b{_DOC_TYPES}\b[^?]{{0,25}}\b(details?|jaankari|jankari|maahiti|mahiti|data|info|information|"
+    rf"likha|likhi|likhe|extract\w*|padh\w*|fields?)\b"
+    rf"|\b(what|kya)\b[^?]{{0,25}}\b(read|extract\w*|padh\w*|found|mila|mili|mile)\b[^?]{{0,20}}\b{_DOC_TYPES}\b"
+    rf"|\b{_DOC_TYPES}\b[^?]{{0,12}}\b(se|me|mein|madhe)\s+(kya|kay)\b[^?]{{0,20}}\b(mila|mili|mile|hai|aahe|likha)\b",
+    re.IGNORECASE)
+#: EVERY UPLOADED DOCUMENT'S DETAILS: "saare documents ki details", "all document details",
+#: "documents ka data dikhao", "sab docs me kya likha hai" (2026-10-06: a clarification).
+_ALL_DOCS_DETAILS = re.compile(
+    r"\b(documents?|docs?|kagaz\w*|kagadpatr\w*|dastavez\w*)\b[^?]{0,20}"
+    r"\b(details?|data|jaankari|jankari|maahiti|mahiti|info|information|likha|extract\w*|fields?)\b",
+    re.IGNORECASE)
+
+#: ...but not a verification or status question about it
+_NOT_DETAILS = re.compile(r"\b(verif\w*|status|why|kyun|kyu|reject\w*|review|pending|upload\w*|required|need\w*)\b",
+                          re.IGNORECASE)
+
+#: "what about PAN?" with no earlier turn to follow up on -- that document's status
+_WHAT_ABOUT_DOC = re.compile(rf"^\s*(what|how)\s+about\s+(the\s+|my\s+|our\s+)?{_DOC_TYPES}\s*\??\s*$",
+                             re.IGNORECASE)
+
 
 def classify(message: str) -> Classification:
     """Decide what the message is asking for. Deterministic; no model."""
@@ -1354,6 +1398,19 @@ def classify(message: str) -> Classification:
     if _DOC_STATUS.search(text) and not _NOT_STATUS.search(text):
         return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
                               document_type=_document_type(text), matched_on="document_status")
+    if _ALL_DOCS_DETAILS.search(text) and not _NOT_DETAILS.search(text) and not _document_type(text):
+        return Classification(Intent.DOCUMENT_DETAILS, confidence="high", matched_on="all_documents_details")
+    if _DOC_DETAILS.search(text) and not _NOT_DETAILS.search(text) and _document_type(text):
+        return Classification(Intent.DOCUMENT_DETAILS, confidence="high",
+                              document_type=_document_type(text), matched_on="document_details")
+    if _DOC_WHY.search(text) and _document_type(text):
+        return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
+                              document_type=_document_type(text), matched_on="document_why")
+    if _WHAT_ABOUT_DOC.match(text) and _document_type(text):
+        return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
+                              document_type=_document_type(text), matched_on="what_about_document")
+    if _CASE_STAGE.search(text):
+        return Classification(Intent.APPLICATION_STAGE, confidence="high", matched_on="case_stage")
 
     # BEFORE THE OUT-OF-SCOPE RULE, and only just. That rule routes
     # anything containing "rcu" or "fraud" downstream so the FOS stage

@@ -1,0 +1,129 @@
+[
+ {
+  "type": "AADHAAR",
+  "result": "NOT_TESTABLE",
+  "why": "no Aadhaar sample in the repository"
+ },
+ {
+  "type": "PAN",
+  "file": "rpan.jpg",
+  "upload_ms": 2911,
+  "status": "VERIFIED",
+  "reasons": [],
+  "background_job": null,
+  "waited_s": 0,
+  "chat_agrees": true,
+  "answer": "PAN ka verification pass hua. Issuing authority se iski alag se pushti nahi hui hai. Phir bhi application review mein hai, kaaran: more documents are needed for",
+  "problems": [],
+  "result": "PASS"
+ },
+ {
+  "type": "DRIVING_LICENCE",
+  "file": "driving_license.jpg",
+  "upload_ms": 4001,
+  "status": "VERIFIED",
+  "reasons": [],
+  "background_job": null,
+  "waited_s": 0,
+  "chat_agrees": true,
+  "answer": "Driving Licence ka verification pass hua. Issuing authority se iski alag se pushti nahi hui hai. Phir bhi application review mein hai, kaaran: more documents ar",
+  "problems": [],
+  "result": "PASS"
+ },
+ {
+  "type": "VOTER_ID",
+  "file": "voter_id2.jpg",
+  "upload_ms": 3020,
+  "status": "VERIFIED",
+  "reasons": [],
+  "background_job": null,
+  "waited_s": 0,
+  "chat_agrees": true,
+  "answer": "Voter ID ka verification pass hua. Issuing authority se iski alag se pushti nahi hui hai. Phir bhi application review mein hai, kaaran: more documents are neede",
+  "problems": [],
+  "result": "PASS"
+ },
+ {
+  "type": "PASSPORT",
+  "file": "passport_samples0_4.jpg",
+  "upload_ms": 7403,
+  "status": "REJECTED",
+  "reasons": [
+   "This document has expired.",
+   "The signature caption could not be read on this document."
+  ],
+  "background_job": null,
+  "waited_s": 0,
+  "chat_agrees": true,
+  "answer": "Passport did not pass verification. This document has expired. The signature caption could not be read on this document. However, the application was declined b",
+  "problems": [],
+  "result": "PASS"
+ },
+ {
+  "type": "SALARY_SLIP",
+  "file": "salary_slip.pdf",
+  "upload_ms": 340,
+  "status": "VERIFIED",
+  "reasons": [],
+  "background_job": null,
+  "waited_s": 0,
+  "chat_agrees": true,
+  "answer": "Salary Slip ka verification pass hua. Issuing authority se iski alag se pushti nahi hui hai. Phir bhi application review mein hai, kaaran: more documents are ne",
+  "problems": [],
+  "result": "PASS"
+ },
+ {
+  "type": "BANK_STATEMENT",
+  "file": "bank_hdfc_new.pdf",
+  "upload_ms": 691,
+  "status": "VERIFIED",
+  "reasons": [],
+  "background_job": null,
+  "waited_s": 0,
+  "chat_agrees": true,
+  "answer": "Bank Statement ka verification pass hua. Issuing authority se iski alag se pushti nahi hui hai. Phir bhi application review mein hai, kaaran: more documents are",
+  "problems": [],
+  "result": "PASS"
+ },
+ {
+  "type": "BANK_STATEMENT",
+  "file": "bank_sbi_scanned.pdf",
+  "upload_ms": 36251,
+  "status": "REVIEW",
+  "reasons": [
+   "Some transaction amounts on this statement could not be read, so its transactions could not be checked against the balance. This is a limit of the reading, not a finding about the document."
+  ],
+  "background_job": null,
+  "waited_s": 0,
+  "chat_agrees": true,
+  "answer": "Bank Statement needs a review. Some transaction amounts on this statement could not be read, so its transactions could not be checked against the balance. This ",
+  "problems": [],
+  "result": "PASS"
+ },
+ {
+  "type": "ITR",
+  "file": "ITR.pdf",
+  "upload_ms": 294,
+  "status": "VERIFIED",
+  "reasons": [],
+  "background_job": null,
+  "waited_s": 0,
+  "chat_agrees": true,
+  "answer": "ITR ka verification pass hua. Issuing authority se iski alag se pushti nahi hui hai. Phir bhi application review mein hai, kaaran: more documents are needed for",
+  "problems": [],
+  "result": "PASS"
+ },
+ {
+  "type": "SALE_DEED",
+  "file": "sale_deed_clean.pdf",
+  "upload_ms": 94635,
+  "route": "/api/v1/los/process",
+  "classified": "UNKNOWN",
+  "status": "FAIL",
+  "reasons": [
+   "DOC_CLASS_UNRECOGNISED"
+  ],
+  "fields": [],
+  "result": "CHECK"
+ }
+]

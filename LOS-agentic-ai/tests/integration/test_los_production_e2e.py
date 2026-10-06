@@ -396,6 +396,7 @@ def test_8_verification_off_skips_and_withholds_extraction(app_client, monkeypat
 
     SKIPPED is not a PASS: a check that did not run has established nothing.
     """
+    _only_the_global_switch(monkeypatch)
     monkeypatch.setenv("VERIFICATION_ENABLED", "false")
 
     response = post(app_client, [("pan.jpg", sample("pan_bw2.jpg"), "image/jpeg")])
@@ -595,7 +596,18 @@ def test_classification_off_runs_no_specialist(app_client, monkeypatch):
 # ==========================================================================
 
 
+def _only_the_global_switch(monkeypatch):
+    """Per-type VERIFICATION_ENABLED_<TYPE> overrides the global switch by design, and a
+    developer .env that sets them (VERIFICATION_ENABLED_PAN=true) would otherwise decide
+    these tests: cleared, so the global switch alone is what is tested (2026-10-06)."""
+    import os
+
+    for key in [k for k in os.environ if k.startswith("VERIFICATION_ENABLED_")]:
+        monkeypatch.delenv(key, raising=False)
+
+
 def _set_flags(monkeypatch, *, verification: bool, extraction: bool):
+    _only_the_global_switch(monkeypatch)
     monkeypatch.setenv("VERIFICATION_ENABLED", "true" if verification else "false")
     monkeypatch.setenv("LOS_EXTRACTION_ENABLED", "true" if extraction else "false")
     from app.agents.los import config
@@ -940,7 +952,9 @@ def test_the_response_stays_mid_short(app_client):
         expected=["AUTO", "BUSINESS_PROOF_1"],
     )
 
-    assert len(json.dumps(response.json())) < 7500
+    # 7500 -> 8500 (2026-10-06): the KYC block now carries its explanation (state,
+    # reason, passed/failed checks, next actions) -- still mid-short, by a margin.
+    assert len(json.dumps(response.json())) < 8500
 
 
 @pytest.mark.ocr
