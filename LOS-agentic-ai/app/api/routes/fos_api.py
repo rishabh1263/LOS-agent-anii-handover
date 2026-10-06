@@ -274,6 +274,15 @@ class CopilotRequest(BaseModel):
         description="The question, for CUSTOM_QUERY. Ignored otherwise.",
         examples=["What documents are pending?"],
     )
+    response_language: str | None = Field(
+        None, max_length=12, examples=["mr"],
+        description=(
+            "THE LANGUAGE SELECTED IN THE FRONTEND (en, hi, hi-Latn, mr, mr-Latn, ...). AUTHORITATIVE: "
+            "the answer is presented in it whatever language the question was typed in -- "
+            "detection (lexicon / Lingua) is used only when this is omitted. Facts never change with "
+            "the language; where no template covers a fact the English answer stands and "
+            "`language_contract.localized` is false."),
+    )
     context: dict[str, Any] | None = Field(
         None,
         description=(
@@ -1155,7 +1164,24 @@ async def _copilot_json(
         request_id=request_id,
         message=message,
         context=payload.context,
+        response_language=payload.response_language,
     )
+
+
+def _select_language(result: dict[str, Any], selected: str | None) -> None:
+    """Make an explicit frontend language the response language (an unsupported code is ignored)."""
+    if not selected or not str(selected).strip():
+        return
+    from app.agents.applicant import language as _language
+
+    code = str(selected).strip()
+    if code not in _language.supported():
+        return
+    contract = result.get("language_contract")
+    if not isinstance(contract, dict):
+        contract = result["language_contract"] = {}
+    contract["response_language"] = _language.reply_as(code)
+    contract["selected_by"] = "FRONTEND"
 
 
 async def _run_action(
@@ -1167,6 +1193,7 @@ async def _run_action(
     request_id: str,
     message: str | None = None,
     context: dict[str, Any] | None = None,
+    response_language: str | None = None,
 ) -> dict[str, Any]:
     """
     One FOS action, however the caller asked for it.
@@ -1199,7 +1226,8 @@ async def _run_action(
     try:
         result = await _answer_action(
             action, applicant_id=applicant_id, case_id=case_id, claims=claims,
-            request_id=request_id, message=message, context=context)
+            request_id=request_id, message=message, context=context,
+            response_language=response_language)
     except AgentError as exc:
         raise HTTPException(exc.http_status, detail={
             "request_id": request_id, "error": exc.code,
@@ -1220,12 +1248,14 @@ async def _answer_action(
     request_id: str,
     message: str | None = None,
     context: dict[str, Any] | None = None,
+    response_language: str | None = None,
 ) -> dict[str, Any]:
     """The body of `_run_action`, before refusals become HTTP statuses."""
     with request_cache.scoped():
         return await _answer_action_scoped(
             action, applicant_id=applicant_id, case_id=case_id, claims=claims,
-            request_id=request_id, message=message, context=context)
+            request_id=request_id, message=message, context=context,
+            response_language=response_language)
 
 
 async def _answer_action_scoped(
@@ -1237,6 +1267,7 @@ async def _answer_action_scoped(
     request_id: str,
     message: str | None = None,
     context: dict[str, Any] | None = None,
+    response_language: str | None = None,
 ) -> dict[str, Any]:
     """`_answer_action` inside ONE request-scoped read memo (request_cache)."""
     # A COMPOUND QUESTION -- two case questions in one sentence ("are my
@@ -1323,6 +1354,9 @@ async def _answer_action_scoped(
     # the language contract then says which language the prose is in.
     from app.agents.applicant.copilot.answering import localize as _localize
 
+    # THE FRONTEND'S LANGUAGE SELECTION WINS over the detected input language
+    # (detection -- lexicon / Lingua -- only decides when nothing was selected).
+    _select_language(result, response_language)
     _localize.apply(result, message or "")
     envelope = _from_agent(result, action.value, request_id,
                            concise=action is FosAction.CUSTOM_QUERY)

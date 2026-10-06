@@ -1,0 +1,194 @@
+[
+ {
+  "lang": "mr",
+  "q": "documents verify ho gaye?",
+  "intent": "DOCUMENT_VERIFICATION",
+  "localized": true,
+  "reply": "mr",
+  "answer": "PAN ची पडताळणी पास झाली. Driving Licence ची पडताळणी पास झाली. जारी करणाऱ्या संस्थेकडून याची स्वतंत्र पुष्टी झालेली नाही. तरीही अर्ज पुनरावलोकनात आहे, "
+ },
+ {
+  "lang": "mr",
+  "q": "what is pending?",
+  "intent": "PENDING_ITEMS",
+  "localized": true,
+  "reply": "mr",
+  "answer": "बाकी:\n⏳ Bank Statement — अजून अपलोड झालेले नाही"
+ },
+ {
+  "lang": "mr",
+  "q": "KYC kyun fail hua?",
+  "intent": "KYC_RESULT",
+  "localized": true,
+  "reply": "mr",
+  "answer": "तुमचे KYC पुनरावलोकनात आहे. कारण: कागदपत्रांमध्ये जन्मतारीख वेगळी आहे, कागदपत्रांमध्ये वडिलांचे नाव वेगळे आहे, कागदपत्रांमध्ये नाव वेगळे आहे. PAN वर R"
+ },
+ {
+  "lang": "mr",
+  "q": "KYC zala ka?",
+  "intent": "KYC_RESULT",
+  "localized": true,
+  "reply": "mr",
+  "answer": "तुमचे KYC पुनरावलोकनात आहे. कारण: कागदपत्रांमध्ये जन्मतारीख वेगळी आहे, कागदपत्रांमध्ये वडिलांचे नाव वेगळे आहे, कागदपत्रांमध्ये नाव वेगळे आहे. PAN वर R"
+ },
+ {
+  "lang": "mr",
+  "q": "eligibility ka status?",
+  "intent": "ELIGIBILITY",
+  "localized": true,
+  "reply": "mr",
+  "answer": "या केसची पात्रता अजून तपासलेली नाही. उत्पन्नाची कागदपत्रे आणि कर्जाच्या अटी आल्यावर तिचे मूल्यांकन होईल."
+ },
+ {
+  "lang": "mr",
+  "q": "credit ka kya hua?",
+  "intent": "READINESS",
+  "localized": false,
+  "reply": "en",
+  "answer": "Credit comes later -- your case is at FOS, and first has to move on to CPA. Your case can't move from FOS to CPA yet. FOS requirements (not met): Bank"
+ },
+ {
+  "lang": "mr",
+  "q": "what should I do?",
+  "intent": "NEXT_ACTION",
+  "localized": true,
+  "reply": "mr",
+  "answer": "पुढची पायरी: राहिलेले कागदपत्र गोळा करून अपलोड करा: Bank Statement. तसेच, समीक्षक नोंदलेला मुद्दा तपासेपर्यंत वाट पहा."
+ },
+ {
+  "lang": "mr",
+  "q": "show all documents",
+  "intent": "DOCUMENTS_UPLOADED",
+  "localized": true,
+  "reply": "mr",
+  "answer": "या अर्जावरील कागदपत्रे:\n✓ PAN — पडताळलेले\n✓ Driving Licence — पडताळलेले"
+ },
+ {
+  "lang": "mr",
+  "q": "bank statement ka kya hua?",
+  "intent": "DOCUMENT_VERIFICATION",
+  "localized": true,
+  "reply": "mr",
+  "answer": "या केससाठी Bank Statement अजून अपलोड झालेले नाही. तरीही अर्ज पुनरावलोकनात आहे, कारण: PAN वर नाव RISHABH AJIT SINGH आहे, पण driving licence वर SIDDHANT"
+ },
+ {
+  "lang": "mr",
+  "q": "PAN ki details batao",
+  "intent": "DOCUMENT_DETAILS",
+  "localized": true,
+  "reply": "mr",
+  "answer": "PAN मधून वाचलेली माहिती (पडताळणी पास झाली):\n- PAN number: XXXXXX875K\n- Name: RISHABH AJIT SINGH\n- Father's name: AJIT SINGH\n- Date of birth: 2002-06-1"
+ },
+ {
+  "lang": "mr",
+  "q": "why is this case pending?",
+  "intent": "CASE_HISTORY",
+  "localized": true,
+  "reply": "mr",
+  "answer": "तुमचा अर्ज पुनरावलोकनात आहे, कारण: PAN वर नाव RISHABH AJIT SINGH आहे, पण driving licence वर SIDDHANT KAMBLE."
+ },
+ {
+  "lang": "mr",
+  "q": "what do I need to upload?",
+  "intent": "DOCUMENTS_MISSING",
+  "localized": true,
+  "reply": "mr",
+  "answer": "Bank Statement अजून अपलोड झालेले नाही."
+ },
+ {
+  "lang": "hi",
+  "q": "documents verify ho gaye?",
+  "intent": "DOCUMENT_VERIFICATION",
+  "localized": true,
+  "reply": "hi",
+  "answer": "PAN का सत्यापन पास हुआ। Driving Licence का सत्यापन पास हुआ। जारी करने वाली संस्था से इसकी स्वतंत्र पुष्टि नहीं हुई है। फिर भी आवेदन समीक्षा में है, का"
+ },
+ {
+  "lang": "hi",
+  "q": "what is pending?",
+  "intent": "PENDING_ITEMS",
+  "localized": true,
+  "reply": "hi",
+  "answer": "बाकी:\n⏳ Bank Statement — अभी अपलोड नहीं हुआ"
+ },
+ {
+  "lang": "hi",
+  "q": "KYC kyun fail hua?",
+  "intent": "KYC_RESULT",
+  "localized": true,
+  "reply": "hi",
+  "answer": "आपका KYC समीक्षा में है। कारण: दस्तावेज़ों में जन्मतिथि अलग है, दस्तावेज़ों में पिता का नाम अलग है, दस्तावेज़ों में नाम अलग है। PAN पर RISHABH AJIT SI"
+ },
+ {
+  "lang": "hi",
+  "q": "KYC zala ka?",
+  "intent": "KYC_RESULT",
+  "localized": true,
+  "reply": "hi",
+  "answer": "आपका KYC समीक्षा में है। कारण: दस्तावेज़ों में जन्मतिथि अलग है, दस्तावेज़ों में पिता का नाम अलग है, दस्तावेज़ों में नाम अलग है। PAN पर RISHABH AJIT SI"
+ },
+ {
+  "lang": "hi",
+  "q": "eligibility ka status?",
+  "intent": "ELIGIBILITY",
+  "localized": true,
+  "reply": "hi",
+  "answer": "इस केस की पात्रता अभी जाँची नहीं गई है। आय के दस्तावेज़ और लोन की शर्तें आने पर इसका आकलन होगा।"
+ },
+ {
+  "lang": "hi",
+  "q": "credit ka kya hua?",
+  "intent": "READINESS",
+  "localized": false,
+  "reply": "en",
+  "answer": "Credit comes later -- your case is at FOS, and first has to move on to CPA. Your case can't move from FOS to CPA yet. FOS requirements (not met): Bank"
+ },
+ {
+  "lang": "hi",
+  "q": "what should I do?",
+  "intent": "NEXT_ACTION",
+  "localized": true,
+  "reply": "hi",
+  "answer": "अगला कदम: बाकी दस्तावेज़ लेकर अपलोड करें: Bank Statement। साथ ही, समीक्षक के दर्ज मुद्दे की जाँच तक इंतज़ार करें।"
+ },
+ {
+  "lang": "hi",
+  "q": "show all documents",
+  "intent": "DOCUMENTS_UPLOADED",
+  "localized": true,
+  "reply": "hi",
+  "answer": "इस आवेदन के दस्तावेज़:\n✓ PAN — सत्यापित\n✓ Driving Licence — सत्यापित"
+ },
+ {
+  "lang": "hi",
+  "q": "bank statement ka kya hua?",
+  "intent": "DOCUMENT_VERIFICATION",
+  "localized": true,
+  "reply": "hi",
+  "answer": "इस केस के लिए Bank Statement अभी अपलोड नहीं हुआ है। फिर भी आवेदन समीक्षा में है, कारण: PAN पर नाम RISHABH AJIT SINGH है, लेकिन driving licence पर SIDD"
+ },
+ {
+  "lang": "hi",
+  "q": "PAN ki details batao",
+  "intent": "DOCUMENT_DETAILS",
+  "localized": true,
+  "reply": "hi",
+  "answer": "PAN से पढ़ी गई जानकारी (सत्यापन पास हुआ):\n- PAN number: XXXXXX875K\n- Name: RISHABH AJIT SINGH\n- Father's name: AJIT SINGH\n- Date of birth: 2002-06-12"
+ },
+ {
+  "lang": "hi",
+  "q": "why is this case pending?",
+  "intent": "CASE_HISTORY",
+  "localized": true,
+  "reply": "hi",
+  "answer": "आपका आवेदन समीक्षा में है, कारण: PAN पर नाम RISHABH AJIT SINGH है, लेकिन driving licence पर SIDDHANT KAMBLE।"
+ },
+ {
+  "lang": "hi",
+  "q": "what do I need to upload?",
+  "intent": "DOCUMENTS_MISSING",
+  "localized": true,
+  "reply": "hi",
+  "answer": "Bank Statement अभी अपलोड नहीं हुआ है।"
+ }
+]

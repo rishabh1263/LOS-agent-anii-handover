@@ -10,8 +10,15 @@ def test_list_answer_becomes_sections_with_icon_items():
                          {"document_type": "AADHAAR", "status": "REVIEW", "party_role": "CO_APPLICANT"}],
            "next_action": {"label": "Upload the bank statement", "action": "UPLOAD"},
            "available_actions": [{"label": "Upload the bank statement"}, {"label": "Check KYC", "action": "KYC"}],
+           # the bank statement IS missing, so an upload action is supported by the state
+           "pending_items": [{"code": "DOCUMENT_MISSING", "slot": "BANK_STATEMENT"}],
            "knowledge": {"sources": [{"title": "KYC guide", "source": "kyc.md"}]}}
     out = presentation.build(env)
+    assert out["next_action"] == {"type": "UPLOAD_DOCUMENT", "document_type": "BANK_STATEMENT",
+                                  "label": "Upload Bank Statement"}
+    # with nothing missing or rejected, the generic upload action is NOT offered
+    nothing_missing = presentation.build({**env, "pending_items": []})
+    assert [a["label"] for a in nothing_missing["actions"]] == ["Check KYC"]
     assert out["message"] == "Next step: Bank Statement needs attention."
     [section] = out["sections"]
     assert section["title"] == "Documents on this application"
@@ -22,6 +29,12 @@ def test_list_answer_becomes_sections_with_icon_items():
     assert out["citations"] == out["knowledge_sources"] == [
         {"title": "KYC guide", "source": "kyc.md", "type": "OKF", "version": None, "effective_date": None}]
     assert out["semantic_decisions"] == []
+
+
+def test_an_action_code_is_never_shown_as_a_label():
+    out = presentation.build({"answer": "x", "next_action": {"action": "SUBMIT_TO_CPA"}})
+    assert out["next_action"]["label"] == "Submit to CPA" and out["next_step"] == "Submit to CPA"
+    assert presentation._readable_action("RAISE_KYC_QUERY") == "Raise KYC query"
 
 
 def test_plain_answer_has_message_and_no_sections():

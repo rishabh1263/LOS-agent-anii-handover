@@ -1010,6 +1010,32 @@ templates:
     hi: "अपलोड हुआ, जाँच जारी"
     hi-Latn: "Upload hua, verify ho raha hai"
     mr: "अपलोड झाले, पडताळणी सुरू"
+  # pending / missing / never-uploaded / case under review (2026-10-06)
+  pending_heading:
+    hi: "बाकी:"
+    hi-Latn: "Baaki:"
+    mr: "बाकी:"
+  doc_status_missing:
+    hi: "अभी अपलोड नहीं हुआ"
+    hi-Latn: "Abhi upload nahi hua"
+    mr: "अजून अपलोड झालेले नाही"
+  documents_missing:
+    hi: "{documents} अभी अपलोड नहीं हुआ है।"
+    hi-Latn: "{documents} abhi upload nahi hua hai."
+    mr: "{documents} अजून अपलोड झालेले नाही."
+  document_not_uploaded:
+    hi: "इस केस के लिए {document} अभी अपलोड नहीं हुआ है।"
+    hi-Latn: "Is case ke liye {document} abhi upload nahi hua hai."
+    mr: "या केससाठी {document} अजून अपलोड झालेले नाही."
+  # the recorded mismatch, VALUES QUOTED EXACTLY ({v1}/{v2} are never translated)
+  mismatch_clause:
+    hi: "{doc1} पर {field} {v1} है, लेकिन {doc2} पर {v2}"
+    hi-Latn: "{doc1} par {field} {v1} hai, lekin {doc2} par {v2}"
+    mr: "{doc1} वर {field} {v1} आहे, पण {doc2} वर {v2}"
+  application_under_review:
+    hi: "आपका आवेदन समीक्षा में है, कारण: {reason}।"
+    hi-Latn: "Aapka application review mein hai, kaaran: {reason}."
+    mr: "तुमचा अर्ज पुनरावलोकनात आहे, कारण: {reason}."
   documents_attention:
     hi: "अगला कदम: {label} पर ध्यान दें।"
     hi-Latn: "Agla step: {label} par dhyan dein."
@@ -1250,9 +1276,9 @@ templates:
     hi-Latn: "."
     mr: "."
   doc_integrity_only:
-    hi: "ये दस्तावेज़ की जाँचें हैं; जारी करने वाली संस्था ने दस्तावेज़ की पुष्टि नहीं की है।"
-    hi-Latn: "Ye document checks hain; issuing authority ne document confirm nahi kiya hai."
-    mr: "या कागदपत्रांच्या तपासण्या आहेत; जारी करणाऱ्या संस्थेने कागदपत्राची पुष्टी केलेली नाही."
+    hi: "जारी करने वाली संस्था से इसकी स्वतंत्र पुष्टि नहीं हुई है।"
+    hi-Latn: "Issuing authority se iski alag se pushti nahi hui hai."
+    mr: "जारी करणाऱ्या संस्थेकडून याची स्वतंत्र पुष्टी झालेली नाही."
   # the case's own hold, its reason quoted as recorded
   case_under_review:
     hi: "फिर भी आवेदन समीक्षा में है, कारण: {reason}।"
@@ -1429,6 +1455,23 @@ fixed_sentences:
     hi: "इस आवेदन पर केवल एक आवेदक है।"
     hi-Latn: "Is application par sirf ek applicant hai."
     mr: "या अर्जावर फक्त एकच अर्जदार आहे."
+  # common chatbot answers (2026-10-06): fixed sentences, translated whole
+  "Eligibility has not been evaluated for this case yet. It is assessed once the income evidence and the loan terms are in place.":
+    hi: "इस केस की पात्रता अभी जाँची नहीं गई है। आय के दस्तावेज़ और लोन की शर्तें आने पर इसका आकलन होगा।"
+    hi-Latn: "Is case ki eligibility abhi check nahi hui hai. Income documents aur loan terms aane par iska assessment hoga."
+    mr: "या केसची पात्रता अजून तपासलेली नाही. उत्पन्नाची कागदपत्रे आणि कर्जाच्या अटी आल्यावर तिचे मूल्यांकन होईल."
+  "No required documents are missing for this case.":
+    hi: "इस केस के लिए कोई ज़रूरी दस्तावेज़ बाकी नहीं है।"
+    hi-Latn: "Is case ke liye koi zaroori document baaki nahi hai."
+    mr: "या केससाठी कोणतेही आवश्यक कागदपत्र बाकी नाही."
+  "Nothing is pending for this case.":
+    hi: "इस केस में कुछ भी बाकी नहीं है।"
+    hi-Latn: "Is case mein kuch bhi baaki nahi hai."
+    mr: "या केसमध्ये काहीही बाकी नाही."
+  "No documents are pending.":
+    hi: "कोई दस्तावेज़ बाकी नहीं है।"
+    hi-Latn: "Koi document baaki nahi hai."
+    mr: "कोणतेही कागदपत्र बाकी नाही."
 
 security_lexicon:
   # NO ROMANIZED-HINDI ENTRIES: those words are everyday Hinglish ("dusre

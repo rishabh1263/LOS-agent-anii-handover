@@ -272,8 +272,7 @@ def test_no_evidence_wording_is_recognised(answer, expected):
 def test_a_raw_status_token_is_rejected():
     from app.agents.applicant.copilot.answering.validate import check_composed
 
-    structured = ("Bank Statement is VERIFIED. These are document checks; the "
-                  "issuing authority has not confirmed the document.")
+    structured = "Bank Statement is VERIFIED. Its issuing authority has not been independently confirmed."
     ok, reason = check_composed(
         "Bank Statement is verified as per the verification status PASS.",
         structured=structured)
