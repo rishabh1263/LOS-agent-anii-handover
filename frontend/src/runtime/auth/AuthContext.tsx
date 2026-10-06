@@ -1,26 +1,66 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react'
-import type { LoginRequest, AuthUser, AuthStage } from './types'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+import type { LoginRequest, TokenResponse, AuthUser, AuthStage } from './types'
+import { normalizeStage } from './types'
+import { loginApi, logoutApi, refreshApi, AuthApiError } from './authClient'
+import { getCookie, setCookie, removeCookie } from './cookieStorage'
 
-const VALID_STAGES: AuthStage[] = ['FOS', 'CPA', 'HOPS', 'BOPS', 'CREDIT']
-
-function normalizeStage(value: unknown): AuthStage {
-  const s = String(value || '').toUpperCase()
-  return (VALID_STAGES.includes(s as AuthStage) ? s : 'FOS') as AuthStage
+export interface AuthContextValue {
+  user: AuthUser | null
+  accessToken: string | null
+  refreshToken: string | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  login: (credentials: LoginRequest) => Promise<TokenResponse>
+  logout: () => Promise<void>
+  refreshTokens: () => Promise<boolean>
 }
-import { loginApi, logoutApi, refreshApi } from './authClient'
-import { AuthContext, type AuthContextValue } from './authContextDef'
 
-const STORAGE_KEY_USER = 'los_auth_user'
-const STORAGE_KEY_ACCESS = 'los_auth_access_token'
-const STORAGE_KEY_REFRESH = 'los_auth_refresh_token'
-const STORAGE_KEY_EXPIRES_AT = 'los_auth_expires_at'
-const STORAGE_KEY_STAGE = 'los_auth_stage'
+export const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
-/** Milliseconds before expiry when we proactively refresh */
+/** Cookie names for auth session (not HttpOnly — JS must read access token for Bearer). */
+const COOKIE_USER = 'los_auth_user'
+const COOKIE_ACCESS = 'los_auth_access'
+const COOKIE_REFRESH = 'los_auth_refresh'
+const COOKIE_EXPIRES_AT = 'los_auth_expires_at'
+const COOKIE_STAGE = 'los_auth_stage'
+
+/** Legacy localStorage keys — migrated once then removed */
+const LEGACY_KEYS = [
+  'los_auth_user',
+  'los_auth_access_token',
+  'los_auth_refresh_token',
+  'los_auth_expires_at',
+  'los_auth_stage',
+] as const
+
+/** KYC wizard draft — clear on logout so next session starts clean */
+const WIZARD_DRAFT_KEY = 'los.kyc.wizard.v1'
+
+/** Refresh this many ms before access token expires */
 const REFRESH_SKEW_MS = 60_000
 
+/** Default max-age for refresh cookie (7 days) if expires_in missing */
+const DEFAULT_REFRESH_MAX_AGE_SEC = 7 * 24 * 60 * 60
+
+function clearWizardDraft(): void {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(WIZARD_DRAFT_KEY)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function readExpiresAt(): number | null {
-  const raw = localStorage.getItem(STORAGE_KEY_EXPIRES_AT)
+  const raw = getCookie(COOKIE_EXPIRES_AT)
   if (!raw) return null
   const n = parseInt(raw, 10)
   return Number.isFinite(n) ? n : null
@@ -28,38 +68,73 @@ function readExpiresAt(): number | null {
 
 function isAccessExpired(skewMs = 0): boolean {
   const expiresAt = readExpiresAt()
-  if (expiresAt === null) {
-    // No expiry stored but token present — treat as valid until API rejects
-    return false
-  }
+  if (expiresAt === null) return false
   return Date.now() >= expiresAt - skewMs
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_USER)
-      if (!saved) return null
-      const parsed = JSON.parse(saved) as AuthUser
-      return {
-        username: parsed.username,
-        stage: normalizeStage(parsed.stage || localStorage.getItem(STORAGE_KEY_STAGE)),
-      }
-    } catch {
-      return null
+function readStoredUser(): AuthUser | null {
+  try {
+    const saved = getCookie(COOKIE_USER)
+    if (!saved) return null
+    const parsed = JSON.parse(saved) as AuthUser
+    if (!parsed?.username) return null
+    return {
+      username: parsed.username,
+      stage: normalizeStage(parsed.stage || getCookie(COOKIE_STAGE)),
     }
-  })
+  } catch {
+    return null
+  }
+}
 
-  const [accessToken, setAccessToken] = useState<string | null>(() => {
-    return localStorage.getItem(STORAGE_KEY_ACCESS)
-  })
+/** One-time migrate from localStorage → cookies, then clear legacy keys. */
+function migrateLegacyLocalStorage(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return
+  try {
+    const access = localStorage.getItem('los_auth_access_token')
+    const refresh = localStorage.getItem('los_auth_refresh_token')
+    if (!access && !refresh) {
+      for (const k of LEGACY_KEYS) localStorage.removeItem(k)
+      return
+    }
 
-  const [refreshToken, setRefreshToken] = useState<string | null>(() => {
-    return localStorage.getItem(STORAGE_KEY_REFRESH)
-  })
+    const expiresRaw = localStorage.getItem('los_auth_expires_at')
+    const expiresAt = expiresRaw ? parseInt(expiresRaw, 10) : NaN
+    const maxAgeSec =
+      Number.isFinite(expiresAt) && expiresAt > Date.now()
+        ? Math.ceil((expiresAt - Date.now()) / 1000) + DEFAULT_REFRESH_MAX_AGE_SEC
+        : DEFAULT_REFRESH_MAX_AGE_SEC
 
+    if (access) setCookie(COOKIE_ACCESS, access, { maxAge: maxAgeSec })
+    if (refresh) setCookie(COOKIE_REFRESH, refresh, { maxAge: maxAgeSec })
+    if (expiresRaw) setCookie(COOKIE_EXPIRES_AT, expiresRaw, { maxAge: maxAgeSec })
+
+    const userRaw = localStorage.getItem('los_auth_user')
+    const stageRaw = localStorage.getItem('los_auth_stage')
+    if (userRaw) setCookie(COOKIE_USER, userRaw, { maxAge: maxAgeSec })
+    if (stageRaw) setCookie(COOKIE_STAGE, stageRaw, { maxAge: maxAgeSec })
+
+    for (const k of LEGACY_KEYS) localStorage.removeItem(k)
+  } catch {
+    /* ignore migration errors */
+  }
+}
+
+function cookieMaxAgeFromExpiresIn(expiresInSec: number): number {
+  return Math.max(expiresInSec, DEFAULT_REFRESH_MAX_AGE_SEC)
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const migrated = useRef(false)
+  if (!migrated.current) {
+    migrateLegacyLocalStorage()
+    migrated.current = true
+  }
+
+  const [user, setUser] = useState<AuthUser | null>(() => readStoredUser())
+  const [accessToken, setAccessToken] = useState<string | null>(() => getCookie(COOKIE_ACCESS))
+  const [refreshToken, setRefreshToken] = useState<string | null>(() => getCookie(COOKIE_REFRESH))
   const [isLoading, setIsLoading] = useState(false)
-  /** True while the initial expiry / refresh check is in flight */
   const [isHydrating, setIsHydrating] = useState(true)
   const refreshInFlight = useRef<Promise<boolean> | null>(null)
 
@@ -67,39 +142,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
     setAccessToken(null)
     setRefreshToken(null)
-    localStorage.removeItem(STORAGE_KEY_USER)
-    localStorage.removeItem(STORAGE_KEY_ACCESS)
-    localStorage.removeItem(STORAGE_KEY_REFRESH)
-    localStorage.removeItem(STORAGE_KEY_EXPIRES_AT)
-    localStorage.removeItem(STORAGE_KEY_STAGE)
+    removeCookie(COOKIE_USER)
+    removeCookie(COOKIE_ACCESS)
+    removeCookie(COOKIE_REFRESH)
+    removeCookie(COOKIE_EXPIRES_AT)
+    removeCookie(COOKIE_STAGE)
   }, [])
 
   const saveSession = useCallback(
     (username: string, access: string, refresh: string, expiresIn: number, stage: AuthStage) => {
       const authUser: AuthUser = { username, stage: normalizeStage(stage) }
       const expiresAt = Date.now() + expiresIn * 1000
+      const maxAge = cookieMaxAgeFromExpiresIn(expiresIn)
 
       setUser(authUser)
       setAccessToken(access)
       setRefreshToken(refresh)
 
-      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(authUser))
-      localStorage.setItem(STORAGE_KEY_ACCESS, access)
-      localStorage.setItem(STORAGE_KEY_REFRESH, refresh)
-      localStorage.setItem(STORAGE_KEY_EXPIRES_AT, String(expiresAt))
-      localStorage.setItem(STORAGE_KEY_STAGE, authUser.stage)
+      setCookie(COOKIE_USER, JSON.stringify(authUser), { maxAge })
+      setCookie(COOKIE_ACCESS, access, { maxAge })
+      setCookie(COOKIE_REFRESH, refresh, { maxAge })
+      setCookie(COOKIE_EXPIRES_AT, String(expiresAt), { maxAge })
+      setCookie(COOKIE_STAGE, authUser.stage, { maxAge })
     },
     [],
   )
 
   const refreshTokens = useCallback(async (): Promise<boolean> => {
-    // Deduplicate concurrent refresh attempts
     if (refreshInFlight.current) {
       return refreshInFlight.current
     }
 
     const run = (async (): Promise<boolean> => {
-      const currentRefresh = localStorage.getItem(STORAGE_KEY_REFRESH)
+      const currentRefresh = getCookie(COOKIE_REFRESH) || refreshToken
       if (!currentRefresh) {
         clearSession()
         return false
@@ -108,17 +183,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const data = await refreshApi(currentRefresh)
         const currentUsername =
-          user?.username ||
-          (() => {
-            try {
-              const saved = localStorage.getItem(STORAGE_KEY_USER)
-              return saved ? (JSON.parse(saved) as AuthUser).username : 'User'
-            } catch {
-              return 'User'
-            }
-          })()
+          user?.username || readStoredUser()?.username || 'User'
         const stage = normalizeStage(
-          data.stage || localStorage.getItem(STORAGE_KEY_STAGE) || user?.stage || 'FOS',
+          data.stage || getCookie(COOKIE_STAGE) || user?.stage || 'FOS',
         )
         saveSession(
           currentUsername,
@@ -138,10 +205,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     refreshInFlight.current = run
     return run
-  }, [clearSession, saveSession, user])
+  }, [clearSession, saveSession, user, refreshToken])
 
   const login = useCallback(
-    async (credentials: LoginRequest) => {
+    async (credentials: LoginRequest): Promise<TokenResponse> => {
       setIsLoading(true)
       try {
         const data = await loginApi(credentials)
@@ -153,6 +220,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data.expires_in,
           stage,
         )
+        return data
+      } catch (err) {
+        if (err instanceof AuthApiError) throw err
+        if (err instanceof Error) throw err
+        throw new AuthApiError(0, 'Failed to log in. Please try again.')
       } finally {
         setIsLoading(false)
       }
@@ -163,41 +235,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     setIsLoading(true)
     try {
-      const currentRefresh = localStorage.getItem(STORAGE_KEY_REFRESH)
+      const currentRefresh = getCookie(COOKIE_REFRESH) || refreshToken
       if (currentRefresh) {
         try {
           await logoutApi(currentRefresh)
         } catch {
-          // Invalidate local session even if backend call fails
+          // Still clear local session if backend logout fails
         }
       }
     } finally {
       clearSession()
-      // Drop KYC draft so next login starts clean
-      try {
-        localStorage.removeItem('los.kyc.wizard.v1')
-      } catch {
-        /* ignore */
-      }
+      clearWizardDraft()
       setIsLoading(false)
     }
-  }, [clearSession])
+  }, [clearSession, refreshToken])
 
-  /**
-   * On mount: if access token is missing, clear any stale keys.
-   * If access is expired (or about to be), try refresh; on failure clear session
-   * so the UI can send the user to the login page.
-   */
   useEffect(() => {
     let cancelled = false
 
     async function hydrate() {
-      const access = localStorage.getItem(STORAGE_KEY_ACCESS)
-      const refresh = localStorage.getItem(STORAGE_KEY_REFRESH)
+      const access = getCookie(COOKIE_ACCESS)
+      const refresh = getCookie(COOKIE_REFRESH)
 
       if (!access) {
-        // Empty token — ensure session is fully cleared
-        if (refresh || localStorage.getItem(STORAGE_KEY_USER)) {
+        if (refresh || getCookie(COOKIE_USER)) {
           clearSession()
         }
         if (!cancelled) setIsHydrating(false)
@@ -205,10 +266,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (isAccessExpired(REFRESH_SKEW_MS)) {
-        const ok = await refreshTokens()
-        if (!ok && !cancelled) {
-          // Expired and refresh failed — session already cleared
-        }
+        await refreshTokens()
       }
 
       if (!cancelled) setIsHydrating(false)
@@ -220,11 +278,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clearSession, refreshTokens])
 
-  /**
-   * Periodic check: when the access token crosses the expiry skew window,
-   * attempt a silent refresh. If it fails, clearSession so isAuthenticated
-   * becomes false and protected pages redirect to login.
-   */
   useEffect(() => {
     if (!accessToken) return
 
@@ -237,8 +290,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.clearInterval(interval)
   }, [accessToken, refreshTokens])
 
-  // Authenticated when we have both access token and user.
-  // Expiry is handled by mount/interval refresh; failed refresh calls clearSession.
   const value: AuthContextValue = {
     user,
     accessToken,

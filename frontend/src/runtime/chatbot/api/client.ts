@@ -180,7 +180,3 @@ export async function queryChat(
 
   return parsed as ChatQueryResponse
 }
-
-/** @deprecated Use queryChat */
-export const queryCopilot = queryChat
-export const CopilotApiError = ChatApiError

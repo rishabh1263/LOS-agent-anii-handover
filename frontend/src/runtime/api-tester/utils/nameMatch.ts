@@ -101,11 +101,8 @@ function tokenCoverage(need: string[], hay: string): number {
   return hit / need.length
 }
 
-/**
- * Fuzzy score in [0, 1]. Higher = closer match.
- * Use namesMatch() for a boolean gate at the default threshold.
- */
-export function nameMatchScore(entered: string, extracted: string): number {
+/** Fuzzy score in [0, 1]. Higher = closer match. */
+function nameMatchScore(entered: string, extracted: string): number {
   const e = entered.trim()
   const x = extracted.trim()
   if (!e || !x) return 0
@@ -142,12 +139,9 @@ export function nameMatchScore(entered: string, extracted: string): number {
   return Math.min(1, Math.max(0, score))
 }
 
-/** Default threshold for treating two names as the same person */
-export const NAME_MATCH_THRESHOLD = 0.55
+const NAME_MATCH_THRESHOLD = 0.55
 
-/**
- * Returns true when entered name is consistent with extracted name.
- */
+/** True when entered name is consistent with extracted name. */
 export function namesMatch(
   entered: string,
   extracted: string,

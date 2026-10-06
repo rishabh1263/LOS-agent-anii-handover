@@ -53,9 +53,15 @@ _DEFAULT_SCOPES = (os.getenv("DEV_IDP_SCOPES") or _CUSTOMER_SCOPES).split()
 _DEFAULT_ROLES = (os.getenv("DEV_IDP_ROLES") or "los-fos-user").split()
 
 
+import uuid
+from typing import Any
+
 class LoginRequest(BaseModel):
     username: str = Field(..., examples=["local-dev-user"])
     password: str = Field(..., examples=["<your local dev password>"])
+    stage: str | None = None
+    case_id: str | None = Field(default=None, description="Optional Case ID to load on login")
+    app_id: str | None = Field(default=None, description="Optional Applicant ID to load on login")
 
 
 class TokenResponse(BaseModel):
@@ -63,6 +69,9 @@ class TokenResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
+    case_id: str | None = None
+    app_id: str | None = None
+    case_data: dict[str, Any] | None = None
 
 
 class RefreshRequest(BaseModel):
@@ -88,7 +97,12 @@ def _authenticate(username: str, password: str) -> bool:
     return verify_password(password, _DUMMY_PASSWORD_HASH)
 
 
-def _issue_token_pair(subject: str) -> TokenResponse:
+def _issue_token_pair(
+    subject: str,
+    case_id: str | None = None,
+    app_id: str | None = None,
+    case_data: dict[str, Any] | None = None,
+) -> TokenResponse:
     if not auth_config.JWT_ISSUER or not auth_config.JWT_AUDIENCE:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -106,11 +120,14 @@ def _issue_token_pair(subject: str) -> TokenResponse:
         access_token=access_token,
         refresh_token=refresh_token,
         expires_in=dev_idp.ACCESS_TOKEN_TTL_SECONDS,
+        case_id=case_id,
+        app_id=app_id,
+        case_data=case_data,
     )
 
 
 @router.post("/api/v1/auth/login", response_model=TokenResponse, summary="Get an access + refresh token")
-def login(payload: LoginRequest, request: Request) -> TokenResponse:
+async def login(payload: LoginRequest, request: Request) -> TokenResponse:
     rate_limit_key = f"{payload.username}:{_client_ip(request)}"
 
     allowed, retry_after = login_rate_limiter.check(rate_limit_key)
@@ -126,7 +143,126 @@ def login(payload: LoginRequest, request: Request) -> TokenResponse:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
 
     login_rate_limiter.record_success(rate_limit_key)
-    return _issue_token_pair(subject=payload.username)
+
+    case_data: dict[str, Any] | None = None
+    c_id = payload.case_id.strip() if payload.case_id else None
+    a_id = payload.app_id.strip() if payload.app_id else None
+
+    if c_id and a_id:
+        from app.security import access
+        from app.store import get_repository
+        repo = get_repository()
+        try:
+            repo.grant_access(payload.username, access.APPLICANT, a_id)
+            repo.grant_access(payload.username, access.CASE, c_id)
+        except Exception:
+            pass
+
+        applicant_data: dict[str, Any] | None = None
+        application_data: dict[str, Any] | None = None
+        checklist_data: list[Any] = []
+        documents_data: list[Any] = []
+        required_docs: list[str] = []
+        stage: str | None = None
+        claims = {
+            "sub": payload.username,
+            "scope": " ".join(_DEFAULT_SCOPES),
+            "role": " ".join(_DEFAULT_ROLES),
+        }
+        req_id = f"auth_case_{uuid.uuid4().hex}"
+
+        try:
+            from app.api.routes.fos_api import FosAction, _run_action
+            resp_applicant = await _run_action(
+                FosAction.GET_APPLICANT,
+                applicant_id=a_id,
+                case_id=c_id,
+                claims=claims,
+                request_id=req_id,
+            )
+            if isinstance(resp_applicant, dict):
+                applicant_data = resp_applicant.get("applicant")
+                checklist_data = resp_applicant.get("checklist") or []
+                required_docs = resp_applicant.get("required_documents") or []
+                stage = resp_applicant.get("stage")
+        except Exception:
+            pass
+
+        try:
+            from app.api.routes.fos_api import FosAction, _run_action
+            resp_app = await _run_action(
+                FosAction.GET_APPLICATION_STATUS,
+                applicant_id=a_id,
+                case_id=c_id,
+                claims=claims,
+                request_id=req_id,
+            )
+            if isinstance(resp_app, dict):
+                application_data = resp_app.get("application")
+                if not stage:
+                    stage = resp_app.get("stage")
+        except Exception:
+            pass
+
+        try:
+            from app.api.routes.fos_api import FosAction, _run_action
+            resp_docs = await _run_action(
+                FosAction.GET_DOCUMENTS,
+                applicant_id=a_id,
+                case_id=c_id,
+                claims=claims,
+                request_id=req_id,
+            )
+            if isinstance(resp_docs, dict):
+                documents_data = resp_docs.get("documents") or []
+        except Exception:
+            pass
+
+        # Fallback to direct repo models if action had no data
+        if not applicant_data:
+            app_obj = repo.get_applicant(a_id)
+            if app_obj:
+                applicant_data = {
+                    "applicant_id": app_obj.applicant_id,
+                    "full_name": app_obj.full_name,
+                    "mobile": app_obj.mobile,
+                    "email": app_obj.email,
+                    "date_of_birth": app_obj.date_of_birth,
+                    "address": app_obj.address,
+                }
+        if not application_data:
+            appl_obj = repo.get_application(c_id)
+            if appl_obj:
+                application_data = {
+                    "case_id": appl_obj.case_id,
+                    "applicant_id": appl_obj.applicant_id,
+                    "status": appl_obj.status.value if hasattr(appl_obj.status, "value") else str(appl_obj.status),
+                    "product": appl_obj.product,
+                    "loan_amount": appl_obj.loan_amount,
+                    "employment_type": appl_obj.employment_type,
+                    "tenure_months": appl_obj.tenure_months,
+                    "interest_rate_pct": appl_obj.interest_rate_pct,
+                    "declared_monthly_obligations": appl_obj.declared_monthly_obligations,
+                    "property_value": appl_obj.property_value,
+                }
+
+        case_data = {
+            "case_id": c_id,
+            "app_id": a_id,
+            "applicant": applicant_data,
+            "application": application_data,
+            "checklist": checklist_data,
+            "documents": documents_data,
+            "required_documents": required_docs,
+            "stage": stage,
+        }
+
+    return _issue_token_pair(
+        subject=payload.username,
+        case_id=c_id,
+        app_id=a_id,
+        case_data=case_data,
+    )
 
 
 @router.post("/api/v1/auth/refresh", response_model=TokenResponse, summary="Exchange a refresh token for a new pair")

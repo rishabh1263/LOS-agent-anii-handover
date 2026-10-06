@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
-import type { ChatMessage } from '../../../runtime/chatbot'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import type { ChatMessage, ChatUploadResult } from '../../../runtime/chatbot'
 import { MessageBubble } from './MessageBubble'
 import { QuickActions } from './QuickActions'
+import { TypingDots } from './TypingDots'
 
 interface ChatMessagesProps {
   messages: ChatMessage[]
@@ -20,9 +22,16 @@ interface ChatMessagesProps {
       detectedType?: string
     }>
   }>
+  onPersistUploadResults?: (messageId: string, results: ChatUploadResult[]) => void
   quickActions: { id: string; label: string; icon: string }[]
   onQuickAction: (label: string) => void
   status: string
+}
+
+const messageEnter = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const },
 }
 
 export function ChatMessages({
@@ -35,6 +44,7 @@ export function ChatMessages({
   onEdit,
   onSuggested,
   onUploadDocuments,
+  onPersistUploadResults,
   quickActions,
   onQuickAction,
   status,
@@ -42,10 +52,13 @@ export function ChatMessages({
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const reduceMotion = useReducedMotion()
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, status])
+    bottomRef.current?.scrollIntoView({
+      behavior: reduceMotion ? 'auto' : 'smooth',
+    })
+  }, [messages, status, reduceMotion])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -66,33 +79,63 @@ export function ChatMessages({
     )
   }
 
+  const showThinking =
+    (status === 'thinking' || status === 'generating') &&
+    !messages.some((m) => m.isStreaming)
+
   return (
     <div className="relative min-h-0 flex-1">
       <div
         ref={scrollRef}
-        className="h-full overflow-y-auto py-3"
+        className="h-full overflow-x-hidden overflow-y-auto scroll-smooth py-3"
         role="log"
         aria-live="polite"
         aria-relevant="additions"
       >
-        {messages.map((m) => (
-          <MessageBubble
-            key={m.id}
-            message={m}
-            showTimestamp={showTimestamps}
-            showSuggestedQuestions={showSuggestedQuestions}
-            isSpeaking={speakingMessageId === m.id}
-            editDisabled={status === 'generating' || status === 'thinking'}
-            onListen={() => onListen(m.content, m.id)}
-            onRegenerate={() => onRegenerate(m.id)}
-            onEdit={onEdit}
-            onSuggested={onSuggested}
-            onUploadDocuments={onUploadDocuments}
-          />
-        ))}
-        {(status === 'thinking' || status === 'generating') &&
-          !messages.some((m) => m.isStreaming) && (
-            <div className="flex items-start gap-2 px-4 py-1.5" aria-live="polite" aria-label="Loading">
+        {messages.map((m, index) => {
+          const isRecent = index >= messages.length - 4
+          const props = {
+            message: m,
+            showTimestamp: showTimestamps,
+            showSuggestedQuestions,
+            isSpeaking: speakingMessageId === m.id,
+            editDisabled: status === 'generating' || status === 'thinking',
+            onListen: () => onListen(m.content, m.id),
+            onRegenerate: () => onRegenerate(m.id),
+            onEdit,
+            onSuggested,
+            onUploadDocuments,
+            onPersistUploadResults,
+          }
+
+          if (reduceMotion || !isRecent) {
+            return <MessageBubble key={m.id} {...props} />
+          }
+
+          return (
+            <motion.div
+              key={m.id}
+              initial={messageEnter.initial}
+              animate={messageEnter.animate}
+              transition={messageEnter.transition}
+            >
+              <MessageBubble {...props} />
+            </motion.div>
+          )
+        })}
+
+        <AnimatePresence>
+          {showThinking && (
+            <motion.div
+              key="thinking"
+              initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={reduceMotion ? undefined : { opacity: 0, y: 4 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              className="flex items-start gap-2 px-4 py-1.5"
+              aria-live="polite"
+              aria-label="Loading"
+            >
               <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-raised text-content-secondary">
                 <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
                   <path
@@ -102,27 +145,35 @@ export function ChatMessages({
                 </svg>
               </div>
               <div className="rounded-2xl rounded-bl-md border border-line bg-raised px-4 py-3">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:0ms] [animation-duration:0.6s]" />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:150ms] [animation-duration:0.6s]" />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:300ms] [animation-duration:0.6s]" />
-                </span>
+                <TypingDots />
               </div>
-            </div>
+            </motion.div>
           )}
+        </AnimatePresence>
+
         <div ref={bottomRef} />
       </div>
 
-      {showScrollBtn && (
-        <button
-          type="button"
-          onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
-          aria-label="Scroll to bottom"
-          className="absolute bottom-3 left-1/2 z-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-line bg-surface text-content-secondary shadow-md transition-colors hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
-        >
-          <ChevronDown className="h-4 w-4" strokeWidth={2} />
-        </button>
-      )}
+      <AnimatePresence>
+        {showScrollBtn && (
+          <motion.button
+            type="button"
+            initial={reduceMotion ? false : { opacity: 0, y: 8, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={reduceMotion ? undefined : { opacity: 0, y: 6, scale: 0.9 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            onClick={() =>
+              bottomRef.current?.scrollIntoView({
+                behavior: reduceMotion ? 'auto' : 'smooth',
+              })
+            }
+            aria-label="Scroll to bottom"
+            className="absolute bottom-3 left-1/2 z-10 flex h-8 w-8 -translate-x-1/2 cursor-pointer items-center justify-center rounded-full border border-line bg-surface/95 text-content-secondary shadow-md backdrop-blur-sm transition-colors hover:bg-raised hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+          >
+            <ChevronDown className="h-4 w-4" strokeWidth={2} />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

@@ -56,7 +56,6 @@ def _embedded_dsn() -> str:
     production deployment names its database (LOS_STORE_DSN) or does not start.
     """
     import pgserver
-
     import subprocess
     import time
 

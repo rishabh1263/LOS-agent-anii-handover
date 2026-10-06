@@ -1,7 +1,9 @@
+import { useEffect } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useKycWizard } from '../../../runtime/api-tester'
+import type { CaseDataResponse } from '../../../runtime/api-tester'
 import { useAuth } from '../../../runtime/auth'
-import { RequireAuth } from '../../auth'
 import { Chatbot } from '../../chatbot'
 import {
   ApplicationDetailsStep,
@@ -15,19 +17,19 @@ import {
 
 const FADE = { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const }
 
-/**
- * Login (stage) → Basic details → Application → POST/GET FOS applicant →
- * Party → Documents → Report. Chatbot uses copilot query with case context.
- */
-export function ProcessPage() {
-  return (
-    <RequireAuth>
-      <ProcessPageContent />
-    </RequireAuth>
-  )
+interface ProcessPageProps {
+  /** Pre-loaded case data from CaseSelectPage (null = new case). */
+  loadedCaseData?: CaseDataResponse | null
+  /** Navigate back to CaseSelectPage to pick a different case. */
+  onBackToCaseSelect?: () => void
 }
 
-function ProcessPageContent() {
+/**
+ * KYC wizard: details → application → party → documents → report.
+ * Auth is handled by App (RequireAuth). Chatbot receives case context.
+ * loadedCaseData is optional — null means a brand-new case is being created.
+ */
+export function ProcessPage({ loadedCaseData, onBackToCaseSelect }: ProcessPageProps = {}) {
   const { user, accessToken } = useAuth()
   const {
     step,
@@ -70,7 +72,18 @@ function ProcessPageContent() {
     runVerification,
     reset,
     addMoreDocuments,
+    resumeExistingCase,
+    resumingCase,
+    hydrateCaseData,
   } = useKycWizard()
+
+  // When a case is pre-loaded from CaseSelectPage, seed all wizard state
+  // from it so the user immediately sees their existing data.
+  useEffect(() => {
+    if (!loadedCaseData) return
+    hydrateCaseData(loadedCaseData)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedCaseData])
 
   const partyId =
     activeParty === 'CO_APPLICANT' ? coApplicantId || undefined : applicantId || undefined
@@ -91,16 +104,50 @@ function ProcessPageContent() {
             upload documents. Each upload runs VERIFY then EXTRACT. Run verification executes
             PROCESS for the full report.
           </p>
-          {(applicantId || caseId) && (
+          {/* Show IDs from wizard state or from the pre-loaded case data */}
+          {(applicantId || caseId || loadedCaseData) && (
             <p className="mt-2 font-mono text-[12px] text-content-secondary">
-              {applicantId && <span>Applicant: {applicantId}</span>}
-              {applicantId && caseId && <span className="mx-2 text-content-disabled">·</span>}
-              {caseId && <span>Case: {caseId}</span>}
+              {(applicantId || loadedCaseData?.app_id) && (
+                <span>Applicant: {applicantId || loadedCaseData?.app_id}</span>
+              )}
+              {(applicantId || loadedCaseData?.app_id) && (caseId || loadedCaseData?.case_id) && (
+                <span className="mx-2 text-content-disabled">·</span>
+              )}
+              {(caseId || loadedCaseData?.case_id) && (
+                <span>Case: {caseId || loadedCaseData?.case_id}</span>
+              )}
             </p>
+          )}
+          {resumingCase && (
+            <p className="mt-2 text-[13px] font-medium text-ember-text">
+              Loading existing case…
+            </p>
+          )}
+          {onBackToCaseSelect && (
+            <button
+              type="button"
+              onClick={onBackToCaseSelect}
+              className="mt-2 inline-flex items-center gap-1 text-[12px] text-content-secondary underline-offset-2 hover:text-content hover:underline focus:outline-none"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+              Change case
+            </button>
           )}
         </div>
         <WizardProgress current={step === 'report' ? 'report' : step} />
       </div>
+
+      {/* loadedCaseData banner — shown when a case was pre-fetched at CaseSelectPage */}
+      {loadedCaseData && step === 'details' && (
+        <div className="card border border-ember/20 bg-ember/[0.03] p-4 text-[13px] text-content-secondary">
+          <p className="font-medium text-content">Case loaded</p>
+          <p className="mt-0.5">
+            Case <span className="font-mono">{loadedCaseData.case_id}</span> · APP{' '}
+            <span className="font-mono">{loadedCaseData.app_id}</span> — fill in the details below
+            to continue verification.
+          </p>
+        </div>
+      )}
 
       <AnimatePresence mode="wait">
         {step === 'details' && (
@@ -249,3 +296,6 @@ function ProcessPageContent() {
     </div>
   )
 }
+
+// ResumeCaseCard removed — case/app ID selection is now handled by
+// CaseSelectPage (shown before ProcessPage, managed in App.tsx).
