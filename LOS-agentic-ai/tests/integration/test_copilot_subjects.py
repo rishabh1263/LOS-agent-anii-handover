@@ -27,7 +27,7 @@ from app.agents.applicant.copilot.routing import subjects
 from app.agents.applicant.copilot.semantics.intents import Intent, understand
 from app.store import set_repository
 from app.store.models import CaseFinding, FindingKind
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 CASE, APP, COAPP = ("case_s4000000000000000000000000000001",
                     "APP-SUBJ4PRIMARY", "COAPP-SUBJ4COAPP")
@@ -116,7 +116,7 @@ def repo(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     los_config.reload()
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "s4.sqlite3")
+    repository = fresh_repository(tmp_path / "s4.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

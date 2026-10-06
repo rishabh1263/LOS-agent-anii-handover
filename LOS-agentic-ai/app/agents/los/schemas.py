@@ -544,6 +544,28 @@ class KycSummary(BaseModel):
     verification_summary: KycVerificationSummary | None = Field(
         None, description="Counts over the checks, from the checks."
     )
+
+    # THE EXPLICIT STATE AND ITS EXPLANATION (2026-10-05/06), derived from
+    # `status` by the KYC agent -- documented here so the contract is exact.
+    state: str | None = Field(
+        None, examples=["PASS", "PARTIAL", "REVIEW", "FAIL", "PENDING", "CONFIGURATION_GAP"],
+        description=(
+            "What `status` MEANS for the case. PASS: the documents describe the same person. "
+            "PARTIAL: what was compared agrees, but a blocking check could not run. REVIEW: details "
+            "differ and a person should confirm. FAIL: the documents describe different people. "
+            "PENDING: only one source so far -- waiting for another document, not a problem. "
+            "CONFIGURATION_GAP: KYC is switched off or not configured. `status` stays the gate."),
+    )
+    reason: str | None = Field(None, description="Why, in words. Field names only, never values.")
+    affected_documents: list[str] = Field(default_factory=list, description="Document types the outcome rests on.")
+    mismatched_fields: list[str] = Field(default_factory=list, description="Fields that did not match.")
+    next_action: str | None = Field(None, description="The next step, in words.")
+    passed_checks: list[str] = Field(default_factory=list, description="Checks that passed (NAME, DOB, ...).")
+    failed_checks: list[str] = Field(default_factory=list, description="Checks in REVIEW or FAIL.")
+    missing_information: list[str] = Field(
+        default_factory=list, description="Checks that could not run: a document did not carry the value.")
+    next_actions: list[dict[str, str]] = Field(
+        default_factory=list, description="Coded next steps: {code, label}. Empty on PASS.")
     result: KycOutcome | None = Field(None, description="The verdict in words.")
     issues: list[PartyIssue] | None = Field(
         None,

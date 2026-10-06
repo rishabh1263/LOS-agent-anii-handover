@@ -74,7 +74,6 @@ os.environ["COPILOT_SERVICE_SCOPE_ACCESS"] = "true"
 import tempfile as _tempfile
 
 _SESSION_STORE = _tempfile.mkdtemp(prefix="los-tests-")
-os.environ["LOS_STORE_PATH"] = os.path.join(_SESSION_STORE, "los_store.sqlite3")
 os.environ["LOS_DOCUMENT_STORE_PATH"] = os.path.join(_SESSION_STORE, "documents")
 
 import jwt
@@ -130,6 +129,50 @@ def private_key_pem(signing_keypair) -> bytes:
         encryption_algorithm=serialization.NoEncryption(),
     )
 
+
+
+@pytest.fixture(autouse=True)
+def no_real_jev_provider_by_default(monkeypatch, request):
+    """
+    No test reaches a real JEV provider unless it is the live suite.
+
+    .env points the app at the local Unsloth Decision API; without this every
+    upload in the suite would call it from the background trigger. Contract
+    tests set their own JEV_BASE_URL and stub the HTTP reply; test_jev_live.py
+    (marker live_jev) keeps the real configuration.
+    """
+    if request.node.get_closest_marker("live_jev") is None:
+        monkeypatch.setenv("JEV_BASE_URL", "")
+        monkeypatch.delenv("JEV_API_KEY", raising=False)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def postgres_case_store_for_the_session():
+    """
+    THE CASE STORE IN TESTS IS POSTGRESQL, as in production. Tests that build
+    their own store use app.store.testing.fresh_repository(); code that asks
+    get_repository() itself gets this session's database -- never the
+    development one (the embedded dev server is switched off here).
+    """
+    import os
+
+    from app.store.testing import session_dsn
+
+    os.environ["LOS_DEV_EMBEDDED_PG"] = "false"
+    os.environ["LOS_STORE_DSN"] = session_dsn()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def maker_checker_off_by_default(monkeypatch, request):
+    """
+    Four-eyes is ON in the shipped config (config/maker_checker.yaml). Tests
+    written for the controlled endpoints' own mechanics (gates, override
+    permission, deviation authority) run with it off; the maker/checker tests
+    (marker or module name maker_checker) switch it on themselves.
+    """
+    if "maker_checker" not in request.node.nodeid:
+        monkeypatch.setenv("MAKER_CHECKER_ENABLED", "false")
 
 
 @pytest.fixture(autouse=True)

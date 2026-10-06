@@ -23,7 +23,7 @@ from app.agents.applicant import history, ledger
 from app.agents.los import stage_lifecycle
 from app.store import set_repository
 from app.store.models import CaseDecision, CaseFinding, FindingKind
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 CASE, APP, COAPP = ("case_e6000000000000000000000000000001",
                     "APP-EVID6PRIMARY", "COAPP-EVID6COAPP")
@@ -43,7 +43,7 @@ def repo(tmp_path, monkeypatch):
     los_config.reload()
     agent_config.reload()
     stage_lifecycle.reload()
-    repository = SQLiteRepository(tmp_path / "e6.sqlite3")
+    repository = fresh_repository(tmp_path / "e6.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

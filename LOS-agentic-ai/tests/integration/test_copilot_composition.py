@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from app.agents.los import stage_lifecycle
 from app.store import set_repository
 from app.store.models import CaseFinding, FindingKind
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 CASE, APP, COAPP = ("case_q1100000000000000000000000000001",
                     "APP-QWEN11PRIM", "COAPP-QWEN11CO")
@@ -39,7 +39,7 @@ def repo(tmp_path, monkeypatch):
     los_config.reload()
     agent_config.reload()
     stage_lifecycle.reload()
-    repository = SQLiteRepository(tmp_path / "q11.sqlite3")
+    repository = fresh_repository(tmp_path / "q11.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

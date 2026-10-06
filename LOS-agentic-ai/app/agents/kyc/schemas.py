@@ -413,6 +413,28 @@ class KycResult(BaseModel):
     # and neither agent detects a competent forgery.
     authenticity_checked: bool = False
 
+    # THE EXPLICIT STATE, derived from `status` and never deciding anything new
+    # (2026-10-05). `status` stays the verdict every consumer gates on; `state`
+    # says what it MEANS for the case: PASS / PARTIAL / REVIEW / FAIL /
+    # PENDING (only one source yet -- waiting for another document, not a
+    # problem with the customer) / CONFIGURATION_GAP (KYC switched off).
+    state: str = "REVIEW"
+    #: what the officer reads: why, in words
+    reason: str = ""
+    #: the document types the outcome rests on (the mismatched fields' sources first)
+    affected_documents: list[str] = Field(default_factory=list)
+    #: the fields that did not match
+    mismatched_fields: list[str] = Field(default_factory=list)
+    #: the next step, in words
+    next_action: str = ""
+    #: the checks that passed / did not pass (REVIEW or FAIL), by name -- from `checks`
+    passed_checks: list[str] = Field(default_factory=list)
+    failed_checks: list[str] = Field(default_factory=list)
+    #: checks that could not run because a document did not carry the value (SKIPPED)
+    missing_information: list[str] = Field(default_factory=list)
+    #: what would complete or clear KYC, as {code, label} -- never a model's words
+    next_actions: list[dict[str, str]] = Field(default_factory=list)
+
     def check(self, kind: KycCheck) -> CheckResult | None:
         return next((c for c in self.checks if c.check is kind), None)
 

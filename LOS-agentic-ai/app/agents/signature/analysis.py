@@ -89,6 +89,13 @@ def measure(image) -> dict[str, Any]:
                 float(((pixels <= 2) | (pixels >= 253)).sum()) / float(pixels.size),
                 6,
             ),
+            # PURE BLACK ONLY. White paper is the background of every signature,
+            # and a clean scan is mostly pure white -- counted as "clipped", every
+            # real signature on white paper failed the tone check and went to
+            # REVIEW as low quality (bug report 2026-10-05). Crushed blacks over
+            # most of the frame are the real defect: an underexposed photo or a
+            # black background.
+            "black_clipped_ratio": round(float((pixels <= 2).sum()) / float(pixels.size), 6),
         }
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("Signature measurement failed: %s", exc)

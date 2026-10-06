@@ -411,7 +411,11 @@ def _repair_dates(tokens: list[OCRToken]) -> list[OCRToken]:
 
 #: The guardian caption as a rotated card prints it -- "S/O", read "So" / "Sio" --
 #: matched as a WHOLE token only ("SO" is inside "SOUTH", "SOLAPUR" ...).
-_GUARDIAN_SHORT = {"SO", "SIO", "S0", "DO", "DIO", "WO", "WIO", "SDW", "SWD"}
+#: The slash is also read as "4", "1" or "L" ("S4o" on a real Karnataka card, dl1:
+#: the caption was missed, the holder's name column was taken for the guardian's,
+#: and the licence failed verification on a missing name).
+_GUARDIAN_SHORT = {"SO", "SIO", "S0", "DO", "DIO", "WO", "WIO", "SDW", "SWD",
+                   "S4O", "S1O", "SLO", "S40", "D4O", "D1O", "DLO", "W4O", "W1O", "WLO"}
 
 
 def _guardian_label(tokens: list[OCRToken]) -> OCRToken | None:
@@ -435,9 +439,14 @@ def _person_name_token(token: OCRToken) -> bool:
 def _value_in_column(tokens: list[OCRToken], label: OCRToken, predicate) -> OCRToken | None:
     """On a rotated card, the value printed UNDER a caption in the caption's own column."""
     width = max(label.height, 8.0) * 3
+    # BELOW THE CAPTION, NOT BESIDE IT: a value starts where the caption ends.
+    # dl1's caption row also carried a stray "arcek" (y0 166, the captions'
+    # own band); judged by centre it counted as "below" and, 36 px off the
+    # column, beat the real guardian sitting 1 px off it further down.
     below = [t for t in tokens if t is not label and t.cy > label.cy + label.height * 0.5
+             and t.y0 >= label.y1 - 2
              and abs(t.x0 - label.x0) <= width and predicate(t)]
-    return min(below, key=lambda t: (t.cy - label.cy) + abs(t.x0 - label.x0), default=None)
+    return min(below, key=lambda t: (t.cy - label.cy) + 3 * abs(t.x0 - label.x0), default=None)
 
 
 def _column_owner(value: OCRToken | None, name_label: OCRToken | None,

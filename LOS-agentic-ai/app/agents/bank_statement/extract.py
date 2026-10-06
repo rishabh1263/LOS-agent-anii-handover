@@ -15,8 +15,10 @@ import contextvars
 import os
 from contextlib import contextmanager
 import re
+import threading
 import time
 from decimal import Decimal
+from typing import Any
 from pathlib import Path
 
 from app.agents.bank_statement import parse as P
@@ -197,6 +199,96 @@ def _page_table(page):
     return merged or None
 
 
+def table_workers() -> int:
+    """
+    Processes that read page tables in parallel. 0 or 1 = read in-line.
+
+    MEASURED (2026-10-05, idle 16-core host): pdfplumber reads a page table
+    in ~1.5-2 s of pure-Python CPU, one page after another -- a 53-page
+    statement took 82 s and a 104-page one 200 s, which the worker's own
+    300 s clock does not survive once the host is busy. Pages are
+    independent until the row mapping, so the TABLES are read in parallel
+    and the mapping, carry-over and balance chain still run in page order
+    exactly as before. One shared pool bounds the total across concurrent
+    uploads.
+    """
+    return max(0, _int_env("BANK_STATEMENT_TABLE_WORKERS", min(4, max(1, (os.cpu_count() or 2) - 1))))
+
+
+#: Fewer pages left than this are read in-line: starting the pool costs more.
+_PARALLEL_MIN_PAGES = 8
+_POOL = None
+_POOL_LOCK = threading.Lock()
+
+
+def _table_pool():
+    global _POOL
+    with _POOL_LOCK:
+        if _POOL is None:
+            from concurrent.futures import ProcessPoolExecutor
+            _POOL = ProcessPoolExecutor(max_workers=table_workers())
+        return _POOL
+
+
+def _drop_pool() -> None:
+    global _POOL
+    with _POOL_LOCK:
+        pool, _POOL = _POOL, None
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _tables_for_pages(path: str, numbers: list[int]) -> list[tuple[int, Any]]:
+    """Pool task: (1-based page number, table) for each page, read with pdfplumber."""
+    import pdfplumber
+
+    out: list[tuple[int, Any]] = []
+    with pdfplumber.open(path, pages=numbers) as pdf:
+        for number, page in zip(numbers, pdf.pages):
+            try:
+                out.append((number, _page_table(page)))
+            except Exception:  # noqa: BLE001 - same as the in-line path: page skipped
+                out.append((number, None))
+    return out
+
+
+def _prefetch_tables(path: str, numbers: list[int], deadline: float) -> dict[int, Any] | None:
+    """
+    Page tables read in parallel, keyed by page number.
+
+    None when the pool could not be used or the deadline passed -- the
+    caller then reads in-line (pool unusable) or defers (out of time); a
+    partial set is never returned, so no page is silently skipped.
+    """
+    from concurrent.futures import TimeoutError as _Timeout
+    from concurrent.futures.process import BrokenProcessPool
+
+    workers = table_workers()
+    size = max(1, -(-len(numbers) // (workers * 2)))     # ~2 chunks per worker
+    chunks = [numbers[i:i + size] for i in range(0, len(numbers), size)]
+    try:
+        pool = _table_pool()
+        futures = [pool.submit(_tables_for_pages, path, chunk) for chunk in chunks]
+        tables: dict[int, Any] = {}
+        for future in futures:
+            remaining = deadline - time.perf_counter()
+            if remaining <= 0:
+                raise _Timeout()
+            tables.update(future.result(timeout=remaining))
+        return tables
+    except _Timeout:
+        for future in futures:
+            future.cancel()
+        raise
+    except BrokenProcessPool:
+        logger.warning("Bank statement table pool broke; reading in-line.")
+        _drop_pool()
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Parallel table read failed (%s); reading in-line.", type(exc).__name__)
+        return None
+
+
 def extract_via_tables(
     path: str, started: float
 ) -> tuple[list[Transaction], bool]:
@@ -234,6 +326,7 @@ def extract_via_tables(
     exhausted = False
 
     sample = projection_sample_pages()
+    prefetched: dict[int, Any] = {}
 
     try:
         from app.agents.bank_statement import fastpdf
@@ -268,18 +361,36 @@ def extract_via_tables(
                 if (index == sample + 2 and total_pages > sample + 1
                         and rate_started is not None):
                     per_page_ms = (time.perf_counter() - rate_started) * 1000 / sample
+                    left = list(range(index, min(total_pages, cap) + 1))
+                    # The rest is read in parallel when there is enough of it
+                    # and the reader is pdfplumber (the pool's engine); the
+                    # projection then divides by the workers that read it.
+                    parallel = (table_workers() > 1 and len(left) >= _PARALLEL_MIN_PAGES
+                                and fastpdf.engine() != "pymupdf")
+                    share = table_workers() if parallel else 1
                     projected_ms = ((time.perf_counter() - started) * 1000
-                                    + per_page_ms * (total_pages - sample - 1))
+                                    + per_page_ms * (total_pages - sample - 1) / share)
                     if projected_ms > budget:
                         logger.info(
                             "Bank statement deferred: %d pages, %.0f ms/page, "
                             "projected %.0f ms against a %d ms budget.",
                             total_pages, per_page_ms, projected_ms, budget)
                         return [], True
-                try:
-                    table = _page_table(page)
-                except Exception:
-                    continue
+                    if parallel:
+                        try:
+                            prefetched = _prefetch_tables(
+                                path, left, started + budget / 1000) or {}
+                        except Exception:     # the deadline passed mid-read
+                            logger.info("Bank statement deferred: parallel read "
+                                        "overran the %d ms budget.", budget)
+                            return [], True
+                if index in prefetched:
+                    table = prefetched.pop(index)
+                else:
+                    try:
+                        table = _page_table(page)
+                    except Exception:
+                        continue
                 if not table:
                     continue
 

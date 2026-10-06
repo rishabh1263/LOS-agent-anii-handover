@@ -593,6 +593,34 @@ class FosResponse(BaseModel):
     )
     processing_ms: float = 0.0
     errors: list[FosErrorInfo] = Field(default_factory=list)
+    semantic_decisions: dict[str, Any] | None = Field(
+        None, description=(
+            "JEV typed decisions on this case (the semantic decision layer): "
+            "`semantic_decisions[]` with decision_type, answer, confidence, confidence_band, "
+            "probabilities, severity, recommended_action, status; `semantic_actions[]` "
+            "with what code executed (EXECUTED / BLOCKED / DEFERRED / SKIPPED); `jev_status` "
+            "COMPLETED / CONFIGURATION_GAP / EXTERNAL_DEPENDENCY_REQUIRED / NOT_EVALUATED / "
+            "SCHEDULED. Never changes a KYC, eligibility, credit or risk status "
+            "(`authoritative_statuses_changed` is always false)."))
+    presentation: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "THE CANONICAL RESPONSE CONTRACT -- present on every route (typed question, dropdown read, "
+            "upload) with the same shape. DERIVED from the fields above; nothing in it is model-written, "
+            "and it carries no internal ids, reason codes, scores or provider names.\n\n"
+            "- `message` the prose answer minus list lines; `intent`; `status` one of ACTION_REQUIRED / "
+            "PROCESSING / REVIEW / OK / INFO; `next_step` (or null); `case_context` {case_id, applicant_id, stage}\n"
+            "- `sections[]` {title, items[{icon, label, status}]} -- the lists in the answer, structured\n"
+            "- `documents[]` {party, label, document_type, icon, status, state (VERIFIED / REVIEW / REJECTED / "
+            "PROCESSING), reason, action, action_required}; SUPERSEDED documents are never listed\n"
+            "- `document_groups[]` {party, documents[]} -- grouped by applicant / co-applicant\n"
+            "- `actions[]` {label, action} (alias `next_actions`)\n"
+            "- `knowledge_sources[]` {title, source, type, version, effective_date} (alias `citations`) -- "
+            "provenance is here, never in the prose\n"
+            "- `semantic_decisions[]` {type, severity, subject, confidence, recommended_action, source: JEV, "
+            "acted_upon} -- ADVISORY; never changes a document, KYC, eligibility or credit result\n"
+            "- `metadata` {request_id, language, response_source}"),
+    )
     observability: dict[str, Any] | None = Field(
         None, description="Why this answer: the capability and intent selected, the model "
                           "consulted (if any), the tools called and latency by component. "
@@ -628,6 +656,8 @@ def _blank(request_id: str, **overrides: Any) -> dict[str, Any]:
         "pending_work": None,
         # the current stage's gate, evaluated from recorded results (capabilities/gates.py)
         "gate": None,
+        # JEV typed decisions (app/jev): attached by the copilot endpoint
+        "semantic_decisions": None, "presentation": None,
     }
     base.update(overrides)
     return base
@@ -1020,7 +1050,17 @@ async def copilot(
         # JSON path could only report that it failed to parse.
         if content_type.startswith(("multipart/form-data",
                                     "application/x-www-form-urlencoded")):
-            return await _copilot_upload(request, claims, request_id)
+            uploaded = await _copilot_upload(request, claims, request_id)
+            if isinstance(uploaded, dict):
+                # JEV runs AFTER the upload, on the persisted evidence -- never inside it.
+                from app.jev import config as _jev_config
+
+                uploaded["semantic_decisions"] = {
+                    "jev_status": ("SCHEDULED" if _jev_config.enabled()
+                                   and _jev_config.trigger_enabled("document_processed") else "DISABLED"),
+                    "semantic_decisions": [], "semantic_actions": [],
+                    "poll": f"/api/v1/jev/cases/{uploaded.get('case_id')}/decisions"}
+            return uploaded
         # THE SAME PUBLISHING RULE AS THE UNIVERSAL COPILOT: no full PAN,
         # Aadhaar or account number anywhere in the published response --
         # including a number typed into a free-text field of a record
@@ -1029,6 +1069,35 @@ async def copilot(
 
         published = await _copilot_json(request, claims, request_id)
         if isinstance(published, dict):
+            # THE TYPED DECISIONS, as recorded -- read, never re-evaluated here.
+            # The case was authorized by the action that produced `published`.
+            # Only on an answer ABOUT THIS CASE's state (CASE_FACT / DOCUMENT_STATUS /
+            # MIXED): a refusal, a greeting or an off-topic turn reads nothing, and
+            # this must not add a read.
+            if (published.get("case_id") and not published.get("route_to")
+                    and published.get("query_type") in {"CASE_FACT", "DOCUMENT_STATUS", "MIXED"}):
+                from app.jev import engine as _jev_engine
+
+                # NULL WHEN JEV NEVER EVALUATED THE CASE -- the same value every
+                # other read of this envelope publishes (the facade's GET routes),
+                # so one shape never depends on which route served it
+                _latest = _jev_engine.latest_decisions(published["case_id"])
+                published["semantic_decisions"] = None if _latest.get("jev_status") == "NOT_EVALUATED" else _latest
+                # The copilot SAYS what was flagged, in code-written words, on the
+                # answers about review and status -- never as a verdict.
+                if str(published.get("intent") or "").upper() in {
+                        "KYC_RESULT", "APPLICATION_STATUS", "CASE_HISTORY", "NEXT_ACTION", "READINESS"}:
+                    said = _jev_engine.sentence(published["semantic_decisions"] or {})
+                    if said and said not in str(published.get("answer") or ""):
+                        published["answer"] = f"{str(published.get('answer') or '').rstrip()} {said}".strip()
+            # AN EMPTY CHECKLIST NEVER HIDES AN OPEN REVIEW (answering/attention.py)
+            from app.agents.applicant.copilot.answering import attention as _attention
+
+            published = _attention.amend(published)
+            # THE STRUCTURED CONTRACT beside the prose, derived from it (presentation.py).
+            from app.agents.applicant.copilot.answering import presentation as _presentation
+
+            published["presentation"] = _presentation.build(published)
             return _sensitivity.mask_payload(published)
         return published
     except HTTPException:
@@ -1277,6 +1346,11 @@ async def _answer_action_scoped(
         # read and stays byte-identical to the facade endpoint's answer.
         envelope["observability"] = record
     _turn.emit(record)
+    # THE STRUCTURED CONTRACT on EVERY door (a dropdown read and a typed question
+    # alike): one shape, whichever route served it (answering/presentation.py).
+    from app.agents.applicant.copilot.answering import presentation as _presentation
+
+    envelope["presentation"] = _presentation.build(envelope)
     return envelope
 
 
@@ -1301,6 +1375,10 @@ def _upload_kyc(los: dict[str, Any]) -> dict[str, Any] | None:
     return sensitivity.mask_payload(block)
 
 
+#: Document types that never carry identity fields for KYC.
+_NOT_KYC_INPUTS = frozenset({"SIGNATURE", "BUSINESS_PHOTO", "PHOTOGRAPH", "SALE_DEED"})
+
+
 def _pipeline_sentence(outcomes: list[dict[str, Any]], kyc: dict[str, Any] | None) -> str:
     """One plain sentence on what happened after verification -- extraction and KYC."""
     passed = [o for o in outcomes if str(o.get("verification") or "").upper() in _PASSED]
@@ -1311,7 +1389,12 @@ def _pipeline_sentence(outcomes: list[dict[str, Any]], kyc: dict[str, Any] | Non
         if extracted:
             parts.append(f"Details were read from {len(extracted)} verified document"
                          f"{'s' if len(extracted) != 1 else ''}.")
-    if stopped and not passed:
+    # A SIGNATURE IS NEVER A KYC INPUT: "KYC was not run" beside one reads as a
+    # problem that does not exist.
+    kyc_relevant = [o for o in stopped if str(o.get("document_type") or "").upper() not in _NOT_KYC_INPUTS]
+    if stopped and not passed and not kyc_relevant:
+        pass
+    elif stopped and not passed:
         parts.append("It did not pass verification, so no details were read and KYC was not run.")
     elif stopped:
         parts.append(f"{len(stopped)} document{'s' if len(stopped) != 1 else ''} that did not pass verification "
@@ -1785,11 +1868,25 @@ async def _copilot_upload(
 
         doc_name = _ustructured._readable_type(one.get("document_type"))
         doc_name = doc_name[:1].upper() + doc_name[1:]
-        answer = f"{doc_name} uploaded. Verification: {one['verification']}"
-        if one.get("score") is not None:
+        # THE VERDICT IN WORDS, its reasons as sentences: "Verification: REVIEW"
+        # printed an enum, and the reasons came back as seven codes (2026-10-05).
+        from app.agents.applicant import config as _config
+        from app.agents.verification.reasons import spoken
+
+        verdict = str(one.get("verification") or "").upper()
+        answer = f"{doc_name} uploaded" + {
+            "PASS": " and verified", "VERIFIED": " and verified",
+            "REVIEW": "; it needs a review", "FAIL": "; it did not pass verification",
+            "REJECTED": "; it did not pass verification",
+        }.get(verdict, f"; verification: {verdict.lower() or 'pending'}")
+        if one.get("score") is not None and _config.show_scores():
             answer += f" (score {one['score']}" + (
                 f", confidence {one['confidence']}" if one.get("confidence") is not None else "") + ")"
         answer += "."
+        if verdict not in _PASSED:
+            reasons = spoken(one.get("reason_codes") or [], limit=2)
+            if reasons:
+                answer += " " + " ".join(reasons)
     else:
         # THE SAME FILE TWICE IN ONE REQUEST is stored once (keyed on case,
         # party and file): counted once here too, and said

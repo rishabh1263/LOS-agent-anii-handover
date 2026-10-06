@@ -122,7 +122,9 @@ def _localized(result: dict, message: str = "x") -> dict:
     return localize.apply(result, message)
 
 
-def test_verification_is_answered_in_marathi_keeping_scores_and_the_recorded_reason():
+def test_verification_is_answered_in_marathi_keeping_scores_and_the_recorded_reason(monkeypatch):
+    # scores in the chat text are opt-in (chatbot.show_scores, default off)
+    monkeypatch.setenv("APPLICANT_AGENT_SHOW_SCORES", "true")
     out = _localized({
         "intent": "DOCUMENT_VERIFICATION",
         "answer": ("PAN is VERIFIED (verification score 100, confidence 90). These are document checks; "
@@ -136,7 +138,20 @@ def test_verification_is_answered_in_marathi_keeping_scores_and_the_recorded_rea
     assert out["language_contract"]["localized"] is True and out["answer_en"].startswith("PAN is VERIFIED")
 
 
-def test_kyc_keeps_the_quoted_values_and_the_score():
+def test_by_default_no_score_is_said_in_marathi_either(monkeypatch):
+    monkeypatch.delenv("APPLICANT_AGENT_SHOW_SCORES", raising=False)
+    out = _localized({
+        "intent": "DOCUMENT_VERIFICATION",
+        "answer": "PAN is verified. These are document checks; the issuing authority has not confirmed the document.",
+        "verification": {"documents": [{"document_type": "PAN", "label": "PAN", "status": "VERIFIED",
+                                        "score": 100, "confidence": 90, "score_recorded": True}]},
+    })
+    assert out["answer"].startswith("PAN ची पडताळणी पास झाली")
+    assert "100" not in out["answer"] and "स्कोअर" not in out["answer"]
+
+
+def test_kyc_keeps_the_quoted_values_and_the_score(monkeypatch):
+    monkeypatch.setenv("APPLICANT_AGENT_SHOW_SCORES", "true")       # scores in chat text are opt-in
     out = _localized({
         "intent": "KYC_RESULT",
         "answer": ("The customer's KYC check needs review because the name didn't match: the PAN says A B, "

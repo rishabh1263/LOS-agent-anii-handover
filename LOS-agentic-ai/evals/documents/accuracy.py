@@ -158,6 +158,67 @@ def bank() -> dict:
     return {"rows": rows, "reconciled": sum(r["reconciles"] is True for r in rows), "of": len(rows)}
 
 
+#: Types with real samples but NO hand-transcribed field truth. Measured for what
+#: is measurable without truth: is the type recognised, how many fields came back,
+#: and how long it took. Field ACCURACY for these is NOT VERIFIED -- no ground truth.
+COVERAGE = {
+    "ITR": ["documents/ITR.pdf", "documents/ITR_2.pdf", "documents/ITR_3.pdf", "documents/ITR 2025-26.pdf",
+            "documents/itr_v.pdf"],
+    "PASSPORT": [f"passports/passport_samples0_{i}.jpg" for i in range(1, 7)],
+    "SALE_DEED": ["real_batch/sale_deed_clean.pdf", "real_batch/sale_deed_small.pdf", "real_batch/sale_deed2.pdf"],
+    "AADHAAR": [],   # no Aadhaar sample in the repository
+}
+
+
+_PDF_EXTRACTORS: dict = {}
+
+
+def coverage() -> dict:
+    from app.agents.document_agent import extract_document
+    from app.agents.itr import extract_itr
+    from app.agents.sale_deed import extract_sale_deed
+
+    global _PDF_EXTRACTORS
+    _PDF_EXTRACTORS = {"ITR": extract_itr, "SALE_DEED": extract_sale_deed}
+
+    out = {}
+    for expected, files in COVERAGE.items():
+        rows = []
+        for rel in files:
+            path = SAMPLES / rel
+            if not path.exists():
+                continue
+            started = time.perf_counter()
+            try:
+                if path.suffix.lower() == ".pdf" and expected in _PDF_EXTRACTORS:
+                    # the PRODUCTION path for these PDFs (financial/agent.py), not the image pipeline
+                    r = _PDF_EXTRACTORS[expected](str(path))
+                    dumped = r.model_dump(exclude={"status", "source_kind", "errors", "warnings", "processing",
+                                                   "processing_ms", "name_match_key"})
+                    fields = {k: v for k, v in dumped.items() if v not in (None, "", [], {}, 0)}
+                    got = expected if str(getattr(r.status, "value", r.status)).upper() not in {"FAILED", "UNSUPPORTED"}                         else "UNKNOWN"
+                else:
+                    r = extract_document(str(path))
+                    fields = {k: f for k, f in (r.fields or {}).items()
+                              if getattr(f, "value", None) not in (None, "", [], {})}
+                    got = str(getattr(r.document_type, "value", r.document_type))
+                rows.append({"file": rel, "classified": got, "type_ok": got == expected, "fields": len(fields),
+                             "status": str(getattr(getattr(r, "status", None), "value", getattr(r, "status", ""))),
+                             "ms": round((time.perf_counter() - started) * 1000)})
+            except Exception as exc:          # recorded, never hidden
+                rows.append({"file": rel, "error": f"{type(exc).__name__}: {exc}"[:160],
+                             "ms": round((time.perf_counter() - started) * 1000)})
+        if not rows:
+            out[expected] = {"status": "NOT_TESTABLE", "reason": "no sample in the repository"}
+            continue
+        ms = sorted(r["ms"] for r in rows)
+        out[expected] = {"docs": len(rows), "type_accuracy": round(sum(r.get("type_ok", False) for r in rows) / len(rows), 3),
+                         "avg_fields": round(statistics.mean(r.get("fields", 0) for r in rows), 1),
+                         "errors": sum("error" in r for r in rows), "p50_ms": ms[len(ms) // 2], "max_ms": ms[-1],
+                         "field_accuracy": "NOT VERIFIED - no ground truth", "rows": rows}
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", default=str(ROOT / "runs" / "doc_accuracy.json"))
@@ -166,7 +227,7 @@ def main() -> None:
     os.chdir(ROOT)
     out = {}
     for part in args.only.split(","):
-        out[part] = {"identity": identity, "slip": slip, "bank": bank}[part.strip()]()
+        out[part] = {"identity": identity, "slip": slip, "bank": bank, "coverage": coverage}[part.strip()]()
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     Path(args.report).write_text(json.dumps(out, indent=1), encoding="utf-8")
     if "identity" in out:
@@ -181,6 +242,10 @@ def main() -> None:
         print(f"bank     reconciled {out['bank']['reconciled']}/{out['bank']['of']}")
         for r in out["bank"]["rows"]:
             print(f"   {r['file']:36} {r['status']:12} rows={r['rows']:5} reconciles={r['reconciles']} {r['ms']}ms")
+    for t, c in (out.get("coverage") or {}).items():
+        print(f"coverage {t:16} " + (c.get("reason", "") if "docs" not in c else
+              f"docs={c['docs']} type={c['type_accuracy']:.0%} avg_fields={c['avg_fields']} errors={c['errors']} "
+              f"P50={c['p50_ms']}ms max={c['max_ms']}ms"))
 
 
 if __name__ == "__main__":

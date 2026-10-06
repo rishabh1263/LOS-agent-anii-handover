@@ -36,6 +36,18 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+#: A field as a reader names it ("PAN number", not "pan number").
+_FIELD_LABELS = {"pan_number": "PAN number", "pan": "PAN", "dl_number": "Licence number",
+                 "epic_number": "Voter ID number", "passport_number": "Passport number",
+                 "aadhaar_number": "Aadhaar number", "account_number": "Account number", "ifsc": "IFSC",
+                 "name": "Name", "father_name": "Father's name", "date_of_birth": "Date of birth",
+                 "dob": "Date of birth", "address": "Address", "gender": "Gender", "valid_till": "Valid till",
+                 "date_of_expiry": "Expiry date", "date_of_issue": "Issue date", "nationality": "Nationality"}
+
+
+def field_label(key: str) -> str:
+    return _FIELD_LABELS.get(str(key), str(key).replace("_", " ").capitalize())
+
 #: Spoken document names -> stored document_type. Longest forms first so
 #: "bank statement" is not read as "bank".
 _DOCUMENTS: tuple[tuple[str, str], ...] = (
@@ -85,6 +97,20 @@ def document_asked(message: str) -> str | None:
 _ALL_FIELDS = re.compile(r"\b(details?|fields?|information|info|data|kya\s+kya|values?)\b[^?]{0,40}"
                          r"\b(extracted|read|captured|pulled|found|nikla|nikle|nikali)\b"
                          r"|\b(kya\s+kya|what)\b[^?]{0,20}\b(nikla|nikle|extracted|read)\b", re.I)
+
+
+#: "pan details", "give me the licence info" -- the document asked about as a
+#: whole. Counts as every field only when no single field is named
+#: ("what is the name on my PAN" stays one field).
+_GENERIC_DETAILS = re.compile(r"\b(details?|info(rmation)?|data|fields?)\b", re.I)
+
+
+def wants_every_field(message: str) -> bool:
+    text = message or ""
+    if _ALL_FIELDS.search(text):
+        return True
+    return bool(_GENERIC_DETAILS.search(text)) and not any(
+        re.search(pattern, text, re.IGNORECASE) for pattern, *_ in _FIELDS)
 
 
 def field_asked(message: str) -> tuple[str, str, str]:
@@ -175,7 +201,7 @@ def answer(
         None,
     )
     # EVERY RELEASED FIELD, when the question asks what was read -- not one field
-    if extraction and _ALL_FIELDS.search(message or ""):
+    if extraction and wants_every_field(message):
         payload = dict(extraction.payload or {})
         fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else payload
         shown = {k: (v.get("value") if isinstance(v, dict) else v) for k, v in (fields or {}).items()
@@ -189,7 +215,7 @@ def answer(
                 if k in ("pan_number", "pan", "dl_number", "epic_number", "passport_number", "account_number",
                          "aadhaar_number") and "X" not in str(masked[k])[:4]:
                     masked[k] = sensitivity.mask(str(masked[k]))
-            lines = "\n".join(f"- {k.replace('_', ' ')}: {v}" for k, v in masked.items())
+            lines = "\n".join(f"- {field_label(k)}: {v}" for k, v in masked.items())
             return (f"Details read from your {words} (it passed verification):\n{lines}",
                     [_source(extraction, document_type), verification_source])
     value = (extraction.payload or {}).get(key) if extraction else None

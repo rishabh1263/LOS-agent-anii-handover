@@ -26,7 +26,7 @@ from app.agents.applicant import normalize, semantic, status_facts
 from app.agents.applicant.copilot.semantics.intents import Intent, understand
 from app.agents.applicant.copilot.answering.validate import check_composed, required_facts
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 COPILOT = "/api/v1/copilot/query"
 CASE = "case_0123456789abcdef0123456789abcdef"
@@ -53,7 +53,7 @@ _ANY_ID = re.compile(r"case_[0-9a-f]{8,}|APP-[A-Z0-9]{6,}|DEMO-(CASE|APP)-\d+",
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "universal.sqlite3")
+    repository = fresh_repository(tmp_path / "universal.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

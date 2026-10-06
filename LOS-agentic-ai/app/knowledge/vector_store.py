@@ -279,6 +279,16 @@ class QdrantVectorStore(VectorStore):
                 "qdrant-client is not installed."
             ) from exc
 
+        # PRODUCTION NEEDS A SHARED QDRANT. The embedded store (QDRANT_PATH) takes
+        # an exclusive lock -- a second worker or instance could not open it and
+        # ran without retrieval (measured: two servers, 2026-10-05) -- and
+        # :memory: loses the index on restart. Refused, said, never silent.
+        environment = (os.getenv("ENVIRONMENT") or "development").strip().lower()
+        if environment in {"production", "prod"} and not self._url \
+                and (os.getenv("QDRANT_ALLOW_EMBEDDED_IN_PRODUCTION") or "").strip().lower() != "true":
+            raise VectorStoreError("production requires a Qdrant server (QDRANT_URL); "
+                                   "embedded / in-memory stores are single-process")
+
         try:
             if self.in_memory:
                 self._client = QdrantClient(":memory:")

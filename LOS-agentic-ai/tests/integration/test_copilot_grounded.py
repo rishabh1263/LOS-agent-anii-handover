@@ -34,7 +34,7 @@ from app.knowledge.embeddings import HashingEmbedding
 from app.knowledge.retrieval import NotOwned, RetrievalResult
 from app.knowledge.vector_store import QdrantVectorStore, Scope, set_vector_store
 from app.store import demo_seed, set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 ENDPOINT = "/api/v1/copilot/query"
 
@@ -53,7 +53,7 @@ def demo_env(monkeypatch):
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "b6.sqlite3")
+    repository = fresh_repository(tmp_path / "b6.sqlite3")
     repository.initialise()
     set_repository(repository)
     demo_seed.seed(repository)

@@ -337,13 +337,13 @@ def _in_english(text: str) -> str:
 
 #: Follow-ups to an eligibility answer -> the eligibility question each one asks.
 _AFTER_ELIGIBILITY = [
-    (re.compile(r"(which|what|kaunsa|kaun\s*sa|konta|kuthla).{0,20}rules?|failed\s+rules?|rules?\s+(failed|fail)", re.I),
+    (re.compile(r"\b(which|what|kaunsa|kaun\s*sa|konta|kuthla)\b.{0,20}\brules?\b|\bfailed\s+rules?\b|\brules?\s+(failed|fail)", re.I),
      "Which eligibility rules failed?", "the previous answer was the eligibility result"),
-    (re.compile(r"(missing|baaki|baki|pending)|kya\s+chahiye|बाकी|काय\s+बाकी", re.I),
+    (re.compile(r"\b(missing|baaki|baki|pending)\b|kya\s+chahiye|बाकी|काय\s+बाकी", re.I),
      "What is missing for my eligibility?", "the previous answer was the eligibility result"),
-    (re.compile(r"(block\w*|stopp\w*|holding)|kya\s+rok", re.I),
+    (re.compile(r"\b(block\w*|stopp\w*|holding)\b|kya\s+rok", re.I),
      "What is blocking eligibility?", "the previous answer was the eligibility result"),
-    (re.compile(r"what\s+(should|do|can|must)\s+i\s+do|what\s+to\s+do|next|kya\s+karu|kya\s+karna|"
+    (re.compile(r"\bwhat\s+(should|do|can|must)\s+i\s+do\b|\bwhat\s+to\s+do\b|\bnext\b|kya\s+karu|kya\s+karna|"
                 r"pudhe\s+kay|आगे\s+क्या|पुढे\s+काय", re.I),
      "What should I do next for eligibility?", "the previous answer was the eligibility result"),
     (re.compile(r"^\s*(why(\s+not)?|why\s+not\s+eligible|but\s+why|how\s+come)\s*[?.!]*\s*$", re.I),
@@ -559,6 +559,22 @@ def resolve(message: str, context: Context | None) -> Resolution:
         # ONLY a subject the service actually knows. "And the weather?"
         # must not become a document question, and a subject that is not a
         # configured type would produce a question about nothing.
+        if subject and _is_known(subject) and (
+                str(context.last_query_type or "").upper() in {"PROCESS_KNOWLEDGE", "POLICY_REQUIREMENT"}
+                or context.last_intent in {"STAGE_PROCESS", "FOS_KNOWLEDGE"}):
+            # AFTER A KNOWLEDGE ANSWER IT STAYS KNOWLEDGE: "What does CPA check?"
+            # then "What about passport?" asks what applies to a passport, not
+            # whether THIS case's passport is verified (eval rag_doc_after_process:
+            # it became "Has the passport been verified?" and retrieval answered
+            # with the extraction-policy paragraph).
+            return Resolution(
+                # a phrasing measured to reach FOS_KNOWLEDGE AND retrieve the slot
+                # guidance ("checked" / "accepted?" alone read as verification;
+                # "policy" retrieved the document-policy paragraph instead)
+                message=f"Is a {_readable(subject)} accepted as a document?",
+                rewritten_from=text,
+                reason=f"the previous answer was process knowledge; asked about {subject}",
+            )
         if subject and _is_known(subject):
             # PHRASED AS A QUESTION THE CLASSIFIER ALREADY HANDLES. "What
             # is the status of the passport?" reads naturally and matches
@@ -767,6 +783,10 @@ def context_from_response(envelope: Mapping[str, Any]) -> dict[str, Any]:
                     if isinstance(understanding, Mapping) else None) or {}
     return {
         "conversation_id": conversation.get("conversation_id"),
+        # THE CASE THIS CONTEXT BELONGS TO: sent back with another case it is
+        # discarded (agent.answer_question), so "Why?" on case B never resolves
+        # against case A's last subject.
+        "case_id": envelope.get("case_id"),
         "last_query_type": envelope.get("query_type"),
         "last_intent": envelope.get("intent"),
         "last_slot": slot,

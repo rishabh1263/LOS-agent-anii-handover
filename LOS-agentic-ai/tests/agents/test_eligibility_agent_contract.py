@@ -168,10 +168,12 @@ def test_a_configured_kyc_prerequisite(kyc, state, code):
 
 # ---- the shipped demo policy: nothing invented -----------------------------------------
 @pytest.mark.parametrize("product", ["PERSONAL_LOAN", "HOME_LOAN"])
-def test_the_shipped_policy_sets_no_age_band_and_no_kyc_gate(product):
+def test_the_shipped_policy_sets_no_age_band_and_gates_on_kyc_pass(product):
+    # KYC GATE SET (2026-10-05, user directive): only the KYC agent's PASS lets
+    # eligibility proceed. The age band is still not invented.
     shipped = get_policy(product)
     assert shipped.age_minimum_years is None and shipped.age_maximum_years is None
-    assert shipped.kyc_accepted_statuses == ()
+    assert shipped.kyc_accepted_statuses == ("PASS",)
     assert shipped.next_actions["OBLIGATIONS_NOT_CAPTURED"]["owner"] == "FOS"
 
 

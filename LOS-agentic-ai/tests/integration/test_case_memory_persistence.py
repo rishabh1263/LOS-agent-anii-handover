@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 
 from app.store import set_repository
 from app.store.models import FindingKind
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 ENDPOINT = "/api/v1/los/process"
 
@@ -40,7 +40,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "memory.sqlite3")
+    repository = fresh_repository(tmp_path / "memory.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository
@@ -284,9 +284,13 @@ def test_kyc_source_values_are_not_copied_into_the_payload(written):
 
     for row in repo.get_case_findings("MEM-TWO", kind=FindingKind.KYC):
         for field in row.payload.get("fields") or []:
-            assert "sources" not in field
             assert set(field) <= {"field", "status", "match_score",
-                                  "confidence", "reason_code"}
+                                  "confidence", "reason_code", "sources"}
+            # WHICH DOCUMENTS carried a non-failed field (2026-10-05, for "kyc
+            # details") -- the document type only, never a value
+            if str(field.get("status")).upper() != "FAIL":
+                for source in field.get("sources") or []:
+                    assert set(source) == {"document_type"}
 
 
 # ==========================================================================

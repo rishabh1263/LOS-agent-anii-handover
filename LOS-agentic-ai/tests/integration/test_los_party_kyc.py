@@ -24,7 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 PRIMARY_PAN = Path("samples/documents/rpan.jpg")
 PRIMARY_DL = Path("samples/real_batch/dl1.jpg")
@@ -45,7 +45,7 @@ _RUNS: dict[str, dict[str, Any]] = {}
 
 @pytest.fixture(autouse=True)
 def store(tmp_path):
-    repository = SQLiteRepository(tmp_path / "party_kyc.sqlite3")
+    repository = fresh_repository(tmp_path / "party_kyc.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository
@@ -187,6 +187,12 @@ _KYC_SOMETIMES = {"score", "overall_score_basis", "verification_summary",
 #: Added to every KYC object: the reason codes as a reader acts on
 #: them, beside the codes themselves.
 _KYC_ALWAYS = _KYC_ALWAYS | {"issues"}
+
+#: THE EXPLICIT STATE (2026-10-05/06): always published, derived from `status`.
+_KYC_ALWAYS = _KYC_ALWAYS | {"state"}
+#: ...and its explanation, published when there is something to say.
+_KYC_SOMETIMES = _KYC_SOMETIMES | {"reason", "affected_documents", "mismatched_fields", "next_action",
+                                   "passed_checks", "failed_checks", "missing_information", "next_actions"}
 
 
 def test_each_party_publishes_its_own_kyc(joint):

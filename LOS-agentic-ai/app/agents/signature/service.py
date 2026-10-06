@@ -420,12 +420,13 @@ def verify_signature(
         if not sharp:
             reasons.append(ReasonCode.IMAGE_BLURRED)
 
-        clipped = stats.get("clipped_ratio", 0.0) > analysis.CLIPPING_CEILING
+        # Pure black only: a white page is paper, not overexposure (analysis.stats).
+        clipped = stats.get("black_clipped_ratio", 0.0) > analysis.CLIPPING_CEILING
         checks.append(
             Check(
                 name="tones_not_clipped",
                 passed=not clipped,
-                detail=f"{stats.get('clipped_ratio', 0.0):.1%} at pure black/white",
+                detail=f"{stats.get('black_clipped_ratio', 0.0):.1%} at pure black",
             )
         )
         if clipped:

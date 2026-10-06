@@ -29,7 +29,7 @@ from PIL import Image
 
 from app.agents.applicant import config as agent_config
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 SAMPLES = Path(__file__).resolve().parents[2] / "samples" / "real_batch"
 PAN = SAMPLES / "pan_bw2.jpg"
@@ -52,7 +52,7 @@ def _store(tmp_path, monkeypatch):
     # KYC anywhere -- as what FOS_KYC_ON_UPLOAD=false must still guarantee.
     monkeypatch.setenv("FOS_KYC_ON_UPLOAD", "false")
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "boundary.sqlite3")
+    repository = fresh_repository(tmp_path / "boundary.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

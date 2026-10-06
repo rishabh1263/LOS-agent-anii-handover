@@ -24,6 +24,7 @@ because it is indistinguishable from a real one.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,8 @@ logger = logging.getLogger(__name__)
 #: How many findings a summary names before it stops. A reviewer reading
 #: a chat panel acts on the first few; twenty is a report, not an answer.
 _MAX_REASONS = 6
+#: Reasons said in a sentence: more than three is a list nobody reads.
+_MAX_SPOKEN = 3
 
 #: Finding kinds whose reason codes explain a verdict. EXTRACTION is
 #: excluded deliberately: it records what was read, not what was wrong.
@@ -280,9 +283,22 @@ def _checked_fields(payload: Any) -> list[dict[str, str]]:
     """The fields a KYC check compared and each one's outcome -- no values."""
     if not isinstance(payload, dict):
         return []
-    return [{"field": str(f.get("field")), "status": str(f.get("status") or "").upper()}
-            for f in payload.get("fields") or []
-            if isinstance(f, dict) and f.get("field")]
+    from app.security import sensitivity
+
+    out = []
+    for f in payload.get("fields") or []:
+        if not (isinstance(f, dict) and f.get("field")):
+            continue
+        row = {"field": str(f.get("field")), "status": str(f.get("status") or "").upper(),
+               "reason_code": str(f.get("reason_code") or "").upper() or None}
+        sources = [s for s in f.get("sources") or [] if isinstance(s, dict)]
+        # WHICH DOCUMENTS carried it, and -- for a field that MATCHED -- the agreed
+        # value, identifiers masked: "kyc details" answers with the details.
+        row["documents"] = list(dict.fromkeys(str(s.get("document_type") or "") for s in sources if s.get("document_type")))
+        if row["status"] in ("PASS", "MATCH") and sources and sources[0].get("value") not in (None, ""):
+            row["value"] = sensitivity.mask_identifiers(str(sources[0].get("value")))
+        out.append(row)
+    return out
 
 
 def _failed_comparisons(payload: Any) -> list[dict[str, Any]]:
@@ -375,7 +391,16 @@ def _mismatch_detail(findings: list[dict[str, Any]]) -> str:
             if not label or len(sources) < 2:
                 continue
 
-            first, second = sources[0], sources[1]
+            # A PAIR THAT ACTUALLY DIFFERS. The first two sources were taken as
+            # they came: with four documents the PAN and the licence (the SAME
+            # name) were named as the mismatch while the slip and the statement
+            # carried the different names -- "RISHABH ... does not match ...
+            # RISHABH" (acceptance run, 2026-10-06). Compared as names are
+            # compared (spacing/case-insensitive); no differing pair, no sentence.
+            pair = _differing_pair(sources)
+            if pair is None:
+                continue
+            first, second = pair
             return (
                 f"the {label} on the "
                 f"{_document_words(first.get('document_type'))}, "
@@ -385,6 +410,20 @@ def _mismatch_detail(findings: list[dict[str, Any]]) -> str:
             )
 
     return ""
+
+
+def _differing_pair(sources: list[dict[str, Any]]):
+    """The first two sources whose values differ (names compared space/case-insensitively)."""
+    from app.agents.document_agent.normalize import name_key
+
+    def key(source: dict[str, Any]) -> str:
+        return name_key(str(source.get("value")))
+
+    for i, first in enumerate(sources):
+        for second in sources[i + 1:]:
+            if key(first) != key(second):
+                return first, second
+    return None
 
 
 def _document_words(document_type: Any) -> str:
@@ -465,6 +504,21 @@ def review_reason(
 
     if not codes:
         return "", []
+
+    # IN WORDS, NOT CODES: "because image clipped, signature low quality,
+    # reference unavailable, ..." was every code of a signature read out as
+    # its own name (bug report 2026-10-05). The catalogue's sentences, folded
+    # and de-duplicated; the codes themselves stay in the sources.
+    from app.agents.verification.reasons import CATALOGUE, as_clause, fold
+
+    said: list[str] = []
+    for code in fold(codes):
+        clause = _READABLE.get(code) or (as_clause(CATALOGUE[code]) if code in CATALOGUE else None)
+        if clause and clause not in said:
+            said.append(clause)
+    said = said[:_MAX_SPOKEN]
+    if said:
+        return _and_list(said), _sources(findings=explaining, decisions=decisions)
 
     shown = codes[:_MAX_REASONS]
     more = len(codes) - len(shown)
@@ -562,10 +616,23 @@ def _kyc_mismatch(comparisons: list[dict[str, Any]]) -> str:
     parts = []
     for c in comparisons:
         field = str(c.get("field") or "a field").replace("_", " ").lower()
-        said = [f"the {_kyc_doc(s.get('document_type'))} says "
-                f"{sensitivity.mask_identifiers(str(s.get('value')))}"
-                for s in c.get("sources") or []]
-        detail = (": " + ", but ".join(said)) if said else ""
+        # DOCUMENTS THAT AGREE ARE SAID TOGETHER. One clause per distinct value
+        # (compared space-insensitively, as KYC compares them): "the PAN and the
+        # driving licence say X, but the voter ID says Y" -- never "the PAN says
+        # X, but the driving licence says X" (bug report 2026-10-05).
+        groups: dict[str, tuple[str, list[str]]] = {}
+        for s in c.get("sources") or []:
+            value = sensitivity.mask_identifiers(str(s.get("value")))
+            key = re.sub(r"\s+", "", value).upper()
+            shown, docs = groups.setdefault(key, (value, []))
+            doc = f"the {_kyc_doc(s.get('document_type'))}"
+            if doc not in docs:
+                docs.append(doc)
+        said = [f"{' and '.join(docs)} {'say' if len(docs) > 1 else 'says'} {shown}"
+                for shown, docs in groups.values()]
+        # two values: "X, but Y"; three or more: "X, Y, and Z" -- never "but ... but"
+        detail = ("" if len(said) < 2 else ": " + ", but ".join(said) if len(said) == 2
+                  else ": " + ", ".join(said[:-1]) + ", and " + said[-1])
         parts.append(f"the {field} didn't match{detail}")
     return "; ".join(parts)
 
@@ -636,6 +703,12 @@ def kyc_answer(memory: dict[str, Any], *, want_score: bool = False, want: str | 
     because = f" because {why}" if why and raw_status not in ("PASS", "SUCCESS", "VERIFIED") else ""
     sources = _sources(findings=kyc)
     if want == "score":
+        from app.agents.applicant import config as _config
+
+        if not _config.show_scores():
+            # SCORES ARE NOT SAID IN CHAT (chatbot.show_scores, default off) --
+            # asked for, the answer says so and gives the result, never a number.
+            return (f"KYC scores aren't shown in chat. {Whose} KYC check {state}.", sources)
         if score in (None, ""):
             return (f"{Whose} KYC check is recorded -- it {state} -- but no KYC score was "
                     f"recorded with it.", sources)
@@ -646,10 +719,29 @@ def kyc_answer(memory: dict[str, Any], *, want_score: bool = False, want: str | 
         if not checked:
             return (f"{Whose} KYC check is recorded (it {state}), but it doesn't list the "
                     f"individual fields it compared.", sources)
-        listed = [f"{str(c.get('field')).replace('_', ' ').lower()} "
-                  f"({'matched' if c.get('status') in ('PASS', 'MATCH') else 'did not match'})"
-                  for c in checked]
-        return f"{Whose} KYC check compared: {_and_list(listed)}.", sources
+        # EACH FIELD AS IT WAS: matched (with the agreed value and where), did
+        # not match, or NOT COMPARED -- a field only one document carries was
+        # never compared, and calling it "did not match" contradicted a PASS
+        # (user report 2026-10-05: "KYC passed" beside "address did not match").
+        lines = []
+        for c in checked:
+            name = str(c.get("field")).replace("_", " ").lower()
+            docs = " and ".join(_kyc_doc(d) for d in c.get("documents") or [])
+            status = str(c.get("status") or "").upper()
+            if status in ("PASS", "MATCH"):
+                lines.append(f"- {name}: matched" + (f" -- {c['value']}" if c.get("value") else "")
+                             + (f" (on the {docs})" if docs else ""))
+            elif status in ("FAIL", "MISMATCH"):
+                lines.append(f"- {name}: did not match" + (f" across the {docs}" if docs else ""))
+            elif status == "PARTIAL":
+                lines.append(f"- {name}: partly matched" + (f" across the {docs}" if docs else ""))
+            else:
+                only = (f"only the {docs} carries it" if docs and len(c.get("documents") or []) == 1
+                        else "it is not on enough documents")
+                lines.append(f"- {name}: not compared ({only})")
+        failed = comparisons and _kyc_mismatch(comparisons)
+        return (f"{Whose} KYC check {state}. Field by field:\n" + "\n".join(lines)
+                + (f"\nWhat differs: {failed}." if failed else ""), sources)
     if want == "mismatch":
         if comparisons:
             return f"{Whose} KYC check {state} because {_kyc_mismatch(comparisons)}.", sources
@@ -660,7 +752,9 @@ def kyc_answer(memory: dict[str, Any], *, want_score: bool = False, want: str | 
         return (f"{Whose} KYC check {state}, but no field-level reason was recorded with it.",
                 sources)
     said = f"{Whose} KYC check {state}{because}."
-    if score not in (None, ""):
+    from app.agents.applicant import config as _config
+
+    if score not in (None, "") and _config.show_scores():
         said += f" The recorded score is {score}."
     return said, sources
 

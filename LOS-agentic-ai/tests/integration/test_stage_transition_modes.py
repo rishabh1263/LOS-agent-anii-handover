@@ -21,7 +21,7 @@ from app.agents.applicant import config as agent_config
 from app.agents.applicant.copilot.capabilities import gates
 from app.store import get_repository, set_repository
 from app.store.models import Applicant, Application, ApplicationStatus, CaseFinding, FindingKind
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 APP, CASE = "APP-MODE0000001", "CASE-MODE-00001"
 OWNER = "mode-owner"
@@ -31,7 +31,7 @@ OWNER = "mode-owner"
 def repo(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "modes.sqlite3")
+    repository = fresh_repository(tmp_path / "modes.sqlite3")
     repository.initialise()
     set_repository(repository)
     repository.save_applicant(Applicant(applicant_id=APP, full_name="Mode Person"))

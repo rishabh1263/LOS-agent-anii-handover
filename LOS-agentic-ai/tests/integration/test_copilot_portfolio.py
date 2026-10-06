@@ -22,7 +22,7 @@ from app.agents.applicant import config as agent_config
 from app.store import set_repository
 from app.store.models import (Applicant, Application, ApplicationStatus, CaseFinding, Document,
                               DocumentStatus, FindingKind)
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 APP, OTHER_APP = "APP-PORT0000001", "APP-PORTOTHER01"
 CASE_OLD, CASE_NEW, CASE_OTHER = "CASE-PORT-OLD01", "CASE-PORT-NEW01", "CASE-PORT-OTH01"
@@ -35,7 +35,7 @@ def repo(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     monkeypatch.setenv("LOS_CASE_MEMORY_ENABLED", "true")
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "portfolio.sqlite3")
+    repository = fresh_repository(tmp_path / "portfolio.sqlite3")
     repository.initialise()
     set_repository(repository)
     now = datetime.now(timezone.utc)

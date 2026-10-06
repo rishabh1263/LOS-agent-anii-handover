@@ -41,7 +41,6 @@ class Server:
         self.workdir = tempfile.mkdtemp(prefix="credit-e2e-")
         os.environ.update({
             "ENVIRONMENT": "test", "AUTH_ENABLED": "true",
-            "LOS_STORE_PATH": os.path.join(self.workdir, "store.sqlite3"),
             "LOS_DOCUMENT_STORE_PATH": os.path.join(self.workdir, "docs"),
             "LOS_CASE_MEMORY_ENABLED": "true", "LOS_MCP_MODE": "in_process",
             "LOS_OCR_WORKER_ENABLED": "false", "LOS_LLM_SUMMARY_ENABLED": "false",

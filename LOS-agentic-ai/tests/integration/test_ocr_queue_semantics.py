@@ -23,7 +23,7 @@ from app.store import ocr_queue, set_repository
 from app.store.documents import LocalDocumentStore, set_document_store, storage_key
 from app.store.models import Applicant, Application, Document, DocumentStatus, utcnow
 from app.store.ocr_queue import OcrJob, OcrJobStatus
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 CASE, APP, DOC = "CASE-Q", "APP-Q", "CASE-Q:APP-Q:scan.pdf"
 OWNER = "fos-owner"
@@ -31,7 +31,7 @@ OWNER = "fos-owner"
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "queue.sqlite3")
+    repository = fresh_repository(tmp_path / "queue.sqlite3")
     repository.initialise()
     repository.save_applicant(Applicant(applicant_id=APP))
     repository.save_application(Application(case_id=CASE, applicant_id=APP))
@@ -53,7 +53,7 @@ def job(repo, status=OcrJobStatus.PROCESSING, attempts=1, age_seconds=0,
                document_type=document_type, status=status, attempts=attempts)
     repo.save_ocr_job(j)
     if age_seconds:
-        from app.store.sqlite_repo import _iso
+        from app.store.sql_repo import _iso
 
         repo._write("UPDATE ocr_jobs SET updated_at = ? WHERE document_id = ?",
                     (_iso(utcnow() - timedelta(seconds=age_seconds)), DOC))
@@ -255,3 +255,48 @@ def test_a_stranger_cannot_see_the_queue(repo, client, make_token):
 
 def test_the_queue_needs_a_token(repo, client):
     assert client.get(f"/api/v1/los/cases/{CASE}/processing").status_code == 401
+
+
+# ==========================================================================
+# stale reads (2026-10-06): a late worker never overwrites newer state
+# ==========================================================================
+
+def test_a_read_finishing_after_the_document_was_superseded_changes_nothing(repo, monkeypatch):
+    claimed = job(repo, status=OcrJobStatus.QUEUED, attempts=0)
+    document = repo.get_document(DOC)
+    document.status = DocumentStatus.SUPERSEDED                 # replaced while the read was queued
+    repo.save_document(document)
+    ocr_queue._record(repo, claimed, _Reconciled().result, rows=1)
+    assert repo.get_document(DOC).status is DocumentStatus.SUPERSEDED
+
+
+def test_a_read_overtaken_by_a_reupload_of_the_same_file_changes_nothing(repo, monkeypatch):
+    old = job(repo, status=OcrJobStatus.PROCESSING, attempts=1)
+    repo.save_ocr_job(OcrJob(document_id=DOC, case_id=CASE, applicant_id=APP, party_id=APP,
+                             document_type="BANK_STATEMENT", status=OcrJobStatus.QUEUED))   # the re-upload's job
+    ocr_queue._record(repo, old, _Reconciled().result, rows=1)
+    document = repo.get_document(DOC)
+    assert document.status is DocumentStatus.REVIEW and "DOCUMENT_REQUIRES_OCR" in document.reason_codes
+
+
+def test_the_current_job_still_records_its_verdict(repo, monkeypatch):
+    current = job(repo, status=OcrJobStatus.PROCESSING, attempts=1)
+    ocr_queue._record(repo, current, _Reconciled().result, rows=1)
+    assert "DOCUMENT_REQUIRES_OCR" not in repo.get_document(DOC).reason_codes
+
+
+def test_a_reupload_after_a_completed_read_is_queued_again_under_a_new_job(repo, monkeypatch):
+    done = job(repo, status=OcrJobStatus.COMPLETED, attempts=1)
+    # the document still says it waits for the reader (the re-upload marked it so)
+    again = ocr_queue.submit(repo, document_id=DOC, case_id=CASE, applicant_id=APP, party_id=APP,
+                             document_type="BANK_STATEMENT")
+    assert again is not None and again.status is OcrJobStatus.QUEUED and again.job_id != done.job_id
+    assert repo.get_ocr_job(DOC).job_id == again.job_id
+
+
+def test_a_completed_read_of_a_settled_document_is_not_queued_again(repo, monkeypatch):
+    job(repo, status=OcrJobStatus.COMPLETED, attempts=1)
+    document = repo.get_document(DOC)
+    document.status, document.reason_codes = DocumentStatus.VERIFIED, []
+    repo.save_document(document)
+    assert ocr_queue.submit(repo, document_id=DOC, case_id=CASE, applicant_id=APP) is None

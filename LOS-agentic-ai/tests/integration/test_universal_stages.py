@@ -22,7 +22,7 @@ from app.agents.policy import engine
 from app.agents.verification import taxonomy
 from app.store import set_repository
 from app.store.models import CaseEvent
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 COPILOT = "/api/v1/copilot/query"
 ALL_STAGES = ("FOS", "CPA", "CREDIT", "RCU", "BOPS", "HOPS", "DISBURSEMENT")
@@ -37,7 +37,7 @@ _ANY_ID = re.compile(r"case_[0-9a-f]{8,}|APP-[A-Z0-9]{6,}|DEMO-(CASE|APP)-\d+")
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "stages.sqlite3")
+    repository = fresh_repository(tmp_path / "stages.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

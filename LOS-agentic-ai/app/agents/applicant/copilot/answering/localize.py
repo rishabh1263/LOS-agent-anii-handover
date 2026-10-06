@@ -58,6 +58,36 @@ def _pending_sentence(result: dict[str, Any], language: str) -> str | None:
     return languages.localized_pending(language, missing, awaiting)
 
 
+_LIST_STATUS = {"VERIFIED": "verified", "PASS": "verified", "REVIEW": "review", "REJECTED": "rejected",
+                "FAIL": "rejected", "UPLOADED": "waiting", "PROCESSING": "waiting", "PENDING": "waiting"}
+
+
+def _documents_list_sentence(result: dict[str, Any], language: str) -> str | None:
+    """The one-line-per-document list in the question's language; None when any line lacks a template."""
+    from app.agents.applicant import language as languages
+    from app.agents.applicant.copilot.answering import answer as answers
+
+    docs = [d for d in result.get("documents") or [] if isinstance(d, dict)]
+    heading = languages.localized("documents_heading", language)
+    if not docs or not heading:
+        return None
+    lines, attention = [heading], None
+    for d in docs:
+        status = str(d.get("status") or "").upper()
+        words = languages.localized(f"doc_status_{_LIST_STATUS.get(status, '')}", language)
+        if not words:
+            return None
+        label = answers._doc_label(d.get("document_type"), d.get("party_role"))
+        lines.append(f"{answers._STATE_ICON[status][0]} {label} — {words}")
+        if attention is None and status in {"REVIEW", "REJECTED", "FAIL"}:
+            attention = label
+    text = "\n".join(lines)
+    if attention:
+        tail = languages.localized("documents_attention", language, label=attention)
+        text += f"\n\n{tail}" if tail else ""
+    return text
+
+
 def _listed(items: list[str]) -> str:
     return ", ".join(dict.fromkeys(i for i in items if i))
 
@@ -172,6 +202,13 @@ def _kyc_sentence(result: dict[str, Any], language: str) -> str | None:
                 return None
             said = f"{said} {because}"
         sentences.append(said)
+    # A FIELD-BY-FIELD answer ("kyc ki details"): the status sentence in the
+    # agent's language, the field lines kept as the agent wrote them (values
+    # are recorded values, never translated). The status template alone threw
+    # the details away (user report 2026-10-05).
+    english = str(result.get("answer_en") or result.get("answer") or "")
+    if "Field by field:" in english:
+        return " ".join(sentences) + "\n" + english.split("Field by field:", 1)[1].strip()
     extras = _kyc_extras(result, language, parties)
     if extras is None:
         return None
@@ -206,8 +243,11 @@ def _kyc_extras(result: dict[str, Any], language: str, parties: list[dict[str, A
         if not values:
             return None
         extra.append(values)
+    from app.agents.applicant import config as _config
+
+    # scores in the chat text are opt-in (chatbot.show_scores) in every language
     scores = [p.get("score") for p in parties if p.get("score_recorded") and p.get("score") is not None]
-    if len(scores) == 1:
+    if len(scores) == 1 and _config.show_scores():
         score = languages.localized("kyc_score", language, score=str(scores[0]))
         if not score:
             return None
@@ -238,16 +278,32 @@ def _verification_sentence(result: dict[str, Any], language: str) -> str | None:
     if not documents:
         return None
     sentences = []
+    # BOTH PEOPLE IN ONE ANSWER: the primary applicant's documents are named
+    # too, as the English answer names them ("primary applicant's PAN") -- the
+    # localized one said "PAN ka verification pass hua" beside the
+    # co-applicant's, and whose PAN passed was lost (eval both_verification).
+    mixed = any(str(d.get("party_role") or "").upper() == "CO_APPLICANT" for d in documents if isinstance(d, dict))
     for d in documents:
         if not isinstance(d, dict):
+            return None
+        # A HELD OR FAILED DOCUMENT WITH REASONS: there is no template for the
+        # reasons, and the status alone ("co-applicant ka PAN reject hua") drops
+        # WHY -- "kyun fail hua?" was answered with the status again (eval
+        # verify_followups). The English answer, which states them, stands.
+        if str(d.get("status") or "").upper() in {"REVIEW", "REJECTED", "FAIL", "FAILED"} \
+                and (d.get("reason_codes") or d.get("reason")):
             return None
         label = str(d.get("label") or answers._readable(d.get("document_type")))
         if str(d.get("party_role") or "").upper() == "CO_APPLICANT":
             label = languages.localized("doc_of_co", language, document=label) or ""
+        elif mixed:
+            label = languages.localized("doc_of_primary", language, document=label) or ""
         said = languages.localized(f"doc_{str(d.get('status') or '').upper()}", language, document=label)
         if not label or not said:
             return None
-        if d.get("score_recorded") and d.get("score") is not None:
+        from app.agents.applicant import config as _config
+
+        if d.get("score_recorded") and d.get("score") is not None and _config.show_scores():
             fact = "doc_score_confidence" if d.get("confidence") is not None else "doc_score"
             score = languages.localized(fact, language, score=str(d.get("score")),
                                         confidence=str(d.get("confidence")))
@@ -491,6 +547,8 @@ def apply(result: dict[str, Any], message: str) -> dict[str, Any]:
         fixed = languages_fixed(str(result.get("answer") or "").strip(), wanted)
         if fixed:
             sentence = fixed
+        elif intent == "DOCUMENTS_UPLOADED" and not (result.get("subject") or {}).get("parties"):
+            sentence = _documents_list_sentence(result, wanted)
         elif intent == "APPLICATION_STAGE":
             sentence = _current_stage_sentence(result, message, wanted)
         elif intent == "DOCUMENTS_PENDING" and str(result.get("category") or "CASE_ONLY") == "CASE_ONLY":

@@ -129,10 +129,10 @@ DOC = f"{CASE}:{APP}:pan.jpg"
 def repo(tmp_path, monkeypatch):
     from app.store import set_repository
     from app.store.models import Applicant, Application, Document, DocumentStatus as DS
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.testing import fresh_repository
 
     monkeypatch.setenv("DOCUMENT_LABELS_PATH", str(tmp_path / "labels.jsonl"))
-    r = SQLiteRepository(tmp_path / "fix.sqlite3")
+    r = fresh_repository(tmp_path / "fix.sqlite3")
     r.initialise()
     set_repository(r)
     r.save_applicant(Applicant(applicant_id=APP, full_name="Fix Person"))

@@ -88,13 +88,13 @@ def store(tmp_path, monkeypatch):
     from app.agents.applicant import config as agent_config
     from app.agents.los import config as los_config
     from app.store import set_repository
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.testing import fresh_repository
 
     monkeypatch.setenv("LOS_CASE_MEMORY_ENABLED", "true")
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     los_config.reload()
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "scope.sqlite3")
+    repository = fresh_repository(tmp_path / "scope.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

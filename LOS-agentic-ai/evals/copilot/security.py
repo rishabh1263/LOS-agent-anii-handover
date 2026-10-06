@@ -186,6 +186,9 @@ def run(report: str | None) -> int:
                 d = {k: v for k, v in d.items() if k != "request_id"}
                 b["detail"] = d
             b.pop("request_id", None)
+            # the error block's request id is per call too (app/api/errors.py) -- random, never a disclosure
+            if isinstance(b.get("error"), dict):
+                b["error"] = {k: v for k, v in b["error"].items() if k != "request_id"}
             return b
 
         same = (other["status"] == missing["status"] == 403

@@ -20,3 +20,6 @@
 # asyncio_mode = auto in pytest.ini, so async tests need no per-test marker.
 pytest>=8,<10
 pytest-asyncio>=0.24,<2
+
+# Embedded PostgreSQL for development and tests (real binaries; never production):
+pgserver>=0.1

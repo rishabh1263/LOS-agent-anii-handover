@@ -22,14 +22,14 @@ import pytest
 from app.agents.los.stages import LosStage, Resolution, resolve
 from app.store import demo_seed, set_repository
 from app.store.models import FindingKind
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 ALL_STAGES = {s.value for s in LosStage}
 
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "demo.sqlite3")
+    repository = fresh_repository(tmp_path / "demo.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository
@@ -247,7 +247,7 @@ def test_the_seed_is_the_same_every_time(tmp_path):
     """Two fresh stores, same data -- a demo answer cannot drift."""
     snapshots = []
     for name in ("one", "two"):
-        repository = SQLiteRepository(tmp_path / f"{name}.sqlite3")
+        repository = fresh_repository(tmp_path / f"{name}.sqlite3")
         repository.initialise()
         demo_seed.seed(repository)
         snapshots.append(_snapshot(repository))

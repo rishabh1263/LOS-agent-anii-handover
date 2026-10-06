@@ -104,7 +104,9 @@ def test_the_case_kyc_carries_the_verdict_and_not_the_rows(two_party):
     # object deliberately has neither.
     assert set(two_party["kyc"]) == {"status", "reason_codes",
                                      "overall_score", "overall_confidence",
-                                     "result", "issues"}
+                                     "result", "issues",
+                                     # the explicit KYC state (2026-10-05)
+                                     "state"}
 
 
 def test_the_case_verdict_is_still_published(two_party):
