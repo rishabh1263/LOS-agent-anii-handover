@@ -226,12 +226,6 @@ export function LoginPage() {
             </div>
           )}
         </div>
-
-        <p className="text-center text-[12px] text-content-secondary">
-          After signing in you will be prompted to enter a{' '}
-          <span className="font-medium text-content">Case ID</span> and{' '}
-          <span className="font-medium text-content">APP ID</span>, or create a new case.
-        </p>
       </div>
     </div>
   )
