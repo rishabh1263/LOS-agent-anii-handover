@@ -184,24 +184,28 @@ KYC_TESTS = [
         party="SELF", has=("name",), field="KYC_FIELDS"),
     one("k_result", "What was my KYC result?", ("kyc",), intents=KYC, party="SELF",
         has=("needs review",), field="KYC_RESULT"),
+    # SCORES ARE NOT SAID IN CHAT (chatbot.show_scores, default off, 2026-10-05): asked
+    # for, the answer says so -- never a number, never a fabricated one
     one("k_score", "What is my KYC score?", ("kyc", "missing"), intents=KYC, party="SELF",
-        has=("no KYC score",), lacks=("%",), field="KYC_SCORE"),
+        has=("aren't shown",), lacks=("%",), field="KYC_SCORE"),
     one("k_score2", "kyc score kitna hai mera?", ("kyc", "hinglish", "missing"), intents=KYC,
-        party="SELF", has=("no KYC score",), field="KYC_SCORE"),
+        party="SELF", any_of=("aren't shown", "review mein"), lacks=("%",), field="KYC_SCORE"),
     one("k_why", "Why did my KYC need review?", ("kyc",), intents=KYC, party="SELF",
         has=("RAHUL SHARMA", "R SHARMA"), field="KYC_MISMATCH"),
     one("k_mismatch", "Which KYC fields did not match?", ("kyc",), intents=KYC, party="SELF",
         has=("name", "didn't match"), field="KYC_MISMATCH"),
     one("k_issues", "What KYC issues are pending?", ("kyc",), intents=KYC, party="SELF",
         has=("name",), field="KYC_MISMATCH"),
+    # HINGLISH IS ANSWERED IN HINGLISH (2026-10-04): the meaning is checked in either
+    # language -- "didn't match" / "alag hai", "needs review" / "review mein hai"
     one("k_problem_hl", "KYC mein kya problem hai?", ("kyc", "hinglish"), intents=KYC,
-        party="SELF", has=("didn't match",), field="KYC_MISMATCH"),
+        party="SELF", any_of=("didn't match", "alag hai"), field="KYC_MISMATCH"),
     one("k_complete_hl", "mera KYC complete hai?", ("kyc", "hinglish"), intents=KYC, party="SELF",
-        has=("needs review",)),
+        any_of=("needs review", "review mein")),
     one("k_hua_hl", "mera kyc hua kya?", ("kyc", "hinglish"), intents=KYC, party="SELF",
-        has=("needs review",)),
+        any_of=("needs review", "review mein")),
     one("k_galat_hl", "KYC mein kya galat hai?", ("kyc", "hinglish"), intents=KYC, party="SELF",
-        has=("didn't match",)),
+        any_of=("didn't match", "alag hai")),
     one("k_passed", "Did my KYC pass?", ("kyc",), intents=KYC, party="SELF", has=("needs review",)),
     one("k_matched", "did my KYC match?", ("kyc",), intents=KYC, party="SELF", has=("name",)),
     one("k_define", "What is KYC?", ("kyc",), intents={"FOS_KNOWLEDGE"}, field="DEFINITION"),
@@ -220,7 +224,8 @@ KYC_TESTS = [
     one("k_unka_hl", "co-applicant ki KYC kaisi hai?", ("kyc", "co", "hinglish"), intents=KYC,
         party="CO", missing=True),
     # phase 2 -- the co-applicant's check is now recorded, with a score
-    C("k2_co_score", [T("What is the co-applicant's KYC score?", KYC, "CO", has=("92",),
+    # the recorded score (92) is NOT said in chat by default (chatbot.show_scores)
+    C("k2_co_score", [T("What is the co-applicant's KYC score?", KYC, "CO", has=("aren't shown",), lacks=("92",),
                         field="KYC_SCORE")], tags=("kyc", "co"), phase=2),
     C("k2_co_status", [T("Is the co-applicant KYC verified?", KYC, "CO", has=("passed",),
                          lacks=("needs review",), field="KYC_STATUS")], tags=("kyc", "co"), phase=2),
@@ -232,7 +237,7 @@ KYC_TESTS = [
     C("k2_my_still", [T("And is my KYC still under review?", KYC, "SELF", has=("needs review",),
                         lacks=("92",))], tags=("kyc",), phase=2),
     C("k2_unka", [T("What is the co-applicant's name?", PROFILE, "CO", has=("Priya Sharma",)),
-                  T("unka KYC score kya hai?", KYC, "CO", has=("92",))],
+                  T("unka KYC score kya hai?", KYC, "CO", lacks=("92",))],
       tags=("kyc", "co", "followup", "hinglish"), phase=2),
 ]
 
@@ -259,7 +264,7 @@ FOLLOWUPS = [
                        lacks=("9876501234",)),
                      T("unka KYC status kya hai?", KYC, "CO", missing=True,
                        lacks=("RAHUL SHARMA",)),
-                     T("aur mera?", KYC, "SELF", has=("needs review",))],
+                     T("aur mera?", KYC, "SELF", any_of=("needs review", "review mein"))],
       tags=("followup", "hinglish")),
     C("f_same", [T("What is my email?", PROFILE, "SELF", has=("rahul@example.com",)),
                  T("Same for the co-applicant.", PROFILE, "CO", has=("priya@example.com",),

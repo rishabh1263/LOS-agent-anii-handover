@@ -1,0 +1,153 @@
+{
+ "coverage": {
+  "ITR": {
+   "docs": 5,
+   "type_accuracy": 1.0,
+   "avg_fields": 12.6,
+   "errors": 0,
+   "p50_ms": 62,
+   "max_ms": 6944,
+   "field_accuracy": "NOT VERIFIED - no ground truth",
+   "rows": [
+    {
+     "file": "documents/ITR.pdf",
+     "classified": "ITR",
+     "type_ok": true,
+     "fields": 14,
+     "status": "SUCCESS",
+     "ms": 176
+    },
+    {
+     "file": "documents/ITR_2.pdf",
+     "classified": "ITR",
+     "type_ok": true,
+     "fields": 16,
+     "status": "SUCCESS",
+     "ms": 55
+    },
+    {
+     "file": "documents/ITR_3.pdf",
+     "classified": "ITR",
+     "type_ok": true,
+     "fields": 6,
+     "status": "PARTIAL",
+     "ms": 6944
+    },
+    {
+     "file": "documents/ITR 2025-26.pdf",
+     "classified": "ITR",
+     "type_ok": true,
+     "fields": 13,
+     "status": "SUCCESS",
+     "ms": 62
+    },
+    {
+     "file": "documents/itr_v.pdf",
+     "classified": "ITR",
+     "type_ok": true,
+     "fields": 14,
+     "status": "SUCCESS",
+     "ms": 57
+    }
+   ]
+  },
+  "PASSPORT": {
+   "docs": 6,
+   "type_accuracy": 1.0,
+   "avg_fields": 3.2,
+   "errors": 0,
+   "p50_ms": 12305,
+   "max_ms": 13945,
+   "field_accuracy": "NOT VERIFIED - no ground truth",
+   "rows": [
+    {
+     "file": "passports/passport_samples0_1.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 2,
+     "status": "PARTIAL",
+     "ms": 13945
+    },
+    {
+     "file": "passports/passport_samples0_2.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 9,
+     "status": "PARTIAL",
+     "ms": 12305
+    },
+    {
+     "file": "passports/passport_samples0_3.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 2,
+     "status": "PARTIAL",
+     "ms": 10543
+    },
+    {
+     "file": "passports/passport_samples0_4.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 2,
+     "status": "PARTIAL",
+     "ms": 6679
+    },
+    {
+     "file": "passports/passport_samples0_5.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 2,
+     "status": "PARTIAL",
+     "ms": 8654
+    },
+    {
+     "file": "passports/passport_samples0_6.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 2,
+     "status": "PARTIAL",
+     "ms": 13002
+    }
+   ]
+  },
+  "SALE_DEED": {
+   "docs": 3,
+   "type_accuracy": 0.333,
+   "avg_fields": 5.7,
+   "errors": 0,
+   "p50_ms": 5472,
+   "max_ms": 25886192,
+   "field_accuracy": "NOT VERIFIED - no ground truth",
+   "rows": [
+    {
+     "file": "real_batch/sale_deed_clean.pdf",
+     "classified": "SALE_DEED",
+     "type_ok": true,
+     "fields": 9,
+     "status": "PARTIAL",
+     "ms": 3879
+    },
+    {
+     "file": "real_batch/sale_deed_small.pdf",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 4,
+     "status": "UNSUPPORTED",
+     "ms": 5472
+    },
+    {
+     "file": "real_batch/sale_deed2.pdf",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 4,
+     "status": "UNSUPPORTED",
+     "ms": 25886192
+    }
+   ]
+  },
+  "AADHAAR": {
+   "status": "NOT_TESTABLE",
+   "reason": "no sample in the repository"
+  }
+ }
+}

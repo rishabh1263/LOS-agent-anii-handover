@@ -59,6 +59,10 @@ class DocumentStatus(str, Enum):
     VERIFIED = "VERIFIED"
     REVIEW = "REVIEW"
     REJECTED = "REJECTED"
+    #: Replaced by a newer upload of the same single-per-person document
+    #: (documents.yaml los.single_current_per_party). Kept for audit, never
+    #: listed as a case document and never a KYC source.
+    SUPERSEDED = "SUPERSEDED"
 
 
 #: Document statuses that satisfy a required-document slot.

@@ -21,7 +21,6 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from typing import Callable
 
 from app.store.models import (
     Applicant,
@@ -40,11 +39,12 @@ _REPOSITORY: Repository | None = None
 
 
 def store_backend() -> str:
-    return (os.getenv("LOS_STORE_BACKEND") or "sqlite").strip().lower()
+    """Always "postgres". A configured other value is refused at build time."""
+    return "postgres"
 
 
-def store_path() -> str:
-    return (os.getenv("LOS_STORE_PATH") or "./runtime/los_store.sqlite3").strip()
+def store_dsn() -> str:
+    return (os.getenv("LOS_STORE_DSN") or "").strip()
 
 
 def store_dsn() -> str:
@@ -54,7 +54,6 @@ def store_dsn() -> str:
 def _build_sqlite() -> Repository:
     from app.store.sqlite_repo import SQLiteRepository
 
-    return SQLiteRepository(store_path())
 
 
 def _build_postgres() -> Repository:
@@ -88,14 +87,7 @@ def get_repository() -> Repository:
             return _REPOSITORY
 
         name = store_backend()
-        factory = _BACKENDS.get(name)
-        if factory is None:
-            raise RepositoryError(
-                f"Unknown LOS_STORE_BACKEND={name!r}. "
-                f"Available: {sorted(_BACKENDS)}"
-            )
-
-        repository = factory()
+        repository = _build_postgres()
         repository.initialise()
         _REPOSITORY = repository
         logger.info("Case store backend: %s", name)
@@ -106,7 +98,7 @@ def set_repository(repository: Repository | None) -> None:
     """
     Replace the process-wide repository.
 
-    For tests, which point it at a temporary file, and for a deployment that
+    For tests, which point it at a fresh database, and for a deployment that
     builds its own backend at startup. Passing None drops it so the next call
     rebuilds from configuration.
     """

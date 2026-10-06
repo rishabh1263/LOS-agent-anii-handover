@@ -24,7 +24,9 @@ allow_backward: false
 stage_statuses: [IN_PROGRESS, READY_FOR_HANDOFF, ON_HOLD]
 
 # Who may drive a transition, by kind. Recorded on every transition.
-sources: [WORKFLOW, LOS_INTEGRATION, OPERATOR]
+# MAKER_CHECKER: a four-eyes override, executed when its checker approves it
+# (app/approvals) -- never sent by a caller directly.
+sources: [WORKFLOW, LOS_INTEGRATION, OPERATOR, MAKER_CHECKER]
 
 # The scope a token needs to call the transition endpoint. The write-all
 # service scope (permissions.write_all_scope, los.write) also qualifies.

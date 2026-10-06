@@ -21,7 +21,6 @@ N -- a missing transition reason is reported honestly
 
 from __future__ import annotations
 
-import sqlite3
 import threading
 from pathlib import Path
 
@@ -31,7 +30,7 @@ from fastapi.testclient import TestClient
 from app.agents.los import stage_lifecycle, stages
 from app.store import get_repository, set_repository
 from app.store.models import CaseEvent
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 ALL_STAGES = ("FOS", "CPA", "CREDIT", "RCU", "BOPS", "HOPS", "DISBURSEMENT")
 CASE, APP = "case_5ta9e0000000000000000000000000aa", "APP-5TAGE00000AA"
@@ -48,7 +47,7 @@ def url(case_id: str = CASE) -> str:
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "lifecycle.sqlite3")
+    repository = fresh_repository(tmp_path / "lifecycle.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository
@@ -389,21 +388,26 @@ def test_f_history_survives_a_new_connection_and_is_append_only(case, service, r
     for stage in ("CPA", "CREDIT", "RCU"):
         moved(service, stage, reason=f"TO_{stage}")
 
-    reopened = SQLiteRepository(repo._path)
-    history = reopened.get_stage_transitions(case)
+    # A NEW connection pool on the same PostgreSQL database
+    from app.store.postgres_repo import PostgresRepository
+
+    reopened = PostgresRepository(repo._dsn, min_size=0, max_size=2)
+    try:
+        history = reopened.get_stage_transitions(case)
+    finally:
+        reopened.dispose()
     assert [(t.from_stage, t.to_stage, t.reason) for t in history] == [
         ("FOS", "CPA", "TO_CPA"), ("CPA", "CREDIT", "TO_CREDIT"),
         ("CREDIT", "RCU", "TO_RCU")]
     assert all(t.actor == "los-workflow" and t.request_id for t in history)
 
-    conn = sqlite3.connect(str(repo._path))
-    try:
-        with pytest.raises(sqlite3.DatabaseError, match="append-only"):
+    import psycopg
+
+    with psycopg.connect(repo._dsn, autocommit=True) as conn:
+        with pytest.raises(psycopg.Error, match="append-only"):
             conn.execute("UPDATE stage_transitions SET to_stage = 'FOS'")
-        with pytest.raises(sqlite3.DatabaseError, match="append-only"):
+        with pytest.raises(psycopg.Error, match="append-only"):
             conn.execute("DELETE FROM stage_transitions")
-    finally:
-        conn.close()
 
 
 def test_f_each_transition_is_on_the_case_timeline(case, service):

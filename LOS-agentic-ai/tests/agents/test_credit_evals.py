@@ -16,7 +16,7 @@ import pytest
 
 from app.agents.runtime.evals import runner
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 from evals.credit.suite import CASES, execute_in_process
 
 
@@ -26,7 +26,7 @@ def repository(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_RUN_AUDIT_ENABLED", "false")
     from app.agents.credit.bureau import demo as demo_bureau
 
-    repo = SQLiteRepository(tmp_path / "eval.sqlite3")
+    repo = fresh_repository(tmp_path / "eval.sqlite3")
     repo.initialise()
     set_repository(repo)
     with patch("app.agents.los.config.case_memory_enabled", return_value=True):

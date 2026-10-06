@@ -39,7 +39,7 @@ from app.knowledge.vector_store import (
     knowledge_collection,
 )
 from app.store import demo_seed, set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 from app.knowledge import vector_store as vs
 
 
@@ -54,7 +54,7 @@ def no_ambient_config(monkeypatch):
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "demo.sqlite3")
+    repository = fresh_repository(tmp_path / "demo.sqlite3")
     repository.initialise()
     set_repository(repository)
     demo_seed.seed(repository)

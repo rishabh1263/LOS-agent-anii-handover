@@ -930,6 +930,17 @@ def public_kyc(kyc: dict[str, Any] | None, *,
 
     published["result"] = kyc_explain.result_of(kyc)
 
+    # THE EXPLICIT STATE AND ITS EXPLANATION (the KYC agent's own, derived from
+    # its verdict): PASS / PARTIAL / REVIEW / FAIL / PENDING / CONFIGURATION_GAP,
+    # the reason in words, the documents, the mismatched fields, the next step.
+    status = str(published["status"]).upper()
+    published["state"] = kyc.get("state") or {"SKIPPED": "CONFIGURATION_GAP" if "KYC_DISABLED" in published[
+        "reason_codes"] else "PENDING", "PARTIAL": "PARTIAL"}.get(status, status)
+    for key in ("reason", "affected_documents", "mismatched_fields", "next_action",
+                "passed_checks", "failed_checks", "missing_information", "next_actions"):
+        if kyc.get(key) not in (None, "", []):
+            published[key] = kyc[key]
+
     # THE REASON CODES, AS A READER ACTS ON THEM. Added here rather
     # than in the party section so the case-level object and a party's
     # own carry the identical shape -- the control test that proves

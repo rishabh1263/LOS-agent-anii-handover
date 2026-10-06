@@ -31,7 +31,7 @@ from app.mcp import applicant as capabilities
 from app.mcp import runtime
 from app.mcp.contracts import CONTRACTS
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 CASE, APP = "case_mcp000000000000000000000000001", "APP-MCPRUNTIME01"
 COAPP = "COAPP-MCPRUNTIME1"
@@ -42,11 +42,11 @@ SCOPES = ["read_applicant", "read_application", "read_documents",
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     path = tmp_path / "mcp.sqlite3"
-    repository = SQLiteRepository(path)
+    repository = fresh_repository(path)
     repository.initialise()
     set_repository(repository)
-    # A stdio server is another process: it opens the same store by path.
-    monkeypatch.setenv("LOS_STORE_PATH", str(path))
+    # A stdio server is another process: it opens the same Postgres database by DSN.
+    monkeypatch.setenv("LOS_STORE_DSN", repository._dsn)
     yield repository
     runtime.reset()
     set_repository(None)

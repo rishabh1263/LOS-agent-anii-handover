@@ -500,6 +500,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ONE ERROR BLOCK ON EVERY ERROR, additive to `detail` (app/api/errors.py)
+from app.api import errors as _errors  # noqa: E402
+
+_errors.install(app)
+
+
 @app.middleware("http")
 async def _request_span(request, call_next):
     """
@@ -507,9 +513,18 @@ async def _request_span(request, call_next):
     Never headers, query strings or bodies -- a JWT or a question has no
     attribute to travel under.
     """
+    from urllib.parse import unquote
+
     from app.llm import trace as _llm_trace
     from app.observability.tracing import annotate, span
 
+    # A NUL BYTE IN A PATH OR QUERY is never a valid identifier: refused here,
+    # before routing, so it cannot reach a store that rejects it with a 500.
+    if "\x00" in unquote(request.url.path) or "\x00" in unquote(request.url.query or ""):
+        from fastapi.responses import JSONResponse
+
+        detail = {"code": "INVALID_REQUEST", "message": "The request contains an invalid character."}
+        return JSONResponse({"detail": detail, "error": _errors.error_block(400, detail)}, status_code=400)
     # one model-call ledger per request (app/llm/trace.py)
     _llm_trace.begin()
     with span("http.request", http_method=request.method) as current:
@@ -624,6 +639,39 @@ app.include_router(
 # the agent before any tool runs.
 app.include_router(
     credit_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+
+# JEV: the semantic decision layer -- typed decisions on authoritative state,
+# gated actions, never a domain status. Case ownership checked per route.
+from app.api.routes.jev_api import router as jev_router  # noqa: E402
+
+app.include_router(
+    jev_router,
+    prefix="/api/v1/jev",
+    tags=["JEV semantic decisions"],
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+
+# MAKER / CHECKER: four-eyes requests for configured high-risk actions.
+from app.api.routes.approvals_api import router as approvals_router  # noqa: E402
+
+app.include_router(
+    approvals_router,
+    prefix="/api/v1/approvals",
+    tags=["Maker / Checker"],
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+
+# FRONTEND STATUS CONTRACT: progress, summary, risk signals, reviews (read-only).
+from app.api.routes.status_api import router as status_router  # noqa: E402
+
+app.include_router(
+    status_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
     responses=COMMON_ERRORS,

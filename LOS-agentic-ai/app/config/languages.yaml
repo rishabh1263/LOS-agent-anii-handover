@@ -989,6 +989,31 @@ rewrites:
 # English and the response says `localized: false`. No model writes these.
 # ---------------------------------------------------------------------------
 templates:
+  # THE DOCUMENT LIST (answer.py _status_line), one line per document: heading and status words
+  documents_heading:
+    hi: "इस आवेदन के दस्तावेज़:"
+    hi-Latn: "Is application ke documents:"
+    mr: "या अर्जावरील कागदपत्रे:"
+  doc_status_verified:
+    hi: "सत्यापित"
+    hi-Latn: "Verified"
+    mr: "पडताळलेले"
+  doc_status_review:
+    hi: "समीक्षा ज़रूरी"
+    hi-Latn: "Review chahiye"
+    mr: "तपासणी आवश्यक"
+  doc_status_rejected:
+    hi: "अस्वीकृत — सही दस्तावेज़ अपलोड करें"
+    hi-Latn: "Reject hua — sahi document upload karein"
+    mr: "नाकारले — योग्य कागदपत्र अपलोड करा"
+  doc_status_waiting:
+    hi: "अपलोड हुआ, जाँच जारी"
+    hi-Latn: "Upload hua, verify ho raha hai"
+    mr: "अपलोड झाले, पडताळणी सुरू"
+  documents_attention:
+    hi: "अगला कदम: {label} पर ध्यान दें।"
+    hi-Latn: "Agla step: {label} par dhyan dein."
+    mr: "पुढील पायरी: {label} कडे लक्ष द्या."
   current_stage:
     hi: "आपका आवेदन अभी {stage} चरण में है।"
     hi-Latn: "Aapka application abhi {stage} stage mein hai."
@@ -1066,9 +1091,9 @@ templates:
   # ACTIONS AND GATES (answering/localize.py): filled ONLY from the structured
   # gate / pending-work blocks -- document and stage labels stay as recorded.
   gate_ready:
-    hi: "बधाई हो -- {stage} की सभी तय जाँचें पूरी हैं। आपका केस {next} में जाने के लिए तैयार है।"
-    hi-Latn: "Badhai ho -- {stage} ki saari tay jaanch poori hain. Aapka case {next} mein jaane ke liye ready hai."
-    mr: "अभिनंदन -- {stage} च्या सर्व ठरलेल्या तपासण्या पूर्ण झाल्या आहेत. तुमचा केस {next} मध्ये जाण्यासाठी तयार आहे."
+    hi: "{stage} की सभी तय जाँचें पूरी हैं। आपका केस {next} में जाने के लिए तैयार है।"
+    hi-Latn: "{stage} ki saari tay jaanch poori hain. Aapka case {next} mein jaane ke liye ready hai."
+    mr: "{stage} च्या सर्व ठरलेल्या तपासण्या पूर्ण झाल्या आहेत. तुमचा केस {next} मध्ये जाण्यासाठी तयार आहे."
   gate_blocked:
     hi: "आपका केस अभी {stage} से {next} में नहीं जा सकता। बाकी: {items}।"
     hi-Latn: "Aapka case abhi {stage} se {next} mein nahi ja sakta. Baaki: {items}."
@@ -1214,6 +1239,12 @@ templates:
     hi: "सह-आवेदक का {document}"
     hi-Latn: "co-applicant ka {document}"
     mr: "सह-अर्जदाराचे {document}"
+  # the primary applicant's document, named only when the same answer also
+  # covers the co-applicant's
+  doc_of_primary:
+    hi: "प्राथमिक आवेदक का {document}"
+    hi-Latn: "primary applicant ka {document}"
+    mr: "प्राथमिक अर्जदाराचे {document}"
   sentence_end:
     hi: "।"
     hi-Latn: "."

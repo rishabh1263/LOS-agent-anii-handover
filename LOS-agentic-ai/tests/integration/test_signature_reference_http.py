@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agents"))
 from test_signature_standalone import synthetic_signature  # noqa: E402
 
 from app.store import set_repository  # noqa: E402
-from app.store.sqlite_repo import SQLiteRepository  # noqa: E402
+from app.store.testing import fresh_repository  # noqa: E402
 
 PAN = Path(__file__).resolve().parents[2] / "samples" / "lPan.jpg"
 
@@ -29,7 +29,7 @@ PAN = Path(__file__).resolve().parents[2] / "samples" / "lPan.jpg"
 def client(tmp_path, make_token):
     import main
 
-    repository = SQLiteRepository(tmp_path / "sig.sqlite3")
+    repository = fresh_repository(tmp_path / "sig.sqlite3")
     repository.initialise()
     set_repository(repository)
     c = TestClient(main.app)

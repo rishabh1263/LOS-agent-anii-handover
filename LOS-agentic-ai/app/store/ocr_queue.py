@@ -211,10 +211,14 @@ def submit(repository: Any, *, document_id: str, case_id: str,
         if existing is not None:
             if existing.status in OPEN_STATUSES:
                 return existing
-            if existing.status is OcrJobStatus.COMPLETED:
+            if existing.status is OcrJobStatus.COMPLETED and not _waiting(repository, document_id):
                 return None
-            # A previous attempt failed. Queue it again so a re-upload
-            # or a fixed engine gets another go, from attempt zero.
+            # A previous attempt failed -- or COMPLETED, and the document was
+            # re-uploaded and waits to be read again (without this it showed
+            # "being read" forever: nothing would ever read it). Queued again
+            # from attempt zero UNDER A NEW JOB ID, so a worker still holding
+            # the old attempt is recognisably stale and cannot record (_record).
+            existing.job_id = f"ocr_{uuid.uuid4().hex}"
             existing.status = OcrJobStatus.QUEUED
             existing.attempts = 0
             existing.detail = None
@@ -228,6 +232,19 @@ def submit(repository: Any, *, document_id: str, case_id: str,
     except Exception as exc:
         logger.warning("Could not queue OCR for %s: %r", document_id, exc)
         return None
+
+
+def _waiting(repository: Any, document_id: str) -> bool:
+    """Whether the document's current state says the background reader must finish it."""
+    from app.store.models import DocumentStatus
+
+    document = repository.get_document(document_id)
+    return document is not None and document.status is not DocumentStatus.SUPERSEDED and (
+        document.status is DocumentStatus.PROCESSING
+        or bool(_UNREAD & set(document.reason_codes or [])))
+
+
+_UNREAD = {"DOCUMENT_REQUIRES_OCR", "DOCUMENT_QUEUED_FOR_PROCESSING"}
 
 
 def jobs_for_case(repository: Any, case_id: str) -> list[dict[str, Any]]:
@@ -563,6 +580,18 @@ def _record(repository: Any, job: OcrJob, result: Any, rows: int,
     status, codes = _controls(job, status, codes, content)
 
     document = repository.get_document(job.document_id)
+    # A STALE READ CHANGES NOTHING. Only the document's CURRENT job may record a
+    # verdict, and only on a document still waiting to be read: a job overtaken by
+    # a re-upload of the same file (the job row now names a newer job), or a
+    # document since replaced (SUPERSEDED) or decided, keeps its newer state --
+    # otherwise a late worker could revive a replaced statement as VERIFIED.
+    # The same rule _release_document applies on the failure path.
+    current_job = repository.get_ocr_job(job.document_id)
+    if (document is not None and (not _waiting(repository, job.document_id)
+                                  or (current_job is not None and current_job.job_id != job.job_id))):
+        logger.warning("OCR job %s: result not applied -- %s no longer waits for this read",
+                       job.job_id, job.document_id)
+        document = None
     if document is not None:
         document.status = (DocumentStatus.VERIFIED if status == "PASS"
                            else DocumentStatus.REVIEW)

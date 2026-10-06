@@ -103,9 +103,10 @@ def record(
         target = audit_path()
         target.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(entry, default=str, ensure_ascii=False)
+        from app.observability.audit_log import append_line
+
         with _LOCK:
-            with target.open("a", encoding="utf-8") as handle:
-                handle.write(line + "\n")
+            append_line(target, line)
     except Exception:
         logger.exception("Risk audit write failed; assessment was NOT affected.")
 

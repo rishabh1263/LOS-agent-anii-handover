@@ -747,6 +747,11 @@ async def transition_stage(
     if not (body.reason or "").strip():
         raise HTTPException(status_code=422, detail={"request_id": request_id, "code": "REASON_REQUIRED",
                                                      "message": "A transition must record its reason."})
+    if str(body.source or "").strip().upper() == "MAKER_CHECKER":
+        # only an APPROVED four-eyes request writes this source (app/approvals);
+        # a caller claiming it would pass a move off as checked
+        raise HTTPException(status_code=422, detail={"request_id": request_id, "code": "SOURCE_NOT_ALLOWED",
+                                                     "message": "MAKER_CHECKER is written by an approval only."})
     mode = str(body.mode or "GATED").strip().upper()
     gate_view = None
     reason = body.reason
@@ -794,6 +799,26 @@ async def transition_stage(
             logger.warning("stage_transition OVERRIDE case_id=%s from=%s to=%s gate=%s actor=%s request_id=%s",
                            case_id, current_name, body.target_stage, gate.get("status"),
                            get_subject(claims), request_id)
+            # FOUR EYES (config/maker_checker.yaml STAGE_OVERRIDE): the override is
+            # REQUESTED, not made -- a second person with the checker permission
+            # approves it, and only then does the case move.
+            from app.approvals import service as approvals
+
+            if approvals.requires_check("STAGE_OVERRIDE"):
+                from fastapi.responses import JSONResponse
+
+                try:
+                    pending = approvals.request(
+                        "STAGE_OVERRIDE", case_id=case_id, resource_id=case_id, maker_id=get_subject(claims),
+                        reason=body.reason,
+                        payload={"target_stage": str(body.target_stage).upper(), "expected_stage": current_name,
+                                 "reason": body.reason, "gate_status": gate.get("status")})
+                except approvals.ApprovalError as exc:
+                    raise HTTPException(exc.http_status, detail={"request_id": request_id, **exc.public()}) from None
+                return JSONResponse(status_code=202, content={
+                    "request_id": request_id, "result": "PENDING_CHECK", "mode": "OVERRIDE",
+                    "approval": approvals.public(pending), "gate": gate_view,
+                    "message": "The override is recorded for a second person to check; the case has not moved."})
 
     try:
         result = stage_lifecycle.transition(
@@ -843,8 +868,71 @@ async def transition_stage(
                          status="OK")
         except Exception:  # noqa: BLE001 - the transition is recorded; the audit failure is logged
             logger.exception("stage override audit failed case_id=%s request_id=%s", case_id, request_id)
+    credit = _start_credit_underwriting(case_id, claims, request_id, result) if moves else None
     return {"request_id": request_id, **result, "mode": mode if moves else "STATUS_ONLY",
-            "override": override, "gate": gate_view}
+            "override": override, "gate": gate_view, "credit_underwriting": credit}
+
+
+#: Underwriting runs started from a stage transition, kept so a run is not lost
+#: to garbage collection before it finishes (asyncio holds only weak refs).
+_CREDIT_RUNS: set = set()
+
+
+def _start_credit_underwriting(case_id: str, claims: dict[str, Any], request_id: str,
+                               result: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    KYC -> ELIGIBILITY -> CREDIT: entering the credit stage STARTS the existing
+    Credit Underwriting Agent (app/agents/credit) -- the main flow never called
+    it before; only the chatbot and POST /credit/underwriting/run did.
+
+    As THE CALLER who moved the case: they own it, and the agent re-checks
+    their underwriting scope, the stage and its policy before any tool runs.
+    Off the request path; the run persists its own UNDERWRITING finding, read
+    back by GET /credit and the copilot. Never a decision -- an assessment for
+    the Decision Agent. Returns what happened, never silent.
+    """
+    import asyncio
+
+    from app.agents.applicant import permissions
+    from app.agents.credit import config as credit_config
+
+    stage = str((result.get("state") or result).get("stage") or result.get("to_stage") or "").upper()
+    if stage not in credit_config.allowed_stages():
+        return None
+    caller = permissions.Caller.from_claims(claims)
+    scope = credit_config.required_scope()
+    if scope not in caller.scopes:
+        return {"status": "NOT_STARTED", "reason": "CALLER_LACKS_UNDERWRITING_SCOPE", "required_scope": scope,
+                "how": "POST /api/v1/credit/underwriting/run by a caller holding it"}
+
+    async def run() -> None:
+        from app.agents.credit import agent
+
+        token = agent.CALLER.set(caller)
+        try:
+            outcome = await agent.underwrite(case_id, caller=caller, request_id=f"uw_{request_id}")
+            logger.info("credit underwriting after stage move case_id=%s status=%s", case_id, outcome.status)
+        except Exception:  # noqa: BLE001 - the transition stands; the run's failure is logged
+            logger.exception("credit underwriting failed after stage move case_id=%s", case_id)
+        finally:
+            agent.CALLER.reset(token)
+
+    # ITS OWN THREAD AND LOOP, not a task on the request's loop: a task there
+    # only advances while that loop is driven, and stalled after its first tool
+    # call once the response was sent (measured, 2026-10-05).
+    future = _CREDIT_POOL.submit(asyncio.run, run())
+    _CREDIT_RUNS.add(future)
+    future.add_done_callback(_CREDIT_RUNS.discard)
+    return {"status": "STARTED", "run_request_id": f"uw_{request_id}", "read": f"/api/v1/credit/{case_id}"}
+
+
+def _credit_pool():
+    from concurrent.futures import ThreadPoolExecutor
+
+    return ThreadPoolExecutor(max_workers=2, thread_name_prefix="credit-uw")
+
+
+_CREDIT_POOL = _credit_pool()
 
 
 @router.get(
@@ -973,6 +1061,35 @@ async def move_case_query(case_id: str, query_id: str, body: QueryStatusRequest,
              summary="Decide a deviation (configured approving authority only; never the raiser)")
 async def decide_case_deviation(case_id: str, deviation_id: str, body: DeviationDecisionRequest,
                                 claims: dict[str, Any] = Depends(require_jwt)) -> dict[str, Any]:
+    from app.approvals import service as approvals
+
+    if str(body.decision or "").strip().upper() == "APPROVED" and approvals.requires_check("DEVIATION_APPROVAL"):
+        # FOUR EYES (config/maker_checker.yaml DEVIATION_APPROVAL): approving a
+        # deviation is REQUESTED by the authority and executed only when a second
+        # person checks it. Rejecting / withdrawing is conservative and acts at once.
+        from fastapi.responses import JSONResponse
+
+        def request_approval(q, scopes, actor, rid):
+            cfg = q.config("deviations")
+            if not set(scopes) & set(cfg.get("approve_scopes") or []):
+                raise q.QueryError("DEVIATION_APPROVAL_NOT_PERMITTED",
+                                   "Only the configured approving authority can approve a deviation.", 403)
+            row = q._get(case_id, "DEVIATION", deviation_id)
+            if str((row.payload or {}).get("raised_by") or "") == str(actor):
+                raise q.QueryError("RAISER_CANNOT_DECIDE", "The person who raised a deviation cannot approve it.", 403)
+            try:
+                return approvals.request(
+                    "DEVIATION_APPROVAL", case_id=case_id, resource_id=deviation_id, maker_id=actor,
+                    reason=body.justification or "deviation approval",
+                    payload={"decision": "APPROVED", "justification": body.justification,
+                             "maker_scopes": sorted(scopes)})
+            except approvals.ApprovalError as exc:
+                raise q.QueryError(exc.code, exc.message, exc.http_status) from None
+
+        pending = _query_call(case_id, claims, "dev", True, request_approval)
+        return JSONResponse(status_code=202, content={
+            "result": "PENDING_CHECK", "approval": approvals.public(pending),
+            "message": "The approval is recorded for a second person to check; the deviation is unchanged."})
     return _query_call(case_id, claims, "dev", True, lambda q, scopes, actor, rid: {
         "deviation": q.decide_deviation(case_id, deviation_id, decision=body.decision, actor=actor,
                                         scopes=scopes, justification=body.justification, request_id=rid)})

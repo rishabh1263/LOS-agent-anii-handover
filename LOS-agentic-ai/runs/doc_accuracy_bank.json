@@ -1,0 +1,147 @@
+{
+ "bank": {
+  "rows": [
+   {
+    "file": "documents\\demo_bank_statement.pdf",
+    "status": "SUCCESS",
+    "rows": 8,
+    "reconciles": true,
+    "ms": 158
+   },
+   {
+    "file": "documents\\statement.pdf",
+    "status": "SUCCESS",
+    "rows": 694,
+    "reconciles": true,
+    "ms": 5839
+   },
+   {
+    "file": "real_batch\\bank_amit.pdf",
+    "status": "SUCCESS",
+    "rows": 94,
+    "reconciles": true,
+    "ms": 793
+   },
+   {
+    "file": "real_batch\\bank_canara.pdf",
+    "status": "SUCCESS",
+    "rows": 524,
+    "reconciles": true,
+    "ms": 1098
+   },
+   {
+    "file": "real_batch\\bank_generic.pdf",
+    "status": "SUCCESS",
+    "rows": 1339,
+    "reconciles": true,
+    "ms": 11138
+   },
+   {
+    "file": "real_batch\\bank_hdfc_new.pdf",
+    "status": "SUCCESS",
+    "rows": 39,
+    "reconciles": true,
+    "ms": 570
+   },
+   {
+    "file": "real_batch\\bank_kotak.pdf",
+    "status": "SUCCESS",
+    "rows": 1339,
+    "reconciles": true,
+    "ms": 5276
+   },
+   {
+    "file": "real_batch\\bank_sbi_scanned.pdf",
+    "status": "PARTIAL",
+    "rows": 27,
+    "reconciles": null,
+    "ms": 25356
+   },
+   {
+    "file": "real_batch\\bank_std_chartered.pdf",
+    "status": "SUCCESS",
+    "rows": 51,
+    "reconciles": true,
+    "ms": 295
+   },
+   {
+    "file": "real_batch\\sbi_new.pdf",
+    "status": "SUCCESS",
+    "rows": 39,
+    "reconciles": true,
+    "ms": 433
+   }
+  ],
+  "reconciled": 9,
+  "of": 10
+ },
+ "slip": {
+  "rows": [
+   {
+    "variant": "native_text_pdf",
+    "status": "SUCCESS",
+    "correct": 7,
+    "of": 7,
+    "reconciles": true,
+    "ms": 28
+   },
+   {
+    "variant": "image_only_pdf",
+    "status": "SUCCESS",
+    "correct": 7,
+    "of": 7,
+    "reconciles": true,
+    "ms": 7058
+   },
+   {
+    "variant": "tilted_3deg",
+    "status": "SUCCESS",
+    "correct": 7,
+    "of": 7,
+    "reconciles": true,
+    "ms": 6877
+   },
+   {
+    "variant": "rotated_90deg",
+    "status": "SUCCESS",
+    "correct": 7,
+    "of": 7,
+    "reconciles": true,
+    "ms": 4089
+   },
+   {
+    "variant": "blurred",
+    "status": "SUCCESS",
+    "correct": 7,
+    "of": 7,
+    "reconciles": true,
+    "ms": 5356
+   },
+   {
+    "variant": "low_resolution",
+    "status": "SUCCESS",
+    "correct": 7,
+    "of": 7,
+    "reconciles": true,
+    "ms": 6883
+   },
+   {
+    "variant": "jpeg_q30",
+    "status": "SUCCESS",
+    "correct": 7,
+    "of": 7,
+    "reconciles": true,
+    "ms": 4036
+   },
+   {
+    "variant": "phone_photo",
+    "status": "SUCCESS",
+    "correct": 7,
+    "of": 7,
+    "reconciles": true,
+    "ms": 6506
+   }
+  ],
+  "field_accuracy": 1.0
+ }
+}

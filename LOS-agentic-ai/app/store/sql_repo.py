@@ -1,19 +1,18 @@
 """
-SQLite implementation of the repository contract.
+THE CASE STORE'S SQL, WRITTEN ONCE -- run on PostgreSQL (app/store/postgres_repo.py).
 
-CHOSEN BECAUSE IT ADDS NOTHING. sqlite3 is in the standard library, so the
-store costs no new dependency, no server to run and no migration tool. It is
-the right size for the FOS stage of one branch; it is not the right size for a
-national deployment, which is exactly why every caller goes through
-`Repository` and not through this file.
+SqlRepository holds every query and every row <-> domain mapping of the
+repository contract. It owns no engine: the concrete backend supplies the
+connection (`_connect`) and the schema migration (`initialise`). PostgreSQL is
+the only backend -- in development (an embedded local server, app/store/__init__.py),
+in tests and in production -- so what the tests prove is what production runs.
 
-Concurrency: FastAPI serves requests from a thread pool, so connections are
-per-thread (`check_same_thread=False` plus a lock would serialise every read).
-WAL is enabled so readers do not block the writer.
+Statements are plain SQL with `?` placeholders; the backend's translation turns
+them into its own dialect (postgres_repo.translate). Driver errors arrive as
+StoreDbError / StoreIntegrityError, so every fail-closed path below is engine-free.
 
-Times are stored as ISO-8601 UTC strings. SQLite has no datetime type, and a
-float epoch is unreadable when someone is looking at the file with a CLI at
-two in the morning.
+Times are stored as ISO-8601 UTC strings: readable in any SQL console, and
+ordered correctly as text.
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,6 +41,15 @@ from app.store.models import (
     utcnow,
 )
 from app.store.repository import Repository, RepositoryError
+from app.store import crypto as _crypto
+
+
+class StoreDbError(Exception):
+    """A database error, raised by the backend's connection adapter."""
+
+
+class StoreIntegrityError(StoreDbError):
+    """A constraint refused the write (unique, foreign key, check)."""
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +292,74 @@ CREATE TRIGGER IF NOT EXISTS stage_transitions_no_update
 CREATE TRIGGER IF NOT EXISTS stage_transitions_no_delete
     BEFORE DELETE ON stage_transitions
     BEGIN SELECT RAISE(ABORT, 'stage history is append-only'); END;
+
+-- JEV SEMANTIC DECISION RUNS (app/jev). One row per evaluation: the typed
+-- decisions, their probabilities and confidence, the evidence version they
+-- were made on, and what the orchestrator did with them. APPEND-ONLY -- a
+-- re-evaluation is a new run, never an overwrite -- and keyed for
+-- idempotency: the same evidence + scope + question-set version is
+-- evaluated once (UNIQUE evaluation_key).
+CREATE TABLE IF NOT EXISTS jev_runs (
+    jev_run_id           TEXT PRIMARY KEY,
+    evaluation_key       TEXT NOT NULL UNIQUE,
+    case_id              TEXT NOT NULL,
+    party_id             TEXT,
+    stage                TEXT,
+    evaluation_scope     TEXT NOT NULL,
+    question_set_version TEXT NOT NULL,
+    evidence_version     TEXT NOT NULL,
+    trigger              TEXT,
+    provider             TEXT NOT NULL,
+    model                TEXT,
+    status               TEXT NOT NULL,
+    decisions            TEXT NOT NULL DEFAULT '[]',
+    actions              TEXT NOT NULL DEFAULT '[]',
+    error_code           TEXT,
+    latency_ms           REAL,
+    created_at           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_jev_runs_case ON jev_runs (case_id, created_at);
+CREATE TRIGGER IF NOT EXISTS jev_runs_no_update
+    BEFORE UPDATE ON jev_runs
+    BEGIN SELECT RAISE(ABORT, 'jev runs are append-only'); END;
+
+-- MAKER / CHECKER APPROVALS (app/approvals). One generic row per controlled
+-- action. `version` is bumped on every change and every change is a
+-- compare-and-set on it, so two checkers can never both decide one request.
+CREATE TABLE IF NOT EXISTS approvals (
+    approval_id       TEXT PRIMARY KEY,
+    case_id           TEXT NOT NULL,
+    action_type       TEXT NOT NULL,
+    resource_type     TEXT NOT NULL,
+    resource_id       TEXT NOT NULL,
+    maker_id          TEXT NOT NULL,
+    checker_id        TEXT,
+    status            TEXT NOT NULL,
+    reason            TEXT NOT NULL,
+    comments          TEXT,
+    payload           TEXT NOT NULL DEFAULT '{}',
+    result            TEXT,
+    policy_reference  TEXT,
+    evidence_version  TEXT NOT NULL,
+    version           INTEGER NOT NULL DEFAULT 1,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    expires_at        TEXT NOT NULL,
+    CHECK (checker_id IS NULL OR checker_id <> maker_id)
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_case ON approvals (case_id, created_at);
+
+-- COPILOT CONVERSATION STATE (copilot/conversation/state.py, store
+-- "repository"): labels only, never values; TTL-pruned. In the case store so
+-- every worker and instance -- and a restart -- sees the same conversation.
+CREATE TABLE IF NOT EXISTS conversation_state (
+    subject_key       TEXT NOT NULL,
+    conversation_id   TEXT NOT NULL,
+    state             TEXT NOT NULL,
+    last_activity_at  REAL NOT NULL,
+    PRIMARY KEY (subject_key, conversation_id)
+);
+CREATE INDEX IF NOT EXISTS idx_conversation_activity ON conversation_state (last_activity_at);
 """
 
 
@@ -292,7 +367,7 @@ def _iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
-def _column(row: "sqlite3.Row", name: str) -> str | None:
+def _column(row: "Any", name: str) -> str | None:
     """
     One column, or None when this database predates it.
 
@@ -368,110 +443,42 @@ def _parse(value: str | None) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-class SQLiteRepository(Repository):
-    """The FOS store, in one file on disk."""
+class SqlRepository(Repository):
+    """Every query of the repository contract; the backend supplies the connection."""
 
-    def __init__(self, path: str | Path) -> None:
-        self._path = Path(path)
+    #: The backend's name, reported by health() and at startup.
+    backend = "sql"
+
+    def __init__(self) -> None:
         self._local = threading.local()
         self._init_lock = threading.Lock()
         self._initialised = False
 
-    # -- connection --------------------------------------------------------
+    # -- connection: supplied by the backend ---------------------------------
 
-    def _connect(self) -> sqlite3.Connection:
+    def _connect(self) -> Any:
         """One connection per thread, created on first use in that thread."""
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            return conn
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(str(self._path), timeout=10.0)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
-            conn.execute("PRAGMA busy_timeout=5000")
-        except sqlite3.Error as exc:
-            raise RepositoryError(f"Could not open the case store: {exc}") from exc
-        self._local.conn = conn
-        return conn
+        raise NotImplementedError
 
     def initialise(self) -> None:
-        with self._init_lock:
-            if self._initialised:
-                return
-            try:
-                conn = self._connect()
-                conn.executescript(_SCHEMA)
-                self._add_missing_columns(conn)
-                self._add_missing_indexes(conn)
-                conn.commit()
-            except sqlite3.Error as exc:
-                raise RepositoryError(f"Could not create the schema: {exc}") from exc
-            self._initialised = True
-            logger.info("Case store ready at %s", self._path)
-
-    @staticmethod
-    def _add_missing_columns(conn: sqlite3.Connection) -> None:
-        """
-        Bring an existing store file up to the current schema.
-
-        CREATE TABLE IF NOT EXISTS does nothing to a table that already
-        exists, so a database written by an earlier build keeps its old
-        column set and every read of a new field fails. This adds what is
-        missing and leaves what is there alone -- it is safe to run on every
-        start, and it never drops or rewrites anything.
-        """
-        for table, columns in _ADDED_COLUMNS.items():
-            try:
-                present = {r["name"] for r in
-                           conn.execute(f"PRAGMA table_info({table})")}
-            except sqlite3.Error as exc:  # pragma: no cover - unreadable file
-                logger.error("Could not inspect %s: %s", table, exc)
-                continue
-            if not present:
-                continue
-            for name, sql_type in columns:
-                if name in present:
-                    continue
-                try:
-                    conn.execute(
-                        f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
-                    logger.info("Added column %s.%s to the case store",
-                                table, name)
-                except sqlite3.Error as exc:  # pragma: no cover
-                    raise RepositoryError(
-                        f"Could not add {table}.{name}: {exc}") from exc
-
-    @staticmethod
-    def _add_missing_indexes(conn: sqlite3.Connection) -> None:
-        """
-        Indexes over columns the migration may have just added.
-
-        Separate from `_SCHEMA` because that script runs before the
-        migration, when an upgraded database does not yet have the column.
-        """
-        for statement in _ADDED_INDEXES:
-            try:
-                conn.execute(statement)
-            except sqlite3.Error as exc:  # pragma: no cover
-                logger.error("Could not create index: %s", exc)
+        """Bring the schema to the current migration (the backend's own)."""
+        raise NotImplementedError
 
     def close(self) -> None:
         conn = getattr(self._local, "conn", None)
         if conn is not None:
             try:
                 conn.close()
-            except sqlite3.Error:
+            except StoreDbError:
                 pass
             self._local.conn = None
 
     def health(self) -> dict[str, Any]:
         try:
             self._connect().execute("SELECT 1").fetchone()
-            return {"backend": "sqlite", "available": True, "path": str(self._path)}
-        except Exception as exc:
-            return {"backend": "sqlite", "available": False, "error": str(exc)[:200]}
+            return {"backend": self.backend, "available": True}
+        except Exception as exc:  # noqa: BLE001
+            return {"backend": self.backend, "available": False, "error": type(exc).__name__}
 
     # -- applicants --------------------------------------------------------
 
@@ -613,9 +620,13 @@ class SQLiteRepository(Repository):
         )
         return document
 
-    def list_documents(self, case_id: str) -> list[Document]:
+    def list_documents(self, case_id: str, *, include_superseded: bool = False) -> list[Document]:
+        # A SUPERSEDED row is a replaced upload kept for audit: not a case
+        # document, so not listed unless asked for (models.DocumentStatus).
         rows = self._all(
-            "SELECT * FROM documents WHERE case_id = ? ORDER BY uploaded_at",
+            "SELECT * FROM documents WHERE case_id = ?"
+            + ("" if include_superseded else " AND status != 'SUPERSEDED'")
+            + " ORDER BY uploaded_at",
             (case_id,),
         )
         return [self._document(r) for r in rows]
@@ -627,7 +638,8 @@ class SQLiteRepository(Repository):
         if not wanted:
             return out
         marks = ",".join("?" for _ in wanted)
-        for row in self._all(f"SELECT * FROM documents WHERE case_id IN ({marks}) ORDER BY uploaded_at",
+        for row in self._all(f"SELECT * FROM documents WHERE case_id IN ({marks}) "
+                             "AND status != 'SUPERSEDED' ORDER BY uploaded_at",
                              tuple(wanted)):
             document = self._document(row)
             out.setdefault(document.case_id, []).append(document)
@@ -679,18 +691,18 @@ class SQLiteRepository(Repository):
             (str(subject), str(resource_type).upper(), str(resource_id)),
         ) is not None
 
-    def _one(self, sql: str, args: tuple) -> sqlite3.Row | None:
+    def _one(self, sql: str, args: tuple) -> Any | None:
         self.initialise()
         try:
             return self._connect().execute(sql, args).fetchone()
-        except sqlite3.Error as exc:
+        except StoreDbError as exc:
             raise RepositoryError(f"Case store read failed: {exc}") from exc
 
-    def _all(self, sql: str, args: tuple) -> list[sqlite3.Row]:
+    def _all(self, sql: str, args: tuple) -> list[Any]:
         self.initialise()
         try:
             return list(self._connect().execute(sql, args).fetchall())
-        except sqlite3.Error as exc:
+        except StoreDbError as exc:
             raise RepositoryError(f"Case store read failed: {exc}") from exc
 
     def _write(self, sql: str, args: tuple) -> None:
@@ -699,14 +711,14 @@ class SQLiteRepository(Repository):
         try:
             conn.execute(sql, args)
             conn.commit()
-        except sqlite3.Error as exc:
+        except StoreDbError as exc:
             conn.rollback()
             raise RepositoryError(f"Case store write failed: {exc}") from exc
 
     # -- row -> model ------------------------------------------------------
 
     @staticmethod
-    def _applicant(row: sqlite3.Row) -> Applicant:
+    def _applicant(row: Any) -> Applicant:
         return Applicant(
             applicant_id=row["applicant_id"],
             full_name=row["full_name"],
@@ -719,7 +731,7 @@ class SQLiteRepository(Repository):
         )
 
     @staticmethod
-    def _application(row: sqlite3.Row) -> Application:
+    def _application(row: Any) -> Application:
         try:
             status = ApplicationStatus(row["status"])
         except ValueError:
@@ -748,7 +760,7 @@ class SQLiteRepository(Repository):
         )
 
     @staticmethod
-    def _document(row: sqlite3.Row) -> Document:
+    def _document(row: Any) -> Document:
         try:
             status = DocumentStatus(row["status"])
         except ValueError:
@@ -821,7 +833,8 @@ class SQLiteRepository(Repository):
              _kind_value(finding.finding_kind), finding.stage, finding.status,
              finding.score, finding.confidence,
              json.dumps(list(finding.reason_codes or [])),
-             json.dumps(finding.payload or {}),
+             # document values encrypted at rest (app/store/crypto.py)
+             _crypto.seal(_kind_value(finding.finding_kind), finding.payload or {}),
              finding.source_type, finding.source_id, finding.document_id,
              _iso(finding.created_at), finding.version, finding.content_hash,
              _iso(utcnow())),
@@ -873,6 +886,7 @@ class SQLiteRepository(Repository):
                 updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(document_id) DO UPDATE SET
+                job_id     = excluded.job_id,
                 status     = excluded.status,
                 attempts   = excluded.attempts,
                 detail     = excluded.detail,
@@ -887,6 +901,11 @@ class SQLiteRepository(Repository):
     def get_ocr_job(self, document_id: str) -> "OcrJob | None":
         row = self._one("SELECT * FROM ocr_jobs WHERE document_id = ?",
                         (document_id,))
+        return self._ocr_job(row) if row else None
+
+    def find_ocr_job(self, job_id: str) -> "OcrJob | None":
+        """One job by its own id (GET /jobs/{job_id}); the caller authorizes its case."""
+        row = self._one("SELECT * FROM ocr_jobs WHERE job_id = ?", (job_id,))
         return self._ocr_job(row) if row else None
 
     def get_ocr_jobs(self, case_id: str) -> list["OcrJob"]:
@@ -973,7 +992,7 @@ class SQLiteRepository(Repository):
             cursor = conn.execute(sql, args)
             conn.commit()
             return int(cursor.rowcount or 0)
-        except sqlite3.Error as exc:
+        except StoreDbError as exc:
             raise RepositoryError(f"Case store write failed: {exc}") from exc
 
     def _ocr_job(self, row) -> "OcrJob":
@@ -1062,6 +1081,107 @@ class SQLiteRepository(Repository):
             )
         ]
 
+    # -- Copilot conversation state (labels only) ---------------------------
+
+    def get_conversation(self, subject_key: str, conversation_id: str) -> tuple[str, float] | None:
+        row = self._one("SELECT state, last_activity_at FROM conversation_state "
+                        "WHERE subject_key = ? AND conversation_id = ?", (subject_key, conversation_id))
+        return (row["state"], float(row["last_activity_at"])) if row else None
+
+    def put_conversation(self, subject_key: str, conversation_id: str, state: str, at: float) -> None:
+        self._write("""INSERT INTO conversation_state (subject_key, conversation_id, state, last_activity_at)
+                       VALUES (?, ?, ?, ?)
+                       ON CONFLICT(subject_key, conversation_id) DO UPDATE SET
+                           state = excluded.state, last_activity_at = excluded.last_activity_at""",
+                    (subject_key, conversation_id, state, at))
+
+    def delete_conversations(self, *, older_than: float | None = None,
+                             subject_key: str | None = None, conversation_id: str | None = None) -> int:
+        if conversation_id is not None:
+            return self._write_count("DELETE FROM conversation_state WHERE subject_key = ? AND conversation_id = ?",
+                                     (subject_key, conversation_id))
+        if older_than is not None:
+            return self._write_count("DELETE FROM conversation_state WHERE last_activity_at < ?", (older_than,))
+        return self._write_count("DELETE FROM conversation_state", ())
+
+    # -- Maker / Checker approvals ----------------------------------------
+
+    _APPROVAL_COLUMNS = ("approval_id", "case_id", "action_type", "resource_type", "resource_id", "maker_id",
+                         "checker_id", "status", "reason", "comments", "payload", "result", "policy_reference",
+                         "evidence_version", "version", "created_at", "updated_at", "expires_at")
+
+    def save_approval(self, approval: dict) -> None:
+        row = {**approval, "payload": json.dumps(approval.get("payload") or {}),
+               "result": json.dumps(approval["result"]) if approval.get("result") is not None else None}
+        cols = self._APPROVAL_COLUMNS
+        self._write(f"INSERT INTO approvals ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
+                    tuple(row.get(c) for c in cols))
+
+    def update_approval(self, approval: dict, *, expected_version: int) -> bool:
+        """Compare-and-set on `version`: False when another writer changed it first."""
+        changed = self._write_count(
+            """UPDATE approvals SET checker_id = ?, status = ?, comments = ?, result = ?,
+                   version = ?, updated_at = ? WHERE approval_id = ? AND version = ?""",
+            (approval.get("checker_id"), approval["status"], approval.get("comments"),
+             json.dumps(approval["result"]) if approval.get("result") is not None else None,
+             expected_version + 1, approval["updated_at"], approval["approval_id"], expected_version))
+        return changed > 0
+
+    def _approval(self, row) -> dict:
+        out = {k: row[k] for k in row.keys()}
+        out["payload"] = json.loads(out.get("payload") or "{}")
+        out["result"] = json.loads(out["result"]) if out.get("result") else None
+        return out
+
+    def get_approval(self, approval_id: str) -> dict | None:
+        row = self._one("SELECT * FROM approvals WHERE approval_id = ?", (approval_id,))
+        return self._approval(row) if row else None
+
+    def list_approvals(self, case_id: str) -> list[dict]:
+        return [self._approval(r) for r in
+                self._all("SELECT * FROM approvals WHERE case_id = ? ORDER BY created_at", (case_id,))]
+
+    # -- JEV decision runs (append-only) ---------------------------------
+
+    def save_jev_run(self, run: dict) -> bool:
+        """Append one run. False when its evaluation_key was already recorded."""
+        changed = self._write_count(
+            """
+            INSERT INTO jev_runs (
+                jev_run_id, evaluation_key, case_id, party_id, stage,
+                evaluation_scope, question_set_version, evidence_version,
+                trigger, provider, model, status, decisions, actions,
+                error_code, latency_ms, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(evaluation_key) DO NOTHING
+            """,
+            (run["jev_run_id"], run["evaluation_key"], run["case_id"], run.get("party_id"),
+             run.get("stage"), run["evaluation_scope"], run["question_set_version"],
+             run["evidence_version"], run.get("trigger"), run["provider"], run.get("model"),
+             run["status"], json.dumps(run.get("decisions") or []), json.dumps(run.get("actions") or []),
+             run.get("error_code"), run.get("latency_ms"), run["created_at"]),
+        )
+        return changed > 0
+
+    def _jev_run(self, row) -> dict:
+        out = {k: row[k] for k in row.keys()}
+        out["decisions"] = json.loads(out.get("decisions") or "[]")
+        out["actions"] = json.loads(out.get("actions") or "[]")
+        return out
+
+    def find_jev_run(self, evaluation_key: str) -> dict | None:
+        row = self._one("SELECT * FROM jev_runs WHERE evaluation_key = ?", (evaluation_key,))
+        return self._jev_run(row) if row else None
+
+    def list_jev_runs(self, case_id: str, party_id: str | None = None) -> list[dict]:
+        """Every run on a case (one party's when given), oldest first."""
+        if party_id is None:
+            rows = self._all("SELECT * FROM jev_runs WHERE case_id = ? ORDER BY created_at", (case_id,))
+        else:
+            rows = self._all("SELECT * FROM jev_runs WHERE case_id = ? AND IFNULL(party_id, '') = ? "
+                             "ORDER BY created_at", (case_id, party_id))
+        return [self._jev_run(r) for r in rows]
+
     def record_event(self, event: CaseEvent) -> CaseEvent:
         """
         Append one event to the timeline.
@@ -1141,6 +1261,15 @@ class SQLiteRepository(Repository):
             if conn.in_transaction:
                 conn.commit()
             conn.execute("BEGIN IMMEDIATE")
+            # SERIALISED PER CASE, ON POSTGRES. SQLite's IMMEDIATE took a write
+            # lock before the version was read; translated to a plain BEGIN it
+            # takes none. Correctness never depended on it -- the unique
+            # (case, version) constraint lets exactly one concurrent move commit
+            # -- but without a lock the losers did all their work and then
+            # rolled back. A per-case transaction-scoped advisory lock makes them
+            # wait and see the new version instead (other cases untouched;
+            # released at COMMIT/ROLLBACK; covers the first move too).
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"case_stage:{state.case_id}",))
             row = conn.execute(
                 "SELECT version FROM case_stage WHERE case_id = ?",
                 (state.case_id,)).fetchone()
@@ -1201,17 +1330,17 @@ class SQLiteRepository(Repository):
             )
             conn.commit()
             return True
-        except sqlite3.IntegrityError:
+        except StoreIntegrityError:
             # Another writer recorded this version (or this transition id)
             # first. Nothing of ours was written.
             conn.rollback()
             return False
-        except sqlite3.Error as exc:
+        except StoreDbError as exc:
             conn.rollback()
             raise RepositoryError(f"Case store write failed: {exc}") from exc
 
     @staticmethod
-    def _transition(row: "sqlite3.Row") -> StageTransition:
+    def _transition(row: "Any") -> StageTransition:
         previous = _column(row, "previous_stage_started_at")
         return StageTransition(
             transition_id=row["transition_id"], case_id=row["case_id"],
@@ -1230,7 +1359,7 @@ class SQLiteRepository(Repository):
     # -- row mappers -------------------------------------------------------
 
     @staticmethod
-    def _finding(row: "sqlite3.Row") -> CaseFinding:
+    def _finding(row: "Any") -> CaseFinding:
         return CaseFinding(
             finding_id=row["finding_id"],
             case_id=row["case_id"],
@@ -1241,7 +1370,7 @@ class SQLiteRepository(Repository):
             score=_column(row, "score"),
             confidence=_column(row, "confidence"),
             reason_codes=_json_list(_column(row, "reason_codes")),
-            payload=_json_dict(_column(row, "payload")),
+            payload=_json_dict(_crypto.open_(_column(row, "payload"))),
             source_type=_column(row, "source_type"),
             source_id=_column(row, "source_id"),
             document_id=_column(row, "document_id"),
@@ -1253,7 +1382,7 @@ class SQLiteRepository(Repository):
         )
 
     @staticmethod
-    def _document_version(row: "sqlite3.Row") -> DocumentVersion:
+    def _document_version(row: "Any") -> DocumentVersion:
         return DocumentVersion(
             document_version_id=row["document_version_id"],
             document_id=row["document_id"],
@@ -1266,7 +1395,7 @@ class SQLiteRepository(Repository):
         )
 
     @staticmethod
-    def _decision(row: "sqlite3.Row") -> CaseDecision:
+    def _decision(row: "Any") -> CaseDecision:
         return CaseDecision(
             decision_id=row["decision_id"],
             case_id=row["case_id"],
@@ -1280,7 +1409,7 @@ class SQLiteRepository(Repository):
         )
 
     @staticmethod
-    def _event(row: "sqlite3.Row") -> CaseEvent:
+    def _event(row: "Any") -> CaseEvent:
         return CaseEvent(
             event_id=row["event_id"],
             case_id=row["case_id"],
@@ -1329,4 +1458,4 @@ def _json_dict(value: str | None) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
-__all__ = ["SQLiteRepository"]
+__all__ = ["SqlRepository", "StoreDbError", "StoreIntegrityError"]

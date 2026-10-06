@@ -113,8 +113,12 @@ policies:
       maximum_years: null
     prerequisites:
       kyc:
-        # e.g. [PASS] once approved: KYC must reach one of these first
-        accepted_statuses: []
+        # KYC GATES ELIGIBILITY (2026-10-05). The KYC Agent's statuses are PASS /
+        # PARTIAL / REVIEW / FAIL / SKIPPED; only PASS establishes that the documents
+        # describe one person. REVIEW (or not yet run) -> KYC_PREREQUISITE_NOT_MET,
+        # never an affordability PASS; FAIL -> KYC_FAILED. Part of this DEMO policy:
+        # the business confirms or changes it with the real one.
+        accepted_statuses: [PASS]
 
     # Rules the assessment cannot be made without: missing = CONFIGURATION_GAP.
     essential_rules: [FOIR]
@@ -179,8 +183,12 @@ policies:
       maximum_years: null
     prerequisites:
       kyc:
-        # e.g. [PASS] once approved: KYC must reach one of these first
-        accepted_statuses: []
+        # KYC GATES ELIGIBILITY (2026-10-05). The KYC Agent's statuses are PASS /
+        # PARTIAL / REVIEW / FAIL / SKIPPED; only PASS establishes that the documents
+        # describe one person. REVIEW (or not yet run) -> KYC_PREREQUISITE_NOT_MET,
+        # never an affordability PASS; FAIL -> KYC_FAILED. Part of this DEMO policy:
+        # the business confirms or changes it with the real one.
+        accepted_statuses: [PASS]
 
     # Rules the assessment cannot be made without: missing = CONFIGURATION_GAP.
     essential_rules: [FOIR]

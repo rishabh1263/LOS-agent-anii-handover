@@ -32,7 +32,7 @@ from app.knowledge.vector_store import (
     knowledge_collection,
 )
 from app.store import demo_seed, set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 ALL_STAGES = {"FOS", "CPA", "CREDIT", "RCU", "BOPS", "HOPS", "DISBURSEMENT"}
 
@@ -48,7 +48,7 @@ def memory_on():
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "index.sqlite3")
+    repository = fresh_repository(tmp_path / "index.sqlite3")
     repository.initialise()
     set_repository(repository)
     demo_seed.seed(repository)

@@ -50,11 +50,31 @@ DEMO_APPLICATION = {
 
 
 @pytest.fixture(autouse=True)
+def _kyc_gate_unset(monkeypatch):
+    """
+    THESE TESTS MEASURE THE AFFORDABILITY MATHS (FOIR, LTV, EMI) on a case with a
+    salary slip only -- one document, so KYC cannot PASS. The shipped policy now
+    gates eligibility on KYC PASS (2026-10-05); here the gate is explicitly unset
+    so the maths stays under test. The gate itself is tested in
+    tests/agents/test_eligibility_boundaries.py and the HTTP E2E (evals/http_e2e.py).
+    """
+    from app.agents.eligibility import engine, policy
+
+    real = policy.get_policy
+
+    def ungated(*args, **kwargs):
+        return real(*args, **kwargs).model_copy(update={"kyc_accepted_statuses": ()})
+
+    monkeypatch.setattr(policy, "get_policy", ungated)
+    monkeypatch.setattr(engine, "get_policy", ungated)
+
+
+@pytest.fixture(autouse=True)
 def _environment(tmp_path, monkeypatch):
     from app.agents.eligibility import config as policy_file
     from app.agents.los import config as los_config
     from app.store import set_repository
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.testing import fresh_repository
 
     uploads = tmp_path / "uploads"
     uploads.mkdir()
@@ -68,7 +88,7 @@ def _environment(tmp_path, monkeypatch):
     agent_config.reload()
     policy_file.reset_policy_cache()
 
-    repository = SQLiteRepository(tmp_path / "e2e.sqlite3")
+    repository = fresh_repository(tmp_path / "e2e.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

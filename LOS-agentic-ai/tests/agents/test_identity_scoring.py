@@ -401,6 +401,8 @@ def test_the_verdict_is_unchanged_by_scoring():
 
     from app.agents.los.flow import PROCESS, UploadedDocument, process_application
 
+    fields_read = {}
+
     async def verdict(path, expected):
         result = await process_application(
             [UploadedDocument(source_id=Path(path).name,
@@ -411,6 +413,7 @@ def test_the_verdict_is_unchanged_by_scoring():
             summarise=False, cross_document_checks=False,
             financial_analysis=False,
         )
+        fields_read[expected] = (result["documents"][0].get("extraction") or {})
         return result["documents"][0]["verification"]
 
     async def go():
@@ -420,12 +423,17 @@ def test_the_verdict_is_unchanged_by_scoring():
             await verdict("samples/real_batch/dl1.jpg", "DRIVING_LICENCE"),
         ]
 
-    # dl1 is REVIEW (2026-10-05), not PASS: its PASS rested on the FATHER's name
-    # (read from the S/O column of the rotated card) filling the holder-name
-    # field -- a wrong required field passing. The holder's name is now
-    # honestly MISSING on this route, so REQUIRED_FIELD_MISSING -> REVIEW.
+    # dl1 PASSES ON THE RIGHT FIELDS (2026-10-05, later). It was REVIEW because
+    # its earlier PASS had rested on the FATHER's name filling the holder-name
+    # field. The card-crop pass now reads the holder's own name and the "S4o"
+    # caption anchors the guardian column, so the PASS carries UMESHA as the
+    # holder and NARAYANAPPA as the guardian -- asserted below, so a PASS built
+    # on the wrong field cannot come back unnoticed.
     # Scoring still changes no verdict: these are the pipeline's own verdicts.
-    assert asyncio.run(go()) == ["PASS", "PASS", "REVIEW"]
+    assert asyncio.run(go()) == ["PASS", "PASS", "PASS"]
+    dl = fields_read["DRIVING_LICENCE"]
+    value = lambda k: (dl.get(k) or {}).get("value") if isinstance(dl.get(k), dict) else dl.get(k)  # noqa: E731
+    assert value("name") == "UMESHA" and value("guardian_name") == "NARAYANAPPA"
 
 
 def test_a_passing_document_carries_no_quality_reason_codes():

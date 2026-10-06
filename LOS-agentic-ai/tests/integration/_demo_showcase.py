@@ -17,7 +17,7 @@ from app.knowledge import indexing
 from app.knowledge.embeddings import get_embedder
 from app.knowledge.vector_store import QdrantVectorStore, set_vector_store
 from app.store import demo_seed, set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 ENDPOINT = "/api/v1/copilot/query"
 
@@ -33,7 +33,7 @@ def demo_env(monkeypatch):
 def client(make_token, tmp_path):
     import main
 
-    repo = SQLiteRepository(tmp_path / "demo.sqlite3")
+    repo = fresh_repository(tmp_path / "demo.sqlite3")
     repo.initialise()
     set_repository(repo)
     demo_seed.seed(repo)

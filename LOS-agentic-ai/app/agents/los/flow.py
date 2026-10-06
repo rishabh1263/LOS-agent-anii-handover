@@ -733,7 +733,7 @@ def _match_profiles(
 
 
 def _prior_released(case_id: str | None, party_id: str | None, *,
-                    exclude: set[str]) -> list[dict[str, Any]]:
+                    exclude: set[str], replaced_types: set[str] | None = None) -> list[dict[str, Any]]:
     """
     One party's EARLIER verified documents on the case, rebuilt as pipeline
     results for cross-document KYC.
@@ -744,15 +744,29 @@ def _prior_released(case_id: str | None, party_id: str | None, *,
     was withheld can reach KYC this way. A file uploaded again in this batch is
     taken from the batch (`exclude`), never twice. Never raises: no history is
     no extra source.
+
+    ONE CURRENT COPY of a single-per-person document (bug report 2026-10-05:
+    after a chat refresh a new PAN was compared against two earlier PANs of
+    other people, because only an identical FILE NAME kept an old upload out).
+    A type uploaded again in this batch (`replaced_types`) takes no earlier
+    copy; a SUPERSEDED row is never a source; and of the earlier copies only
+    the latest of each single-per-person type is used.
     """
     if not case_id or not party_id:
         return []
     try:
+        from app.agents.los.config import single_current_per_party
         from app.store import get_repository
+        from app.store.models import DocumentStatus
 
+        single = single_current_per_party()
+        replaced = {t.upper() for t in (replaced_types or set())} & single
         repository = get_repository()
         out: list[dict[str, Any]] = []
-        for finding in repository.get_current_findings(case_id, kind="EXTRACTION") or []:
+        latest: dict[str, tuple[Any, dict[str, Any]]] = {}
+        findings = sorted(repository.get_current_findings(case_id, kind="EXTRACTION") or [],
+                          key=lambda f: str(getattr(f, "updated_at", None) or getattr(f, "created_at", "") or ""))
+        for finding in findings:
             if str(getattr(finding, "party_id", "") or "") != str(party_id):
                 continue
             if str(getattr(finding, "status", "") or "").upper() not in ("PASS", "VERIFIED"):
@@ -765,10 +779,19 @@ def _prior_released(case_id: str | None, party_id: str | None, *,
             document = repository.get_document(finding.document_id) if finding.document_id else None
             if not fields or document is None or not document.document_type:
                 continue
-            out.append({"source_id": source_id, "document": {"type": document.document_type},
-                        "verification": {"status": "PASS"}, "party_id": party_id,
-                        "extraction": {"fields": fields}, "_prior_upload": True})
-        return out
+            if document.status is DocumentStatus.SUPERSEDED:
+                continue
+            doc_type = document.document_type.upper()
+            if doc_type in replaced:
+                continue
+            entry = {"source_id": source_id, "document": {"type": document.document_type},
+                     "verification": {"status": "PASS"}, "party_id": party_id,
+                     "extraction": {"fields": fields}, "_prior_upload": True}
+            if doc_type in single:
+                latest[doc_type] = entry           # findings are oldest first: the last wins
+            else:
+                out.append(entry)
+        return out + list(latest.values())
     except Exception:  # noqa: BLE001 - history unavailable: this batch alone
         logger.warning("Earlier documents not read for KYC case_id=%s", case_id)
         return []
@@ -849,6 +872,19 @@ def _kyc_for_party(
         # a second time.
         "overall_score": kyc_result.overall_score,
         "overall_confidence": kyc_result.overall_confidence,
+        # THE AGENT'S OWN EXPLANATION (state, reason, mismatched fields, next
+        # steps). This dict is built field by field, and these were never
+        # copied: the published and persisted KYC said "REVIEW" with no reason,
+        # and "what is pending?" could only say "KYC needs a review." (2026-10-06)
+        "state": kyc_result.state,
+        "reason": kyc_result.reason,
+        "affected_documents": list(kyc_result.affected_documents),
+        "mismatched_fields": list(kyc_result.mismatched_fields),
+        "next_action": kyc_result.next_action,
+        "passed_checks": list(kyc_result.passed_checks),
+        "failed_checks": list(kyc_result.failed_checks),
+        "missing_information": list(kyc_result.missing_information),
+        "next_actions": list(kyc_result.next_actions),
         "fields": [
             field.model_dump(mode="json") for field in kyc_result.fields
         ],
@@ -1811,8 +1847,10 @@ async def process_application(
             # ACROSS UPLOADS, NOT ONLY THIS BATCH (2026-10-04): the party's
             # earlier VERIFIED documents on the case join this upload's, so a
             # licence uploaded today is checked against yesterday's PAN.
-            prior = _prior_released(case_id, party.party_id,
-                                    exclude={str(d.get("source_id")) for d in owned})
+            prior = _prior_released(
+                case_id, party.party_id,
+                exclude={str(d.get("source_id")) for d in owned},
+                replaced_types={str((d.get("document") or {}).get("type") or "").upper() for d in owned})
             party_kyc[party.party_id] = _kyc_for_party(
                 owned + prior, party_id=party.party_id, request_id=request_id,
                 party_role=party.party_role.value)

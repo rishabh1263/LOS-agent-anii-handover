@@ -37,7 +37,7 @@ from app.store.documents import (
 )
 from app.store.models import Applicant, Application, Document, DocumentStatus
 from app.store.ocr_queue import OcrJobStatus
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 LONG = pathlib.Path("samples/documents/Bank Statement.pdf")
 FITS = pathlib.Path("samples/documents/Canara Bank Statement.pdf")
@@ -56,7 +56,7 @@ def _verdict(result):
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "deferral.sqlite3")
+    repository = fresh_repository(tmp_path / "deferral.sqlite3")
     repository.initialise()
     repository.save_applicant(Applicant(applicant_id=APPLICANT))
     repository.save_application(Application(case_id=CASE, applicant_id=APPLICANT))

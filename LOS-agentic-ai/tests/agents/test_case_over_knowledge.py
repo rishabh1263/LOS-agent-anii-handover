@@ -284,7 +284,9 @@ def test_the_values_are_recorded_only_for_a_failed_comparison():
 
     assert [s["value"] for s in failed["sources"]] == ["A", "B"]
     assert "bounding_box" not in failed["sources"][0], "raw OCR detail kept"
-    assert "sources" not in passed
+    # a passed field keeps WHICH documents carried it (for "kyc details",
+    # 2026-10-05) -- the document type only, never a value
+    assert all(set(s) == {"document_type"} for s in passed.get("sources") or [])
 
 
 # ==========================================================================
@@ -347,13 +349,13 @@ def processed_case(tmp_path, monkeypatch):
     from app.agents.applicant import config as agent_config
     from app.store import set_repository
     from app.store.ingest import persist_los_result
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.testing import fresh_repository
 
     monkeypatch.setenv("LOS_CASE_MEMORY_ENABLED", "true")
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     agent_config.reload()
 
-    repository = SQLiteRepository(tmp_path / "e2e.sqlite3")
+    repository = fresh_repository(tmp_path / "e2e.sqlite3")
     repository.initialise()
     set_repository(repository)
 

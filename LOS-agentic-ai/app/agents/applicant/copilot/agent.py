@@ -634,6 +634,12 @@ async def answer_question(
     started = time.perf_counter()
     request_id = request_id or f"aa_{uuid.uuid4().hex}"
     caller = Caller.from_claims(claims)
+    # CONTEXT IS BOUND TO ITS CASE. A context the server stamped for another
+    # case (the officer switched cases, or a client reused it) is discarded:
+    # memory is advisory, and it never carries one case's subject into another.
+    if isinstance(context, dict) and context.get("case_id") and case_id \
+            and str(context.get("case_id")) != str(case_id):
+        context = None
 
     def elapsed() -> float:
         return round((time.perf_counter() - started) * 1000, 2)
@@ -2027,7 +2033,11 @@ async def answer_question(
     # A status answer states its own hold (status_facts), so the
     # qualifier is appended to the document-verification answer only.
     if intent is Intent.DOCUMENT_VERIFICATION:
-        if recorded:
+        # NOT WHEN IT ONLY REPEATS THE ANSWER: "Signature needs a review. There is
+        # no reference signature ... However, your application is under review
+        # because there is no reference signature ..." (2026-10-05).
+        reason = recorded.split(" because ", 1)[-1].rstrip(".").strip().lower() if recorded else ""
+        if recorded and not (reason and reason in answer.lower()):
             answer = answer.rstrip() + " " + recorded
 
     # "WHAT IS PENDING, AND WHY?" -- the recorded reason of each pending item
@@ -3277,7 +3287,10 @@ def _application_match_answer(case_id: str | None, party_id: str | None,
     latest = rows[-1]
     fields = (latest.payload or {}).get("fields") or []
     if not fields:
-        return (f"The documents were compared with the application form (score {latest.score}); the "
+        from app.agents.applicant import config as _config
+
+        scored = f" (score {latest.score})" if _config.show_scores() and latest.score is not None else ""
+        return (f"The documents were compared with the application form{scored}; the "
                 f"field-by-field result is not recorded for this upload.", [{"kind": "PROFILE_MATCH"}])
     said = {"PASS": "matches", "MATCH": "matches", "PARTIAL": "partly matches", "REVIEW": "needs review",
             "FAIL": "does not match", "MISMATCH": "does not match", "SKIPPED": "was not compared"}

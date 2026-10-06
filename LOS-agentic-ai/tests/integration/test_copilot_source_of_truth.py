@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 COPILOT = "/api/v1/copilot/query"
 FOS = "/api/v1/fos/copilot"
@@ -41,7 +41,7 @@ FOS_SCOPES = ["read_applicant", "read_application", "read_documents",
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "truth.sqlite3")
+    repository = fresh_repository(tmp_path / "truth.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

@@ -23,7 +23,7 @@ from app.agents.applicant import config as agent_config
 from app.agents.applicant.copilot.capabilities import gates
 from app.store import set_repository
 from app.store.models import (Applicant, Application, ApplicationStatus, CaseFinding, FindingKind)
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 APP, CASE, OTHER_APP, OTHER_CASE = "APP-GATE0000001", "CASE-GATE-00001", "APP-GATEOTHER1", "CASE-GATE-OTH01"
 READ = ["read_applicant", "read_application", "read_documents", "read_verification",
@@ -85,7 +85,7 @@ def repo(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     monkeypatch.setenv("LOS_CASE_MEMORY_ENABLED", "true")
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "gates.sqlite3")
+    repository = fresh_repository(tmp_path / "gates.sqlite3")
     repository.initialise()
     set_repository(repository)
     for app_id, case_id in ((APP, CASE), (OTHER_APP, OTHER_CASE)):
@@ -148,7 +148,7 @@ def test_fos_readiness_keeps_its_own_answer_and_moves_nothing(repo, make_token):
 def test_a_passed_gate_yields_a_move_the_user_submits_never_a_move_by_the_copilot(kyc_only_fos_gate, make_token):
     client = _client(make_token, READ + ["los.stage:write"])
     body = _ask(client, "move my case to CPA")
-    assert body["gate"]["status"] == "PASS" and "Congratulations" in body["answer"]
+    assert body["gate"]["status"] == "PASS" and "check is complete" in body["answer"]
     assert _stage() == "FOS"                                      # the Copilot moved NOTHING
     move = next(a for a in body["actions"] if a["action"] == "STAGE_TRANSITION")
     assert move["confirmation_required"] is True and move["endpoint"] == f"/api/v1/los/cases/{CASE}/stage"

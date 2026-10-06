@@ -128,14 +128,14 @@ def client(tmp_path, monkeypatch, make_token):
     from app.store import set_repository
     from app.store.ingest import persist_los_result
     from app.store.models import Applicant, Application
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.testing import fresh_repository
 
     monkeypatch.setenv("LOS_CASE_MEMORY_ENABLED", "true")
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     los_config.reload()
     agent_config.reload()
 
-    repository = SQLiteRepository(tmp_path / "grounded.sqlite3")
+    repository = fresh_repository(tmp_path / "grounded.sqlite3")
     repository.initialise()
     set_repository(repository)
     repository.save_applicant(Applicant(applicant_id="APP-G", full_name="Test",

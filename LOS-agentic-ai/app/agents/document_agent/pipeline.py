@@ -11,6 +11,7 @@ values); this module owns orchestration, validation, confidence and timing.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -731,6 +732,66 @@ class Recognition:
     voting: Any = None
 
 
+def _fill_missing_from_passes(best: "Recognition", attempts: list["Recognition"]) -> None:
+    """
+    A field the winning pass did NOT read, taken from another pass over the SAME
+    image that read it and validated it -- never replacing a value the winner has.
+
+    dl4: the full frame read the holder's name, the card crop read the guardian
+    and the validity; whichever won, the other's fields were thrown away.
+    """
+    result = best.result
+    spec = _spec_for(result.document_type)
+    filled: list[str] = []
+    for name in spec:
+        own = result.fields.get(name)
+        if own is not None and own.status is FieldStatus.EXTRACTED:
+            continue
+        for other in attempts:
+            if other is best or other.result.document_type is not result.document_type:
+                continue
+            field = other.result.fields.get(name)
+            if (field is not None and field.status is FieldStatus.EXTRACTED
+                    and field.validation is ValidationStatus.VALID):
+                result.fields[name] = field
+                filled.append(name)
+                break
+    if not filled:
+        return
+    result.warnings.append("fields_from_other_pass=" + ",".join(filled))
+    missing = [n for n, (_v, required) in spec.items()
+               if required and (result.fields.get(n) is None
+                                or result.fields[n].status is not FieldStatus.EXTRACTED)]
+    if result.status is DocumentStatus.PARTIAL and not missing:
+        result.status = DocumentStatus.SUCCESS
+
+
+def card_crop_enabled() -> bool:
+    return (os.getenv("DOCUMENT_OCR_CARD_CROP") or "true").strip().lower() not in {"false", "0", "no", "off"}
+
+
+#: The crop pass runs only when the text spans less than this share of the frame.
+CARD_CROP_MAX_AREA = 0.6
+
+
+def _card_crop(recognition: "Recognition"):
+    """The read text's bounding box plus a margin, cut from the pass's own image; None if it fills the frame."""
+    tokens = [t for t in recognition.tokens if (t.x1 - t.x0) > 0 and (t.y1 - t.y0) > 0]
+    image = recognition.image
+    if len(tokens) < 3 or image is None:
+        return None
+    x0, y0 = min(t.x0 for t in tokens), min(t.y0 for t in tokens)
+    x1, y1 = max(t.x1 for t in tokens), max(t.y1 for t in tokens)
+    if (x1 - x0) * (y1 - y0) >= CARD_CROP_MAX_AREA * image.width * image.height:
+        return None
+    mx, my = (x1 - x0) * 0.08 + 6, (y1 - y0) * 0.08 + 6
+    box = (max(0, int(x0 - mx)), max(0, int(y0 - my)),
+           min(image.width, int(x1 + mx)), min(image.height, int(y1 + my)))
+    if box[2] - box[0] < 32 or box[3] - box[1] < 32:
+        return None
+    return image.crop(box)
+
+
 def recognise(
     engine,
     image,
@@ -834,6 +895,21 @@ def recognise(
 
     current = attempt("standard", preprocess.standard(image))
 
+    # THE CARD, NOT THE DESK. A card photographed small on a table or a phone
+    # screen leaves most of the frame to background, and the detector misses
+    # whole lines of it: measured on two real licences (dl1, dl4) the holder's
+    # name, the guardian and the validity were absent from the full frame and
+    # read correctly from the card cropped out of it, at every scale and
+    # rotation tried. One extra pass, only for an IDENTIFIED document still
+    # missing a required field whose text fills little of the frame; the best
+    # pass wins on _quality below, so it can only add fields.
+    if (current is not None and card_crop_enabled()
+            and current.result.document_type is not DocumentType.UNKNOWN
+            and _quality(current.result)[1] < len(_spec_for(current.result.document_type))):
+        cropped = _card_crop(current)
+        if cropped is not None:
+            attempt("card_crop", preprocess.standard(cropped))
+
     if escalate:
         # TARGETED RECOVERY, only when the standard pass fell short, and
         # only for defects that were actually measured.
@@ -880,11 +956,19 @@ def recognise(
                 current = enhanced
 
         # Rotations are only worth trying when the document is unreadable,
-        # not merely incomplete.
-        if rotate and (
-            current is None
-            or current.result.document_type is DocumentType.UNKNOWN
-        ):
+        # not merely incomplete. UNREADABLE INCLUDES "identified, nothing read":
+        # a passport photographed sideways was classified from its header
+        # (REPUBLIC OF INDIA reads at any angle) yet resolved ZERO fields, and
+        # the identified-type check skipped the rotation that reads it
+        # (passport_samples0_1, 2026-10-06). A rotated pass only replaces the
+        # current one when it resolves more (_quality).
+        best_so_far = max(attempts, key=lambda c: _quality(c.result)) if attempts else None
+        unreadable = (best_so_far is None
+                      or best_so_far.result.document_type is DocumentType.UNKNOWN
+                      # no REQUIRED field read (a computed flag like mrz_valid=False
+                      # still counts as a resolved field, so total is not the test)
+                      or _quality(best_so_far.result)[0] == 0)
+        if rotate and unreadable:
             for label, rotated in preprocess.rotations(image):
                 rotated_outcome = attempt(label, preprocess.standard(rotated))
 
@@ -892,6 +976,8 @@ def recognise(
                     rotated_outcome is not None
                     and rotated_outcome.result.document_type
                     is not DocumentType.UNKNOWN
+                    and (best_so_far is None
+                         or _quality(rotated_outcome.result) > _quality(best_so_far.result))
                 ):
                     current = rotated_outcome
                     break
@@ -903,6 +989,7 @@ def recognise(
 
     if len(attempts) > 1:
         best.result.warnings.append(f"ocr_passes_tried={len(attempts)}")
+        _fill_missing_from_passes(best, attempts)
 
     best.ocr_ms = cumulative_ocr_ms
     best.passes = telemetry["ocr_passes"]

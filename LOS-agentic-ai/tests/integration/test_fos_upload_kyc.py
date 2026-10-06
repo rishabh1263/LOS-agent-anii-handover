@@ -18,7 +18,7 @@ import pytest
 from tests.integration.test_fos_stage_boundary import FOS_SCOPES, open_case, upload  # noqa: F401
 from app.agents.applicant import config as agent_config
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 PAN = Path("samples/lPan.jpg")
 DL = Path("samples/documents/driving_license.jpg")
@@ -31,7 +31,7 @@ def _store(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     monkeypatch.delenv("FOS_KYC_ON_UPLOAD", raising=False)
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "fos_kyc.sqlite3")
+    repository = fresh_repository(tmp_path / "fos_kyc.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository
@@ -81,7 +81,10 @@ def test_a_document_that_does_not_pass_goes_no_further(client):
     assert steps["EXTRACT"] == {"step": "EXTRACT", "status": "SKIPPED", "reason": "VERIFICATION_NOT_PASSED"}
     assert steps["KYC"]["status"] == "SKIPPED"
     assert card["extracted_fields"] is None and body["kyc"] is None
-    assert "no details were read and KYC was not run" in body["answer"]
+    # the answer says it is held and reads nothing out; "KYC was not run" is not
+    # said for a signature, which is never a KYC input (2026-10-05)
+    assert "needs a review" in body["answer"] or "did not pass" in body["answer"]
+    assert "Details were read" not in body["answer"]
 
 
 def test_income_and_eligibility_do_not_run_at_fos(client, monkeypatch):

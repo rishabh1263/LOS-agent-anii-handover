@@ -526,9 +526,10 @@ def _audit(answer: IssuerVerificationResult, *, attempted: bool, document_type: 
     try:
         target = audit_path()
         target.parent.mkdir(parents=True, exist_ok=True)
+        from app.observability.audit_log import append_line
+
         with _AUDIT_LOCK:
-            with target.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(entry, default=str, ensure_ascii=False) + "\n")
+            append_line(target, json.dumps(entry, default=str, ensure_ascii=False))
     except Exception:
         logger.exception("Issuer verification audit write failed; the verdict was NOT affected.")
 

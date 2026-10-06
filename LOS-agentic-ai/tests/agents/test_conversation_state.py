@@ -69,8 +69,13 @@ def test_a_pending_clarification_expires_by_turns_and_time(monkeypatch):
     assert conv.read_turn("2", state).outcome != conv.OPTION_RESOLVED
 
 
-def test_the_sqlite_store_round_trips_a_state(tmp_path):
-    store = conv.SqliteConversationStore(str(tmp_path / "conv.sqlite3"))
+def test_the_repository_store_round_trips_a_state(tmp_path):
+    """Conversation memory in the PostgreSQL case store: one state across workers."""
+    from app.store import set_repository
+    from app.store.testing import fresh_repository
+
+    set_repository(fresh_repository())
+    store = conv.RepositoryConversationStore()
     state = store.new("subject", "case")
     state.pending_clarification = conv.PendingClarification(
         question="which?", options=[conv.Option(label="What stage is my application at?",
@@ -82,6 +87,7 @@ def test_the_sqlite_store_round_trips_a_state(tmp_path):
     assert back is not None and back.last_documents == ["ADDRESS_PROOF"]
     assert back.pending_clarification.options[0].intent == "APPLICATION_STAGE"
     assert store.get("someone-else", state.conversation_id) is None
+    set_repository(None)
 
 
 def test_state_never_holds_case_values():

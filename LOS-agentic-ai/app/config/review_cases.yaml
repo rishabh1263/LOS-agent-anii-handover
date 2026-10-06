@@ -1,0 +1,37 @@
+# HUMAN REVIEW CASES (app/api/routes/status_api.py) -- configuration, not code.
+#
+# A REVIEW is a first-class work item: what needs a person, why, on which documents,
+# and which stage acts on it. The routing and severity below are DEMO defaults --
+# no lender has signed them off; replace them with the operating model.
+status: DEMO
+version: review_cases.v1
+types:
+  DOCUMENT_REVIEW:
+    assigned_stage: FOS
+    severity: MEDIUM
+    recommended_action: "Check the document, or ask the customer for a clearer copy."
+  DOCUMENT_REJECTED:
+    assigned_stage: FOS
+    severity: HIGH
+    recommended_action: "Ask the customer to upload the correct document."
+  KYC_REVIEW:
+    assigned_stage: CPA
+    severity: MEDIUM
+    recommended_action: "Review the differences and confirm the correct details with the customer."
+  KYC_FAIL:
+    assigned_stage: CPA
+    severity: HIGH
+    recommended_action: "Collect the correct documents, or confirm with the customer."
+  ELIGIBILITY_REVIEW:
+    assigned_stage: CPA
+    severity: MEDIUM
+    recommended_action: "Review the eligibility rules that need attention."
+  CREDIT_REVIEW:
+    assigned_stage: CREDIT
+    severity: MEDIUM
+    recommended_action: "Review the underwriting assessment."
+# JEV signals shown to the frontend: business words for each decision type.
+risk_signal_summaries:
+  SEMANTIC_REVIEW: "The case shows signs that a person should review it."
+  FINANCIAL_INCONSISTENCY: "The financial evidence is not fully consistent."
+  ESCALATE_REASONING: "The recorded results are ambiguous and need a closer look."

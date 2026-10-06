@@ -12,14 +12,14 @@ from app.knowledge.retrieval import Evidence, RetrievalResult
 from app.knowledge.vector_store import Scope
 from app.store import set_repository
 from app.store.models import Applicant, Application, ApplicationStatus
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 APP, CASE = "APP-FRESH00001", "CASE-FRESH-0001"
 
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "fresh.sqlite3")
+    repository = fresh_repository(tmp_path / "fresh.sqlite3")
     repository.initialise()
     set_repository(repository)
     repository.save_applicant(Applicant(applicant_id=APP, full_name="Fresh Person"))

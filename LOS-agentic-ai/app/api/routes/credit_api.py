@@ -93,4 +93,32 @@ async def run_underwriting(request: UnderwritingRunRequest,
     raise HTTPException(status_code=http, detail=detail)
 
 
+@router.get(
+    "/{case_id}",
+    summary="The recorded credit underwriting assessment of one case",
+    response_description="The latest UNDERWRITING assessment as recorded, or NOT_ASSESSED.",
+)
+async def recorded_assessment(case_id: str, claims: dict[str, Any] = Depends(require_jwt)) -> dict[str, Any]:
+    """
+    READ, NEVER RUN: the assessment the Credit Underwriting Agent recorded --
+    after a stage move into CREDIT (POST /los/cases/{id}/stage) or an explicit
+    POST /credit/underwriting/run. Ownership checked first; one refusal whether
+    or not the case exists. An assessment, not a credit decision.
+    """
+    from app.agents.credit import persistence
+    from app.security import access
+
+    request_id = f"uwr_{uuid.uuid4().hex}"
+    try:
+        access.authorize_claims(claims, case_id=case_id)
+    except access.AccessDenied as denied:
+        raise access.http_denied(denied, request_id) from None
+    recorded = persistence.latest(case_id) or {}
+    assessment = recorded.get("assessment")
+    return {"request_id": request_id, "case_id": case_id,
+            "status": (assessment or {}).get("status") or "NOT_ASSESSED", "assessment": assessment,
+            "memo": recorded.get("memo"), "run_id": recorded.get("run_id"),
+            "agent_version": recorded.get("agent_version")}
+
+
 __all__ = ["router"]

@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from tests.integration.test_eligibility_end_to_end import (  # noqa: F401 - fixtures by import
-    SLIP, _environment, ask, client, open_case, process_slip)
+    SLIP, _environment, _kyc_gate_unset, ask, client, open_case, process_slip)
 
 pytestmark = pytest.mark.skipif(not SLIP.exists(), reason="demo salary slip not generated")
 

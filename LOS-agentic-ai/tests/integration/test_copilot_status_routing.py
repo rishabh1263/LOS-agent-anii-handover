@@ -32,7 +32,7 @@ from fastapi.testclient import TestClient
 from app.agents.applicant.copilot.semantics import intents
 from app.agents.applicant.copilot.semantics.intents import Intent
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 COPILOT = "/api/v1/copilot/query"
 
@@ -72,7 +72,7 @@ GENERIC_QUESTIONS = [
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "status.sqlite3")
+    repository = fresh_repository(tmp_path / "status.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

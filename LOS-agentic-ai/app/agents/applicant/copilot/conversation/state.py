@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import os
 import re
 import threading
 import time
@@ -725,78 +726,6 @@ class ConversationStore:
             self._states.clear()
 
 
-class SqliteConversationStore(ConversationStore):
-    """
-    The same contract on the LOS SQLite file (LOS_STORE_PATH), one row per
-    conversation, for deployments with several workers. Same TTLs and bound;
-    the row holds the state as JSON -- labels only, as in memory.
-    """
-
-    def __init__(self, path: str | None = None) -> None:
-        super().__init__()
-        from app.store import store_path
-
-        self._path = path or store_path()
-        self._ready = False
-
-    def _conn(self):
-        import sqlite3
-
-        conn = sqlite3.connect(self._path, timeout=10.0)
-        if not self._ready:
-            conn.execute("CREATE TABLE IF NOT EXISTS conversation_state ("
-                         "subject_key TEXT NOT NULL, conversation_id TEXT NOT NULL, "
-                         "state TEXT NOT NULL, last_activity_at REAL NOT NULL, "
-                         "PRIMARY KEY (subject_key, conversation_id))")
-            conn.commit()
-            self._ready = True
-        return conn
-
-    def get(self, subject_key: str, conversation_id: str | None) -> ConversationState | None:
-        if not conversation_id:
-            return None
-        conn = self._conn()
-        try:
-            row = conn.execute("SELECT state, last_activity_at FROM conversation_state WHERE "
-                               "subject_key = ? AND conversation_id = ?",
-                               (subject_key, conversation_id)).fetchone()
-            if row is None:
-                return None
-            if time.time() - float(row[1]) > _cfg_int("ttl_seconds", 1800):
-                conn.execute("DELETE FROM conversation_state WHERE subject_key = ? AND "
-                             "conversation_id = ?", (subject_key, conversation_id))
-                conn.commit()
-                return None
-            return _from_json(row[0])
-        finally:
-            conn.close()
-
-    def put(self, state: ConversationState) -> None:
-        import json
-
-        state.last_activity_at = time.time()
-        conn = self._conn()
-        try:
-            conn.execute("INSERT OR REPLACE INTO conversation_state VALUES (?, ?, ?, ?)",
-                         (state.subject_key, state.conversation_id, json.dumps(_to_json(state)),
-                          state.last_activity_at))
-            limit = _cfg_int("max_conversations", 2000)
-            conn.execute("DELETE FROM conversation_state WHERE rowid IN (SELECT rowid FROM "
-                         "conversation_state ORDER BY last_activity_at DESC LIMIT -1 OFFSET ?)",
-                         (limit,))
-            conn.commit()
-        finally:
-            conn.close()
-
-    def clear(self) -> None:
-        conn = self._conn()
-        try:
-            conn.execute("DELETE FROM conversation_state")
-            conn.commit()
-        finally:
-            conn.close()
-
-
 def _to_json(state: ConversationState) -> dict[str, Any]:
     data = asdict(state)
     return data
@@ -816,19 +745,72 @@ def _from_json(text: str) -> ConversationState:
     return state
 
 
+class RepositoryConversationStore(ConversationStore):
+    """
+    The same contract on THE CASE STORE (PostgreSQL, app/store), so
+    every worker, every instance and a restart see one conversation. Labels
+    only, as in memory; TTL-pruned on write; a store fault costs the memory of
+    the turn, never the answer (the agent treats a missing state as new).
+    """
+
+    def get(self, subject_key: str, conversation_id: str | None) -> ConversationState | None:
+        if not conversation_id:
+            return None
+        from app.store import get_repository
+
+        try:
+            found = get_repository().get_conversation(subject_key, conversation_id)
+        except Exception:  # noqa: BLE001 - no memory this turn, never a failed answer
+            return None
+        if not found:
+            return None
+        text, at = found
+        if time.time() - at > _cfg_int("ttl_seconds", 1800):
+            return None
+        return _from_json(text)
+
+    def put(self, state: ConversationState) -> None:
+        import json
+
+        from app.store import get_repository
+
+        state.last_activity_at = time.time()
+        try:
+            repository = get_repository()
+            repository.put_conversation(state.subject_key, state.conversation_id,
+                                        json.dumps(_to_json(state)), state.last_activity_at)
+            repository.delete_conversations(older_than=state.last_activity_at - _cfg_int("ttl_seconds", 1800))
+        except Exception:  # noqa: BLE001
+            logger.warning("conversation state not stored")
+
+    def clear(self) -> None:
+        from app.store import get_repository
+
+        try:
+            get_repository().delete_conversations()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class _Store:
-    """The configured store (`chatbot.conversation.store`: memory | sqlite), resolved lazily."""
+    """
+    The configured store (`chatbot.conversation.store`, CONVERSATION_STORE):
+    `repository` (default) -- the PostgreSQL case store, one conversation across
+    workers, instances and restarts; `memory` -- this process only (a single
+    worker, tests).
+    """
 
     def __init__(self) -> None:
         self._memory = ConversationStore()
-        self._sqlite: SqliteConversationStore | None = None
+        self._repository: RepositoryConversationStore | None = None
 
     def _backend(self) -> ConversationStore:
-        if str(_cfg().get("store", "memory")).lower() == "sqlite":
-            if self._sqlite is None:
-                self._sqlite = SqliteConversationStore()
-            return self._sqlite
-        return self._memory
+        chosen = str(os.getenv("CONVERSATION_STORE") or _cfg().get("store") or "repository").lower()
+        if chosen == "memory":
+            return self._memory
+        if self._repository is None:
+            self._repository = RepositoryConversationStore()
+        return self._repository
 
     def get(self, subject_key: str, conversation_id: str | None) -> ConversationState | None:
         return self._backend().get(subject_key, conversation_id)
@@ -1252,7 +1234,10 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
 
             named_doc = _kframes2._document_type(text)
             if named_doc and not state.last_document:
-                return Reading(NEW_TOPIC, f"What can a {_kdisplay(named_doc)} be used for?",
+                # "Is a X accepted as a document?" -- measured to retrieve the slot
+                # guidance; "What can a X be used for?" retrieved the extraction-policy
+                # paragraph (eval rag_doc_after_process, 2026-10-05)
+                return Reading(NEW_TOPIC, f"Is a {_kdisplay(named_doc)} accepted as a document?",
                                note="the knowledge topic, for another document")
         if last_intent in ("FOS_KNOWLEDGE", "STAGE_PROCESS"):
             topic = _knowledge_topic(state.last_message)

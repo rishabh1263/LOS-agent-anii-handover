@@ -36,6 +36,37 @@ _ACRONYMS = frozenset({"PAN", "ITR", "DL", "KYC", "NOC", "GST", "CPA", "ID",
 NOTHING_AVAILABLE = "No answer is available for this request."
 
 
+#: A recorded document status, as a reader says it after the document's name.
+_STATUS_WORDS = {
+    "VERIFIED": "is verified", "PASS": "is verified",
+    "REVIEW": "needs a review", "REJECTED": "did not pass verification", "FAIL": "did not pass verification",
+    "UPLOADED": "is uploaded and waiting to be verified", "PROCESSING": "is being verified",
+    "PENDING": "is uploaded and waiting to be verified", "MISSING": "has not been uploaded",
+}
+
+
+#: A document status as a reader sees it in a list: (icon, words).
+_STATE_ICON = {
+    "VERIFIED": ("✓", "Verified"), "PASS": ("✓", "Verified"),
+    "REVIEW": ("⚠", "Needs review"),
+    "REJECTED": ("✗", "Rejected — upload a correct one"), "FAIL": ("✗", "Rejected — upload a correct one"),
+    "UPLOADED": ("⏳", "Uploaded, being verified"), "PROCESSING": ("⏳", "Being verified"),
+    "PENDING": ("⏳", "Pending"), "MISSING": ("⏳", "Not uploaded yet"),
+}
+
+
+def _doc_label(document_type: Any, party_role: Any = None) -> str:
+    label = _readable(document_type)
+    return f"Co-applicant's {label}" if str(party_role or "").upper() == "CO_APPLICANT" else label
+
+
+def _status_line(label: str, status: Any) -> str:
+    """'✓ PAN — Verified': one document, one line, in every document list."""
+    icon, words = _STATE_ICON.get(str(status or "").upper(),
+                                  ("•", str(status or "recorded").replace("_", " ").capitalize()))
+    return f"{icon} {label} — {words}"
+
+
 def _explained(code: str | None) -> str:
     """
     One reason code, as a sentence a person reads.
@@ -251,22 +282,16 @@ def deterministic_answer(
         documents = _get(results, "documents.get", "documents") or []
         if not documents:
             return "No documents have been uploaded for this case yet."
-        # IN WORDS, whose and in what state: "the PAN is verified", "the
-        # co-applicant's PAN is rejected" -- never "PAN — REJECTED".
-        states = {"VERIFIED": "verified", "PASS": "verified", "REVIEW": "under review",
-                  "REJECTED": "rejected", "FAIL": "rejected", "UPLOADED": "uploaded",
-                  "PROCESSING": "being processed", "MISSING": "not uploaded"}
-        lines = []
-        for d in documents:
-            owner = ("the co-applicant's " if str(d.get("party_role") or "").upper()
-                     == "CO_APPLICANT" else "the ")
-            state = states.get(str(d.get("status") or "").upper(),
-                               str(d.get("status") or "recorded").replace("_", " ").lower())
-            lines.append(f"{owner}{_readable(d.get('document_type'))} is {state}")
-        count = len(documents)
-        said = (f"{count} document{'s are' if count > 1 else ' is'} on your application: "
-                + _and_list(lines) + ".")
-        return said[0].upper() + said[1:]
+        # ONE LINE PER DOCUMENT, a status a person reads at a glance (2026-10-05:
+        # a run-on sentence, "2 documents are on your application: the PAN is
+        # verified and the Voter ID is rejected", read as a data dump).
+        rows = [(_doc_label(d.get("document_type"), d.get("party_role")), d.get("status")) for d in documents]
+        lines = [_status_line(label, status) for label, status in rows]
+        todo = [label for label, status in rows if _STATE_ICON.get(str(status or "").upper(), ("", ""))[0] != "✓"]
+        said = "Documents on this application:\n" + "\n".join(lines)
+        if todo:
+            said += f"\n\nNext step: {_and_list(todo)} {'need' if len(todo) > 1 else 'needs'} attention."
+        return said
 
     if intent in (Intent.DOCUMENTS_REQUIRED, Intent.DOCUMENTS_MISSING):
         payload = _result(results, "documents.checklist") or {}
@@ -364,9 +389,12 @@ def deterministic_answer(
             name = _readable(payload.get("document_type"))
             status = payload.get("status")
             codes = payload.get("reason_codes") or []
-            sentence = f"{name} is {status}."
+            # THE STATUS IN WORDS: "Signature is REVIEW" printed an enum.
+            sentence = f"{name} {_STATUS_WORDS.get(str(status).upper(), f'is {str(status).lower()}')}."
             score = payload.get("verification_score")
-            if score is not None:
+            from app.agents.applicant import config as _config
+
+            if score is not None and _config.show_scores():
                 confidence = payload.get("verification_confidence")
                 sentence = (f"{name} is {status} (verification score {score}"
                             + (f", confidence {confidence}" if confidence is not None else "") + ").")
@@ -379,8 +407,12 @@ def deterministic_answer(
                 # has a sentence for the codes that matter; the rest
                 # fall back to the readable form rather than inventing
                 # one.
-                sentence += " Reason: " + " ".join(
-                    _explained(code) for code in codes)
+                # Folded and de-duplicated (reasons.spoken): a signature with
+                # no specimen read out seven sentences, three of them the same.
+                from app.agents.verification.reasons import spoken
+
+                said = spoken(codes) or [_explained(code) for code in codes[:3]]
+                sentence += " " + " ".join(said)
             return sentence
         documents = _get(results, "documents.get", "documents") or []
         flagged = [d for d in documents
@@ -411,23 +443,16 @@ def deterministic_answer(
             # Not "at the FOS stage": the checklist behind this is the
             # case's CURRENT stage's, whichever that is.
             return "Nothing is pending for this case."
-        # THE DOCUMENTS BY NAME, THE REST COUNTED: the structured
-        # `pending_items` carries every one; the sentence stays readable.
-        documents = [_readable(i.get("slot")) for i in items
-                     if i.get("code") == "DOCUMENT_MISSING" and i.get("slot")]
-        others = [str(i["detail"]).rstrip(".") for i in items
-                  if not (i.get("code") == "DOCUMENT_MISSING" and i.get("slot"))]
-        parts: list[str] = []
-        if documents:
-            parts.append(f"{_and_list(documents)} "
-                         f"{'are' if len(documents) > 1 else 'is'} still pending")
-        if others:
-            if len(others) <= 2:
-                parts.append(_and_list([o[0].lower() + o[1:] for o in others]))
+        # ONLY WHAT IS PENDING, one line each (2026-10-05: "Bank Statement is
+        # still pending and address Proof was rejected" -- a run-on sentence,
+        # and the lower-casing broke "Address Proof").
+        lines = []
+        for i in items:
+            if i.get("code") == "DOCUMENT_MISSING" and i.get("slot"):
+                lines.append(_status_line(_readable(i.get("slot")), "MISSING"))
             else:
-                parts.append(f"{len(others)} application details still need "
-                             f"to be captured")
-        return (" and ".join(parts) + ".")[0].upper() + (" and ".join(parts) + ".")[1:]
+                lines.append(f"• {str(i.get('detail') or '').rstrip('.')}")
+        return "Pending:\n" + "\n".join(lines)
 
     if intent is Intent.NEXT_ACTION:
         action = _get(results, "workflow.next_action", "next_action") or {}
@@ -450,10 +475,9 @@ def deterministic_answer(
         if readiness.get("status") == "READY_FOR_CPA":
             return "This case is ready to hand to CPA."
         blocking = readiness.get("blocking_items") or []
-        return ("Not ready for CPA. "
-                + f"{len(blocking)} item(s) blocking: "
-                + "; ".join(str(b["detail"]).rstrip(".") for b in blocking)
-                + ".")
+        # "2 item(s) blocking: a; b" read as machine output -- one line each
+        return ("Not ready for CPA yet. Still to do:\n"
+                + "\n".join(f"• {str(b['detail']).rstrip('.')}" for b in blocking))
 
     if intent is Intent.FULL_SUMMARY:
         return _summary_text(_result(results, "applicant.360") or {})

@@ -138,8 +138,8 @@ class Repository(ABC):
         """Insert or update by document_id. Returns the stored record."""
 
     @abstractmethod
-    def list_documents(self, case_id: str) -> list[Document]:
-        """Every document attached to one case, oldest first."""
+    def list_documents(self, case_id: str, *, include_superseded: bool = False) -> list[Document]:
+        """Every current document attached to one case, oldest first (SUPERSEDED only on request)."""
 
     def list_documents_for_cases(self, case_ids: list[str]) -> dict[str, list[Document]]:
         """
@@ -176,6 +176,33 @@ class Repository(ABC):
     # FAIL CLOSED BY DEFAULT. A backend that does not implement grants
     # records none and grants nothing: every non-service caller is refused
     # rather than silently allowed.
+
+    # -- Maker / Checker approvals (app/approvals). A backend without them
+    #    cannot host a controlled action: the service refuses, fail closed.
+
+    def save_approval(self, approval: dict) -> None:
+        raise NotImplementedError(f"{type(self).__name__} does not record approvals")
+
+    def update_approval(self, approval: dict, *, expected_version: int) -> bool:
+        raise NotImplementedError(f"{type(self).__name__} does not record approvals")
+
+    def get_approval(self, approval_id: str) -> dict | None:
+        return None
+
+    def list_approvals(self, case_id: str) -> list[dict]:
+        return []
+
+    # -- JEV decision runs (app/jev). A backend without them records none:
+    #    the engine then reports PERSISTENCE_UNAVAILABLE, never a silent loss.
+
+    def save_jev_run(self, run: dict) -> bool:
+        raise NotImplementedError(f"{type(self).__name__} does not record JEV runs")
+
+    def find_jev_run(self, evaluation_key: str) -> dict | None:
+        return None
+
+    def list_jev_runs(self, case_id: str, party_id: str | None = None) -> list[dict]:
+        return []
 
     def grant_access(self, subject: str, resource_type: str,
                      resource_id: str) -> None:

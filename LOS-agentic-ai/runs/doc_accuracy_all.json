@@ -1,0 +1,425 @@
+{
+ "coverage": {
+  "ITR": {
+   "docs": 6,
+   "type_accuracy": 0.0,
+   "avg_fields": 0,
+   "errors": 0,
+   "p50_ms": 2,
+   "max_ms": 56779,
+   "field_accuracy": "NOT VERIFIED - no ground truth",
+   "rows": [
+    {
+     "file": "documents/ITR.pdf",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 0,
+     "status": "FAILED",
+     "ms": 554
+    },
+    {
+     "file": "documents/ITR_2.pdf",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 0,
+     "status": "FAILED",
+     "ms": 2
+    },
+    {
+     "file": "documents/ITR_3.pdf",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 0,
+     "status": "FAILED",
+     "ms": 1
+    },
+    {
+     "file": "documents/ITR 2025-26.pdf",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 0,
+     "status": "FAILED",
+     "ms": 1
+    },
+    {
+     "file": "documents/itr_v.pdf",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 0,
+     "status": "FAILED",
+     "ms": 1
+    },
+    {
+     "file": "documents/ITR.jpeg",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 0,
+     "status": "UNSUPPORTED",
+     "ms": 56779
+    }
+   ]
+  },
+  "PASSPORT": {
+   "docs": 6,
+   "type_accuracy": 1.0,
+   "avg_fields": 3.2,
+   "errors": 0,
+   "p50_ms": 11330,
+   "max_ms": 11969,
+   "field_accuracy": "NOT VERIFIED - no ground truth",
+   "rows": [
+    {
+     "file": "passports/passport_samples0_1.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 2,
+     "status": "PARTIAL",
+     "ms": 11330
+    },
+    {
+     "file": "passports/passport_samples0_2.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 9,
+     "status": "PARTIAL",
+     "ms": 11531
+    },
+    {
+     "file": "passports/passport_samples0_3.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 2,
+     "status": "PARTIAL",
+     "ms": 11271
+    },
+    {
+     "file": "passports/passport_samples0_4.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 2,
+     "status": "PARTIAL",
+     "ms": 7050
+    },
+    {
+     "file": "passports/passport_samples0_5.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 2,
+     "status": "PARTIAL",
+     "ms": 7926
+    },
+    {
+     "file": "passports/passport_samples0_6.jpg",
+     "classified": "PASSPORT",
+     "type_ok": true,
+     "fields": 2,
+     "status": "PARTIAL",
+     "ms": 11969
+    }
+   ]
+  },
+  "SALE_DEED": {
+   "docs": 3,
+   "type_accuracy": 0.0,
+   "avg_fields": 0,
+   "errors": 0,
+   "p50_ms": 2,
+   "max_ms": 2,
+   "field_accuracy": "NOT VERIFIED - no ground truth",
+   "rows": [
+    {
+     "file": "real_batch/sale_deed_clean.pdf",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 0,
+     "status": "FAILED",
+     "ms": 2
+    },
+    {
+     "file": "real_batch/sale_deed_small.pdf",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 0,
+     "status": "FAILED",
+     "ms": 2
+    },
+    {
+     "file": "real_batch/sale_deed2.pdf",
+     "classified": "UNKNOWN",
+     "type_ok": false,
+     "fields": 0,
+     "status": "FAILED",
+     "ms": 1
+    }
+   ]
+  },
+  "AADHAAR": {
+   "status": "NOT_TESTABLE",
+   "reason": "no sample in the repository"
+  }
+ },
+ "identity": {
+  "summary": {
+   "PAN": {
+    "docs": 5,
+    "type_accuracy": 1.0,
+    "field_accuracy": 1.0,
+    "missing": 0,
+    "wrong": 0,
+    "document_accuracy": 1.0,
+    "p50_ms": 2518,
+    "max_ms": 6764
+   },
+   "DRIVING_LICENCE": {
+    "docs": 6,
+    "type_accuracy": 1.0,
+    "field_accuracy": 0.864,
+    "missing": 6,
+    "wrong": 0,
+    "document_accuracy": 0.667,
+    "p50_ms": 4648.5,
+    "max_ms": 10747
+   },
+   "VOTER_ID": {
+    "docs": 6,
+    "type_accuracy": 1.0,
+    "field_accuracy": 1.0,
+    "missing": 0,
+    "wrong": 0,
+    "document_accuracy": 1.0,
+    "p50_ms": 2864.5,
+    "max_ms": 4423
+   }
+  },
+  "rows": [
+   {
+    "file": "lPan.jpg",
+    "type": "PAN",
+    "detected": "PAN",
+    "fields": {
+     "pan_number": "OK",
+     "name": "OK",
+     "father_name": "OK",
+     "date_of_birth": "OK"
+    },
+    "ms": 2518
+   },
+   {
+    "file": "documents\\rpan.jpg",
+    "type": "PAN",
+    "detected": "PAN",
+    "fields": {
+     "pan_number": "OK",
+     "name": "OK",
+     "father_name": "OK",
+     "date_of_birth": "OK"
+    },
+    "ms": 2627
+   },
+   {
+    "file": "documents\\original.jpg",
+    "type": "PAN",
+    "detected": "PAN",
+    "fields": {
+     "pan_number": "OK",
+     "name": "OK",
+     "father_name": "OK",
+     "date_of_birth": "OK"
+    },
+    "ms": 2446
+   },
+   {
+    "file": "documents\\f3.jpg",
+    "type": "PAN",
+    "detected": "PAN",
+    "fields": {
+     "pan_number": "OK",
+     "name": "OK",
+     "father_name": "OK",
+     "date_of_birth": "OK"
+    },
+    "ms": 2444
+   },
+   {
+    "file": "real_batch\\pan_bw1.jpg",
+    "type": "PAN",
+    "detected": "PAN",
+    "fields": {
+     "pan_number": "OK",
+     "name": "OK",
+     "father_name": "OK"
+    },
+    "ms": 6764
+   },
+   {
+    "file": "documents\\driving_license.jpg",
+    "type": "DRIVING_LICENCE",
+    "detected": "DRIVING_LICENCE",
+    "fields": {
+     "dl_number": "OK",
+     "name": "OK",
+     "guardian_name": "OK",
+     "date_of_birth": "OK",
+     "date_of_issue": "OK",
+     "valid_till": "OK",
+     "pin_code": "OK",
+     "vehicle_classes": "OK"
+    },
+    "ms": 4367
+   },
+   {
+    "file": "documents\\sidkamble.jpg",
+    "type": "DRIVING_LICENCE",
+    "detected": "DRIVING_LICENCE",
+    "fields": {
+     "dl_number": "OK",
+     "name": "OK",
+     "guardian_name": "OK",
+     "date_of_birth": "OK",
+     "date_of_issue": "OK",
+     "valid_till": "OK",
+     "pin_code": "OK",
+     "vehicle_classes": "OK"
+    },
+    "ms": 4930
+   },
+   {
+    "file": "real_batch\\dl1.jpg",
+    "type": "DRIVING_LICENCE",
+    "detected": "DRIVING_LICENCE",
+    "fields": {
+     "dl_number": "OK",
+     "name": "OK",
+     "guardian_name": "OK",
+     "date_of_birth": "OK",
+     "date_of_issue": "OK",
+     "valid_till": "OK",
+     "pin_code": "OK",
+     "vehicle_classes": "OK"
+    },
+    "ms": 8010
+   },
+   {
+    "file": "real_batch\\dl2.jpg",
+    "type": "DRIVING_LICENCE",
+    "detected": "DRIVING_LICENCE",
+    "fields": {
+     "dl_number": "OK",
+     "name": "OK",
+     "guardian_name": "OK",
+     "date_of_birth": "OK",
+     "date_of_issue": "OK",
+     "pin_code": "MISSING"
+    },
+    "ms": 2111
+   },
+   {
+    "file": "real_batch\\dl3.jpg",
+    "type": "DRIVING_LICENCE",
+    "detected": "DRIVING_LICENCE",
+    "fields": {
+     "dl_number": "OK",
+     "guardian_name": "MISSING",
+     "date_of_birth": "MISSING",
+     "date_of_issue": "MISSING",
+     "valid_till": "MISSING",
+     "pin_code": "MISSING"
+    },
+    "ms": 10747
+   },
+   {
+    "file": "real_batch\\dl4.jpg",
+    "type": "DRIVING_LICENCE",
+    "detected": "DRIVING_LICENCE",
+    "fields": {
+     "dl_number": "OK",
+     "name": "OK",
+     "guardian_name": "OK",
+     "date_of_birth": "OK",
+     "date_of_issue": "OK",
+     "valid_till": "OK",
+     "pin_code": "OK",
+     "vehicle_classes": "OK"
+    },
+    "ms": 3700
+   },
+   {
+    "file": "real_batch\\voter_id.jpg",
+    "type": "VOTER_ID",
+    "detected": "VOTER_ID",
+    "fields": {
+     "epic_number": "OK",
+     "name": "OK",
+     "relation_name": "OK",
+     "relation_type": "OK",
+     "gender": "OK"
+    },
+    "ms": 1583
+   },
+   {
+    "file": "documents\\voter_id2.jpg",
+    "type": "VOTER_ID",
+    "detected": "VOTER_ID",
+    "fields": {
+     "epic_number": "OK",
+     "name": "OK",
+     "relation_name": "OK",
+     "relation_type": "OK",
+     "gender": "OK"
+    },
+    "ms": 2981
+   },
+   {
+    "file": "real_batch\\voterid3.jpg",
+    "type": "VOTER_ID",
+    "detected": "VOTER_ID",
+    "fields": {
+     "epic_number": "OK",
+     "name": "OK",
+     "relation_name": "OK",
+     "relation_type": "OK"
+    },
+    "ms": 1687
+   },
+   {
+    "file": "real_batch\\voter4.jpg",
+    "type": "VOTER_ID",
+    "detected": "VOTER_ID",
+    "fields": {
+     "epic_number": "OK",
+     "name": "OK",
+     "relation_name": "OK",
+     "relation_type": "OK",
+     "gender": "OK",
+     "age": "OK"
+    },
+    "ms": 2748
+   },
+   {
+    "file": "real_batch\\voter5.jpg",
+    "type": "VOTER_ID",
+    "detected": "VOTER_ID",
+    "fields": {
+     "epic_number": "OK",
+     "name": "OK",
+     "relation_name": "OK",
+     "relation_type": "OK",
+     "gender": "OK"
+    },
+    "ms": 3286
+   },
+   {
+    "file": "real_batch\\voter6.jpg",
+    "type": "VOTER_ID",
+    "detected": "VOTER_ID",
+    "fields": {
+     "epic_number": "OK",
+     "name": "OK",
+     "relation_name": "OK",
+     "relation_type": "OK"
+    },
+    "ms": 4423
+   }
+  ]
+ }
+}

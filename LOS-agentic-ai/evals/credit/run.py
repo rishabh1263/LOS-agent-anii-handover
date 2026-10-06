@@ -32,7 +32,7 @@ async def main(argv: list[str] | None = None) -> int:
     from app.agents.runtime.evals import runner
     from app.agents.runtime.evals.contracts import SuiteReport
     from app.store import set_repository
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.testing import fresh_repository
     from evals.credit.suite import CASES, execute_in_process
 
     results = []
@@ -40,7 +40,7 @@ async def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp, \
             patch("app.agents.los.config.case_memory_enabled", return_value=True):
         for i, (case, setup) in enumerate(CASES):
-            repository = SQLiteRepository(Path(tmp) / f"{i}.sqlite3")
+            repository = fresh_repository(Path(tmp) / f"{i}.sqlite3")
             repository.initialise()
             set_repository(repository)
             run = await execute_in_process(case, setup, repository)

@@ -37,12 +37,12 @@ from app.store.models import (
     DocumentVersion,
     FindingKind,
 )
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "case_memory.sqlite3")
+    repository = fresh_repository(tmp_path / "case_memory.sqlite3")
     repository.initialise()
     return repository
 
@@ -72,10 +72,11 @@ def finding(case_id="CASE-1", kind=FindingKind.KYC, party_id="APP-1",
 
 
 def test_initialisation_creates_the_case_memory_tables(repo):
-    import sqlite3
+    import psycopg
 
-    tables = {r[0] for r in sqlite3.connect(str(repo._path)).execute(
-        "SELECT name FROM sqlite_master WHERE type='table'")}
+    with psycopg.connect(repo._dsn) as conn:
+        tables = {r[0] for r in conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")}
 
     assert {"case_findings", "document_versions", "case_decisions",
             "case_events"} <= tables
@@ -102,23 +103,16 @@ def test_existing_entities_are_untouched(case):
 
 def test_a_store_written_before_case_memory_still_opens(tmp_path):
     """
-    THE UPGRADE PATH. A file created by the previous release has none of
-    these tables; opening it must add them rather than refuse.
+    THE UPGRADE PATH. A database from an earlier release keeps its rows when
+    the migrations run again on it (schema_migrations decides what applies).
     """
-    import sqlite3
+    from app.store.postgres_repo import PostgresRepository
 
-    path = tmp_path / "old.sqlite3"
-    conn = sqlite3.connect(str(path))
-    conn.execute("CREATE TABLE applicants (applicant_id TEXT PRIMARY KEY, "
-                 "full_name TEXT, mobile TEXT, email TEXT, "
-                 "date_of_birth TEXT, address TEXT, created_at TEXT, "
-                 "updated_at TEXT)")
-    conn.execute("INSERT INTO applicants (applicant_id, full_name, "
-                 "created_at, updated_at) VALUES ('OLD-1','Kept','x','x')")
-    conn.commit()
-    conn.close()
+    repository = fresh_repository()
+    from app.store.models import Applicant
 
-    repository = SQLiteRepository(path)
+    repository.save_applicant(Applicant(applicant_id="OLD-1", full_name="Kept"))
+    repository = PostgresRepository(repository._dsn, max_size=2)       # a restart
     repository.initialise()
 
     assert repository.get_applicant("OLD-1").full_name == "Kept"
@@ -318,7 +312,9 @@ def test_the_repository_does_not_decide_who_may_read(repo):
     """
     import inspect
 
-    source = inspect.getsource(SQLiteRepository.get_case_findings)
+    from app.store.sql_repo import SqlRepository
+
+    source = inspect.getsource(SqlRepository.get_case_findings)
 
     for token in ("Caller", "scope", "require_jwt", "permission"):
         assert token not in source
@@ -421,12 +417,10 @@ def test_an_unknown_finding_kind_does_not_break_a_read(case):
     A row written by a newer version must not make an older reader fall
     over on an ordinary SELECT.
     """
-    import sqlite3
+    import psycopg
 
     case.save_finding(finding(digest="h1"))
-    conn = sqlite3.connect(str(case._path))
-    conn.execute("UPDATE case_findings SET finding_kind = 'FROM_THE_FUTURE'")
-    conn.commit()
-    conn.close()
+    with psycopg.connect(case._dsn, autocommit=True) as conn:
+        conn.execute("UPDATE case_findings SET finding_kind = 'FROM_THE_FUTURE'")
 
     assert len(case.get_case_findings("CASE-1")) == 1
