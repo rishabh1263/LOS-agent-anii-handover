@@ -36,7 +36,7 @@ from typing import Any
 
 from app.store.models import CaseEvent, CaseStage, StageTransition, utcnow
 from app.store.repository import RepositoryError
-from app.store.sqlite_repo import (
+from app.store.sql_repo import (
     _ADDED_COLUMNS,
     _ADDED_INDEXES,
     SQLiteRepository,

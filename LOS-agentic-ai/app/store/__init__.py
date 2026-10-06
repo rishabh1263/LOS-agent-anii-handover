@@ -52,7 +52,7 @@ def store_dsn() -> str:
 
 
 def _build_sqlite() -> Repository:
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.sql_repo import SQLiteRepository
 
 
 
