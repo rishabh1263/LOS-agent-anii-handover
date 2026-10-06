@@ -286,9 +286,18 @@ def deterministic_answer(
         # a run-on sentence, "2 documents are on your application: the PAN is
         # verified and the Voter ID is rejected", read as a data dump).
         rows = [(_doc_label(d.get("document_type"), d.get("party_role")), d.get("status")) for d in documents]
-        lines = [_status_line(label, status) for label, status in rows]
         todo = [label for label, status in rows if _STATE_ICON.get(str(status or "").upper(), ("", ""))[0] != "✓"]
-        said = "Documents on this application:\n" + "\n".join(lines)
+        co = [str(d.get("party_role") or "").upper() == "CO_APPLICANT" for d in documents]
+        if any(co) and not all(co):
+            # TWO PEOPLE: one group each, under its own heading -- never one mixed list
+            groups = []
+            for heading, want in (("Applicant", False), ("Co-applicant", True)):
+                lines = [_status_line(_readable(d.get("document_type")), d.get("status"))
+                         for d, is_co in zip(documents, co) if is_co is want]
+                groups.append(f"{heading}\n" + "\n".join(lines))
+            said = "Documents on this application:\n\n" + "\n\n".join(groups)
+        else:
+            said = "Documents on this application:\n" + "\n".join(_status_line(label, status) for label, status in rows)
         if todo:
             said += f"\n\nNext step: {_and_list(todo)} {'need' if len(todo) > 1 else 'needs'} attention."
         return said

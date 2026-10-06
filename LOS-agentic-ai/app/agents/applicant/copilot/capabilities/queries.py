@@ -62,6 +62,27 @@ def _subject(case_id: str, message: str, documents: list[dict[str, Any]]) -> dic
                     "prefill": f"Please review the {card['label']}: it {issue}" + (f" ({reason.lower()})." if reason else "."),
                     "evidence_refs": [{"type": "DOCUMENT", "document_id": card.get("document_id"),
                                        "reason_codes": card.get("reason_codes") or []}]}
+    # "THIS MISMATCH": the recorded KYC mismatch (documents disagreeing with each
+    # other), when the officer says mismatch and no single document failed
+    if re.search(r"mismatch|discrepan|differ|match\s+nahi|alag", message, re.I):
+        try:
+            from app.store import get_repository
+            from app.store.models import FindingKind
+
+            for row in get_repository().get_current_findings(case_id, kind=FindingKind.KYC):
+                fields = [re.sub(r"^father name$", "father's name", str(f).replace("_", " ").lower())
+                          for f in (row.payload or {}).get("mismatched_fields") or []]
+                if fields:
+                    shown = fields[:3]
+                    what = shown[0] if len(shown) == 1 else ", ".join(shown[:-1]) + " and " + shown[-1]
+                    verb = "differs" if len(shown) == 1 else "differ"
+                    return {"target_type": "PARTY", "target_id": row.party_id, "query_type": "DOCUMENT_DISCREPANCY",
+                            "party_id": row.party_id, "label": f"the {what} mismatch",
+                            "prefill": f"The {what} {verb} across the documents. Please confirm the correct "
+                                       f"details and share supporting proof.",
+                            "evidence_refs": [{"type": "KYC", "party_id": row.party_id, "fields": fields[:5]}]}
+        except Exception:  # noqa: BLE001 - unreadable KYC: the gate blocker below
+            pass
     # the gate blocker, from the records
     try:
         from app.agents.los import stage_gate, stages
@@ -100,8 +121,13 @@ def _target_and_subject(message: str) -> tuple[str | None, str | None]:
         subject = re.sub(r"\b(query|raise|kar\w*|karo|do|please|ke\s+liye|ko)\b", " ", subject, flags=re.I)
         subject = " ".join(subject.split()).strip(" .") or None
         if subject and (re.fullmatch(_STAGES, subject, re.I) or re.fullmatch(
-                r"(this|that|it|this one|iska|iske|isko|uska|ye|yeh)", subject, re.I)):
+                r"(this|that|it|this one|iska|iske|isko|uska|ye|yeh)", subject, re.I)
+                # "this mismatch" / "is issue" POINTS at the live problem; it names none
+                or re.fullmatch(r"(this|that|is|iss|us|ye|yeh|wo|woh)\s+(mismatch|issue|problem|discrepancy|"
+                                r"error|gadbad\w*|dikkat|one|document|doc)", subject, re.I)):
             subject = None                  # a pronoun is the live blocker's job, not a subject
+        elif subject:
+            subject = re.sub(r"^(the|this|that)\s+", "", subject, flags=re.I)
     return target, subject
 
 

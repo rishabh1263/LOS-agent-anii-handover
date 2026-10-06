@@ -207,6 +207,16 @@ def _kind(finding: Any) -> str:
     return str(getattr(kind, "value", kind) or "")
 
 
+def _whose(finding: Any) -> str:
+    """'your', or "the co-applicant's" when the document's own record says so."""
+    try:
+        document = _repository().get_document(finding.document_id) if getattr(finding, "document_id", None) else None
+    except Exception:  # noqa: BLE001 - an unreadable record keeps the default wording
+        document = None
+    role = str(getattr(document, "party_role", "") or "").upper()
+    return "the co-applicant's" if role == "CO_APPLICANT" else "your"
+
+
 def answer(
     case_id: str,
     party_id: str | None,
@@ -251,6 +261,13 @@ def answer(
     verification = verified[-1]
     status = str(verification.status or "").upper() or "UNKNOWN"
     verification_source = _source(verification, document_type)
+    # WHOSE DOCUMENT, from its own record: a co-applicant's PAN is never "your PAN"
+    whose = _whose(verification)
+    if whose != "your":
+        words = f"{whose} {words}"
+        your = ""
+    else:
+        your = "your "
 
     if status != "PASS":
         # THE RECORDED VERDICT AND REASONS, IN WORDS. The status and the
@@ -263,7 +280,7 @@ def answer(
         verb = held.get(status, f"was recorded as {status.lower()}")
         reasons = " ".join(_explained(code)
                            for code in (verification.reason_codes or [])[:2])
-        return (f"Your {words} {verb}."
+        return (f"{(your + words)[:1].upper() + (your + words)[1:]} {verb}."
                 + (f" {reasons}" if reasons else "")
                 + f" Its details are not confirmed, so no {label} from it "
                   f"is reported.",
@@ -282,11 +299,11 @@ def answer(
         fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else payload
         lines = _lines(document_type, fields)
         if lines:
-            return (f"Details read from your {words} (it passed verification):\n" + "\n".join(lines),
+            return (f"Details read from {your}{words} (it passed verification):\n" + "\n".join(lines),
                     [_source(extraction, document_type), verification_source])
     value = (extraction.payload or {}).get(key) if extraction else None
     if value:
-        return (f"The {label} on your {words} is {value}.",
+        return (f"The {label} on {your}{words} is {value}.",
                 [_source(extraction, document_type, field=key),
                  verification_source])
 
@@ -296,10 +313,11 @@ def answer(
     kyc_value, kyc = _kyc_value(findings, kyc_field, document_type,
                                 verification.source_id)
     if kyc_value:
-        return (f"The {label} on your {words} is {kyc_value}.",
+        return (f"The {label} on {your}{words} is {kyc_value}.",
                 [_source(kyc, document_type, field=key), verification_source])
 
-    return (f"Your {words} passed verification, but no {label} was read "
+    owner = your + words
+    return (f"{owner[:1].upper() + owner[1:]} passed verification, but no {label} was read "
             "from it.", [verification_source])
 
 
