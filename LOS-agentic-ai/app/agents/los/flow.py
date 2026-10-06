@@ -506,6 +506,32 @@ async def _run_specialist(
             reference_staged.unlink(missing_ok=True)
 
 
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+
+
+def _undeclared_signature(document: UploadedDocument, result: dict[str, Any]) -> bool:
+    """An undeclared image that classification could not place, whose ink looks handwritten."""
+    expected = str(document.expected_type or "").strip().upper()
+    if expected and expected not in {"AUTO", "ANY"}:
+        return False
+    if Path(document.filename or "").suffix.lower() not in _IMAGE_SUFFIXES:
+        return False
+    if str((result.get("document") or {}).get("type") or "UNKNOWN").upper() != "UNKNOWN":
+        return False
+    try:
+        import io
+
+        from PIL import Image
+
+        from app.agents.signature import analysis
+
+        image = Image.open(io.BytesIO(document.content))
+        stats = analysis.measure(image)
+        return (not analysis.is_blank(stats)) and analysis.looks_handwritten(stats, analysis.stroke_profile(image))
+    except Exception:  # noqa: BLE001 - an image that cannot be measured keeps its classification
+        return False
+
+
 async def _process_one(
     document: UploadedDocument,
     operation: str,
@@ -587,6 +613,22 @@ async def _process_one(
         }
 
     result["source_id"] = document.source_id
+
+    # AN UNDECLARED SIGNATURE. Classification reads TEXT, and a signature has
+    # none: an upload with no declared type came back UNKNOWN -- "blank, illegible,
+    # unrecognised" -- and a real applicant's signature was REJECTED (user report,
+    # 2026-10-06). Only for an undeclared IMAGE that classification could not
+    # place, and only when the ink looks handwritten (signature.analysis, a
+    # deliberately permissive test: a false REVIEW costs a glance, a false FAIL
+    # turns an applicant away), it goes to the signature specialist instead.
+    if _undeclared_signature(document, result) and los_config.specialist_enabled("signature_verification"):
+        as_signature = UploadedDocument(document.source_id, document.filename, document.content,
+                                        expected_type="SIGNATURE", party=document.party,
+                                        reference=getattr(document, "reference", None))
+        rerouted = await _run_specialist(as_signature, "signature_verification", request_id)
+        rerouted["source_id"] = document.source_id
+        rerouted.setdefault("warnings", []).append("SIGNATURE_DETECTED_WITHOUT_DECLARED_TYPE")
+        return _apply_verification_flag(rerouted)
 
     # What the CALLER asserted this file was. Carried so the response can show
     # the assertion beside the type actually found -- a mismatch is unreadable

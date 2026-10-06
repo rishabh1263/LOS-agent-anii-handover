@@ -42,11 +42,47 @@ _FIELD_LABELS = {"pan_number": "PAN number", "pan": "PAN", "dl_number": "Licence
                  "aadhaar_number": "Aadhaar number", "account_number": "Account number", "ifsc": "IFSC",
                  "name": "Name", "father_name": "Father's name", "date_of_birth": "Date of birth",
                  "dob": "Date of birth", "address": "Address", "gender": "Gender", "valid_till": "Valid till",
-                 "date_of_expiry": "Expiry date", "date_of_issue": "Issue date", "nationality": "Nationality"}
+                 "date_of_expiry": "Expiry date", "date_of_issue": "Issue date", "nationality": "Nationality",
+                 # added 2026-10-06 with the printed financial fields
+                 "guardian_name": "Guardian's name", "relation_name": "Relative's name", "relation_type": "Relation",
+                 "pin_code": "PIN code", "issue_date": "Issue date",
+                 "employer_name": "Employer", "net_pay": "Net pay", "gross_pay": "Gross pay",
+                 "pay_period": "Pay period", "total_deductions": "Total deductions",
+                 "assessment_year": "Assessment year", "form_number": "ITR form",
+                 "acknowledgement_number": "Acknowledgement number", "filing_date": "Filing date",
+                 "total_income": "Total income", "taxes_paid": "Taxes paid",
+                 "account_holder_name": "Account holder", "account_number_masked": "Account number",
+                 "period_start": "Statement from", "period_end": "Statement to", "closing_balance": "Closing balance",
+                 "article_type": "Article", "registration_reference": "Registration reference"}
+
+#: amounts shown as rupees, Indian-grouped (₹1,23,456)
+_MONEY = {"net_pay", "gross_pay", "total_deductions", "total_income", "taxes_paid", "closing_balance"}
+#: the same value already shown under a clearer name
+_REDUNDANT = {"BANK_STATEMENT": {"name"}}
 
 
 def field_label(key: str) -> str:
     return _FIELD_LABELS.get(str(key), str(key).replace("_", " ").capitalize())
+
+
+def _rupees(value: Any) -> str:
+    """₹ with Indian digit grouping; the value as recorded when it is not a number."""
+    try:
+        amount = float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        return str(value)
+    whole, paise = f"{abs(amount):.2f}".split(".")
+    head, tail = whole[:-3], whole[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    grouped = ",".join(([head] if head else []) + groups + [tail]) if head or groups else tail
+    return f"{'-' if amount < 0 else ''}₹{grouped}" + (f".{paise}" if paise != "00" else "")
+
+
+def format_field(key: str, value: Any) -> str:
+    return _rupees(value) if key in _MONEY else str(value)
 
 #: Spoken document names -> stored document_type. Longest forms first so
 #: "bank statement" is not read as "bank".
@@ -54,10 +90,13 @@ _DOCUMENTS: tuple[tuple[str, str], ...] = (
     (r"salary\s*slip|pay\s*slip|payslip", "SALARY_SLIP"),
     (r"bank\s*statement|bank\s*account|account\s*holder|account\s*statement",
      "BANK_STATEMENT"),
-    (r"driving\s*licen[cs]e", "DRIVING_LICENCE"),
-    (r"voter\s*id", "VOTER_ID"),
+    (r"driving\s*licen[cs]e|\bdl\b", "DRIVING_LICENCE"),
+    (r"voter\s*id|\bvoter\b|\bepic\b", "VOTER_ID"),
     (r"passport", "PASSPORT"),
     (r"aadhaa?r", "AADHAAR"),
+    (r"\bitr\b|income\s*tax\s*return", "ITR"),
+    (r"form\s*16", "FORM_16"),
+    (r"sale\s*deed", "SALE_DEED"),
     (r"\bpan\b", "PAN"),
 )
 
@@ -81,6 +120,9 @@ _WORDS = {
     "VOTER_ID": "voter ID",
     "PASSPORT": "passport",
     "AADHAAR": "Aadhaar",
+    "ITR": "ITR",
+    "FORM_16": "Form 16",
+    "SALE_DEED": "sale deed",
 }
 
 
@@ -106,11 +148,43 @@ _GENERIC_DETAILS = re.compile(r"\b(details?|info(rmation)?|data|fields?)\b", re.
 
 
 def wants_every_field(message: str) -> bool:
+    """
+    EVERY FIELD, unless the question names ONE ("what is the name on my PAN?").
+    "PAN me kya likha hai?", "voter id ki jaankari", "salary slip ka data" all
+    want the whole document -- answering them with just the name (the old
+    default) hid everything else that was read (user report, 2026-10-06).
+    """
     text = message or ""
     if _ALL_FIELDS.search(text):
         return True
-    return bool(_GENERIC_DETAILS.search(text)) and not any(
-        re.search(pattern, text, re.IGNORECASE) for pattern, *_ in _FIELDS)
+    return not any(re.search(pattern, text, re.IGNORECASE) for pattern, *_ in _FIELDS)
+
+
+#: "saare documents ki details", "all document details", "sab docs ka data"
+ALL_DOCUMENTS = re.compile(
+    r"\b(all|saare|sare|saari|sari|sab|sabhi|every|each|sagl[ei]|sarv[ae]?)\b[^?]{0,15}"
+    r"\b(documents?|docs?|kagaz\w*|kagadpatr\w*|dastavez\w*)\b", re.I)
+
+
+#: no single document named, but documents in general ("documents ki details")
+_ANY_DOCUMENTS = re.compile(r"\b(documents?|docs?|kagaz\w*|kagadpatr\w*|dastavez\w*)\b", re.I)
+
+
+def _lines(document_type: str, fields: dict[str, Any]) -> list[str]:
+    """One '- Label: value' line per field: masked identifiers, ₹ amounts, nothing redundant."""
+    from app.security import sensitivity
+
+    shown = {k: (v.get("value") if isinstance(v, dict) else v) for k, v in (fields or {}).items()
+             if not str(k).startswith("_") and k not in _REDUNDANT.get(document_type, set())}
+    shown = {k: v for k, v in shown.items() if v not in (None, "", [], {}) and not isinstance(v, (dict, list))}
+    masked = sensitivity.mask_payload(shown)
+    for k in list(masked):
+        # ALREADY MASKED means it STARTS with the mask -- "an X in the first four
+        # characters" let a voter ID like ZAX0399947 through unmasked (2026-10-06)
+        if k in ("pan_number", "pan", "dl_number", "epic_number", "passport_number", "account_number",
+                 "aadhaar_number") and not str(masked[k]).startswith("XX"):
+            masked[k] = sensitivity.mask(str(masked[k]))
+    return [f"- {field_label(k)}: {format_field(k, v)}" for k, v in masked.items()]
 
 
 def field_asked(message: str) -> tuple[str, str, str]:
@@ -147,6 +221,8 @@ def answer(
     """
     document_type = document_asked(message)
     key, kyc_field, label = field_asked(message)
+    if document_type is None and (ALL_DOCUMENTS.search(message or "") or _ANY_DOCUMENTS.search(message or "")):
+        return answer_all(case_id, party_id)
     if document_type is None:
         return ("Please name the document -- for example the PAN or the "
                 "salary slip -- whose details you want.", [])
@@ -204,19 +280,9 @@ def answer(
     if extraction and wants_every_field(message):
         payload = dict(extraction.payload or {})
         fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else payload
-        shown = {k: (v.get("value") if isinstance(v, dict) else v) for k, v in (fields or {}).items()
-                 if not str(k).startswith("_")}
-        shown = {k: v for k, v in shown.items() if v not in (None, "", [], {}) and not isinstance(v, (dict, list))}
-        if shown:
-            from app.security import sensitivity
-
-            masked = sensitivity.mask_payload(shown)
-            for k in list(masked):
-                if k in ("pan_number", "pan", "dl_number", "epic_number", "passport_number", "account_number",
-                         "aadhaar_number") and "X" not in str(masked[k])[:4]:
-                    masked[k] = sensitivity.mask(str(masked[k]))
-            lines = "\n".join(f"- {field_label(k)}: {v}" for k, v in masked.items())
-            return (f"Details read from your {words} (it passed verification):\n{lines}",
+        lines = _lines(document_type, fields)
+        if lines:
+            return (f"Details read from your {words} (it passed verification):\n" + "\n".join(lines),
                     [_source(extraction, document_type), verification_source])
     value = (extraction.payload or {}).get(key) if extraction else None
     if value:
@@ -235,6 +301,47 @@ def answer(
 
     return (f"Your {words} passed verification, but no {label} was read "
             "from it.", [verification_source])
+
+
+def answer_all(case_id: str, party_id: str | None) -> tuple[str, list[dict[str, Any]]]:
+    """
+    EVERY UPLOADED DOCUMENT'S DETAILS, one section each (user request, 2026-10-06):
+    a verified document lists every field read from it; one that did not pass says
+    its state and why -- its values are not confirmed, so none is quoted.
+    """
+    from app.agents.applicant.copilot.answering.answer import _explained
+
+    try:
+        findings = _repository().get_current_findings(case_id, party_id=party_id)
+    except Exception as exc:
+        logger.warning("Document facts unavailable for %s: %r", case_id, exc)
+        return ("The document details for this case could not be read right now.", [])
+    verifications = [f for f in findings if _kind(f) == "VERIFICATION"]
+    if not verifications:
+        return ("No documents have been recorded for this case yet.", [])
+    latest: dict[tuple, Any] = {}
+    for v in verifications:                       # newest per document: findings arrive in write order
+        latest[(v.party_id, v.source_id)] = v
+    sections, sources = [], []
+    for v in latest.values():
+        document_type = str((v.payload or {}).get("type") or "").upper() or "UNKNOWN"
+        words = _WORDS.get(document_type, document_type.replace("_", " ").title())
+        heading = words[:1].upper() + words[1:]
+        status = str(v.status or "").upper()
+        if status != "PASS":
+            reason = " ".join(_explained(c) for c in (v.reason_codes or [])[:1])
+            state = "needs a review" if status == "REVIEW" else "did not pass verification"
+            sections.append(f"{heading} -- {state}." + (f" {reason}" if reason else ""))
+            sources.append(_source(v, document_type))
+            continue
+        extraction = next((f for f in reversed(findings) if _kind(f) == "EXTRACTION"
+                           and f.source_id == v.source_id and f.party_id == v.party_id), None)
+        payload = dict(extraction.payload or {}) if extraction else {}
+        fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else payload
+        lines = _lines(document_type, fields)
+        sections.append(f"{heading} (verified):\n" + ("\n".join(lines) if lines else "- No details were read."))
+        sources.append(_source(extraction or v, document_type))
+    return ("Details read from the documents on this application:\n\n" + "\n\n".join(sections), sources)
 
 
 def _kyc_value(findings, kyc_field, document_type, source_id):
