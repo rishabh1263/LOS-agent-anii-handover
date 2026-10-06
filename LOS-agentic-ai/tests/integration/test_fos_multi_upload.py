@@ -36,7 +36,7 @@ from PIL import Image
 
 from app.agents.applicant import config as agent_config
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 SAMPLES = Path(__file__).resolve().parents[2] / "samples" / "real_batch"
 
@@ -56,7 +56,7 @@ def _store(tmp_path, monkeypatch):
     """A repository per test. No test sees another test's documents."""
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "multi_upload.sqlite3")
+    repository = fresh_repository(tmp_path / "multi_upload.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

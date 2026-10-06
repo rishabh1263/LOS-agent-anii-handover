@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 
 from app.agents.applicant import config as agent_config
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 FOS_SCOPES = [
     "read_applicant", "read_application", "read_documents", "read_verification",
@@ -43,7 +43,7 @@ FOS_SCOPES = [
 def _store(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "trace.sqlite3")
+    repository = fresh_repository(tmp_path / "trace.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

@@ -1,0 +1,38 @@
+# ===========================================================================
+# MAKER / CHECKER -- four-eyes control for configured high-risk actions
+# (app/approvals). One generic approval entity, not one table per action.
+#
+#   maker REQUESTS  -> PENDING_CHECK  (nothing has happened yet)
+#   checker DECIDES -> APPROVED (the action executes NOW, as the checker
+#                      approved it) / REJECTED / RETURNED (back to the maker)
+#   maker CANCELS   -> CANCELLED;   past ttl -> EXPIRED
+#
+# Rules enforced in code (app/approvals/service.py), never in a frontend:
+#   - maker != checker
+#   - the checker holds `checker_scope` AND passes case authorization again
+#   - the checker re-reads authoritative state: the evidence version recorded
+#     at request time must still hold, else STALE_STATE (the case moved on)
+#   - no model, agent or service identity can check (`forbidden_checker_subjects`)
+#   - read-only chatbot actions never need this
+# MAKER_CHECKER_ENABLED overrides `enabled`.
+# ===========================================================================
+
+maker_checker:
+  enabled: true
+  checker_scope: los.approvals.check
+  ttl_hours: 24
+  # subjects (glob) that may never act as checker -- JEV, Qwen, the copilot,
+  # workflow services
+  forbidden_checker_subjects: ["jev*", "qwen*", "copilot*", "system*", "svc-*", "agent-*", "los-workflow*"]
+
+  actions:
+    # an ungated stage move: the readiness override
+    STAGE_OVERRIDE:          {requires_check: true, resource_type: CASE_STAGE}
+    DEVIATION_APPROVAL:      {requires_check: true, resource_type: DEVIATION}
+    # configured for four-eyes; no endpoint performs these yet -- when one is
+    # added it registers an executor and is controlled from day one
+    CREDIT_OVERRIDE:         {requires_check: true, resource_type: UNDERWRITING}
+    KYC_OVERRIDE:            {requires_check: true, resource_type: KYC}
+    RISK_OVERRIDE:           {requires_check: true, resource_type: RISK}
+    FINAL_APPROVAL:          {requires_check: true, resource_type: CASE}
+    DISBURSEMENT_EXCEPTION:  {requires_check: true, resource_type: CASE}

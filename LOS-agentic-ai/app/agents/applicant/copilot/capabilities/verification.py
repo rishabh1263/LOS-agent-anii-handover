@@ -117,15 +117,15 @@ def _pool():
 
 
 def _shareable(repository: Any) -> tuple[str, str | None] | None:
-    """(store path, documents root) when BOTH stores can be reopened by path in
-    another process -- SQLite (WAL, busy timeout) and the local document store."""
+    """(store DSN, documents root) when BOTH stores can be reopened in another
+    process -- the PostgreSQL case store (by its DSN) and the local document store."""
     try:
         from app.store.documents import LocalDocumentStore, get_document_store
-        from app.store.sqlite_repo import SQLiteRepository
+        from app.store.postgres_repo import PostgresRepository
 
         store = get_document_store()
-        if isinstance(repository, SQLiteRepository) and isinstance(store, LocalDocumentStore):
-            return str(repository._path), str(store._root)
+        if isinstance(repository, PostgresRepository) and isinstance(store, LocalDocumentStore):
+            return repository._dsn, str(store._root)
     except Exception:  # noqa: BLE001
         pass
     return None
@@ -175,17 +175,17 @@ def _process_pool() -> "concurrent.futures.ProcessPoolExecutor":
     return _PROCESS_POOL
 
 
-def _read_in_process(store_path: str, documents_root: str | None, document_id: str) -> str:
+def _read_in_process(store_dsn: str, documents_root: str | None, document_id: str) -> str:
     """
     One claimed job, finished in a worker process through the SAME job step
-    (ocr_queue.finish): the stores are reopened by path, the job read back by
+    (ocr_queue.finish): the stores are reopened (DSN, path), the job read back by
     its document id. Returns the job's final status.
     """
     from app.store import ocr_queue, set_repository
     from app.store.documents import LocalDocumentStore, set_document_store
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.postgres_repo import PostgresRepository
 
-    repository = SQLiteRepository(store_path)
+    repository = PostgresRepository(store_dsn, max_size=2)
     set_repository(repository)
     if documents_root:
         set_document_store(LocalDocumentStore(documents_root))
@@ -332,7 +332,9 @@ def _line(entry: dict[str, Any], multi_party: bool) -> str:
             "PENDING": "uploaded, not verified yet", "PROCESSING": "being verified now",
             "MISSING": "not uploaded yet"}.get(verdict, verdict.lower())
     parts = [f"{label} -- {said}"]
-    if entry.get("score_recorded"):
+    from app.agents.applicant import config as _config
+
+    if entry.get("score_recorded") and _config.show_scores():
         parts.append(f"score {entry['score']}"
                      + (f", confidence {entry['confidence']}" if entry.get("confidence") is not None else ""))
     if entry.get("reason") and verdict in ("FAIL", "REVIEW"):
@@ -464,6 +466,13 @@ async def run(req: Request, *, documents: list[dict[str, Any]], checklist: list[
     if req.scope != ONE and _done and _needs and not _SHOW_ALL.search(req_text or ""):
         answer = ("Needs attention:\n" + "\n".join(f"- {line}" for line in _needs)
                   + f"\n{len(_done)} other document{'s are' if len(_done) != 1 else ' is'} already verified.")
+    elif req.scope != ONE and _done and not _needs and not _SHOW_ALL.search(req_text or ""):
+        # EVERYTHING VERIFIED: the answer first, not a list of four "verified"
+        # lines (acceptance run, 2026-10-06). The structured block keeps them all.
+        names = [e["label"] for e in _done]
+        listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" and {names[-1]}"
+        answer = (f"All {len(names)} documents are verified ({listed}) -- nothing needs action on them."
+                  if len(names) > 1 else f"The {listed} is verified -- nothing needs action on it.")
     # A RE-VERIFICATION of a type with no background reader cannot be run from
     # the chat: said plainly, with the upload route (verification_adapters.py)
     if req.scope == ONE and not pending and _AGAIN.search(req_text or ""):

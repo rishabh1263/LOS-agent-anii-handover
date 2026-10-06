@@ -1,0 +1,184 @@
+[
+ {
+  "q": "documents verify ho gaye?",
+  "intent": "DOCUMENT_VERIFICATION",
+  "language": "en",
+  "answer": "The customer's PAN, driving licence, salary slip and bank statement passed document verification. These are document checks; the issuing authority has not confirmed the document. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
+  "problems": []
+ },
+ {
+  "q": "what is pending?",
+  "intent": "PENDING_ITEMS",
+  "language": "en",
+  "answer": "Nothing is missing from the checklist, but one thing still needs attention:\n⚠ KYC needs a review — These details differ across the documents: name.",
+  "problems": []
+ },
+ {
+  "q": "PAN ki details batao",
+  "intent": "DOCUMENT_DETAILS",
+  "language": "hi-Latn",
+  "answer": "PAN se padhi gayi jaankari (verification pass hua):\n- PAN number: XXXXXX875K\n- Name: RISHABH AJIT SINGH\n- Father's name: AJIT SINGH\n- Date of birth: 2002-06-12",
+  "problems": []
+ },
+ {
+  "q": "KYC kyun fail hua?",
+  "intent": "KYC_RESULT",
+  "language": "hi-Latn",
+  "answer": "Customer ka KYC review mein hai. Kaaran: documents mein naam alag hai.",
+  "problems": []
+ },
+ {
+  "q": "KYC zala ka?",
+  "intent": "KYC_RESULT",
+  "language": "mr",
+  "answer": "ग्राहकाचे KYC पुनरावलोकनात आहे. कारण: कागदपत्रांमध्ये नाव वेगळे आहे.",
+  "problems": []
+ },
+ {
+  "q": "pudhe kay karaycha?",
+  "intent": "NEXT_ACTION",
+  "language": "mr",
+  "answer": "पुढची पायरी: FOS टप्प्यातील सर्व आवश्यक गोष्टी पूर्ण आहेत. केस CPA कडे सोपवा. तसेच, समीक्षक नोंदलेला मुद्दा तपासेपर्यंत वाट पहा.",
+  "problems": []
+ },
+ {
+  "q": "eligibility ka status kya hai?",
+  "intent": "ELIGIBILITY",
+  "language": "en",
+  "answer": "Eligibility has not been evaluated for this case yet. It is assessed once the income evidence and the loan terms are in place.",
+  "problems": []
+ },
+ {
+  "q": "credit ka kya hua?",
+  "intent": "READINESS",
+  "language": "en",
+  "answer": "Credit comes later -- the case is at FOS, and first has to move on to CPA. Every configured FOS check is complete, so the case is ready to move to CPA. (These gate rules are not yet business-approved.) Someone with stage-transition permission can move it to CPA.",
+  "problems": []
+ },
+ {
+  "q": "why is the name not matching?",
+  "intent": "KYC_RESULT",
+  "language": "en",
+  "answer": "The customer's KYC check needs review because the name didn't match: the PAN and the driving licence say RISHABH AJIT SINGH, the salary slip says VENKATESH GOUD MARAGOUNI, and the bank statement says PRIYANKAROHANMORE.",
+  "problems": []
+ },
+ {
+  "q": "what do I need to upload?",
+  "intent": "DOCUMENTS_MISSING",
+  "language": "en",
+  "answer": "No required documents are missing for this case, but one thing still needs attention:\n⚠ KYC needs a review — These details differ across the documents: name.",
+  "problems": []
+ },
+ {
+  "q": "show all documents",
+  "intent": "DOCUMENTS_UPLOADED",
+  "language": "en",
+  "answer": "Documents on this application:\n✓ PAN — Verified\n✓ Driving Licence — Verified\n✓ Salary Slip — Verified\n✓ Bank Statement — Verified",
+  "problems": []
+ },
+ {
+  "q": "show only pending documents",
+  "intent": "DOCUMENTS_PENDING",
+  "language": "en",
+  "answer": "No documents are pending, but one thing still needs attention:\n⚠ KYC needs a review — These details differ across the documents: name.",
+  "problems": []
+ },
+ {
+  "q": "verify documents",
+  "intent": "DOCUMENT_VERIFICATION",
+  "language": "en",
+  "answer": "All 4 documents are verified (PAN, Driving Licence, Salary Slip and Bank Statement) -- nothing needs action on them.",
+  "problems": []
+ },
+ {
+  "q": "what happened to my bank statement?",
+  "intent": "DOCUMENT_VERIFICATION",
+  "language": "en",
+  "answer": "Bank Statement is verified. These are document checks; the issuing authority has not confirmed the document. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
+  "problems": []
+ },
+ {
+  "q": "can I proceed to credit?",
+  "intent": "READINESS",
+  "language": "en",
+  "answer": "Credit comes later -- the case is at FOS, and first has to move on to CPA. Every configured FOS check is complete, so the case is ready to move to CPA. (These gate rules are not yet business-approved.) Someone with stage-transition permission can move it to CPA.",
+  "problems": []
+ },
+ {
+  "q": "what is missing?",
+  "intent": "DOCUMENTS_MISSING",
+  "language": "en",
+  "answer": "No required documents are missing for this case, but one thing still needs attention:\n⚠ KYC needs a review — These details differ across the documents: name.",
+  "problems": []
+ },
+ {
+  "q": "thanks",
+  "intent": "THANKS",
+  "language": "en",
+  "answer": "You're welcome 🙂 Anything else about the application?",
+  "problems": []
+ },
+ {
+  "q": "hello",
+  "intent": "GREETING",
+  "language": "en",
+  "answer": "Hi 👋 How can I help with the application today?",
+  "problems": []
+ },
+ {
+  "q": "PAN verified hai?",
+  "chain": true,
+  "intent": "DOCUMENT_VERIFICATION",
+  "answer": "PAN ka verification pass hua. Ye document checks hain; issuing authority ne document confirm nahi kiya hai. Phir bhi application review mein hai, kaaran: the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
+  "followed_up": null,
+  "problems": []
+ },
+ {
+  "q": "why?",
+  "chain": true,
+  "intent": "DOCUMENT_VERIFICATION",
+  "answer": "PAN is verified. These are document checks; the issuing authority has not confirmed the document. However, the application is under review because the name on the PAN, RISHABH AJIT SINGH, does not match the salary slip name, VENKATESH GOUD MARAGOUNI.",
+  "followed_up": {
+   "original_message": "why?",
+   "interpreted_as": "Why does my PAN have this verification result?",
+   "reason": "the previous answer was PAN's verification"
+  },
+  "problems": []
+ },
+ {
+  "q": "what about address?",
+  "chain": true,
+  "intent": "APPLICANT_PROFILE",
+  "answer": "We have the customer's address as Mumbai.",
+  "followed_up": null,
+  "problems": []
+ },
+ {
+  "q": "what should I do?",
+  "chain": true,
+  "intent": "NEXT_ACTION",
+  "answer": "Everything required at the FOS stage is complete. Hand the case to CPA. Also, wait for a reviewer to check the recorded issue.",
+  "followed_up": null,
+  "problems": []
+ },
+ {
+  "q": "KYC zala ka?",
+  "chain": true,
+  "intent": "KYC_RESULT",
+  "answer": "ग्राहकाचे KYC पुनरावलोकनात आहे. कारण: कागदपत्रांमध्ये नाव वेगळे आहे.",
+  "followed_up": null,
+  "problems": []
+ },
+ {
+  "q": "ka?",
+  "chain": true,
+  "intent": "KYC_RESULT",
+  "answer": "Customer ka KYC review mein hai. Kaaran: documents mein naam alag hai.",
+  "followed_up": {
+   "original_message": "ka?",
+   "interpreted_as": "Why is my KYC in this state?",
+   "reason": "the previous answer was the KYC result"
+  },
+  "problems": []
+ }
+]

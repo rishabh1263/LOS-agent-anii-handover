@@ -29,7 +29,7 @@ from fastapi.testclient import TestClient
 from app.agents.applicant import config as agent_config
 from app.store import set_repository
 from app.store.documents import LocalDocumentStore, set_document_store
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 SAMPLES = Path(__file__).resolve().parents[2] / "samples" / "documents"
 STATEMENT = SAMPLES / "demo_bank_statement.pdf"
@@ -56,7 +56,7 @@ def _isolated(tmp_path, monkeypatch):
     from app.agents.los import config as los_config
 
     los_config.reload()
-    repository = SQLiteRepository(tmp_path / "verify_e2e.sqlite3")
+    repository = fresh_repository(tmp_path / "verify_e2e.sqlite3")
     repository.initialise()
     set_repository(repository)
     set_document_store(LocalDocumentStore(tmp_path / "documents"))

@@ -35,7 +35,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 PRIMARY_PAN = Path("samples/documents/rpan.jpg")
 CO_PAN = Path("samples/documents/lPan.jpg")
@@ -52,7 +52,7 @@ _RUNS: dict[str, dict[str, Any]] = {}
 
 @pytest.fixture(autouse=True)
 def store(tmp_path):
-    repository = SQLiteRepository(tmp_path / "profile_match.sqlite3")
+    repository = fresh_repository(tmp_path / "profile_match.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

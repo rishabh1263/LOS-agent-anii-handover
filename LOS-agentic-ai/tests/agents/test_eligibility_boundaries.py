@@ -245,12 +245,43 @@ def test_kyc_enters_only_as_a_prerequisite_the_policy_must_configure():
     """
     KYC is a PREREQUISITE input (2026-10-03), never a scoring input: one field,
     the recorded status, and it changes nothing unless the policy names the
-    statuses it accepts -- which the shipped policies do not.
+    statuses it accepts. The shipped policies name PASS (2026-10-05).
     """
     fields = set(EligibilityInputs.model_fields)
     assert {f for f in fields if "kyc" in f} == {"kyc_status"}
     for product in ("PERSONAL_LOAN", "HOME_LOAN"):
-        assert get_policy(product).kyc_accepted_statuses == ()
+        assert get_policy(product).kyc_accepted_statuses == ("PASS",)
+
+
+@pytest.mark.parametrize("kyc, outcome, code", [
+    ("PASS", "PASS", None),
+    ("REVIEW", "REVIEW", "KYC_PREREQUISITE_NOT_MET"),
+    (None, "NOT_EVALUATED", "KYC_PREREQUISITE_NOT_MET"),
+    ("FAIL", "FAIL", "KYC_FAILED"),
+])
+def test_the_kyc_gate_lets_only_a_kyc_pass_through(kyc, outcome, code):
+    """KYC REVIEW or not yet run never becomes an affordability PASS; FAIL fails."""
+    from app.agents.eligibility.engine import evaluate
+
+    result = evaluate(EligibilityInputs(product="PERSONAL_LOAN", kyc_status=kyc,
+                                        monthly_income=80000, monthly_obligations=0, loan_amount=300000,
+                                        tenure_months=36, employment_type="SALARIED"))
+    rule = next(r for r in result.rules if r.rule_id == "KYC_PREREQUISITE")
+    assert rule.outcome.value == outcome
+    if code:
+        assert code in [str(getattr(c, "value", c)) for c in result.reason_codes]
+        assert result.state.value != "ELIGIBLE"
+
+
+def test_production_refuses_a_demo_policy(monkeypatch):
+    from app.agents.eligibility.engine import evaluate
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("ELIGIBILITY_ALLOW_DEMO_POLICY", raising=False)
+    result = evaluate(EligibilityInputs(product="PERSONAL_LOAN", kyc_status="PASS", monthly_income=80000,
+                                        monthly_obligations=0, loan_amount=300000, tenure_months=36,
+                                        employment_type="SALARIED"))
+    assert result.state.value == "CONFIGURATION_GAP"
 
 
 # ==========================================================================
@@ -272,11 +303,11 @@ def reprocessed(tmp_path, monkeypatch):
     from app.agents.los import config as los_config
     from app.store import set_repository
     from app.store.ingest import persist_los_result
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.testing import fresh_repository
 
     monkeypatch.setenv("LOS_CASE_MEMORY_ENABLED", "true")
     los_config.reload()
-    repository = SQLiteRepository(tmp_path / "eligibility.sqlite3")
+    repository = fresh_repository(tmp_path / "eligibility.sqlite3")
     repository.initialise()
     set_repository(repository)
     for run in (RUN_ONE, RUN_TWO):

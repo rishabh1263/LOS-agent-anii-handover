@@ -31,7 +31,7 @@ from app.store.models import (
     DocumentStatus,
     status_for_verdict,
 )
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 FULL_SCOPES = {
     "read_applicant", "read_application", "read_documents", "read_verification",
@@ -51,7 +51,7 @@ def _store(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     agent_config.reload()
 
-    repository = SQLiteRepository(tmp_path / "test_store.sqlite3")
+    repository = fresh_repository(tmp_path / "test_store.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository
@@ -518,7 +518,9 @@ async def test_a_question_is_answered_from_stored_records(_store, caller):
         claims={"sub": "fos", "scope": " ".join(FULL_SCOPES)},
     )
     assert response["intent"] == Intent.DOCUMENT_VERIFICATION.value
-    assert "VERIFIED" in response["answer"]
+    # the status in words, never the enum (2026-10-05: "Signature is REVIEW")
+    assert response["answer"].startswith("PAN is verified.")
+    assert "VERIFIED" not in response["answer"]
     # STRUCTURED, not "deterministic": the value now says WHICH source,
     # so a knowledge answer and a records lookup are distinguishable.
     assert response["response_source"] == "STRUCTURED"

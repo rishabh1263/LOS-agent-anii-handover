@@ -27,7 +27,7 @@ from app.security import guardrails
 from app.security.guardrails import Category
 from app.store import set_repository
 from app.store.models import CaseFinding, FindingKind
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 CASE, APP = "case_g3000000000000000000000000000001", "APP-GUARD3CASE01"
 COPILOT = "/api/v1/copilot/query"
@@ -235,7 +235,7 @@ def repo(tmp_path, monkeypatch):
                        str(tmp_path / "audit.jsonl"))
     los_config.reload()
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "g3.sqlite3")
+    repository = fresh_repository(tmp_path / "g3.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

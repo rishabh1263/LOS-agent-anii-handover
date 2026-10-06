@@ -36,7 +36,7 @@ from app.store.models import (
     Document,
     status_for_verdict,
 )
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 FULL_SCOPES = {
     "read_applicant", "read_application", "read_documents", "read_verification",
@@ -54,7 +54,7 @@ def _store(tmp_path, monkeypatch):
     agent_config.reload()
     fos_graph.reset()
 
-    repository = SQLiteRepository(tmp_path / "routing.sqlite3")
+    repository = fresh_repository(tmp_path / "routing.sqlite3")
     repository.initialise()
     set_repository(repository)
 

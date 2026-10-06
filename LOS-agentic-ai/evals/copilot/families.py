@@ -116,7 +116,7 @@ CASES: list[dict[str, Any]] = [
     {"id": "party_pronoun_hi", "family": "party", "turns": [
         {"q": "co-applicant ka KYC?", "kind": "case"},
         {"q": "mera PAN verified hai?", "kind": "case", "has": ["PAN"], "lacks": ["co-applicant"]},
-        {"q": "aur uska PAN?", "kind": "case", "any": ["rejected", "Rejected"], "party": "CO"}]},
+        {"q": "aur uska PAN?", "kind": "case", "any": ["rejected", "Rejected", "reject hua"], "party": "CO"}]},
     {"id": "party_unknown_lower", "family": "party", "turns": [
         {"q": "zara ka pan", "kind": "refused"}]},
     {"id": "party_unknown_caps", "family": "party", "turns": [
@@ -200,18 +200,22 @@ CASES: list[dict[str, Any]] = [
         {"q": "uska KYC?", "kind": "case", "party": "CO", "any": ["co-applicant"]}]},
     {"id": "verify_score_report", "family": "verification", "turns": [
         {"q": "PAN verify karo", "kind": "case"},
-        {"q": "iska score kitna hai?", "kind": "case", "any": ["No verification score was recorded",
-                                                              "recorded verification score"]}]},
+        # scores are not said in chat by default: the verification result, no number
+        {"q": "iska score kitna hai?", "kind": "case", "any": ["verification pass", "verified", "No verification score"],
+         "lacks": ["score 1", "score 9", "(score", "(स्कोर"]}]},
     {"id": "verify_status_is_not_a_request", "family": "verification", "turns": [
         {"q": "is my PAN verified?", "kind": "case", "rtype": "DOCUMENT_STATUS", "has": ["PAN"]}]},
     {"id": "kyc_structured", "family": "kyc", "turns": [
         {"q": "KYC kaha tak hua?", "kind": "case", "rtype": "KYC_RESULT", "keys": ["kyc"],
-         "any": ["needs review"]}]},
+         "any": ["needs review", "review mein"]}]},
+    # never a fabricated score, and scores are not said in chat at all by default
     {"id": "kyc_score_not_fabricated", "family": "kyc", "turns": [
-        {"q": "KYC score kya hai?", "kind": "case", "any": ["no KYC score was recorded"]}]},
+        {"q": "KYC score kya hai?", "kind": "case", "any": ["aren't shown", "review mein"],
+         "lacks": ["score is", "score 1", "score 2", "score 3", "score 4", "score 5", "score 6",
+                   "score 7", "score 8", "score 9"]}]},
     {"id": "kyc_both_parties", "family": "kyc", "turns": [
-        {"q": "mera aur co-applicant ka KYC?", "kind": "case", "has": ["co-applicant"],
-         "any": ["needs review"]}]},
+        {"q": "mera aur co-applicant ka KYC?", "kind": "case", "any": ["co-applicant", "Co-applicant"]},
+        {"q": "mera aur co-applicant ka KYC?", "kind": "case", "any": ["needs review", "review mein"]}]},
     {"id": "conv_frustration", "family": "conversation", "turns": [
         {"q": "ye kya bakwaas hai", "kind": "any", "rtype": "CONVERSATION", "no_reads": True,
          "lacks": ["Which of these did you mean"]}]},
@@ -227,7 +231,7 @@ CASES: list[dict[str, Any]] = [
          "has": ["Basic Document Verification"], "any": ["cross-document consistency"]}]},
     {"id": "checklist_alternatives", "family": "field", "turns": [
         {"q": "bhai mere liye konse documents chahiye?", "kind": "case", "rtype": "DOCUMENT_CHECKLIST",
-         "has": ["any one of"], "keys": ["checklist"]}]},
+         "any": ["any one of", "inmein se koi ek"], "keys": ["checklist"]}]},
     {"id": "marathi_latin_loan", "family": "field", "turns": [
         {"q": "majhya karjachi rakkam kiti aahe?", "kind": "case", "has": ["5,00,000"]}]},
     {"id": "both_verification", "family": "party", "turns": [
@@ -243,7 +247,7 @@ CASES: list[dict[str, Any]] = [
          "keys": ["portfolio"], "any": ["Across 1 case"]}]},
     {"id": "checklist_rows_actionable", "family": "field", "turns": [
         {"q": "FOS stage ke liye konse documents chahiye?", "kind": "case", "rtype": "DOCUMENT_CHECKLIST",
-         "keys": ["checklist"], "has": ["any one of"]}]},
+         "keys": ["checklist"], "any": ["any one of", "inmein se koi ek"]}]},
 
     # ---- WHOSE: a pointer at a person's topic ------------------------------------------
     {"id": "iska_no_referent", "family": "party", "turns": [
@@ -254,7 +258,7 @@ CASES: list[dict[str, Any]] = [
         {"q": "co-applicant", "kind": "case", "party": "CO", "has": ["co-applicant"]}]},
     {"id": "iska_after_self", "family": "party", "turns": [
         {"q": "mera PAN verify hua?", "kind": "case"},
-        {"q": "aur iska KYC?", "kind": "case", "intent": "KYC_RESULT", "any": ["needs review"]}]},
+        {"q": "aur iska KYC?", "kind": "case", "intent": "KYC_RESULT", "any": ["needs review", "review mein"]}]},
     {"id": "iska_after_co", "family": "party", "turns": [
         {"q": "co-applicant ka PAN verify hua?", "kind": "case"},
         {"q": "iska KYC?", "kind": "case", "intent": "KYC_RESULT", "party": "CO"}]},
@@ -289,7 +293,8 @@ CASES: list[dict[str, Any]] = [
     {"id": "ml_reply_work_hinglish", "family": "multilingual", "turns": [
         {"q": "abhi kya kar sakte ho?", "kind": "case", "replied_in": "hi-Latn"}]},
     {"id": "ml_reply_no_template_is_honest", "family": "multilingual", "turns": [
-        {"q": "mera kyc status kya hai", "kind": "case", "replied_in": "en"}]},
+        # a KYC template exists now (2026-10-04): Hinglish asked, Hinglish answered
+        {"q": "mera kyc status kya hai", "kind": "case", "replied_in": "hi-Latn"}]},
 
     # ---- STAGE GATES: evaluated from records, moved only when they pass ----------------
     # at FOS the READINESS path IS the FOS -> CPA gate

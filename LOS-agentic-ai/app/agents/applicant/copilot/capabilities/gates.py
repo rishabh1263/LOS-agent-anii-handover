@@ -305,8 +305,8 @@ def compose(gate: dict[str, Any], *, can_move: bool, ran: list[str] | None = Non
                      f"whether it's ready for {there}. That needs the business rules to be configured.")
         return " ".join(lines), None
     if gate["status"] == PASS:
-        lines.append(f"Congratulations -- every configured {here} check is complete. Your case is ready "
-                     f"to move to {there}.")
+        # an operations assistant states the fact; it does not congratulate (2026-10-06)
+        lines.append(f"Every configured {here} check is complete, so the case is ready to move to {there}.")
         if gate["criteria_status"] != "APPROVED":
             lines.append("(These gate rules are not yet business-approved.)")
         if gate["transition_mode"] == "CONFIRM" and can_move:

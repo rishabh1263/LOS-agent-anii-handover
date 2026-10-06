@@ -69,7 +69,6 @@ TRACE = Trajectory()
 def _environment(live: bool, workdir: str) -> None:
     os.environ.update({
         "ENVIRONMENT": "test", "AUTH_ENABLED": "true",
-        "LOS_STORE_PATH": os.path.join(workdir, "store.sqlite3"),
         "LOS_DOCUMENT_STORE_PATH": os.path.join(workdir, "docs"),
         "LOS_CASE_MEMORY_ENABLED": "true", "APPLICANT_AGENT_LLM_ENABLED": "true",
         "QDRANT_PATH": "", "EMBEDDING_PROVIDER": "hashing", "LOS_DEMO_INDEX_ENABLED": "true",
@@ -247,8 +246,12 @@ class Harness:
         from app.agents.applicant import knowledge_answer
         from app.knowledge import grounding
 
+        # CASE DATA reads only: the conversation's own memory (get_conversation, moved into
+        # the repository with the Postgres store) is turn plumbing, not a read of the case.
+        plumbing = {"get_conversation", "list_conversations"}
         for name in dir(self.repo):
-            if name.startswith(("get_", "list_", "has_access")) and callable(getattr(self.repo, name)):
+            if name.startswith(("get_", "list_", "has_access")) and name not in plumbing \
+                    and callable(getattr(self.repo, name)):
                 original = getattr(self.repo, name)
 
                 def read(*args, _original=original, _name=name, **kwargs):

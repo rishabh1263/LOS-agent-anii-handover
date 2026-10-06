@@ -23,7 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 ENDPOINT = "/api/v1/los/process"
 
@@ -47,7 +47,7 @@ _RUNS: dict[str, dict[str, Any]] = {}
 
 @pytest.fixture(autouse=True)
 def store(tmp_path):
-    repository = SQLiteRepository(tmp_path / "acceptance.sqlite3")
+    repository = fresh_repository(tmp_path / "acceptance.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

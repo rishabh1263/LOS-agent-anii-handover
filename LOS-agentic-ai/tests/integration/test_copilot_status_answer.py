@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 
 from app.agents.applicant import status_facts
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 COPILOT = "/api/v1/copilot/query"
 CASE = "case_9d6ea4703ac149aa9c7ed4023313558b"
@@ -42,7 +42,7 @@ QUESTION = "What is my application status?"
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "status_answer.sqlite3")
+    repository = fresh_repository(tmp_path / "status_answer.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

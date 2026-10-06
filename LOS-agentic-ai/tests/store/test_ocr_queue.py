@@ -47,7 +47,7 @@ from app.store.models import (
     DocumentStatus,
 )
 from app.store.ocr_queue import OcrJobStatus
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 CASE = "CASE-1"
 APPLICANT = "APP-1"
@@ -64,7 +64,7 @@ def no_ambient_flags(monkeypatch):
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "queue.sqlite3")
+    repository = fresh_repository(tmp_path / "queue.sqlite3")
     repository.initialise()
     repository.save_applicant(Applicant(applicant_id=APPLICANT))
     repository.save_application(
@@ -118,7 +118,9 @@ def test_the_job_survives_a_new_repository_object(repo, tmp_path):
     document_id = unread_document(repo)
     queue(repo, document_id)
 
-    reopened = SQLiteRepository(tmp_path / "queue.sqlite3")
+    from app.store.postgres_repo import PostgresRepository
+
+    reopened = PostgresRepository(repo._dsn, max_size=2)   # a second process, same database
 
     assert reopened.get_ocr_job(document_id) is not None
 
@@ -137,6 +139,10 @@ def test_a_completed_document_is_not_queued_again(repo):
     job = queue(repo, document_id)
     job.status = OcrJobStatus.COMPLETED
     repo.save_ocr_job(job)
+    # a real completion (ocr_queue._record) also settles the document
+    document = repo.get_document(document_id)
+    document.status, document.reason_codes = DocumentStatus.VERIFIED, []
+    repo.save_document(document)
 
     assert queue(repo, document_id) is None
 

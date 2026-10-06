@@ -93,6 +93,11 @@ def _flag(section: str, name: str, default: bool) -> bool:
     return bool(_section(section).get(name, default))
 
 
+def show_scores() -> bool:
+    """Whether chat TEXT may state scores/confidence (chatbot.show_scores; default off)."""
+    return _flag("chatbot", "show_scores", False)
+
+
 # -- agent ------------------------------------------------------------------
 
 def agent_name() -> str:

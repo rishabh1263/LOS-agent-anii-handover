@@ -223,8 +223,14 @@ def test_the_real_canara_statement_yields_its_account_holder():
     assert raw.account_holder == "GUDDI DEVI"
 
 
-def test_reading_the_holder_does_not_disturb_the_rest_of_the_extraction():
+def test_reading_the_holder_does_not_disturb_the_rest_of_the_extraction(monkeypatch):
     from app.agents.bank_statement.extract import extract_bank_statement
+
+    # The wall-clock budget is not what this checks: on a loaded host (parallel
+    # test shards) the 524-row parse crossed 25 s and was correctly QUEUED as
+    # REQUIRES_OCR. The budget path has its own tests in
+    # test_real_sample_regressions.py; here it is lifted out of the way.
+    monkeypatch.setenv("BANK_STATEMENT_TIME_BUDGET_MS", "600000")
 
     raw = extract_bank_statement("samples/documents/Canara Bank Statement.pdf")
 

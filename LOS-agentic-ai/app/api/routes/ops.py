@@ -95,8 +95,26 @@ async def ready(response: Response) -> dict:
     if mcp["status"] == "UNAVAILABLE":
         mcp = {**mcp, "degraded": True}
 
+    # THE CASE STORE IS MANDATORY. Readiness never checked it: with PostgreSQL
+    # down the probe still said "ready" and traffic kept arriving at a process
+    # that failed every case request (found 2026-10-06).
+    store = await asyncio.to_thread(_store_health)
+    if not store.get("available"):
+        logger.error("Readiness failed: case store unavailable (%s)", store.get("error"))
+        response.status_code = 503
+        return {"status": "not_ready", "reason": "case_store_unavailable", "case_store": store}
+
+    # OPTIONAL dependencies are reported, never hidden, and never fail readiness:
+    # JEV is advisory -- the LOS flow runs without it.
+    jev = _jev_status()
+    degraded = bool(mcp.get("degraded")) or jev not in ("READY", "DISABLED")
+    dependencies = {"case_store": "READY", "mcp": mcp["status"], "jev": jev}
+
     return {
         "status": "ready",
+        "overall": "DEGRADED" if degraded else "READY",
+        "dependencies": dependencies,
+        "case_store": store,
         "mcp": mcp,
         "routable_agents": sorted(routable),
         "risk_policy_version": str(policy.get("policy_version", "")),
@@ -141,3 +159,24 @@ async def copilot_analytics(_: dict = Depends(_require_analytics_scope)) -> dict
     from app.observability import analytics, cloudwatch
 
     return {**analytics.snapshot(), "cloudwatch": cloudwatch.status()}
+
+def _store_health() -> dict:
+    """The case store's own health (PostgreSQL reachable, schema version)."""
+    try:
+        from app.store import get_repository
+
+        repository = get_repository()
+        check = getattr(repository, "health", None)
+        return check() if callable(check) else {"available": True}
+    except Exception as exc:  # noqa: BLE001 - reported, never raised from a probe
+        return {"available": False, "error": type(exc).__name__}
+
+
+def _jev_status() -> str:
+    """READY / DISABLED / CONFIGURATION_GAP / EXTERNAL_DEPENDENCY_REQUIRED -- JEV is optional."""
+    try:
+        from app.jev import engine
+
+        return str(engine.health().get("jev_status") or "UNKNOWN")
+    except Exception:  # noqa: BLE001
+        return "UNKNOWN"

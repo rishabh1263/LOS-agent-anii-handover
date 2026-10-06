@@ -28,7 +28,7 @@ from fastapi.testclient import TestClient
 from app.agents.applicant import config as agent_config
 from app.store import set_repository
 from app.store.models import Document, status_for_verdict
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 FOS_SCOPES = [
     "read_applicant", "read_application", "read_documents", "read_verification",
@@ -41,7 +41,7 @@ FOS_SCOPES = [
 def _store(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "fos_business.sqlite3")
+    repository = fresh_repository(tmp_path / "fos_business.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository
@@ -184,6 +184,8 @@ def test_a_read_endpoint_returns_what_the_facade_returns(
 
     # request_id and timing differ per call by construction.
     ignore = {"request_id", "processing_ms"}
+    for body in (direct, facade):                       # ...and the presentation's copy of the request id
+        body.get("presentation", {}).get("metadata", {}).pop("request_id", None)
     assert {k: v for k, v in direct.items() if k not in ignore} == \
            {k: v for k, v in facade.items() if k not in ignore}
 

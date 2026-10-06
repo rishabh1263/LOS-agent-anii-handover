@@ -1,0 +1,429 @@
+{
+ "question_set": "case_triage.v2",
+ "provider_jev": "jev-api@localhost:8888",
+ "model_jev": "laya-multilingual",
+ "confidence_source": "TOP_PROBABILITY",
+ "model_llm": "qwen2.5:3b",
+ "questions_per_case": 5,
+ "cases": 9,
+ "rows": [
+  {
+   "case": "all_clear",
+   "pass": 0,
+   "jev_ms": 3579.76,
+   "jev": {
+    "route_to": {
+     "answer": "NONE",
+     "confidence": 0.3372,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_manual_review": {
+     "answer": "true",
+     "confidence": 0.507,
+     "band": "NO_AUTOMATE"
+    },
+    "severity": {
+     "answer": "HIGH",
+     "confidence": 0.6133,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_larger_model": {
+     "answer": "true",
+     "confidence": 0.7645,
+     "band": "REVIEW"
+    },
+    "financial_inconsistent": {
+     "answer": "true",
+     "confidence": 0.5895,
+     "band": "NO_AUTOMATE"
+    }
+   },
+   "qwen": {
+    "route_to": "ELIGIBILITY",
+    "needs_manual_review": "true",
+    "severity": "LOW",
+    "needs_larger_model": "false",
+    "financial_inconsistent": "true"
+   },
+   "qwen_ms": 17420.6
+  },
+  {
+   "case": "kyc_review_name",
+   "pass": 0,
+   "jev_ms": 3530.47,
+   "jev": {
+    "route_to": {
+     "answer": "HUMAN_REVIEW",
+     "confidence": 0.9743,
+     "band": "AUTO"
+    },
+    "needs_manual_review": {
+     "answer": "true",
+     "confidence": 0.648,
+     "band": "NO_AUTOMATE"
+    },
+    "severity": {
+     "answer": "HIGH",
+     "confidence": 0.5247,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_larger_model": {
+     "answer": "true",
+     "confidence": 0.7786,
+     "band": "REVIEW"
+    },
+    "financial_inconsistent": {
+     "answer": "true",
+     "confidence": 0.9205,
+     "band": "AUTO"
+    }
+   },
+   "qwen": {
+    "route_to": "KYC",
+    "needs_manual_review": "false",
+    "severity": "HIGH",
+    "needs_larger_model": "false",
+    "financial_inconsistent": "false"
+   },
+   "qwen_ms": 4350.3
+  },
+  {
+   "case": "kyc_fail_dob",
+   "pass": 0,
+   "jev_ms": 3478.09,
+   "jev": {
+    "route_to": {
+     "answer": "NONE",
+     "confidence": 0.3361,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_manual_review": {
+     "answer": "true",
+     "confidence": 0.8667,
+     "band": "AUTO"
+    },
+    "severity": {
+     "answer": "HIGH",
+     "confidence": 0.6416,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_larger_model": {
+     "answer": "true",
+     "confidence": 0.7116,
+     "band": "REVIEW"
+    },
+    "financial_inconsistent": {
+     "answer": "true",
+     "confidence": 0.8761,
+     "band": "AUTO"
+    }
+   },
+   "qwen": {
+    "route_to": "KYC",
+    "needs_manual_review": "false",
+    "severity": "CRITICAL",
+    "needs_larger_model": "true",
+    "financial_inconsistent": "false"
+   },
+   "qwen_ms": 3841.3
+  },
+  {
+   "case": "statement_unreadable",
+   "pass": 0,
+   "jev_ms": 3450.12,
+   "jev": {
+    "route_to": {
+     "answer": "NONE",
+     "confidence": 0.296,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_manual_review": {
+     "answer": "true",
+     "confidence": 0.9242,
+     "band": "AUTO"
+    },
+    "severity": {
+     "answer": "HIGH",
+     "confidence": 0.7749,
+     "band": "REVIEW"
+    },
+    "needs_larger_model": {
+     "answer": "true",
+     "confidence": 0.8344,
+     "band": "REVIEW"
+    },
+    "financial_inconsistent": {
+     "answer": "true",
+     "confidence": 0.9817,
+     "band": "AUTO"
+    }
+   },
+   "qwen": {
+    "route_to": "DOCUMENT",
+    "needs_manual_review": "true",
+    "severity": "MEDIUM",
+    "needs_larger_model": "false",
+    "financial_inconsistent": "false"
+   },
+   "qwen_ms": 5407.9
+  },
+  {
+   "case": "pan_failed_verification",
+   "pass": 0,
+   "jev_ms": 3309.88,
+   "jev": {
+    "route_to": {
+     "answer": "KYC",
+     "confidence": 0.8817,
+     "band": "AUTO"
+    },
+    "needs_manual_review": {
+     "answer": "true",
+     "confidence": 0.9721,
+     "band": "AUTO"
+    },
+    "severity": {
+     "answer": "HIGH",
+     "confidence": 0.7264,
+     "band": "REVIEW"
+    },
+    "needs_larger_model": {
+     "answer": "true",
+     "confidence": 0.9174,
+     "band": "AUTO"
+    },
+    "financial_inconsistent": {
+     "answer": "true",
+     "confidence": 0.9892,
+     "band": "AUTO"
+    }
+   },
+   "qwen": {
+    "route_to": "DOCUMENT",
+    "needs_manual_review": "true",
+    "severity": "LOW",
+    "needs_larger_model": "true",
+    "financial_inconsistent": "false"
+   },
+   "qwen_ms": 4236.6
+  },
+  {
+   "case": "income_mismatch",
+   "pass": 0,
+   "jev_ms": 3816.72,
+   "jev": {
+    "route_to": {
+     "answer": "BANKING",
+     "confidence": 0.3505,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_manual_review": {
+     "answer": "true",
+     "confidence": 0.6067,
+     "band": "NO_AUTOMATE"
+    },
+    "severity": {
+     "answer": "HIGH",
+     "confidence": 0.5846,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_larger_model": {
+     "answer": "true",
+     "confidence": 0.8835,
+     "band": "AUTO"
+    },
+    "financial_inconsistent": {
+     "answer": "true",
+     "confidence": 0.9637,
+     "band": "AUTO"
+    }
+   },
+   "qwen": {
+    "route_to": "ELIGIBILITY",
+    "needs_manual_review": "false",
+    "severity": "CRITICAL",
+    "needs_larger_model": "true",
+    "financial_inconsistent": "false"
+   },
+   "qwen_ms": 11022.9
+  },
+  {
+   "case": "eligible_awaiting_credit",
+   "pass": 0,
+   "jev_ms": 3923.26,
+   "jev": {
+    "route_to": {
+     "answer": "ELIGIBILITY",
+     "confidence": 0.9654,
+     "band": "AUTO"
+    },
+    "needs_manual_review": {
+     "answer": "true",
+     "confidence": 0.8389,
+     "band": "REVIEW"
+    },
+    "severity": {
+     "answer": "HIGH",
+     "confidence": 0.6739,
+     "band": "REVIEW"
+    },
+    "needs_larger_model": {
+     "answer": "true",
+     "confidence": 0.8153,
+     "band": "REVIEW"
+    },
+    "financial_inconsistent": {
+     "answer": "true",
+     "confidence": 0.7579,
+     "band": "REVIEW"
+    }
+   },
+   "qwen": {
+    "route_to": "ELIGIBILITY",
+    "needs_manual_review": "true",
+    "severity": "LOW",
+    "needs_larger_model": "true",
+    "financial_inconsistent": "true"
+   },
+   "qwen_ms": 6452.8
+  },
+  {
+   "case": "eligibility_review",
+   "pass": 0,
+   "jev_ms": 3930.18,
+   "jev": {
+    "route_to": {
+     "answer": "HUMAN_REVIEW",
+     "confidence": 0.5077,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_manual_review": {
+     "answer": "true",
+     "confidence": 0.7787,
+     "band": "REVIEW"
+    },
+    "severity": {
+     "answer": "HIGH",
+     "confidence": 0.5728,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_larger_model": {
+     "answer": "true",
+     "confidence": 0.8558,
+     "band": "AUTO"
+    },
+    "financial_inconsistent": {
+     "answer": "true",
+     "confidence": 0.8887,
+     "band": "AUTO"
+    }
+   },
+   "qwen": {
+    "route_to": "ELIGIBILITY",
+    "needs_manual_review": "true",
+    "severity": "HIGH",
+    "needs_larger_model": "true",
+    "financial_inconsistent": "false"
+   },
+   "qwen_ms": 4077.8
+  },
+  {
+   "case": "risk_high",
+   "pass": 0,
+   "jev_ms": 3691.78,
+   "jev": {
+    "route_to": {
+     "answer": "DOCUMENT",
+     "confidence": 0.6697,
+     "band": "REVIEW"
+    },
+    "needs_manual_review": {
+     "answer": "true",
+     "confidence": 0.9579,
+     "band": "AUTO"
+    },
+    "severity": {
+     "answer": "HIGH",
+     "confidence": 0.6022,
+     "band": "NO_AUTOMATE"
+    },
+    "needs_larger_model": {
+     "answer": "true",
+     "confidence": 0.6371,
+     "band": "NO_AUTOMATE"
+    },
+    "financial_inconsistent": {
+     "answer": "true",
+     "confidence": 0.941,
+     "band": "AUTO"
+    }
+   },
+   "qwen": {
+    "route_to": "RISK",
+    "needs_manual_review": "true",
+    "severity": "CRITICAL",
+    "needs_larger_model": "false",
+    "financial_inconsistent": "false"
+   },
+   "qwen_ms": 6071.0
+  }
+ ],
+ "summary": {
+  "jev": {
+   "calls": 9,
+   "successful": 9,
+   "failures": 0,
+   "cold_ms": 3579.76,
+   "warm_ms": {
+    "n": 8,
+    "avg": 3641.3,
+    "p50": 3691.8,
+    "p95": 3930.2
+   },
+   "all_ms": {
+    "n": 9,
+    "avg": 3634.5,
+    "p50": 3579.8,
+    "p95": 3930.2
+   },
+   "questions_per_call": 5,
+   "accuracy_by_decision": {
+    "route_to": 0.222,
+    "needs_manual_review": 0.875,
+    "severity": 0.75,
+    "financial_inconsistent": 0.167
+   },
+   "accuracy_overall": 0.481,
+   "labelled_answers": 27,
+   "confidence_bands": {
+    "NO_AUTOMATE": 16,
+    "REVIEW": 12,
+    "AUTO": 17
+   },
+   "fallback_rate": 0.622,
+   "auto_precision": 0.455,
+   "auto_answers": 11
+  },
+  "qwen": {
+   "calls": 45,
+   "case_ms": {
+    "n": 9,
+    "avg": 6986.8,
+    "p50": 5407.9,
+    "p95": 17420.6
+   },
+   "accuracy_by_decision": {
+    "route_to": 0.667,
+    "needs_manual_review": 0.5,
+    "severity": 1.0,
+    "financial_inconsistent": 0.5
+   },
+   "accuracy_overall": 0.63,
+   "labelled_answers": 27
+  },
+  "per_case_llm_calls_replaced_by_one_jev_call": 5,
+  "bounded_decisions_handled_without_llm": 17,
+  "bounded_decisions_total": 45,
+  "jev_status": "READY"
+ }
+}

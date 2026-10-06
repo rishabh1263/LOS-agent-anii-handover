@@ -31,6 +31,7 @@ one outcome this layer must never produce.
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -231,8 +232,22 @@ def get_provider() -> PolicyProvider:
 
 def get_policy(product: str | None, policy_id: str | None = None,
                version: str | None = None) -> EligibilityPolicy:
-    """The policy for this product, from whichever provider is active."""
-    return get_provider().get_policy(product, policy_id=policy_id, version=version)
+    """
+    The policy for this product, from whichever provider is active.
+
+    PRODUCTION NEVER RUNS A DEMO POLICY. With ENVIRONMENT=production a policy
+    not marked CONFIRMED is refused as PolicyUnavailable -- the verdict is then
+    CONFIGURATION_GAP, never an affordability result on invented numbers.
+    ELIGIBILITY_ALLOW_DEMO_POLICY=true is a staging escape hatch only.
+    """
+    policy = get_provider().get_policy(product, policy_id=policy_id, version=version)
+    environment = (os.getenv("ENVIRONMENT") or "development").strip().lower()
+    if (environment in {"production", "prod"} and not policy.is_production
+            and (os.getenv("ELIGIBILITY_ALLOW_DEMO_POLICY") or "").strip().lower() != "true"):
+        raise PolicyUnavailable(
+            f"eligibility policy {policy.policy_id} is {policy.status}, not CONFIRMED; "
+            "production refuses a demonstration policy")
+    return policy
 
 
 # ---------------------------------------------------------------------------

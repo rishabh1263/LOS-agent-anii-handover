@@ -29,7 +29,7 @@ from fastapi.testclient import TestClient
 from app.agents.applicant import config as agent_config
 from app.agents.los import config as los_config
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 SAMPLES = Path(__file__).resolve().parents[2] / "samples" / "real_batch"
 PAN_COMPLETE = SAMPLES / "pan_bw2.jpg"          # passes as PAN
@@ -52,7 +52,7 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setenv("LOS_CASE_MEMORY_ENABLED", "true")
     agent_config.reload()
     los_config.reload()
-    repository = SQLiteRepository(tmp_path / "boundary.sqlite3")
+    repository = fresh_repository(tmp_path / "boundary.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

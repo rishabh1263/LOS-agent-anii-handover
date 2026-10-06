@@ -164,10 +164,10 @@ def api(make_token, tmp_path, monkeypatch):
     import main
 
     from app.store import set_repository
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.testing import fresh_repository
 
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
-    repository = SQLiteRepository(tmp_path / "identity.sqlite3")
+    repository = fresh_repository(tmp_path / "identity.sqlite3")
     repository.initialise()
     set_repository(repository)
     client = TestClient(main.app)

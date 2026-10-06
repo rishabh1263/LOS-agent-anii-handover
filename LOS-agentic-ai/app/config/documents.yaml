@@ -291,6 +291,15 @@ los:
   financial_enabled: true
   kyc_enabled: true
 
+  # ONE CURRENT DOCUMENT PER PERSON for these types. A newer upload of one of
+  # them for the same party on the same case SUPERSEDES the older one: the old
+  # row stays for audit, but it is no longer a case document and no longer a
+  # KYC source. Without this, re-uploading a PAN under another file name left
+  # both PANs on the case and KYC compared them against each other
+  # (bug report 2026-10-05). Types not listed (bank statements, salary slips)
+  # may legitimately be several at once and accumulate as before.
+  single_current_per_party: [PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT, AADHAAR]
+
   # Cross-document conflict reporting. Derived from the KYC checks that
   # failed -- not a separate engine. Off means the conflicts list is
   # empty and says so, rather than being silently absent.

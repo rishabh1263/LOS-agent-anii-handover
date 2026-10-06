@@ -684,6 +684,18 @@ _PATTERNS: list[tuple[str, Intent]] = [
      Intent.DOCUMENT_DETAILS),
     (r"\bwho\s+is\s+the\s+(bank\s+)?account\s+holder\b",
      Intent.DOCUMENT_DETAILS),
+    # "<DOCUMENT> DETAILS": "give me pan details", "PAN details", "show the licence
+    # info", "details of my PAN card", "pan ki details" -- were UNKNOWN or the
+    # missing-documents list (bug report 2026-10-05). Never a requirement ("why is
+    # PAN needed", "which details does PAN need") and never a comparison.
+    (r"^(?!.*\b(mis)?match)(?!.*\bdiffer)(?!.*\b(need|needed|required|require|requirement|why|upload|kyu|kyon)\b)"
+     r"(.*\b(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|driving\s*licen[cs]e|licen[cs]e|dl|"
+     r"voter\s*(id|card)|passport|itr|aadhaa?r)\s*(card\s*)?(ki|ke|ka|chi|che|cha)?\s*"
+     r"(details?|info(rmation)?|data|fields?)\b"
+     r"|.*\b(details?|info(rmation)?|data|fields?)\s+(of|on|from|in)\s+(my|the|this|his|her|their)?\s*"
+     r"(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|driving\s*licen[cs]e|licen[cs]e|"
+     r"voter\s*(id|card)|passport|itr|aadhaa?r)\b)",
+     Intent.DOCUMENT_DETAILS),
     # EVERY RELEASED FIELD of one document: "what details were extracted from the
     # bank statement?", "PAN se kya kya nikla", "show the fields read from the licence"
     (r"^(?!.*\b(mis)?match)(?!.*\bdiffer).*\b(details?|fields?|information|info|data|kya\s+kya|values?)\b[^?]{0,30}"
@@ -1320,11 +1332,28 @@ def _mixed_with_knowledge_tail(text: str) -> Classification | None:
                           base_intent=case.intent)
 
 
+_DOC_STATUS = re.compile(
+    rf"\bstatus\s+(of|for)\s+(my\s+|the\s+|our\s+)?{_DOC_TYPES}\b"
+    rf"|\b{_DOC_TYPES}\s+((ka|ki|ke|cha|chi|che)\s+)?(status|kya\s+hua|kay\s+zala)\b"
+    rf"|\bwhat\s+(has\s+)?happened\s+(to|with)\s+(my\s+|the\s+|our\s+)?{_DOC_TYPES}\b",
+    re.IGNORECASE)
+#: ...unless it asks for the document's contents, a reason, or a definition.
+_NOT_STATUS = re.compile(r"\b(details?|number|name|why|kyun|kyu|kyon|reject\w*|mean\w*|required|upload)\b",
+                         re.IGNORECASE)
+
+
 def classify(message: str) -> Classification:
     """Decide what the message is asking for. Deterministic; no model."""
     text = (message or "").strip()
     if not text:
         return Classification(Intent.UNKNOWN, confidence="low")
+
+    # ONE NAMED DOCUMENT'S STATUS: "what is the status of my bank statement?",
+    # "bank statement ka kya hua?", "what happened to my bank statement?" -- that
+    # document's verification result (2026-10-06: UNKNOWN / case history).
+    if _DOC_STATUS.search(text) and not _NOT_STATUS.search(text):
+        return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
+                              document_type=_document_type(text), matched_on="document_status")
 
     # BEFORE THE OUT-OF-SCOPE RULE, and only just. That rule routes
     # anything containing "rcu" or "fraud" downstream so the FOS stage
@@ -1644,12 +1673,16 @@ _KYC_ASK = re.compile(
     r"\b(my|our|mera|meri|mere|this|the\s+case'?s?|applicant'?s?|customer'?s?|their|unka|unki|unke|"
     r"inka|inki)\s+kyc\b"
     r"|\babout\s+(the\s+)?kyc\b(?!\s+(process|mean\w*|work\w*))"
-    r"|\bkyc\s+(score|result|status|outcome|check|verification|match|comparison|fields?|"
-    r"information|info|details|issues?|problems?|mismatch\w*|review)\b"
+    r"|\bkyc\s+((ki|ka|ke|chi|cha|che)\s+)?(score|result|status|outcome|check|verification|match|comparison|fields?|"
+    r"information|info|details?|issues?|problems?|mismatch\w*|review)\b"
+    # "kyc batao", "kyc dikhao", "kyc sanga" -- show me the KYC (2026-10-05: UNKNOWN)
+    r"|\bkyc\s+(batao|bataiye|batana|dikhao|dikhaiye|sanga|dakhva)\b"
     r"|\bkyc\s+(done|complete\w*|verified|hua|ho\s+gaya|zala|pass\w*|fail\w*|clear\w*)\b"
     r"|\b(is|has|was)\s+(the\s+)?kyc\s+(been\s+)?(done|complete\w*|verified|pass\w*|clear\w*)\b"
     r"|\bkyc\b[^?]{0,25}\b(problem|issue|mismatch\w*|galat|pending|baaki|baki|kya\s+hua)\b"
     r"|\b(why|kyon|kyu|kyun)\b[^?]{0,30}\bkyc\b(?![^?]{0,20}\b(mean|matter|required|needed|important))"
+    # "KYC kyun fail hua?" -- the why AFTER kyc (2026-10-06: UNKNOWN, answered from the handbook)
+    r"|\bkyc\s+(why|kyon|kyu|kyun)\b"
     r"|\b(which|what)\s+kyc\s+\w+"
     # "which fields did not match?", "kya match nahi hua", "what differs between the documents"
     r"|\b(which|what)\s+(fields?|details?|values?|things?)\b[^?]{0,25}\b(not\s+match\w*|did\s*n[o']?t\s+match|mismatch\w*|differ\w*)\b"
@@ -1687,7 +1720,7 @@ def kyc_want(text: str) -> str:
     if re.search(r"\b(why|kyon|kyu|kyun|reason\w*|mismatch\w*|did\s*n[o']?t\s+match|not\s+match\w*|match\s+nahi|"
                  r"problems?|issues?|galat|wrong|review|fail\w*)\b", text or "", re.I):
         return "mismatch"
-    if re.search(r"\b(fields?|information|info|details|what\s+all|compared|checked)\b",
+    if re.search(r"\b(fields?|information|info|details?|what\s+all|compared|checked)\b",
                  text or "", re.I):
         return "fields"
     return "result"

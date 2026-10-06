@@ -464,9 +464,9 @@ def client(make_token, tmp_path):
     import main
 
     from app.store import set_repository
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.testing import fresh_repository
 
-    repository = SQLiteRepository(tmp_path / "issuer.sqlite3")
+    repository = fresh_repository(tmp_path / "issuer.sqlite3")
     repository.initialise()
     set_repository(repository)
     c = TestClient(main.app)

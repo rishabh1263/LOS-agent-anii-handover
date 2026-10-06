@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 COPILOT = "/api/v1/copilot/query"
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,7 +39,7 @@ def repo(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     los_config.reload()
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "p3.sqlite3")
+    repository = fresh_repository(tmp_path / "p3.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

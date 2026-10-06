@@ -20,7 +20,7 @@ from app.agents.credit.bureau import demo as demo_bureau
 from app.agents.credit.schemas import Party, Quality, UnderwritingContext
 from app.store import set_repository
 from app.store.models import Applicant, Application, FindingKind
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 CASE = "CASE-CR1"
 APP = "APP-CR1"
@@ -28,7 +28,7 @@ APP = "APP-CR1"
 
 @pytest.fixture(autouse=True)
 def store(tmp_path):
-    repository = SQLiteRepository(tmp_path / "credit.sqlite3")
+    repository = fresh_repository(tmp_path / "credit.sqlite3")
     repository.initialise()
     set_repository(repository)
     demo_bureau.clear_assignments()

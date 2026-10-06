@@ -32,14 +32,14 @@ from app.store.models import (
     CaseFinding,
     FindingKind,
 )
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 ENDPOINT = "/api/v1/copilot/query"
 
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "copilot.sqlite3")
+    repository = fresh_repository(tmp_path / "copilot.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

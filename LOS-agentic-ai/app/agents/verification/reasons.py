@@ -497,6 +497,63 @@ DISTINCT_OUTCOMES = (
 #: not passing.
 POSITIVE_CODES = frozenset({"SIGNATURE_PRESENT", "COMPARISON_MATCH", "INCOME_CONSISTENT"})
 
+#: Codes that say THE SAME THING to a reader, folded onto the one whose sentence
+#: is said. A signature with no specimen carried REFERENCE_UNAVAILABLE,
+#: SIGNATURE_REFERENCE_MISSING and SIGNATURE_NOT_COMPARABLE together and the chat
+#: read all three out (bug report 2026-10-05). Codes stay on the record as
+#: written; only the SPOKEN reasons are folded.
+SAME_MEANING = {
+    "REFERENCE_UNAVAILABLE": "SIGNATURE_REFERENCE_MISSING",
+    "REFERENCE_MISSING": "SIGNATURE_REFERENCE_MISSING",
+    "SIGNATURE_NOT_COMPARABLE": "SIGNATURE_REFERENCE_MISSING",
+    "QUALITY_INSUFFICIENT_FOR_COMPARISON": "SIGNATURE_LOW_QUALITY",
+}
+
+#: Codes implied by another code in the same set and never worth saying beside
+#: it: a signature with no specimen is, by definition, not established as genuine.
+IMPLIED_BY = {
+    "AUTHENTICITY_NOT_ESTABLISHED": ("SIGNATURE_REFERENCE_MISSING",),
+}
+
+
+def fold(codes) -> list[str]:
+    """Codes as a reader is told them: positive dropped, same-meaning folded, implied dropped, once each."""
+    folded: list[str] = []
+    for code in codes or []:
+        key = SAME_MEANING.get(str(code or "").upper(), str(code or "").upper())
+        if key and key not in POSITIVE_CODES and key not in folded:
+            folded.append(key)
+    return [c for c in folded if not any(other in folded for other in IMPLIED_BY.get(c, ()))]
+
+
+def spoken(codes, limit: int = 3) -> list[str]:
+    """
+    The reasons a PERSON is told, as catalogue sentences: positive codes left
+    out, same-meaning codes folded, implied codes dropped, duplicates removed,
+    at most `limit`. A code nobody has written a sentence for is left out
+    rather than read out as its own name -- the code stays in the structured
+    response for anyone who routes on it.
+    """
+    out: list[str] = []
+    for code in fold(codes):
+        sentence = CATALOGUE.get(code)
+        if sentence and sentence not in out:
+            out.append(sentence)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def as_clause(sentence: str) -> str:
+    """'Part of the image is cut off.' -> 'part of the image is cut off' (after 'because')."""
+    # The FIRST sentence only: "...expected. Upload the correct document." is a
+    # reason and an instruction, and only the reason belongs after "because".
+    text = re.split(r"(?<=[.!?])\s+", (sentence or "").strip(), maxsplit=1)[0].rstrip(".")
+    first = text.split(" ", 1)[0]
+    if first and not (first.isupper() and len(first) > 1):      # keep "PAN", "KYC"
+        text = text[:1].lower() + text[1:]
+    return text
+
 _WORD = re.compile(r"[^A-Za-z0-9]+")
 
 

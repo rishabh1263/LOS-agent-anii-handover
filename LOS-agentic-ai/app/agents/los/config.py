@@ -103,6 +103,15 @@ def case_memory_enabled() -> bool:
     return _flag("case_memory_enabled", default=False)
 
 
+def single_current_per_party() -> frozenset[str]:
+    """
+    Document types a party has ONE current copy of: a newer upload supersedes
+    the older (documents.yaml los.single_current_per_party).
+    """
+    return frozenset(str(t).strip().upper()
+                     for t in (_section().get("single_current_per_party") or []) if str(t).strip())
+
+
 #: Specialist agent id -> the flag that governs it, so the router can ask
 #: one question instead of carrying a branch per capability.
 SPECIALIST_FLAGS = {
@@ -151,6 +160,7 @@ __all__ = [
     "reload",
     "sale_deed_enabled",
     "signature_enabled",
+    "single_current_per_party",
     "snapshot",
     "specialist_enabled",
     "verification_enabled",

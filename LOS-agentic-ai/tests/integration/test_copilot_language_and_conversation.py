@@ -21,7 +21,7 @@ from app.agents.applicant import handoff, language, sentiment
 from app.agents.applicant.copilot.semantics import intents
 from app.observability import analytics
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 COPILOT = "/api/v1/copilot/query"
 ALL_STAGES = ("FOS", "CPA", "CREDIT", "RCU", "BOPS", "HOPS", "DISBURSEMENT")
@@ -157,7 +157,7 @@ def test_a_localized_answer_only_fills_in_an_established_fact():
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "lang.sqlite3")
+    repository = fresh_repository(tmp_path / "lang.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

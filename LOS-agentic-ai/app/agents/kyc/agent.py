@@ -139,6 +139,21 @@ def run_kyc(request: KycRequest, request_id: str = "") -> KycResult:
     ]
     overall_score, overall_confidence = fields_lib.roll_up(field_results)
 
+    state, reason, documents, mismatched, next_action = _explain(overall, ordered, field_results, request)
+    passed = [r.check.value for r in results if r.status is CheckStatus.PASS]
+    failed = [r.check.value for r in results if r.status in (CheckStatus.REVIEW, CheckStatus.FAIL)]
+    skipped = [r.check.value for r in results if r.status is CheckStatus.SKIPPED]
+    # PARTIAL: what was cross-checked agreed, but a BLOCKING check (policy says it
+    # may drive the verdict) could not run -- consistent so far, not complete.
+    # An optional check that did not run (father's name, income) leaves a PASS.
+    blocking_skipped = [s for s in skipped if check_is_blocking(s)]
+    if state == "PASS" and blocking_skipped and passed and not failed:
+        state, reason = "PARTIAL", f"The documents agree, but {', '.join(s.lower() for s in blocking_skipped)} " \
+                                   f"could not be checked from them."
+    actions = [] if state == "PASS" else [{"code": {"PENDING": "UPLOAD_DOCUMENT", "FAIL": "COLLECT_CORRECT_DOCUMENTS",
+                                                    "CONFIGURATION_GAP": "FIX_CONFIGURATION",
+                                                    "PARTIAL": "CONFIRM_MISSING_DETAILS"}.get(state, "MANUAL_REVIEW"),
+                                           "label": next_action}]
     return KycResult(
         request_id=request_id,
         applicant_id=request.applicant_id,
@@ -151,7 +166,37 @@ def run_kyc(request: KycRequest, request_id: str = "") -> KycResult:
         sources_received=len(request.documents),
         policy_version=config.policy_version(),
         processing_ms=round((time.perf_counter() - started) * 1000, 2),
+        state=state, reason=reason, affected_documents=documents,
+        mismatched_fields=mismatched, next_action=next_action,
+        passed_checks=passed, failed_checks=failed, missing_information=skipped, next_actions=actions,
     )
+
+
+def _explain(overall: CheckStatus, codes: list[ReasonCode], fields: list, request: KycRequest):
+    """
+    The explicit state and its explanation, DERIVED from the verdict above --
+    nothing here re-compares or changes it. Never a manufactured PASS.
+    """
+    mismatched = [str(getattr(f.field, "value", f.field)).replace("_", " ").lower() for f in fields
+                  if str(getattr(f.status, "value", f.status)).upper() in {"FAIL", "MISMATCH"}]
+    documents = list(dict.fromkeys(str(getattr(d.document_type, "value", d.document_type))
+                                   for d in request.documents))
+    only_sources = set(codes) == {ReasonCode.INSUFFICIENT_SOURCES}
+    if overall is CheckStatus.PASS:
+        return ("PASS", "The documents describe the same person.", documents, [], "No action needed.")
+    if overall is CheckStatus.REVIEW and only_sources:
+        return ("PENDING", "Only one verified document so far, so there is nothing to compare it with yet.",
+                documents, [], "Upload another identity document (or a bank statement) to complete KYC.")
+    if overall is CheckStatus.FAIL:
+        return ("FAIL", "The documents describe different people" + (f" ({', '.join(mismatched)} differ)."
+                                                                    if mismatched else "."),
+                documents, mismatched, "Collect the correct documents, or confirm with the customer.")
+    if overall is CheckStatus.SKIPPED:
+        return ("CONFIGURATION_GAP", "KYC is not configured to run on these documents.", documents, [],
+                "Check the KYC configuration.")
+    return ("REVIEW", ("These details differ across the documents: " + ", ".join(mismatched) + ".")
+            if mismatched else "Some details could not be confirmed across the documents.",
+            documents, mismatched, "Review the differences and confirm the correct details with the customer.")
 
 
 def configuration() -> dict:

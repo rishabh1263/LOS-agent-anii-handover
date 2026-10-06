@@ -21,7 +21,7 @@ from app.agents.applicant import config as agent_config
 from app.api.routes.fos_api import FosAction
 from app.store import set_repository
 from app.store.models import Document, DocumentStatus, status_for_verdict
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 #: Every field the unified contract promises. Missing or extra is a break.
 ENVELOPE = {
@@ -48,6 +48,10 @@ ENVELOPE = {
     # what the answer is about (CASE, APPLICANT, APPLICANT_CASES, NONE) and
     # how the question was read (language_gateway.LanguageContract)
     "scope", "language_contract",
+    # JEV typed decisions (app/jev, 2026-10-05): null until JEV evaluated the case
+    "semantic_decisions",
+    # the structured response contract derived from the prose (answering/presentation.py)
+    "presentation",
     # what is left on the case, who moves each item, what the assistant ran
     "pending_work",
     # the current stage's gate, from recorded results
@@ -72,7 +76,7 @@ FOS_SCOPES = [
 def _store(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
     agent_config.reload()
-    repository = SQLiteRepository(tmp_path / "fos_test.sqlite3")
+    repository = fresh_repository(tmp_path / "fos_test.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

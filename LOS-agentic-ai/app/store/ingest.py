@@ -52,6 +52,7 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
         Application,
         ApplicationStatus,
         Document,
+        DocumentStatus,
         status_for_verdict,
     )
 
@@ -107,6 +108,11 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
 
     documents = result.get("documents") or []
     written = 0
+    from app.agents.los.config import single_current_per_party
+
+    single_current = single_current_per_party()
+    batch_ids: set[str] = set()
+    superseding: set[tuple[str, str]] = set()
 
     for entry in documents:
         source_id = (entry.get("source_id") or "").strip()
@@ -180,6 +186,23 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
 
         repository.save_document(record)
         written += 1
+        batch_ids.add(record.document_id)
+        if document_type in single_current:
+            superseding.add((party_id, document_type))
+
+    # A NEWER UPLOAD REPLACES THE OLDER ONE for a single-per-person document
+    # (documents.yaml los.single_current_per_party). The older row stays for
+    # audit as SUPERSEDED; it is no longer a case document or a KYC source.
+    # Only rows from EARLIER uploads: two PANs in one batch are both current,
+    # and KYC reports them as the conflict they are.
+    if superseding:
+        for older in repository.list_documents(case_id):
+            key = ((older.party_id or older.applicant_id), (older.document_type or "").upper())
+            if key in superseding and older.document_id not in batch_ids:
+                older.status = DocumentStatus.SUPERSEDED
+                older.reason_codes = list(dict.fromkeys(
+                    [*(older.reason_codes or []), "SUPERSEDED_BY_NEWER_UPLOAD"]))
+                repository.save_document(older)
 
     # The stage follows the records, computed the same way the agent computes
     # it, so the stored status and the derived one cannot disagree.
@@ -214,6 +237,16 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
 
     _queue_unread(repository, result, case_id, applicant_id)
 
+    # JEV, ON THE EVENT -- not on a chat question. The case memory it reads was
+    # just written; each party is evaluated in the background so the upload
+    # never waits on the decision layer (app/jev/triggers.py).
+    if memory:
+        from app.jev import triggers
+
+        parties = [p.get("party_id") for p in (result.get("primary_applicant"), result.get("co_applicant"))
+                   if isinstance(p, dict) and p.get("party_id")]
+        triggers.document_processed(case_id, parties or [applicant_id])
+
     logger.info(
         "Persisted LOS result applicant=%s case=%s documents=%d stage=%s",
         applicant_id, case_id, written, application.status.value,
@@ -240,6 +273,16 @@ _DOCUMENT_PAYLOAD_KEYS = (
     "verification_scope", "issuer_verified", "issuer_verification",
     "fraud_signals",
 )
+
+#: THE KYC EXPLANATION, persisted so a later read (status API, chatbot) shows the
+#: same state and reason the run published -- words and field NAMES, no values.
+_KYC_EXPLANATION_KEYS = ("state", "reason", "affected_documents", "mismatched_fields", "next_action",
+                         "passed_checks", "failed_checks", "missing_information", "next_actions")
+
+
+def _kyc_explanation(kyc: dict) -> dict:
+    return {k: kyc[k] for k in _KYC_EXPLANATION_KEYS if kyc.get(k) not in (None, "", [])}
+
 
 #: KYC field keys worth keeping. The published shape, minus prose.
 _KYC_FIELD_KEYS = ("field", "status", "match_score", "confidence",
@@ -279,6 +322,15 @@ def _kyc_field(field: dict) -> dict:
         sources = [s for s in sources if s.get("value")]
         if sources:
             kept["sources"] = sources
+    else:
+        # WHICH DOCUMENTS carried a field that matched or was not compared --
+        # types only, never the value (the extraction finding holds values,
+        # once). Lets "kyc details" say "matched on the PAN and the driving
+        # licence" / "only the driving licence carries it".
+        documents = [{"document_type": s.get("document_type")}
+                     for s in (field.get("sources") or []) if isinstance(s, dict) and s.get("document_type")]
+        if documents:
+            kept["sources"] = documents
 
     return kept
 
@@ -511,7 +563,7 @@ def _write_case_memory(repository, result: dict, case_id: str) -> dict:
                 FindingKind.KYC,
                 {"fields": [
                     _kyc_field(f) for f in (kyc.get("fields") or [])
-                ]},
+                ], **_kyc_explanation(kyc)},
                 party_id=party_id,
                 status=kyc.get("status"),
                 score=kyc.get("overall_score"),
@@ -553,7 +605,7 @@ def _write_case_memory(repository, result: dict, case_id: str) -> dict:
         kyc = result["kyc"]
         _finding(
             FindingKind.KYC,
-            {"fields": [_kyc_field(f) for f in (kyc.get("fields") or [])]},
+            {"fields": [_kyc_field(f) for f in (kyc.get("fields") or [])], **_kyc_explanation(kyc)},
             status=kyc.get("status"),
             score=kyc.get("overall_score"),
             confidence=kyc.get("overall_confidence"),

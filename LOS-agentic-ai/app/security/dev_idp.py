@@ -10,7 +10,7 @@ locally, for development only:
     - exposes it as a JWKS document (GET /.well-known/jwks.json)
     - issues short-lived RS256 access tokens shaped exactly the way
       app/security/auth.require_jwt expects
-    - issues and rotates refresh tokens, stored hashed in a local sqlite file
+    - issues and rotates refresh tokens, stored hashed in the case store's PostgreSQL database
       (never the raw token), single-use: each refresh invalidates the token
       used and returns a new one
 
@@ -28,7 +28,6 @@ import json
 import logging
 import os
 import secrets
-import sqlite3
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -47,7 +46,6 @@ _KEY_ID = "los-dev-key-1"
 ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("DEV_IDP_ACCESS_TOKEN_TTL_SECONDS", "900"))  # 15 min
 REFRESH_TOKEN_TTL_SECONDS = int(os.getenv("DEV_IDP_REFRESH_TOKEN_TTL_SECONDS", "604800"))  # 7 days
 
-_DB_PATH = Path(os.getenv("DEV_IDP_DB_PATH", "dev_idp_refresh_tokens.sqlite3"))
 
 
 class _DevKeyPair:
@@ -205,15 +203,24 @@ def issue_access_token(
 # client has already rotated past it.
 # ============================================================================
 
-def _db() -> sqlite3.Connection:
-    conn = sqlite3.connect(_DB_PATH)
+def _db():
+    """
+    The refresh-token table, in the SAME PostgreSQL database as the case store
+    (LOS_STORE_DSN, or the development embedded server). Dev-only: this module
+    never runs in production, but it no longer keeps a second database file.
+    """
+    import psycopg
+
+    from app.store import _embedded_dsn, store_dsn
+
+    conn = psycopg.connect(store_dsn() or _embedded_dsn())
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS refresh_tokens (
+        CREATE TABLE IF NOT EXISTS dev_idp_refresh_tokens (
             token_hash TEXT PRIMARY KEY,
             subject TEXT NOT NULL,
-            issued_at INTEGER NOT NULL,
-            expires_at INTEGER NOT NULL,
+            issued_at BIGINT NOT NULL,
+            expires_at BIGINT NOT NULL,
             revoked INTEGER NOT NULL DEFAULT 0
         )
         """
@@ -232,8 +239,8 @@ def issue_refresh_token(subject: str) -> str:
     conn = _db()
     try:
         conn.execute(
-            "INSERT INTO refresh_tokens (token_hash, subject, issued_at, expires_at, revoked) "
-            "VALUES (?, ?, ?, ?, 0)",
+            "INSERT INTO dev_idp_refresh_tokens (token_hash, subject, issued_at, expires_at, revoked) "
+            "VALUES (%s, %s, %s, %s, 0)",
             (_hash_refresh_token(token), subject, now, now + REFRESH_TOKEN_TTL_SECONDS),
         )
         conn.commit()
@@ -248,24 +255,23 @@ def rotate_refresh_token(old_token: str) -> tuple[str, str]:
     now = int(time.time())
     conn = _db()
     try:
+        # ONE ATOMIC STATEMENT: of two concurrent refreshes with the same token,
+        # exactly one revokes it and gets a row back (single-use under a race).
         row = conn.execute(
-            "SELECT subject, expires_at, revoked FROM refresh_tokens WHERE token_hash = ?",
-            (token_hash,),
+            "UPDATE dev_idp_refresh_tokens SET revoked = 1 "
+            "WHERE token_hash = %s AND revoked = 0 AND expires_at > %s RETURNING subject",
+            (token_hash, now),
         ).fetchone()
-
-        if not row:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
-
-        subject, expires_at, revoked = row
-
-        if revoked:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token already used")
-
-        if expires_at <= now:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
-
-        conn.execute("UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?", (token_hash,))
         conn.commit()
+        if not row:
+            known = conn.execute("SELECT expires_at, revoked FROM dev_idp_refresh_tokens WHERE token_hash = %s",
+                                 (token_hash,)).fetchone()
+            if not known:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+            if known[1]:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token already used")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+        subject = row[0]
     finally:
         conn.close()
 
@@ -277,7 +283,7 @@ def revoke_refresh_token(token: str) -> None:
     conn = _db()
     try:
         conn.execute(
-            "UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?",
+            "UPDATE dev_idp_refresh_tokens SET revoked = 1 WHERE token_hash = %s",
             (_hash_refresh_token(token),),
         )
         conn.commit()

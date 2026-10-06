@@ -171,9 +171,9 @@ def _answer(question: str, scope: str, store):
 def store(tmp_path):
     from app.store import set_repository
     from app.store.models import Applicant, Application
-    from app.store.sqlite_repo import SQLiteRepository
+    from app.store.testing import fresh_repository
 
-    repository = SQLiteRepository(tmp_path / "scope.sqlite3")
+    repository = fresh_repository(tmp_path / "scope.sqlite3")
     repository.initialise()
     set_repository(repository)
     repository.save_applicant(Applicant(

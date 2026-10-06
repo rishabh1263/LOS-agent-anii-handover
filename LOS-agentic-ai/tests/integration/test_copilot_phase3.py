@@ -22,7 +22,7 @@ from app.agents.applicant.copilot.semantics.intents import Intent, understand
 from app.agents.los import stage_lifecycle, stages
 from app.store import set_repository
 from app.store.models import CaseDecision, CaseFinding, FindingKind
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 CASE, APP = "case_p3000000000000000000000000000001", "APP-PHASE3CASE01"
 COPILOT = "/api/v1/copilot/query"
@@ -269,7 +269,7 @@ def repo(tmp_path, monkeypatch):
     los_config.reload()
     agent_config.reload()
     stage_lifecycle.reload()
-    repository = SQLiteRepository(tmp_path / "p3.sqlite3")
+    repository = fresh_repository(tmp_path / "p3.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

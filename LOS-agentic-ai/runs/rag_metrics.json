@@ -1,0 +1,527 @@
+{
+ "summary": {
+  "retrieval_hit": "24/24",
+  "top1_relevance": "23/24",
+  "answer_correct": "26/26",
+  "citation_correct": "26/26",
+  "grounded": "26/26",
+  "no_answer_accuracy": "10/10",
+  "false_confidence": "0/10",
+  "latency_ms": {
+   "retrieval_p50_p95": [
+    5.5,
+    10.2
+   ],
+   "answer_p50_p95": [
+    6.7,
+    8.6
+   ]
+  }
+ },
+ "rows": [
+  {
+   "id": "rag_001",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_requirements.md",
+    "address_proof.md",
+    "address_proof.md"
+   ],
+   "answer": "ADDRESS_PROOF is the clear case: there is no document called an address proof, but a driving licence, a passport and a voter ID each prove an address.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_002",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "address_proof.md",
+    "document_requirements_personal_loan.md",
+    "document_requirements_home_loan.md"
+   ],
+   "answer": "A **PAN card is not an address proof.** A PAN card carries a name, a father's name, a date of birth and a permanent account number. It does not carry an address, so it cannot prove one. Uploading a PAN against the ADDRESS_PROOF slot fails with DOCUMENT_TYPE_MISMATCH.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_003",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "address_proof.md",
+    "address_proof.md",
+    "document_requirements.md"
+   ],
+   "answer": "A **PAN card is not an address proof.** A PAN card carries a name, a father's name, a date of birth and a permanent account number. It does not carry an address, so it cannot prove one. Utility bills, rent agreements and ration cards are commonly used as address proof in the industry, but this service has no classifier or extractor for them, so it cannot accept them.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_004",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "cpa_readiness.md",
+    "cpa_readiness.md",
+    "fos_workflow.md"
+   ],
+   "answer": "READY_FOR_CPA is **not**: - loan approval - credit approval - underwriting approval - risk clearance - a lending decision of any kind It says only that the next desk has enough to start work. Nothing about whether the loan should be granted has been decided, or even considered, at this stage.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_005",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "cpa_readiness.md",
+    "cpa_readiness.md",
+    "document_requirements_home_loan.md"
+   ],
+   "answer": "A case is READY_FOR_CPA when there are no pending items. A document under REVIEW blocks the handoff while `block_on_review` is on, because a verdict nobody has resolved is not a verdict the next desk can rely on.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_006",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "cpa_readiness.md",
+    "cpa_readiness.md",
+    "document_requirements.md"
+   ],
+   "answer": "The `pending_items` list gives the reasons, in the order a field officer should work through them: applicant information first, then application information, then documents. Each pending item carries a code: -- Code -- Meaning",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_007",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "cpa_readiness.md",
+    "document_requirements.md",
+    "document_requirements_home_loan.md"
+   ],
+   "answer": "A case is READY_FOR_CPA when there are no pending items. A document under REVIEW blocks the handoff while `block_on_review` is on, because a verdict nobody has resolved is not a verdict the next desk can rely on.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_008",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "faq.md",
+    "document_policy.md",
+    "faq.md"
+   ],
+   "answer": "Credit, bureau, risk, fraud and lending decisions all belong to later stages. Asking about them returns a `route_to` naming the stage that owns the question, and no answer — the FOS stage does not hold that information and will not guess at it.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_009",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_policy.md",
+    "document_requirements_personal_loan.md",
+    "document_requirements_personal_loan.md"
+   ],
+   "answer": "- **Base requirements** — the documents every application for that product needs, whatever the amount. No combination of amount and attributes can remove a base requirement, so no case ends up needing less identity evidence than every other case.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_010",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_policy.md",
+    "document_policy.md",
+    "document_requirements_home_loan.md"
+   ],
+   "answer": "A checklist row answers two questions, and they have separate fields. - **CONDITIONAL** — needed because of something about this case. It is just as binding as REQUIRED once the condition has matched; the distinction is there so the reason can be shown.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_011",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_policy.md",
+    "document_requirements_personal_loan.md",
+    "document_requirements_personal_loan.md"
+   ],
+   "answer": "A rule that depends on the loan amount cannot apply to a case with no amount recorded; a rule that depends on employment type cannot apply to a case that has not recorded one. A checklist that says \"the loan amount has not been captured, so amount-based rules were not applied\" tells the officer what to do about it.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_012",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_policy.md",
+    "document_requirements_personal_loan.md",
+    "document_requirements.md"
+   ],
+   "answer": "`UNCONFIRMED` means the thresholds in it are placeholders that no lender has signed off — they exist so the engine can be exercised end to end, and they are not this lender's policy, an industry standard, or a regulatory requirement. Every checklist row derived from an unconfirmed policy carries `policy_status: UNCONFIRMED`, so it can be shown as provisional rather than presented as a rule.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_013",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_policy.md",
+    "document_policy.md",
+    "document_policy.md"
+   ],
+   "answer": "A case records the policy version it was first assessed under. When the current version differs from the one a case was opened under, the response says so in `version_changed` and reports both, rather than printing the pinned version next to a checklist built from a different one.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_014",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_requirements_personal_loan.md",
+    "cpa_readiness.md",
+    "document_requirements_personal_loan.md"
+   ],
+   "answer": "Required: PAN, ADDRESS_PROOF (Driving Licence, Passport or Voter ID), Bank Statement. Optional: Signature.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_015",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_requirements_home_loan.md",
+    "document_requirements_home_loan.md",
+    "document_requirements.md"
+   ],
+   "answer": "Mandatory, for every home loan: PAN, BANK_STATEMENT and ADDRESS_PROOF.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_016",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_requirements_personal_loan.md",
+    "address_proof.md",
+    "address_proof.md"
+   ],
+   "answer": "- **INCOME_PROOF** - satisfied by a salary slip, an ITR or a Form 16",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_017",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_requirements.md",
+    "document_requirements_personal_loan.md",
+    "cpa_readiness.md"
+   ],
+   "answer": "Indian lenders commonly ask for more than this at the personal-loan stage — Aadhaar, Form 16, ITR, employment proof and photographs all appear on public lender checklists. **None of them is mandatory here**, because a document becomes required only by being listed as a mandatory slot for a product in the configuration.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_018",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_statuses.md",
+    "document_statuses.md",
+    "document_statuses.md"
+   ],
+   "answer": "A slot shows the best outcome among the documents uploaded against it: a rejected first attempt followed by a verified re-upload is a satisfied slot, not a blocked one. MISSING, UPLOADED, PROCESSING, REVIEW and REJECTED all leave it outstanding.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_019",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_statuses.md",
+    "document_statuses.md",
+    "verification_guidelines.md"
+   ],
+   "answer": "SKIPPED always means \"this was not done\", never \"this was done and found nothing wrong\". On a KYC field it means there was nothing to compare — either no document carried the field, or only one did, and one document cannot corroborate itself. A SKIPPED KYC field reports `match_score: 0`, and that zero means nothing was compared, not that nothing matched. SKIPPED is never treated as a pass.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_020",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "faq.md",
+    "faq.md",
+    "document_statuses.md"
+   ],
+   "answer": "KYC here means **cross-document consistency**: do the documents describe the same person? It compares name, date of birth, PAN, father's name and address across the documents that passed verification.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_021",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "faq.md",
+    "cpa_readiness.md",
+    "faq.md"
+   ],
+   "answer": "The service compares names across documents and tolerates case, spacing, punctuation, ordering and expanded initials. A genuine difference — a married name, a corrected record — is reported for a person to resolve, and never rejects the applicant automatically.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_022",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "verification_guidelines.md",
+    "verification_guidelines.md",
+    "document_requirements_personal_loan.md"
+   ],
+   "answer": "A PASS means the document is **structurally valid and internally consistent**. It does **not** mean the document is genuine. There is no issuer API, no government lookup and no issuer signature this service can check against, so every identity document carries `authenticity: NOT_ESTABLISHED` alongside its verdict, at every verdict including PASS.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_023",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "verification_guidelines.md",
+    "document_statuses.md",
+    "faq.md"
+   ],
+   "answer": "Extraction runs **only** behind a PASS. On REVIEW, FAIL or SKIPPED the extracted fields are withheld entirely — the response carries no fields at all. This is deliberate: fields read from a document nobody could verify are not evidence of anything, and releasing them invites them to be used as if they were.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_024",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "fos_workflow.md",
+    "fos_workflow.md",
+    "fos_workflow.md"
+   ],
+   "answer": "1. **APPLICATION_CREATED**; 2. **DOCUMENT_COLLECTION**; 3. **BASIC_DOCUMENT_VERIFICATION**; 4. **READY_FOR_CPA**.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_025",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "cpa_readiness.md",
+    "fos_workflow.md",
+    "cpa_readiness.md"
+   ],
+   "answer": "According to the configured stage guide (a sample process description, not a policy document), the CPA stage works like this: Central processing checks that the file is internally consistent and complete before any credit view is taken. It checks that applicant and co-applicant details match their documents, the product's required document list is satisfied, and earlier findings have been addresse",
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_026",
+   "answerable": true,
+   "confident": false,
+   "sources": [
+    "cpa_readiness.md",
+    "document_policy.md",
+    "document_requirements.md"
+   ],
+   "answer": "According to the configured stage guide (a sample process description, not a policy document), the DISBURSEMENT stage works like this: Funds are released against the sanction, to the account the file names. It checks that the beneficiary account holder matches the applicant, the amount matches the sanction, and the sign-off is present. A file is held back by a beneficiary account whose holder does",
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_027",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "document_requirements_personal_loan.md",
+    "document_requirements_personal_loan.md",
+    "document_requirements_personal_loan.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_028",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "document_requirements_personal_loan.md",
+    "document_requirements_personal_loan.md",
+    "document_requirements_personal_loan.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_029",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "document_requirements_home_loan.md",
+    "document_requirements_home_loan.md",
+    "document_requirements.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_030",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "faq.md",
+    "faq.md",
+    "document_policy.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_031",
+   "answerable": false,
+   "confident": false,
+   "sources": [],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_032",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "document_requirements_home_loan.md",
+    "document_requirements_home_loan.md",
+    "document_requirements.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_033",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "document_requirements_personal_loan.md",
+    "document_requirements_personal_loan.md",
+    "document_requirements_personal_loan.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_034",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "document_requirements_home_loan.md",
+    "document_requirements_home_loan.md",
+    "document_requirements.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_035",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "address_proof.md",
+    "document_policy.md",
+    "document_requirements.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_036",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "faq.md",
+    "fos_workflow.md",
+    "faq.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  }
+ ]
+}

@@ -562,8 +562,20 @@ def _evidence(body: str, question: str, *, keep: int = 2) -> str:
             end += 1
         items = [_re.sub(r"\s+--?\s+.*$|\s+—\s+.*$", "", pieces[i]) for i in range(start, end + 1)]
         return "; ".join(i.rstrip(".") for i in items) + "."
-    # a sentence introducing a list ("Concretely:") brings its first item
+    # a sentence introducing a SHORT BULLET LIST brings the whole list, said as
+    # one line -- with only the first item, "the ADDRESS_PROOF slot accepts:
+    # Driving licence" read as if the licence were the only accepted document
+    # (eval rag_doc_after_process, 2026-10-05)
     first = chosen[0]
+    if pieces[first].endswith(":") and first + 1 < len(pieces) and _re.match(r"-\s+", pieces[first + 1]):
+        end = first + 1
+        while end + 1 < len(pieces) and _re.match(r"-\s+", pieces[end + 1]):
+            end += 1
+        items = [_re.sub(r"^-\s+", "", pieces[i]).replace("**", "").strip(" .") for i in range(first + 1, end + 1)]
+        if all(len(i.split()) <= 4 for i in items) and len(items) <= 8:
+            listed = items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+            return f"{pieces[first]} {listed}."
+    # a sentence introducing a list ("Concretely:") brings its first item
     if pieces[first].endswith(":") and first + 1 < len(pieces) and first + 1 not in chosen:
         chosen = sorted(set(chosen[:keep - 1]) | {first, first + 1})
     # A SENTENCE THAT POINTS BACK continues the one it points to: "KYC means

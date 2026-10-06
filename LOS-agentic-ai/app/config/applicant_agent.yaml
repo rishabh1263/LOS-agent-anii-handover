@@ -355,6 +355,14 @@ timeouts:
 # or a verdict, and the validator below rejects any answer that tries.
 # -----------------------------------------------------------------------------
 chatbot:
+  # SCORES IN THE CHAT TEXT. Off: an answer says "KYC needs review because the
+  # name differs", never "the recorded score is 13" or "(score 100, confidence
+  # 90)" -- internal numbers read as backend output to the person chatting
+  # (bug report 2026-10-05). The numbers stay in the structured response
+  # fields (kyc.score, verification.documents_processed[].score) for a
+  # frontend that chooses to show them. APPLICANT_AGENT_SHOW_SCORES overrides.
+  show_scores: false
+
   llm:
     # provider/model are resolved by app/llm/provider.py (OLLAMA_* env);
     # named here so the configuration says what it runs against.
@@ -677,9 +685,10 @@ chatbot:
   # `ttl_seconds` of silence; the store holds at most `max_conversations`.
   conversation:
     enabled: true
-    # memory -- in-process (one worker). sqlite -- rows on the LOS store file
-    # (LOS_STORE_PATH), for several workers sharing one conversation.
-    store: memory
+    # repository -- the PostgreSQL case store: one conversation across workers,
+    # instances and restarts (labels only, TTL-pruned). memory -- this process
+    # only (one worker). CONVERSATION_STORE overrides.
+    store: repository
     ttl_seconds: 1800
     pending_turns: 3
     pending_ttl_seconds: 600

@@ -29,7 +29,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.store import set_repository
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 FOS_READ = ["read_applicant", "read_application", "read_documents",
             "read_verification", "read_pending_items", "read_next_action"]
@@ -41,7 +41,7 @@ COPILOT = "/api/v1/copilot/query"
 
 @pytest.fixture
 def repo(tmp_path):
-    repository = SQLiteRepository(tmp_path / "security.sqlite3")
+    repository = fresh_repository(tmp_path / "security.sqlite3")
     repository.initialise()
     set_repository(repository)
     yield repository

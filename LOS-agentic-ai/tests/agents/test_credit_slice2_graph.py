@@ -23,7 +23,7 @@ from app.agents.credit.planner import StepStatus
 from app.agents.credit.schemas import Party, UnderwritingContext
 from app.store import set_repository
 from app.store.models import Applicant, Application, CaseEvent, CaseStage, StageTransition
-from app.store.sqlite_repo import SQLiteRepository
+from app.store.testing import fresh_repository
 
 CASE, APP, CO = "CASE-CR2", "APP-CR2", "APP-CR2-CO"
 OFFICER = "uw-officer"
@@ -36,7 +36,7 @@ SCOPE = "los.credit.underwrite"
 
 @pytest.fixture(autouse=True)
 def store(tmp_path):
-    repository = SQLiteRepository(tmp_path / "credit2.sqlite3")
+    repository = fresh_repository(tmp_path / "credit2.sqlite3")
     repository.initialise()
     set_repository(repository)
     demo_bureau.clear_assignments()
