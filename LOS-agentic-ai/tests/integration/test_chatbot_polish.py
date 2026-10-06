@@ -21,7 +21,8 @@ pytestmark = pytest.mark.skipif(not DL_B.exists(), reason="real samples not pres
 
 LOCALIZED = ["documents verify ho gaye?", "what is pending?", "KYC kyun fail hua?", "KYC zala ka?",
              "eligibility ka status?", "what should I do?", "show all documents", "bank statement ka kya hua?",
-             "PAN ki details batao", "why is this case pending?", "what do I need to upload?"]
+             "PAN ki details batao", "why is this case pending?", "what do I need to upload?",
+             "credit ka kya hua?"]                       # the gate answer, its "comes later" note included
 #: what "complete" looks like in each language -- a REVIEW answer must never say it
 COMPLETE = {"mr": ("पूर्ण झाले", "पूर्ण आहे"), "hi": ("पूरा हो गया", "पूर्ण हो"), "en": ("is complete", "passed")}
 REVIEW = {"mr": "पुनरावलोकन", "hi": "समीक्षा", "en": "review"}

@@ -185,15 +185,26 @@ def _gate_sentence(result: dict[str, Any], language: str) -> str | None:
     from app.agents.applicant import language as languages
 
     gate = result.get("gate")
-    if not isinstance(gate, dict) or gate.get("moved_to") or gate.get("notes") \
-            or gate.get("status") == "CONFIGURATION_GAP":
+    if not isinstance(gate, dict) or gate.get("moved_to") or gate.get("status") == "CONFIGURATION_GAP":
         return None
+    # NOTES ARE SAID ONLY WHEN A TEMPLATE COVERS EVERY ONE ("Credit comes later --
+    # your case is at FOS ..."); any other note keeps the whole answer in English.
+    lead = []
+    for note in gate.get("notes") or []:
+        m = _LATER.match(str(note).strip())
+        said = languages.localized("stage_later", language, target=m.group("target"), stage=m.group("stage"),
+                                   next=m.group("next")) if m else None
+        if not said:
+            return None
+        lead.append(said)
+    prefix = (" ".join(lead) + " ") if lead else ""
     stage = agent_config.stage_label(gate.get("stage")) if gate.get("stage") else None
     nxt = agent_config.stage_label(gate.get("next_stage")) if gate.get("next_stage") else None
     if not (stage and nxt):
         return None
     if gate.get("status") == "PASS":
-        return languages.localized("gate_ready", language, stage=stage, next=nxt)
+        ready = languages.localized("gate_ready", language, stage=stage, next=nxt)
+        return prefix + ready if ready else None
     from app.agents.applicant.copilot.answering.answer import _readable
 
     items = []
@@ -204,8 +215,14 @@ def _gate_sentence(result: dict[str, Any], language: str) -> str | None:
                     if isinstance(e, dict) and (e.get("slot") or e.get("code"))] \
             if check.get("id") == "FOS_READINESS" else []
         items += evidence or [str(check.get("label"))]
-    return languages.localized("gate_blocked", language, stage=stage, next=nxt, items=_listed(items)) \
+    blocked = languages.localized("gate_blocked", language, stage=stage, next=nxt, items=_listed(items)) \
         if items else None
+    return prefix + blocked if blocked else None
+
+
+#: "Credit comes later -- your case is at FOS, and first has to move on to CPA."
+_LATER = re.compile(r"^(?P<target>[A-Z][\w ]*?) comes later -- (?:your|the) case is at (?P<stage>[^,]+), "
+                    r"and first has to move on to (?P<next>[^.]+)\.$")
 
 
 def _readiness_sentence(result: dict[str, Any], language: str) -> str | None:

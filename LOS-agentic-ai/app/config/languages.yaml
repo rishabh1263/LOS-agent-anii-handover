@@ -1027,6 +1027,11 @@ templates:
     hi: "इस केस के लिए {document} अभी अपलोड नहीं हुआ है।"
     hi-Latn: "Is case ke liye {document} abhi upload nahi hua hai."
     mr: "या केससाठी {document} अजून अपलोड झालेले नाही."
+  # a later stage asked about: "Credit comes later -- your case is at FOS ..."
+  stage_later:
+    hi: "{target} बाद में आता है -- आपका केस अभी {stage} में है, पहले इसे {next} में जाना होगा।"
+    hi-Latn: "{target} baad mein aata hai -- aapka case abhi {stage} mein hai, pehle ise {next} mein jaana hoga."
+    mr: "{target} नंतर येते -- तुमचा केस सध्या {stage} मध्ये आहे, आधी तो {next} कडे जायला हवा."
   # the recorded mismatch, VALUES QUOTED EXACTLY ({v1}/{v2} are never translated)
   mismatch_clause:
     hi: "{doc1} पर {field} {v1} है, लेकिन {doc2} पर {v2}"

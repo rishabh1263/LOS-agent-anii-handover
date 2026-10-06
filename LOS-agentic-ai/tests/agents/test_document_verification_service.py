@@ -251,7 +251,12 @@ async def test_an_unidentifiable_document_fails(sandboxed, tmp_path):
     outcome = await verify_document("PAN", file_path=target)
 
     assert outcome.status is VerificationStatus.OK
-    assert outcome.decision == "FAIL"
+    # IT CANNOT PASS. Read clearly and recognised as no supported document, it is the
+    # wrong document (FAIL); read as illegible -- this tiny default-font text often is --
+    # it is "could not establish" (REVIEW), never a failure on no evidence (2026-10-06).
+    assert outcome.decision in {"FAIL", "REVIEW"}
+    if outcome.checks.get("document_legible") == "PASS" and outcome.checks.get("page_not_blank") != "FAIL":
+        assert outcome.decision == "FAIL"
 
 
 @pytest.mark.ocr

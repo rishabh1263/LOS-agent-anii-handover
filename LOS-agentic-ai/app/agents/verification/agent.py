@@ -205,7 +205,10 @@ def verify_extraction_result(result, requested_type: str | None,
     if not complete:
         reasons.append("FIELDS_INCOMPLETE")
 
-    if requested_type:
+    # A TYPE MISMATCH NEEDS AN IDENTIFIED TYPE: a document nothing could read is
+    # UNKNOWN, and "requested BANK_STATEMENT, found UNKNOWN" is not evidence that
+    # the wrong document was uploaded -- it is the same unreadability, counted twice.
+    if requested_type and identified:
         wanted = requested_type.upper().replace("-", "_")
         if wanted not in {"AUTO", "ANY"}:
             matched = result.document_type.value == wanted
@@ -219,15 +222,20 @@ def verify_extraction_result(result, requested_type: str | None,
     confidence = round(sum(1 for c in checks if c.passed) / max(1, len(checks)), 4)
     by_name = {c.name: c for c in checks}
 
-    # Unidentifiable, unreadable, wrong type, or a malformed identifier are
-    # hard failures: each is positive evidence of a problem. Missing fields
-    # are a REVIEW, because a genuine document scanned badly should reach a
-    # human rather than be rejected.
-    hard = ("document_identified", "document_readable", "identifiers_valid",
-            "matches_requested_type")
-    if any(not by_name[n].passed for n in hard if n in by_name):
+    # FAIL ONLY ON POSITIVE EVIDENCE of a problem: a malformed identifier, or a
+    # document identified as a DIFFERENT type than requested. A document that
+    # could not be read or identified is NOT evidence of anything -- it is
+    # "could not establish", and goes to a person as REVIEW (DOC_UNREADABLE /
+    # DOC_TYPE_UNRECOGNISED say why). Treating unreadable as FAIL rejected a
+    # genuine scanned bank statement whose rasteriser was misconfigured
+    # (2026-10-06). Missing fields are REVIEW for the same reason.
+    hard = ("identifiers_valid", "matches_requested_type")
+    read_but_unrecognised = by_name["document_readable"].passed and not by_name["document_identified"].passed
+    if any(not by_name[n].passed for n in hard if n in by_name) or read_but_unrecognised:
+        # ...including a document that WAS read and is no supported type: the wrong document
         status = VerificationStatus.FAIL
-    elif not by_name["required_fields_present"].passed:
+    elif not (by_name["document_identified"].passed and by_name["document_readable"].passed
+              and by_name["required_fields_present"].passed):
         status = VerificationStatus.REVIEW
     else:
         status = VerificationStatus.PASS
@@ -284,9 +292,11 @@ def verify_financial_result(result, request_id: str = "",
 
     confidence = round(sum(1 for c in checks if c.passed) / len(checks), 4)
 
-    if not checks[0].passed or not checks[1].passed or result.verified is False:
+    # Inconsistent figures are positive evidence (FAIL). Unrecognised or
+    # unreadable is "could not establish" (REVIEW), never a failure.
+    if result.verified is False:
         status = VerificationStatus.FAIL
-    elif result.verified is None:
+    elif not checks[0].passed or not checks[1].passed or result.verified is None:
         status = VerificationStatus.REVIEW
     else:
         status = VerificationStatus.PASS

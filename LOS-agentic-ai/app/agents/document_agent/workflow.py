@@ -1915,9 +1915,15 @@ def _render_pdf_page(path: str, number: int):
     from pdf2image import convert_from_path
 
     options: dict[str, Any] = {}
-    poppler_path = (os.getenv("POPPLER_PATH") or "").strip()
-    if poppler_path:
+    poppler_path = (os.getenv("POPPLER_PATH") or "").strip().strip('"')
+    if poppler_path and os.path.isdir(poppler_path):
         options["poppler_path"] = poppler_path
+    elif poppler_path:
+        # A POPPLER_PATH FROM ANOTHER MACHINE (a copied .env naming a folder that
+        # does not exist here) made every scanned PDF fail in milliseconds while
+        # pdftoppm sat on PATH (2026-10-06). The missing folder is ignored, PATH
+        # is used, and the misconfiguration is logged rather than silently fatal.
+        logger.warning("POPPLER_PATH %r does not exist; using pdftoppm from PATH", poppler_path)
 
     pages = convert_from_path(
         path,
