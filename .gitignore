@@ -1,3 +1,5 @@
+
+
 # =========================================================
 # React / Node.js
 # =========================================================
@@ -53,6 +55,7 @@ lerna-debug.log*
 # Python virtual environments
 .venv/
 venv/
+venv310/
 env/
 ENV/
 env.bak/
@@ -238,3 +241,56 @@ generated/
 # Local configuration
 config.local.*
 settings.local.*
+
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+dist/
+build/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Python cache
+.pytest_cache/
+.mypy_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# .NET
+**/bin/
+**/obj/
+
+# Local AI / model files
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+
+# Local TTS models/cache
+TTS-test/**/models/
+TTS-test/**/checkpoints/
+TTS-test/**/cache/
+
+# Temporary files
+*.tmp
+*.temp
