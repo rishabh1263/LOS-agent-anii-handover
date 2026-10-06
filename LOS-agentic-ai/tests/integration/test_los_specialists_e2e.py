@@ -525,3 +525,24 @@ async def test_the_specialist_mcp_tools_are_registered():
     ):
         assert tool in names, tool
         assert tool in TOOLS, tool
+
+
+# ==========================================================================
+# THE FOS FIELD NAME (2026-10-06): `document_types` declared nothing here and a
+# Sale Deed went through generic classification, reported UNKNOWN.
+# ==========================================================================
+
+
+def test_document_types_is_an_alias_that_routes_the_sale_deed(app_client):
+    response = app_client.post("/api/v1/los/process", data={"applicant_id": "APP-E2E", "document_types": "SALE_DEED"},
+                               files=[("files", ("deed.pdf", deed_bytes(), "application/pdf"))])
+    assert response.status_code == 200, response.text
+    document = document_for(response.json(), "deed.pdf")
+    assert document["type"] == "SALE_DEED" and document["status"] in ("PASS", "REVIEW")
+
+
+def test_two_different_type_lists_are_refused(app_client):
+    response = app_client.post("/api/v1/los/process",
+                               data={"applicant_id": "APP-E2E", "document_types": "SALE_DEED", "expected_types": "PAN"},
+                               files=[("files", ("deed.pdf", deed_bytes(), "application/pdf"))])
+    assert response.status_code == 422 and "CONFLICTING_DOCUMENT_TYPES" in response.text

@@ -994,6 +994,14 @@ templates:
     hi: "इस आवेदन के दस्तावेज़:"
     hi-Latn: "Is application ke documents:"
     mr: "या अर्जावरील कागदपत्रे:"
+  group_primary:
+    hi: "आवेदक"
+    hi-Latn: "Applicant"
+    mr: "अर्जदार"
+  group_co:
+    hi: "सह-आवेदक"
+    hi-Latn: "Co-applicant"
+    mr: "सह-अर्जदार"
   doc_status_verified:
     hi: "सत्यापित"
     hi-Latn: "Verified"

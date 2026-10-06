@@ -52,6 +52,10 @@ ACKNOWLEDGEMENT = "ACKNOWLEDGEMENT"
 NEGATION = "NEGATION"
 REPLAY = "REPLAY"
 PENDING_EXPIRED = "PENDING_EXPIRED"
+ACTION_CONFIRMED = "ACTION_CONFIRMED"   # yes to an action the copilot proposed: carry it out
+ACTION_DECLINED = "ACTION_DECLINED"     # no to it: nothing is done
+ACTION_EXPIRED = "ACTION_EXPIRED"       # yes after the proposal lapsed: nothing is done
+ABUSIVE = "ABUSIVE"                     # abuse with nothing asked: a boundary, no read (abuse.py)
 ASKED = "CLARIFICATION_ASKED"          # the conversation layer asks, from state alone
 REFUSED = "REFUSED_IN_CONTEXT"         # a pronoun pointing at a refused person
 NO_STATE = "NO_STATE"
@@ -586,6 +590,8 @@ CURRENT_TURN: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 YES_NO = "YES_NO"
 EITHER_OR = "EITHER_OR"
 OPEN = "OPEN"
+#: The pending reason of a proposed action awaiting the user's yes / no.
+ACTION_CONFIRM = "ACTION_CONFIRM"
 
 
 # ==========================================================================
@@ -614,10 +620,16 @@ class PendingClarification:
     created_turn_id: int = 0
     expires_at: float = 0.0
     asked_times: int = 1
+    #: ACTION_CONFIRM only: the structured actions the copilot proposed (one per
+    #: option), exactly as published -- a confirmation carries out one of these
+    #: and nothing else.
+    actions: list[dict[str, Any]] = field(default_factory=list)
 
     def public(self) -> dict[str, Any]:
         return {"status": self.status, "reason": self.reason, "question_type": self.question_type,
                 "unresolved_field": self.unresolved_field,
+                "kind": "ACTION" if self.reason == ACTION_CONFIRM else "CLARIFICATION",
+                "expires_in_s": max(0, round(self.expires_at - time.time())),
                 "options": [o.label for o in self.options],
                 "created_turn_id": self.created_turn_id, "asked_times": self.asked_times}
 
@@ -962,6 +974,8 @@ class Reading:
     note: str | None = None
     reply: str | None = None           # a reply to publish without reading anything
     options: list[str] = field(default_factory=list)
+    action: dict[str, Any] | None = None   # ACTION_CONFIRMED: the proposed action to carry out
+    action_key: str | None = None          # its idempotency key (conversation, turn, option)
 
 
 def _frame_of(text: str) -> Any:
@@ -1097,6 +1111,80 @@ def _as_question(rest: str) -> str:
     return f"what is {rest}?"
 
 
+#: Any of these anywhere in a reply vetoes a "yes" to a proposed action ("haan mat
+#: karo" is close to "haan karo" as a phrase): a mixed reply is asked again, never guessed.
+_ACTION_VETO = re.compile(r"\b(mat|nahi|nahin|nai|no|not|dont|don\s*t|never|nako|naka|cancel|ruko|wait|stop)\b"
+                          r"|नहीं|नको|मत|रुको|थांबा", re.IGNORECASE)
+#: "yes, but ..." -- a change to what was proposed is not a confirmation of it.
+_ACTION_BUT = re.compile(r"\b(but|lekin|magar|par|change|instead|edit|modify|badal\w*|different|alag)\b",
+                         re.IGNORECASE)
+_HESITATE = re.compile(r"(hold on|one sec\w*|ek min\w*|ek second|sochta hoon|sochti hoon|let me think|thamba)")
+
+
+def _action_turn(text: str, pending: PendingClarification, state: ConversationState) -> Reading | None:
+    """
+    The reply to a PROPOSED ACTION (pending ACTION_CONFIRM). A clear yes carries out
+    that action; a clear no drops it; a mixed or hesitant reply is asked again; a
+    selection among several narrows to one and is confirmed explicitly. Anything
+    else returns None: the proposal is dropped and the turn read on its own.
+    """
+    actions = pending.actions
+    labels = [o.label for o in pending.options]
+    stripped = _strip(text)
+
+    def ask(reply: str, note: str) -> Reading:
+        pending.asked_times += 1
+        return Reading(STILL_AMBIGUOUS, text, reply=reply, note=note)
+
+    def go_ahead() -> str:
+        return (f"Should I go ahead with '{labels[0]}'? Please say yes or no."
+                if len(labels) == 1 else
+                "Which one should I do: " + " or ".join(f"'{l}'" for l in labels) + "? Or say no to leave it.")
+
+    # A YES THAT WRITES IS AN EXACT PHRASE: typo tolerance read "don't" as "do it"
+    vocab = _vocab()
+    yes = stripped in set(vocab.get("AFFIRM", [])) or stripped in set(vocab.get("CONFIRM_SOFT", []))
+    no = _has("NEGATE", text) or _has("NEITHER", text) or _leading("CANCEL", text) == ""
+    if not yes and not no and (_has("AFFIRM", text) or _has("CONFIRM_SOFT", text)):
+        return ask(go_ahead(), "close to a yes, but not one")
+    if yes and (no or _ACTION_VETO.search(stripped)):
+        return ask(go_ahead(), "a yes and a no together decide nothing")
+    if no:
+        state.pending_clarification = None
+        return Reading(ACTION_DECLINED, "", note="the proposal was declined",
+                       reply="Okay, I won't go ahead with that. Nothing was changed.")
+    if yes:
+        if len(actions) == 1:
+            state.pending_clarification = None
+            return Reading(ACTION_CONFIRMED, "", option_index=0, action=actions[0],
+                           action_key=f"chat:{state.conversation_id}:{pending.created_turn_id}:0",
+                           note="yes to the proposed action")
+        return ask(go_ahead(), "a yes to several proposed actions chooses none")
+    if len(actions) > 1:
+        index = _ordinal(text, len(actions))
+        if index is None:
+            hits = [i for i, l in enumerate(labels) if stripped and stripped in _strip(l)]
+            index = hits[0] if len(hits) == 1 else None
+        if index is not None:
+            if index < 0:
+                return ask(go_ahead(), "no such option")
+            # SELECTING is not confirming: narrowed to the one chosen, asked once more
+            pending.actions, pending.options = [actions[index]], [pending.options[index]]
+            pending.question_type = YES_NO
+            labels = [pending.options[0].label]
+            return Reading(OPTION_RESOLVED, text, option_index=index, reply=go_ahead(),
+                           note="one proposed action selected, awaiting yes")
+    head = _leading("AFFIRM", text) or _leading("CONFIRM_SOFT", text)
+    if head and (_ACTION_VETO.search(_strip(head)) or _has("NEGATE", head)):
+        return ask(go_ahead(), "a yes and a no together decide nothing")
+    if head and _ACTION_BUT.search(head):
+        return ask("I can only go ahead with exactly what I proposed. Say yes to do it as it is, or tell me "
+                   "what you need and I'll prepare a new one.", "a yes with a change is not a yes")
+    if _has("ACK", text) or _HESITATE.fullmatch(stripped) or stripped in ("hmm", "wait", "ruko"):
+        return ask(go_ahead(), "a hesitation keeps the proposal open")
+    return None
+
+
 def read_turn(message: str, state: ConversationState | None) -> Reading:
     """
     The turn read relative to the conversation. Pure: reads nothing, decides
@@ -1106,13 +1194,29 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
     if state is None:
         return Reading(NO_STATE, text)
     pending = state.pending_clarification
+    expired_action = False
     if pending is not None and (time.time() > pending.expires_at
                                 or state.turns_since_pending >= _cfg_int("pending_turns", 3)):
+        expired_action = pending.reason == ACTION_CONFIRM
         state.pending_clarification = None
         pending = None
         expired = True
     else:
         expired = False
+
+    # 0. A PROPOSED ACTION waiting for yes / no is answered first: a confirmation
+    #    must never be re-read as small talk, and anything that is not a clear
+    #    yes or no drops the proposal (nothing is done) and stands on its own.
+    if pending is not None and pending.reason == ACTION_CONFIRM:
+        decided = _action_turn(text, pending, state)
+        if decided is not None:
+            return decided
+        state.pending_clarification = None
+        pending = None
+    if expired_action and (_has("AFFIRM", text) or _has("CONFIRM_SOFT", text)):
+        return Reading(ACTION_EXPIRED, "", note="the proposal had lapsed",
+                       reply="That request has expired, so I haven't done anything. "
+                             "Ask again if you still want it.")
 
     # 1. CANCELLATION -- "leave that", "never mind", "chhodo" -- with or
     #    without a new question after it.
@@ -1338,6 +1442,14 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
                 state.pending_clarification = None
                 return Reading(YES_NO_RESPONSE, pending.options[0].label, option_index=0,
                                note="yes to a yes/no question")
+            # THE QUESTION ENDED WITH ONE OFFER ("Want me to check what's pending
+            # on it?"): a yes accepts that offer -- the one option it names.
+            last = _strip(re.split(r"(?<=[.!?])\s+", pending.question.strip())[-1]) if pending.question else ""
+            offered = [i for i, o in enumerate(pending.options) if _strip(o.label) and _strip(o.label) in last]
+            if len(offered) == 1 and pending.question.rstrip().endswith("?"):
+                state.pending_clarification = None
+                return Reading(YES_NO_RESPONSE, pending.options[offered[0]].label, option_index=offered[0],
+                               note="yes to the offer the question made")
             pending.asked_times += 1
             return Reading(STILL_AMBIGUOUS, text, reply=_reask(pending, after_yes=True),
                            options=[o.label for o in pending.options],
@@ -1518,6 +1630,15 @@ def _question_type(clarification: dict[str, Any]) -> str:
     return EITHER_OR if len(options) >= 2 else OPEN
 
 
+def _proposed(response: dict[str, Any]) -> list[dict[str, Any]]:
+    """The confirmable actions a (non-refused) answer proposed, at most three."""
+    if str(response.get("intent") or "") == "GUARDRAIL_BLOCKED" or response.get("errors"):
+        return []
+    from app.agents.applicant.copilot.conversation import actions as _actions
+
+    return _actions.confirmable(response.get("actions"))[:3]
+
+
 def update_from_response(state: ConversationState, message: str,
                          response: dict[str, Any], reading: Reading) -> None:
     """Record what this turn was about. Labels only."""
@@ -1587,6 +1708,21 @@ def update_from_response(state: ConversationState, message: str,
             expires_at=time.time() + _cfg_int("pending_ttl_seconds", 600),
             asked_times=previous.asked_times if same else 1)
         state.pending_options = [o.label for o in options]
+        state.turns_since_pending = 0
+    elif _proposed(response):
+        # A PROPOSED ACTION (requires confirmation, with an executor) is the open
+        # question now: the next "yes" carries out exactly this, nothing else.
+        from app.agents.applicant.copilot.conversation import actions as _actions
+
+        proposed = _proposed(response)
+        state.pending_clarification = PendingClarification(
+            reason=ACTION_CONFIRM, question=str(response.get("answer") or "")[:600],
+            question_type=YES_NO if len(proposed) == 1 else EITHER_OR, original_message=message[:200],
+            unresolved_field="CONFIRMATION",
+            options=[Option(label=str(a.get("label") or a.get("action") or "Go ahead")) for a in proposed],
+            created_turn_id=state.turn_id, actions=[_actions.stored(a) for a in proposed],
+            expires_at=time.time() + _cfg_int("action_ttl_seconds", 300))
+        state.pending_options = [o.label for o in state.pending_clarification.options]
         state.turns_since_pending = 0
     else:
         if state.pending_clarification is not None and reading.outcome in (

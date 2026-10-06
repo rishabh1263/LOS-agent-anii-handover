@@ -50,7 +50,7 @@ def main() -> int:
             # A PROPERTY document: not a FOS-stage upload (the FOS route refuses it, 422
             # UNSUPPORTED_DOCUMENT_TYPE, by design) -- processed by the LOS pipeline.
             t = time.perf_counter()
-            r = api.c.post("/api/v1/los/process", data={"applicant_id": "APP-DEED-LIVE", "document_types": [doc_type]},
+            r = api.c.post("/api/v1/los/process", data={"applicant_id": "APP-DEED-LIVE", "expected_types": [doc_type]},
                            files=[("files", (path.name, Path(path).read_bytes(), "application/pdf"))])
             d = (r.json().get("documents") or [{}])[0] if r.status_code == 200 else {}
             verdict = d.get("verification")

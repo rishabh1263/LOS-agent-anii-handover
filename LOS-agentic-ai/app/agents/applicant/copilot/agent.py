@@ -2580,8 +2580,23 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
     # SMALL TALK NAMES NO ONE: "what is the capital of France?" reads no party
     from app.agents.applicant import conversation as _small_talk
 
-    named = {} if _small_talk.classify(message) is not None         else await _named_people(message, kwargs, claims)
-    if named.get("refuse"):
+    # AN ABUSIVE TURN IS A DIALOGUE ACT (conversation/abuse.py): with nothing asked
+    # it gets a boundary from the conversation layer alone (no party, case, tool,
+    # MCP or model read); with a request left over, only the request is read.
+    from app.agents.applicant.copilot.conversation import abuse as _abuse
+
+    _act = _abuse.classify(message)
+    if _act.kind == _abuse.ABUSIVE_ONLY:
+        named = {}
+    else:
+        if _act.kind == _abuse.ABUSIVE_WITH_REQUEST:
+            message = _act.remainder
+            kwargs = dict(kwargs, message=message)
+        named = {} if _small_talk.classify(message) is not None else await _named_people(message, kwargs, claims)
+    if _act.kind == _abuse.ABUSIVE_ONLY:
+        reading = conv.Reading(conv.ABUSIVE, "", reply=_abuse.reply(_language_code(message)),
+                               note="abusive, nothing asked")
+    elif named.get("refuse"):
         reading = conv.Reading(conv.REFUSED, message, reply="", note="CROSS_CUSTOMER_DATA")
     elif named.get("ask"):
         reading = conv.Reading(conv.ASKED, message, reply=named["ask"], options=named["options"],
@@ -2607,6 +2622,27 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
         merged.update({k: v for k, v in context.items() if v not in (None, "", [])
                        and k not in merged or merged.get(k) in (None, "", [])})
     merged["conversation_id"] = state.conversation_id
+
+    executed: dict[str, Any] | None = None
+    if reading.outcome == conv.ACTION_CONFIRMED and reading.action:
+        # A YES TO THE ACTION THIS CONVERSATION PROPOSED (conversation/actions.py):
+        # the stored structured action -- never the words -- through the same
+        # authorization, idempotency and read-back as the button.
+        from app.agents.applicant.copilot.conversation import actions as _conv_actions
+
+        try:
+            executed = _conv_actions.execute(
+                reading.action, claims=claims, case_id=str(case_id or ""),
+                idempotency_key=str(reading.action_key or ""),
+                request_id=str(kwargs.get("request_id") or f"chat_{uuid.uuid4().hex}"))
+            reading.reply = executed["answer"]
+        except _conv_actions.ActionRefused as not_done:
+            executed = {"error": {"code": not_done.code, "message": not_done.message}}
+            reading.reply = not_done.message
+        except Exception:  # noqa: BLE001 - a failed write is reported, never claimed done
+            logger.exception("confirmed action failed case_id=%s", case_id)
+            executed = {"error": {"code": "ACTION_FAILED", "message": "It could not be done."}}
+            reading.reply = "Sorry, I couldn't complete that just now. Nothing was changed -- please try again."
 
     if reading.reply is not None:
         # ANSWERED FROM THE CONVERSATION ALONE: nothing read, no tool, no model.
@@ -2636,6 +2672,20 @@ async def _conversational(**kwargs: Any) -> dict[str, Any]:
         }
         if named.get("intent"):
             response["intent"] = named["intent"]
+        if executed is not None:
+            failed = executed.get("error")
+            response.update({
+                "intent": "ACTION_CONFIRMATION", "response_type": "ACTION_REFUSED" if failed else "ACTION_DONE",
+                "action_result": None if failed else executed.get("result"),
+                "errors": [failed] if failed else [],
+                "tools_invoked": [] if failed else [f"los.{str(reading.action.get('action') or '').lower()}"]})
+        elif reading.outcome in (conv.ACTION_DECLINED, conv.ACTION_EXPIRED):
+            response["intent"] = "ACTION_CONFIRMATION"
+            response["response_type"] = reading.outcome
+        elif reading.outcome == conv.ABUSIVE:
+            response["intent"] = "ABUSIVE_INPUT"
+            response["response_type"] = "BOUNDARY"
+            response["suggested_questions"] = []
         if reading.outcome == conv.REFUSED:
             response["answer"] = guardrails.refusal(guardrails.Category.CROSS_CUSTOMER_DATA)
             response["intent"] = "GUARDRAIL_BLOCKED"

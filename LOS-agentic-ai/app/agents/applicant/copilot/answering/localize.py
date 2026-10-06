@@ -72,12 +72,27 @@ def _documents_list_sentence(result: dict[str, Any], language: str) -> str | Non
     if not docs or not heading:
         return None
     lines, attention = [heading], None
+    co = [str(d.get("party_role") or "").upper() == "CO_APPLICANT" for d in docs]
+    grouped = any(co) and not all(co)
+    if grouped:
+        # TWO PEOPLE: applicant's group first, then the co-applicant's, each headed
+        docs = [d for d, c in zip(docs, co) if not c] + [d for d, c in zip(docs, co) if c]
+    current = None
     for d in docs:
         status = str(d.get("status") or "").upper()
         words = languages.localized(f"doc_status_{_LIST_STATUS.get(status, '')}", language)
         if not words:
             return None
         label = answers._doc_label(d.get("document_type"), d.get("party_role"))
+        if grouped:
+            group = "CO_APPLICANT" if str(d.get("party_role") or "").upper() == "CO_APPLICANT" else "PRIMARY"
+            if group != current:
+                title = languages.localized("group_co" if group == "CO_APPLICANT" else "group_primary", language)
+                if not title:
+                    return None
+                lines.append(f"\n{title}")
+                current = group
+            label = answers._readable(d.get("document_type"))
         lines.append(f"{answers._STATE_ICON[status][0]} {label} — {words}")
         if attention is None and status in {"REVIEW", "REJECTED", "FAIL"}:
             attention = label

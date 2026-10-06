@@ -664,12 +664,34 @@ protected:
 conversation:
   AFFIRM: ['yes', yeah, yep, yup, ya, yess, haan, haa, ha, han, ji, ji haan, haan ji, hoy, ho,
            हाँ, हां, जी, हो, होय, correct, right, exactly, sure, of course, please do,
-           go ahead, yes please, do it, kar do, karo, bilkul, zaroor, theek hai, thik hai, ok yes]
+           go ahead, yes please, do it, kar do, karo, bilkul, zaroor, theek hai, thik hai, ok yes,
+           proceed, confirm, confirmed, haan kar do, haan karo, ha kar do, kardo, kar dijiye, karo na,
+           yes do it, yes go ahead, ok do it, okay do it, ok kar do, okay kar do, ho kara, kara, कर दो,
+           करो, हाँ कर दो, हां कर दो, करा, हो करा]
+  # A PROPOSED ACTION (conversation/actions.py) is also confirmed by a plain "ok";
+  # anywhere else "ok" stays an acknowledgement.
+  CONFIRM_SOFT: [ok, okay, okk, ok sure, okay sure, fine, alright, ठीक है, ठीक, चालेल, chalega, chalo]
   ACK: [ok, okay, okk, k, kk, fine, alright, got it, noted, understood, samjha, samjhi,
         samajh gaya, samajh gayi, achha, acha, accha, hmm, hm, cool, great, nice, ठीक है, ठीक, समजले]
   NEGATE: ['no', nope, nah, nahi, nahin, nai, na, no no, nahi nahi, नहीं, नाही, not that, not this, not this one,
            not that one, dont mean that, don t mean that, wrong, galat, that s not it, thats not it,
-           not really, no no]
+           not really, no no, mat karo, mat kar, mat kijiye, mat, nahi karna, nahi karo, na karo,
+           dont, don t, do not, no dont, no don t, dont do it, don t do it, no thanks, not now,
+           nako, naka, nako karu, मत करो, मत, नहीं करना, नको, नको करू, नाही करायचे]
+  # ABUSIVE TOKENS, as a word class (conversation/abuse.py): a turn made only of
+  # these and FILLER gets a neutral boundary and no case read; with a request
+  # left over, the request alone is answered. Masked forms (f***) are matched by shape.
+  ABUSE: [fuck, fucking, fucker, fck, fuk, shit, bullshit, bitch, bastard, asshole, ass, dick, crap, damn, wtf,
+          stfu, idiot, idiots, stupid, dumb, moron, useless, loser, scum, retard, bc, mc, bsdk, bkl, mkc,
+          chutiya, chutiye, chutia, choot, chod, gandu, gaandu, gand, gaand, harami, haramkhor, kutta, kutte,
+          kamina, kamine, kaminey, saale, saali, randi, lavde, lode, lund, bhosdi, bhosdike, bhadwa, bhadwe,
+          tatti, ullu, gadha, pagal, nalayak, bakwas, bekar, bewakoof, bevakoof, jhatu, jhaat,
+          madarchod, behenchod, bhenchod, maderchod, chutiyapa, chutiyapanti, "भोसडी", "चूतिया", "मादरचोद",
+          "बहनचोद", "गांडू", "हरामी", "कुत्ता", "कमीना", "बकवास", "बेकार", "पागल", "झवाड्या", "भडवा", "हरामखोर"]
+  ABUSE_STEMS: [fuck, motherf, madarch, behench, bhench, bhosd, chutiy, gaand, haramkh]
+  FILLER: [bhai, bhaiya, yaar, yar, bro, dude, abe, abey, oye, arre, arey, re, saala, sala, ye, yeh, tu, tum,
+           you, are, is, a, an, the, bot, this, so, very, kya, hai, h, tera, teri, tere, mera, ki, ka, ke,
+           off, up, totally, really, such, what, ek, number, ekdum, bilkul]
   NEITHER: [neither, none, none of these, none of them, koi nahi, koi bhi nahi, dono nahi,
             कोई नहीं, दोन्ही नाही, both no]
   CANCEL: [leave it, leave that, leave this, forget it, forget that, forget this, never mind,

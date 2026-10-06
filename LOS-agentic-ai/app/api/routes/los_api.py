@@ -341,6 +341,13 @@ async def process(
         ),
         examples=[["PAN", "DRIVING_LICENCE"]],
     ),
+    document_types: list[str] | None = Form(
+        default=None,
+        description=(
+            "Alias of `expected_types` -- the name the FOS upload route uses. "
+            "Sending both with different values is refused."
+        ),
+    ),
     # ---- the optional second party --------------------------------------
     co_applicant_id: str | None = Form(
         default=None,
@@ -428,6 +435,15 @@ async def process(
         ) from exc
 
     operation = (operation or PROCESS).strip().upper()
+
+    # THE FOS ROUTE'S NAME FOR THE SAME FIELD. Silently ignored, it sent a declared
+    # SALE_DEED through generic classification, which reported UNKNOWN (2026-10-06).
+    if document_types:
+        if expected_types and list(expected_types) != list(document_types):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={
+                "request_id": request_id, "error": "CONFLICTING_DOCUMENT_TYPES",
+                "message": "Send expected_types or document_types, not two different lists."})
+        expected_types = list(document_types)
 
     files = _uploads(files, "files", request_id)
     co_files = _uploads(co_applicant_files, "co_applicant_files", request_id)

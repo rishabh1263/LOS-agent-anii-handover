@@ -201,6 +201,15 @@ def risk_signals(case_id: str) -> dict[str, Any]:
             "note": "Advisory semantic signals. They never change a document, KYC, eligibility or credit result."}
 
 
+def _party_roles(case_id: str) -> list[dict[str, Any]]:
+    from app.store import get_repository
+
+    try:
+        return [{"party_id": d.party_id, "party_role": d.party_role} for d in get_repository().list_documents(case_id)]
+    except Exception:  # noqa: BLE001 - unknown roles read as the primary applicant
+        return []
+
+
 def reviews(case_id: str, verification: dict | None = None, kyc: dict | None = None,
             eligibility: dict | None = None, credit: dict | None = None) -> list[dict[str, Any]]:
     """The work a person must do, each with its reason, documents, stage and action."""
@@ -223,10 +232,14 @@ def reviews(case_id: str, verification: dict | None = None, kyc: dict | None = N
         elif d["status"] == "REJECTED":
             out.append(case("DOCUMENT_REJECTED", "; ".join(d["reasons"]) or f"{d['label']} did not pass.",
                             [d["label"]], [d["document_id"]]))
+    # WHOSE KYC: each party's review says whose it is (one per party, never two
+    # identical unlabelled lines on a joint case)
+    roles = {d.get("party_id"): d.get("party_role") for d in _party_roles(case_id)}
     for p in kyc.get("parties") or []:
         if p["status"] in _KYC_REVIEW:
-            out.append(case(_KYC_REVIEW[p["status"]], p["summary"] or "KYC needs a review.",
-                            p["mismatched_fields"]))
+            item = case(_KYC_REVIEW[p["status"]], p["summary"] or "KYC needs a review.", p["mismatched_fields"])
+            item["party_role"] = roles.get(p["party_id"]) or "PRIMARY_APPLICANT"
+            out.append(item)
     if eligibility.get("status") == "REVIEW":
         out.append(case("ELIGIBILITY_REVIEW", "Eligibility rules need attention: "
                         + (", ".join(filter(None, eligibility.get("failed_rules") or [])) or "see the rules."), []))
