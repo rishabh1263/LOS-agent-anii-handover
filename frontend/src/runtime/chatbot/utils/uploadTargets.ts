@@ -140,26 +140,3 @@ export function getUploadTargets(r: FosUploadResponse | null | undefined): Uploa
 
   return { targets: [...out.values()], showGeneralUpload }
 }
-
-/** Status chips that replace the upload button (do NOT show upload). */
-export function getStatusChip(
-  r: FosUploadResponse | null | undefined,
-): { label: string; tone: 'review' | 'verifying' | 'waiting' | 'done' | 'ready' } | null {
-  const pending = r?.pending_items as LoosePending[] | undefined
-  if (pending?.some((p) => p.code === 'DOCUMENT_UNDER_REVIEW')) {
-    return { label: 'Under review', tone: 'review' }
-  }
-  if (
-    pending?.some((p) => p.code === 'DOCUMENT_NOT_VERIFIED') ||
-    (r?.next_action as LooseNextAction | undefined)?.action === 'AWAIT_VERIFICATION'
-  ) {
-    return { label: 'Verifying…', tone: 'verifying' }
-  }
-  if ((r?.next_action as LooseNextAction | undefined)?.action === 'RESOLVE_DOCUMENT_REVIEW') {
-    return { label: 'Waiting for reviewer', tone: 'waiting' }
-  }
-  if ((r?.next_action as LooseNextAction | undefined)?.action === 'SUBMIT_TO_CPA') {
-    return { label: 'All documents done, ready for CPA', tone: 'ready' }
-  }
-  return null
-}

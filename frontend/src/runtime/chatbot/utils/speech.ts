@@ -1,16 +1,16 @@
 /**
- * Speech helpers — Indian-language focused voice pick + reliable speak.
+ * Speech helpers — Indian-language voice pick + reliable speak.
  */
 
 import type { SpeechGender } from '../types'
 
-export interface VoicePickOptions {
+interface VoicePickOptions {
   lang?: string
   gender?: SpeechGender
 }
 
-/** Indian locales only (BCP-47). Shown in settings; not foreign languages. */
-export const INDIAN_SPEECH_LOCALES = [
+/** Candidate Indian locales (BCP-47). Dropdown only shows ones the browser has. */
+const INDIAN_SPEECH_LOCALES = [
   'en-IN',
   'hi-IN',
   'mr-IN',
@@ -49,8 +49,7 @@ function langPrimary(tag: string): string {
 function langMatches(voiceLang: string, wanted: string): boolean {
   const a = normalizeLang(voiceLang)
   const b = normalizeLang(wanted)
-  if (a === b) return true
-  return langPrimary(a) === langPrimary(b)
+  return a === b || langPrimary(a) === langPrimary(b)
 }
 
 function qualityScore(v: SpeechSynthesisVoice): number {
@@ -62,13 +61,19 @@ function qualityScore(v: SpeechSynthesisVoice): number {
   return s
 }
 
+function getVoices(voices?: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
+  if (voices) return voices
+  if (typeof window === 'undefined') return []
+  return window.speechSynthesis?.getVoices() ?? []
+}
+
 let voicesReady = false
 
+/** Load system voices (Chrome may fire voiceschanged asynchronously). */
 export function ensureVoicesLoaded(): Promise<SpeechSynthesisVoice[]> {
   if (typeof window === 'undefined' || !window.speechSynthesis) {
     return Promise.resolve([])
   }
-  // Chrome may keep synthesis paused after cancel
   try {
     window.speechSynthesis.resume()
   } catch {
@@ -86,7 +91,7 @@ export function ensureVoicesLoaded(): Promise<SpeechSynthesisVoice[]> {
       resolve(window.speechSynthesis.getVoices())
     }
     window.speechSynthesis.addEventListener('voiceschanged', done)
-    setTimeout(() => {
+    window.setTimeout(() => {
       window.speechSynthesis.removeEventListener('voiceschanged', done)
       voicesReady = true
       resolve(window.speechSynthesis.getVoices())
@@ -95,80 +100,50 @@ export function ensureVoicesLoaded(): Promise<SpeechSynthesisVoice[]> {
 }
 
 /**
- * Indian languages for the settings dropdown.
- * Always lists Indian locales; marks which ones have a system voice.
+ * Indian language tags this browser actually supports (has a matching voice).
+ * Used for the Settings language dropdown.
  */
-export function listIndianLanguages(voices?: SpeechSynthesisVoice[]): {
-  tag: string
-  hasVoice: boolean
-}[] {
-  const list =
-    voices ??
-    (typeof window !== 'undefined' ? window.speechSynthesis?.getVoices() : []) ??
-    []
-  const installed = new Set(list.map((v) => normalizeLang(v.lang)))
+export function listIndianLanguages(voices?: SpeechSynthesisVoice[]): string[] {
+  const list = getVoices(voices)
+  if (!list.length) return []
 
-  return INDIAN_SPEECH_LOCALES.map((tag) => {
-    const n = normalizeLang(tag)
-    const primary = langPrimary(tag)
-    const hasVoice = [...installed].some(
-      (v) => v === n || langPrimary(v) === primary,
-    )
-    return { tag, hasVoice }
-  })
-}
-
-/** @deprecated use listIndianLanguages */
-export function listAvailableLanguages(voices?: SpeechSynthesisVoice[]): string[] {
-  return listIndianLanguages(voices).map((x) => x.tag)
+  return INDIAN_SPEECH_LOCALES.filter((tag) =>
+    list.some((v) => langMatches(v.lang, tag)),
+  ) as unknown as string[]
 }
 
 export function languageLabel(tag: string, uiLocale?: string): string {
   try {
-    const dn = new Intl.DisplayNames([uiLocale || 'en-IN', 'en'], {
-      type: 'language',
-    })
-    const name = dn.of(tag) || dn.of(tag.split('-')[0]) || tag
-    return name
+    const dn = new Intl.DisplayNames([uiLocale || 'en-IN', 'en'], { type: 'language' })
+    return dn.of(tag) || dn.of(tag.split('-')[0]) || tag
   } catch {
     return tag
   }
 }
 
 /**
- * Pick voice: language first, then gender within that language.
- * Never prefers a foreign-language voice over a matching Indian language.
+ * Pick the best installed voice for language + preferred gender.
+ * Returns null if no voice matches the language family.
  */
 export function pickBestVoice(
   voices?: SpeechSynthesisVoice[],
   options: VoicePickOptions = {},
 ): SpeechSynthesisVoice | null {
-  const list =
-    voices ??
-    (typeof window !== 'undefined' ? window.speechSynthesis?.getVoices() : []) ??
-    []
+  const list = getVoices(voices)
   if (!list.length) return null
 
   const lang = (options.lang || 'en-IN').replace('_', '-')
   const gender = options.gender || 'any'
-
-  const sameLang = list.filter((v) => langMatches(v.lang, lang))
-  const pool = sameLang.length > 0 ? sameLang : []
-
-  if (!pool.length) {
-    // No voice for this language — return null; caller still sets utterance.lang
-    return null
-  }
+  const pool = list.filter((v) => langMatches(v.lang, lang))
+  if (!pool.length) return null
 
   const scored = pool.map((v) => {
     let score = qualityScore(v)
-    const exact = normalizeLang(v.lang) === normalizeLang(lang)
-    if (exact) score += 30
-    const g = genderOf(v)
+    if (normalizeLang(v.lang) === normalizeLang(lang)) score += 30
     if (gender !== 'any') {
+      const g = genderOf(v)
       if (g === gender) score += 40
       else if (g === 'unknown') score += 8
-      // wrong gender still kept — better a matching-language voice than silence
     }
     return { v, score }
   })
@@ -177,6 +152,7 @@ export function pickBestVoice(
   return scored[0]?.v ?? null
 }
 
+/** Strip markdown / noise so TTS reads cleanly. */
 export function textForSpeech(raw: string): string {
   return raw
     .replace(/```[\s\S]*?```/g, ' ')
@@ -198,15 +174,14 @@ export function naturalSpeechParams(
   userRate = 1,
   gender: SpeechGender = 'any',
 ): { rate: number; pitch: number; volume: number } {
-  const base = 0.95
-  const rate = Math.min(1.5, Math.max(0.7, base * (userRate || 1)))
+  const rate = Math.min(1.5, Math.max(0.7, 0.95 * (userRate || 1)))
   let pitch = 1
   if (gender === 'female') pitch = 1.08
   else if (gender === 'male') pitch = 0.88
   return { rate, pitch, volume: 1 }
 }
 
-/** Speak with Chrome-safe resume/cancel handling. */
+/** Speak with Chrome-safe cancel / resume handling. */
 export function speakUtterance(utterance: SpeechSynthesisUtterance): void {
   if (typeof window === 'undefined' || !window.speechSynthesis) return
   const synth = window.speechSynthesis
@@ -215,7 +190,6 @@ export function speakUtterance(utterance: SpeechSynthesisUtterance): void {
   } catch {
     /* ignore */
   }
-  // Chrome bug: queue stays paused after cancel
   try {
     synth.resume()
   } catch {
@@ -231,18 +205,10 @@ export function speakUtterance(utterance: SpeechSynthesisUtterance): void {
   }, 60)
 }
 
-export function isVoicesReady(): boolean {
-  return voicesReady
-}
-
-/** Whether the device has any voice matching this language family. */
+/** True if any installed voice matches this language family. */
 export function hasVoiceForLanguage(
   lang: string,
   voices?: SpeechSynthesisVoice[],
 ): boolean {
-  const list =
-    voices ??
-    (typeof window !== 'undefined' ? window.speechSynthesis?.getVoices() : []) ??
-    []
-  return list.some((v) => langMatches(v.lang, lang))
+  return getVoices(voices).some((v) => langMatches(v.lang, lang))
 }

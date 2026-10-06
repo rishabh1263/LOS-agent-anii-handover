@@ -12,8 +12,21 @@ interface ChatPanelProps {
   api: ChatbotApi
 }
 
-const spring = { type: 'spring' as const, stiffness: 360, damping: 34, mass: 0.85 }
-const softSpring = { type: 'spring' as const, stiffness: 280, damping: 30, mass: 0.9 }
+/** Panel open/close — slightly soft, not bouncy */
+const panelSpring = {
+  type: 'spring' as const,
+  stiffness: 380,
+  damping: 36,
+  mass: 0.8,
+}
+/** Settings ↔ chat slide */
+const softSpring = {
+  type: 'spring' as const,
+  stiffness: 320,
+  damping: 34,
+  mass: 0.85,
+}
+const easeOut = [0.22, 1, 0.36, 1] as const
 
 export function ChatPanel({ api }: ChatPanelProps) {
   const {
@@ -49,6 +62,7 @@ export function ChatPanel({ api }: ChatPanelProps) {
     setShowSettings,
     quickActions,
     submitDocuments,
+    persistUploadResults,
   } = api
 
   const panelRef = useRef<HTMLDivElement>(null)
@@ -123,15 +137,15 @@ export function ChatPanel({ api }: ChatPanelProps) {
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }
     : isMobile
       ? {
-        initial: { opacity: 0, y: '24%' },
-        animate: { opacity: 1, y: 0 },
-        exit: { opacity: 0, y: '16%' },
-      }
+          initial: { opacity: 0, y: '18%' },
+          animate: { opacity: 1, y: 0 },
+          exit: { opacity: 0, y: '12%' },
+        }
       : {
-        initial: { opacity: 0, scale: 0.94, y: 12 },
-        animate: { opacity: 1, scale: 1, y: 0 },
-        exit: { opacity: 0, scale: 0.96, y: 8 },
-      }
+          initial: { opacity: 0, scale: 0.96, y: 10 },
+          animate: { opacity: 1, scale: 1, y: 0 },
+          exit: { opacity: 0, scale: 0.98, y: 6 },
+        }
 
   return (
     <AnimatePresence>
@@ -141,11 +155,11 @@ export function ChatPanel({ api }: ChatPanelProps) {
             <motion.button
               type="button"
               aria-label="Close assistant"
-              className="fixed inset-0 z-[65] bg-black/20 backdrop-blur-[1px]"
+              className="fixed inset-0 z-[65] cursor-pointer bg-black/25 backdrop-blur-[2px]"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.22, ease: easeOut }}
               onClick={close}
             />
           )}
@@ -161,7 +175,7 @@ export function ChatPanel({ api }: ChatPanelProps) {
             initial={enterExit.initial}
             animate={enterExit.animate}
             exit={enterExit.exit}
-            transition={reduceMotion ? { duration: 0.15 } : spring}
+            transition={reduceMotion ? { duration: 0.12 } : panelSpring}
             onPointerDown={onSheetPointerDown}
             onPointerMove={onSheetPointerMove}
             onPointerUp={onSheetPointerUp}
@@ -214,15 +228,11 @@ export function ChatPanel({ api }: ChatPanelProps) {
                       onOpenSettings={() => setShowSettings(true)}
                     />
 
-                    <div
-                      className={`flex min-h-0 flex-1 flex-col overflow-hidden ${settings.compactMode
-                          ? '[&_.py-1\\.5]:py-1 [&_.px-4]:px-3 [&_.text-\\[14\\.5px\\]]:text-[13.5px]'
-                          : ''
-                        }`}
-                    >
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                       <ChatMessages
                         messages={messages}
                         onUploadDocuments={submitDocuments}
+                        onPersistUploadResults={persistUploadResults}
                         showTimestamps={settings.showTimestamps}
                         showSuggestedQuestions={settings.showSuggestedQuestions}
                         speakingMessageId={speakingMessageId}

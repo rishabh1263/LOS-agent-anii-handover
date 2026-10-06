@@ -31,10 +31,11 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, settings: Settings = Depends(get_settings)) -> TokenResponse:
+async def login(payload: LoginRequest, settings: Settings = Depends(get_settings)) -> TokenResponse:
     """
     Validates username/password (currently against a dummy user from .env)
     and returns an RS256 JWT access token + opaque refresh token.
+    If case_id and app_id are provided, pre-fetches associated case data.
     """
     if not verify_credentials(payload.username, payload.password, settings):
         raise HTTPException(
@@ -44,10 +45,24 @@ def login(payload: LoginRequest, settings: Settings = Depends(get_settings)) -> 
 
     access = create_access_token(subject=payload.username, settings=settings)
     refresh = create_refresh_token(subject=payload.username, settings=settings)
+
+    case_data = None
+    c_id = payload.case_id.strip() if payload.case_id else None
+    a_id = payload.app_id.strip() if payload.app_id else None
+    if c_id and a_id:
+        try:
+            from app.api.routes.case import _fetch_upstream
+            case_data = await _fetch_upstream(c_id, a_id, token=access)
+        except Exception:
+            case_data = {"case_id": c_id, "app_id": a_id}
+
     return TokenResponse(
         access_token=access,
         refresh_token=refresh,
         expires_in=settings.access_token_expire_minutes * 60,
+        case_id=c_id,
+        app_id=a_id,
+        case_data=case_data,
     )
 
 

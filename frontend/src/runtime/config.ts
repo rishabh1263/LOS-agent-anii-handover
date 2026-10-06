@@ -33,6 +33,7 @@ export const PATHS = {
   authLogin: '/api/v1/auth/login',
   authRefresh: '/api/v1/auth/refresh',
   authLogout: '/api/v1/auth/logout',
+  caseFetch: '/api/v1/case/fetch',
   fos: '/api/v1/fos',
   los: '/api/v1/los',
   copilot: '/api/v1/copilot',

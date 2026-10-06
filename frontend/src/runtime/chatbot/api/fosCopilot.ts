@@ -174,6 +174,74 @@ export async function uploadFosDocuments(
   return parsed as FosCopilotResponse
 }
 
+/** Known API codes → short plain-English sentences */
+const DETAIL_SENTENCES: Record<string, string> = {
+  WRONG_DOCUMENT: 'This file is not the required document type. Please upload the correct one.',
+  INVALID_DOCUMENT: 'This file could not be accepted. Please upload a valid document.',
+  DOCUMENT_MISSING: 'Required document is missing.',
+  DOCUMENT_REJECTED: 'This document was rejected. Please upload a clearer or correct file.',
+  TYPE_MISMATCH: 'Detected document type does not match what was expected.',
+  SIGNATURE_PRESENT: 'A signature was detected on the document.',
+  SIGNATURE_CROPPED: 'The signature appears cropped or incomplete.',
+  SIGNATURE_REFERENCE_MISSING: 'No reference signature is available for comparison.',
+  REFERENCE_UNAVAILABLE: 'Reference signature is not available.',
+  SIGNATURE_NOT_COMPARABLE: 'The signature could not be compared reliably.',
+  AUTHENTICITY_NOT_ESTABLISHED: 'Authenticity of the signature could not be confirmed.',
+  LOW_QUALITY: 'Image quality is too low. Please upload a clearer file.',
+  BLURRY: 'The image looks blurry. Please upload a sharper photo or scan.',
+  UNREADABLE: 'Text on the document could not be read clearly.',
+}
+
+function normalizeCode(part: string): string {
+  return part
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .toUpperCase()
+}
+
+/**
+ * Turn API codes / reason strings into readable sentences.
+ * e.g. WRONG_DOCUMENT → "This file is not the required document type…"
+ * Multiple codes are joined as short sentences.
+ */
+export function formatUploadDetail(raw?: string | null): string | undefined {
+  if (!raw || !String(raw).trim()) return undefined
+
+  const parts = String(raw)
+    .split(/[,;|]+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) return undefined
+
+  const sentences = parts.map((part) => {
+    const code = normalizeCode(part)
+    if (DETAIL_SENTENCES[code]) return DETAIL_SENTENCES[code]
+    // Already a sentence?
+    if (/[.!?]$/.test(part.trim()) || part.includes(' ')) {
+      const t = part.trim()
+      return t.charAt(0).toUpperCase() + t.slice(1)
+    }
+    // Fallback: Title Case words from CODE_NAME
+    return code
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  })
+
+  // De-dupe while preserving order
+  const seen = new Set<string>()
+  const unique = sentences.filter((s) => {
+    const k = s.toLowerCase()
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+
+  return unique.join(' ')
+}
+
 /** Map upload response documents_processed → panel results */
 export function mapUploadResults(
   res: FosCopilotResponse,
@@ -201,26 +269,33 @@ export function mapUploadResults(
 
   return processed.slice(0, fileCount).map((d) => {
     if (d.upload_validation) {
+      const codeOrReason = d.upload_validation.reason || d.upload_validation.code || 'Invalid upload'
       return {
         status: 'validation' as const,
-        detail: d.upload_validation.reason || d.upload_validation.code || 'Invalid upload',
+        detail: formatUploadDetail(codeOrReason),
         detectedType: d.document_type,
       }
     }
     const v = (d.verification || '').toUpperCase()
     if (v === 'PASS' || v === 'VERIFIED') {
-      return { status: 'pass' as const, detail: d.reason, detectedType: d.document_type }
-    }
-    if (v === 'REVIEW') {
       return {
-        status: 'review' as const,
-        detail: d.reason || d.reason_codes?.join(', '),
+        status: 'pass' as const,
+        detail: formatUploadDetail(d.reason),
         detectedType: d.document_type,
       }
     }
+    if (v === 'REVIEW') {
+      const raw = d.reason || d.reason_codes?.join(', ')
+      return {
+        status: 'review' as const,
+        detail: formatUploadDetail(raw),
+        detectedType: d.document_type,
+      }
+    }
+    const rawFail = d.reason || d.reason_codes?.join(', ') || 'Verification failed'
     return {
       status: 'fail' as const,
-      detail: d.reason || d.reason_codes?.join(', ') || 'Verification failed',
+      detail: formatUploadDetail(rawFail),
       detectedType: d.document_type,
     }
   })

@@ -9,11 +9,21 @@ export const AUTH_STAGES: { value: AuthStage; label: string }[] = [
   { value: 'CREDIT', label: 'Credit' },
 ]
 
+const VALID_STAGES: AuthStage[] = ['FOS', 'CPA', 'HOPS', 'BOPS', 'CREDIT']
+
+export function normalizeStage(value: unknown): AuthStage {
+  const s = String(value || '').toUpperCase()
+  return (VALID_STAGES.includes(s as AuthStage) ? s : 'FOS') as AuthStage
+}
+
 export interface LoginRequest {
   username: string
   password: string
   /** Optional stage context; stored client-side for FOS / copilot APIs */
   stage?: AuthStage
+  /** Optional Case ID and APP ID when opening an existing case during login */
+  case_id?: string
+  app_id?: string
 }
 
 export interface TokenResponse {
@@ -23,6 +33,10 @@ export interface TokenResponse {
   expires_in: number
   /** Present when backend returns role/stage */
   stage?: AuthStage | string
+  /** Present when logging in with an existing case */
+  case_id?: string
+  app_id?: string
+  case_data?: Record<string, unknown>
 }
 
 export interface RefreshRequest {
@@ -36,12 +50,4 @@ export interface LogoutRequest {
 export interface AuthUser {
   username: string
   stage: AuthStage
-}
-
-export interface AuthState {
-  user: AuthUser | null
-  accessToken: string | null
-  refreshToken: string | null
-  isAuthenticated: boolean
-  isLoading: boolean
 }

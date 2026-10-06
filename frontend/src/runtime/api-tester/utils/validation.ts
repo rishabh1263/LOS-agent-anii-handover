@@ -1,42 +1,37 @@
-import {
-  ACCEPTED_MIME,
-  MAX_BYTES,
-  MAX_FILES,
-  type UploadFileItem,
-} from '../types'
-
 export interface ValidationIssue {
   id?: string
   message: string
 }
 
 /** Indian mobile: 10 digits, starts with 6–9 (optional +91 / 0 prefix stripped). */
-export function isValidMobile(value: string): boolean {
+function isValidMobile(value: string): boolean {
   const digits = value.replace(/\D/g, '')
-  const local = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits.length === 11 && digits.startsWith('0') ? digits.slice(1) : digits
+  const local =
+    digits.length === 12 && digits.startsWith('91')
+      ? digits.slice(2)
+      : digits.length === 11 && digits.startsWith('0')
+        ? digits.slice(1)
+        : digits
   return /^[6-9]\d{9}$/.test(local)
 }
 
 /** PAN: 5 letters + 4 digits + 1 letter (e.g. ABCDE1234F). */
-export function isValidPan(value: string): boolean {
+function isValidPan(value: string): boolean {
   return /^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(value.trim())
 }
 
-/** Aadhaar: 12 digits, not starting with 0/1 (Verhoeff not enforced client-side). */
-export function isValidAadhaar(value: string): boolean {
+/** Aadhaar: 12 digits, not starting with 0/1. */
+function isValidAadhaar(value: string): boolean {
   const digits = value.replace(/\s/g, '')
   return /^[2-9]\d{11}$/.test(digits)
 }
 
-export function isValidEmail(value: string): boolean {
+function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(value.trim())
 }
 
-/**
- * Parse DOB from YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY, or DD.MM.YYYY.
- * Returns ISO YYYY-MM-DD or null.
- */
-export function parseDobToIso(value: string): string | null {
+/** Parse DOB → ISO YYYY-MM-DD or null. */
+function parseDobToIso(value: string): string | null {
   const raw = value.trim()
   if (!raw) return null
 
@@ -65,7 +60,7 @@ export function parseDobToIso(value: string): string | null {
 }
 
 /** DOB valid and age between 18 and 100 (inclusive). */
-export function isValidDob(value: string): boolean {
+function isValidDob(value: string): boolean {
   const iso = parseDobToIso(value)
   if (!iso) return false
   const [ys, ms, ds] = iso.split('-').map(Number)
@@ -127,51 +122,6 @@ export function validateProfileFields(
       id: 'aadhaar',
       message: 'Aadhaar must be a 12-digit number (not starting with 0 or 1).',
     })
-  }
-
-  return issues
-}
-
-export function validateFiles(items: UploadFileItem[]): ValidationIssue[] {
-  const issues: ValidationIssue[] = []
-
-  if (items.length === 0) {
-    issues.push({ message: 'Add at least one document to process.' })
-    return issues
-  }
-
-  if (items.length > MAX_FILES) {
-    issues.push({ message: `At most ${MAX_FILES} documents per request.` })
-  }
-
-  const seenNames = new Set<string>()
-  for (const item of items) {
-    const { file, id } = item
-    if (file.size === 0) {
-      issues.push({ id, message: `"${file.name}" is empty.` })
-    }
-    if (file.size > MAX_BYTES) {
-      issues.push({
-        id,
-        message: `"${file.name}" exceeds 25 MB limit.`,
-      })
-    }
-    const mimeOk =
-      ACCEPTED_MIME.includes(file.type as (typeof ACCEPTED_MIME)[number]) ||
-      /\.(pdf|jpe?g|png|tiff?|webp)$/i.test(file.name)
-    if (!mimeOk) {
-      issues.push({
-        id,
-        message: `"${file.name}" is not a supported format (PDF, JPEG, PNG, TIFF, WebP).`,
-      })
-    }
-    if (seenNames.has(file.name)) {
-      issues.push({
-        id,
-        message: `Duplicate filename "${file.name}". Rename before uploading.`,
-      })
-    }
-    seenNames.add(file.name)
   }
 
   return issues

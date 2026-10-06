@@ -1,7 +1,7 @@
 /**
  * builders/api-tester — UI only
- * pages + components
- * Logic: import from runtime/api-tester
+ * Public entries: ProcessPage, CaseSelectPage
+ * Logic: runtime/api-tester
  */
-export * from './components'
-export * from './pages'
+export { ProcessPage } from './pages'
+export { CaseSelectPage } from './pages'

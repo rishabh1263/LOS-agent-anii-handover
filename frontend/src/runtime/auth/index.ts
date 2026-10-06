@@ -1,9 +1,8 @@
 /**
  * runtime/auth — logic only
- * context, token client, types
- * UI: builders/auth (LoginPage, RequireAuth)
+ * UI: builders/auth
  */
 export * from './types'
 export * from './authClient'
-export * from './AuthContext'
-export * from './useAuth'
+export { AuthProvider, AuthContext, type AuthContextValue } from './AuthContext'
+export { useAuth } from './useAuth'
