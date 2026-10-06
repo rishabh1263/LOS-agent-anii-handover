@@ -54,6 +54,21 @@ export function consumePendingCaseResume(): PendingCaseResume | null {
   }
 }
 
+export function peekPendingCaseResume(): PendingCaseResume | null {
+  if (!canUseStorage()) return null
+  try {
+    const raw = window.localStorage.getItem(RESUME_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<PendingCaseResume>
+    const applicantId = String(parsed.applicantId || '').trim()
+    const caseId = String(parsed.caseId || '').trim()
+    if (!applicantId || !caseId) return null
+    return { applicantId, caseId, savedAt: Number(parsed.savedAt) || Date.now() }
+  } catch {
+    return null
+  }
+}
+
 export interface WizardDraft {
   step: WizardStep
   profileFields: ProfileField[]

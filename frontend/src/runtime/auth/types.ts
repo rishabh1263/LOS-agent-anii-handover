@@ -21,6 +21,9 @@ export interface LoginRequest {
   password: string
   /** Optional stage context; stored client-side for FOS / copilot APIs */
   stage?: AuthStage
+  /** Optional Case ID and APP ID when opening an existing case during login */
+  case_id?: string
+  app_id?: string
 }
 
 export interface TokenResponse {
@@ -30,6 +33,10 @@ export interface TokenResponse {
   expires_in: number
   /** Present when backend returns role/stage */
   stage?: AuthStage | string
+  /** Present when logging in with an existing case */
+  case_id?: string
+  app_id?: string
+  case_data?: Record<string, unknown>
 }
 
 export interface RefreshRequest {

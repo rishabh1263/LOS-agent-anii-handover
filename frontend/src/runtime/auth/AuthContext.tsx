@@ -1,5 +1,12 @@
-import React, { createContext, useEffect, useState, useCallback, useRef } from 'react'
-import type { LoginRequest, AuthUser, AuthStage } from './types'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+import type { LoginRequest, TokenResponse, AuthUser, AuthStage } from './types'
 import { normalizeStage } from './types'
 import { loginApi, logoutApi, refreshApi, AuthApiError } from './authClient'
 import { getCookie, setCookie, removeCookie } from './cookieStorage'
@@ -10,7 +17,7 @@ export interface AuthContextValue {
   refreshToken: string | null
   isAuthenticated: boolean
   isLoading: boolean
-  login: (credentials: LoginRequest) => Promise<void>
+  login: (credentials: LoginRequest) => Promise<TokenResponse>
   logout: () => Promise<void>
   refreshTokens: () => Promise<boolean>
 }
@@ -201,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearSession, saveSession, user, refreshToken])
 
   const login = useCallback(
-    async (credentials: LoginRequest) => {
+    async (credentials: LoginRequest): Promise<TokenResponse> => {
       setIsLoading(true)
       try {
         const data = await loginApi(credentials)
@@ -213,6 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data.expires_in,
           stage,
         )
+        return data
       } catch (err) {
         if (err instanceof AuthApiError) throw err
         if (err instanceof Error) throw err

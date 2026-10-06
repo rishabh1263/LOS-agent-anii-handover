@@ -499,13 +499,21 @@ export function useChatbot(context: ChatbotContext = {}) {
           setStatus('online')
           return
         }
-        let message = 'Failed to get a response from the AI assistant.'
+
+        // Always produce a plain string — never put an object into message.error
+        // (React would crash trying to render it as a child).
+        let errorText = 'Failed to get a response from the AI assistant.'
         if (err instanceof ChatApiError) {
-          message =
-            err.body.message || err.body.detail || err.body.error || `Error ${err.status}`
+          const b = err.body
+          const raw =
+            (typeof b.message === 'string' && b.message.trim()) ||
+            (typeof b.detail === 'string' && b.detail.trim()) ||
+            (typeof b.error === 'string' && b.error.trim())
+          errorText = raw || `Request failed (${err.status})`
         } else if (err instanceof Error) {
-          message = err.message
+          errorText = err.message || errorText
         }
+
         setConversations((prev) =>
           prev.map((c) =>
             c.id === convId
@@ -513,7 +521,7 @@ export function useChatbot(context: ChatbotContext = {}) {
                 ...c,
                 messages: c.messages.map((m) =>
                   m.id === assistantId
-                    ? { ...m, content: '', isStreaming: false, error: message }
+                    ? { ...m, content: '', isStreaming: false, error: errorText }
                     : m,
                 ),
               }

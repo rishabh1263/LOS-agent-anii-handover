@@ -3,25 +3,26 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
-  FolderOpen,
   KeyRound,
   Loader2,
   Lock,
   User,
 } from 'lucide-react'
 import { useAuth, AuthApiError, AUTH_STAGES, type AuthStage } from '../../runtime/auth'
-import { savePendingCaseResume } from '../../runtime/api-tester'
 
-type LoginMode = 'new' | 'resume'
-
+/**
+ * Login page — Step 1 of 2.
+ *
+ * Validates username + password + stage only.
+ * Case ID / APP ID entry is a SEPARATE step shown AFTER successful login
+ * (handled by CaseSelectPage / ProcessPage).
+ * No case data is linked to the logged-in user here.
+ */
 export function LoginPage() {
   const { login, isLoading } = useAuth()
-  const [mode, setMode] = useState<LoginMode>('new')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [stage, setStage] = useState<AuthStage>('FOS')
-  const [applicantId, setApplicantId] = useState('')
-  const [caseId, setCaseId] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -46,28 +47,11 @@ export function LoginPage() {
       return
     }
 
-    if (mode === 'resume') {
-      const appId = applicantId.trim()
-      const cId = caseId.trim()
-      if (!appId) {
-        setErrorMessage('Please enter the Applicant ID (APP id).')
-        return
-      }
-      if (!cId) {
-        setErrorMessage('Please enter the Case ID.')
-        return
-      }
-    }
-
     try {
-      if (mode === 'resume') {
-        savePendingCaseResume(applicantId.trim(), caseId.trim())
-      }
-      await login({
-        username: trimmedUsername,
-        password,
-        stage,
-      })
+      await login({ username: trimmedUsername, password, stage })
+      // On success, AuthProvider sets isAuthenticated = true.
+      // App.tsx renders ProcessPage (via RequireAuth) which shows the
+      // Case ID / APP ID selection screen as the next step.
     } catch (err) {
       if (err instanceof AuthApiError) {
         if (err.status === 401 || err.status === 403) {
@@ -98,61 +82,10 @@ export function LoginPage() {
               Sign in
             </h2>
             <p className="mt-1 text-[13px] text-content-secondary">
-              Use your LOS credentials to continue.
+              Use your LOS credentials to continue. You will select a Case ID and APP ID after
+              signing in.
             </p>
           </div>
-
-          {/* Mode toggle */}
-          <div
-            className="mb-5 grid grid-cols-2 gap-1 rounded-lg border border-line bg-raised p-1"
-            role="tablist"
-            aria-label="Login mode"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'new'}
-              disabled={isLoading}
-              onClick={() => {
-                setMode('new')
-                setErrorMessage(null)
-              }}
-              className={`cursor-pointer rounded-md px-3 py-2 text-[12.5px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-50 ${
-                mode === 'new'
-                  ? 'bg-surface text-content shadow-xs'
-                  : 'text-content-secondary hover:text-content'
-              }`}
-            >
-              New session
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'resume'}
-              disabled={isLoading}
-              onClick={() => {
-                setMode('resume')
-                setErrorMessage(null)
-              }}
-              className={`inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-ember disabled:opacity-50 ${
-                mode === 'resume'
-                  ? 'bg-surface text-content shadow-xs'
-                  : 'text-content-secondary hover:text-content'
-              }`}
-            >
-              <FolderOpen className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-              Existing case
-            </button>
-          </div>
-
-          {mode === 'resume' && (
-            <div className="mb-4 rounded-lg border border-ember/20 bg-ember/[0.04] px-3 py-2.5 text-[12px] leading-snug text-content-secondary">
-              Sign in with credentials, then open an existing{' '}
-              <span className="font-medium text-content">Applicant ID</span> and{' '}
-              <span className="font-medium text-content">Case ID</span> to load checklist and
-              continue verification.
-            </div>
-          )}
 
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             {errorMessage && (
@@ -165,6 +98,7 @@ export function LoginPage() {
               </div>
             )}
 
+            {/* Stage */}
             <div>
               <label htmlFor="login-stage" className="label">
                 Stage
@@ -189,6 +123,7 @@ export function LoginPage() {
               </p>
             </div>
 
+            {/* Username */}
             <div>
               <label htmlFor="login-username" className="label">
                 Username
@@ -214,6 +149,7 @@ export function LoginPage() {
               </div>
             </div>
 
+            {/* Password */}
             <div>
               <label htmlFor="login-password" className="label">
                 Password
@@ -251,47 +187,6 @@ export function LoginPage() {
               </div>
             </div>
 
-            {mode === 'resume' && (
-              <>
-                <div>
-                  <label htmlFor="login-applicant-id" className="label">
-                    Applicant ID
-                  </label>
-                  <input
-                    id="login-applicant-id"
-                    name="applicantId"
-                    type="text"
-                    autoComplete="off"
-                    required
-                    disabled={isLoading}
-                    value={applicantId}
-                    onChange={(e) => setApplicantId(e.target.value)}
-                    placeholder="e.g. APP-xxxx or applicant uuid"
-                    className="input font-mono text-[13px]"
-                    aria-invalid={Boolean(errorMessage && mode === 'resume' && !applicantId.trim())}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="login-case-id" className="label">
-                    Case ID
-                  </label>
-                  <input
-                    id="login-case-id"
-                    name="caseId"
-                    type="text"
-                    autoComplete="off"
-                    required
-                    disabled={isLoading}
-                    value={caseId}
-                    onChange={(e) => setCaseId(e.target.value)}
-                    placeholder="e.g. CASE-xxxx or case uuid"
-                    className="input font-mono text-[13px]"
-                    aria-invalid={Boolean(errorMessage && mode === 'resume' && !caseId.trim())}
-                  />
-                </div>
-              </>
-            )}
-
             <div className="pt-2">
               <button
                 type="submit"
@@ -301,12 +196,7 @@ export function LoginPage() {
                 {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                    <span>{mode === 'resume' ? 'Signing in & loading…' : 'Signing in…'}</span>
-                  </>
-                ) : mode === 'resume' ? (
-                  <>
-                    <FolderOpen className="h-4 w-4" aria-hidden />
-                    <span>Sign in & open case</span>
+                    <span>Signing in…</span>
                   </>
                 ) : (
                   <>
@@ -336,6 +226,12 @@ export function LoginPage() {
             </div>
           )}
         </div>
+
+        <p className="text-center text-[12px] text-content-secondary">
+          After signing in you will be prompted to enter a{' '}
+          <span className="font-medium text-content">Case ID</span> and{' '}
+          <span className="font-medium text-content">APP ID</span>, or create a new case.
+        </p>
       </div>
     </div>
   )

@@ -111,6 +111,7 @@ from app.security.auth import auth_health, require_jwt, validate_auth_configurat
 # caller obtains a token in the first place, so protecting it with the
 # thing it issues would be circular.
 from app.api.routes.auth_api import router as auth_router
+from app.api.routes.case_api import router as case_router
 
 
 def _prepare_demo() -> None:
@@ -584,6 +585,16 @@ app.include_router(
 # widening this one must never widen that one.
 app.include_router(
     copilot_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+
+# Case-data fetch: POST /api/v1/case/fetch
+# Auth required; Case ID + APP ID are NOT user-scoped (any authenticated
+# user can look up any valid combination -- separate flow from login).
+app.include_router(
+    case_router,
     prefix="/api/v1",
     dependencies=[Depends(require_jwt)],
     responses=COMMON_ERRORS,

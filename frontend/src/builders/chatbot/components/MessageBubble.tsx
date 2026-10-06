@@ -310,7 +310,9 @@ export function MessageBubble({
             }`}
         >
           {message.error ? (
-            <p className="break-words text-danger-text [overflow-wrap:anywhere]">{message.error}</p>
+            <p className="break-words text-danger-text [overflow-wrap:anywhere]">
+              {typeof message.error === 'string' ? message.error : String(message.error)}
+            </p>
           ) : (
             <div className="min-w-0 space-y-0.5 break-words [overflow-wrap:anywhere]">
               {message.content ? (

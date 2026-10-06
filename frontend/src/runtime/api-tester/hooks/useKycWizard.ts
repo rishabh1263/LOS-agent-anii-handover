@@ -8,7 +8,7 @@ import {
   extractIds,
   FosApiError,
 } from '../api'
-import type { FosChecklistItem, FosResponse } from '../api'
+import type { CaseDataResponse, FosChecklistItem, FosResponse } from '../api'
 import type {
   DocumentTypeHint,
   LosProcessResponse,
@@ -848,6 +848,91 @@ export function useKycWizard() {
     setError(null)
   }, [])
 
+  /**
+   * Hydrate the wizard from a pre-fetched CaseDataResponse (from CaseSelectPage).
+   * Populates IDs, profile fields, application details, checklist, and stage
+   * so the user sees their existing data immediately without re-fetching.
+   * Jumps to the "party" step when the case has a valid applicant ID,
+   * otherwise stays on "details" so the user can confirm / fill missing fields.
+   */
+  const hydrateCaseData = useCallback((data: CaseDataResponse) => {
+    const resolvedCaseId = data.case_id?.trim() || ''
+    const resolvedAppId = data.app_id?.trim() || ''
+
+    if (resolvedCaseId) setCaseId(resolvedCaseId)
+    if (resolvedAppId) setApplicantId(resolvedAppId)
+    if (!coApplicantId) setCoApplicantId(makePartyId('CO_APPLICANT'))
+
+    // Hydrate applicant profile fields when available
+    const ap = data.applicant
+    if (ap && typeof ap === 'object') {
+      setProfileFields((prev) =>
+        prev.map((f) => {
+          const raw = (ap as Record<string, unknown>)[f.key]
+          if (raw == null || String(raw).trim() === '') return f
+          return { ...f, value: String(raw) }
+        }),
+      )
+    }
+
+    // Hydrate application details when available
+    const appl = data.application
+    if (appl && typeof appl === 'object') {
+      const a = appl as Record<string, unknown>
+      setApplication((prev) => ({
+        ...prev,
+        product:
+          a.product != null && String(a.product).trim() ? String(a.product) : prev.product,
+        loan_amount:
+          a.loan_amount != null && String(a.loan_amount).trim() !== ''
+            ? String(a.loan_amount)
+            : prev.loan_amount,
+        employment_type:
+          a.employment_type != null && String(a.employment_type).trim()
+            ? String(a.employment_type)
+            : prev.employment_type,
+        tenure_months:
+          a.tenure_months != null && String(a.tenure_months).trim() !== ''
+            ? String(a.tenure_months)
+            : prev.tenure_months,
+        interest_rate_pct:
+          a.interest_rate_pct != null && String(a.interest_rate_pct).trim() !== ''
+            ? String(a.interest_rate_pct)
+            : prev.interest_rate_pct,
+        declared_monthly_obligations:
+          a.declared_monthly_obligations != null &&
+          String(a.declared_monthly_obligations).trim() !== ''
+            ? String(a.declared_monthly_obligations)
+            : prev.declared_monthly_obligations,
+        property_value:
+          a.property_value != null && String(a.property_value).trim() !== ''
+            ? String(a.property_value)
+            : prev.property_value,
+      }))
+    }
+
+    // Hydrate checklist / stage when available
+    if (Array.isArray(data.checklist) && data.checklist.length) {
+      setFosChecklist(data.checklist as FosChecklistItem[])
+    }
+    if (Array.isArray(data.required_documents) && data.required_documents.length) {
+      setRequiredDocuments(data.required_documents as string[])
+    }
+    if (data.stage) setFosStage(String(data.stage))
+
+    setPartySelection({ applicant: true, coApplicant: false })
+    setActiveParty('PRIMARY_APPLICANT')
+    setError(null)
+
+    // Jump to party step when we have enough info, otherwise stay on details
+    // so the user can confirm/fill missing profile fields.
+    if (resolvedAppId && resolvedCaseId) {
+      setStep('party')
+    } else {
+      setStep('details')
+    }
+  }, [coApplicantId])
+
   const profileSnapshot = useMemo(() => {
     const map: Record<string, string> = {}
     for (const f of profileFields) {
@@ -907,5 +992,6 @@ export function useKycWizard() {
     addMoreDocuments,
     resumeExistingCase,
     resumingCase,
+    hydrateCaseData,
   }
 }

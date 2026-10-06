@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
 import { LogOut, Moon, Sun, User as UserIcon, Webhook } from 'lucide-react'
-import { ProcessPage } from './builders/api-tester'
+import { ProcessPage, CaseSelectPage } from './builders/api-tester'
 import { RequireAuth } from './builders/auth'
 import { AuthProvider, useAuth } from './runtime/auth'
+import type { CaseDataResponse } from './runtime/api-tester'
+
+// ---------------------------------------------------------------------------
+// Header
+// ---------------------------------------------------------------------------
 
 function AppHeader() {
   const { isAuthenticated, user, logout, isLoading } = useAuth()
@@ -108,13 +113,59 @@ function AppHeader() {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Two-step post-login flow:
+//   Step 1 (case-select): user enters Case ID + APP ID  OR  chooses New Case
+//   Step 2 (process):     KYC wizard, pre-loaded with case data if provided
+// ---------------------------------------------------------------------------
+
+type AppStep = 'case-select' | 'process'
+
 function AppContent() {
+  const { isAuthenticated, accessToken } = useAuth()
+  const [appStep, setAppStep] = useState<AppStep>('case-select')
+  const [loadedCaseData, setLoadedCaseData] = useState<CaseDataResponse | null>(null)
+
+  // Reset to case-select whenever user logs out and back in
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setAppStep('case-select')
+      setLoadedCaseData(null)
+    }
+  }, [isAuthenticated])
+
+  function handleNewCase() {
+    setLoadedCaseData(null)
+    setAppStep('process')
+  }
+
+  function handleCaseLoaded(data: CaseDataResponse) {
+    setLoadedCaseData(data)
+    setAppStep('process')
+  }
+
+  function handleBackToCaseSelect() {
+    setLoadedCaseData(null)
+    setAppStep('case-select')
+  }
+
   return (
     <div className="min-h-screen bg-canvas text-content font-sans antialiased transition-colors duration-150">
       <AppHeader />
       <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
         <RequireAuth>
-          <ProcessPage />
+          {appStep === 'case-select' ? (
+            <CaseSelectPage
+              accessToken={accessToken || ''}
+              onNewCase={handleNewCase}
+              onCaseLoaded={handleCaseLoaded}
+            />
+          ) : (
+            <ProcessPage
+              loadedCaseData={loadedCaseData}
+              onBackToCaseSelect={handleBackToCaseSelect}
+            />
+          )}
         </RequireAuth>
       </main>
     </div>
