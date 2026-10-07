@@ -894,6 +894,21 @@ chatbot:
   response_style:
     status_emoji: { READY_FOR_CPA: "✅", NOT_READY: "⏳", VERIFIED: "✅", REJECTED: "❌", REVIEW: "⏳",
                     MISMATCH: "⚠️", BLOCKED: "⚠️" }
+    # "all my cases" summary, point-wise: one block per case, latest first (capabilities/portfolio.py pointwise)
+    portfolio:
+      head: "📂 **{total} cases**"
+      head_one: "📂 **1 case**"
+      blocked: " · ⚠️ {n} blocked"
+      clear: " · ✅ nothing blocking"
+      case: "**{number}. {case_id}** · {product}"
+      status: "   • Status: {value}"
+      documents: "   • Documents: {value}"
+      kyc: "   • KYC: {value}"
+      blocking: "   • ⚠️ Blocking: {value}"
+      next: "   • 👉 Next: {value}"
+      no_documents: "none yet"
+      kyc_not_recorded: "not recorded"
+      no_product: "Application"
     intent_emoji:
       APPLICATION_STATUS: "📍"
       APPLICATION_STAGE: "📍"
@@ -949,12 +964,20 @@ chatbot:
       switch: [dusra case, doosra case, another case, case badlo, switch case, other case]
       previous: [pehle wala case, pichla case, previous case, last case, wapas pehle wala, pehle wale case]
       case_word: [case, ka case, wala case, file, application]
+      # small words dropped before a name / ordinal is read ("2 wala case open karo" -> "2")
+      filler: [ka, ki, ke, wala, wali, ji, karo, kar, please, plz, the, number]
     labels:
       header: "📂 **Your cases**"
       total: "{n} total"
       pending: "⏳ {n} pending"
       completed: "✅ {n} completed"
       rejected: "❌ {n} rejected"
+      # the list is grouped by applicant (one applicant can have several cases); numbering runs across
+      # groups so "2 kholo" still works; {applicant_id} lets the officer say "APP-xxx wala case kholo"
+      group: "🆔 **{applicant_id}** -- {name} ({count})"
+      group_one: "1 case"
+      group_many: "{n} cases"
+      row: "   {number}. **{case_id}** · 📍 {stage} · {status}"
       row_kyc: "⚠️ KYC issue"
       row_docs: "⏳ {n} docs pending"
       row_ready: "✅ Ready for CPA"

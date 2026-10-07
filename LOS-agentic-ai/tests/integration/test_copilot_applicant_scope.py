@@ -100,15 +100,17 @@ def test_every_case_is_named_with_its_own_status(client, repo):
 
     answer = ask(client, "what happened across my previous cases?").json()["answer"]
 
-    # One numbered entry per case, each with its own status -- and no case
-    # id in the sentence (the ids are in the structured response; an
-    # internal identifier is never part of a natural-language answer).
+    # One numbered entry per case, each with its own status. CHANGED
+    # 2026-10-07 (user: "case id chahiye latest ke badle"): each per-case
+    # detail line is now led by the caller's OWN case id -- it used to say
+    # "Latest / Previous" with no id. Another applicant's id never appears
+    # (test_another_applicants_cases_are_not_returned).
     # The store's listing order is not insertion order, so each status is
     # matched to SOME numbered entry, and every number 1..3 is used once.
     for case_id, status in THREE:
         readable = status.replace("_", " ").title().replace("Cpa", "CPA")
         assert re.search(rf"\b[1-3]\) application, {readable}\b", answer), answer
-        assert case_id not in answer
+        assert f"{case_id} -- application: {readable}" in answer
     for number in (1, 2, 3):
         assert answer.count(f"{number}) application,") == 1
 
@@ -167,11 +169,13 @@ def test_another_applicants_cases_are_not_returned(client, repo):
     answer = ask(client, "my cases", applicant_id="APP-1").json()["answer"]
 
     # Scoping is proved by the count and by the other applicant's
-    # READY_FOR_CPA case being absent; no id is named in the sentence.
+    # READY_FOR_CPA case being absent. The caller's own case is named by
+    # its id (2026-10-07); the other applicant's ids never are.
     assert answer.startswith("Across 1 case:")
     assert "Document Collection" in answer
     assert "Ready For CPA" not in answer
-    for case_id in ("MINE-1", "THEIRS-1", "THEIRS-2"):
+    assert "MINE-1" in answer
+    for case_id in ("THEIRS-1", "THEIRS-2"):
         assert case_id not in answer
 
 

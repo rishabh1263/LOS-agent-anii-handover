@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.agents.applicant import config as agent_config
-from app.api.routes.fos_api import FosAction
+from app.api.routes.fos_api import _CASE_ACTIONS, _WORKSPACE_ACTIONS, FosAction
 from app.store import set_repository
 from app.store.models import Document, DocumentStatus, status_for_verdict
 from app.store.testing import fresh_repository
@@ -229,6 +229,8 @@ def test_identifiers_can_be_supplied(client):
 @pytest.mark.parametrize("action", [
     a.value for a in FosAction
     if a not in (FosAction.UPLOAD_DOCUMENT, FosAction.CUSTOM_QUERY)
+    # the flagged workspace / case actions (6-MVP, 6i) have their own suites and extra fields
+    and a not in _WORKSPACE_ACTIONS | _CASE_ACTIONS
 ])
 def test_every_dropdown_action_answers(client, case, action):
     applicant_id, case_id = case
@@ -244,6 +246,7 @@ def test_every_dropdown_action_answers(client, case, action):
 @pytest.mark.parametrize("action", [
     a.value for a in FosAction
     if a not in (FosAction.UPLOAD_DOCUMENT, FosAction.CUSTOM_QUERY)
+    and a not in _WORKSPACE_ACTIONS | _CASE_ACTIONS
 ])
 def test_every_action_returns_the_same_envelope(client, case, action):
     """One response model for the frontend, not eleven."""
@@ -663,8 +666,16 @@ def test_the_response_carries_no_internals(client, case, _store):
 # SUPPORTING ENDPOINTS
 # ==========================================================================
 
-def test_the_action_list_matches_the_enum(client):
-    """A dropdown rendered from this must offer everything the API accepts."""
+def test_the_action_list_matches_the_enum(client, monkeypatch):
+    """
+    A dropdown rendered from this must offer everything the API accepts -- and nothing it would refuse:
+    the flagged workspace / case actions (6-MVP, 6i) are listed only while their flag is on.
+    """
+    flagged = {a.value for a in _WORKSPACE_ACTIONS | _CASE_ACTIONS}
+    body = client.get("/api/v1/fos/actions").json()
+    assert {a["value"] for a in body["actions"]} == {a.value for a in FosAction} - flagged
+    monkeypatch.setenv("COPILOT_CASE_WORKSPACE", "true")
+    monkeypatch.setenv("COPILOT_CASE_ACTIONS", "true")
     body = client.get("/api/v1/fos/actions").json()
     assert {a["value"] for a in body["actions"]} == {a.value for a in FosAction}
 

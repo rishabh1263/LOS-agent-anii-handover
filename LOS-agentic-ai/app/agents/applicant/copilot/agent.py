@@ -1760,6 +1760,11 @@ async def answer_question(
             answer = _portfolio_answer({"applications.list": {"applications": _authorized,
                                                               "count": len(_authorized)}})
             answer = f"{answer}\n{_detail.split(chr(10), 1)[1] if chr(10) in _detail else ''}".rstrip()
+            from app.agents.applicant.copilot.answering import style as _pstyle
+
+            if _pstyle.enabled():
+                # 6e STYLE: the same recorded rows, point-wise, one block per case (portfolio.pointwise)
+                answer = _portfolio.pointwise(_block)
             from app.agents.applicant.copilot.answering import structured as _pstructured
 
             _pstructured.put("portfolio", None, _block)

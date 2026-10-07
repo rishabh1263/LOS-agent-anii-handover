@@ -208,22 +208,39 @@ def list_view(claims: dict[str, Any], request_id: str, state, *, page: int = 0) 
     for application in cases:
         counts[_bucket(application)] += 1
     head = [_label("total", n=len(cases))] + [_label(k, n=v) for k, v in counts.items() if v]   # a 0 is not shown
+    # GROUPED BY APPLICANT: one applicant can have several cases. Groups keep the newest-first order of
+    # their newest case; the numbering runs across groups, so "2" / "doosra" pick the row as shown.
+    order: dict[str, int] = {}
+    for application in cases:
+        order.setdefault(str(application.applicant_id), len(order))
+    cases = sorted(cases, key=lambda a: order[str(a.applicant_id)])     # stable: newest first inside a group
+    per_applicant = {key: sum(1 for a in cases if str(a.applicant_id) == key) for key in order}
     window = cases[page * size:(page + 1) * size]
-    rows, lines = [], []
+    rows, lines, groups = [], [], []
     for number, application in enumerate(window, page * size + 1):
         status, kind = _row_status(application)
         stage = _stage(application.case_id) or "--"
         name = _name(application.applicant_id, short=True)
+        if not groups or groups[-1]["applicant_id"] != application.applicant_id:
+            n = per_applicant[str(application.applicant_id)]
+            count = _label("group_one") if n == 1 else _label("group_many", n=n)
+            groups.append({"applicant_id": application.applicant_id, "applicant_name": name, "case_count": n,
+                           "case_ids": []})
+            lines += ([""] if len(groups) > 1 else []) + [
+                _label("group", applicant_id=application.applicant_id, name=name, count=count)]
+        groups[-1]["case_ids"].append(application.case_id)
         rows.append({"number": number, "case_id": application.case_id, "applicant_id": application.applicant_id,
                      "applicant_name": name, "stage": stage, "status_label": status, "status_kind": kind,
                      "emoji": status.split(" ")[0], "action": {"type": "open_case", "case_id": application.case_id}})
-        lines.append(f"{number}. **{application.case_id}** ({name}) · 📍 {stage} · {status}")
+        lines.append(_label("row", number=number, case_id=application.case_id, name=name,
+                            applicant_id=application.applicant_id, stage=stage, status=status))
     more = (page + 1) * size < len(cases)
     state.listed_case_ids = [r["case_id"] for r in rows]
     answer = "\n".join([_label("header") + " -- " + " · ".join(head), ""] + lines
                        + ([""] + [_label("more")] if more else []) + ["", _label("ask")])
     return _base(request_id, "CASE_LIST", answer, workspace_view={
-        "case_list": rows, "counts": {"total": len(cases), **{k: v for k, v in counts.items() if v}},
+        "case_list": rows, "applicant_groups": groups,
+        "counts": {"total": len(cases), **{k: v for k, v in counts.items() if v}},
         "page": page, "has_more": more},
         suggested_questions=[f"{r['number']}" for r in rows][:3])
 
@@ -267,9 +284,14 @@ def select(text: str, claims: dict[str, Any], state) -> Selection:
     by_case = {a.case_id.upper(): a for a in cases}
     listed = [by_case[c.upper()] for c in state.listed_case_ids if c.upper() in by_case]
     if listed:
-        index = conv._ordinal(text, len(listed))
-        if index is not None and 0 <= index < len(listed):
-            return Selection(listed[index])
+        # "2 kholo" / "doosra wala case open karo": the open / case words (config phrases) are dropped so
+        # the ordinal reader sees only "2" / "doosra"
+        # (not the switch words: "doosra" in "doosra case" IS the ordinal)
+        bare = " ".join(w for w in _norm(text).split() if w not in _noise(("open", "case_word", "filler"))) or text
+        for candidate in (text, bare):
+            index = conv._ordinal(candidate, len(listed))
+            if index is not None and 0 <= index < len(listed):
+                return Selection(listed[index])
     for kind, pattern in _ID.items():
         found = pattern.search(text or "")
         if not found:
@@ -285,11 +307,14 @@ def select(text: str, claims: dict[str, Any], state) -> Selection:
     return _by_name(text, cases)
 
 
-def _by_name(text: str, cases: list[Any]) -> Selection:
+def _noise(kinds: tuple[str, ...] = ("open", "case_word", "list", "switch", "filler")) -> set[str]:
+    """The open / case / list / switch words (config phrases) -- not part of a name or an ordinal."""
     phrases = _cfg().get("phrases") or {}
-    noise = {w for kind in ("open", "case_word", "list", "switch") for p in phrases.get(kind, [])
-             for w in _norm(p).split()} | {"ka", "ki", "ke", "wala", "wali", "ji"}
-    words = [w for w in _norm(text).split() if w not in noise and len(w) >= 3]
+    return {w for kind in kinds for p in phrases.get(kind, []) for w in _norm(p).split()}
+
+
+def _by_name(text: str, cases: list[Any]) -> Selection:
+    words = [w for w in _norm(text).split() if w not in _noise() and len(w) >= 3]
     if not words:
         return Selection()
     threshold = float(_cfg().get("name_match_threshold", 0.84))

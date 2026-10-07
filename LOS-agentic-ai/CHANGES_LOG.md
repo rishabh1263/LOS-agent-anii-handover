@@ -1228,3 +1228,30 @@ documents/view), examples/01..14, widget.html; contract test tests/integration/t
 - Takes effect at the next server start. Undo: restore .env from the backup.
 - docs/frontend/API_REQUEST_RESPONSE.md: every new API's request + response (generated from real responses of the
   contract test; 17 examples incl. /fos/actions, /fos/config, an error, streaming, the document link).
+
+## Case list grouped by applicant + typed open fixes (user, 2026-10-07: "list all cases ... with app id, ek app id ke multiple case")
+- workspace.list_view: the list is grouped by applicant ("🆔 APP-x -- Rahul S. (2 cases)", rows under it), numbering runs
+  across groups; presentation.applicant_groups = [{applicant_id, applicant_name, case_count, case_ids}] (case_list unchanged).
+  Labels group / group_one / group_many / row in applicant_agent.yaml case_workspace.labels. Never asks for app/case id:
+  the list is the caller's live grants (APPLICANT grant = all that applicant's cases).
+- Fix: "2 kholo" / "1 wala case open karo" / "doosra wala case kholo" did not open (the ordinal reader needed the bare
+  number); open / case / filler words (new config phrases.filler) are dropped first. Switch words kept ("doosra").
+- Fix: /fos/copilot/stream declared no request body, so Swagger "Try it out" sent none -> 422 JSONDecodeError; it now
+  declares the CopilotRequest body + 2 examples.
+- tests/conftest.py: Phase 3 flags pinned to "false" (not deleted) -- ocr.py calls load_dotenv() mid-test and put the .env
+  flags back (cause of the verify_e2e / families failures in regression half 1).
+- Tests: test_step6mvp_case_workspace.py +1 (14 passed); step6* + frontend contract 186 passed.
+- Patch: runs/patches/step6-mvp-grouped-list.patch
+
+## Case summary: case ids + point-wise (user, 2026-10-07: "case id chahiye latest ke badle", "format clean point wise")
+- portfolio.summarise: each per-case line is led by its CASE ID (was "Latest -- / Previous --"); focused answers
+  ("latest case", "pichla case") carry the id too. Structured `position` LATEST / PREVIOUS unchanged.
+- portfolio.pointwise + agent.py: with COPILOT_RESPONSE_STYLE on, the summary is one block per case
+  ("**1. CASE-x** · Personal Loan" + bullets Status / Documents / KYC / Blocking / Next); labels in
+  applicant_agent.yaml response_style.portfolio. Off: the "Across N cases: ..." contract stands.
+- Product rule changed: the caller's OWN case ids may appear in the sentence (they used to be structured-only);
+  another applicant's never do. test_copilot_applicant_scope updated to say so.
+- test_fos_api: the generic every-action tests skip the flagged workspace / case actions (own suites);
+  /fos/actions test asserts the flag-aware list both ways. These passed before only because .env flags leaked in.
+- Tests: portfolio 11, applicant_scope / routing / case_history / phrasing / fos_api: 152 + 68 passed.
+- Patch: runs/patches/portfolio-case-ids-pointwise.patch

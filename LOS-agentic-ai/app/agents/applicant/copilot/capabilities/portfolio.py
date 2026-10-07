@@ -54,16 +54,16 @@ def focused(focus: str, block: dict[str, Any], lines: list[str]) -> str:
     # time recorded) -- which is "latest" is not guessed
     if focus in (LATEST, PREVIOUS) and len(cases) >= 2 and (
             not cases[0].get("opened_at") or cases[0].get("opened_at") == cases[1].get("opened_at")):
-        both = "".join(f"\n- {line.split(' -- ', 1)[-1]}" for line in lines[:2])
+        both = "".join(f"\n- {line}" for line in lines[:2])
         return ("I can't tell which of these cases is the latest -- they were opened at the same "
                 "recorded time. Here are both:" + both)
     if focus == LATEST:
-        return f"Your latest case: {lines[0][len('Latest -- '):]}"
+        return f"Your latest case: {lines[0]}"
     if focus == PREVIOUS:
         if len(cases) < 2:
             return ("You have only one case, so there is no previous case. "
-                    f"Your current case: {lines[0][len('Latest -- '):]}")
-        rest = [line[len("Previous -- "):] for line in lines[1:]]
+                    f"Your current case: {lines[0]}")
+        rest = lines[1:]
         if len(rest) == 1:
             return f"Your previous case: {rest[0]}"
         return "Your previous cases:" + "".join(f"\n- {line}" for line in rest)
@@ -156,7 +156,9 @@ def summarise(results: dict[str, Any], *, caller: Any, applicant_id: str | None,
         cases.append(entry)
         counts = ", ".join(f"{n} {k.lower()}" for k, n in sorted(verification["summary"].items())) \
             or "no documents yet"
-        said = (f"{'Latest' if position == 0 else 'Previous'} -- "
+        # each line is led by its CASE ID (user, 2026-10-07: "case id chahiye latest ke badle"); the
+        # latest-first order stands and the structured `position` still says LATEST / PREVIOUS
+        said = (f"{case_id} -- "
                 f"{_readable(str(product)) + ' application' if product else 'application'}: "
                 f"{_readable(status)}; documents: {counts}; KYC: "
                 f"{'not recorded' if kyc_status == 'NOT_RECORDED' else _readable(kyc_status).lower()}")
@@ -175,4 +177,40 @@ def summarise(results: dict[str, Any], *, caller: Any, applicant_id: str | None,
     return head + "\n" + "\n".join(f"- {line}" for line in lines), block
 
 
-__all__ = ["ATTENTION", "LATEST", "PREVIOUS", "focus_of", "focused", "summarise"]
+def pointwise(block: dict[str, Any]) -> str:
+    """
+    The same cases, point-wise (COPILOT_RESPONSE_STYLE): a header, then one block per case -- case id,
+    product, then a bullet each for status / documents / KYC / blocking / next. Labels are
+    response_style.portfolio in applicant_agent.yaml. The values are the recorded ones `summarise` read.
+    """
+    from app.agents.applicant.copilot.answering import style
+    from app.agents.applicant.copilot.answering.answer import _readable
+
+    labels = dict(style._cfg().get("portfolio") or {})
+
+    def say(key: str, **values: Any) -> str:
+        return str(labels.get(key, key)).format(**values)
+
+    cases = block.get("cases") or []
+    total, blocked = len(cases), int(block.get("blocked") or 0)
+    head = (say("head_one") if total == 1 else say("head", total=total)) \
+        + (say("blocked", n=blocked) if blocked else say("clear"))
+    out = [head]
+    for number, case in enumerate(cases, 1):
+        product = _readable(str(case["product"])) if case.get("product") else say("no_product")
+        counts = ", ".join(f"{n} {k.lower()}" for k, n in sorted((case.get("verification") or {}).items())) \
+            or say("no_documents")
+        kyc = case.get("kyc_status") or "NOT_RECORDED"
+        out += ["", say("case", number=number, case_id=case["case_id"], product=product),
+                say("status", value=_readable(str(case.get("status") or "UNKNOWN"))),
+                say("documents", value=counts),
+                say("kyc", value=say("kyc_not_recorded") if kyc == "NOT_RECORDED" else _readable(kyc).lower())]
+        if case.get("blockers"):
+            out.append(say("blocking", value=", ".join(case["blockers"])))
+        step = case.get("next_action") or {}
+        if step.get("label"):
+            out.append(say("next", value=step["label"]))
+    return "\n".join(out)
+
+
+__all__ = ["ATTENTION", "LATEST", "PREVIOUS", "focus_of", "focused", "pointwise", "summarise"]

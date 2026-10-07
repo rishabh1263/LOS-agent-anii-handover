@@ -103,6 +103,28 @@ def test_select_by_number_ordinal_id_and_name(client, on):
     assert ws(client, message="Pria ka case kholo")["case_id"] == c2                 # with a typo
 
 
+def test_the_list_is_grouped_by_applicant_and_a_number_with_words_opens(client, on, _store):
+    """One applicant, several cases: grouped under the applicant id; "2 kholo" opens row 2 as shown."""
+    from app.store.models import Application, ApplicationStatus
+
+    a1, c1 = make_case(client, "Rahul Sharma")
+    a2, c2 = make_case(client, "Priya Verma")
+    _store.save_application(Application(case_id="CASE-0B0B0B0B0B0B", applicant_id=a1,
+                                        status=ApplicationStatus.DOCUMENT_COLLECTION))
+    body = ws(client, message="list all cases")
+    groups = body["presentation"]["applicant_groups"]
+    mine = next(g for g in groups if g["applicant_id"] == a1)
+    assert mine["case_count"] == 2 and set(mine["case_ids"]) == {c1, "CASE-0B0B0B0B0B0B"}
+    assert f"🆔 **{a1}**" in body["answer"] and "(2 cases)" in body["answer"]
+    rows = body["presentation"]["case_list"]
+    assert [r["applicant_id"] for r in rows[:2]] == [a1, a1]                       # a group stays together
+    assert ws(client, message="2 kholo")["case_id"] == rows[1]["case_id"]
+    ws(client, message="mere cases")
+    assert ws(client, message="1 wala case open karo")["case_id"] == rows[0]["case_id"]
+    ws(client, message="mere cases")
+    assert ws(client, message="doosra wala case kholo")["case_id"] == rows[1]["case_id"]
+
+
 def test_two_people_with_the_same_name_get_one_question(client, on):
     make_case(client, "Amit Kumar")
     make_case(client, "Amit Kumar")
