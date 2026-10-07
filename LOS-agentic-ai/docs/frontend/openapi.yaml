@@ -279,6 +279,88 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/actions:
+    get:
+      tags:
+      - FOS
+      summary: The action list, for rendering the dropdown
+      description: 'Values and labels for the copilot''s `action` field. A frontend
+        renders its dropdown from this rather than hardcoding it, so adding an action
+        does not require a frontend release.
+
+
+        *Supporting endpoint — not part of the two-endpoint integration surface.*'
+      operationId: actions_api_v1_fos_actions_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/fos/config:
+    get:
+      tags:
+      - FOS
+      summary: Products, document types and checklists
+      description: 'What a frontend needs to build its forms: the products with a
+        configured checklist, the document taxonomy for the upload selector, and the
+        workflow states.
+
+
+        *Supporting endpoint — not part of the two-endpoint integration surface.*'
+      operationId: fos_config_api_v1_fos_config_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - HTTPBearer: []
 components:
   schemas:
     AddressInput:

@@ -19,6 +19,17 @@ Every call: `Authorization: Bearer <JWT>` (the same token the app already uses).
 | GET | `/api/v1/fos/documents/view?token=…` | open a document from a VIEW_DOCUMENT link (5 min, same user) -- `COPILOT_CASE_ACTIONS` |
 | POST | `/api/v1/fos/copilot` (multipart) | document upload (unchanged) |
 
+### 2a. Build the UI from the server -- no hard-coding
+- `GET /api/v1/fos/config` -> `features` (`case_workspace`, `case_actions`, `streaming`, `response_style`,
+  `verify_diagnose`, `document_actions`, `guardrail_hardening`, `session_memory`, `party_recognition`,
+  `co_applicant_identity`, `llm_router`, `emphasis`: true/false), `endpoints` (`copilot`, `stream` only when
+  streaming is on, `view_document` only when case actions are on), and `workspace` (`page_size`,
+  `quick_questions`, `list_message`) when the workspace is on. Show a feature's UI only when its flag is true.
+- `GET /api/v1/fos/actions` -> only the actions this deployment accepts right now, each with `group`
+  (`case` / `workspace` / `case_action`) and `extra_fields` (e.g. `OPEN_CASE` -> `["case_id"]`). A button built from
+  this list never returns 422.
+Read both once at app start (and after login); a feature switched on or off needs no frontend release.
+
 ## 3. Request (`POST /api/v1/fos/copilot`)
 
 ```json

@@ -1206,3 +1206,11 @@ documents/view), examples/01..14, widget.html; contract test tests/integration/t
 - 17-question script x2 (router_latency, harness, flags default): all 34 turns fast lane, p50 33 ms, p95 54 ms,
   max 99 ms. Remaining gaps: "aur EMI?" / "pehla wala" / "haan" with no prior bot question -> generic menu;
   "CIBIL kya hota hai?" is a definition only with COPILOT_TERMS_KNOWLEDGE on.
+
+## Frontend sync, backend only (user, 2026-10-07: "frontend ka koi code nahi chuna, bas backend")
+- `GET /fos/actions`: lists ONLY the actions the deployment accepts now (workspace / case actions only while their
+  flag is on) + `group` and `extra_fields` per action -- a button built from it never 422s.
+- `GET /fos/config`: adds `features` (every Phase 3 feature on/off), `endpoints` (stream / view_document only when on)
+  and `workspace` (page_size, quick_questions, list_message) -- the UI adapts without a frontend release.
+- docs/frontend/FRONTEND_API.md section 2a; openapi.yaml now also has /fos/actions and /fos/config.
+- Tests: test_frontend_contract.py 3 passed. The repo's `frontend/` folder was NOT touched.
