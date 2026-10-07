@@ -89,6 +89,18 @@ def check_blocking(name: str) -> bool:
     return bool(section(name).get("blocking", True))
 
 
+def check_cpa_gate(name: str) -> bool:
+    """
+    Whether this check must have PASSED for a case to leave FOS for CPA.
+
+    Separate from `blocking` on purpose: `blocking` shapes the KYC verdict
+    itself, `cpa_gate` only what the FOS -> CPA gate demands (read by
+    app/agents/los/kyc_gate.py, and only while LOS_FOS_CPA_KYC_RULE is on).
+    Absent means not required.
+    """
+    return bool(section(name).get("cpa_gate", False))
+
+
 def threshold(name: str, key: str, default: float) -> float:
     raw = section(name).get(key, default)
     try:

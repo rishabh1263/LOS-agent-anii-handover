@@ -28,7 +28,7 @@ from app.agents.fraud_risk.prompts import (
     get_system_prompt,
 )
 from app.agents.fraud_risk.schemas import Severity
-from app.llm.config import ollama_host, ollama_model
+from app.llm.config import ollama_host, ollama_model, with_num_ctx
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +226,7 @@ class LLMSummaryGenerator:
                 },
             ],
             "stream": False,
-            "options": {"temperature": self.temperature, "num_predict": 120},
+            "options": with_num_ctx({"temperature": self.temperature, "num_predict": 120}),
         }
 
     async def agenerate(self, assessment: RiskAssessment) -> str:

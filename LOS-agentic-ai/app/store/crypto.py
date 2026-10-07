@@ -99,4 +99,24 @@ def open_(stored: Any) -> Any:
     return _cipher().decrypt(wrapper["data"].encode()).decode()
 
 
-__all__ = ["seal", "open_", "encrypted_kinds", "require_in_production", "configured", "EncryptionConfigError"]
+def seal_value(value: str | None) -> str | None:
+    """
+    ONE PII VALUE, ALWAYS ENCRYPTED (co-applicant name, DOB, PAN, father's name,
+    address). Not gated by LOS_ENCRYPTED_FINDING_KINDS: no setting can store these
+    in clear. None / "" stays None.
+    """
+    if value is None or str(value).strip() == "":
+        return None
+    return json.dumps({"_enc": MARKER, "data": _cipher().encrypt(str(value).encode()).decode()})
+
+
+def open_value(stored: str | None) -> str | None:
+    """A sealed PII value back as text (None stays None)."""
+    if stored is None:
+        return None
+    opened = open_(stored)
+    return opened if opened != stored or MARKER not in str(stored) else None
+
+
+__all__ = ["seal", "open_", "seal_value", "open_value", "encrypted_kinds", "require_in_production", "configured",
+           "EncryptionConfigError"]

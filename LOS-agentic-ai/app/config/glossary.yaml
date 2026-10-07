@@ -1,0 +1,144 @@
+# THE ABBREVIATION GLOSSARY (Phase 3 step 6e; CHATBOT_SPEC section 1 "ABBREVIATION RULE").
+#
+# The first time an abbreviation appears in a chat session it is shown with its full form
+# ("**KYC (Know Your Customer)**"); after that only the short form. "X kya hai?" -> full
+# form + this one-line meaning, in the user's language. Also used by case summaries, the
+# Excel glossary sheet and the morning brief (step 9). Config, not code: add a term here.
+#
+# Decisions (user, 2026-10-07): project-defined and standard terms APPROVED; CIBIL's full form
+# as given; CPA, BOPS, HOPS, RCU, JEV are PENDING -- NO full form is ever shown until the
+# user confirms one (set full_form + status: APPROVED). OVD and AA are left out.
+
+terms:
+  KYC:
+    full_form: Know Your Customer
+    status: APPROVED
+    source: docs/CHATBOT_SPEC.md (example)
+    meaning:
+      en: the check that the applicant is who the documents say they are.
+      hi-Latn: aapki identity verify karne ki process.
+  PAN:
+    full_form: Permanent Account Number
+    status: APPROVED
+    source: standard (Income Tax Department)
+    meaning:
+      en: the 10-character tax ID printed on the PAN card.
+      hi-Latn: PAN card par chhapa 10-akshar ka tax ID.
+  FOS:
+    full_form: Field Officer Sales
+    status: APPROVED
+    source: knowledge/fos/fos_workflow.md
+    meaning:
+      en: the first stage, where the field officer collects details and documents.
+      hi-Latn: pehla stage, jahan field officer details aur documents leta hai.
+  CIBIL:
+    full_form: TransUnion CIBIL (formerly Credit Information Bureau (India) Limited)
+    status: APPROVED
+    source: user, 2026-10-07
+    meaning:
+      en: a credit bureau that keeps people's loan repayment records and gives a credit score.
+      hi-Latn: ek credit bureau jo loan repayment ka record rakhta hai aur credit score deta hai.
+  FOIR:
+    full_form: Fixed Obligation to Income Ratio
+    status: APPROVED
+    source: knowledge/fos/eligibility_terms.md
+    meaning:
+      en: the share of monthly income already going to EMIs and other fixed payments.
+      hi-Latn: monthly income ka woh hissa jo pehle se EMI aur fixed payments mein jaata hai.
+  EMI:
+    full_form: Equated Monthly Instalment
+    status: APPROVED
+    source: standard
+    meaning:
+      en: the fixed amount paid every month to repay a loan.
+      hi-Latn: loan chukane ke liye har mahine di jaane wali fixed rakam.
+  LTV:
+    full_form: Loan to Value
+    status: APPROVED
+    source: standard (app/agents/applicant/copilot/semantics/terms.py)
+    meaning:
+      en: the loan amount as a share of the property's value.
+      hi-Latn: property ki value ke mukable loan ka hissa.
+  ITR:
+    full_form: Income Tax Return
+    status: APPROVED
+    source: standard
+    meaning:
+      en: the yearly income statement filed with the tax department.
+      hi-Latn: tax department mein file ki gayi saalana income ki return.
+  DL:
+    full_form: Driving Licence
+    status: APPROVED
+    source: standard
+    meaning:
+      en: the government licence to drive, also accepted as ID and address proof.
+      hi-Latn: gaadi chalane ka sarkari licence, jo ID aur address proof bhi hai.
+  GST:
+    full_form: Goods and Services Tax
+    status: APPROVED
+    source: standard
+    meaning:
+      en: India's indirect tax; a GST certificate proves a registered business.
+      hi-Latn: Bharat ka indirect tax; GST certificate registered business ka proof hai.
+  OCR:
+    full_form: Optical Character Recognition
+    status: APPROVED
+    source: standard
+    meaning:
+      en: reading the text from a photo or scan of a document.
+      hi-Latn: document ki photo ya scan se text padhna.
+  # PENDING -- no full form until confirmed
+  CPA:
+    full_form: null
+    status: PENDING
+    source: app/config/stage_lifecycle.yaml (stage name)
+    meaning:
+      en: the stage after FOS, where the completed file is processed further.
+      hi-Latn: FOS ke baad ka stage, jahan poori file aage process hoti hai.
+  BOPS:
+    full_form: null
+    status: PENDING
+    source: app/config/stage_lifecycle.yaml (stage name)
+    meaning:
+      en: a later stage of the loan process.
+      hi-Latn: loan process ka ek baad ka stage.
+  HOPS:
+    full_form: null
+    status: PENDING
+    source: app/config/stage_lifecycle.yaml (stage name)
+    meaning:
+      en: a later stage of the loan process.
+      hi-Latn: loan process ka ek baad ka stage.
+  RCU:
+    full_form: null
+    status: PENDING
+    source: app/config/stage_lifecycle.yaml (stage name)
+    meaning:
+      en: a later stage that checks the file for risk.
+      hi-Latn: baad ka stage jo file ka risk check karta hai.
+  JEV:
+    full_form: null
+    status: PENDING
+    source: app/jev (internal component)
+    meaning:
+      en: an internal verification step.
+      hi-Latn: ek andar ka verification step.
+
+# "X kya hai?" -- the question shapes that ask for a term's full form / meaning ({term} = the abbreviation)
+questions:
+  - "{term} kya hai"
+  - "{term} kya hota hai"
+  - "{term} kya hoti hai"
+  - "{term} ka full form"
+  - "{term} ka full form kya hai"
+  - "{term} full form"
+  - "{term} ka matlab"
+  - "{term} ka matlab kya hai"
+  - "{term} matlab"
+  - "what is {term}"
+  - "what does {term} stand for"
+  - "what does {term} mean"
+  - "full form of {term}"
+  - "meaning of {term}"
+  - "{term} mhanje kay"
+  - "{term} kay aahe"

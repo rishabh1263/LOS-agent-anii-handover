@@ -186,6 +186,8 @@ class Context:
     #: The document the last QUESTION named ("is my bank statement pending?"):
     #: "it" next turn is that one, whatever else the answer listed.
     last_document: str | None = None
+    #: 6c SESSION MEMORY: the rolling summary as one label line (no text, no values)
+    memory: str | None = None
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any] | None) -> "Context":
@@ -231,6 +233,8 @@ class Context:
             last_documents=documents,
             last_document=(re.sub(r"[^A-Z0-9]+", "_", text("last_document").upper()).strip("_")
                            if text("last_document") else None),
+            # 6c: the rolling summary as labels (state.summary_line); only label characters survive
+            memory=(re.sub(r"[^A-Za-z0-9_=,>: -]", "", text("memory", 200)) if text("memory", 200) else None),
         )
 
     def is_empty(self) -> bool:

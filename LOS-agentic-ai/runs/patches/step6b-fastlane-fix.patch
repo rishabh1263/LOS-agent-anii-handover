@@ -1,0 +1,930 @@
+diff --git a/app/agents/applicant/copilot/agent.py b/app/agents/applicant/copilot/agent.py
+index 71388c6..9a28f8f 100644
+--- a/app/agents/applicant/copilot/agent.py
++++ b/app/agents/applicant/copilot/agent.py
+@@ -21,6 +21,7 @@ from __future__ import annotations
+ import asyncio
+ import functools
+ import logging
++import os
+ import contextvars
+ import re
+ import time
+@@ -1038,66 +1039,29 @@ async def answer_question(
+             classification = Classification(
+                 intent_override, confidence="high", matched_on="action")
+         else:
+-            # NORMALISED, CLASSIFIED, AND ONLY THEN THE SEMANTIC FALLBACK --
+-            # see intents.understand. A WRITE is classified on the words as
+-            # typed: normalisation rewrites short words, and a name or an
+-            # address being saved must reach the store exactly as given.
+-            classification = classify(message)
+-            if classification.intent not in WRITE_INTENTS:
+-                # WHO THE QUESTION IS ABOUT, read from its words (a role only --
+-                # the person is read from the case record below). When a role is
+-                # named, the question is classified with the subject phrase
+-                # neutralised, so the ordinary rules decide WHAT is being asked
+-                # (app/agents/applicant/copilot/routing/subjects.py).
+-                from app.agents.applicant import normalize
+-
+-                said = normalize.normalise(message).text or message
+-                named_subject = (subjects.mentioned(said)
+-                                 or subjects.mentioned(message))
+-                # NEUTRALISED AS TYPED: normalisation's typo pass reads
+-                # "co-applicant's" as "co-applicants" and loses the possessive
+-                # that says a document noun follows. `understand` normalises
+-                # the neutral text itself.
+-                classification = understand(
+-                    subjects.neutral(message)
+-                    if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH) else message,
+-                    has_case=bool(case_id))
+-                if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
+-                    # A PERSON'S DETAILS OR KYC, asked of the co-applicant: the
+-                    # party's own record answers it (subjects.party_question).
+-                    asked_of_party = subjects.party_question(said, classification)
+-                    if asked_of_party is not None:
+-                        classification = asked_of_party
+-                if named_subject:
+-                    message = said
+-                    # THE FRAME KEEPS THE PARTY the neutral text dropped, so a
+-                    # clarification asks about the co-applicant, not "my documents".
+-                    from app.agents.applicant.copilot.semantics import semantic_frame as _frames
+-
+-                    frame_ = getattr(classification, "frame", None)
+-                    if frame_ is not None and named_subject in (subjects.Kind.CO,
+-                                                                subjects.Kind.BOTH):
+-                        frame_.party = _frames.Party.CO_APPLICANT
+-                elif classification.normalized:
+-                    message = classification.normalized
++            classification, named_subject, message = _classify_typed(message, has_case=bool(case_id))
+ 
+         _annotate(_routing_span, intent=classification.intent.value,
+                   matched_on=(classification.matched_on or "")[:40],
+                   confidence=classification.confidence,
+                   normalized=bool(classification.normalized),
+                   followed_up=bool(getattr(resolution, "rewritten", False)))
++    if named_subject is None and intent_override is None:
++        # "uska kya baaki hai?" right after an answer about the co-applicant: the co-applicant
++        named_subject = subjects.carried(message, followup.Context.from_payload(context).last_subject)
+     intent = classification.intent
+     _routing_ms[0] = round((time.perf_counter() - routing_started) * 1000, 2)
+ 
+     # ------------------------------------------------------------------
+     # UNDERSTANDING, BEYOND THE RULES (semantic_frame.py).
+     #
+-    # 1. QWEN AS A BOUNDED FALLBACK FOR MEANING. Only when nothing above
+-    #    understood the question, and it is not a bare follow-up: ONE call
+-    #    proposes a frame in the closed enums, validated like any other.
+-    #    It chooses no tool and states no fact; a timeout or an invalid
+-    #    answer leaves the question UNKNOWN. Never called when the parser
+-    #    or the rules were confident.
++    # 1. QWEN AS A BOUNDED ROUTER (llm_router.py, step 6b; replaces the frame
++    #    call in this slot). Only when nothing above understood the question,
++    #    and it is not a bare follow-up: ONE call picks a catalogue tool, which
++    #    becomes its canonical question and is routed by the same rules. It
++    #    states no fact; a timeout, low memory, Ollama down or an invalid
++    #    choice leaves the question UNKNOWN (one clarifying question). Never
++    #    called when the rules were confident. The input guardrail ran first.
+     # 2. REFERENTS. "this stage" is the case's recorded stage; "that
+     #    document" the document the previous answer was about. One that
+     #    cannot be resolved safely is asked back, by name.
+@@ -1150,20 +1114,44 @@ async def answer_question(
+     if (intent is Intent.UNKNOWN and intent_override is None
+             and not followup.is_bare(message)
+             and resolution.reason != followup.EXPLAIN_REASON):
+-        proposed, llm_trace = await semantic_frame.llm_frame(message)
++        from app.agents.applicant.copilot.semantics import llm_router
++
++        chosen, llm_trace = await llm_router.route(message, followup.Context.from_payload(context))
+         understanding_trace["llm"] = llm_trace
+-        if proposed is not None:
+-            routed = semantic_frame.route(proposed)
+-            if routed and Intent(routed) not in WRITE_INTENTS:
+-                classification = Classification(
+-                    Intent(routed), confidence="medium",
+-                    document_type=proposed.document_type or classification.document_type,
+-                    matched_on=f"llm_frame:{proposed.task.value}/{proposed.object.value}",
+-                    frame=proposed, understanding="LLM")
++        if chosen is not None and chosen.options:
++            # THE BANK AND THE MODEL DISAGREE (6b-tune-2): never a guess -- both
++            # readings are offered as one tap each; nothing is read until one is picked.
++            choices = [o.question or o.tool for o in chosen.options][:3]
++            audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
++                         case_id=case_id, intent=Intent.UNKNOWN.value, tools=[], status="CLARIFICATION",
++                         message=message)
++            return envelope(
++                intent=Intent.UNKNOWN.value,
++                category=routing.QueryCategory.UNSUPPORTED.value,
++                query_type=QueryType.CLARIFICATION.value,
++                clarification_required={"reason": "ROUTER_UNSURE", "question": "Which of these did you mean?",
++                                        "options": choices},
++                suggested_questions=choices,
++                answer="Which of these did you mean?\n" + "\n".join(f"- {c}" for c in choices),
++            )
++        if chosen is not None and chosen.intent:
++            # refuse / out_of_scope: answered as that intent, nothing is read
++            classification = Classification(Intent(chosen.intent), confidence="medium",
++                                            matched_on=f"llm_router:{chosen.tool}", understanding="LLM")
++            intent = classification.intent
++        elif chosen is not None and chosen.question:
++            # THE SAME PATH AS A TYPED QUESTION, party detection included
++            rerouted, routed_subject, routed_message = _classify_typed(chosen.question, has_case=bool(case_id))
++            if rerouted.intent is not Intent.UNKNOWN and rerouted.intent not in WRITE_INTENTS:
++                llm_trace["question"] = chosen.question
++                classification = rerouted
++                classification.matched_on = f"llm_router:{chosen.tool}"
+                 intent = classification.intent
+-                frame = proposed
+-            else:
+-                frame = proposed
++                frame = getattr(classification, "frame", None)
++                named_subject = routed_subject
++                message = routed_message
++                # ONE MODEL CALL PER TURN: a routed turn is worded from templates, never rephrased
++                compose_with_model = False
+ 
+     # A follow-up whose pronoun the previous turn cannot settle ("why is it
+     # still pending?" after two pending documents) is asked back, not guessed.
+@@ -2985,12 +2973,108 @@ def _describe_answer(response: dict[str, Any], evidence: list[dict[str, str]]) -
+         understanding["answer_evidence"] = list(evidence)
+ 
+ 
++def _classify_typed(message: str, *, has_case: bool) -> tuple[Classification, Any, str]:
++    """
++    A typed question -> (classification, the role it names, the message as routed).
++
++    The same path for a person's words and for the LLM router's canonical
++    question (step 6b), so a routed "co-applicant" question keeps its party.
++    """
++    # NORMALISED, CLASSIFIED, AND ONLY THEN THE SEMANTIC FALLBACK --
++    # see intents.understand. A WRITE is classified on the words as
++    # typed: normalisation rewrites short words, and a name or an
++    # address being saved must reach the store exactly as given.
++    named_subject = None
++    classification = classify(message)
++    if classification.intent not in WRITE_INTENTS:
++        # WHO THE QUESTION IS ABOUT, read from its words (a role only --
++        # the person is read from the case record below). When a role is
++        # named, the question is classified with the subject phrase
++        # neutralised, so the ordinary rules decide WHAT is being asked
++        # (app/agents/applicant/copilot/routing/subjects.py).
++        from app.agents.applicant import normalize
++
++        said = normalize.normalise(message).text or message
++        named_subject = (subjects.mentioned(said)
++                         or subjects.mentioned(message))
++        # NEUTRALISED AS TYPED: normalisation's typo pass reads
++        # "co-applicant's" as "co-applicants" and loses the possessive
++        # that says a document noun follows. `understand` normalises
++        # the neutral text itself.
++        classification = understand(
++            subjects.neutral(message)
++            if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH) else message,
++            has_case=has_case)
++        if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
++            # A PERSON'S DETAILS OR KYC, asked of the co-applicant: the
++            # party's own record answers it (subjects.party_question).
++            asked_of_party = subjects.party_question(said, classification)
++            if asked_of_party is not None:
++                classification = asked_of_party
++        if named_subject:
++            message = said
++            # THE FRAME KEEPS THE PARTY the neutral text dropped, so a
++            # clarification asks about the co-applicant, not "my documents".
++            from app.agents.applicant.copilot.semantics import semantic_frame as _frames
++
++            frame_ = getattr(classification, "frame", None)
++            if frame_ is not None and named_subject in (subjects.Kind.CO,
++                                                        subjects.Kind.BOTH):
++                frame_.party = _frames.Party.CO_APPLICANT
++        elif classification.normalized:
++            message = classification.normalized
++    return classification, named_subject, message
++
++
++from app.agents.applicant.copilot.caching import TTLCache as _TTLCache, settings_from as _settings_from
++
++#: KNOWLEDGE ANSWERS, cached in process (step 6b): handbook text is the same for
++#: every caller, so no case data is in the key or the value. Keyed on the
++#: normalised question (its language included), the product, the model switch,
++#: the length cap, the flags that change the index and the live retriever, so a
++#: reindex or a flag change is a miss, never a stale answer.
++KNOWLEDGE_ANSWERS = _TTLCache(_settings_from("router", "knowledge_cache", 600.0, 256))
++
++
++def _knowledge_key(message: str, product: str | None, allow_model: bool,
++                   max_sentences: int | None) -> tuple | None:
++    try:
++        from app.agents.applicant.copilot.semantics.llm_router import normalise
++
++        retriever = knowledge_answer.knowledge_layer.get_retriever() \
++            if knowledge_answer.knowledge_layer.enabled() else None
++        return (normalise(message), product, bool(allow_model), max_sentences,
++                os.getenv("COPILOT_TERMS_KNOWLEDGE", ""), id(retriever))
++    except Exception:  # noqa: BLE001 - no key, no cache: the answer is computed
++        return None
++
++
+ async def _knowledge_reply(
+     message: str,
+     *,
+     product: str | None = None,
+     allow_model: bool = True,
+     max_sentences: int | None = None,
++) -> tuple[str, str, dict[str, Any]]:
++    """A knowledge answer, from the in-process cache when the same question was answered recently."""
++    key = _knowledge_key(message, product, allow_model, max_sentences)
++    if key is not None:
++        hit = KNOWLEDGE_ANSWERS.get(key)
++        if hit is not None:
++            return hit
++    result = await _knowledge_reply_uncached(message, product=product, allow_model=allow_model,
++                                             max_sentences=max_sentences)
++    if key is not None:
++        KNOWLEDGE_ANSWERS.put(key, result)
++    return result
++
++
++async def _knowledge_reply_uncached(
++    message: str,
++    *,
++    product: str | None = None,
++    allow_model: bool = True,
++    max_sentences: int | None = None,
+ ) -> tuple[str, str, dict[str, Any]]:
+     """
+     A knowledge answer. Configuration wins outright where it has one.
+diff --git a/app/agents/applicant/copilot/routing/subjects.py b/app/agents/applicant/copilot/routing/subjects.py
+index 52fb0ff..6faf6d0 100644
+--- a/app/agents/applicant/copilot/routing/subjects.py
++++ b/app/agents/applicant/copilot/routing/subjects.py
+@@ -692,6 +692,19 @@ def resolve_names(message: str, parties: list["Party"], names: dict[str, str]) -
+     return {"role": None}
+ 
+ 
++def carried(message: str, last_subject: str | None) -> "Kind | None":
++    """
++    A THIRD-PERSON PRONOUN after an answer about the co-applicant means the co-applicant
++    ("uska kya baaki hai?"). The pronouns are semantic_concepts.yaml THIRD_PERSON
++    (6b-fastlane-fix); a role named in the message always wins over this.
++    """
++    if str(last_subject or "").upper() != "CO_APPLICANT":
++        return None
++    from app.agents.applicant.copilot.semantics import semantic_frame as _sf
++
++    return Kind.CO if any(c == "THIRD_PERSON" for _, c in _sf.concepts_in(message)) else None
++
++
+ def party_question(message: str, classification: Any) -> Any | None:
+     """
+     A question NAMING the co-applicant (or both) that asks for a person's
+@@ -707,6 +720,17 @@ def party_question(message: str, classification: Any) -> Any | None:
+         return _intents.Classification(Intent.KYC_RESULT, matched_on="party_kyc",
+                                        fields={"want": _intents.kyc_want(text)},
+                                        frame=getattr(classification, "frame", None))
++    # A PARTY'S STATUS ("co-applicant ka kya status hai?", "documents ka kya scene hai
++    # co-applicant ke") is what is pending for them -- KYC issues and documents -- not the
++    # list of what they uploaded (6b-fastlane-fix; STATUS words in semantic_concepts.yaml).
++    from app.agents.applicant.copilot.semantics import semantic_frame as _sf
++
++    if any(concept == "STATUS" for _, concept in _sf.concepts_in(text)):
++        if _DOCUMENT_NOUN.search(text):
++            return _intents.Classification(Intent.DOCUMENTS_PENDING, matched_on="party_documents_status",
++                                           frame=getattr(classification, "frame", None))
++        return _intents.Classification(Intent.PENDING_ITEMS, matched_on="party_status",
++                                       frame=getattr(classification, "frame", None))
+     intent = classification.intent
+     profile_like = intent in (Intent.UNKNOWN, Intent.APPLICANT_PROFILE, Intent.APPLICANT_DETAILS,
+                               Intent.APPLICANT_MISSING_INFO, Intent.FULL_SUMMARY)
+diff --git a/app/agents/applicant/copilot/semantics/intents.py b/app/agents/applicant/copilot/semantics/intents.py
+index e645a9c..9c660e8 100644
+--- a/app/agents/applicant/copilot/semantics/intents.py
++++ b/app/agents/applicant/copilot/semantics/intents.py
+@@ -1496,6 +1496,13 @@ def classify(message: str) -> Classification:
+                               document_type=_document_type(text),
+                               matched_on="document_rejected")
+ 
++    # "CIBIL kya hai?" ASKS WHAT A TERM MEANS (semantics/terms.py; COPILOT_TERMS_KNOWLEDGE,
++    # default off): answered from the knowledge base, never as a bureau result
++    from app.agents.applicant.copilot.semantics import terms as _terms
++
++    if _terms.enabled() and _terms.is_definition(text):
++        return Classification(Intent.FOS_KNOWLEDGE, matched_on="lending_term_definition")
++
+     if not asks_process:
+         for pattern, route in _COMPILED_OOS:
+             if pattern.search(text):
+@@ -1881,10 +1888,20 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
+         routed = semantic_frame.route(frame)
+         if routed:
+             intent = Intent(routed)
++            # ONE LABEL FOR ONE MEANING (step 6a). "Which stage is my case at?" read by
++            # the frame is the same question the structural rule calls "current_stage",
++            # and the consumers key on that label: the localized stage template
++            # (copilot_api) and the knowledge exclusion below. Labelled "frame:..." it
++            # missed both, so a Hindi / Marathi / Tamil stage question was answered in
++            # English. The frame stays attached (understanding="FRAME") as provenance.
++            current_stage = (intent is Intent.APPLICATION_STAGE
++                             and frame.task is semantic_frame.Task.CURRENT_STAGE
++                             and frame.object is semantic_frame.Object.STAGE)
+             base = Classification(
+                 intent, confidence=frame.confidence,
+                 document_type=frame.document_type or _document_type(text),
+-                matched_on=f"frame:{frame.task.value}/{frame.object.value}",
++                matched_on=("current_stage" if current_stage
++                            else f"frame:{frame.task.value}/{frame.object.value}"),
+                 frame=frame, understanding="FRAME")
+             # A knowledge clause attached to a case question is still MIXED
+             # -- when the tail IS a knowledge question. "At this point in my
+@@ -2145,6 +2162,25 @@ def _framed_as_general(text: str, classification: Classification) -> Classificat
+     return None
+ 
+ 
++def _document_on_case(text: str) -> Classification | None:
++    """A named document + a PROBLEM word -> its KYC check; + a FIELD word -> its read details."""
++    document = _document_type(text)
++    if not document:
++        return None
++    from app.agents.applicant.copilot.semantics import semantic_frame as _sf
++
++    # the document's OWN name is not a field: "the address proof" names a document, it asks no field
++    own = set(str(document).lower().split("_"))
++    rest = " ".join(w for w in re.findall(r"[\wऀ-ॿ]+", text.lower()) if w not in own)
++    found = {concept for _, concept in _sf.concepts_in(rest)}
++    if "PROBLEM" in found:
++        return Classification(Intent.KYC_RESULT, matched_on="document_problem", document_type=document,
++                              fields={"want": kyc_want(text)})
++    if "DOC_FIELD" in found:
++        return Classification(Intent.DOCUMENT_DETAILS, matched_on="document_field", document_type=document)
++    return None
++
++
+ def _general_question(message: str, classification: Classification) -> Classification | None:
+     """
+     LIVE DATA VS KNOWLEDGE. "Can I use an electricity bill as address proof?",
+@@ -2166,6 +2202,13 @@ def _general_question(message: str, classification: Classification) -> Classific
+     framed = _framed_as_general(text, classification)
+     if framed is not None:
+         return framed
++    # A DOCUMENT OF THIS CASE named with a FIELD or a PROBLEM ("PAN pe kya naam hai?",
++    # "PAN mein kya galat hai?") is about this case's document, never the handbook --
++    # with or without "my" (6b-fastlane-fix; the words are semantic_concepts.yaml
++    # DOC_FIELD / PROBLEM).
++    on_document = _document_on_case(text)
++    if on_document is not None:
++        return on_document
+     if classification.matched_on in ("kyc", "findings", "stage_history"):
+         return None
+     # "which documents are mandatory?" is this case's checklist; only a named
+diff --git a/app/agents/applicant/copilot/semantics/semantic_concepts.yaml b/app/agents/applicant/copilot/semantics/semantic_concepts.yaml
+index 9417149..e0fbd3d 100644
+--- a/app/agents/applicant/copilot/semantics/semantic_concepts.yaml
++++ b/app/agents/applicant/copilot/semantics/semantic_concepts.yaml
+@@ -120,6 +120,65 @@ concepts:
+     - पुढे जात
+     - पुढे जाते
+     - आगे बढ़
++    # 6b-fastlane-fix (2026-10-07): "documents ka kya scene hai co-applicant ke"
++    - scene
++    - kya scene
++    - haal chaal
++    - kya chal raha
++  # 6b-fastlane-fix: a FIELD read from a document ("PAN pe kya NAAM hai?") -- with a
++  # document type and no possessive this is still this case's document, not the handbook
++  DOC_FIELD:
++    - name
++    - naam
++    - dob
++    - date of birth
++    - janam tithi
++    - birth date
++    - address
++    - pata
++    - father
++    - pita
++    - father name
++    - photo
++    - नाम
++    - पता
++    - जन्म तिथि
++  # 6b-fastlane-fix: something WRONG with a document ("PAN mein kya GALAT hai?") -> its KYC check
++  PROBLEM:
++    - galat
++    - galti
++    - wrong
++    - mismatch
++    - mis match
++    - issue
++    - problem
++    - gadbad
++    - error
++    - match nahi
++    - sahi nahi
++    - गलत
++    - गड़बड़
++    - चूक
++  # 6b-fastlane-fix: a third-person pronoun -- after an answer about the co-applicant it
++  # means the co-applicant ("uska kya baaki hai?")
++  THIRD_PERSON:
++    - uska
++    - uski
++    - uske
++    - unka
++    - unki
++    - unke
++    - inka
++    - inki
++    - inke
++    - his
++    - her
++    - their
++    - उसका
++    - उसकी
++    - उसके
++    - त्याचे
++    - तिचे
+   PROCESS_TERM:                     # things a knowledge question asks ABOUT
+     - kyc
+     - verification
+diff --git a/app/knowledge/__init__.py b/app/knowledge/__init__.py
+index 407ba61..37287ef 100644
+--- a/app/knowledge/__init__.py
++++ b/app/knowledge/__init__.py
+@@ -138,8 +138,21 @@ def set_repository(repository: KnowledgeRepository | None) -> None:
+         _DENSE = None
+ 
+ 
++#: The state of the flags that gate knowledge files (`requires_flag`) when the index was built.
++_GATE_STATE: tuple = ()
++
++
++def _gate_state() -> tuple:
++    flags = sorted(getattr(_REPOSITORY, "gated_flags", None) or ())
++    return tuple((f, (os.getenv(f) or "").strip().lower() in {"1", "true", "yes", "on"}) for f in flags)
++
++
+ def get_retriever() -> Retriever:
+-    global _RETRIEVER
++    global _RETRIEVER, _GATE_STATE
++    # A FLAG-GATED FILE FOLLOWS ITS FLAG: the index was built for one flag state; when a
++    # gating flag changes, the corpus and the retriever are rebuilt (no restart needed)
++    if _RETRIEVER is not None and _gate_state() != _GATE_STATE:
++        set_repository(None)
+     if _RETRIEVER is None:
+         with _LOCK:
+             if _RETRIEVER is None:
+@@ -164,6 +177,10 @@ def get_retriever() -> Retriever:
+                     _RETRIEVER = LexicalRetriever(
+                         repository, default_threshold=default_threshold(),
+                     )
++                load = getattr(repository, "_load", None)
++                if callable(load):
++                    load()                     # so the gating flags are known before the state is noted
++                _GATE_STATE = _gate_state()
+     return _RETRIEVER
+ 
+ 
+diff --git a/app/knowledge/markdown_repo.py b/app/knowledge/markdown_repo.py
+index 6e0438c..94fe36a 100644
+--- a/app/knowledge/markdown_repo.py
++++ b/app/knowledge/markdown_repo.py
+@@ -55,10 +55,14 @@ _FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+ #:   effective_from / effective_to   the window it is in force (absent = no bound)
+ #:   derived_from  the configuration files the text restates (provenance)
+ #:   related       ids of related items
++#:   requires_flag an environment flag; the item is in effect only while it is on
++#:                 (absent = always). Flag off: never indexed, never retrieved.
+ _DECLARABLE = ("id", "knowledge_type", "title", "description", "domain", "language",
+                "version", "effective_date", "effective_from", "effective_to", "status",
+                "applies_to", "product", "source", "owner", "derived_from", "related",
+-               "policy_status")
++               "policy_status", "requires_flag")
++
++_FLAG_ON = frozenset({"1", "true", "yes", "on"})
+ 
+ #: The statuses a retrieval may return. Anything else is kept out of the index.
+ RETRIEVABLE = frozenset({"CURRENT"})
+@@ -102,7 +106,7 @@ def knowledge_metadata(stage: str, filename: str, text: str) -> tuple[dict, str]
+         return [str(v) for v in value] if isinstance(value, list) else ([str(value)] if value else None)
+ 
+     okf = {key: declared[key] for key in ("id", "title", "description", "domain", "language",
+-                                          "owner", "policy_status") if declared.get(key)}
++                                          "owner", "policy_status", "requires_flag") if declared.get(key)}
+     return {
+         **okf,
+         "status": str(declared.get("status") or "CURRENT").upper(),
+@@ -127,13 +131,18 @@ def in_effect(metadata: dict, today: str | None = None) -> bool:
+     Whether an item may be retrieved TODAY: status CURRENT and inside its
+     declared window. An item with no window is always in effect; a superseded
+     or retired one never is, so obsolete text cannot outrank current text.
+-    Dates compare as ISO strings (YYYY-MM-DD).
++    Dates compare as ISO strings (YYYY-MM-DD). An item that declares
++    `requires_flag` is in effect only while that flag is on.
+     """
++    import os
+     from datetime import date
+ 
+     meta = metadata or {}
+     if str(meta.get("status") or "CURRENT").upper() not in RETRIEVABLE:
+         return False
++    flag = meta.get("requires_flag")
++    if flag and (os.getenv(str(flag), "false") or "false").strip().lower() not in _FLAG_ON:
++        return False
+     today = today or date.today().isoformat()
+     starts, ends = meta.get("effective_from"), meta.get("effective_to")
+     if starts and str(starts) > today:
+@@ -166,6 +175,9 @@ class MarkdownKnowledgeRepository(KnowledgeRepository):
+     def __init__(self, root: Path | str) -> None:
+         self._root = Path(root)
+         self._cache: dict[str, list[Chunk]] | None = None
++        #: every `requires_flag` named by a file, indexed or not -- the knowledge layer
++        #: rebuilds the index when one of them changes (app/knowledge/__init__.py)
++        self.gated_flags: set[str] = set()
+ 
+     # -- loading ----------------------------------------------------------
+ 
+@@ -193,6 +205,8 @@ class MarkdownKnowledgeRepository(KnowledgeRepository):
+                     logger.warning("Could not read %s: %s", path, exc)
+                     continue
+                 meta, body = knowledge_metadata(stage, path.name, text)
++                if meta.get("requires_flag"):
++                    self.gated_flags.add(str(meta["requires_flag"]))
+                 if not in_effect(meta):
+                     # SUPERSEDED / RETIRED / DRAFT, or outside its window: kept
+                     # on disk for provenance, never indexed, never retrieved
+diff --git a/evals/copilot/party_kyc.py b/evals/copilot/party_kyc.py
+index 4c16b39..6720b8c 100644
+--- a/evals/copilot/party_kyc.py
++++ b/evals/copilot/party_kyc.py
+@@ -51,7 +51,8 @@ BOILERPLATE = re.compile(r"I can tell you about|I can help with|What would you l
+                          r"Which of these did you mean|Reason codes:|The recorded KYC check for this case",
+                          re.I)
+ MISSING = re.compile(r"hasn'?t (been )?provided|haven'?t provided|not provided|isn'?t recorded|"
+-                     r"not recorded|don'?t have (your|the co-applicant'?s) .{0,40}recorded|"
++                     # "the customer's": the agent-audience voice (answering/voice.py) of "your"
++                     r"not recorded|don'?t have (your|the co-applicant'?s|the customer'?s) .{0,40}recorded|"
+                      r"no kyc result has been recorded|not yet available|isn'?t available|"
+                      r"abhi tak (provide )?nahi|record nahi|available nahi|couldn'?t verify|"
+                      r"can'?t share|nahi diya|no .{0,20}(score|result|value) (was|has been) recorded|"
+diff --git a/app/agents/applicant/copilot/semantics/terms.py b/app/agents/applicant/copilot/semantics/terms.py
+new file mode 100644
+index 0000000..a19b2d7
+--- /dev/null
++++ b/app/agents/applicant/copilot/semantics/terms.py
+@@ -0,0 +1,65 @@
++"""
++"WHAT IS <LENDING TERM>?" IS A KNOWLEDGE QUESTION (Phase 3 step 3, quick win 3).
++
++Flag COPILOT_TERMS_KNOWLEDGE (default off). "CIBIL kya hai?" was routed out of
++scope ("bureau information is handled by the Credit process") because every
++mention of a bureau term was. Asking what a term MEANS is not asking for a
++bureau result: with the flag on, a definition question about a configured term
++is answered from the FOS knowledge base (knowledge/fos/*.md).
++
++A question about THIS case ("mera CIBIL score kitna hai?", "what is my credit
++score?") is never a definition: any possessive or case word keeps the old route.
++The terms are configuration (applicant_agent.yaml `terms_knowledge.terms`).
++"""
++
++from __future__ import annotations
++
++import os
++import re
++from functools import lru_cache
++
++FLAG = "COPILOT_TERMS_KNOWLEDGE"
++
++_DEFAULT_TERMS = ("cibil", "cibil score", "credit score", "credit bureau", "bureau", "credit report", "foir",
++                  "emi", "ltv", "loan to value", "kyc", "cpa", "fos", "sanction", "disbursement", "tenure")
++
++#: whose -- any of these makes it a question about a case, not a definition
++_POSSESSIVE = re.compile(r"\b(my|mine|our|his|her|their|mera|meri|mere|hamara|hamari|apna|apni|iska|iski|uska|"
++                         r"uski|is\s+case|this\s+case|the\s+case|application\s+ka|customer\s+ka)\b", re.IGNORECASE)
++
++
++def enabled() -> bool:
++    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++@lru_cache(maxsize=1)
++def _terms() -> tuple[str, ...]:
++    try:
++        from app.agents.applicant import config
++
++        configured = (config.chatbot("terms_knowledge") or {}).get("terms")
++    except Exception:  # noqa: BLE001 - no configuration: the built-in list
++        configured = None
++    return tuple(str(t).lower() for t in (configured or _DEFAULT_TERMS))
++
++
++@lru_cache(maxsize=1)
++def _pattern() -> re.Pattern[str]:
++    term = "|".join(re.escape(t).replace(r"\ ", r"\s+") for t in sorted(_terms(), key=len, reverse=True))
++    return re.compile(
++        rf"^\s*(what\s+is|what's|whats|what\s+are|explain|define|meaning\s+of|tell\s+me\s+about)\s+"
++        rf"(a\s+|an\s+|the\s+)?({term})\b[\s?.!]*$"
++        # the normaliser's own canonical form: "CIBIL kya hota hai?" -> "what does cibil mean?"
++        rf"|^\s*what\s+does\s+(a\s+|an\s+|the\s+)?({term})\s+mean\b[\s?.!]*$"
++        rf"|^\s*({term})\s+(kya|kya\s+hai|kya\s+hota\s+hai|kya\s+hoti\s+hai|ka\s+matlab(\s+kya\s+hai)?|"
++        rf"matlab|means?|meaning|kay\s+aahe|mhanje\s+kay)\b[\s?.!]*(hai|h)?[\s?.!]*$",
++        re.IGNORECASE)
++
++
++def is_definition(text: str) -> bool:
++    """A definition question about a configured lending term, and about nobody's case."""
++    text = " ".join(str(text or "").split())
++    return bool(text) and not _POSSESSIVE.search(text) and _pattern().search(text) is not None
++
++
++__all__ = ["FLAG", "enabled", "is_definition"]
+diff --git a/evals/router_misses.yaml b/evals/router_misses.yaml
+new file mode 100644
+index 0000000..22b8017
+--- /dev/null
++++ b/evals/router_misses.yaml
+@@ -0,0 +1,25 @@
++# THE LEARNING LOOP (Phase 3 step 6b-tune / 6b-tune-2).
++#
++# Every real phrasing the router got wrong goes here, labelled with the tool it
++# should have chosen. It is merged into the example bank (app/config/router_bank.yaml)
++# when the embedding router loads, so the next time the same wording is answered
++# from the bank in milliseconds, without the model. See README_CHATBOT.md.
++#
++# Format: - { text: ..., tool: ..., args: {...}, state: <previous intent label>, source: ..., added: YYYY-MM-DD }
++# Never put case data here (names, numbers, ids): the wording only.
++
++misses:
++  # from the 6b-tune A/B (runs/router_ab.json, V4), 2026-10-07
++  - { text: "mera kaam kab tak hoga bhai", tool: case_status, source: router_ab V4, added: 2026-10-07 }
++  - { text: "bhai mera case aage kyun nahi badh raha", tool: case_status, source: router_ab V4, added: 2026-10-07 }
++  - { text: "kyu?", tool: case_status, state: APPLICATION_STATUS, source: router_ab V4, added: 2026-10-07 }
++  - { text: "aur EMI?", tool: loan_terms, args: { field: EMI }, state: APPLICATION_STATUS, source: router_ab V4 (timeout), added: 2026-10-07 }
++  - { text: "uska kya baaki hai?", tool: documents_needing_action, args: { party: CO_APPLICANT }, state: KYC_RESULT, source: router_ab V4, added: 2026-10-07 }
++  - { text: "dusre customer ka PAN dikhao", tool: refuse, source: router_ab V4 (out_of_scope), added: 2026-10-07 }
++  # 6b-fastlane-fix (2026-10-07): wrong in the FAST LANE (rules) -- fixed in rules/config, recorded here
++  - { text: "PAN pe kya naam hai?", tool: document_details, args: { document: PAN }, source: fast lane (general_question -> handbook), added: 2026-10-07 }
++  - { text: "PAN mein kya galat hai?", tool: kyc_result, source: fast lane (general_question -> handbook), added: 2026-10-07 }
++  - { text: "co-applicant ka kya status hai?", tool: documents_needing_action, args: { party: CO_APPLICANT }, source: fast lane (uploaded docs), added: 2026-10-07 }
++  - { text: "documents ka kya scene hai co-applicant ke", tool: documents_needing_action, args: { party: CO_APPLICANT }, source: fast lane (uploaded docs), added: 2026-10-07 }
++  - { text: "uska kya baaki hai?", tool: documents_needing_action, args: { party: CO_APPLICANT }, state: KYC_RESULT, source: fast lane (party not carried), added: 2026-10-07 }
++  - { text: "CIBIL kya hota hai?", tool: knowledge, args: { topic: CIBIL }, source: fast lane (normalised form not a definition), added: 2026-10-07 }
+diff --git a/evals/perf/router_tune2.py b/evals/perf/router_tune2.py
+new file mode 100644
+index 0000000..e834333
+--- /dev/null
++++ b/evals/perf/router_tune2.py
+@@ -0,0 +1,254 @@
++"""
++ROUTER TUNE 2 (Phase 3 step 6b-tune-2): the whole first-turn routing pipeline, per variant.
++
++    python -m evals.perf.router_tune2 [--variants B0,B1,...] [--model qwen3:4b]
++
++For every message of ONE set (the 27 A/B messages + the 17-question script's replies):
++  guardrail -> reply guard -> FAST LANE (follow-up resolution + the rules + small talk)
++  -> router variant (example bank / Qwen / agreement ...).
++Outcome per message: CORRECT, WRONG (a different answer -- the costly case) or CLARIFY
++(a clarifying question; for "haan" / "pehla wala" / "nahi rehne do" that IS correct).
++
++Variants (applicant_agent.yaml: chatbot.router overrides):
++  B0 the 6b-tune router (V4)                 B1 B0 + constrained output (JSON schema enums)
++  B2 B0 + normalise (typo pass + spelling)   B3 B0 + example bank, char n-grams (held out)
++  B4 B0 + example bank, nomic (held out)     B5 best bank + agreement (disagree -> clarify)
++  B6 hierarchical (category, then the bank)  B7 B5 + case labels in the prompt
++  B8 B5 + router_misses.yaml in the bank (the learning loop; in-sample)
++  B9 the best combination on another model (--model), when free memory allows
++
++"Held out": the bank never contains a measured sentence; router_misses.yaml holds measured
++misses, so it is excluded except in B8.
++
++The FAST LANE here is approximate and pessimistic: the short-query and work layers of the
++real pipeline (which read "docs" and "verify karna hai" first) are not run, so those reach
++the router in this measurement.
++
++NEVER BESIDE THE TEST SUITE: real Ollama models; free memory checked before each call.
++Writes runs/router_tune2.json.
++"""
++
++from __future__ import annotations
++
++import argparse
++import asyncio
++import copy
++import json
++import os
++import statistics
++import sys
++import time
++from pathlib import Path
++
++from evals.perf import memguard
++
++ROOT = Path(__file__).resolve().parents[2]
++
++#: tool -> the intents a fast-lane answer for it may carry
++INTENT_TOOL = {
++    "APPLICATION_STATUS": "case_status", "APPLICATION_STAGE": "case_status", "READINESS": "case_status",
++    "NEXT_ACTION": "next_action", "DOCUMENTS_PENDING": "documents_needing_action",
++    "DOCUMENTS_MISSING": "documents_needing_action", "PENDING_ITEMS": "documents_needing_action",
++    "DOCUMENT_VERIFICATION": "documents_needing_action", "DOCUMENT_DETAILS": "document_details",
++    "KYC_RESULT": "kyc_result", "ELIGIBILITY": "loan_terms", "FOS_KNOWLEDGE": "knowledge",
++    "STAGE_PROCESS": "knowledge", "CASE_PORTFOLIO": "list_cases", "OUT_OF_SCOPE": "out_of_scope",
++    "PENDING_ITEMS": "documents_needing_action",
++    "GUARDRAIL_BLOCKED": "refuse", "OFF_TOPIC": "out_of_scope",
++}
++REPLIES = [("haan", {}), ("pehla wala", {}), ("nahi rehne do", {})]
++CASE_LABELS = "pending=PAN,ADDRESS_PROOF blockers=KYC_NAME_MISMATCH party=CO_APPLICANT"
++SPELLING = {"kyon": "kyu", "kyun": "kyu", "kiyu": "kyu", "doc": "docs", "dcuments": "documents",
++            "documnets": "documents", "staus": "status", "aplication": "application", "aadhar": "aadhaar",
++            "kab": "kab", "hoga": "hoga", "baki": "baaki", "bacha": "baaki", "dikha": "dikhao"}
++
++
++def _cases():
++    from evals.perf.router_ab import CASES
++
++    rows = [(m, state, acc, party) for m, _r, state, acc, party in CASES]
++    rows += [(m, s, {"CLARIFY"}, None) for m, s in REPLIES]
++    return rows
++
++
++def _judge(tool, args, accepted, party):
++    if "CLARIFY" in accepted:
++        return "CORRECT" if tool == "CLARIFY" else "WRONG"
++    if tool == "CLARIFY":
++        return "CLARIFY"
++    if tool not in accepted:
++        return "WRONG"
++    said = " ".join(str(v).upper() for v in (args or {}).values())
++    if party == "CO" and "CO_APPLICANT" not in said:
++        return "WRONG"
++    if party == "SELF" and "CO_APPLICANT" in said:
++        return "WRONG"
++    return "CORRECT"
++
++
++def fast_lane(message, state):
++    """(tool, args) when the deterministic layers answer, else None."""
++    from app.agents.applicant import conversation
++    from app.agents.applicant.copilot import agent
++    from app.agents.applicant.copilot.conversation import followup
++    from app.agents.applicant.copilot.routing import subjects
++    from app.agents.applicant.copilot.semantics import llm_router
++    from app.security import guardrails
++
++    if not guardrails.check_input(message).allowed:
++        return "refuse", {}
++    if llm_router.reply_like(message):
++        return "CLARIFY", {}
++    turn = conversation.classify(message)
++    if turn is not None and turn.kind == "OFF_TOPIC":
++        return "out_of_scope", {}
++    resolved = followup.resolve(message, followup.Context(**state)).message
++    classification, subject, _ = agent._classify_typed(resolved, has_case=True)
++    intent = classification.intent.value
++    if intent == "UNKNOWN":
++        return None
++    subject = subject or subjects.carried(message, state.get("last_subject"))     # as the agent does
++    party = {"party": "CO_APPLICANT"} if subject in (subjects.Kind.CO, subjects.Kind.BOTH) else {}
++    return INTENT_TOOL.get(intent, intent.lower()), party
++
++
++def variant_config(name, base, best_vec):
++    cfg = copy.deepcopy(base)
++    emb = {"enabled": False, "vectoriser": best_vec, "threshold": 0.45, "margin": 0.05, "include_misses": False}
++    if name == "B1":
++        cfg["constrained"] = True
++    if name == "B2":
++        cfg["normalise"], cfg["spelling"] = True, SPELLING
++    if name == "B3":
++        emb.update(enabled=True, vectoriser="char")
++    if name == "B4":
++        emb.update(enabled=True, vectoriser="ollama")
++    if name in ("B5", "B6", "B7", "B8", "B9"):
++        emb.update(enabled=True)
++        cfg["agreement"] = True
++        cfg["constrained"] = True
++    if name == "B6":
++        cfg["hierarchical"] = True
++    if name == "B7":
++        cfg["case_labels"] = True
++    if name in ("B8", "B9"):
++        emb["include_misses"] = True
++    cfg["embedding"] = emb
++    return cfg
++
++
++def run(names, base, model, nomic_cache, best_vec):
++    from app.agents.applicant.copilot.conversation.followup import Context
++    from app.agents.applicant.copilot.semantics import embedding_router, llm_router
++
++    rows = []
++    original = llm_router._config
++    for name in names:
++        cfg = variant_config(name, base, best_vec)
++        if name == "B9" and model:
++            cfg["model"] = model
++        llm_router._config = lambda cfg=cfg: cfg
++        embedding_router._config = lambda cfg=cfg: cfg.get("embedding") or {}
++        embedding_router.reload()
++        if cfg["embedding"].get("enabled"):
++            kind = cfg["embedding"]["vectoriser"]
++            pre = embedding_router.Bank(kind, include_misses=cfg["embedding"]["include_misses"],
++                                        vectors=nomic_cache if kind == "ollama" else None)
++            embedding_router.bank = lambda pre=pre: pre
++        for message, state, accepted, party in _cases():
++            memguard.check(f"{name} {message!r}")
++            llm_router.clear_cache()
++            started = time.perf_counter()
++            fast = fast_lane(message, state)
++            trace, llm_used = {}, False
++            if fast is not None:
++                tool, args, how = fast[0], fast[1], "FAST"
++            else:
++                routed, trace = asyncio.run(llm_router.route(
++                    message, Context(**state), case_labels=CASE_LABELS if cfg.get("case_labels") else None))
++                llm_used = bool(trace.get("consulted"))
++                if routed is None or routed.options:
++                    tool, args = "CLARIFY", {}
++                else:
++                    tool, args = routed.tool, routed.args
++                how = trace.get("status")
++            ms = round((time.perf_counter() - started) * 1000, 1)
++            outcome = _judge(tool, args, accepted, party)
++            rows.append({"variant": name, "message": message, "how": how, "tool": tool, "args": args,
++                         "outcome": outcome, "llm": llm_used, "ms": ms,
++                         "invalid": trace.get("status") == "INVALID", "timeout": trace.get("status") == "TIMEOUT",
++                         "bank_score": trace.get("bank_score"), "category": trace.get("category")})
++            r = rows[-1]
++            print(f"{name} {ms:>7} ms {outcome:8} {str(how):10} {str(tool):26} {json.dumps(args)[:34]:34} [{message}]")
++    llm_router._config = original
++    return rows
++
++
++def summary(rows):
++    n = len(rows)
++    llm_rows = [r for r in rows if r["llm"]]
++    ms = sorted(r["ms"] for r in rows)
++    pick = lambda q: ms[min(n - 1, int(round(q * (n - 1))))]  # noqa: E731
++    return {"messages": n, "accuracy": round(sum(r["outcome"] == "CORRECT" for r in rows) / n, 3),
++            "wrong_rate": round(sum(r["outcome"] == "WRONG" for r in rows) / n, 3),
++            "clarify_rate": round(sum(r["outcome"] == "CLARIFY" for r in rows) / n, 3),
++            "invalid_of_llm_calls": f"{sum(r['invalid'] for r in llm_rows)}/{len(llm_rows)}",
++            "timeouts": sum(r["timeout"] for r in rows),
++            "answered_without_llm": round(sum(not r["llm"] for r in rows) / n, 3),
++            "p50_ms": statistics.median(ms), "p95_ms": pick(0.95), "max_ms": ms[-1]}
++
++
++def main() -> int:
++    p = argparse.ArgumentParser()
++    p.add_argument("--variants", default="B0,B1,B2,B3,B4,B5,B6,B7,B8")
++    p.add_argument("--model", default="")
++    p.add_argument("--vectoriser", default="char", help="the bank vectoriser for B5-B9")
++    args = p.parse_args()
++    if str(ROOT) not in sys.path:
++        sys.path.insert(0, str(ROOT))
++    os.environ["COPILOT_LLM_ROUTER"] = "true"
++    os.environ["COPILOT_TERMS_KNOWLEDGE"] = "true"            # the recommended display flag ("CIBIL kya hai?")
++    from app.agents.applicant.copilot.semantics import embedding_router, llm_router
++
++    base = copy.deepcopy(llm_router._config())
++    names = args.variants.split(",")
++    nomic_cache = {}
++    if "B4" in names or args.vectoriser == "ollama":
++        # ALL nomic vectors first (bank + every question), then nomic is unloaded: never two models at once
++        memguard.check("nomic precompute")
++        texts = [e["text"] for e in embedding_router.load_examples(True)]
++        for message, *_ in _cases():
++            texts += [message, llm_router.prepare(message)]
++        from app.knowledge.embeddings import OllamaEmbedding
++        from app.llm.config import ollama_host
++
++        started = time.perf_counter()
++        vectors = OllamaEmbedding(url=ollama_host(), model="nomic-embed-text:latest", timeout=120).embed_all(texts)
++        nomic_cache = dict(zip(texts, vectors))
++        print(f"nomic: {len(texts)} texts embedded in {(time.perf_counter() - started) * 1000:.0f} ms")
++        import httpx
++
++        httpx.post(ollama_host().rstrip("/") + "/api/generate",
++                   json={"model": "nomic-embed-text:latest", "keep_alive": 0}, timeout=60)
++    from app.llm import keep_warm
++
++    asyncio.run(keep_warm.warm_up())
++    out, stopped = [], None
++    try:
++        out = run(names, base, args.model, nomic_cache, args.vectoriser)
++    except memguard.LowMemory as stop:
++        stopped = str(stop)
++        print(stop)
++    table = {v: summary([r for r in out if r["variant"] == v]) for v in names if any(r["variant"] == v for r in out)}
++    print(json.dumps(table, indent=2))
++    target = ROOT / "runs" / "router_tune2.json"
++    previous = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
++    previous.setdefault("table", {}).update(table)
++    previous.setdefault("rows", [])
++    previous["rows"] = [r for r in previous["rows"] if r["variant"] not in table] + out
++    previous["stopped"] = stopped
++    target.write_text(json.dumps(previous, indent=2, ensure_ascii=False), encoding="utf-8")
++    return 2 if stopped else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

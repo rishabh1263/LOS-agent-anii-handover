@@ -1,0 +1,26 @@
+# THE LEARNING LOOP (Phase 3 step 6b-tune / 6b-tune-2).
+#
+# Every real phrasing the router got wrong goes here, labelled with the tool it
+# should have chosen. It is merged into the example bank (app/config/router_bank.yaml)
+# when the embedding router loads, so the next time the same wording is answered
+# from the bank in milliseconds, without the model. See README_CHATBOT.md.
+#
+# Format: - { text: ..., tool: ..., args: {...}, state: <previous intent label>, source: ..., added: YYYY-MM-DD }
+# Never put case data here (names, numbers, ids): the wording only.
+
+misses:
+  # from the 6b-tune A/B (runs/router_ab.json, V4), 2026-10-07
+  - { text: "mera kaam kab tak hoga bhai", tool: case_status, source: router_ab V4, added: 2026-10-07 }
+  - { text: "bhai mera case aage kyun nahi badh raha", tool: case_status, source: router_ab V4, added: 2026-10-07 }
+  - { text: "kyu?", tool: case_status, state: APPLICATION_STATUS, source: router_ab V4, added: 2026-10-07 }
+  - { text: "aur EMI?", tool: loan_terms, args: { field: EMI }, state: APPLICATION_STATUS, source: router_ab V4 (timeout), added: 2026-10-07 }
+  - { text: "uska kya baaki hai?", tool: documents_needing_action, args: { party: CO_APPLICANT }, state: KYC_RESULT, source: router_ab V4, added: 2026-10-07 }
+  - { text: "dusre customer ka PAN dikhao", tool: refuse, source: router_ab V4 (out_of_scope), added: 2026-10-07 }
+  # 6b-fastlane-fix (2026-10-07): wrong in the FAST LANE (rules) -- fixed in rules/config, recorded here
+  - { text: "PAN pe kya naam hai?", tool: document_details, args: { document: PAN }, source: fast lane (general_question -> handbook), added: 2026-10-07 }
+  - { text: "PAN mein kya galat hai?", tool: kyc_result, source: fast lane (general_question -> handbook), added: 2026-10-07 }
+  - { text: "co-applicant ka kya status hai?", tool: documents_needing_action, args: { party: CO_APPLICANT }, source: fast lane (uploaded docs), added: 2026-10-07 }
+  - { text: "documents ka kya scene hai co-applicant ke", tool: documents_needing_action, args: { party: CO_APPLICANT }, source: fast lane (uploaded docs), added: 2026-10-07 }
+  - { text: "uska kya baaki hai?", tool: documents_needing_action, args: { party: CO_APPLICANT }, state: KYC_RESULT, source: fast lane (party not carried), added: 2026-10-07 }
+  - { text: "CIBIL kya hota hai?", tool: knowledge, args: { topic: CIBIL }, source: fast lane (normalised form not a definition), added: 2026-10-07 }
+  - { text: "And what about passport?", tool: knowledge, state: FOS_KNOWLEDGE, source: "fast lane (address in address proof read as a field; families rag_followup)", added: 2026-10-07 }

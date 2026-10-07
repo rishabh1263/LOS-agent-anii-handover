@@ -42,6 +42,18 @@ gates:
         path: status
         pass: [READY_FOR_CPA]
         blocked: [NOT_READY]
+      # FULL KYC BEFORE CPA (2026-10-06). Every party's KYC checks marked
+      # `cpa_gate: true` in kyc_policies.yaml must be PASSED (app/agents/los/
+      # kyc_gate.py). Counted ONLY while LOS_FOS_CPA_KYC_RULE=true (default off).
+      - id: KYC_COMPLETE
+        label: KYC verification
+        source: kyc_checks
+        path: status
+        when_flag: LOS_FOS_CPA_KYC_RULE
+        pass: [PASS]
+        review: [REVIEW]
+        blocked: [BLOCKED]
+        not_ready: [NOT_READY]
 
   CPA:
     status: UNCONFIRMED

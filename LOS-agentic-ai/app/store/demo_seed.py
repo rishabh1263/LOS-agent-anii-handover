@@ -66,9 +66,25 @@ PREFIX = "DEMO-"
 ENV_FLAG = "LOS_DEMO_SEED_ENABLED"
 
 
+#: PRODUCTION GUARD (Phase 3 step 2, default off): with this on, the demo seed
+#: never runs where ENVIRONMENT=production -- its STAGE_ENTERED events would
+#: otherwise place cases at stages no transition ever recorded.
+PROD_GUARD_FLAG = "LOS_DEMO_SEED_PROD_GUARD"
+
+
+def _on(name: str) -> bool:
+    return (os.getenv(name, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _blocked_in_production() -> bool:
+    return _on(PROD_GUARD_FLAG) and (os.getenv("ENVIRONMENT") or "").strip().lower() == "production"
+
+
 def enabled() -> bool:
-    return (os.getenv(ENV_FLAG, "false").strip().lower()
-            in {"1", "true", "yes", "on"})
+    if _on(ENV_FLAG) and _blocked_in_production():
+        logger.error("%s is set in production; the demo seed is refused (%s).", ENV_FLAG, PROD_GUARD_FLAG)
+        return False
+    return _on(ENV_FLAG)
 
 
 @dataclass(frozen=True)
@@ -285,6 +301,9 @@ def seed(repository: Any, *, force: bool = False) -> SeedSummary:
     the upserting tables handle and the rest tolerate because every id
     is deterministic.
     """
+    if _blocked_in_production():
+        # every caller, not only start-up: a script cannot seed production either
+        raise RuntimeError(f"The demo seed is refused in production ({PROD_GUARD_FLAG}).")
     if not force and is_seeded(repository):
         logger.info("Demo data already present; nothing seeded.")
         return SeedSummary(already_present=True)

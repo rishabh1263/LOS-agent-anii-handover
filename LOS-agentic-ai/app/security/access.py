@@ -214,6 +214,40 @@ def authorize_conversation(subject: str | None, scopes: Iterable[str], *,
         raise AccessDenied()
 
 
+def authorize_co_applicant(subject: str | None, scopes: Iterable[str], co_applicant_id: str, *,
+                           case_id: str | None = None, write: bool = False,
+                           conversation: bool = False) -> str:
+    """
+    THE CASE a co-applicant id is on, when the caller may open it (step 5d).
+
+    THROUGH THE CASE, NEVER A GRANT: the id is looked up, and the ordinary case
+    ownership check decides. Unknown, not the caller's, or on a different case
+    than the one named -- all the same AccessDenied, so a caller cannot learn
+    which ids exist. Raises AccessDenied.
+    """
+    from app.agents.los import co_applicants
+
+    identifier = str(co_applicant_id or "").strip().upper()
+    if not identifier:
+        raise AccessDenied()
+    owned: list[str] = []
+    for candidate in co_applicants.cases_for(identifier):
+        if case_id and candidate != case_id:
+            continue
+        try:
+            authorize(subject, scopes, case_id=candidate, write=write)
+            if conversation:
+                authorize_conversation(subject, scopes, case_id=candidate)
+        except AccessDenied:
+            continue
+        owned.append(candidate)
+    if len(owned) != 1:
+        # none: not found / not yours. More than one: the pre-backfill duplicate --
+        # never guessed between two people.
+        raise AccessDenied()
+    return owned[0]
+
+
 def authorize_claims(claims: dict[str, Any], **kwargs: Any) -> None:
     """`authorize` for a request's JWT claims."""
     authorize(get_subject(claims), get_scopes(claims), **kwargs)

@@ -1,0 +1,482 @@
+diff --git a/app/agents/applicant/copilot/answering/presentation.py b/app/agents/applicant/copilot/answering/presentation.py
+index 1ae9f2c..f495753 100644
+--- a/app/agents/applicant/copilot/answering/presentation.py
++++ b/app/agents/applicant/copilot/answering/presentation.py
+@@ -250,7 +250,12 @@ def build(envelope: dict[str, Any]) -> dict[str, Any]:
+     kind = _response_type(envelope, status)
+     language = (contract or {}).get("reply_language") or envelope.get("language")
+     next_action = _next_action(envelope, documents, actions)
++    extra = {}
++    if isinstance(envelope.get("document_actions"), dict):
++        # the documents that need action, grouped (answering/document_actions.py) -- only when built
++        extra["document_actions"] = envelope["document_actions"]
+     return {
++        **extra,
+         "message": message or None,
+         "intent": envelope.get("intent"),
+         "response_type": kind,
+diff --git a/app/api/routes/fos_api.py b/app/api/routes/fos_api.py
+index b874673..ffb587a 100644
+--- a/app/api/routes/fos_api.py
++++ b/app/api/routes/fos_api.py
+@@ -1101,8 +1101,26 @@ async def copilot(
+                         published["answer"] = f"{str(published.get('answer') or '').rstrip()} {said}".strip()
+             # AN EMPTY CHECKLIST NEVER HIDES AN OPEN REVIEW (answering/attention.py)
+             from app.agents.applicant.copilot.answering import attention as _attention
+-
+-            published = _attention.amend(published)
++            from app.agents.applicant.copilot.answering import document_actions as _doc_actions
++
++            if (_doc_actions.enabled() and published.get("case_id")
++                    and str(published.get("intent") or "") in {"DOCUMENTS_PENDING", "DOCUMENTS_MISSING",
++                                                               "PENDING_ITEMS"}):
++                # ONLY WHAT NEEDS ACTION, from the store (COPILOT_DOCUMENT_ACTIONS, default off)
++                _view = _doc_actions.build(published["case_id"], party=_attention._asked_party(published))
++                _lang = (published.get("language_contract") or {}).get("reply_language") \
++                    if isinstance(published.get("language_contract"), dict) else None
++                _said = _doc_actions.render(_view, _lang)
++                published["document_actions"] = {**_view, "emphasis": _said["emphasis"]}
++                _other = [i for i in published.get("pending_items") or []
++                          if isinstance(i, dict) and i.get("type") not in (None, "DOCUMENT", "INFO")]
++                if not _other:
++                    published["answer"] = _said["answer"]
++                else:
++                    # a pending applicant / application detail keeps the original answer, which names it
++                    published = _attention.amend(published)
++            else:
++                published = _attention.amend(published)
+             # THE STRUCTURED CONTRACT beside the prose, derived from it (presentation.py).
+             from app.agents.applicant.copilot.answering import presentation as _presentation
+ 
+@@ -1156,16 +1174,40 @@ async def _copilot_json(
+     else:
+         message = _ACTION_PHRASE[action]
+ 
+-    return await _run_action(
++    # NO CASE ID (COPILOT_SINGLE_CASE_RESOLVE, default off; capabilities/case_pick.py):
++    # one case of the applicant's is answered for, several are listed and asked about.
++    case_id, picked = payload.case_id, None
++    if not case_id and action is FosAction.CUSTOM_QUERY and payload.applicant_id:
++        from app.agents.applicant.copilot.capabilities import case_pick
++
++        if case_pick.enabled():
++            from app.security import access as _pick_access
++
++            try:
++                picked = case_pick.resolve(payload.applicant_id, claims)
++            except _pick_access.AccessDenied as exc:
++                raise _pick_access.http_denied(exc, request_id) from None
++            if picked.kind == case_pick.MANY:
++                return case_pick.ask_which(picked, payload.applicant_id, request_id, message)
++            if picked.kind == case_pick.NONE:
++                return case_pick.no_case(payload.applicant_id, request_id)
++            case_id = picked.case_id
++
++    result = await _run_action(
+         action,
+         applicant_id=payload.applicant_id,
+-        case_id=payload.case_id,
++        case_id=case_id,
+         claims=claims,
+         request_id=request_id,
+         message=message,
+         context=payload.context,
+         response_language=payload.response_language,
+     )
++    if picked is not None and isinstance(result, dict):
++        # THE CASE ANSWERED FOR IS NAMED, since the user did not name it
++        result["case_resolved_from_applicant"] = True
++        result["answer"] = f"For application {case_id}: {str(result.get('answer') or '').lstrip()}"
++    return result
+ 
+ 
+ def _select_language(result: dict[str, Any], selected: str | None) -> None:
+diff --git a/app/config/languages.yaml b/app/config/languages.yaml
+index 98a0b6b..e3dc72e 100644
+--- a/app/config/languages.yaml
++++ b/app/config/languages.yaml
+@@ -1002,6 +1002,47 @@ templates:
+     hi: "सह-आवेदक"
+     hi-Latn: "Co-applicant"
+     mr: "सह-अर्जदार"
++  # Documents that need action (answering/document_actions.py; COPILOT_DOCUMENT_ACTIONS)
++  docact_kyc_heading:
++    hi: "आपके KYC सत्यापन पर ध्यान देना ज़रूरी है:"
++    hi-Latn: "Aapke KYC verification par dhyan dena zaroori hai:"
++    mr: "तुमच्या KYC पडताळणीकडे लक्ष देणे आवश्यक आहे:"
++  docact_reupload_heading:
++    hi: "कृपया सही दस्तावेज़ अपलोड करें:"
++    hi-Latn: "Kripya sahi documents upload karein:"
++    mr: "कृपया योग्य कागदपत्रे अपलोड करा:"
++  docact_pending_heading:
++    hi: "अभी बाकी:"
++    hi-Latn: "Abhi baaki:"
++    mr: "अजून बाकी:"
++  docact_review_heading:
++    hi: "समीक्षा में (कोई कार्रवाई ज़रूरी नहीं):"
++    hi-Latn: "Review mein (koi action zaroori nahi):"
++    mr: "पुनरावलोकनात (कोणतीही कृती आवश्यक नाही):"
++  docact_none:
++    hi: "अभी किसी दस्तावेज़ पर कोई कार्रवाई ज़रूरी नहीं है।"
++    hi-Latn: "Abhi kisi document par koi action zaroori nahi hai."
++    mr: "सध्या कोणत्याही कागदपत्रावर कृती आवश्यक नाही."
++  docact_mismatch:
++    hi: "{field} मेल नहीं खाता: {values}"
++    hi-Latn: "{field} match nahi hota: {values}"
++    mr: "{field} जुळत नाही: {values}"
++  docact_mismatch_check:
++    hi: "{field} की {documents} में जाँच ज़रूरी है"
++    hi-Latn: "{field} ki {documents} mein jaanch zaroori hai"
++    mr: "{field} ची {documents} मध्ये तपासणी आवश्यक आहे"
++  docact_shows:
++    hi: "{document} पर \"{value}\""
++    hi-Latn: "{document} par \"{value}\""
++    mr: "{document} वर \"{value}\""
++  docact_upload:
++    hi: "अपलोड"
++    hi-Latn: "Upload"
++    mr: "अपलोड"
++  docact_being_verified:
++    hi: "सत्यापन जारी"
++    hi-Latn: "verification chal raha hai"
++    mr: "पडताळणी सुरू"
+   doc_status_verified:
+     hi: "सत्यापित"
+     hi-Latn: "Verified"
+diff --git a/app/agents/applicant/copilot/answering/document_actions.py b/app/agents/applicant/copilot/answering/document_actions.py
+new file mode 100644
+index 0000000..d665275
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/document_actions.py
+@@ -0,0 +1,218 @@
++"""
++THE DOCUMENTS THAT NEED ACTION (Phase 3 step 4; flag COPILOT_DOCUMENT_ACTIONS, default off).
++
++"kaunse docs baaki hai?" / "what is pending?" shows only what someone must act on,
++built from the case store alone -- never from a model:
++
++    Upload again       REJECTED documents, with the verification's own reasons; and the
++                       documents a failed KYC check names, with the field and what each
++                       document said (the KYC finding's recorded values, quoted exactly)
++    Still pending      mandatory checklist slots with no document
++    Under review       REVIEW documents and documents still being verified -- information
++                       only, never offered for upload
++
++VERIFIED documents (unless a KYC mismatch names them) and SUPERSEDED documents are never
++listed. Every row is grouped by party (applicant / co-applicant).
++"""
++
++from __future__ import annotations
++
++import os
++from typing import Any
++
++FLAG = "COPILOT_DOCUMENT_ACTIONS"
++
++_FIELD_LABEL = {"NAME": "Name", "DATE_OF_BIRTH": "Date of birth", "PAN_NUMBER": "PAN number",
++                "FATHER_NAME": "Father's name", "ADDRESS": "Address"}
++_KYC_FIELDS = set(_FIELD_LABEL)
++_ROLE_LABEL = {"PRIMARY_APPLICANT": "Applicant", "CO_APPLICANT": "Co-applicant"}
++
++#: English defaults; languages.yaml carries hi / hi-Latn / mr under the same keys
++_EN = {
++    "docact_kyc_heading": "Your KYC verification needs attention:",
++    "docact_reupload_heading": "Please upload the correct documents:",
++    "docact_pending_heading": "Still pending:",
++    "docact_review_heading": "Under review (no action needed):",
++    "docact_none": "No document needs any action right now.",
++    "docact_mismatch": "{field} mismatch: {values}",
++    "docact_mismatch_check": "{field} needs a check across {documents}",
++    "docact_shows": "{document} shows \"{value}\"",
++    "docact_upload": "Upload",
++    "docact_being_verified": "being verified",
++}
++
++
++def enabled() -> bool:
++    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _t(key: str, language: str | None, **values: Any) -> str:
++    """The template in the reply's language, else English -- values inserted as given."""
++    said = None
++    if language and language != "en":
++        from app.agents.applicant import language as languages
++
++        said = languages.localized(key, language, **values)
++    return said or _EN[key].format(**values)
++
++
++#: KYC field -> the localizer's word key (answering/localize.py _FIELD_WORDS / _EXTRA_FIELD_WORDS)
++_FIELD_WORD_KEY = {"NAME": "name", "DATE_OF_BIRTH": "date of birth", "FATHER_NAME": "father's name",
++                   "ADDRESS": "address", "PAN_NUMBER": "PAN number"}
++
++
++def _field_label(field: str, language: str | None) -> str:
++    """The field's name in the reply's language (the same words the KYC answers use), else English."""
++    if language and language != "en":
++        from app.agents.applicant.copilot.answering import localize
++
++        words = {**(localize._FIELD_WORDS.get(language) or {}), **(localize._EXTRA_FIELD_WORDS.get(language) or {})}
++        word = words.get(_FIELD_WORD_KEY.get(field, ""))
++        if word:
++            return word[:1].upper() + word[1:]
++    return _FIELD_LABEL[field]
++
++
++def _value(x: Any) -> str:
++    return str(getattr(x, "value", x) or "")
++
++
++def _readable(document_type: Any) -> str:
++    from app.agents.applicant.copilot.answering.answer import _readable as readable
++
++    return readable(document_type)
++
++
++def _role(raw: Any) -> str:
++    role = _value(raw).upper()
++    return role if role in _ROLE_LABEL else "PRIMARY_APPLICANT"
++
++
++def _missing_slots(case_id: str, documents: list, repository: Any) -> list[str]:
++    from app.agents.applicant import workflow
++
++    try:
++        checklist = workflow.build_checklist(repository.get_application(case_id), documents)
++    except Exception:  # noqa: BLE001 - no policy for the product: nothing is imposed
++        return []
++    return [str(e["slot"]) for e in checklist if e.get("mandatory", True) and e.get("status") == "MISSING"]
++
++
++def build(case_id: str, *, party: str | None = None, repository: Any = None) -> dict[str, Any]:
++    """
++    {"reupload", "pending", "under_review", "kyc_issues"} for one case, from the store.
++    `party` (PRIMARY_APPLICANT / CO_APPLICANT) keeps only that party's rows.
++    """
++    from app.agents.applicant.copilot.answering.answer import _explained
++    from app.store import get_repository
++
++    repository = repository or get_repository()
++    stored = [d for d in repository.list_documents(case_id) or []
++              if _value(getattr(d, "status", "")).upper() != "SUPERSEDED"]
++    role_of_party = {getattr(d, "party_id", None): _role(getattr(d, "party_role", None)) for d in stored}
++
++    reupload: list[dict[str, Any]] = []
++    under_review: list[dict[str, Any]] = []
++    for d in stored:
++        status = _value(getattr(d, "status", "")).upper()
++        role = _role(getattr(d, "party_role", None))
++        row = {"party": role, "party_label": _ROLE_LABEL[role], "document_type": d.document_type,
++               "label": _readable(d.document_type)}
++        if status == "REJECTED":
++            reasons = [r for r in (_explained(c) for c in (getattr(d, "reason_codes", None) or [])) if r]
++            reupload.append({**row, "reasons": reasons[:2], "source": "VERIFICATION"})
++        elif status in ("REVIEW", "UPLOADED", "PROCESSING"):
++            under_review.append({**row, "state": "REVIEW" if status == "REVIEW" else "PROCESSING"})
++
++    # KYC: every failed / reviewed identity field, with the values the record kept
++    kyc_issues: list[dict[str, Any]] = []
++    try:
++        findings = repository.get_current_findings(case_id, kind="KYC") or []
++    except Exception:  # noqa: BLE001 - unreadable KYC: no KYC rows, never invented ones
++        findings = []
++    for finding in findings:
++        role = role_of_party.get(getattr(finding, "party_id", None)) or "PRIMARY_APPLICANT"
++        for field in (getattr(finding, "payload", None) or {}).get("fields") or []:
++            name = str((field or {}).get("field") or "").upper()
++            status = str((field or {}).get("status") or "").upper()
++            if name not in _KYC_FIELDS or status not in ("FAIL", "REVIEW", "PARTIAL"):
++                continue
++            sources = [s for s in field.get("sources") or [] if isinstance(s, dict) and s.get("document_type")]
++            kyc_issues.append({"party": role, "party_label": _ROLE_LABEL[role], "field": name,
++                               "field_label": _FIELD_LABEL[name], "status": status,
++                               "values": [{"document_type": s["document_type"], "label": _readable(s["document_type"]),
++                                           "value": s.get("value")} for s in sources]})
++            # the documents whose values disagree are the ones to upload again
++            if status == "FAIL":
++                for s in sources:
++                    if s.get("value") and not any(r["party"] == role and r["document_type"] == s["document_type"]
++                                                  for r in reupload):
++                        reupload.append({"party": role, "party_label": _ROLE_LABEL[role],
++                                         "document_type": s["document_type"], "label": _readable(s["document_type"]),
++                                         "reasons": [], "source": "KYC"})
++
++    primary = [d for d in stored if _role(getattr(d, "party_role", None)) == "PRIMARY_APPLICANT"]
++    pending = [{"party": "PRIMARY_APPLICANT", "party_label": "Applicant", "document_type": slot,
++                "label": _readable(slot)} for slot in _missing_slots(case_id, primary, repository)]
++
++    def keep(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
++        return [r for r in rows if party is None or r["party"] == party]
++
++    out = {"reupload": keep(reupload), "pending": keep(pending), "under_review": keep(under_review),
++           "kyc_issues": keep(kyc_issues)}
++    for row in out["reupload"] + out["pending"]:
++        row["action"] = {"type": "UPLOAD_DOCUMENT", "document_type": row["document_type"], "party": row["party"],
++                         "label": f"Upload {row['label']}"}
++    return out
++
++
++def render(view: dict[str, Any], language: str | None = None) -> dict[str, Any]:
++    """(answer text, the 1-2 words worth emphasis) from a built view. Compact; the payload holds the rest."""
++    two = len({r["party"] for k in ("reupload", "pending", "under_review", "kyc_issues") for r in view[k]}) > 1
++
++    def name(row: dict[str, Any]) -> str:
++        return f"{row['party_label']}'s {row['label']}" if two else row["label"]
++
++    lines: list[str] = []
++    emphasis: list[str] = []
++    issues = [i for i in view["kyc_issues"] if i["values"]]
++    if issues:
++        lines.append(_t("docact_kyc_heading", language))
++        for i in issues[:4]:
++            label = _field_label(i["field"], language)
++            field = f"{i['party_label']}'s {label[:1].lower() + label[1:]}" if two else label
++            with_values = [v for v in i["values"] if v.get("value")]
++            if len(with_values) >= 2:
++                shown = ", ".join(_t("docact_shows", language, document=v["label"], value=v["value"])
++                                  for v in with_values[:3])
++                lines.append("• " + _t("docact_mismatch", language, field=field, values=shown))
++            else:
++                docs = " / ".join(v["label"] for v in i["values"][:3])
++                lines.append("• " + _t("docact_mismatch_check", language, field=field, documents=docs))
++            emphasis.append(label)                       # the word as shown, so step 5 can bold it
++    upload = _t("docact_upload", language)
++    if view["reupload"]:
++        lines.append(_t("docact_reupload_heading", language))
++        for r in view["reupload"]:
++            reason = f" — {r['reasons'][0]}" if r.get("reasons") else ""
++            lines.append(f"📄 {name(r)} [{upload}]{reason}")
++            emphasis.append(r["label"])
++    if view["pending"]:
++        lines.append(_t("docact_pending_heading", language))
++        lines += [f"📄 {name(r)} [{upload}]" for r in view["pending"]]
++        emphasis += [r["label"] for r in view["pending"]]
++    if view["under_review"]:
++        lines.append(_t("docact_review_heading", language))
++        verifying = _t("docact_being_verified", language)
++        lines += [f"⏳ {name(r)}" + (f" ({verifying})" if r["state"] == "PROCESSING" else "")
++                  for r in view["under_review"]]
++    if not lines:
++        lines.append(_t("docact_none", language))
++    seen: list[str] = []
++    for word in emphasis:
++        if word not in seen:
++            seen.append(word)
++    return {"answer": "\n".join(lines), "emphasis": seen[:2]}
++
++
++__all__ = ["FLAG", "build", "enabled", "render"]
+diff --git a/tests/integration/test_step4_document_actions.py b/tests/integration/test_step4_document_actions.py
+new file mode 100644
+index 0000000..030a320
+--- /dev/null
++++ b/tests/integration/test_step4_document_actions.py
+@@ -0,0 +1,107 @@
++"""
++PHASE 3 STEP 4 -- only the documents that need action (COPILOT_DOCUMENT_ACTIONS, default off).
++
++Real uploads through the real API: a PAN and a driving licence of two different
++people (a real KYC name mismatch) and no bank statement. The answer lists the
++mismatch with both recorded values, the documents to upload again, what is still
++pending -- and never a verified document for upload.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from app.agents.applicant.copilot.answering import document_actions
++from tests.integration.test_fos_stage_boundary import open_case, upload
++from tests.integration.test_reupload_supersedes import OTHER_PAN, RISHABH_DL, RISHABH_PAN, _store, client  # noqa: F401
++
++
++@pytest.fixture(autouse=True)
++def flag_off(monkeypatch):
++    monkeypatch.delenv(document_actions.FLAG, raising=False)
++
++
++def ask(client, a, c, message):
++    r = client.post("/api/v1/fos/copilot", json={"applicant_id": a, "case_id": c, "action": "CUSTOM_QUERY",
++                                                 "message": message})
++    assert r.status_code == 200, r.text
++    return r.json()
++
++
++@pytest.fixture
++def mismatch_case(client):
++    a, c = open_case(client)
++    upload(client, a, c, [("pan.jpg", OTHER_PAN), ("dl.jpg", RISHABH_DL)], ["PAN", "DRIVING_LICENCE"])
++    return a, c
++
++
++def test_flag_off_the_answer_is_unchanged(client, mismatch_case):
++    body = ask(client, *mismatch_case, "what is pending?")
++    assert "Please upload the correct documents" not in body["answer"]
++    assert "document_actions" not in body["presentation"]
++
++
++def test_only_documents_needing_action_with_exact_mismatch_values(client, mismatch_case, monkeypatch):
++    monkeypatch.setenv(document_actions.FLAG, "true")
++    body = ask(client, *mismatch_case, "what is pending?")
++    answer = body["answer"]
++    assert "Name mismatch" in answer and "LAXMI SANTOSH GUPTA" in answer and "RISHABH AJIT SINGH" in answer, answer
++    assert "Please upload the correct documents:" in answer
++    assert "📄 PAN [Upload]" in answer and "📄 Driving Licence [Upload]" in answer
++    assert "Still pending:" in answer and "Bank Statement" in answer
++    view = body["presentation"]["document_actions"]
++    assert {r["document_type"] for r in view["pending"]} == {"BANK_STATEMENT"}
++    assert all(r["action"]["type"] == "UPLOAD_DOCUMENT" for r in view["reupload"] + view["pending"])
++    assert view["emphasis"] and view["emphasis"][0] == "Name"
++
++
++def test_hinglish_question_gets_hinglish_headings(client, mismatch_case, monkeypatch):
++    monkeypatch.setenv(document_actions.FLAG, "true")
++    answer = ask(client, *mismatch_case, "kaunse docs baaki hai?")["answer"]
++    assert "Kripya sahi documents upload karein:" in answer and "Abhi baaki:" in answer, answer
++    assert "Naam match nahi hota" in answer and "Janmatithi match nahi hota" in answer, answer
++    assert "LAXMI SANTOSH GUPTA" in answer                     # values quoted exactly, in any language
++
++
++def test_a_clean_case_offers_nothing_verified_for_upload(client, monkeypatch):
++    monkeypatch.setenv(document_actions.FLAG, "true")
++    a, c = open_case(client)
++    upload(client, a, c, [("pan.jpg", RISHABH_PAN), ("dl.jpg", RISHABH_DL)], ["PAN", "DRIVING_LICENCE"])
++    body = ask(client, a, c, "what is pending?")
++    view = body["presentation"]["document_actions"]
++    offered = {r["document_type"] for r in view["reupload"]}
++    assert "PAN" not in offered and "DRIVING_LICENCE" not in offered, view
++    assert "PAN [Upload]" not in body["answer"]
++
++
++# ---- the builder and renderer on their own ----------------------------------------------
++VIEW = {"kyc_issues": [{"party": "CO_APPLICANT", "party_label": "Co-applicant", "field": "DATE_OF_BIRTH",
++                        "field_label": "Date of birth", "status": "FAIL",
++                        "values": [{"document_type": "PAN", "label": "PAN", "value": "2004-12-20"},
++                                   {"document_type": "AADHAAR", "label": "Aadhaar", "value": "2002-06-12"}]}],
++        "reupload": [{"party": "CO_APPLICANT", "party_label": "Co-applicant", "document_type": "VOTER_ID",
++                      "label": "Voter ID", "reasons": ["The document has expired."], "source": "VERIFICATION"}],
++        "pending": [{"party": "PRIMARY_APPLICANT", "party_label": "Applicant", "document_type": "SALARY_SLIP",
++                     "label": "Salary Slip"}],
++        "under_review": [{"party": "PRIMARY_APPLICANT", "party_label": "Applicant", "document_type": "BANK_STATEMENT",
++                          "label": "Bank Statement", "state": "REVIEW"}]}
++
++
++def test_render_groups_by_party_and_keeps_review_as_info_only():
++    said = document_actions.render(VIEW)
++    text = said["answer"]
++    assert "Co-applicant's date of birth mismatch: PAN shows \"2004-12-20\", Aadhaar shows \"2002-06-12\"" in text
++    assert "📄 Co-applicant's Voter ID [Upload] — The document has expired." in text
++    assert "📄 Applicant's Salary Slip [Upload]" in text
++    assert "⏳ Applicant's Bank Statement" in text and "Bank Statement [Upload]" not in text
++    assert said["emphasis"] == ["Date of birth", "Voter ID"]
++
++
++def test_nothing_to_do_is_said_plainly():
++    empty = {"kyc_issues": [], "reupload": [], "pending": [], "under_review": []}
++    assert document_actions.render(empty)["answer"] == "No document needs any action right now."
++
++
++def test_a_party_filter_keeps_only_that_partys_rows(client, mismatch_case, _store):
++    view = document_actions.build(mismatch_case[1], party="CO_APPLICANT", repository=_store)
++    assert all(not rows for rows in view.values())             # the case has no co-applicant

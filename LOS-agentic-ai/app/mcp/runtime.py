@@ -193,9 +193,12 @@ def mode() -> str:
 
 
 def _arguments(name: str, applicant_id: str | None, case_id: str | None,
-               document_type: str | None) -> dict[str, Any]:
+               document_type: str | None, co_applicant_id: str | None = None) -> dict[str, Any]:
     fields = set((CONTRACTS[name].input_schema.get("properties") or {}))
     args: dict[str, Any] = {}
+    if "co_applicant_id" in fields:
+        # always sent (empty when absent), so both transports refuse it the same way
+        args["co_applicant_id"] = co_applicant_id or ""
     if "applicant_id" in fields and applicant_id is not None:
         args["applicant_id"] = applicant_id
     if "case_id" in fields and case_id is not None:
@@ -297,6 +300,7 @@ async def call(
     request_id: str | None = None,
     stage: str | None = None,
     intent: str | None = None,
+    co_applicant_id: str | None = None,
 ) -> tuple[ToolEnvelope, dict[str, Any]]:
     """One tool call, inside an `mcp.tool` span (tool, transport, outcome)."""
     from app.observability.tracing import annotate, span
@@ -306,7 +310,7 @@ async def call(
         envelope, trace = await _call(
             name, applicant_id=applicant_id, case_id=case_id,
             document_type=document_type, caller=caller, request_id=request_id,
-            stage=stage, intent=intent)
+            stage=stage, intent=intent, co_applicant_id=co_applicant_id)
         annotate(current, protocol=trace.get("protocol"),
                  transport=trace.get("transport"), status=trace.get("status"),
                  authorized=trace.get("authorized"), ok=trace.get("ok"),
@@ -326,6 +330,7 @@ async def _call(
     request_id: str | None = None,
     stage: str | None = None,
     intent: str | None = None,
+    co_applicant_id: str | None = None,
 ) -> tuple[ToolEnvelope, dict[str, Any]]:
     """
     Carry one read-tool call over the configured MCP mode.
@@ -350,6 +355,8 @@ async def _call(
 
     async def direct() -> ToolEnvelope:
         handler = capabilities.READ_TOOLS[name]
+        if name == "co_applicant.get":
+            return await handler(case_id, co_applicant_id or "")
         if name in ("applicant.get", "applications.list"):
             return await handler(applicant_id)
         if name == "documents.verification":
@@ -372,7 +379,7 @@ async def _call(
         try:
             session = _session()
             result = await session.call(
-                name, _arguments(name, applicant_id, case_id, document_type),
+                name, _arguments(name, applicant_id, case_id, document_type, co_applicant_id),
                 meta, config.mcp_call_timeout_seconds())
             envelope = _envelope_from(name, result)
             trace["protocol"] = "mcp"

@@ -1,0 +1,89 @@
+{
+  "plan_version": 1,
+  "schema_ready": true,
+  "grants_revocable": true,
+  "co_applicants_on_cases": 3,
+  "excluded_cases": [
+    "case_eval0000000000000000000000mine"
+  ],
+  "excluded": [
+    {
+      "case_id": "case_eval0000000000000000000000mine",
+      "co_applicant_id": "COAPP-EVALMINE01",
+      "also_an_applicant_id": true,
+      "reason": "excluded by --exclude-case (eval / test data): left unchanged"
+    }
+  ],
+  "inserts": [
+    {
+      "case_id": "CASE-B623BB6413DF",
+      "applicant_id": "APP-18E7D65C5048",
+      "co_applicant_id": "COAPP-J1",
+      "verified_name_available": false
+    },
+    {
+      "case_id": "CASE-852CC948E7CE",
+      "applicant_id": "APP-60614FADAA03",
+      "co_applicant_id": "COAPP-3351F2C1A068",
+      "verified_name_available": false
+    }
+  ],
+  "remaps": [
+    {
+      "case_id": "CASE-852CC948E7CE",
+      "old_id": "COAPP-J1",
+      "new_id": "COAPP-3351F2C1A068",
+      "reason": "DUPLICATE",
+      "kept_on": "CASE-B623BB6413DF",
+      "rows": {
+        "applications": 1,
+        "documents": 2,
+        "case_findings": 5,
+        "document_versions": 2,
+        "case_events": 0,
+        "ocr_jobs": 0
+      },
+      "append_only_rows_left_on_old_id": {
+        "jev_runs": 0
+      }
+    }
+  ],
+  "grants_to_revoke": [
+    {
+      "subject": "joint-officer",
+      "resource_type": "APPLICANT",
+      "resource_id": "COAPP-J1",
+      "granted_at": "2026-10-06T11:29:50.996399+00:00"
+    }
+  ],
+  "grant_impact": [
+    {
+      "subject": "joint-officer",
+      "before": {
+        "cases": [
+          "CASE-852CC948E7CE",
+          "CASE-B623BB6413DF"
+        ],
+        "applicants": [
+          "APP-18E7D65C5048",
+          "APP-60614FADAA03"
+        ]
+      },
+      "after": {
+        "cases": [
+          "CASE-852CC948E7CE",
+          "CASE-B623BB6413DF"
+        ],
+        "applicants": [
+          "APP-18E7D65C5048",
+          "APP-60614FADAA03"
+        ]
+      },
+      "lost_cases": [],
+      "lost_applicants": []
+    }
+  ],
+  "safe_to_apply": true,
+  "created_at": "2026-10-07T06:20:32.910929+00:00",
+  "fingerprint": "839f2d1fde01b73b9ce05d4f43fe7ab2d3b3e2badfd1afad96342ced92108a03"
+}

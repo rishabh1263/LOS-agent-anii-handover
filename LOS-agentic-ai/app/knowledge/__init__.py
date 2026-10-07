@@ -138,8 +138,21 @@ def set_repository(repository: KnowledgeRepository | None) -> None:
         _DENSE = None
 
 
+#: The state of the flags that gate knowledge files (`requires_flag`) when the index was built.
+_GATE_STATE: tuple = ()
+
+
+def _gate_state() -> tuple:
+    flags = sorted(getattr(_REPOSITORY, "gated_flags", None) or ())
+    return tuple((f, (os.getenv(f) or "").strip().lower() in {"1", "true", "yes", "on"}) for f in flags)
+
+
 def get_retriever() -> Retriever:
-    global _RETRIEVER
+    global _RETRIEVER, _GATE_STATE
+    # A FLAG-GATED FILE FOLLOWS ITS FLAG: the index was built for one flag state; when a
+    # gating flag changes, the corpus and the retriever are rebuilt (no restart needed)
+    if _RETRIEVER is not None and _gate_state() != _GATE_STATE:
+        set_repository(None)
     if _RETRIEVER is None:
         with _LOCK:
             if _RETRIEVER is None:
@@ -164,6 +177,10 @@ def get_retriever() -> Retriever:
                     _RETRIEVER = LexicalRetriever(
                         repository, default_threshold=default_threshold(),
                     )
+                load = getattr(repository, "_load", None)
+                if callable(load):
+                    load()                     # so the gating flags are known before the state is noted
+                _GATE_STATE = _gate_state()
     return _RETRIEVER
 
 

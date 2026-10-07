@@ -1,0 +1,67 @@
+{
+  "request": {
+    "action": "VIEW_DOCUMENT",
+    "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "case_id": "CASE-A2AF2B678D6B",
+    "intent": "VIEW_DOCUMENT",
+    "answer": "📄 **Pan** -- the link works for 5 minutes.",
+    "category": "CASE_ONLY",
+    "query_type": "ACTION_REQUEST",
+    "response_source": "STRUCTURED",
+    "documents": [],
+    "errors": [],
+    "tools_invoked": [],
+    "suggested_questions": [],
+    "actions": [
+      {
+        "type": "OPEN_URL",
+        "url": "/api/v1/fos/documents/view?token=<signed>",
+        "expires_in": 300
+      }
+    ],
+    "response_style": {
+      "applied": true,
+      "expanded": []
+    },
+    "presentation": {
+      "message": "📄 **Pan** -- the link works for 5 minutes.",
+      "intent": "VIEW_DOCUMENT",
+      "response_type": "ANSWER",
+      "response_depth": "NORMAL",
+      "language": null,
+      "status": "INFO",
+      "next_step": null,
+      "next_action": null,
+      "audio": {
+        "enabled": false,
+        "status": "NO_VOICE_FOR_LANGUAGE",
+        "language": null,
+        "voice": null,
+        "text": "📄 **Pan**, the link works for 5 minutes.",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "applicant_id": null,
+        "stage": null
+      },
+      "sections": [],
+      "documents": [],
+      "document_groups": [],
+      "actions": [],
+      "next_actions": [],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": null,
+        "response_source": "STRUCTURED"
+      }
+    }
+  }
+}

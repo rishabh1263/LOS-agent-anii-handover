@@ -458,7 +458,8 @@ def deterministic_answer(
         lines = []
         for i in items:
             if i.get("code") == "DOCUMENT_MISSING" and i.get("slot"):
-                lines.append(_status_line(_readable(i.get("slot")), "MISSING"))
+                # a co-applicant's item (LOS_COAPP_MANDATORY_DOCS) is named as theirs
+                lines.append(_status_line(_doc_label(i.get("slot"), i.get("party_role")), "MISSING"))
             else:
                 lines.append(f"• {str(i.get('detail') or '').rstrip('.')}")
         return "Pending:\n" + "\n".join(lines)

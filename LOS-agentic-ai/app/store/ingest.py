@@ -234,6 +234,15 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
 
     if memory:
         _index_case(repository, case_id)
+        # A CO-APPLICANT WITH NO NAME gets one from a PASSED KYC name check only
+        # (LOS_COAPP_IDENTITY, step 5d) -- never from unverified OCR.
+        try:
+            from app.agents.los import co_applicants as _co
+
+            if _co.enabled(repository):
+                _co.fill_verified_names(case_id, repository)
+        except Exception as exc:  # noqa: BLE001 - observational, like the case memory itself
+            logger.warning("co-applicant verified-name fill failed for %s: %s", case_id, type(exc).__name__)
 
     _queue_unread(repository, result, case_id, applicant_id)
 

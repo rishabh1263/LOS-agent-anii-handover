@@ -26,6 +26,7 @@ expression indexes, append-only triggers -- so the two backends cannot drift.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 from typing import Any
@@ -104,6 +105,155 @@ MIGRATIONS: tuple[tuple[str, str, Any], ...] = (
      lambda: ("ALTER TABLE jev_runs ALTER COLUMN latency_ms TYPE DOUBLE PRECISION;\n"
               "ALTER TABLE conversation_state ALTER COLUMN last_activity_at TYPE DOUBLE PRECISION;")),
 )
+
+
+# ---------------------------------------------------------------------------
+# GATED MIGRATIONS (Phase 3 step 5d) -- never applied just because the code shipped
+# ---------------------------------------------------------------------------
+#
+# Applied automatically ONLY when ALL hold:
+#   * ENVIRONMENT is not production   (production: a person runs scripts.apply_migration
+#                                      at a planned time -- Go-live checklist)
+#   * LOS_COAPP_IDENTITY=true
+#   * LOS_MIGRATION_BACKUP_FILE names a fresh pg_dump backup (store/backup_check.py)
+#   * its precondition holds          (0005: no duplicate co_applicant_id left)
+# Otherwise it is skipped with a warning and NOT recorded, so it stays pending.
+
+COAPP_IDENTITY_DDL = """
+CREATE TABLE IF NOT EXISTS co_applicants (
+    co_applicant_id  TEXT PRIMARY KEY,
+    case_id          TEXT NOT NULL REFERENCES applications (case_id),
+    applicant_id     TEXT NOT NULL REFERENCES applicants (applicant_id),
+    name             TEXT,
+    name_source      TEXT CHECK (name_source IN ('DECLARED', 'KYC_VERIFIED')),
+    dob              TEXT,
+    pan              TEXT,
+    father_name      TEXT,
+    address          TEXT,
+    relationship     TEXT,
+    source           TEXT NOT NULL DEFAULT 'INTAKE' CHECK (source IN ('INTAKE', 'BACKFILL')),
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_co_applicants_case      ON co_applicants (case_id);
+CREATE INDEX IF NOT EXISTS idx_co_applicants_applicant ON co_applicants (applicant_id);
+
+CREATE TABLE IF NOT EXISTS co_applicant_id_remap (
+    remap_id     TEXT PRIMARY KEY,
+    run_id       TEXT NOT NULL,
+    action       TEXT NOT NULL CHECK (action IN ('INSERT_CO_APPLICANT', 'REMAP_ID', 'REVOKE_GRANT')),
+    case_id      TEXT,
+    old_id       TEXT,
+    new_id       TEXT,
+    detail       TEXT NOT NULL DEFAULT '{}',
+    applied_at   TEXT NOT NULL,
+    reverted_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_co_applicant_remap_run ON co_applicant_id_remap (run_id);
+
+ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS revoked_at     TEXT;
+ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS revoked_reason TEXT;
+"""
+
+COAPP_UNIQUE_DDL = """
+DO $$
+BEGIN
+  IF EXISTS (SELECT co_applicant_id FROM applications
+             WHERE co_applicant_id IS NOT NULL
+             GROUP BY co_applicant_id HAVING count(*) > 1) THEN
+    RAISE EXCEPTION 'co_applicant_id is not unique yet: run scripts.backfill_co_applicants --apply first';
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_applications_co_applicant_id
+    ON applications (co_applicant_id) WHERE co_applicant_id IS NOT NULL;
+"""
+
+
+def _no_duplicate_co_ids(conn) -> bool:
+    row = conn.execute("SELECT count(*) AS n FROM (SELECT co_applicant_id FROM applications "
+                       "WHERE co_applicant_id IS NOT NULL GROUP BY co_applicant_id "
+                       "HAVING count(*) > 1) d").fetchone()
+    return int(row["n"]) == 0
+
+
+CHAT_HISTORY_DDL = """
+CREATE TABLE IF NOT EXISTS chat_turns (
+    turn_id          TEXT PRIMARY KEY,
+    subject_hash     TEXT NOT NULL,
+    conversation_id  TEXT NOT NULL,
+    case_id          TEXT,
+    turn_no          INTEGER NOT NULL,
+    role             TEXT NOT NULL CHECK (role IN ('USER', 'BOT')),
+    text_sealed      TEXT NOT NULL,
+    intent           TEXT,
+    created_at       TEXT NOT NULL,
+    expires_at       TEXT NOT NULL,
+    CONSTRAINT uq_chat_turns_turn UNIQUE (subject_hash, conversation_id, turn_no, role)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_turns_conv    ON chat_turns (subject_hash, conversation_id, turn_no);
+CREATE INDEX IF NOT EXISTS idx_chat_turns_expires ON chat_turns (expires_at);
+"""
+
+#: (version, description, ddl, precondition(conn) -> bool)
+GATED_MIGRATIONS: tuple[tuple[str, str, str, Any], ...] = (
+    ("0004", "co-applicant identity: co_applicants, remap log, revocable grants",
+     COAPP_IDENTITY_DDL, lambda conn: True),
+    ("0005", "co_applicant_id unique per case (after the backfill)", COAPP_UNIQUE_DDL, _no_duplicate_co_ids),
+    # 6c (user-approved 2026-10-07 with: UNIQUE per turn, backup-table cleanup, scheduled cleanup, forget-me)
+    ("0006", "chat history: masked + encrypted turns, retention", CHAT_HISTORY_DDL, lambda conn: True),
+)
+
+#: THE FLAG that lets a gated migration auto-apply in DEVELOPMENT (production: never; scripts.apply_migration)
+GATED_FLAGS = {"0004": "LOS_COAPP_IDENTITY", "0005": "LOS_COAPP_IDENTITY", "0006": "COPILOT_SESSION_MEMORY"}
+
+
+def _production() -> bool:
+    return (os.getenv("ENVIRONMENT") or "development").strip().lower() in {"production", "prod"}
+
+
+def _gated_auto_apply_allowed(version: str = "0004") -> tuple[bool, str]:
+    if _production():
+        return False, "production: run scripts.apply_migration by hand at a planned time"
+    flag = GATED_FLAGS.get(version, "LOS_COAPP_IDENTITY")
+    if (os.getenv(flag) or "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return False, f"{flag} is off"
+    from app.store.backup_check import BackupRequired, require_fresh_backup
+
+    try:
+        require_fresh_backup(os.getenv("LOS_MIGRATION_BACKUP_FILE"))
+    except BackupRequired as exc:
+        return False, f"no fresh backup ({exc})"
+    return True, ""
+
+
+def apply_gated(repository: "PostgresRepository", version: str) -> bool:
+    """
+    Apply one gated migration NOW, in one transaction (scripts.apply_migration, tests).
+    The caller has already required the backup. Returns False when it was already applied.
+    """
+    entry = next((m for m in GATED_MIGRATIONS if m[0] == version), None)
+    if entry is None:
+        raise RepositoryError(f"unknown gated migration {version}")
+    _, description, ddl, precondition = entry
+    repository.initialise()
+    conn = repository._connect()
+    applied = {r["version"] for r in conn.execute("SELECT version FROM schema_migrations").fetchall()}
+    if version in applied:
+        return False
+    if not precondition(conn):
+        raise RepositoryError(f"migration {version}: precondition not met")
+    try:
+        conn.execute("BEGIN")
+        conn.raw_cursor().execute(ddl)
+        conn.execute("INSERT INTO schema_migrations (version, description) VALUES (?, ?)", (version, description))
+        conn.commit()
+    except StoreDbError as exc:
+        conn.rollback()
+        raise RepositoryError(f"migration {version} failed: {exc}") from exc
+    repository.reset_schema_cache()
+    logger.info("Postgres case store: applied gated migration %s", version)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +464,7 @@ class PostgresRepository(sql_repo.SqlRepository):
                                  (version, description))
                     logger.info("Postgres case store: applied migration %s", version)
                 conn.commit()
+                self._apply_gated_at_startup(conn, applied)
             except StoreDbError as exc:
                 conn.rollback()
                 raise RepositoryError(f"Could not migrate the Postgres schema: {exc}") from exc
@@ -325,6 +476,29 @@ class PostgresRepository(sql_repo.SqlRepository):
                     pass
             self._initialised = True
             logger.info("Case store ready on PostgreSQL (%d migration(s))", len(MIGRATIONS))
+
+    def _apply_gated_at_startup(self, conn, applied: set[str]) -> None:
+        """Gated migrations (0004 / 0005): dev only, flag on, fresh backup named, precondition met."""
+        pending = [m for m in GATED_MIGRATIONS if m[0] not in applied]
+        if not pending:
+            return
+        for version, description, ddl, precondition in pending:
+            allowed, why = _gated_auto_apply_allowed(version)
+            if not allowed:
+                if why.startswith("production") or " is off" not in why:
+                    logger.warning("Gated migration %s pending, not applied: %s", version, why)
+                continue
+            if not precondition(conn):
+                logger.warning("Gated migration %s pending: precondition not met "
+                               "(run scripts.backfill_co_applicants first)", version)
+                continue
+            conn.execute("BEGIN")
+            conn.raw_cursor().execute(ddl)
+            conn.execute("INSERT INTO schema_migrations (version, description) VALUES (?, ?)",
+                         (version, description))
+            conn.commit()
+            logger.info("Postgres case store: applied gated migration %s", version)
+        self.reset_schema_cache()
 
     def dispose(self) -> None:
         """Close the pool (every connection). The repository is unusable afterwards."""

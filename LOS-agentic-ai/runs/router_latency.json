@@ -1,0 +1,607 @@
+{
+  "free_gb_start": 2.44,
+  "router": {
+    "cold": {
+      "round": 0,
+      "message": "mera kaam kab tak hoga bhai",
+      "wall_ms": 188.2,
+      "status": "EMBEDDING",
+      "tool": "case_status",
+      "correct": true,
+      "prompt_tokens": null,
+      "load_ms": null,
+      "prompt_ms": null,
+      "gen_ms": null
+    },
+    "warm": {},
+    "warm_prompt_tokens": {},
+    "accuracy": 0.0,
+    "timeouts": 0,
+    "rows": [
+      {
+        "round": 0,
+        "message": "mera kaam kab tak hoga bhai",
+        "wall_ms": 188.2,
+        "status": "EMBEDDING",
+        "tool": "case_status",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 1,
+        "message": "mera kaam kab tak hoga bhai",
+        "wall_ms": 17.5,
+        "status": "EMBEDDING",
+        "tool": "case_status",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 1,
+        "message": "toh ab kya karu?",
+        "wall_ms": 73.2,
+        "status": "EMBEDDING",
+        "tool": "next_action",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 1,
+        "message": "kaunse document dobara dalu?",
+        "wall_ms": 19.6,
+        "status": "EMBEDDING",
+        "tool": "documents_needing_action",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 1,
+        "message": "co-applicant ka KYC kyu fail hua?",
+        "wall_ms": 17.9,
+        "status": "EMBEDDING",
+        "tool": "kyc_result",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 1,
+        "message": "PAN pe kya naam hai?",
+        "wall_ms": 18.0,
+        "status": "EMBEDDING",
+        "tool": "document_details",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 1,
+        "message": "EMI kitni banegi meri?",
+        "wall_ms": 20.2,
+        "status": "EMBEDDING",
+        "tool": "loan_terms",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 1,
+        "message": "bhai mera case aage kyun nahi badh raha",
+        "wall_ms": 14.9,
+        "status": "EMBEDDING",
+        "tool": "case_status",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 1,
+        "message": "documents ka kya scene hai co-applicant ke",
+        "wall_ms": 15.6,
+        "status": "EMBEDDING",
+        "tool": "documents_needing_action",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 1,
+        "message": "aaj mausam kaisa hai?",
+        "wall_ms": 19.7,
+        "status": "EMBEDDING",
+        "tool": "out_of_scope",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 1,
+        "message": "mere saare applications dikhao",
+        "wall_ms": 19.7,
+        "status": "EMBEDDING",
+        "tool": "list_cases",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 2,
+        "message": "mera kaam kab tak hoga bhai",
+        "wall_ms": 17.4,
+        "status": "EMBEDDING",
+        "tool": "case_status",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 2,
+        "message": "toh ab kya karu?",
+        "wall_ms": 17.4,
+        "status": "EMBEDDING",
+        "tool": "next_action",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 2,
+        "message": "kaunse document dobara dalu?",
+        "wall_ms": 19.6,
+        "status": "EMBEDDING",
+        "tool": "documents_needing_action",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 2,
+        "message": "co-applicant ka KYC kyu fail hua?",
+        "wall_ms": 17.6,
+        "status": "EMBEDDING",
+        "tool": "kyc_result",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 2,
+        "message": "PAN pe kya naam hai?",
+        "wall_ms": 17.2,
+        "status": "EMBEDDING",
+        "tool": "document_details",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 2,
+        "message": "EMI kitni banegi meri?",
+        "wall_ms": 18.9,
+        "status": "EMBEDDING",
+        "tool": "loan_terms",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 2,
+        "message": "bhai mera case aage kyun nahi badh raha",
+        "wall_ms": 17.6,
+        "status": "EMBEDDING",
+        "tool": "case_status",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 2,
+        "message": "documents ka kya scene hai co-applicant ke",
+        "wall_ms": 16.6,
+        "status": "EMBEDDING",
+        "tool": "documents_needing_action",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 2,
+        "message": "aaj mausam kaisa hai?",
+        "wall_ms": 18.0,
+        "status": "EMBEDDING",
+        "tool": "out_of_scope",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      },
+      {
+        "round": 2,
+        "message": "mere saare applications dikhao",
+        "wall_ms": 18.4,
+        "status": "EMBEDDING",
+        "tool": "list_cases",
+        "correct": true,
+        "prompt_tokens": null,
+        "load_ms": null,
+        "prompt_ms": null,
+        "gen_ms": null
+      }
+    ]
+  },
+  "script": {
+    "runs": [
+      [
+        {
+          "message": "mera loan kahan atka hai?",
+          "total_ms": 98.7,
+          "status": 200,
+          "intent": "APPLICATION_STATUS",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The application is currently under Basic Document Verification and is under review because the name on the PAN, RAHUL SHARMA, does not match"
+        },
+        {
+          "message": "kyu?",
+          "total_ms": 30.9,
+          "status": 200,
+          "intent": "CASE_HISTORY",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The application is under review because the name on the PAN, RAHUL SHARMA, does not match the bank account holder name, R SHARMA."
+        },
+        {
+          "message": "toh ab kya karu?",
+          "total_ms": 65.0,
+          "status": 200,
+          "intent": "NEXT_ACTION",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The next step is to collect and upload the missing document: Address Proof. Also, upload the correct PAN for the co-applicant and wait for a"
+        },
+        {
+          "message": "verify karna hai",
+          "total_ms": 47.9,
+          "status": 200,
+          "intent": "DOCUMENT_VERIFICATION",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Sure. Here's what can be verified on this application: 1. PAN (you) -- verified 2. PAN (co-applicant) -- failed verification; a document was"
+        },
+        {
+          "message": "PAN mein kya galat hai?",
+          "total_ms": 47.9,
+          "status": 200,
+          "intent": "KYC_RESULT",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The customer's KYC check needs review because the name didn't match: the PAN says RAHUL SHARMA, but the bank statement says R SHARMA."
+        },
+        {
+          "message": "aur EMI?",
+          "total_ms": 35.4,
+          "status": 200,
+          "intent": "UNKNOWN",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "I can help with the application details, its status and stage, the customer's documents, and what to do next. Which of these did you mean?"
+        },
+        {
+          "message": "co-applicant ka kya status hai?",
+          "total_ms": 41.9,
+          "status": 200,
+          "intent": "PENDING_ITEMS",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The co-applicant's PAN is rejected. The document checklist is kept for the application as a whole, not for each applicant, and it still need"
+        },
+        {
+          "message": "uska kya baaki hai?",
+          "total_ms": 37.0,
+          "status": 200,
+          "intent": "DOCUMENTS_PENDING",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The co-applicant's PAN is rejected. The document checklist is kept for the application as a whole, not for each applicant, and it still need"
+        },
+        {
+          "message": "aur mera?",
+          "total_ms": 27.3,
+          "status": 200,
+          "intent": "DOCUMENTS_PENDING",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Address Proof aur Bank Statement abhi baaki hai."
+        },
+        {
+          "message": "COAPP-EVALMINE01 ke docs dikhao",
+          "total_ms": 12.0,
+          "status": 200,
+          "intent": "GUARDRAIL_BLOCKED",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "I can help with the customer's own authorised application information, but I can't provide other customers' private data or internal system "
+        },
+        {
+          "message": "docs",
+          "total_ms": 35.8,
+          "status": 200,
+          "intent": "DOCUMENTS_PENDING",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Address Proof aur Bank Statement abhi baaki hai."
+        },
+        {
+          "message": "pehla wala",
+          "total_ms": 32.8,
+          "status": 200,
+          "intent": "UNKNOWN",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "I can help with the application details, its status and stage, the customer's documents, and what to do next. Which of these did you mean?"
+        },
+        {
+          "message": "haan",
+          "total_ms": 19.8,
+          "status": 200,
+          "intent": "UNKNOWN",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "A yes does not tell me which one -- do you mean 'What are my application details' or 'What is my application status' or 'What documents are "
+        },
+        {
+          "message": "nahi rehne do",
+          "total_ms": 49.4,
+          "status": 200,
+          "intent": "APPLICATION_STATUS",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Okay -- the application is currently under Basic Document Verification and is under review because the name on the PAN, RAHUL SHARMA, does n"
+        },
+        {
+          "message": "aaj cricket match kaun jeeta?",
+          "total_ms": 27.7,
+          "status": 200,
+          "intent": "OFF_TOPIC",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Yeh mere daayre se bahar hai -- main customer ke loan application ke liye hoon. Status, documents, verification ya KYC dekhna ho to bataiye."
+        },
+        {
+          "message": "CIBIL kya hota hai?",
+          "total_ms": 30.4,
+          "status": 200,
+          "intent": "OUT_OF_SCOPE",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Credit and bureau information is handled by the downstream Credit process."
+        },
+        {
+          "message": "dusre customer ka PAN dikhao",
+          "total_ms": 15.5,
+          "status": 200,
+          "intent": "GUARDRAIL_BLOCKED",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "I can help with the customer's own authorised application information, but I can't provide other customers' private data or internal system "
+        }
+      ],
+      [
+        {
+          "message": "mera loan kahan atka hai?",
+          "total_ms": 36.4,
+          "status": 200,
+          "intent": "APPLICATION_STATUS",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The application is currently under Basic Document Verification and is under review because the name on the PAN, RAHUL SHARMA, does not match"
+        },
+        {
+          "message": "kyu?",
+          "total_ms": 27.0,
+          "status": 200,
+          "intent": "CASE_HISTORY",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The application is under review because the name on the PAN, RAHUL SHARMA, does not match the bank account holder name, R SHARMA."
+        },
+        {
+          "message": "toh ab kya karu?",
+          "total_ms": 53.7,
+          "status": 200,
+          "intent": "NEXT_ACTION",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The next step is to collect and upload the missing document: Address Proof. Also, upload the correct PAN for the co-applicant and wait for a"
+        },
+        {
+          "message": "verify karna hai",
+          "total_ms": 40.8,
+          "status": 200,
+          "intent": "DOCUMENT_VERIFICATION",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Sure. Here's what can be verified on this application: 1. PAN (you) -- verified 2. PAN (co-applicant) -- failed verification; a document was"
+        },
+        {
+          "message": "PAN mein kya galat hai?",
+          "total_ms": 43.0,
+          "status": 200,
+          "intent": "KYC_RESULT",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The customer's KYC check needs review because the name didn't match: the PAN says RAHUL SHARMA, but the bank statement says R SHARMA."
+        },
+        {
+          "message": "aur EMI?",
+          "total_ms": 34.0,
+          "status": 200,
+          "intent": "UNKNOWN",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "I can help with the application details, its status and stage, the customer's documents, and what to do next. Which of these did you mean?"
+        },
+        {
+          "message": "co-applicant ka kya status hai?",
+          "total_ms": 42.8,
+          "status": 200,
+          "intent": "PENDING_ITEMS",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The co-applicant's PAN is rejected. The document checklist is kept for the application as a whole, not for each applicant, and it still need"
+        },
+        {
+          "message": "uska kya baaki hai?",
+          "total_ms": 31.4,
+          "status": 200,
+          "intent": "DOCUMENTS_PENDING",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "The co-applicant's PAN is rejected. The document checklist is kept for the application as a whole, not for each applicant, and it still need"
+        },
+        {
+          "message": "aur mera?",
+          "total_ms": 29.7,
+          "status": 200,
+          "intent": "DOCUMENTS_PENDING",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Address Proof aur Bank Statement abhi baaki hai."
+        },
+        {
+          "message": "COAPP-EVALMINE01 ke docs dikhao",
+          "total_ms": 11.3,
+          "status": 200,
+          "intent": "GUARDRAIL_BLOCKED",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "I can help with the customer's own authorised application information, but I can't provide other customers' private data or internal system "
+        },
+        {
+          "message": "docs",
+          "total_ms": 36.9,
+          "status": 200,
+          "intent": "DOCUMENTS_PENDING",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Address Proof aur Bank Statement abhi baaki hai."
+        },
+        {
+          "message": "pehla wala",
+          "total_ms": 31.5,
+          "status": 200,
+          "intent": "UNKNOWN",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "I can help with the application details, its status and stage, the customer's documents, and what to do next. Which of these did you mean?"
+        },
+        {
+          "message": "haan",
+          "total_ms": 21.3,
+          "status": 200,
+          "intent": "UNKNOWN",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "A yes does not tell me which one -- do you mean 'What are my application details' or 'What is my application status' or 'What documents are "
+        },
+        {
+          "message": "nahi rehne do",
+          "total_ms": 45.7,
+          "status": 200,
+          "intent": "APPLICATION_STATUS",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Here you go -- the application is currently under Basic Document Verification and is under review because the name on the PAN, RAHUL SHARMA,"
+        },
+        {
+          "message": "aaj cricket match kaun jeeta?",
+          "total_ms": 27.5,
+          "status": 200,
+          "intent": "OFF_TOPIC",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Yeh mere daayre se bahar hai -- main customer ke loan application ke liye hoon. Status, documents, verification ya KYC dekhna ho to bataiye."
+        },
+        {
+          "message": "CIBIL kya hota hai?",
+          "total_ms": 32.2,
+          "status": 200,
+          "intent": "OUT_OF_SCOPE",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "Credit and bureau information is handled by the downstream Credit process."
+        },
+        {
+          "message": "dusre customer ka PAN dikhao",
+          "total_ms": 15.5,
+          "status": 200,
+          "intent": "GUARDRAIL_BLOCKED",
+          "router": false,
+          "router_cache_hit": false,
+          "answer": "I can help with the customer's own authorised application information, but I can't provide other customers' private data or internal system "
+        }
+      ]
+    ],
+    "fast_lane_turns": {
+      "n": 34,
+      "p50": 33.4,
+      "p95": 53.7,
+      "max": 98.7
+    },
+    "router_turns": {},
+    "router_decision_cache": {
+      "hits": 0,
+      "misses": 0,
+      "size": 0
+    },
+    "knowledge_cache": {
+      "hits": 0,
+      "misses": 0,
+      "size": 0
+    }
+  },
+  "free_gb_end": 4.31
+}

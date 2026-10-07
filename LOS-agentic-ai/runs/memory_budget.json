@@ -1,0 +1,48 @@
+{
+  "before": {
+    "total_gb": 15.55,
+    "free_gb": 6.59,
+    "groups": {
+      "postgres": {
+        "processes": 22,
+        "rss_gb": 0.197
+      },
+      "python": {
+        "processes": 4,
+        "rss_gb": 0.069
+      },
+      "ollama": {
+        "processes": 2,
+        "rss_gb": 0.038
+      }
+    },
+    "ollama_loaded": []
+  },
+  "load_ms": 5266,
+  "load_duration_ms": 4528,
+  "after": {
+    "total_gb": 15.55,
+    "free_gb": 4.67,
+    "groups": {
+      "postgres": {
+        "processes": 22,
+        "rss_gb": 0.197
+      },
+      "python": {
+        "processes": 4,
+        "rss_gb": 0.07
+      },
+      "ollama": {
+        "processes": 2,
+        "rss_gb": 0.043
+      }
+    },
+    "ollama_loaded": [
+      {
+        "model": "qwen2.5:3b",
+        "size_gb": 1.94
+      }
+    ]
+  },
+  "model_cost_gb": 1.92
+}

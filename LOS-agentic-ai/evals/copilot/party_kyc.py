@@ -51,7 +51,8 @@ BOILERPLATE = re.compile(r"I can tell you about|I can help with|What would you l
                          r"Which of these did you mean|Reason codes:|The recorded KYC check for this case",
                          re.I)
 MISSING = re.compile(r"hasn'?t (been )?provided|haven'?t provided|not provided|isn'?t recorded|"
-                     r"not recorded|don'?t have (your|the co-applicant'?s) .{0,40}recorded|"
+                     # "the customer's": the agent-audience voice (answering/voice.py) of "your"
+                     r"not recorded|don'?t have (your|the co-applicant'?s|the customer'?s) .{0,40}recorded|"
                      r"no kyc result has been recorded|not yet available|isn'?t available|"
                      r"abhi tak (provide )?nahi|record nahi|available nahi|couldn'?t verify|"
                      r"can'?t share|nahi diya|no .{0,20}(score|result|value) (was|has been) recorded|"

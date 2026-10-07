@@ -71,7 +71,10 @@ class _Traced:
                 break
             frame = frame.f_back
         host = str(getattr(self._client, "host", "") or "")
-        options = kwargs.get("options") or {}
+        # ONE CONTEXT SIZE FOR EVERY CALL (app/llm/config.py): a different one reloads the model
+        from app.llm.config import with_num_ctx
+
+        options = kwargs["options"] = with_num_ctx(kwargs.get("options"))
         entry: dict[str, Any] = {
             "caller": caller, "model": str(getattr(self._client, "model", "") or ""),
             "host": "local" if ("127.0.0.1" in host or "localhost" in host) else "remote",
@@ -93,6 +96,15 @@ class _Traced:
         text = getattr(response, "text", None)
         entry.update(outcome="OK" if text else "EMPTY", ms=round((time.perf_counter() - started) * 1000, 1),
                      output_chars=len(text or ""))
+        # A PROMPT NEAR THE WINDOW IS CUT FROM THE FRONT by Ollama: said, never silent
+        prompt_tokens = getattr(getattr(response, "usage_details", None), "input_token_count", None)
+        window = options.get("num_ctx")
+        if isinstance(prompt_tokens, int) and window and prompt_tokens >= 0.9 * window:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "LLM prompt near the context window: %s of %s tokens (caller %s); raise OLLAMA_NUM_CTX",
+                prompt_tokens, window, caller)
         trace.record(entry)
         return response
 

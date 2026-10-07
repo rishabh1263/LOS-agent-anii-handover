@@ -1,0 +1,40 @@
+diff --git a/app/agents/applicant/copilot/semantics/intents.py b/app/agents/applicant/copilot/semantics/intents.py
+index e645a9c..4e4368b 100644
+--- a/app/agents/applicant/copilot/semantics/intents.py
++++ b/app/agents/applicant/copilot/semantics/intents.py
+@@ -1496,6 +1496,13 @@ def classify(message: str) -> Classification:
+                               document_type=_document_type(text),
+                               matched_on="document_rejected")
+ 
++    # "CIBIL kya hai?" ASKS WHAT A TERM MEANS (semantics/terms.py; COPILOT_TERMS_KNOWLEDGE,
++    # default off): answered from the knowledge base, never as a bureau result
++    from app.agents.applicant.copilot.semantics import terms as _terms
++
++    if _terms.enabled() and _terms.is_definition(text):
++        return Classification(Intent.FOS_KNOWLEDGE, matched_on="lending_term_definition")
++
+     if not asks_process:
+         for pattern, route in _COMPILED_OOS:
+             if pattern.search(text):
+@@ -1881,10 +1888,20 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
+         routed = semantic_frame.route(frame)
+         if routed:
+             intent = Intent(routed)
++            # ONE LABEL FOR ONE MEANING (step 6a). "Which stage is my case at?" read by
++            # the frame is the same question the structural rule calls "current_stage",
++            # and the consumers key on that label: the localized stage template
++            # (copilot_api) and the knowledge exclusion below. Labelled "frame:..." it
++            # missed both, so a Hindi / Marathi / Tamil stage question was answered in
++            # English. The frame stays attached (understanding="FRAME") as provenance.
++            current_stage = (intent is Intent.APPLICATION_STAGE
++                             and frame.task is semantic_frame.Task.CURRENT_STAGE
++                             and frame.object is semantic_frame.Object.STAGE)
+             base = Classification(
+                 intent, confidence=frame.confidence,
+                 document_type=frame.document_type or _document_type(text),
+-                matched_on=f"frame:{frame.task.value}/{frame.object.value}",
++                matched_on=("current_stage" if current_stage
++                            else f"frame:{frame.task.value}/{frame.object.value}"),
+                 frame=frame, understanding="FRAME")
+             # A knowledge clause attached to a case question is still MIXED
+             # -- when the tail IS a knowledge question. "At this point in my

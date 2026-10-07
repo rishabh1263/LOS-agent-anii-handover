@@ -115,7 +115,7 @@ def _qwen_fallback(state: dict[str, Any], qid: str, question: dict[str, Any]) ->
         import httpx
 
         from app.llm.availability import provider_reachable
-        from app.llm.config import ollama_host, ollama_model
+        from app.llm.config import ollama_host, ollama_model, with_num_ctx
 
         if not provider_reachable():
             return None
@@ -132,7 +132,7 @@ def _qwen_fallback(state: dict[str, Any], qid: str, question: dict[str, Any]) ->
         metrics.record("qwen_fallback_calls")
         r = httpx.post(f"{ollama_host().rstrip('/')}/api/generate",
                        json={"model": ollama_model(), "prompt": prompt, "stream": False,
-                             "options": {"temperature": 0, "num_predict": 8}}, timeout=20)
+                             "options": with_num_ctx({"temperature": 0, "num_predict": 8})}, timeout=20)
         said = str((r.json() or {}).get("response") or "").strip().strip(".").split()[0]
         match = next((o for o in options if o.lower() == said.lower()), None)
         if match is None:

@@ -1,0 +1,3164 @@
+{
+  "summary": {
+    "V1": {
+      "calls": 54,
+      "accuracy": 0.741,
+      "held_out_accuracy": 0.773,
+      "invalid_rate": 0.074,
+      "timeouts": 0,
+      "p50_ms": 1917.5,
+      "p95_ms": 2460,
+      "max_ms": 4862,
+      "prompt_tokens_p50": 327.0
+    },
+    "V2": {
+      "calls": 54,
+      "accuracy": 0.63,
+      "held_out_accuracy": 0.636,
+      "invalid_rate": 0.111,
+      "timeouts": 3,
+      "p50_ms": 1908.1,
+      "p95_ms": 2394.0,
+      "max_ms": 2412.2,
+      "prompt_tokens_p50": 381
+    },
+    "V3": {
+      "calls": 54,
+      "accuracy": 0.667,
+      "held_out_accuracy": 0.636,
+      "invalid_rate": 0.093,
+      "timeouts": 5,
+      "p50_ms": 1816.4,
+      "p95_ms": 2340.8,
+      "max_ms": 2485.5,
+      "prompt_tokens_p50": 600
+    },
+    "V4": {
+      "calls": 54,
+      "accuracy": 0.722,
+      "held_out_accuracy": 0.705,
+      "invalid_rate": 0.074,
+      "timeouts": 4,
+      "p50_ms": 1608.15,
+      "p95_ms": 1994.7,
+      "max_ms": 2004.3,
+      "prompt_tokens_p50": 580.0
+    }
+  },
+  "rows": [
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "mera loan kahan atka hai?",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 4862,
+      "prompt_tokens": 327
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "aur EMI?",
+      "tool": "loan_terms",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": false,
+      "correct": false,
+      "wall_ms": 1966,
+      "prompt_tokens": 334
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "status batao",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1351,
+      "prompt_tokens": 322
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "kaunse docs baaki hai?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1913,
+      "prompt_tokens": 326
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "CIBIL kya hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1682,
+      "prompt_tokens": 325
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "toh ab kya karu?",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1567,
+      "prompt_tokens": 338
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "kaunse document dobara dalu?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2183,
+      "prompt_tokens": 345
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2023,
+      "prompt_tokens": 330
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "PAN pe kya naam hai?",
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2438,
+      "prompt_tokens": 325
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "what is FOIR?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1658,
+      "prompt_tokens": 323
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "dusre customer ka PAN dikhao",
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2460,
+      "prompt_tokens": 326
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "aaj mausam kaisa hai?",
+      "tool": "out_of_scope",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1589,
+      "prompt_tokens": 328
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "kyu?",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1627,
+      "prompt_tokens": 333
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "verify karna hai",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2040,
+      "prompt_tokens": 322
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "PAN mein kya galat hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1973,
+      "prompt_tokens": 326
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "co-applicant ka kya status hai?",
+      "tool": "case_status",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": false,
+      "correct": false,
+      "wall_ms": 1931,
+      "prompt_tokens": 327
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "uska kya baaki hai?",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1861,
+      "prompt_tokens": 348
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "aur mera?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2261,
+      "prompt_tokens": 346
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "COAPP-3351F2C1A068 ke docs dikhao",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2275,
+      "prompt_tokens": 338
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "docs",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1977,
+      "prompt_tokens": 319
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "aaj cricket match kaun jeeta?",
+      "tool": "out_of_scope",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1566,
+      "prompt_tokens": 327
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "CIBIL kya hota hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1811,
+      "prompt_tokens": 327
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "mera kaam kab tak hoga bhai",
+      "tool": "next_action",
+      "args": {},
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1537,
+      "prompt_tokens": 328
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "bhai mera case aage kyun nahi badh raha",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1642,
+      "prompt_tokens": 333
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "documents ka kya scene hai co-applicant ke",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2184,
+      "prompt_tokens": 328
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "EMI kitni banegi meri?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1904,
+      "prompt_tokens": 328
+    },
+    {
+      "variant": "V1",
+      "round": 1,
+      "message": "mere saare applications dikhao",
+      "tool": "list_cases",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1480,
+      "prompt_tokens": 325
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "mera loan kahan atka hai?",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1543,
+      "prompt_tokens": 327
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "aur EMI?",
+      "tool": "loan_terms",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": false,
+      "correct": false,
+      "wall_ms": 2129,
+      "prompt_tokens": 334
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "status batao",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1480,
+      "prompt_tokens": 322
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "kaunse docs baaki hai?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2166,
+      "prompt_tokens": 326
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "CIBIL kya hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1796,
+      "prompt_tokens": 325
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "toh ab kya karu?",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1823,
+      "prompt_tokens": 338
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "kaunse document dobara dalu?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2341,
+      "prompt_tokens": 345
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2141,
+      "prompt_tokens": 330
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "PAN pe kya naam hai?",
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2569,
+      "prompt_tokens": 325
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "what is FOIR?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1688,
+      "prompt_tokens": 323
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "dusre customer ka PAN dikhao",
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2539,
+      "prompt_tokens": 326
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "aaj mausam kaisa hai?",
+      "tool": "out_of_scope",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1661,
+      "prompt_tokens": 328
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "kyu?",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1639,
+      "prompt_tokens": 333
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "verify karna hai",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2103,
+      "prompt_tokens": 322
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "PAN mein kya galat hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2069,
+      "prompt_tokens": 326
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "co-applicant ka kya status hai?",
+      "tool": "case_status",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": false,
+      "correct": false,
+      "wall_ms": 1968,
+      "prompt_tokens": 327
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "uska kya baaki hai?",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1920,
+      "prompt_tokens": 348
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "aur mera?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2400,
+      "prompt_tokens": 346
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "COAPP-3351F2C1A068 ke docs dikhao",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2431,
+      "prompt_tokens": 338
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "docs",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1966,
+      "prompt_tokens": 319
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "aaj cricket match kaun jeeta?",
+      "tool": "out_of_scope",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1653,
+      "prompt_tokens": 327
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "CIBIL kya hota hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1915,
+      "prompt_tokens": 327
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "mera kaam kab tak hoga bhai",
+      "tool": "next_action",
+      "args": {},
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1563,
+      "prompt_tokens": 328
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "bhai mera case aage kyun nahi badh raha",
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1654,
+      "prompt_tokens": 333
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "documents ka kya scene hai co-applicant ke",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2190,
+      "prompt_tokens": 328
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "EMI kitni banegi meri?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1890,
+      "prompt_tokens": 328
+    },
+    {
+      "variant": "V1",
+      "round": 2,
+      "message": "mere saare applications dikhao",
+      "tool": "list_cases",
+      "args": {},
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1552,
+      "prompt_tokens": 325
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "mera loan kahan atka hai?",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "aur EMI?",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "status batao",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2178.4,
+      "timeout": false,
+      "prompt_tokens": 376,
+      "prompt_ms": 238.7
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "kaunse docs baaki hai?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1934.7,
+      "timeout": false,
+      "prompt_tokens": 380,
+      "prompt_ms": 300.3
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "CIBIL kya hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1873.1,
+      "timeout": false,
+      "prompt_tokens": 379,
+      "prompt_ms": 280.0
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "toh ab kya karu?",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1647.3,
+      "timeout": false,
+      "prompt_tokens": 383,
+      "prompt_ms": 417.7
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "kaunse document dobara dalu?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2081.4,
+      "timeout": false,
+      "prompt_tokens": 385,
+      "prompt_ms": 428.6
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2412.2,
+      "timeout": false,
+      "prompt_tokens": 384,
+      "prompt_ms": 498.1
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "PAN pe kya naam hai?",
+      "tool": "document_details",
+      "args": {
+        "document": "PAN"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1834.6,
+      "timeout": false,
+      "prompt_tokens": 379,
+      "prompt_ms": 287.0
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "what is FOIR?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1721.4,
+      "timeout": false,
+      "prompt_tokens": 377,
+      "prompt_ms": 246.3
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "dusre customer ka PAN dikhao",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1586.8,
+      "timeout": false,
+      "prompt_tokens": 380,
+      "prompt_ms": 313.3
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "aaj mausam kaisa hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "mausam"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1926.0,
+      "timeout": false,
+      "prompt_tokens": 382,
+      "prompt_ms": 356.0
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "kyu?",
+      "tool": null,
+      "args": {},
+      "status": "INVALID",
+      "valid": false,
+      "correct": false,
+      "wall_ms": 1843.7,
+      "timeout": false,
+      "prompt_tokens": 378,
+      "prompt_ms": 361.0
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "verify karna hai",
+      "tool": "kyc_result",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1850.2,
+      "timeout": false,
+      "prompt_tokens": 376,
+      "prompt_ms": 307.8
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "PAN mein kya galat hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1836.2,
+      "timeout": false,
+      "prompt_tokens": 380,
+      "prompt_ms": 300.2
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "co-applicant ka kya status hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2079.6,
+      "timeout": false,
+      "prompt_tokens": 381,
+      "prompt_ms": 327.2
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "uska kya baaki hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2394.0,
+      "timeout": false,
+      "prompt_tokens": 390,
+      "prompt_ms": 621.3
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "aur mera?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1974.7,
+      "timeout": false,
+      "prompt_tokens": 386,
+      "prompt_ms": 448.2
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "COAPP-3351F2C1A068 ke docs dikhao",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2383.8,
+      "timeout": false,
+      "prompt_tokens": 392,
+      "prompt_ms": 590.0
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "docs",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1793.6,
+      "timeout": false,
+      "prompt_tokens": 373,
+      "prompt_ms": 184.3
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "aaj cricket match kaun jeeta?",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1632.0,
+      "timeout": false,
+      "prompt_tokens": 381,
+      "prompt_ms": 320.1
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "CIBIL kya hota hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1908.1,
+      "timeout": false,
+      "prompt_tokens": 381,
+      "prompt_ms": 345.2
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "mera kaam kab tak hoga bhai",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1575.2,
+      "timeout": false,
+      "prompt_tokens": 382,
+      "prompt_ms": 355.1
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "bhai mera case aage kyun nahi badh raha",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1630.0,
+      "timeout": false,
+      "prompt_tokens": 387,
+      "prompt_ms": 426.1
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "documents ka kya scene hai co-applicant ke",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2175.2,
+      "timeout": false,
+      "prompt_tokens": 382,
+      "prompt_ms": 348.9
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "EMI kitni banegi meri?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1923.8,
+      "timeout": false,
+      "prompt_tokens": 382,
+      "prompt_ms": 368.0
+    },
+    {
+      "variant": "V2",
+      "round": 1,
+      "message": "mere saare applications dikhao",
+      "tool": "list_cases",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1480.4,
+      "timeout": false,
+      "prompt_tokens": 379,
+      "prompt_ms": 273.7
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "mera loan kahan atka hai?",
+      "tool": null,
+      "args": {},
+      "status": "INVALID",
+      "valid": false,
+      "correct": false,
+      "wall_ms": 1923.1,
+      "timeout": false,
+      "prompt_tokens": 381,
+      "prompt_ms": 321.4
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "aur EMI?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1873.1,
+      "timeout": false,
+      "prompt_tokens": 379,
+      "prompt_ms": 326.3
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "status batao",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1568.3,
+      "timeout": false,
+      "prompt_tokens": 376,
+      "prompt_ms": 329.3
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "kaunse docs baaki hai?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1955.8,
+      "timeout": false,
+      "prompt_tokens": 380,
+      "prompt_ms": 316.2
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "CIBIL kya hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1853.7,
+      "timeout": false,
+      "prompt_tokens": 379,
+      "prompt_ms": 291.8
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "toh ab kya karu?",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1703.5,
+      "timeout": false,
+      "prompt_tokens": 383,
+      "prompt_ms": 439.4
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "kaunse document dobara dalu?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2132.7,
+      "timeout": false,
+      "prompt_tokens": 385,
+      "prompt_ms": 446.4
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2282.6,
+      "timeout": false,
+      "prompt_tokens": 384,
+      "prompt_ms": 483.6
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "PAN pe kya naam hai?",
+      "tool": "document_details",
+      "args": {
+        "document": "PAN"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1896.6,
+      "timeout": false,
+      "prompt_tokens": 379,
+      "prompt_ms": 280.7
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "what is FOIR?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1756.1,
+      "timeout": false,
+      "prompt_tokens": 377,
+      "prompt_ms": 260.9
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "dusre customer ka PAN dikhao",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1699.8,
+      "timeout": false,
+      "prompt_tokens": 380,
+      "prompt_ms": 377.2
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "aaj mausam kaisa hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "mausam"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1944.6,
+      "timeout": false,
+      "prompt_tokens": 382,
+      "prompt_ms": 378.0
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "kyu?",
+      "tool": null,
+      "args": {},
+      "status": "INVALID",
+      "valid": false,
+      "correct": false,
+      "wall_ms": 1930.5,
+      "timeout": false,
+      "prompt_tokens": 378,
+      "prompt_ms": 401.2
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "verify karna hai",
+      "tool": "kyc_result",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1957.1,
+      "timeout": false,
+      "prompt_tokens": 376,
+      "prompt_ms": 329.4
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "PAN mein kya galat hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1961.1,
+      "timeout": false,
+      "prompt_tokens": 380,
+      "prompt_ms": 328.4
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "co-applicant ka kya status hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2141.4,
+      "timeout": false,
+      "prompt_tokens": 381,
+      "prompt_ms": 346.2
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "uska kya baaki hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2411.2,
+      "timeout": false,
+      "prompt_tokens": 390,
+      "prompt_ms": 584.7
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "aur mera?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2125.0,
+      "timeout": false,
+      "prompt_tokens": 386,
+      "prompt_ms": 478.8
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "COAPP-3351F2C1A068 ke docs dikhao",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "docs",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1871.3,
+      "timeout": false,
+      "prompt_tokens": 373,
+      "prompt_ms": 204.6
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "aaj cricket match kaun jeeta?",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1734.0,
+      "timeout": false,
+      "prompt_tokens": 381,
+      "prompt_ms": 379.4
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "CIBIL kya hota hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2011.5,
+      "timeout": false,
+      "prompt_tokens": 381,
+      "prompt_ms": 361.9
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "mera kaam kab tak hoga bhai",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1657.5,
+      "timeout": false,
+      "prompt_tokens": 382,
+      "prompt_ms": 387.2
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "bhai mera case aage kyun nahi badh raha",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1779.0,
+      "timeout": false,
+      "prompt_tokens": 387,
+      "prompt_ms": 479.1
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "documents ka kya scene hai co-applicant ke",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2187.2,
+      "timeout": false,
+      "prompt_tokens": 382,
+      "prompt_ms": 352.3
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "EMI kitni banegi meri?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1932.4,
+      "timeout": false,
+      "prompt_tokens": 382,
+      "prompt_ms": 359.3
+    },
+    {
+      "variant": "V2",
+      "round": 2,
+      "message": "mere saare applications dikhao",
+      "tool": "list_cases",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1615.0,
+      "timeout": false,
+      "prompt_tokens": 379,
+      "prompt_ms": 298.8
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "mera loan kahan atka hai?",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "aur EMI?",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "status batao",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1948.3,
+      "timeout": false,
+      "prompt_tokens": 595,
+      "prompt_ms": 336.8
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "kaunse docs baaki hai?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2034.1,
+      "timeout": false,
+      "prompt_tokens": 599,
+      "prompt_ms": 318.4
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "CIBIL kya hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1927.4,
+      "timeout": false,
+      "prompt_tokens": 598,
+      "prompt_ms": 307.1
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "toh ab kya karu?",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1701.6,
+      "timeout": false,
+      "prompt_tokens": 602,
+      "prompt_ms": 455.2
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "kaunse document dobara dalu?",
+      "tool": "documents_needing_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1908.8,
+      "timeout": false,
+      "prompt_tokens": 604,
+      "prompt_ms": 462.8
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2289.4,
+      "timeout": false,
+      "prompt_tokens": 603,
+      "prompt_ms": 481.7
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "PAN pe kya naam hai?",
+      "tool": "document_details",
+      "args": {
+        "document": "PAN"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1921.1,
+      "timeout": false,
+      "prompt_tokens": 598,
+      "prompt_ms": 305.2
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "what is FOIR?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1872.9,
+      "timeout": false,
+      "prompt_tokens": 596,
+      "prompt_ms": 294.9
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "dusre customer ka PAN dikhao",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1664.0,
+      "timeout": false,
+      "prompt_tokens": 599,
+      "prompt_ms": 345.6
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "aaj mausam kaisa hai?",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1770.1,
+      "timeout": false,
+      "prompt_tokens": 601,
+      "prompt_ms": 407.7
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "kyu?",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1650.9,
+      "timeout": false,
+      "prompt_tokens": 597,
+      "prompt_ms": 395.6
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "verify karna hai",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1616.2,
+      "timeout": false,
+      "prompt_tokens": 595,
+      "prompt_ms": 332.4
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "PAN mein kya galat hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1958.2,
+      "timeout": false,
+      "prompt_tokens": 599,
+      "prompt_ms": 337.3
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "co-applicant ka kya status hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2225.0,
+      "timeout": false,
+      "prompt_tokens": 600,
+      "prompt_ms": 374.2
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "uska kya baaki hai?",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "aur mera?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2442.0,
+      "timeout": false,
+      "prompt_tokens": 605,
+      "prompt_ms": 518.9
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "COAPP-3351F2C1A068 ke docs dikhao",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "docs",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1993.4,
+      "timeout": false,
+      "prompt_tokens": 592,
+      "prompt_ms": 193.5
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "aaj cricket match kaun jeeta?",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1751.1,
+      "timeout": false,
+      "prompt_tokens": 600,
+      "prompt_ms": 399.1
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "CIBIL kya hota hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2039.1,
+      "timeout": false,
+      "prompt_tokens": 600,
+      "prompt_ms": 397.5
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "mera kaam kab tak hoga bhai",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1726.8,
+      "timeout": false,
+      "prompt_tokens": 601,
+      "prompt_ms": 407.9
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "bhai mera case aage kyun nahi badh raha",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1816.4,
+      "timeout": false,
+      "prompt_tokens": 606,
+      "prompt_ms": 517.9
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "documents ka kya scene hai co-applicant ke",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2340.8,
+      "timeout": false,
+      "prompt_tokens": 601,
+      "prompt_ms": 434.2
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "EMI kitni banegi meri?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2055.0,
+      "timeout": false,
+      "prompt_tokens": 601,
+      "prompt_ms": 416.7
+    },
+    {
+      "variant": "V3",
+      "round": 1,
+      "message": "mere saare applications dikhao",
+      "tool": "list_cases",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1695.7,
+      "timeout": false,
+      "prompt_tokens": 598,
+      "prompt_ms": 332.8
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "mera loan kahan atka hai?",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1643.1,
+      "timeout": false,
+      "prompt_tokens": 600,
+      "prompt_ms": 380.0
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "aur EMI?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2016.0,
+      "timeout": false,
+      "prompt_tokens": 598,
+      "prompt_ms": 361.4
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "status batao",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1662.5,
+      "timeout": false,
+      "prompt_tokens": 595,
+      "prompt_ms": 362.5
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "kaunse docs baaki hai?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2038.0,
+      "timeout": false,
+      "prompt_tokens": 599,
+      "prompt_ms": 337.1
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "CIBIL kya hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2137.2,
+      "timeout": false,
+      "prompt_tokens": 598,
+      "prompt_ms": 331.5
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "toh ab kya karu?",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1738.1,
+      "timeout": false,
+      "prompt_tokens": 602,
+      "prompt_ms": 473.2
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "kaunse document dobara dalu?",
+      "tool": "documents_needing_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1892.7,
+      "timeout": false,
+      "prompt_tokens": 604,
+      "prompt_ms": 477.9
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 2485.5,
+      "timeout": false,
+      "prompt_tokens": 603,
+      "prompt_ms": 599.1
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "PAN pe kya naam hai?",
+      "tool": "document_details",
+      "args": {
+        "document": "PAN"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1967.0,
+      "timeout": false,
+      "prompt_tokens": 598,
+      "prompt_ms": 292.9
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "what is FOIR?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1771.0,
+      "timeout": false,
+      "prompt_tokens": 596,
+      "prompt_ms": 262.7
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "dusre customer ka PAN dikhao",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1602.0,
+      "timeout": false,
+      "prompt_tokens": 599,
+      "prompt_ms": 316.5
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "aaj mausam kaisa hai?",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1575.7,
+      "timeout": false,
+      "prompt_tokens": 601,
+      "prompt_ms": 336.8
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "kyu?",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1501.8,
+      "timeout": false,
+      "prompt_tokens": 597,
+      "prompt_ms": 331.3
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "verify karna hai",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1413.8,
+      "timeout": false,
+      "prompt_tokens": 595,
+      "prompt_ms": 274.7
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "PAN mein kya galat hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1735.7,
+      "timeout": false,
+      "prompt_tokens": 599,
+      "prompt_ms": 269.3
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "co-applicant ka kya status hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1929.2,
+      "timeout": false,
+      "prompt_tokens": 600,
+      "prompt_ms": 278.8
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "uska kya baaki hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2119.7,
+      "timeout": false,
+      "prompt_tokens": 609,
+      "prompt_ms": 492.2
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "aur mera?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2113.9,
+      "timeout": false,
+      "prompt_tokens": 605,
+      "prompt_ms": 402.1
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "COAPP-3351F2C1A068 ke docs dikhao",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "docs",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1689.6,
+      "timeout": false,
+      "prompt_tokens": 592,
+      "prompt_ms": 141.0
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "aaj cricket match kaun jeeta?",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1490.5,
+      "timeout": false,
+      "prompt_tokens": 600,
+      "prompt_ms": 283.0
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "CIBIL kya hota hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1677.4,
+      "timeout": false,
+      "prompt_tokens": 600,
+      "prompt_ms": 267.2
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "mera kaam kab tak hoga bhai",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1395.5,
+      "timeout": false,
+      "prompt_tokens": 601,
+      "prompt_ms": 285.4
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "bhai mera case aage kyun nahi badh raha",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1482.3,
+      "timeout": false,
+      "prompt_tokens": 606,
+      "prompt_ms": 357.6
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "documents ka kya scene hai co-applicant ke",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1968.4,
+      "timeout": false,
+      "prompt_tokens": 601,
+      "prompt_ms": 283.6
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "EMI kitni banegi meri?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1714.5,
+      "timeout": false,
+      "prompt_tokens": 601,
+      "prompt_ms": 281.8
+    },
+    {
+      "variant": "V3",
+      "round": 2,
+      "message": "mere saare applications dikhao",
+      "tool": "list_cases",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1310.2,
+      "timeout": false,
+      "prompt_tokens": 598,
+      "prompt_ms": 219.0
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "mera loan kahan atka hai?",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "aur EMI?",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "status batao",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1994.7,
+      "timeout": false,
+      "prompt_tokens": 575,
+      "prompt_ms": 181.9
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "kaunse docs baaki hai?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1689.3,
+      "timeout": false,
+      "prompt_tokens": 579,
+      "prompt_ms": 240.5
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "CIBIL kya hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1609.7,
+      "timeout": false,
+      "prompt_tokens": 578,
+      "prompt_ms": 208.5
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "toh ab kya karu?",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1443.5,
+      "timeout": false,
+      "prompt_tokens": 582,
+      "prompt_ms": 323.8
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "kaunse document dobara dalu?",
+      "tool": "documents_needing_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1555.8,
+      "timeout": false,
+      "prompt_tokens": 584,
+      "prompt_ms": 321.8
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1912.7,
+      "timeout": false,
+      "prompt_tokens": 583,
+      "prompt_ms": 340.6
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "PAN pe kya naam hai?",
+      "tool": "document_details",
+      "args": {
+        "document": "PAN"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1588.6,
+      "timeout": false,
+      "prompt_tokens": 578,
+      "prompt_ms": 213.5
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "what is FOIR?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1522.9,
+      "timeout": false,
+      "prompt_tokens": 576,
+      "prompt_ms": 195.8
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "dusre customer ka PAN dikhao",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1379.1,
+      "timeout": false,
+      "prompt_tokens": 579,
+      "prompt_ms": 229.7
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "aaj mausam kaisa hai?",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1394.1,
+      "timeout": false,
+      "prompt_tokens": 581,
+      "prompt_ms": 271.6
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "kyu?",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1401.7,
+      "timeout": false,
+      "prompt_tokens": 577,
+      "prompt_ms": 272.4
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "verify karna hai",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1696.6,
+      "timeout": false,
+      "prompt_tokens": 575,
+      "prompt_ms": 233.3
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "PAN mein kya galat hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1606.6,
+      "timeout": false,
+      "prompt_tokens": 579,
+      "prompt_ms": 232.0
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "co-applicant ka kya status hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1812.7,
+      "timeout": false,
+      "prompt_tokens": 580,
+      "prompt_ms": 254.5
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "uska kya baaki hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1997.8,
+      "timeout": false,
+      "prompt_tokens": 589,
+      "prompt_ms": 418.6
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "aur mera?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1781.9,
+      "timeout": false,
+      "prompt_tokens": 585,
+      "prompt_ms": 345.0
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "COAPP-3351F2C1A068 ke docs dikhao",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "docs",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1637.5,
+      "timeout": false,
+      "prompt_tokens": 572,
+      "prompt_ms": 129.1
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "aaj cricket match kaun jeeta?",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1385.8,
+      "timeout": false,
+      "prompt_tokens": 580,
+      "prompt_ms": 243.9
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "CIBIL kya hota hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1639.2,
+      "timeout": false,
+      "prompt_tokens": 580,
+      "prompt_ms": 252.0
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "mera kaam kab tak hoga bhai",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1369.3,
+      "timeout": false,
+      "prompt_tokens": 581,
+      "prompt_ms": 267.6
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "bhai mera case aage kyun nahi badh raha",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1396.1,
+      "timeout": false,
+      "prompt_tokens": 586,
+      "prompt_ms": 304.4
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "documents ka kya scene hai co-applicant ke",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1854.6,
+      "timeout": false,
+      "prompt_tokens": 581,
+      "prompt_ms": 259.3
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "EMI kitni banegi meri?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1655.1,
+      "timeout": false,
+      "prompt_tokens": 581,
+      "prompt_ms": 281.3
+    },
+    {
+      "variant": "V4",
+      "round": 1,
+      "message": "mere saare applications dikhao",
+      "tool": "list_cases",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1266.8,
+      "timeout": false,
+      "prompt_tokens": 578,
+      "prompt_ms": 200.7
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "mera loan kahan atka hai?",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1312.5,
+      "timeout": false,
+      "prompt_tokens": 580,
+      "prompt_ms": 248.5
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "aur EMI?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1638.2,
+      "timeout": false,
+      "prompt_tokens": 578,
+      "prompt_ms": 238.5
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "status batao",
+      "tool": "case_status",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1310.2,
+      "timeout": false,
+      "prompt_tokens": 575,
+      "prompt_ms": 229.8
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "kaunse docs baaki hai?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1702.6,
+      "timeout": false,
+      "prompt_tokens": 579,
+      "prompt_ms": 220.6
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "CIBIL kya hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1641.1,
+      "timeout": false,
+      "prompt_tokens": 578,
+      "prompt_ms": 233.2
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "toh ab kya karu?",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1408.1,
+      "timeout": false,
+      "prompt_tokens": 582,
+      "prompt_ms": 311.6
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "kaunse document dobara dalu?",
+      "tool": "documents_needing_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1518.4,
+      "timeout": false,
+      "prompt_tokens": 584,
+      "prompt_ms": 304.7
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1885.3,
+      "timeout": false,
+      "prompt_tokens": 583,
+      "prompt_ms": 333.7
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "PAN pe kya naam hai?",
+      "tool": "document_details",
+      "args": {
+        "document": "PAN"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1570.6,
+      "timeout": false,
+      "prompt_tokens": 578,
+      "prompt_ms": 202.0
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "what is FOIR?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1514.9,
+      "timeout": false,
+      "prompt_tokens": 576,
+      "prompt_ms": 187.1
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "dusre customer ka PAN dikhao",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1375.3,
+      "timeout": false,
+      "prompt_tokens": 579,
+      "prompt_ms": 229.6
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "aaj mausam kaisa hai?",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1398.9,
+      "timeout": false,
+      "prompt_tokens": 581,
+      "prompt_ms": 266.6
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "kyu?",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1363.1,
+      "timeout": false,
+      "prompt_tokens": 577,
+      "prompt_ms": 269.7
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "verify karna hai",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1667.3,
+      "timeout": false,
+      "prompt_tokens": 575,
+      "prompt_ms": 228.8
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "PAN mein kya galat hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1612.1,
+      "timeout": false,
+      "prompt_tokens": 579,
+      "prompt_ms": 232.3
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "co-applicant ka kya status hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1806.4,
+      "timeout": false,
+      "prompt_tokens": 580,
+      "prompt_ms": 254.8
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "uska kya baaki hai?",
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 2004.3,
+      "timeout": false,
+      "prompt_tokens": 589,
+      "prompt_ms": 439.2
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "aur mera?",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1808.6,
+      "timeout": false,
+      "prompt_tokens": 585,
+      "prompt_ms": 329.6
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "COAPP-3351F2C1A068 ke docs dikhao",
+      "tool": null,
+      "args": {},
+      "status": "TIMEOUT",
+      "valid": false,
+      "correct": false,
+      "wall_ms": null,
+      "timeout": true,
+      "prompt_tokens": null,
+      "prompt_ms": null
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "docs",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "SELF"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1627.0,
+      "timeout": false,
+      "prompt_tokens": 572,
+      "prompt_ms": 132.3
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "aaj cricket match kaun jeeta?",
+      "tool": "out_of_scope",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1403.8,
+      "timeout": false,
+      "prompt_tokens": 580,
+      "prompt_ms": 247.5
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "CIBIL kya hota hai?",
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1692.1,
+      "timeout": false,
+      "prompt_tokens": 580,
+      "prompt_ms": 266.7
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "mera kaam kab tak hoga bhai",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1359.4,
+      "timeout": false,
+      "prompt_tokens": 581,
+      "prompt_ms": 272.3
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "bhai mera case aage kyun nahi badh raha",
+      "tool": "next_action",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": false,
+      "wall_ms": 1438.7,
+      "timeout": false,
+      "prompt_tokens": 586,
+      "prompt_ms": 331.0
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "documents ka kya scene hai co-applicant ke",
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1896.2,
+      "timeout": false,
+      "prompt_tokens": 581,
+      "prompt_ms": 265.0
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "EMI kitni banegi meri?",
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1645.9,
+      "timeout": false,
+      "prompt_tokens": 581,
+      "prompt_ms": 257.3
+    },
+    {
+      "variant": "V4",
+      "round": 2,
+      "message": "mere saare applications dikhao",
+      "tool": "list_cases",
+      "args": {},
+      "status": "OK",
+      "valid": true,
+      "correct": true,
+      "wall_ms": 1282.2,
+      "timeout": false,
+      "prompt_tokens": 578,
+      "prompt_ms": 208.1
+    }
+  ],
+  "stopped": null,
+  "cases": 27
+}

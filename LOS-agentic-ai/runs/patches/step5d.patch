@@ -1,0 +1,2604 @@
+diff --git a/README.md b/README.md
+index 19520d2..7489813 100644
+--- a/README.md
++++ b/README.md
+@@ -101,6 +101,39 @@ directory holds real customer documents and is not distributed.
+ 
+ ---
+ 
++## Backups before schema changes
++
++Gated migrations (0004 / 0005, co-applicant identity) and the co-applicant
++backfill **refuse to run without a fresh pg_dump** (taken within 24 hours):
++
++```bash
++# production / any server named by LOS_STORE_DSN
++pg_dump --format=custom --file=runs/backups/los_$(date +%Y%m%dT%H%M%S).dump "$LOS_STORE_DSN"
++
++# restore, if ever needed (into an EMPTY database)
++pg_restore --clean --if-exists --dbname="$LOS_STORE_DSN" runs/backups/los_<stamp>.dump
++```
++
++The embedded dev database (`runtime/pgdata`) ships `pg_dump` with pgserver:
++`.venv/Lib/site-packages/pgserver/pginstall/bin/pg_dump`, pointed at the URI the
++server prints on start.
++
++Then, in this order:
++
++```bash
++python -m scripts.apply_migration 0004 --backup-file runs/backups/los_<stamp>.dump
++python -m scripts.backfill_co_applicants                         # dry-run, read-only: review it
++python -m scripts.backfill_co_applicants --apply --backup-file runs/backups/los_<stamp>.dump
++python -m scripts.apply_migration 0005 --backup-file runs/backups/los_<stamp>.dump
++```
++
++In production the server never applies 0004 / 0005 by itself. Rollback:
++`scripts/sql/rollback_coapp_identity_1.sql`, then
++`python -m scripts.backfill_co_applicants --revert <run_id> --backup-file ...`, then
++`scripts/sql/rollback_coapp_identity_2.sql` (both tables are copied to `*_backup_<stamp>` first).
++
++---
++
+ ## What this service does not do
+ 
+ - **It does not establish authenticity.** Verification checks class,
+diff --git a/app/agents/applicant/copilot/conversation/state.py b/app/agents/applicant/copilot/conversation/state.py
+index 0d48243..b75d5b3 100644
+--- a/app/agents/applicant/copilot/conversation/state.py
++++ b/app/agents/applicant/copilot/conversation/state.py
+@@ -663,6 +663,9 @@ class ConversationState:
+     #: WHOSE the last answer was: PRIMARY_APPLICANT / CO_APPLICANT / BOTH --
+     #: "iska KYC?" after an answer about BOTH people cannot be guessed.
+     last_subject_party: str | None = None
++    #: THE PARTY BY ID (LOS_COAPP_IDENTITY, step 5d): the applicant id or the
++    #: co-applicant id the last answer was about. A public id, never a name.
++    active_party_id: str | None = None
+     last_activity_at: float = field(default_factory=time.time)
+     turns_since_pending: int = 0
+ 
+@@ -1639,6 +1642,27 @@ def _proposed(response: dict[str, Any]) -> list[dict[str, Any]]:
+     return _actions.confirmable(response.get("actions"))[:3]
+ 
+ 
++def _party_id_for(state: ConversationState, response: dict[str, Any]) -> str | None:
++    """The applicant / co-applicant ID this answer was about (LOS_COAPP_IDENTITY only)."""
++    try:
++        from app.agents.los import co_applicants
++
++        if not co_applicants.enabled():
++            return None
++        if state.last_subject_party == "PRIMARY_APPLICANT":
++            return str(response.get("applicant_id") or "") or None
++        if state.last_subject_party == "CO_APPLICANT":
++            named = response.get("co_applicant") if isinstance(response.get("co_applicant"), dict) else {}
++            if named.get("co_applicant_id"):
++                return str(named["co_applicant_id"])
++            case_id = response.get("case_id") or state.case_id
++            records = co_applicants.list_for_case(case_id) if case_id else []
++            return records[0]["co_applicant_id"] if len(records) == 1 else None
++    except Exception:  # noqa: BLE001 - memory is best-effort; the answer stands
++        return None
++    return None
++
++
+ def update_from_response(state: ConversationState, message: str,
+                          response: dict[str, Any], reading: Reading) -> None:
+     """Record what this turn was about. Labels only."""
+@@ -1680,6 +1704,9 @@ def update_from_response(state: ConversationState, message: str,
+         state.last_subject_party = {"BOTH": "BOTH", "CO": "CO_APPLICANT", "CO_APPLICANT": "CO_APPLICANT",
+                                     "SELF": "PRIMARY_APPLICANT", "PRIMARY": "PRIMARY_APPLICANT",
+                                     "PRIMARY_APPLICANT": "PRIMARY_APPLICANT"}.get(whose)
++        party_id = _party_id_for(state, response)
++        if party_id:
++            state.active_party_id = party_id
+         state.last_answer_reference = {
+             "intent": response.get("intent"), "query_type": response.get("query_type"),
+             "response_source": response.get("response_source"),
+diff --git a/app/agents/los/stage_lifecycle.py b/app/agents/los/stage_lifecycle.py
+index 7c2fc50..d8ea549 100644
+--- a/app/agents/los/stage_lifecycle.py
++++ b/app/agents/los/stage_lifecycle.py
+@@ -180,6 +180,9 @@ class _Current:
+     status: str
+     since: datetime | None
+     version: int
++    #: False when no record established the stage and the configured initial
++    #: stage was assumed -- the service gate refuses to move such a case.
++    resolved: bool = True
+ 
+ 
+ def _repository():
+@@ -210,7 +213,64 @@ def _current(repository, case_id: str, application) -> _Current:
+     derived = stages.resolve(case_id)
+     stage = derived.stage or config().initial_stage
+     since = _parse_time(derived.since) or getattr(application, "created_at", None)
+-    return _Current(stage, derived.status or IN_PROGRESS, since, 0)
++    return _Current(stage, derived.status or IN_PROGRESS, since, 0, resolved=derived.stage is not None)
++
++
++# ==========================================================================
++# THE GATE, ENFORCED HERE (Phase 3 step 2; LOS_STAGE_GATE_IN_SERVICE, default off)
++# ==========================================================================
++#
++# Before this, the gate was evaluated only by the HTTP route, and only when the
++# route could resolve the current stage: an unresolved stage skipped the gate,
++# the lifecycle assumed FOS, and FOS -> CPA went through ungated. With the flag
++# on, every FORWARD move is gated here, whoever calls, and it FAILS CLOSED:
++#
++#   stage not established                  -> STAGE_UNRESOLVED   (409)
++#   gate cannot be evaluated               -> GATE_UNAVAILABLE   (503)
++#   gate not PASS                          -> GATE_NOT_MET / GATE_CONFIGURATION_GAP (409)
++#   source MAKER_CHECKER                   -> allowed, recorded as an override
++#
++# The only exception is OVERRIDE WITH MAKER-CHECKER: the route turns an OVERRIDE
++# into a four-eyes request, and only the approved execution (source MAKER_CHECKER,
++# app/approvals) moves the case ungated. Its reason is mandatory (REASON_REQUIRED
++# above) and is written to the stage history, prefixed OVERRIDE:, and the audit log.
++
++GATE_FLAG = "LOS_STAGE_GATE_IN_SERVICE"
++
++
++def service_gate_enabled() -> bool:
++    import os
++
++    return (os.getenv(GATE_FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _forward(current: LosStage, target: LosStage) -> bool:
++    return (current in stages.ORDER and target in stages.ORDER
++            and stages.ORDER.index(target) > stages.ORDER.index(current))
++
++
++def _enforce_gate(case_id: str, current: _Current, target: LosStage, *, override: bool) -> None:
++    if not current.resolved:
++        raise StageTransitionError(
++            "STAGE_UNRESOLVED", "The case's current stage could not be established from its record, "
++            "so it cannot be moved.", 409)
++    if not _forward(current.stage, target) or override:
++        return
++    try:
++        from app.agents.los import stage_gate
++
++        gate = stage_gate.evaluate_live(case_id, current.stage.value)
++        view = stage_gate.public(gate)
++    except Exception as exc:  # noqa: BLE001 - an unreadable gate never lets a case through
++        logger.error("Stage gate unavailable case_id=%s: %s", case_id, type(exc).__name__)
++        raise StageTransitionError(
++            "GATE_UNAVAILABLE", "The stage gate could not be evaluated, so the case was not moved.",
++            503) from exc
++    status = gate.get("status")
++    if status != "PASS":
++        code = "GATE_CONFIGURATION_GAP" if status == "CONFIGURATION_GAP" else "GATE_NOT_MET"
++        raise StageTransitionError(
++            code, "The case does not meet the configured gate for leaving this stage.", 409, gate=view)
+ 
+ 
+ def _parse_time(value: str | None) -> datetime | None:
+@@ -238,11 +298,21 @@ def transition(
+     idempotency_key: str | None = None,
+     request_id: str | None = None,
+     correlation_id: str | None = None,
++    override: bool = False,
++    approval_id: str | None = None,
+ ) -> dict[str, Any]:
+     """
+     Move `case_id` to `target_stage` (or, naming its current stage with a
+     different `stage_status`, change where it is within the stage).
+ 
++    `approval_id` is REQUIRED with source MAKER_CHECKER and is checked against
++    the approval record (`_verify_approval`): the source alone proves nothing.
++
++    `override` is the route's OVERRIDE mode. With LOS_STAGE_GATE_IN_SERVICE off
++    it is not consulted (the route alone decides, as before). With it on, only
++    the maker-checker execution (source MAKER_CHECKER) skips the gate; a bare
++    `override=True` is gated like any other forward move.
++
+     Returns the case's stage state after the call and what happened
+     (`result`: APPLIED, NO_CHANGE or REPLAYED). Raises
+     StageTransitionError, having written nothing, for anything refused.
+@@ -283,6 +353,19 @@ def transition(
+         raise StageTransitionError(
+             "REASON_REQUIRED", "A transition must record its reason.", 422)
+     reason = reason[:_MAX_REASON]
++    if source == "MAKER_CHECKER":
++        # THE SOURCE IS NOT THE PROOF (step 5d hardening): an approved four-eyes record
++        # for THIS case and THIS target must exist, or nothing moves.
++        _verify_approval(approval_id, case_id, target_stage)
++    gated = service_gate_enabled()
++    # THE ONLY EXCEPTION IS OVERRIDE *WITH* MAKER-CHECKER: the approved four-eyes
++    # execution (source MAKER_CHECKER, written only by app/approvals). A caller's
++    # bare `override=True` -- possible only if maker-checker is switched off for
++    # STAGE_OVERRIDE -- does not skip the gate while it is enforced here.
++    is_override = source == "MAKER_CHECKER" or (bool(override) and not gated)
++    if gated and is_override and not reason.upper().startswith("OVERRIDE:"):
++        # THE HISTORY SAYS IT WAS AN OVERRIDE, in the reason it keeps for ever
++        reason = f"OVERRIDE: {reason}"[:_MAX_REASON]
+ 
+     if idempotency_key is not None and not _KEY_RE.match(str(idempotency_key)):
+         raise StageTransitionError(
+@@ -322,6 +405,8 @@ def transition(
+         kind = STAGE_STATUS_CHANGED if target is current.stage else STAGE_ENTERED
+         if kind == STAGE_ENTERED:
+             _check_edge(cfg, current, target)
++            if gated:
++                _enforce_gate(case_id, current, target, override=is_override)
+ 
+         from app.store.models import CaseEvent, CaseStage, StageTransition, utcnow
+ 
+@@ -365,6 +450,8 @@ def transition(
+ 
+         if written:
+             _audit(record, "APPLIED")
++            if gated and is_override and kind == STAGE_ENTERED:
++                _audit_override(record)
+             return _outcome(repository, case_id, "APPLIED", record)
+         # LOST A RACE. Somebody else moved the case between our read and
+         # our write; nothing of ours was written. Re-read and re-judge --
+@@ -447,6 +534,49 @@ def _audit(record, result: str) -> None:
+         record.correlation_id, reason)
+ 
+ 
++def _verify_approval(approval_id: str | None, case_id: str, target_stage: object) -> None:
++    """
++    MAKER_CHECKER is honoured only with an approval that is APPROVED, a STAGE_OVERRIDE,
++    for this case and this target, made and checked by two different people, and not
++    yet executed. Anything else: 403 OVERRIDE_NOT_APPROVED -- never a silent pass.
++    """
++    refused = StageTransitionError(
++        "OVERRIDE_NOT_APPROVED", "A maker-checker move needs an approved four-eyes request for this case "
++        "and target.", 403)
++    if not approval_id:
++        raise refused
++    try:
++        from app.store import get_repository
++
++        approval = get_repository().get_approval(str(approval_id))
++    except Exception as exc:  # noqa: BLE001 - an unreadable approval is not an approval
++        raise refused from exc
++    if not approval:
++        raise refused
++    target = getattr(target_stage, "value", target_stage)
++    wanted = str((approval.get("payload") or {}).get("target_stage") or "")
++    wanted = getattr(wanted, "value", wanted)
++    maker, checker = approval.get("maker_id"), approval.get("checker_id")
++    if (approval.get("action_type") != "STAGE_OVERRIDE" or approval.get("status") != "APPROVED"
++            or approval.get("case_id") != case_id or str(wanted).upper() != str(target).upper()
++            or not maker or not checker or maker == checker or approval.get("result")):
++        raise refused
++
++
++def _audit_override(record) -> None:
++    """An applied OVERRIDE in the service audit log, with its (redacted) reason."""
++    try:
++        from app.agents.applicant import audit
++
++        audit.record(request_id=record.request_id or record.transition_id, subject=record.actor or "unknown",
++                     applicant_id=None, case_id=record.case_id, intent="STAGE_TRANSITION_OVERRIDE",
++                     tools=["los.stage"], write=True, confirmed=True, status="OK",
++                     detail=f"{record.from_stage}->{record.to_stage} source={record.source} "
++                            f"reason={audit.redact(record.reason or '')}"[:300])
++    except Exception:  # noqa: BLE001 - the history row is the durable record; a log failure is logged
++        logger.exception("stage override audit failed case_id=%s", record.case_id)
++
++
+ # ==========================================================================
+ # WHAT A CALLER IS TOLD
+ # ==========================================================================
+diff --git a/app/api/routes/fos_api.py b/app/api/routes/fos_api.py
+index b874673..da0508d 100644
+--- a/app/api/routes/fos_api.py
++++ b/app/api/routes/fos_api.py
+@@ -283,6 +283,13 @@ class CopilotRequest(BaseModel):
+             "the language; where no template covers a fact the English answer stands and "
+             "`language_contract.localized` is false."),
+     )
++    co_applicant_id: str | None = Field(
++        None, max_length=128, examples=["COAPP-7F2A11C4D9E0"],
++        description=(
++            "Ask about one CO-APPLICANT by their id (LOS_COAPP_IDENTITY). Resolved through the case: "
++            "allowed only when the caller may open the case it is on; otherwise the same 403 as any "
++            "case the caller does not own."),
++    )
+     context: dict[str, Any] | None = Field(
+         None,
+         description=(
+@@ -1101,8 +1108,34 @@ async def copilot(
+                         published["answer"] = f"{str(published.get('answer') or '').rstrip()} {said}".strip()
+             # AN EMPTY CHECKLIST NEVER HIDES AN OPEN REVIEW (answering/attention.py)
+             from app.agents.applicant.copilot.answering import attention as _attention
+-
+-            published = _attention.amend(published)
++            from app.agents.applicant.copilot.answering import document_actions as _doc_actions
++
++            if (_doc_actions.enabled() and published.get("case_id")
++                    and str(published.get("intent") or "") in {"DOCUMENTS_PENDING", "DOCUMENTS_MISSING",
++                                                               "PENDING_ITEMS"}):
++                # ONLY WHAT NEEDS ACTION, from the store (COPILOT_DOCUMENT_ACTIONS, default off)
++                _view = _doc_actions.build(published["case_id"], party=_attention._asked_party(published))
++                _lang = (published.get("language_contract") or {}).get("reply_language") \
++                    if isinstance(published.get("language_contract"), dict) else None
++                _said = _doc_actions.render(_view, _lang)
++                published["document_actions"] = {**_view, "emphasis": _said["emphasis"]}
++                _other = [i for i in published.get("pending_items") or []
++                          if isinstance(i, dict) and i.get("type") not in (None, "DOCUMENT", "INFO")]
++                if not _other:
++                    published["answer"] = _said["answer"]
++                else:
++                    # a pending applicant / application detail keeps the original answer, which names it
++                    published = _attention.amend(published)
++            else:
++                published = _attention.amend(published)
++            # THE 1-2 KEY WORDS, BOLD (COPILOT_EMPHASIS, default off; answering/emphasis.py):
++            # emphasis + answer_markdown + clean answer_plain; `answer` itself unchanged
++            from app.agents.applicant.copilot.answering import emphasis as _emphasis
++
++            if _emphasis.enabled():
++                published = _emphasis.apply(published)
++            # WHOSE ANSWER, BY ID (LOS_COAPP_IDENTITY): 👥 **Co-applicant: <name> (<id>)**
++            published = _co_applicant_header(request, published)
+             # THE STRUCTURED CONTRACT beside the prose, derived from it (presentation.py).
+             from app.agents.applicant.copilot.answering import presentation as _presentation
+ 
+@@ -1123,6 +1156,77 @@ async def copilot(
+         }) from exc
+ 
+ 
++def _resolve_co_applicant(payload: "CopilotRequest", claims: dict[str, Any], request_id: str,
++                          case_id: str | None, message: str, action: "FosAction"):
++    """
++    ((case_id, co_applicant_id) | None, case_id, message) for this turn.
++
++    An id (request field, or typed: "COAPP-1023 ke docs kya baaki hai?") is resolved
++    through the case and refused with 403 unless the caller owns it; a name ("Priya ke
++    docs") is matched only on a case the caller is already authorized for. Either way
++    the reference is rewritten to "co-applicant", so the existing party routing answers.
++    """
++    from app.agents.los import co_applicants as _co
++    from app.security import access as _acc
++    from app.security.auth import get_scopes, get_subject
++
++    subject, scopes = get_subject(claims), get_scopes(claims)
++    requested = [str(payload.co_applicant_id).strip().upper()] if payload.co_applicant_id else []
++    typed = _co.ids_in(message) if action is FosAction.CUSTOM_QUERY else []
++    resolved = None
++    for co_id in dict.fromkeys(requested + typed):
++        try:
++            found = _acc.authorize_co_applicant(subject, scopes, co_id, case_id=case_id, conversation=True)
++        except _acc.AccessDenied as denied:
++            audit.record(request_id=request_id, subject=subject, applicant_id=payload.applicant_id,
++                         case_id=case_id, intent="CO_APPLICANT_ACCESS", tools=[], write=False,
++                         status="DENIED", detail=denied.code)
++            raise _acc.http_denied(denied, request_id) from None
++        if resolved and resolved[0] != found:            # two ids on two different cases
++            raise _acc.http_denied(_acc.AccessDenied(), request_id)
++        case_id, resolved = found, (found, co_id)
++        if co_id in typed:
++            message = _co.replace_reference(message, co_id)
++    if case_id and action is FosAction.CUSTOM_QUERY:
++        try:
++            _acc.authorize(subject, scopes, case_id=case_id)
++        except _acc.AccessDenied:
++            return resolved, case_id, message           # refused later, exactly as before
++        named = _co.names_in(message, _co.list_for_case(case_id))
++        if len(named) == 1:                             # two people with that name: never guessed
++            full = named[0]["name"].strip()
++            message = _co.replace_reference(_co.replace_reference(message, full), full.split()[0])
++            resolved = resolved or (case_id, named[0]["co_applicant_id"])
++    return resolved, case_id, message
++
++
++def _co_applicant_header(request: Request, published: dict[str, Any]) -> dict[str, Any]:
++    """👥 **Co-applicant: <name> (<id>)** on an answer about a co-applicant (LOS_COAPP_IDENTITY)."""
++    from app.agents.applicant.copilot.answering import attention as _attention
++    from app.agents.los import co_applicants as _co
++
++    if not _co.enabled() or not published.get("case_id"):
++        return published
++    asked = getattr(request.state, "co_applicant", None)
++    if not asked and _attention._asked_party(published) != "CO_APPLICANT":
++        return published
++    records = _co.list_for_case(published["case_id"])
++    if asked:
++        record = next((r for r in records if r["co_applicant_id"] == asked["co_applicant_id"]), None)
++        co_id = asked["co_applicant_id"]
++    elif len(records) == 1:
++        record, co_id = records[0], records[0]["co_applicant_id"]
++    else:
++        return published
++    said = _co.header(record, co_id)
++    published["co_applicant"] = {"co_applicant_id": co_id, "name": (record or {}).get("name")}
++    for key, line in (("answer", said["plain"]), ("answer_plain", said["plain"]),
++                      ("answer_markdown", said["markdown"])):
++        if isinstance(published.get(key), str) and not published[key].startswith("👥"):
++            published[key] = f"{line}\n{published[key]}"
++    return published
++
++
+ async def _copilot_json(
+     request: Request,
+     claims: dict[str, Any],
+@@ -1156,16 +1260,50 @@ async def _copilot_json(
+     else:
+         message = _ACTION_PHRASE[action]
+ 
+-    return await _run_action(
++    # NO CASE ID (COPILOT_SINGLE_CASE_RESOLVE, default off; capabilities/case_pick.py):
++    # one case of the applicant's is answered for, several are listed and asked about.
++    case_id, picked = payload.case_id, None
++
++    # A CO-APPLICANT BY ID OR NAME (LOS_COAPP_IDENTITY, step 5d), BEFORE anything is
++    # read: an id that is not on a case the caller owns is refused here -- zero
++    # downstream calls -- with the same 403 as any case the caller does not own.
++    from app.agents.los import co_applicants as _co
++
++    if _co.enabled():
++        resolved, case_id, message = _resolve_co_applicant(payload, claims, request_id, case_id, message, action)
++        if resolved:
++            request.state.co_applicant = {"case_id": resolved[0], "co_applicant_id": resolved[1]}
++    if not case_id and action is FosAction.CUSTOM_QUERY and payload.applicant_id:
++        from app.agents.applicant.copilot.capabilities import case_pick
++
++        if case_pick.enabled():
++            from app.security import access as _pick_access
++
++            try:
++                picked = case_pick.resolve(payload.applicant_id, claims)
++            except _pick_access.AccessDenied as exc:
++                raise _pick_access.http_denied(exc, request_id) from None
++            if picked.kind == case_pick.MANY:
++                return case_pick.ask_which(picked, payload.applicant_id, request_id, message)
++            if picked.kind == case_pick.NONE:
++                return case_pick.no_case(payload.applicant_id, request_id)
++            case_id = picked.case_id
++
++    result = await _run_action(
+         action,
+         applicant_id=payload.applicant_id,
+-        case_id=payload.case_id,
++        case_id=case_id,
+         claims=claims,
+         request_id=request_id,
+         message=message,
+         context=payload.context,
+         response_language=payload.response_language,
+     )
++    if picked is not None and isinstance(result, dict):
++        # THE CASE ANSWERED FOR IS NAMED, since the user did not name it
++        result["case_resolved_from_applicant"] = True
++        result["answer"] = f"For application {case_id}: {str(result.get('answer') or '').lstrip()}"
++    return result
+ 
+ 
+ def _select_language(result: dict[str, Any], selected: str | None) -> None:
+@@ -1669,6 +1807,22 @@ async def _copilot_upload(
+             "request_id": request_id, "error": exc.code, "message": exc.message,
+         }) from exc
+ 
++    # A CO-APPLICANT'S UPLOAD (LOS_COAPP_IDENTITY, step 5d): `co_applicant_id` must be ON
++    # this case, which the caller was just authorized to write -- else the same 403.
++    upload_co_id = str(form.get("co_applicant_id") or "").strip().upper() or None
++    if upload_co_id:
++        from app.agents.los import co_applicants as _co
++        from app.security import access as _acc
++
++        if not _co.enabled():
++            raise HTTPException(422, detail={
++                "request_id": request_id, "error": "CO_APPLICANT_ID_NOT_SUPPORTED",
++                "message": "co_applicant_id on an upload needs LOS_COAPP_IDENTITY."})
++        try:
++            _acc.authorize_co_applicant(caller.subject, caller.scopes, upload_co_id, case_id=case_id, write=True)
++        except _acc.AccessDenied as denied:
++            raise _acc.http_denied(denied, request_id) from None
++
+     # Checklist SLOT names are accepted here as well as document classes.
+     # The checklist the FOS is looking at says "ADDRESS_PROOF"; refusing the
+     # value it just showed them would be the API arguing with its own screen.
+@@ -1729,11 +1883,12 @@ async def _copilot_upload(
+     # separate KYC assessment per document -- each seeing one source and
+     # finding nothing to cross-check.
+     los = await process_application(
+-        documents,
++        [] if upload_co_id else documents,
+         operation=PROCESS,
+         applicant_id=applicant_id,
+         case_id=case_id,
+         request_id=request_id,
++        **({"co_applicant_id": upload_co_id, "co_applicant_uploads": documents} if upload_co_id else {}),
+         # THE FOS STAGE BOUNDARY.
+         #
+         # FOS owns classification and basic document verification: is this
+diff --git a/app/api/routes/los_api.py b/app/api/routes/los_api.py
+index 0090ab3..c35ea6c 100644
+--- a/app/api/routes/los_api.py
++++ b/app/api/routes/los_api.py
+@@ -419,9 +419,18 @@ async def process(
+     co_applicant_pan: str | None = Form(default=None),
+     co_applicant_father_name: str | None = Form(default=None),
+     co_applicant_address: str | None = Form(default=None),
++    co_applicant_relationship: str | None = Form(
++        default=None, examples=[""],
++        description="**CO-APPLICANT** relationship to the applicant (e.g. SPOUSE). Stored with "
++                    "LOS_COAPP_IDENTITY on."),
+     claims: dict[str, Any] = Depends(_PROCESS_SCOPE),
+ ):
+     request_id = f"los_{uuid.uuid4().hex}"
++    # CO-APPLICANT IDENTITY (LOS_COAPP_IDENTITY, step 5d): the system generates the id;
++    # a supplied one must already belong to this case. Off: exactly as before.
++    from app.agents.los import co_applicants as _co
++
++    co_identity = _co.enabled()
+ 
+     # Validated here so an unknown operation is refused at the boundary with
+     # a message naming what IS accepted, rather than surfacing as a 500 from
+@@ -476,7 +485,7 @@ async def process(
+             },
+         )
+ 
+-    if co_files and not str(co_applicant_id or "").strip():
++    if co_files and not str(co_applicant_id or "").strip() and not co_identity:
+         # REFUSED, NOT GUESSED. A document with no owner cannot be filed
+         # against a case: attributing it to the primary applicant would
+         # put one person's evidence on another person's file, which is
+@@ -513,12 +522,19 @@ async def process(
+         access.authorize_claims(
+             claims, applicant_id=_party_or_none(applicant_id),
+             case_id=_party_or_none(case_id), write=True, creating=True)
+-        if _party_or_none(co_applicant_id):
++        if _party_or_none(co_applicant_id) and not co_identity:
+             access.authorize_claims(
+                 claims, applicant_id=_party_or_none(co_applicant_id),
+                 write=True, creating=True)
+     except access.AccessDenied as denied:
+         raise access.http_denied(denied, request_id) from None
++    if co_identity and _party_or_none(co_applicant_id):
++        # the case was authorized above; the id must already be ON it
++        try:
++            co_applicant_id = _co.accept_supplied(_party_or_none(case_id), _party_or_none(co_applicant_id).upper())
++        except _co.CoApplicantError as exc:
++            raise HTTPException(status_code=exc.http_status, detail={
++                "request_id": request_id, "error": exc.code, "message": exc.message}) from None
+ 
+     async def build(
+         incoming: list[UploadFile],
+@@ -577,6 +593,8 @@ async def process(
+         return built
+ 
+     co_applicant_id = _party_or_none(co_applicant_id)
++    if co_identity and co_files and not co_applicant_id:
++        co_applicant_id = _co.generate_id()
+ 
+     uploads = await build(list(files), expected_types, "Applicant")
+     co_uploads = await build(co_files, co_applicant_expected_types,
+@@ -655,7 +673,19 @@ async def process(
+             case_id=str(result.get("case_id") or "") or None)
+         co_id = str(result.get("co_applicant_id") or "") or _party_or_none(
+             co_applicant_id)
+-        if co_id:
++        if co_id and co_identity and result.get("case_id"):
++            # THE CO-APPLICANT'S OWN RECORD, with the declared profile (encrypted).
++            # No grant on the co-applicant id: access goes through the case.
++            try:
++                _co.record_intake(str(result["case_id"]), str(result.get("applicant_id") or applicant_id or ""),
++                                  co_id, {"name": co_applicant_name, "date_of_birth": co_applicant_dob,
++                                          "pan_number": co_applicant_pan, "father_name": co_applicant_father_name,
++                                          "address": co_applicant_address}, co_applicant_relationship)
++                _co.fill_verified_names(str(result["case_id"]))
++            except Exception as exc:  # noqa: BLE001 - the upload already succeeded; reported, not hidden
++                logger.error("co-applicant record not written case_id=%s: %s", result.get("case_id"),
++                             type(exc).__name__)
++        elif co_id:
+             access.record_ownership(get_subject(claims), applicant_id=co_id)
+ 
+         return result
+@@ -843,6 +873,9 @@ async def transition_stage(
+             stage_status=body.stage_status, expected_stage=body.expected_stage,
+             idempotency_key=body.idempotency_key, request_id=request_id,
+             correlation_id=body.correlation_id,
++            # THE ROUTE'S OWN DECISION: OVERRIDE was authorised above (override scope);
++            # with LOS_STAGE_GATE_IN_SERVICE on, every other move is gated in the service
++            override=(mode == "OVERRIDE"),
+         )
+     except stage_lifecycle.StageTransitionError as exc:
+         logger.info("stage_transition result=REFUSED case_id=%s code=%s "
+diff --git a/app/api/routes/ops.py b/app/api/routes/ops.py
+index cc174a9..ae32b36 100644
+--- a/app/api/routes/ops.py
++++ b/app/api/routes/ops.py
+@@ -110,9 +110,21 @@ async def ready(response: Response) -> dict:
+     degraded = bool(mcp.get("degraded")) or jev not in ("READY", "DISABLED")
+     dependencies = {"case_store": "READY", "mcp": mcp["status"], "jev": jev}
+ 
++    # A RULE THAT BLOCKS EVERY CASE (step 5c: signature flag on, no activation
++    # date). The service still answers, so not a 503 -- but never plain READY.
++    from app.agents.applicant import workflow
++    from app.agents.los import co_applicants
++
++    configuration_errors = [e for e in (workflow.signature_rule_config_error(),
++                                        co_applicants.config_error()) if e]
++    if configuration_errors:
++        logger.error("Readiness: configuration error: %s", "; ".join(configuration_errors))
++        degraded = True
++
+     return {
+         "status": "ready",
+         "overall": "DEGRADED" if degraded else "READY",
++        "configuration_errors": configuration_errors,
+         "dependencies": dependencies,
+         "case_store": store,
+         "mcp": mcp,
+diff --git a/app/approvals/service.py b/app/approvals/service.py
+index 1342379..42024f9 100644
+--- a/app/approvals/service.py
++++ b/app/approvals/service.py
+@@ -109,7 +109,8 @@ def _run_stage_override(approval: dict[str, Any]) -> dict[str, Any]:
+         reason=(f"{p['reason']} [four-eyes {approval['approval_id']}: made by {approval['maker_id']}, "
+                 f"checked by {approval['checker_id']}]")[:200],
+         actor=approval["checker_id"], source="MAKER_CHECKER", expected_stage=p.get("expected_stage"),
+-        idempotency_key=f"mc-{approval['approval_id']}", request_id=f"mc_{approval['approval_id']}")
++        idempotency_key=f"mc-{approval['approval_id']}", request_id=f"mc_{approval['approval_id']}",
++        approval_id=approval["approval_id"])
+ 
+ 
+ def _run_deviation(approval: dict[str, Any]) -> dict[str, Any]:
+diff --git a/app/mcp/applicant.py b/app/mcp/applicant.py
+index abf86d1..46bb322 100644
+--- a/app/mcp/applicant.py
++++ b/app/mcp/applicant.py
+@@ -743,9 +743,47 @@ async def document_mark_for_reupload(
+     return await _envelope("documents.mark_for_reupload", run)
+ 
+ 
++async def co_applicant_get(case_id: str, co_applicant_id: str) -> ToolEnvelope:
++    """
++    ONE CO-APPLICANT OF ONE CASE (LOS_COAPP_IDENTITY, step 5d): name, relationship, their
++    own documents, their KYC status and what is pending for them. SCOPED BY THE CASE, like
++    every read tool (no global retrieval): the caller's access to `case_id` is checked by
++    whoever calls (MCP server: _authorise), and the co-applicant must be ON that case.
++    """
++
++    async def run() -> dict[str, Any]:
++        from app.agents.applicant.copilot.answering import document_actions
++        from app.agents.los import co_applicants
++
++        cid = _require(case_id, "case_id")
++        co_id = _require(co_applicant_id, "co_applicant_id").upper()
++        if not co_applicants.enabled():
++            raise ToolError(ToolStatus.UNAVAILABLE, "CO_APPLICANT_IDENTITY_DISABLED",
++                            "Co-applicant ids need LOS_COAPP_IDENTITY.")
++        if cid not in co_applicants.cases_for(co_id):
++            # the same answer whether the id is unknown or on another case
++            raise ToolError(ToolStatus.NOT_FOUND, "CO_APPLICANT_NOT_FOUND",
++                            "This case has no co-applicant with that id.")
++        record = co_applicants.get(co_id) or {}
++        documents = [_document_json(d) for d in _repo().list_documents(cid)
++                     if d.party_id == co_id and str(getattr(d, "party_role", "")).upper() == "CO_APPLICANT"]
++        view = document_actions.build(cid, party="CO_APPLICANT", repository=_repo())
++        kyc = None
++        for finding in _repo().get_current_findings(cid, kind="KYC") or []:
++            if getattr(finding, "party_id", None) == co_id:
++                kyc = getattr(finding, "status", None)
++        return {"co_applicant_id": co_id, "case_id": cid, "name": record.get("name"),
++                "name_source": record.get("name_source"), "relationship": record.get("relationship"),
++                "documents": documents, "kyc_status": kyc,
++                "pending": view["pending"], "reupload": view["reupload"], "under_review": view["under_review"]}
++
++    return await _envelope("co_applicant.get", run)
++
++
+ #: capability name -> coroutine. The registry the planner selects from; a tool
+ #: not in here cannot be called, whatever a model asks for.
+ READ_TOOLS = {
++    "co_applicant.get": co_applicant_get,
+     "applicant.get": applicant_get,
+     "application.get": application_get,
+     "applications.list": applications_list,
+diff --git a/app/mcp/case_server.py b/app/mcp/case_server.py
+index faca2fb..19d8d19 100644
+--- a/app/mcp/case_server.py
++++ b/app/mcp/case_server.py
+@@ -98,7 +98,7 @@ _SAFE_TYPE = re.compile(r"^[A-Za-z0-9_ ]{1,64}$")
+ 
+ 
+ def _authorise(ctx: Context, name: str, *, applicant_id: str | None,
+-               case_id: str | None) -> dict[str, Any] | None:
++               case_id: str | None, co_applicant_id: str | None = None) -> dict[str, Any] | None:
+     """
+     None when the caller may make this call; else the refusal envelope.
+ 
+@@ -142,9 +142,14 @@ def _authorise(ctx: Context, name: str, *, applicant_id: str | None,
+     except permissions.PermissionDenied as denied:
+         return _refused(name, denied.code, denied.message)
+     try:
+-        access.authorize(caller.subject, caller.scopes,
+-                         applicant_id=applicant_id or None,
+-                         case_id=case_id or None, write=False)
++        if co_applicant_id:
++            # THROUGH THE CASE (step 5d): the named case must be the caller's AND carry this co-applicant
++            access.authorize_co_applicant(caller.subject, caller.scopes, co_applicant_id,
++                                          case_id=case_id or None)
++        else:
++            access.authorize(caller.subject, caller.scopes,
++                             applicant_id=applicant_id or None,
++                             case_id=case_id or None, write=False)
+     except access.AccessDenied as denied:
+         return _refused(name, "CASE_ACCESS_DENIED", denied.message)
+     return None
+@@ -167,26 +172,30 @@ def _bounded(name: str, payload: dict[str, Any]) -> dict[str, Any]:
+ 
+ 
+ async def _run(name: str, ctx: Context, *, applicant_id: str | None = None,
+-               case_id: str | None = None, document_type: str | None = None
+-               ) -> dict[str, Any]:
++               case_id: str | None = None, document_type: str | None = None,
++               co_applicant_id: str | None = None) -> dict[str, Any]:
+     if name not in allowed_tools():
+         return _refused(name, "TOOL_NOT_ALLOWED",
+                         "This tool is not available over MCP.")
+     # TYPED, BOUNDED INPUT, checked before anything is read.
+-    for label, value in (("applicant_id", applicant_id), ("case_id", case_id)):
++    for label, value in (("applicant_id", applicant_id), ("case_id", case_id),
++                         ("co_applicant_id", co_applicant_id)):
+         if value is not None and not _SAFE_ID.match(value):
+             return _invalid(name, f"{label} is not a valid identifier.")
+     if document_type and not _SAFE_TYPE.match(document_type):
+         return _invalid(name, "document_type is not a valid document type.")
+ 
+-    refused = _authorise(ctx, name, applicant_id=applicant_id, case_id=case_id)
++    refused = _authorise(ctx, name, applicant_id=applicant_id, case_id=case_id,
++                         co_applicant_id=co_applicant_id)
+     if refused is not None:
+         logger.info("mcp_server tool=%s authorized=false code=%s", name,
+                     refused["error"]["code"])
+         return refused
+ 
+     handler = capabilities.READ_TOOLS[name]
+-    if name in ("applicant.get", "applications.list"):
++    if name == "co_applicant.get":
++        envelope = await handler(case_id, co_applicant_id)
++    elif name in ("applicant.get", "applications.list"):
+         envelope = await handler(applicant_id)
+     elif name == "documents.verification":
+         envelope = await handler(case_id, document_type or "")
+@@ -212,6 +221,12 @@ def _by_case(name: str):
+     return tool
+ 
+ 
++def _by_co_applicant(name: str):
++    async def tool(case_id: str, co_applicant_id: str, ctx: Context) -> dict[str, Any]:
++        return await _run(name, ctx, case_id=case_id, co_applicant_id=co_applicant_id)
++    return tool
++
++
+ def _by_case_and_document(name: str):
+     async def tool(case_id: str, document_type: str,
+                    ctx: Context) -> dict[str, Any]:
+@@ -223,7 +238,9 @@ def _by_case_and_document(name: str):
+ for _name in sorted(allowed_tools()):
+     _contract = CONTRACTS[_name]
+     _fields = set(_contract.input_schema.get("properties") or ())
+-    if "applicant_id" in _fields and "case_id" not in _fields:
++    if "co_applicant_id" in _fields:
++        _fn = _by_co_applicant(_name)
++    elif "applicant_id" in _fields and "case_id" not in _fields:
+         _fn = _by_applicant(_name)
+     elif "document_type" in _fields:
+         _fn = _by_case_and_document(_name)
+diff --git a/app/mcp/contracts.py b/app/mcp/contracts.py
+index 147801d..8eb0a02 100644
+--- a/app/mcp/contracts.py
++++ b/app/mcp/contracts.py
+@@ -42,6 +42,7 @@ def _string(description: str) -> dict[str, Any]:
+ 
+ CASE_ID = _string("The case this applies to.")
+ APPLICANT_ID = _string("The applicant this applies to.")
++CO_APPLICANT_ID = _string("The co-applicant this applies to (COAPP-...).")
+ 
+ 
+ @dataclass(frozen=True)
+@@ -145,6 +146,18 @@ CONTRACTS: dict[str, ToolContract] = {
+         scope_key="application",
+         never=DOWNSTREAM_CONCERNS,
+     ),
++    "co_applicant.get": ToolContract(
++        name="co_applicant.get",
++        summary=(
++            "One co-applicant of a case: name, relationship, their own documents, their KYC status "
++            "and what is pending for them. Scoped by the case (the caller must own it); the "
++            "co-applicant must be on that case."
++        ),
++        input_schema=_schema({"case_id": CASE_ID, "co_applicant_id": CO_APPLICANT_ID},
++                             ["case_id", "co_applicant_id"]),
++        scope_key="documents",
++        never=DOWNSTREAM_CONCERNS,
++    ),
+     "documents.get": ToolContract(
+         name="documents.get",
+         summary="The documents attached to a case, with their stored status.",
+@@ -410,6 +423,7 @@ PROVIDERS: dict[str, str] = {
+     "workflow.readiness": "workflow",
+     "eligibility.get": "eligibility_record",
+     "applicant.360": "case_view",
++    "co_applicant.get": "case_store",
+     "applicant.create": "case_store",
+     "applicant.update": "case_store",
+     "application.create": "case_store",
+diff --git a/app/mcp/runtime.py b/app/mcp/runtime.py
+index 82ff9a8..a84471a 100644
+--- a/app/mcp/runtime.py
++++ b/app/mcp/runtime.py
+@@ -193,9 +193,12 @@ def mode() -> str:
+ 
+ 
+ def _arguments(name: str, applicant_id: str | None, case_id: str | None,
+-               document_type: str | None) -> dict[str, Any]:
++               document_type: str | None, co_applicant_id: str | None = None) -> dict[str, Any]:
+     fields = set((CONTRACTS[name].input_schema.get("properties") or {}))
+     args: dict[str, Any] = {}
++    if "co_applicant_id" in fields:
++        # always sent (empty when absent), so both transports refuse it the same way
++        args["co_applicant_id"] = co_applicant_id or ""
+     if "applicant_id" in fields and applicant_id is not None:
+         args["applicant_id"] = applicant_id
+     if "case_id" in fields and case_id is not None:
+@@ -297,6 +300,7 @@ async def call(
+     request_id: str | None = None,
+     stage: str | None = None,
+     intent: str | None = None,
++    co_applicant_id: str | None = None,
+ ) -> tuple[ToolEnvelope, dict[str, Any]]:
+     """One tool call, inside an `mcp.tool` span (tool, transport, outcome)."""
+     from app.observability.tracing import annotate, span
+@@ -306,7 +310,7 @@ async def call(
+         envelope, trace = await _call(
+             name, applicant_id=applicant_id, case_id=case_id,
+             document_type=document_type, caller=caller, request_id=request_id,
+-            stage=stage, intent=intent)
++            stage=stage, intent=intent, co_applicant_id=co_applicant_id)
+         annotate(current, protocol=trace.get("protocol"),
+                  transport=trace.get("transport"), status=trace.get("status"),
+                  authorized=trace.get("authorized"), ok=trace.get("ok"),
+@@ -326,6 +330,7 @@ async def _call(
+     request_id: str | None = None,
+     stage: str | None = None,
+     intent: str | None = None,
++    co_applicant_id: str | None = None,
+ ) -> tuple[ToolEnvelope, dict[str, Any]]:
+     """
+     Carry one read-tool call over the configured MCP mode.
+@@ -350,6 +355,8 @@ async def _call(
+ 
+     async def direct() -> ToolEnvelope:
+         handler = capabilities.READ_TOOLS[name]
++        if name == "co_applicant.get":
++            return await handler(case_id, co_applicant_id or "")
+         if name in ("applicant.get", "applications.list"):
+             return await handler(applicant_id)
+         if name == "documents.verification":
+@@ -372,7 +379,7 @@ async def _call(
+         try:
+             session = _session()
+             result = await session.call(
+-                name, _arguments(name, applicant_id, case_id, document_type),
++                name, _arguments(name, applicant_id, case_id, document_type, co_applicant_id),
+                 meta, config.mcp_call_timeout_seconds())
+             envelope = _envelope_from(name, result)
+             trace["protocol"] = "mcp"
+diff --git a/app/security/access.py b/app/security/access.py
+index 0521a7f..8770066 100644
+--- a/app/security/access.py
++++ b/app/security/access.py
+@@ -214,6 +214,40 @@ def authorize_conversation(subject: str | None, scopes: Iterable[str], *,
+         raise AccessDenied()
+ 
+ 
++def authorize_co_applicant(subject: str | None, scopes: Iterable[str], co_applicant_id: str, *,
++                           case_id: str | None = None, write: bool = False,
++                           conversation: bool = False) -> str:
++    """
++    THE CASE a co-applicant id is on, when the caller may open it (step 5d).
++
++    THROUGH THE CASE, NEVER A GRANT: the id is looked up, and the ordinary case
++    ownership check decides. Unknown, not the caller's, or on a different case
++    than the one named -- all the same AccessDenied, so a caller cannot learn
++    which ids exist. Raises AccessDenied.
++    """
++    from app.agents.los import co_applicants
++
++    identifier = str(co_applicant_id or "").strip().upper()
++    if not identifier:
++        raise AccessDenied()
++    owned: list[str] = []
++    for candidate in co_applicants.cases_for(identifier):
++        if case_id and candidate != case_id:
++            continue
++        try:
++            authorize(subject, scopes, case_id=candidate, write=write)
++            if conversation:
++                authorize_conversation(subject, scopes, case_id=candidate)
++        except AccessDenied:
++            continue
++        owned.append(candidate)
++    if len(owned) != 1:
++        # none: not found / not yours. More than one: the pre-backfill duplicate --
++        # never guessed between two people.
++        raise AccessDenied()
++    return owned[0]
++
++
+ def authorize_claims(claims: dict[str, Any], **kwargs: Any) -> None:
+     """`authorize` for a request's JWT claims."""
+     authorize(get_subject(claims), get_scopes(claims), **kwargs)
+diff --git a/app/store/crypto.py b/app/store/crypto.py
+index 84ce738..9f97c2f 100644
+--- a/app/store/crypto.py
++++ b/app/store/crypto.py
+@@ -99,4 +99,24 @@ def open_(stored: Any) -> Any:
+     return _cipher().decrypt(wrapper["data"].encode()).decode()
+ 
+ 
+-__all__ = ["seal", "open_", "encrypted_kinds", "require_in_production", "configured", "EncryptionConfigError"]
++def seal_value(value: str | None) -> str | None:
++    """
++    ONE PII VALUE, ALWAYS ENCRYPTED (co-applicant name, DOB, PAN, father's name,
++    address). Not gated by LOS_ENCRYPTED_FINDING_KINDS: no setting can store these
++    in clear. None / "" stays None.
++    """
++    if value is None or str(value).strip() == "":
++        return None
++    return json.dumps({"_enc": MARKER, "data": _cipher().encrypt(str(value).encode()).decode()})
++
++
++def open_value(stored: str | None) -> str | None:
++    """A sealed PII value back as text (None stays None)."""
++    if stored is None:
++        return None
++    opened = open_(stored)
++    return opened if opened != stored or MARKER not in str(stored) else None
++
++
++__all__ = ["seal", "open_", "seal_value", "open_value", "encrypted_kinds", "require_in_production", "configured",
++           "EncryptionConfigError"]
+diff --git a/app/store/ingest.py b/app/store/ingest.py
+index dfaf253..9d08a2c 100644
+--- a/app/store/ingest.py
++++ b/app/store/ingest.py
+@@ -234,6 +234,15 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
+ 
+     if memory:
+         _index_case(repository, case_id)
++        # A CO-APPLICANT WITH NO NAME gets one from a PASSED KYC name check only
++        # (LOS_COAPP_IDENTITY, step 5d) -- never from unverified OCR.
++        try:
++            from app.agents.los import co_applicants as _co
++
++            if _co.enabled(repository):
++                _co.fill_verified_names(case_id, repository)
++        except Exception as exc:  # noqa: BLE001 - observational, like the case memory itself
++            logger.warning("co-applicant verified-name fill failed for %s: %s", case_id, type(exc).__name__)
+ 
+     _queue_unread(repository, result, case_id, applicant_id)
+ 
+diff --git a/app/store/postgres_repo.py b/app/store/postgres_repo.py
+index c9fbb05..b1de660 100644
+--- a/app/store/postgres_repo.py
++++ b/app/store/postgres_repo.py
+@@ -26,6 +26,7 @@ expression indexes, append-only triggers -- so the two backends cannot drift.
+ from __future__ import annotations
+ 
+ import logging
++import os
+ import re
+ import threading
+ from typing import Any
+@@ -106,6 +107,131 @@ MIGRATIONS: tuple[tuple[str, str, Any], ...] = (
+ )
+ 
+ 
++# ---------------------------------------------------------------------------
++# GATED MIGRATIONS (Phase 3 step 5d) -- never applied just because the code shipped
++# ---------------------------------------------------------------------------
++#
++# Applied automatically ONLY when ALL hold:
++#   * ENVIRONMENT is not production   (production: a person runs scripts.apply_migration
++#                                      at a planned time -- Go-live checklist)
++#   * LOS_COAPP_IDENTITY=true
++#   * LOS_MIGRATION_BACKUP_FILE names a fresh pg_dump backup (store/backup_check.py)
++#   * its precondition holds          (0005: no duplicate co_applicant_id left)
++# Otherwise it is skipped with a warning and NOT recorded, so it stays pending.
++
++COAPP_IDENTITY_DDL = """
++CREATE TABLE IF NOT EXISTS co_applicants (
++    co_applicant_id  TEXT PRIMARY KEY,
++    case_id          TEXT NOT NULL REFERENCES applications (case_id),
++    applicant_id     TEXT NOT NULL REFERENCES applicants (applicant_id),
++    name             TEXT,
++    name_source      TEXT CHECK (name_source IN ('DECLARED', 'KYC_VERIFIED')),
++    dob              TEXT,
++    pan              TEXT,
++    father_name      TEXT,
++    address          TEXT,
++    relationship     TEXT,
++    source           TEXT NOT NULL DEFAULT 'INTAKE' CHECK (source IN ('INTAKE', 'BACKFILL')),
++    created_at       TEXT NOT NULL,
++    updated_at       TEXT NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_co_applicants_case      ON co_applicants (case_id);
++CREATE INDEX IF NOT EXISTS idx_co_applicants_applicant ON co_applicants (applicant_id);
++
++CREATE TABLE IF NOT EXISTS co_applicant_id_remap (
++    remap_id     TEXT PRIMARY KEY,
++    run_id       TEXT NOT NULL,
++    action       TEXT NOT NULL CHECK (action IN ('INSERT_CO_APPLICANT', 'REMAP_ID', 'REVOKE_GRANT')),
++    case_id      TEXT,
++    old_id       TEXT,
++    new_id       TEXT,
++    detail       TEXT NOT NULL DEFAULT '{}',
++    applied_at   TEXT NOT NULL,
++    reverted_at  TEXT
++);
++CREATE INDEX IF NOT EXISTS idx_co_applicant_remap_run ON co_applicant_id_remap (run_id);
++
++ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS revoked_at     TEXT;
++ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS revoked_reason TEXT;
++"""
++
++COAPP_UNIQUE_DDL = """
++DO $$
++BEGIN
++  IF EXISTS (SELECT co_applicant_id FROM applications
++             WHERE co_applicant_id IS NOT NULL
++             GROUP BY co_applicant_id HAVING count(*) > 1) THEN
++    RAISE EXCEPTION 'co_applicant_id is not unique yet: run scripts.backfill_co_applicants --apply first';
++  END IF;
++END $$;
++
++CREATE UNIQUE INDEX IF NOT EXISTS uq_applications_co_applicant_id
++    ON applications (co_applicant_id) WHERE co_applicant_id IS NOT NULL;
++"""
++
++
++def _no_duplicate_co_ids(conn) -> bool:
++    row = conn.execute("SELECT count(*) AS n FROM (SELECT co_applicant_id FROM applications "
++                       "WHERE co_applicant_id IS NOT NULL GROUP BY co_applicant_id "
++                       "HAVING count(*) > 1) d").fetchone()
++    return int(row["n"]) == 0
++
++
++#: (version, description, ddl, precondition(conn) -> bool)
++GATED_MIGRATIONS: tuple[tuple[str, str, str, Any], ...] = (
++    ("0004", "co-applicant identity: co_applicants, remap log, revocable grants",
++     COAPP_IDENTITY_DDL, lambda conn: True),
++    ("0005", "co_applicant_id unique per case (after the backfill)", COAPP_UNIQUE_DDL, _no_duplicate_co_ids),
++)
++
++
++def _production() -> bool:
++    return (os.getenv("ENVIRONMENT") or "development").strip().lower() in {"production", "prod"}
++
++
++def _gated_auto_apply_allowed() -> tuple[bool, str]:
++    if _production():
++        return False, "production: run scripts.apply_migration by hand at a planned time"
++    if (os.getenv("LOS_COAPP_IDENTITY") or "").strip().lower() not in {"1", "true", "yes", "on"}:
++        return False, "LOS_COAPP_IDENTITY is off"
++    from app.store.backup_check import BackupRequired, require_fresh_backup
++
++    try:
++        require_fresh_backup(os.getenv("LOS_MIGRATION_BACKUP_FILE"))
++    except BackupRequired as exc:
++        return False, f"no fresh backup ({exc})"
++    return True, ""
++
++
++def apply_gated(repository: "PostgresRepository", version: str) -> bool:
++    """
++    Apply one gated migration NOW, in one transaction (scripts.apply_migration, tests).
++    The caller has already required the backup. Returns False when it was already applied.
++    """
++    entry = next((m for m in GATED_MIGRATIONS if m[0] == version), None)
++    if entry is None:
++        raise RepositoryError(f"unknown gated migration {version}")
++    _, description, ddl, precondition = entry
++    repository.initialise()
++    conn = repository._connect()
++    applied = {r["version"] for r in conn.execute("SELECT version FROM schema_migrations").fetchall()}
++    if version in applied:
++        return False
++    if not precondition(conn):
++        raise RepositoryError(f"migration {version}: precondition not met")
++    try:
++        conn.execute("BEGIN")
++        conn.raw_cursor().execute(ddl)
++        conn.execute("INSERT INTO schema_migrations (version, description) VALUES (?, ?)", (version, description))
++        conn.commit()
++    except StoreDbError as exc:
++        conn.rollback()
++        raise RepositoryError(f"migration {version} failed: {exc}") from exc
++    repository.reset_schema_cache()
++    logger.info("Postgres case store: applied gated migration %s", version)
++    return True
++
++
+ # ---------------------------------------------------------------------------
+ # the connection adapter: the small connection API SqlRepository uses
+ # ---------------------------------------------------------------------------
+@@ -314,6 +440,7 @@ class PostgresRepository(sql_repo.SqlRepository):
+                                  (version, description))
+                     logger.info("Postgres case store: applied migration %s", version)
+                 conn.commit()
++                self._apply_gated_at_startup(conn, applied)
+             except StoreDbError as exc:
+                 conn.rollback()
+                 raise RepositoryError(f"Could not migrate the Postgres schema: {exc}") from exc
+@@ -326,6 +453,29 @@ class PostgresRepository(sql_repo.SqlRepository):
+             self._initialised = True
+             logger.info("Case store ready on PostgreSQL (%d migration(s))", len(MIGRATIONS))
+ 
++    def _apply_gated_at_startup(self, conn, applied: set[str]) -> None:
++        """Gated migrations (0004 / 0005): dev only, flag on, fresh backup named, precondition met."""
++        pending = [m for m in GATED_MIGRATIONS if m[0] not in applied]
++        if not pending:
++            return
++        allowed, why = _gated_auto_apply_allowed()
++        for version, description, ddl, precondition in pending:
++            if not allowed:
++                if why.startswith("production") or "LOS_COAPP_IDENTITY" not in why:
++                    logger.warning("Gated migration %s pending, not applied: %s", version, why)
++                continue
++            if not precondition(conn):
++                logger.warning("Gated migration %s pending: precondition not met "
++                               "(run scripts.backfill_co_applicants first)", version)
++                continue
++            conn.execute("BEGIN")
++            conn.raw_cursor().execute(ddl)
++            conn.execute("INSERT INTO schema_migrations (version, description) VALUES (?, ?)",
++                         (version, description))
++            conn.commit()
++            logger.info("Postgres case store: applied gated migration %s", version)
++        self.reset_schema_cache()
++
+     def dispose(self) -> None:
+         """Close the pool (every connection). The repository is unusable afterwards."""
+         self.close()
+diff --git a/app/store/sql_repo.py b/app/store/sql_repo.py
+index 5b045ef..3f5f4d6 100644
+--- a/app/store/sql_repo.py
++++ b/app/store/sql_repo.py
+@@ -685,12 +685,37 @@ class SqlRepository(Repository):
+                    resource_id: str) -> bool:
+         if not subject or not resource_id:
+             return False
++        # A REVOKED GRANT NEVER COUNTS (migration 0004 adds revoked_at). Revocation
++        # keeps the row -- reversible, auditable -- and this is what makes it bite.
++        revoked = " AND revoked_at IS NULL" if self.grants_revocable() else ""
+         return self._one(
+             "SELECT 1 FROM access_grants WHERE subject = ? AND "
+-            "resource_type = ? AND resource_id = ?",
++            "resource_type = ? AND resource_id = ?" + revoked,
+             (str(subject), str(resource_type).upper(), str(resource_id)),
+         ) is not None
+ 
++    def grants_revocable(self) -> bool:
++        """Whether access_grants has revoked_at (0004 applied). Cached; reset by reset_schema_cache()."""
++        cached = getattr(self, "_grants_revocable", None)
++        if cached is None:
++            cached = self._column_exists("access_grants", "revoked_at")
++            self._grants_revocable = cached
++        return cached
++
++    def table_exists(self, table: str) -> bool:
++        row = self._one("SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() "
++                        "AND table_name = ?", (table,))
++        return row is not None
++
++    def _column_exists(self, table: str, column: str) -> bool:
++        row = self._one("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
++                        "AND table_name = ? AND column_name = ?", (table, column))
++        return row is not None
++
++    def reset_schema_cache(self) -> None:
++        """After a migration in this process: re-read which optional columns / tables exist."""
++        self._grants_revocable = None
++
+     def _one(self, sql: str, args: tuple) -> Any | None:
+         self.initialise()
+         try:
+diff --git a/app/store/backup_check.py b/app/store/backup_check.py
+new file mode 100644
+index 0000000..6e5878b
+--- /dev/null
++++ b/app/store/backup_check.py
+@@ -0,0 +1,50 @@
++"""
++A FRESH BACKUP BEFORE A SCHEMA OR DATA CHANGE (Phase 3 step 5d).
++
++Migrations 0004 / 0005 and the co-applicant backfill refuse to run unless a
++pg_dump backup taken shortly before is named. Checked here, in one place:
++
++    exists and is not empty
++    was written within the last `max_age_hours` (default 24)
++    is a pg_dump file: custom format starts with b"PGDMP"; plain format says
++    "PostgreSQL database dump" near the top
++
++The command (README, "Backups before schema changes"):
++
++    pg_dump --format=custom --file=runs/backups/los_<date>.dump "<LOS_STORE_DSN>"
++"""
++
++from __future__ import annotations
++
++import os
++import time
++from pathlib import Path
++
++MAX_AGE_HOURS = 24.0
++
++
++class BackupRequired(RuntimeError):
++    """No usable fresh backup was named."""
++
++
++def require_fresh_backup(path: str | os.PathLike | None, *, max_age_hours: float = MAX_AGE_HOURS) -> Path:
++    """The backup file, checked; raises BackupRequired with the reason otherwise."""
++    if not path:
++        raise BackupRequired("a fresh pg_dump backup is required: pass --backup-file <path>")
++    file = Path(path)
++    if not file.is_file():
++        raise BackupRequired(f"backup file not found: {file}")
++    size = file.stat().st_size
++    if size == 0:
++        raise BackupRequired(f"backup file is empty: {file}")
++    age_hours = (time.time() - file.stat().st_mtime) / 3600.0
++    if age_hours > max_age_hours:
++        raise BackupRequired(f"backup file is {age_hours:.1f} h old; take a new one (limit {max_age_hours:g} h)")
++    with file.open("rb") as handle:
++        head = handle.read(4096)
++    if not (head.startswith(b"PGDMP") or b"PostgreSQL database dump" in head):
++        raise BackupRequired(f"not a pg_dump file: {file}")
++    return file
++
++
++__all__ = ["BackupRequired", "MAX_AGE_HOURS", "require_fresh_backup"]
+diff --git a/app/agents/los/co_applicants.py b/app/agents/los/co_applicants.py
+new file mode 100644
+index 0000000..39944dd
+--- /dev/null
++++ b/app/agents/los/co_applicants.py
+@@ -0,0 +1,272 @@
++"""
++CO-APPLICANT IDENTITY (Phase 3 step 5d; LOS_COAPP_IDENTITY, default off).
++
++Every co-applicant is a record of its own -- `co_applicants` (migration 0004) --
++with a system-generated id in the applicant's convention (COAPP-<12 hex> beside
++APP-<12 hex>), the case it belongs to, and the profile the application form
++declared. `applications.co_applicant_id` keeps pointing at the (first)
++co-applicant, so everything written before keeps working.
++
++THE RULES:
++  * The system generates the id. A caller-supplied id is accepted only when it
++    already belongs to THAT case; anything else is refused.
++  * Access goes through the case: a co-applicant id is allowed exactly when the
++    caller may open the case it is on (security/access.authorize_co_applicant).
++    No grant is ever written on a co-applicant id.
++  * Name, DOB, PAN, father's name and address are encrypted one by one
++    (store/crypto.seal_value) and never logged.
++  * A co-applicant whose name was not declared gets one ONLY from a PASSED KYC
++    name check -- never from unverified OCR (`fill_verified_names`).
++"""
++
++from __future__ import annotations
++
++import logging
++import os
++import re
++import uuid
++from datetime import datetime, timezone
++from typing import Any
++
++logger = logging.getLogger(__name__)
++
++FLAG = "LOS_COAPP_IDENTITY"
++ID_PATTERN = re.compile(r"\bCOAPP-[A-Za-z0-9_.:-]{1,64}\b", re.IGNORECASE)
++_PII = ("name", "dob", "pan", "father_name", "address")
++_WARNED: set[str] = set()
++
++
++class CoApplicantError(ValueError):
++    """A co-applicant id that cannot be used as asked."""
++
++    def __init__(self, code: str, message: str, http_status: int = 422):
++        super().__init__(message)
++        self.code, self.message, self.http_status = code, message, http_status
++
++
++def flag_on() -> bool:
++    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _repo(repository=None):
++    if repository is not None:
++        return repository
++    from app.store import get_repository
++
++    return get_repository()
++
++
++def schema_ready(repository=None) -> bool:
++    try:
++        return bool(_repo(repository).table_exists("co_applicants"))
++    except Exception:  # noqa: BLE001 - an unreadable store is not a ready one
++        return False
++
++
++def enabled(repository=None) -> bool:
++    """Flag on AND migration 0004 applied. Flag on without it is reported (config_error), never guessed."""
++    if not flag_on():
++        return False
++    ready = schema_ready(repository)
++    if not ready and "schema" not in _WARNED:
++        _WARNED.add("schema")
++        logger.error("%s is on but migration 0004 (co_applicants) is not applied; co-applicant identity is OFF",
++                     FLAG)
++    return ready
++
++
++def config_error(repository=None) -> str | None:
++    """For /ready: the flag is on but the table it needs does not exist."""
++    if flag_on() and not schema_ready(repository):
++        return f"{FLAG} is on but migration 0004 (co_applicants) is not applied"
++    return None
++
++
++def _now() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++
++# ---- ids -----------------------------------------------------------------------------------------
++def _id_taken(repository, candidate: str) -> bool:
++    return bool(repository._one("SELECT 1 FROM co_applicants WHERE co_applicant_id = ?", (candidate,))
++                or repository._one("SELECT 1 FROM applications WHERE co_applicant_id = ?", (candidate,))
++                or repository._one("SELECT 1 FROM applicants WHERE applicant_id = ?", (candidate,)))
++
++
++def generate_id(repository=None) -> str:
++    """A new COAPP-<12 hex>, unused as a co-applicant AND as an applicant id."""
++    repository = _repo(repository)
++    for _ in range(5):
++        candidate = f"COAPP-{uuid.uuid4().hex[:12].upper()}"
++        if not _id_taken(repository, candidate):
++            return candidate
++    raise CoApplicantError("CO_APPLICANT_ID_UNAVAILABLE", "Could not generate a unique co-applicant id.", 503)
++
++
++def cases_for(co_applicant_id: str, repository=None) -> list[str]:
++    """Every case this id is on (the record first, then the legacy pointer). Unique after the backfill."""
++    repository = _repo(repository)
++    cases: list[str] = []
++    for row in repository._all("SELECT case_id FROM co_applicants WHERE co_applicant_id = ?", (co_applicant_id,)):
++        cases.append(row["case_id"])
++    for row in repository._all("SELECT case_id FROM applications WHERE co_applicant_id = ?", (co_applicant_id,)):
++        if row["case_id"] not in cases:
++            cases.append(row["case_id"])
++    return cases
++
++
++def accept_supplied(case_id: str | None, co_applicant_id: str, repository=None) -> str:
++    """A caller-supplied id, accepted ONLY when it already belongs to this case."""
++    if case_id and case_id in cases_for(co_applicant_id, repository):
++        return co_applicant_id
++    raise CoApplicantError(
++        "CO_APPLICANT_ID_NOT_ON_CASE",
++        "co_applicant_id is generated by the system; a supplied one must already belong to this case.")
++
++
++# ---- records -------------------------------------------------------------------------------------
++def _row(raw) -> dict[str, Any]:
++    from app.store.crypto import open_value
++
++    out = {k: raw[k] for k in ("co_applicant_id", "case_id", "applicant_id", "name_source", "relationship",
++                               "source", "created_at", "updated_at")}
++    for key in _PII:
++        out[key] = open_value(raw[key])
++    return out
++
++
++def get(co_applicant_id: str, repository=None) -> dict[str, Any] | None:
++    raw = _repo(repository)._one("SELECT * FROM co_applicants WHERE co_applicant_id = ?", (co_applicant_id,))
++    return _row(raw) if raw else None
++
++
++def list_for_case(case_id: str, repository=None) -> list[dict[str, Any]]:
++    rows = _repo(repository)._all("SELECT * FROM co_applicants WHERE case_id = ? ORDER BY created_at",
++                                  (case_id,))
++    return [_row(r) for r in rows]
++
++
++def record_intake(case_id: str, applicant_id: str, co_applicant_id: str, profile: dict[str, Any] | None,
++                  relationship: str | None = None, repository=None) -> None:
++    """Create or update the co-applicant record with the DECLARED profile (encrypted)."""
++    from app.store.crypto import seal_value
++
++    repository = _repo(repository)
++    profile = profile or {}
++    values = {"name": profile.get("name"), "dob": profile.get("date_of_birth"), "pan": profile.get("pan_number"),
++              "father_name": profile.get("father_name"), "address": profile.get("address")}
++    sealed = {k: seal_value(v) for k, v in values.items()}
++    now = _now()
++    existing = repository._one("SELECT * FROM co_applicants WHERE co_applicant_id = ?", (co_applicant_id,))
++    if existing is None:
++        repository._write(
++            "INSERT INTO co_applicants (co_applicant_id, case_id, applicant_id, name, name_source, dob, pan, "
++            "father_name, address, relationship, source, created_at, updated_at) "
++            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INTAKE', ?, ?)",
++            (co_applicant_id, case_id, applicant_id, sealed["name"], "DECLARED" if sealed["name"] else None,
++             sealed["dob"], sealed["pan"], sealed["father_name"], sealed["address"],
++             (relationship or "").strip().upper() or None, now, now))
++        return
++    if existing["case_id"] != case_id:
++        raise CoApplicantError("CO_APPLICANT_ID_NOT_ON_CASE", "This co-applicant belongs to another case.", 403)
++    # a later upload fills what was missing; a declared value never overwrites a KYC-verified name
++    keep_name = existing["name_source"] == "KYC_VERIFIED"
++    updates = {k: v for k, v in sealed.items() if v is not None and not (k == "name" and keep_name)}
++    if relationship:
++        updates["relationship"] = relationship.strip().upper()
++    if "name" in updates:
++        updates["name_source"] = "DECLARED"
++    if not updates:
++        return
++    assignments = ", ".join(f"{k} = ?" for k in updates)
++    repository._write(f"UPDATE co_applicants SET {assignments}, updated_at = ? WHERE co_applicant_id = ?",
++                      (*updates.values(), now, co_applicant_id))
++
++
++def fill_verified_names(case_id: str, repository=None) -> int:
++    """
++    A co-applicant with NO name gets one from a PASSED KYC name check on their own
++    documents -- the PAN's spelling where the documents differ. Never from OCR alone.
++    Returns how many names were filled.
++    """
++    from app.store.crypto import seal_value
++
++    repository = _repo(repository)
++    filled = 0
++    for co in list_for_case(case_id, repository):
++        if co["name"]:
++            continue
++        verified = verified_name(case_id, co["co_applicant_id"], repository)
++        if not verified:
++            continue
++        repository._write("UPDATE co_applicants SET name = ?, name_source = 'KYC_VERIFIED', updated_at = ? "
++                          "WHERE co_applicant_id = ? AND name IS NULL",
++                          (seal_value(verified), _now(), co["co_applicant_id"]))
++        filled += 1
++    return filled
++
++
++def verified_name(case_id: str, party_id: str, repository=None) -> str | None:
++    """The name a PASSED KYC NAME check reports for this party, or None."""
++    try:
++        findings = _repo(repository).get_current_findings(case_id, kind="KYC") or []
++    except Exception:  # noqa: BLE001 - no readable KYC: nothing is verified
++        return None
++    mine = [f for f in findings if getattr(f, "party_id", None) == party_id]
++    # THE LATEST KYC RESULT decides: an older REVIEW does not hide a newer PASS, and a
++    # newer REVIEW withdraws an older PASS
++    mine.sort(key=lambda f: str(getattr(f, "updated_at", None) or getattr(f, "created_at", None) or ""),
++              reverse=True)
++    for finding in mine:
++        for field in (getattr(finding, "payload", None) or {}).get("fields") or []:
++            if str((field or {}).get("field") or "").upper() != "NAME":
++                continue
++            if str(field.get("status") or "").upper() != "PASS":
++                return None
++            sources = [s for s in field.get("sources") or [] if isinstance(s, dict) and s.get("value")]
++            pan = [s for s in sources if str(s.get("document_type") or "").upper() == "PAN"]
++            chosen = (pan or sources)[:1]
++            return str(chosen[0]["value"]).strip() if chosen else None
++    return None
++
++
++# ---- the chat ------------------------------------------------------------------------------------
++def ids_in(message: str) -> list[str]:
++    """Every co-applicant id typed in a message, upper-cased, in order."""
++    seen: list[str] = []
++    for match in ID_PATTERN.finditer(message or ""):
++        value = match.group(0).upper()
++        if value not in seen:
++            seen.append(value)
++    return seen
++
++
++def names_in(message: str, co_applicants: list[dict[str, Any]]) -> list[dict[str, Any]]:
++    """The co-applicants a message names, by full name or first name (whole words, any case)."""
++    text = f" {(message or '').lower()} "
++    found: list[dict[str, Any]] = []
++    for co in co_applicants:
++        name = (co.get("name") or "").strip()
++        if not name:
++            continue
++        forms = {name.lower(), name.split()[0].lower()}
++        if any(re.search(rf"(?<![\w]){re.escape(f)}(?![\w])", text) for f in forms if len(f) >= 3):
++            found.append(co)
++    return found
++
++
++def replace_reference(message: str, token: str) -> str:
++    """The message with an id or a name replaced by "co-applicant", so the existing party routing applies."""
++    return re.sub(rf"(?<![\w]){re.escape(token)}(?![\w])", "co-applicant", message, flags=re.IGNORECASE)
++
++
++def header(co: dict[str, Any] | None, co_applicant_id: str) -> dict[str, str]:
++    """👥 **Co-applicant: Priya Sharma (COAPP-…)** -- markdown and plain."""
++    name = (co or {}).get("name")
++    label = f"Co-applicant: {name} ({co_applicant_id})" if name else f"Co-applicant ({co_applicant_id})"
++    return {"markdown": f"👥 **{label}**", "plain": f"👥 {label}"}
++
++
++__all__ = ["CoApplicantError", "FLAG", "accept_supplied", "cases_for", "config_error", "enabled", "fill_verified_names",
++           "flag_on", "generate_id", "get", "header", "ids_in", "list_for_case", "names_in", "record_intake",
++           "replace_reference", "verified_name"]
+diff --git a/scripts/apply_migration.py b/scripts/apply_migration.py
+new file mode 100644
+index 0000000..83b40e5
+--- /dev/null
++++ b/scripts/apply_migration.py
+@@ -0,0 +1,43 @@
++"""
++APPLY ONE GATED MIGRATION BY HAND (Phase 3 step 5d) -- the production path.
++
++    python -m scripts.apply_migration 0004 --backup-file runs/backups/los_<date>.dump
++
++In production the server NEVER applies 0004 / 0005 at startup; a person runs this at
++a planned time, after taking a pg_dump backup (README, "Backups before schema changes").
++Refuses without a fresh backup file. 0005 also refuses while a duplicate
++co_applicant_id remains (run scripts.backfill_co_applicants --apply first).
++"""
++
++from __future__ import annotations
++
++import argparse
++import sys
++
++
++def main(argv: list[str] | None = None) -> int:
++    p = argparse.ArgumentParser(description="Apply one gated migration (0004 / 0005) by hand.")
++    p.add_argument("version", choices=["0004", "0005"])
++    p.add_argument("--backup-file", required=True, help="a pg_dump file taken within the last 24 hours")
++    args = p.parse_args(argv)
++
++    from dotenv import load_dotenv
++
++    load_dotenv()
++    from app.store.backup_check import BackupRequired, require_fresh_backup
++    from app.store.postgres_repo import apply_gated
++    from scripts.backfill_co_applicants import open_repository
++
++    try:
++        backup = require_fresh_backup(args.backup_file)
++    except BackupRequired as exc:
++        print(f"REFUSED: {exc}", file=sys.stderr)
++        return 2
++    repository = open_repository(False)          # the same store the backfill and the server use
++    applied = apply_gated(repository, args.version)
++    print(f"migration {args.version}: {'APPLIED' if applied else 'already applied'} (backup {backup})")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/backfill_co_applicants.py b/scripts/backfill_co_applicants.py
+new file mode 100644
+index 0000000..c171ea6
+--- /dev/null
++++ b/scripts/backfill_co_applicants.py
+@@ -0,0 +1,382 @@
++"""
++CO-APPLICANT BACKFILL (Phase 3 step 5d) -- dry-run by default, plan-file driven.
++
++    # 1. DRY-RUN (read-only session): prints the plan and WRITES IT to a plan file
++    python -m scripts.backfill_co_applicants [--exclude-case CASE_ID ...] [--plan-file runs/backfills/plan_X.json]
++
++    # 2. APPLY EXACTLY THAT PLAN (same ids), refusing if the database changed since it was made
++    python -m scripts.backfill_co_applicants --apply --plan-file runs/backfills/plan_X.json --backup-file <dump>
++
++    # undo one run
++    python -m scripts.backfill_co_applicants --revert <run_id> --backup-file <dump>
++
++WHAT IT DOES (approved 2026-10-07):
++  1. One `co_applicants` row (source BACKFILL) per co-applicant already named on a case.
++     Personal fields stay NULL; a name is filled ONLY from a PASSED KYC name check.
++  2. A co-applicant id that must change gets a new COAPP-<12 hex> (REMAP_ID), and that
++     case's rows carrying the old id (applications, documents, case_findings,
++     document_versions, case_events, ocr_jobs) move to it:
++       DUPLICATE               the id is on several cases: it stays on the OLDEST one
++       APPLICANT_ID_CONFLICT   the id is also an applicant id
++     jev_runs is append-only (a trigger forbids UPDATE) and is NOT rewritten; rows left
++     on the old id are counted.
++  3. An APPLICANT grant on a co-applicant id (not an applicant) is REVOKED -- revoked_at
++     set, row kept, full row in the log -- ONLY if the subject keeps access to every case
++     and applicant it could reach before (`grant_impact`); otherwise the plan is unsafe
++     and --apply refuses.
++  Cases named with --exclude-case (eval / test data) are left alone and listed.
++
++SAFETY: --apply / --revert require a fresh pg_dump (--backup-file), migration 0004 and the
++revoked_at-aware access check. --apply rebuilds the plan from the database with the plan
++file's ids and exclusions and refuses unless it is IDENTICAL. Every statement's row count
++must equal the plan, or the whole transaction rolls back. Every action is logged in
++co_applicant_id_remap AND runs/backfills/<run_id>.json.
++"""
++
++from __future__ import annotations
++
++import argparse
++import hashlib
++import json
++import sys
++import uuid
++from datetime import datetime, timezone
++from pathlib import Path
++from urllib.parse import quote
++
++ROOT = Path(__file__).resolve().parents[1]
++PARTY_TABLES = ("documents", "case_findings", "document_versions", "case_events", "ocr_jobs")
++APPEND_ONLY_PARTY_TABLES = ("jev_runs",)
++PLAN_VERSION = 1
++
++
++class Refused(RuntimeError):
++    pass
++
++
++def _now() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++
++def _mask(subject: str) -> str:
++    return (subject or "")[:3] + "***"
++
++
++def open_repository(read_only: bool):
++    """The configured case store; a read-only SESSION for the dry-run (no migration runs)."""
++    from app.store import _embedded_dsn, store_dsn
++    from app.store.postgres_repo import PostgresRepository
++
++    dsn = store_dsn() or _embedded_dsn()
++    if read_only:
++        dsn += ("&" if "?" in dsn else "?") + "options=" + quote("-c default_transaction_read_only=on")
++    repository = PostgresRepository(dsn, min_size=1, max_size=2)
++    repository._initialised = True              # never migrate from here
++    return repository
++
++
++def _columns(conn, table: str) -> set[str]:
++    rows = conn.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() "
++                        "AND table_name = ?", (table,)).fetchall()
++    return {r["column_name"] for r in rows}
++
++
++def _party_tables(conn, tables) -> list[str]:
++    return [t for t in tables if {"case_id", "party_id"} <= _columns(conn, t)]
++
++
++def _reach(conn, subject: str, grants: list[dict]) -> dict[str, list[str]]:
++    """What these grants open, the way security/access.authorize decides it."""
++    applicants = {r["applicant_id"] for r in conn.execute("SELECT applicant_id FROM applicants").fetchall()}
++    case_grants = {g["resource_id"] for g in grants if g["resource_type"] == "CASE"}
++    applicant_grants = {g["resource_id"] for g in grants if g["resource_type"] == "APPLICANT"}
++    cases = set(case_grants)
++    if applicant_grants:
++        marks = ", ".join("?" for _ in applicant_grants)
++        cases |= {r["case_id"] for r in conn.execute(
++            f"SELECT case_id FROM applications WHERE applicant_id IN ({marks})", tuple(applicant_grants)).fetchall()}
++    existing = {r["case_id"] for r in conn.execute("SELECT case_id FROM applications").fetchall()}
++    return {"cases": sorted(cases & existing), "applicants": sorted(applicant_grants & applicants)}
++
++
++def _grant_impact(conn, revoke: list[dict], revocable: bool) -> list[dict]:
++    """Per subject: the cases and applicants reachable before and after the revocations."""
++    out = []
++    for subject in sorted({g["subject"] for g in revoke}):
++        live = " AND revoked_at IS NULL" if revocable else ""
++        held = [dict(r) for r in conn.execute(
++            f"SELECT subject, resource_type, resource_id FROM access_grants WHERE subject = ?{live}",
++            (subject,)).fetchall()]
++        gone = {(g["resource_type"], g["resource_id"]) for g in revoke if g["subject"] == subject}
++        before = _reach(conn, subject, held)
++        after = _reach(conn, subject, [g for g in held if (g["resource_type"], g["resource_id"]) not in gone])
++        out.append({"subject": subject, "before": before, "after": after,
++                    "lost_cases": sorted(set(before["cases"]) - set(after["cases"])),
++                    "lost_applicants": sorted(set(before["applicants"]) - set(after["applicants"]))})
++    return out
++
++
++def build_plan(repository, *, exclude_cases=(), new_ids: dict[str, str] | None = None) -> dict:
++    """Everything --apply would do, with row counts. Reads only. `new_ids` (case -> id) replays a plan file."""
++    from app.agents.los import co_applicants
++
++    conn = repository._connect()
++    exclude = sorted(set(exclude_cases or ()))
++    new_ids = dict(new_ids or {})
++    ready = repository.table_exists("co_applicants")
++    revocable = "revoked_at" in _columns(conn, "access_grants")
++    apps = conn.execute("SELECT case_id, applicant_id, co_applicant_id, created_at FROM applications "
++                        "WHERE co_applicant_id IS NOT NULL ORDER BY created_at, case_id").fetchall()
++    existing = ({r["co_applicant_id"]: r["case_id"] for r in
++                 conn.execute("SELECT co_applicant_id, case_id FROM co_applicants").fetchall()} if ready else {})
++    applicant_ids = {r["applicant_id"] for r in conn.execute("SELECT applicant_id FROM applicants").fetchall()}
++    taken = set(existing) | {a["co_applicant_id"] for a in apps} | applicant_ids
++
++    tables = _party_tables(conn, PARTY_TABLES)
++    frozen = _party_tables(conn, APPEND_ONLY_PARTY_TABLES)
++    kept: dict[str, str] = {}
++    remaps, inserts, excluded = [], [], []
++    for app in apps:
++        case_id, co_id = app["case_id"], app["co_applicant_id"]
++        if case_id in exclude:
++            excluded.append({"case_id": case_id, "co_applicant_id": co_id,
++                             "also_an_applicant_id": co_id in applicant_ids,
++                             "reason": "excluded by --exclude-case (eval / test data): left unchanged"})
++            continue
++        reason = None
++        if co_id in kept and kept[co_id] != case_id:
++            reason = "DUPLICATE"
++        elif co_id in applicant_ids:
++            reason = "APPLICANT_ID_CONFLICT"
++        final = co_id
++        if reason:
++            final = new_ids.get(case_id)
++            if final is None:
++                while final is None or final in taken:
++                    final = f"COAPP-{uuid.uuid4().hex[:12].upper()}"
++            elif final in taken:
++                raise Refused(f"the planned id {final} for {case_id} is already in use")
++            taken.add(final)
++            counts = {"applications": 1}
++            for table in tables:
++                counts[table] = int(conn.execute(f"SELECT count(*) AS n FROM {table} WHERE case_id = ? AND party_id = ?",
++                                                 (case_id, co_id)).fetchone()["n"])
++            left = {t: int(conn.execute(f"SELECT count(*) AS n FROM {t} WHERE case_id = ? AND party_id = ?",
++                                        (case_id, co_id)).fetchone()["n"]) for t in frozen}
++            remaps.append({"case_id": case_id, "old_id": co_id, "new_id": final, "reason": reason,
++                           "kept_on": kept.get(co_id), "rows": counts, "append_only_rows_left_on_old_id": left})
++        else:
++            kept.setdefault(co_id, case_id)
++        if existing.get(final) == case_id:
++            continue
++        verified = co_applicants.verified_name(case_id, co_id, repository)
++        inserts.append({"case_id": case_id, "applicant_id": app["applicant_id"], "co_applicant_id": final,
++                        "verified_name_available": bool(verified)})
++
++    co_ids = ({a["co_applicant_id"] for a in apps if a["case_id"] not in exclude}
++              | {r["new_id"] for r in remaps} | set(existing))
++    grants = []
++    if co_ids:
++        marks = ", ".join("?" for _ in co_ids)
++        live = " AND revoked_at IS NULL" if revocable else ""
++        for g in conn.execute(f"SELECT subject, resource_type, resource_id, granted_at FROM access_grants "
++                              f"WHERE resource_type = 'APPLICANT' AND resource_id IN ({marks}){live} "
++                              f"ORDER BY subject, resource_id", tuple(co_ids)).fetchall():
++            if g["resource_id"] not in applicant_ids:
++                grants.append({k: str(v) for k, v in dict(g).items()})
++    impact = _grant_impact(conn, grants, revocable)
++    unsafe = [i["subject"] for i in impact if i["lost_cases"] or i["lost_applicants"]]
++    return {"plan_version": PLAN_VERSION, "schema_ready": ready, "grants_revocable": revocable,
++            "co_applicants_on_cases": len(apps), "excluded_cases": exclude, "excluded": excluded,
++            "inserts": inserts, "remaps": remaps, "grants_to_revoke": grants, "grant_impact": impact,
++            "safe_to_apply": not unsafe}
++
++
++def fingerprint(plan: dict) -> str:
++    """What the plan says, canonically -- equal fingerprints mean the database has not changed."""
++    body = {k: v for k, v in plan.items() if k not in ("fingerprint", "created_at", "plan_file")}
++    return hashlib.sha256(json.dumps(body, sort_keys=True, default=str).encode()).hexdigest()
++
++
++def write_plan(plan: dict, path: str | None) -> Path:
++    out = Path(path) if path else ROOT / "runs" / "backfills" / f"plan_{datetime.now():%Y%m%dT%H%M%S}.json"
++    out.parent.mkdir(parents=True, exist_ok=True)
++    stored = {**plan, "created_at": _now(), "fingerprint": fingerprint(plan)}
++    out.write_text(json.dumps(stored, indent=2, default=str), encoding="utf-8")
++    return out
++
++
++def public_plan(plan: dict) -> dict:
++    """The plan as printed: subjects masked, no names (only whether a verified one exists)."""
++    shown = json.loads(json.dumps(plan, default=str))
++    for g in shown["grants_to_revoke"]:
++        g["subject"] = _mask(g["subject"])
++    for i in shown["grant_impact"]:
++        i["subject"] = _mask(i["subject"])
++    return shown
++
++
++def _preflight(repository, backup_file: str | None) -> None:
++    from app.store.backup_check import BackupRequired, require_fresh_backup
++
++    try:
++        require_fresh_backup(backup_file)
++    except BackupRequired as exc:
++        raise Refused(str(exc)) from None
++    if not repository.table_exists("co_applicants"):
++        raise Refused("migration 0004 is not applied (co_applicants missing)")
++    if not repository.grants_revocable():
++        raise Refused("access_grants.revoked_at missing: 0004 incomplete -- revocations would not take effect")
++
++
++def _expect(conn, sql: str, args: tuple, expected: int, what: str) -> None:
++    result = conn.execute(sql, args)
++    if result.rowcount != expected:
++        raise Refused(f"{what}: {result.rowcount} row(s) changed, the plan said {expected}")
++
++
++def load_and_check_plan(repository, plan_file: str | None) -> dict:
++    """The plan file, re-derived from the database with its own ids: refused unless identical and safe."""
++    if not plan_file or not Path(plan_file).is_file():
++        raise Refused("--apply needs --plan-file <file written by the dry-run>")
++    stored = json.loads(Path(plan_file).read_text(encoding="utf-8"))
++    if stored.get("plan_version") != PLAN_VERSION or stored.get("fingerprint") != fingerprint(stored):
++        raise Refused("the plan file is not an intact plan from this script")
++    fresh = build_plan(repository, exclude_cases=stored.get("excluded_cases") or (),
++                       new_ids={r["case_id"]: r["new_id"] for r in stored.get("remaps") or []})
++    if fingerprint(fresh) != stored["fingerprint"]:
++        raise Refused("the database changed since the plan was made: run the dry-run again and review the new plan")
++    if not stored.get("safe_to_apply"):
++        raise Refused("the plan is unsafe: a revocation would remove access to a legitimate case or applicant")
++    return stored
++
++
++def apply(repository, backup_file: str | None, plan_file: str | None) -> dict:
++    from app.agents.los import co_applicants
++    from app.store.crypto import seal_value
++
++    _preflight(repository, backup_file)
++    plan = load_and_check_plan(repository, plan_file)
++    run_id = f"BF-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{uuid.uuid4().hex[:4].upper()}"
++    log: list[dict] = []
++    conn = repository._connect()
++    now = _now()
++
++    def remember(action, case_id, old, new, detail):
++        row = {"remap_id": uuid.uuid4().hex, "run_id": run_id, "action": action, "case_id": case_id,
++               "old_id": old, "new_id": new, "detail": json.dumps(detail, default=str), "applied_at": now}
++        conn.execute("INSERT INTO co_applicant_id_remap (remap_id, run_id, action, case_id, old_id, new_id, detail, "
++                     "applied_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", tuple(row.values()))
++        log.append(row)
++
++    conn.execute("BEGIN")
++    try:
++        for r in plan["remaps"]:
++            for table, n in r["rows"].items():
++                column = "co_applicant_id" if table == "applications" else "party_id"
++                _expect(conn, f"UPDATE {table} SET {column} = ? WHERE case_id = ? AND {column} = ?",
++                        (r["new_id"], r["case_id"], r["old_id"]), n, f"{table} on {r['case_id']}")
++            remember("REMAP_ID", r["case_id"], r["old_id"], r["new_id"], r)
++        for i in plan["inserts"]:
++            verified = co_applicants.verified_name(i["case_id"], i["co_applicant_id"], repository) \
++                if i["verified_name_available"] else None
++            _expect(conn, "INSERT INTO co_applicants (co_applicant_id, case_id, applicant_id, name, name_source, "
++                          "source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'BACKFILL', ?, ?)",
++                    (i["co_applicant_id"], i["case_id"], i["applicant_id"], seal_value(verified),
++                     "KYC_VERIFIED" if verified else None, now, now), 1, f"co_applicants {i['co_applicant_id']}")
++            remember("INSERT_CO_APPLICANT", i["case_id"], None, i["co_applicant_id"],
++                     {k: v for k, v in i.items() if k != "verified_name_available"} | {"name_filled": bool(verified)})
++        for g in plan["grants_to_revoke"]:
++            _expect(conn, "UPDATE access_grants SET revoked_at = ?, revoked_reason = ? WHERE subject = ? AND "
++                          "resource_type = ? AND resource_id = ? AND revoked_at IS NULL",
++                    (now, f"backfill {run_id}: a co-applicant id is not an applicant; access goes through the case",
++                     g["subject"], g["resource_type"], g["resource_id"]), 1, f"grant on {g['resource_id']}")
++            remember("REVOKE_GRANT", None, g["resource_id"], None, g)
++        conn.commit()
++    except Exception:
++        conn.rollback()
++        raise
++    out = ROOT / "runs" / "backfills" / f"{run_id}.json"
++    out.parent.mkdir(parents=True, exist_ok=True)
++    out.write_text(json.dumps({"run_id": run_id, "plan_file": str(plan_file), "plan_fingerprint": plan["fingerprint"],
++                               "backup_file": str(backup_file), "actions": log}, indent=2, default=str),
++                   encoding="utf-8")
++    return {"run_id": run_id, "log_file": str(out), "remaps": len(plan["remaps"]),
++            "inserts": len(plan["inserts"]), "grants_revoked": len(plan["grants_to_revoke"]),
++            "excluded": len(plan["excluded"])}
++
++
++def revert(repository, run_id: str, backup_file: str | None) -> dict:
++    _preflight(repository, backup_file)
++    conn = repository._connect()
++    rows = conn.execute("SELECT * FROM co_applicant_id_remap WHERE run_id = ? AND reverted_at IS NULL",
++                        (run_id,)).fetchall()
++    if not rows:
++        raise Refused(f"nothing to revert for {run_id}")
++    unique_index = conn.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'uq_applications_co_applicant_id'"
++                                ).fetchone()
++    if unique_index and any(r["action"] == "REMAP_ID" for r in rows):
++        raise Refused("migration 0005 is applied: run scripts/sql/rollback_coapp_identity_1.sql first")
++    now = _now()
++    conn.execute("BEGIN")
++    try:
++        for r in rows:
++            detail = json.loads(r["detail"] or "{}")
++            if r["action"] == "REMAP_ID":
++                for table, n in (detail.get("rows") or {}).items():
++                    column = "co_applicant_id" if table == "applications" else "party_id"
++                    _expect(conn, f"UPDATE {table} SET {column} = ? WHERE case_id = ? AND {column} = ?",
++                            (r["old_id"], r["case_id"], r["new_id"]), n, f"revert {table} on {r['case_id']}")
++            elif r["action"] == "INSERT_CO_APPLICANT":
++                conn.execute("DELETE FROM co_applicants WHERE co_applicant_id = ? AND source = 'BACKFILL'",
++                             (r["new_id"],))
++            elif r["action"] == "REVOKE_GRANT":
++                _expect(conn, "UPDATE access_grants SET revoked_at = NULL, revoked_reason = NULL WHERE subject = ? "
++                              "AND resource_type = ? AND resource_id = ? AND revoked_reason LIKE ?",
++                        (detail["subject"], detail["resource_type"], detail["resource_id"], f"backfill {run_id}:%"),
++                        1, f"restore grant on {detail['resource_id']}")
++            conn.execute("UPDATE co_applicant_id_remap SET reverted_at = ? WHERE remap_id = ?", (now, r["remap_id"]))
++        conn.commit()
++    except Exception:
++        conn.rollback()
++        raise
++    return {"run_id": run_id, "reverted": len(rows)}
++
++
++def main(argv: list[str] | None = None) -> int:
++    p = argparse.ArgumentParser(description="Co-applicant backfill (dry-run by default).")
++    mode = p.add_mutually_exclusive_group()
++    mode.add_argument("--apply", action="store_true")
++    mode.add_argument("--revert", metavar="RUN_ID")
++    p.add_argument("--backup-file")
++    p.add_argument("--plan-file", help="dry-run: where to write the plan; --apply: the plan to execute")
++    p.add_argument("--exclude-case", action="append", default=[], help="leave this case alone (eval / test data)")
++    args = p.parse_args(argv)
++    from dotenv import load_dotenv
++
++    load_dotenv()
++    try:
++        if args.apply:
++            print(json.dumps(apply(open_repository(False), args.backup_file, args.plan_file), indent=2))
++        elif args.revert:
++            print(json.dumps(revert(open_repository(False), args.revert, args.backup_file), indent=2))
++        else:
++            repository = open_repository(True)
++            ro = repository._connect().execute("SHOW default_transaction_read_only").fetchone()
++            plan = build_plan(repository, exclude_cases=args.exclude_case)
++            path = write_plan(plan, args.plan_file)
++            print(f"DRY-RUN (session read-only: {ro['default_transaction_read_only']}) -- nothing is written "
++                  f"to the database")
++            print(f"plan file: {path}  (fingerprint {fingerprint(plan)[:16]}...)")
++            print(json.dumps(public_plan(plan), indent=2))
++            if not plan["safe_to_apply"]:
++                print("UNSAFE: a revocation would remove legitimate access -- --apply will refuse", file=sys.stderr)
++                return 3
++    except Refused as exc:
++        print(f"REFUSED: {exc}", file=sys.stderr)
++        return 2
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/sql/rollback_coapp_identity_1.sql b/scripts/sql/rollback_coapp_identity_1.sql
+new file mode 100644
+index 0000000..f039bba
+--- /dev/null
++++ b/scripts/sql/rollback_coapp_identity_1.sql
+@@ -0,0 +1,10 @@
++-- ROLLBACK PART 1 -- co-applicant identity (Phase 3 step 5d). Run by a person, never by the service.
++--
++-- STEP 0 FIRST: set LOS_COAPP_IDENTITY=false and restart, so the runner does not re-apply 0005.
++-- Then this file, then:  python -m scripts.backfill_co_applicants --revert <run_id> --backup-file <fresh dump>
++-- Then rollback_coapp_identity_2.sql.
++
++BEGIN;
++DROP INDEX IF EXISTS uq_applications_co_applicant_id;          -- undo 0005
++DELETE FROM schema_migrations WHERE version = '0005';
++COMMIT;
+diff --git a/scripts/sql/rollback_coapp_identity_2.sql b/scripts/sql/rollback_coapp_identity_2.sql
+new file mode 100644
+index 0000000..b78e0de
+--- /dev/null
++++ b/scripts/sql/rollback_coapp_identity_2.sql
+@@ -0,0 +1,33 @@
++-- ROLLBACK PART 2 -- co-applicant identity (Phase 3 step 5d). Run by a person, never by the service.
++--
++-- Only after part 1 AND the backfill --revert. Nothing is lost: both tables are copied to
++-- *_backup_<timestamp> before they are dropped.
++
++BEGIN;
++
++DO $$
++BEGIN
++  -- dropping revoked_at while a grant is revoked would silently RE-ACTIVATE it
++  IF EXISTS (SELECT 1 FROM access_grants WHERE revoked_at IS NOT NULL) THEN
++    RAISE EXCEPTION 'revoked grants exist: run scripts.backfill_co_applicants --revert first';
++  END IF;
++  IF EXISTS (SELECT 1 FROM co_applicant_id_remap WHERE action = 'REMAP_ID' AND reverted_at IS NULL) THEN
++    RAISE EXCEPTION 'unreverted ID remaps exist: run scripts.backfill_co_applicants --revert first';
++  END IF;
++END $$;
++
++-- NO DATA LOSS: keep a copy of both tables, named with the time of the rollback
++DO $$
++DECLARE stamp TEXT := to_char(now() AT TIME ZONE 'UTC', 'YYYYMMDD"T"HH24MISS');
++BEGIN
++  EXECUTE format('CREATE TABLE %I AS SELECT * FROM co_applicants', 'co_applicants_backup_' || stamp);
++  EXECUTE format('CREATE TABLE %I AS SELECT * FROM co_applicant_id_remap', 'co_applicant_id_remap_backup_' || stamp);
++END $$;
++
++ALTER TABLE access_grants DROP COLUMN IF EXISTS revoked_reason;
++ALTER TABLE access_grants DROP COLUMN IF EXISTS revoked_at;
++DROP TABLE IF EXISTS co_applicant_id_remap;
++DROP TABLE IF EXISTS co_applicants;                                -- undo 0004
++DELETE FROM schema_migrations WHERE version = '0004';
++
++COMMIT;
+diff --git a/tests/integration/test_step5d_co_applicant_identity.py b/tests/integration/test_step5d_co_applicant_identity.py
+new file mode 100644
+index 0000000..658c6e1
+--- /dev/null
++++ b/tests/integration/test_step5d_co_applicant_identity.py
+@@ -0,0 +1,445 @@
++"""
++PHASE 3 STEP 5d -- co-applicant identity (LOS_COAPP_IDENTITY, default off).
++
++Migration 0004/0005 (gated), the revoked_at-aware access check, system-generated
++COAPP-<12 hex> ids, encrypted profiles, the KYC-verified name, access through the
++case, the backfill (dry-run / apply / revert, backup required), the chat by id and
++name, the 👥 header, session memory by id, and the MCP co_applicant.get tool.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import os
++import time
++import uuid
++from datetime import datetime, timedelta, timezone
++
++import pytest
++
++from app.agents.los import co_applicants
++from app.security import access
++from app.store import set_repository
++from app.store.models import (Applicant, Application, CaseFinding, Document, DocumentStatus, FindingKind)
++from app.store.postgres_repo import _gated_auto_apply_allowed, apply_gated
++from app.store.testing import fresh_repository
++from tests.integration.test_fos_stage_boundary import FOS_SCOPES
++
++OWNER, OTHER = "fos-owner", "fos-other"
++
++
++@pytest.fixture(autouse=True)
++def env(monkeypatch):
++    monkeypatch.delenv(co_applicants.FLAG, raising=False)
++    monkeypatch.delenv("LOS_MIGRATION_BACKUP_FILE", raising=False)
++    monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
++
++
++@pytest.fixture
++def repo():
++    repository = fresh_repository()
++    repository.initialise()
++    set_repository(repository)
++    yield repository
++    set_repository(None)
++
++
++@pytest.fixture
++def ready(repo, monkeypatch):
++    apply_gated(repo, "0004")
++    monkeypatch.setenv(co_applicants.FLAG, "true")
++    return repo
++
++
++@pytest.fixture
++def backup(tmp_path):
++    path = tmp_path / "los_test.dump"
++    path.write_bytes(b"PGDMP" + b"\x00" * 64)
++    return str(path)
++
++
++def make_case(repo, *, co_id=None, owner=OWNER, created=None):
++    applicant_id, case_id = f"APP-{uuid.uuid4().hex[:12].upper()}", f"CASE-{uuid.uuid4().hex[:12].upper()}"
++    repo.save_applicant(Applicant(applicant_id=applicant_id, full_name="Rahul Sharma"))
++    repo.save_application(Application(case_id=case_id, applicant_id=applicant_id, product="PERSONAL_LOAN",
++                                      co_applicant_id=co_id, **({"created_at": created} if created else {})))
++    if owner:
++        repo.grant_access(owner, "CASE", case_id)
++        repo.grant_access(owner, "APPLICANT", applicant_id)
++    return case_id, applicant_id
++
++
++def co_doc(repo, case_id, applicant_id, co_id, doc_type="PAN"):
++    repo.save_document(Document(document_id=f"{case_id}:{co_id}:{doc_type.lower()}.jpg", case_id=case_id,
++                                applicant_id=applicant_id, document_type=doc_type, party_id=co_id,
++                                party_role="CO_APPLICANT", status=DocumentStatus.VERIFIED))
++
++
++def kyc_name(repo, case_id, party_id, status="PASS", value="PRIYA SHARMA"):
++    repo.save_finding(CaseFinding(
++        finding_id=uuid.uuid4().hex, case_id=case_id, finding_kind=FindingKind.KYC, party_id=party_id, stage="FOS",
++        status=status, source_type="KYC", source_id=f"kyc-{uuid.uuid4().hex[:6]}", document_id=None,
++        payload={"fields": [{"field": "NAME", "status": status,
++                             "sources": [{"document_type": "PAN", "value": value},
++                                         {"document_type": "AADHAAR", "value": value.title()}]}]},
++        content_hash=uuid.uuid4().hex))
++
++
++# ---- backup check ------------------------------------------------------------------------------
++def test_a_fresh_pg_dump_is_required(tmp_path, backup):
++    from app.store.backup_check import BackupRequired, require_fresh_backup
++
++    assert str(require_fresh_backup(backup)) == backup
++    plain = tmp_path / "plain.sql"
++    plain.write_text("--\n-- PostgreSQL database dump\n--\n")
++    assert require_fresh_backup(plain)
++    empty, junk, old = tmp_path / "e.dump", tmp_path / "j.dump", tmp_path / "o.dump"
++    empty.write_bytes(b"")
++    junk.write_bytes(b"not a dump")
++    old.write_bytes(b"PGDMP....")
++    os.utime(old, (time.time() - 3 * 86400, time.time() - 3 * 86400))
++    for bad in (None, tmp_path / "missing.dump", empty, junk, old):
++        with pytest.raises(BackupRequired):
++            require_fresh_backup(bad)
++
++
++# ---- migrations --------------------------------------------------------------------------------
++def test_0004_creates_the_tables_once(repo):
++    assert not repo.table_exists("co_applicants") and not repo.grants_revocable()
++    assert apply_gated(repo, "0004") is True
++    assert repo.table_exists("co_applicants") and repo.table_exists("co_applicant_id_remap")
++    assert repo.grants_revocable()
++    assert apply_gated(repo, "0004") is False
++
++
++def test_0005_refuses_while_a_duplicate_remains_then_enforces_uniqueness(ready):
++    from app.store.repository import RepositoryError
++
++    make_case(ready, co_id="COAPP-DUP")
++    second, _ = make_case(ready, co_id="COAPP-DUP")
++    with pytest.raises(RepositoryError):
++        apply_gated(ready, "0005")
++    ready._write("UPDATE applications SET co_applicant_id = 'COAPP-OTHER' WHERE case_id = ?", (second,))
++    assert apply_gated(ready, "0005") is True
++    with pytest.raises(Exception):
++        make_case(ready, co_id="COAPP-OTHER")
++
++
++def test_gated_migrations_never_auto_apply_in_production_or_without_a_backup(monkeypatch, backup):
++    monkeypatch.setenv(co_applicants.FLAG, "true")
++    assert _gated_auto_apply_allowed()[0] is False                       # no backup named
++    monkeypatch.setenv("LOS_MIGRATION_BACKUP_FILE", backup)
++    assert _gated_auto_apply_allowed()[0] is True                        # dev, flag, backup
++    monkeypatch.setenv("ENVIRONMENT", "production")
++    allowed, why = _gated_auto_apply_allowed()
++    assert allowed is False and why.startswith("production")
++    monkeypatch.delenv("ENVIRONMENT")
++    monkeypatch.delenv(co_applicants.FLAG)
++    assert _gated_auto_apply_allowed()[0] is False
++
++
++# ---- revoked grants ----------------------------------------------------------------------------
++def test_has_access_works_before_0004_and_ignores_revoked_grants_after(repo):
++    repo.grant_access(OWNER, "APPLICANT", "COAPP-X")
++    assert repo.has_access(OWNER, "APPLICANT", "COAPP-X")              # no revoked_at column yet
++    apply_gated(repo, "0004")
++    repo._write("UPDATE access_grants SET revoked_at = 'now', revoked_reason = 'test' WHERE resource_id = 'COAPP-X'",
++                ())
++    assert not repo.has_access(OWNER, "APPLICANT", "COAPP-X")
++    repo.grant_access(OWNER, "APPLICANT", "COAPP-X")                    # a re-grant does not un-revoke
++    assert not repo.has_access(OWNER, "APPLICANT", "COAPP-X")
++
++
++# ---- ids, records, encryption ------------------------------------------------------------------
++def test_ids_are_generated_in_the_applicant_convention_and_unique(ready):
++    ids = {co_applicants.generate_id(ready) for _ in range(20)}
++    assert len(ids) == 20 and all(len(i) == 18 and i.startswith("COAPP-") and i[6:].isalnum() for i in ids)
++
++
++def test_a_supplied_id_is_accepted_only_on_its_own_case(ready):
++    case_id, _ = make_case(ready, co_id="COAPP-MINE")
++    other, _ = make_case(ready)
++    assert co_applicants.accept_supplied(case_id, "COAPP-MINE", ready) == "COAPP-MINE"
++    for case, co in ((other, "COAPP-MINE"), (case_id, "COAPP-UNKNOWN"), (None, "COAPP-MINE")):
++        with pytest.raises(co_applicants.CoApplicantError) as refused:
++            co_applicants.accept_supplied(case, co, ready)
++        assert refused.value.code == "CO_APPLICANT_ID_NOT_ON_CASE"
++
++
++def test_the_declared_profile_is_stored_encrypted(ready):
++    case_id, applicant_id = make_case(ready, co_id="COAPP-ENC")
++    co_applicants.record_intake(case_id, applicant_id, "COAPP-ENC",
++                                {"name": "Priya Sharma", "pan_number": "ABCDE1234F", "date_of_birth": "1990-01-01"},
++                                "spouse", ready)
++    raw = ready._one("SELECT * FROM co_applicants WHERE co_applicant_id = 'COAPP-ENC'", ())
++    assert "Priya" not in str(dict(raw)) and "ABCDE1234F" not in str(dict(raw))
++    record = co_applicants.get("COAPP-ENC", ready)
++    assert record["name"] == "Priya Sharma" and record["pan"] == "ABCDE1234F"
++    assert record["name_source"] == "DECLARED" and record["relationship"] == "SPOUSE"
++
++
++def test_a_name_is_filled_only_from_a_passed_kyc_name_check(ready):
++    case_id, applicant_id = make_case(ready, co_id="COAPP-KYC")
++    co_applicants.record_intake(case_id, applicant_id, "COAPP-KYC", {}, None, ready)
++    kyc_name(ready, case_id, "COAPP-KYC", status="REVIEW")
++    assert co_applicants.fill_verified_names(case_id, ready) == 0       # unverified: nothing
++    kyc_name(ready, case_id, "COAPP-KYC", status="PASS")
++    assert co_applicants.fill_verified_names(case_id, ready) == 1
++    record = co_applicants.get("COAPP-KYC", ready)
++    assert record["name"] == "PRIYA SHARMA" and record["name_source"] == "KYC_VERIFIED"   # the PAN's spelling
++
++
++# ---- access through the case -------------------------------------------------------------------
++def test_access_goes_through_the_case(ready):
++    case_id, _ = make_case(ready, co_id="COAPP-OWN")
++    assert access.authorize_co_applicant(OWNER, [], "COAPP-OWN") == case_id
++    for subject, co, case in ((OTHER, "COAPP-OWN", None), (OWNER, "COAPP-NOPE", None), (OWNER, "COAPP-OWN", "CASE-X")):
++        with pytest.raises(access.AccessDenied):
++            access.authorize_co_applicant(subject, [], co, case_id=case)
++
++
++def test_a_duplicate_id_on_two_owned_cases_is_never_guessed(ready):
++    make_case(ready, co_id="COAPP-TWICE")
++    make_case(ready, co_id="COAPP-TWICE")
++    with pytest.raises(access.AccessDenied):
++        access.authorize_co_applicant(OWNER, [], "COAPP-TWICE")
++
++
++# ---- backfill ----------------------------------------------------------------------------------
++def duplicate_world(repo):
++    now = datetime.now(timezone.utc)
++    older, a1 = make_case(repo, co_id="COAPP-J1", created=now - timedelta(minutes=2))
++    newer, a2 = make_case(repo, co_id="COAPP-J1", created=now)
++    for case, applicant in ((older, a1), (newer, a2)):
++        co_doc(repo, case, applicant, "COAPP-J1", "PAN")
++        co_doc(repo, case, applicant, "COAPP-J1", "VOTER_ID")
++        kyc_name(repo, case, "COAPP-J1", status="PASS")
++    repo.grant_access("joiner", "APPLICANT", "COAPP-J1")                 # the stray grant
++    return older, newer
++
++
++def test_the_dry_run_plans_without_writing(ready):
++    from scripts import backfill_co_applicants as bf
++
++    older, newer = duplicate_world(ready)
++    plan = bf.build_plan(ready)
++    assert [(r["case_id"], r["old_id"], r["kept_on"]) for r in plan["remaps"]] == [(newer, "COAPP-J1", older)]
++    assert plan["remaps"][0]["rows"]["documents"] == 2 and plan["remaps"][0]["rows"]["applications"] == 1
++    assert len(plan["inserts"]) == 2 and all(i["verified_name_available"] for i in plan["inserts"])
++    assert [g["resource_id"] for g in plan["grants_to_revoke"]] == ["COAPP-J1"]
++    assert bf.public_plan(plan)["grants_to_revoke"][0]["subject"] == "joi***"
++    assert plan["safe_to_apply"] and plan["grant_impact"][0]["lost_cases"] == []
++    assert ready._one("SELECT count(*) AS n FROM co_applicants", ())["n"] == 0
++
++
++def plan_file(repo, tmp_path, **kwargs):
++    from scripts import backfill_co_applicants as bf
++
++    plan = bf.build_plan(repo, **kwargs)
++    return plan, str(bf.write_plan(plan, str(tmp_path / f"plan_{uuid.uuid4().hex[:6]}.json")))
++
++
++def test_apply_refuses_without_a_fresh_backup_or_a_plan_file(ready, backup, tmp_path):
++    from scripts import backfill_co_applicants as bf
++
++    duplicate_world(ready)
++    _, path = plan_file(ready, tmp_path)
++    with pytest.raises(bf.Refused):
++        bf.apply(ready, None, path)
++    with pytest.raises(bf.Refused):
++        bf.apply(ready, backup, None)
++
++
++def test_apply_refuses_when_the_database_changed_since_the_plan(ready, backup, tmp_path):
++    from scripts import backfill_co_applicants as bf
++
++    older, newer = duplicate_world(ready)
++    _, path = plan_file(ready, tmp_path)
++    case_id, applicant_id = make_case(ready, co_id="COAPP-LATE")            # a new co-applicant appears
++    with pytest.raises(bf.Refused, match="changed since the plan"):
++        bf.apply(ready, backup, path)
++    assert ready._one("SELECT count(*) AS n FROM co_applicants", ())["n"] == 0
++
++
++def test_a_tampered_plan_file_is_refused(ready, backup, tmp_path):
++    import json
++
++    from scripts import backfill_co_applicants as bf
++
++    duplicate_world(ready)
++    _, path = plan_file(ready, tmp_path)
++    stored = json.loads(open(path, encoding="utf-8").read())
++    stored["remaps"][0]["new_id"] = "COAPP-CHOSENBYHAND"
++    open(path, "w", encoding="utf-8").write(json.dumps(stored))
++    with pytest.raises(bf.Refused, match="not an intact plan"):
++        bf.apply(ready, backup, path)
++
++
++def test_the_revoked_subject_keeps_every_case_they_own(ready):
++    from scripts import backfill_co_applicants as bf
++
++    older, newer = duplicate_world(ready)
++    mine, my_applicant = make_case(ready, co_id=None, owner="joiner")
++    impact = bf.build_plan(ready)["grant_impact"][0]
++    assert impact["subject"] == "joiner"
++    assert mine in impact["before"]["cases"] and impact["before"] == impact["after"]
++    assert impact["lost_cases"] == [] and impact["lost_applicants"] == []
++
++
++def test_a_plan_that_would_cut_legitimate_access_is_refused(ready, backup, tmp_path, monkeypatch):
++    """Defense in depth: by construction a revoked grant opens nothing, but if it ever did, nothing runs."""
++    from scripts import backfill_co_applicants as bf
++
++    duplicate_world(ready)
++    real = bf._grant_impact
++    monkeypatch.setattr(bf, "_grant_impact", lambda *a: [{**i, "lost_cases": ["CASE-LEGIT"]} for i in real(*a)])
++    plan, path = plan_file(ready, tmp_path)
++    assert plan["safe_to_apply"] is False
++    with pytest.raises(bf.Refused):
++        bf.apply(ready, backup, path)
++    assert ready._one("SELECT count(*) AS n FROM co_applicants", ())["n"] == 0
++
++
++def test_an_applicant_id_conflict_is_remapped_and_an_excluded_case_left_alone(ready, tmp_path):
++    from scripts import backfill_co_applicants as bf
++
++    clash, a1 = make_case(ready, co_id=None)
++    ready._write("UPDATE applications SET co_applicant_id = ? WHERE case_id = ?", (a1, clash))   # co id == applicant id
++    evalcase, _ = make_case(ready, co_id=None)
++    ready.save_applicant(Applicant(applicant_id="COAPP-EVALX"))
++    ready._write("UPDATE applications SET co_applicant_id = 'COAPP-EVALX' WHERE case_id = ?", (evalcase,))
++    plan = bf.build_plan(ready, exclude_cases=[evalcase])
++    assert [(r["case_id"], r["reason"]) for r in plan["remaps"]] == [(clash, "APPLICANT_ID_CONFLICT")]
++    assert [e["case_id"] for e in plan["excluded"]] == [evalcase] and plan["excluded"][0]["also_an_applicant_id"]
++    assert evalcase not in {i["case_id"] for i in plan["inserts"]}
++
++
++def test_apply_executes_exactly_the_reviewed_ids_then_reverts(ready, backup, tmp_path):
++    from scripts import backfill_co_applicants as bf
++
++    older, newer = duplicate_world(ready)
++    plan, path = plan_file(ready, tmp_path)
++    reviewed = plan["remaps"][0]["new_id"]
++    done = bf.apply(ready, backup, path)
++    new_id = ready.get_application(newer).co_applicant_id
++    assert new_id == reviewed                                              # the id that was reviewed, exactly
++    assert ready.get_application(older).co_applicant_id == "COAPP-J1" and new_id.startswith("COAPP-") \
++        and new_id != "COAPP-J1"
++    assert {d.party_id for d in ready.list_documents(newer) if d.party_role == "CO_APPLICANT"} == {new_id}
++    assert {co["co_applicant_id"] for co in co_applicants.list_for_case(newer, ready)} == {new_id}
++    assert co_applicants.get(new_id, ready)["name_source"] == "KYC_VERIFIED"
++    grant = ready._one("SELECT * FROM access_grants WHERE resource_id = 'COAPP-J1'", ())
++    assert grant is not None and grant["revoked_at"]                     # kept, revoked -- never deleted
++    assert not ready.has_access("joiner", "APPLICANT", "COAPP-J1")
++    assert os.path.isfile(done["log_file"])
++    assert bf.build_plan(ready)["remaps"] == [] and bf.build_plan(ready)["inserts"] == []   # idempotent
++    with pytest.raises(bf.Refused):
++        bf.apply(ready, backup, path)                                     # the same plan cannot run twice
++
++    bf.revert(ready, done["run_id"], backup)
++    assert ready.get_application(newer).co_applicant_id == "COAPP-J1"
++    assert {d.party_id for d in ready.list_documents(newer) if d.party_role == "CO_APPLICANT"} == {"COAPP-J1"}
++    assert ready._one("SELECT count(*) AS n FROM co_applicants", ())["n"] == 0
++    assert ready.has_access("joiner", "APPLICANT", "COAPP-J1")
++
++
++# ---- the chat, the header, memory --------------------------------------------------------------
++@pytest.fixture
++def client(make_token):
++    from fastapi.testclient import TestClient
++
++    import main
++
++    def build(subject):
++        c = TestClient(main.app)
++        c.headers.update({"Authorization": f"Bearer {make_token(subject=subject, scopes=FOS_SCOPES)}"})
++        return c
++    return build
++
++
++def test_another_cases_co_applicant_id_is_refused_before_anything_runs(ready, client, monkeypatch):
++    from app.api.routes import fos_api
++
++    case_id, applicant_id = make_case(ready, co_id="COAPP-THEIRS", owner=OTHER)
++    mine, my_applicant = make_case(ready)
++    called = []
++
++    async def never(*args, **kwargs):
++        called.append(1)
++        raise AssertionError("no downstream call may happen")
++    monkeypatch.setattr(fos_api, "_answer_action", never)
++    r = client(OWNER).post("/api/v1/fos/copilot", json={"applicant_id": my_applicant, "case_id": mine,
++                                                        "message": "COAPP-THEIRS ke docs kya baaki hai?"})
++    assert r.status_code == 403 and not called, r.text
++    r = client(OWNER).post("/api/v1/fos/copilot", json={"applicant_id": my_applicant,
++                                                        "co_applicant_id": "COAPP-THEIRS", "message": "status?"})
++    assert r.status_code == 403 and not called, r.text
++
++
++def test_the_id_in_a_question_answers_for_that_co_applicant_with_the_header(ready, client):
++    case_id, applicant_id = make_case(ready, co_id="COAPP-1023ABCDEF01")
++    co_applicants.record_intake(case_id, applicant_id, "COAPP-1023ABCDEF01", {"name": "Priya Sharma"}, None, ready)
++    r = client(OWNER).post("/api/v1/fos/copilot", json={"applicant_id": applicant_id,
++                                                        "message": "COAPP-1023ABCDEF01 ke docs kya baaki hai?"})
++    assert r.status_code == 200, r.text
++    body = r.json()
++    assert body["case_id"] == case_id
++    assert body["answer"].startswith("👥 Co-applicant: Priya Sharma (COAPP-1023ABCDEF01)"), body["answer"]
++    assert body["co_applicant"] == {"co_applicant_id": "COAPP-1023ABCDEF01", "name": "Priya Sharma"}
++
++
++def test_a_name_in_a_question_is_understood_on_the_callers_own_case(ready, client):
++    from app.api.routes.fos_api import CopilotRequest, FosAction, _resolve_co_applicant
++
++    case_id, applicant_id = make_case(ready, co_id="COAPP-PRIYA0000001")
++    co_applicants.record_intake(case_id, applicant_id, "COAPP-PRIYA0000001", {"name": "Priya Sharma"}, None, ready)
++    payload = CopilotRequest(applicant_id=applicant_id, case_id=case_id, message="Priya ke docs?")
++    claims = {"sub": OWNER, "scope": " ".join(FOS_SCOPES)}
++    resolved, case, message = _resolve_co_applicant(payload, claims, "r1", case_id, "Priya ke docs?",
++                                                    FosAction.CUSTOM_QUERY)
++    assert resolved == (case_id, "COAPP-PRIYA0000001") and message == "co-applicant ke docs?"
++    claims = {"sub": OTHER, "scope": " ".join(FOS_SCOPES)}
++    resolved, _, message = _resolve_co_applicant(payload, claims, "r2", case_id, "Priya ke docs?",
++                                                 FosAction.CUSTOM_QUERY)
++    assert resolved is None and message == "Priya ke docs?"           # not their case: nothing is read
++
++
++def test_session_memory_keeps_the_active_party_by_id(ready):
++    from app.agents.applicant.copilot.conversation.state import ConversationState, _party_id_for
++
++    case_id, applicant_id = make_case(ready, co_id="COAPP-MEM000000001")
++    co_applicants.record_intake(case_id, applicant_id, "COAPP-MEM000000001", {}, None, ready)
++    state = ConversationState(conversation_id="c1", subject_key=OWNER, case_id=case_id)
++    state.last_subject_party = "CO_APPLICANT"
++    assert _party_id_for(state, {"case_id": case_id}) == "COAPP-MEM000000001"
++    state.last_subject_party = "PRIMARY_APPLICANT"
++    assert _party_id_for(state, {"applicant_id": applicant_id}) == applicant_id
++
++
++# ---- MCP ---------------------------------------------------------------------------------------
++def test_the_mcp_tool_returns_only_that_co_applicants_documents(ready):
++    from app.mcp.applicant import co_applicant_get
++
++    case_id, applicant_id = make_case(ready, co_id="COAPP-MCP000000001")
++    co_applicants.record_intake(case_id, applicant_id, "COAPP-MCP000000001", {"name": "Priya"}, None, ready)
++    co_doc(ready, case_id, applicant_id, "COAPP-MCP000000001", "PAN")
++    envelope = asyncio.run(co_applicant_get(case_id, "COAPP-MCP000000001"))
++    data = envelope.as_tool_payload()
++    assert data["ok"] is True, data
++    result = data.get("data") or data.get("result") or {}
++    assert result["case_id"] == case_id and [d["document_type"] for d in result["documents"]] == ["PAN"]
++    other, _ = make_case(ready)
++    wrong = asyncio.run(co_applicant_get(other, "COAPP-MCP000000001")).as_tool_payload()
++    assert wrong["ok"] is False and wrong["error"]["code"] == "CO_APPLICANT_NOT_FOUND"   # not on that case
++
++
++# ---- flag off ----------------------------------------------------------------------------------
++def test_flag_off_nothing_changes(repo):
++    assert co_applicants.enabled(repo) is False
++    assert co_applicants.config_error(repo) is None
++
++
++def test_flag_on_without_the_migration_is_reported_not_guessed(repo, monkeypatch):
++    monkeypatch.setenv(co_applicants.FLAG, "true")
++    assert co_applicants.enabled(repo) is False
++    assert "0004" in co_applicants.config_error(repo)
+diff --git a/docs/CHATBOT_SPEC.md b/docs/CHATBOT_SPEC.md
+new file mode 100644
+index 0000000..1904c52
+--- /dev/null
++++ b/docs/CHATBOT_SPEC.md
+@@ -0,0 +1,116 @@
++# Chatbot Spec
++
++> Saved word for word from the user's instructions (received 2026-10-07, in three messages).
++> **COMPLETE:** sections 1–6.
++
++=== 1. RESPONSE STYLE GUIDE ===
++Goal: clean, scannable, professional. Never a wall of text.
++- First line: short direct answer with a status emoji.
++- Bold only the key words: status, document name, mismatch field, amount, date.
++- Bullet points for any list, one short item per line.
++- Sections get a short bold heading plus an emoji, with a blank line between sections.
++- End with ONE next step (👉) or ONE question.
++- Max ~8 lines, except document lists.
++- Same style in English, Hindi, Hinglish and Marathi.
++
++Emoji map (use ONLY these, consistently):
++✅ verified/done | ❌ rejected/failed | ⏳ pending/under review | ⚠️ mismatch/attention
++📄 document | 📤 upload action | 👤 applicant | 👥 co-applicant
++💰 amount/EMI | 📍 current stage | 👉 next step | ℹ️ info/definition
++
++Example (documents):
++⚠️ **KYC verification failed.** A few details don't match.
++
++**❌ Mismatch found**
++- **Name**: PAN shows "Rahul Kumar Sharma", DL shows "Rahul Sharma"
++
++**📤 Upload correct documents**
++- 📄 **PAN Card**
++
++**⏳ Still pending**
++- 📄 **Bank Statement**
++
++👉 Upload these to move your case to **CPA**.
++
++Example (status): 📍 Your application **LN1023** is in **FOS stage**. ⏳ Waiting on **2 documents**. 👉 Want to see which ones?
++Example (definition): ℹ️ **CIBIL score** is a 3-digit number (300–900) showing repayment reliability. 👉 Your credit check is handled by the Credit team.
++Example (out of scope): 🙏 I can only help with your loan application. 👉 Check your **status** or **pending documents**?
++
++Technical: emojis and bullets go in both answer_markdown and answer_plain; answer_plain drops the ** markers. Add snapshot tests (English + Hinglish).
++
++ABBREVIATION RULE (added by the user, 2026-10-07)
++- The FIRST time an abbreviation appears in a chat session, show its full form in brackets: "**KYC (Know Your Customer)**". After that, only the short form in the same session. Track "already explained" terms in session memory.
++- If the user asks "X kya hai?" / "what is X?" / "X ka full form?", reply with the full form plus a one-line meaning, in the user's language.
++- Keep the full form in English, with the explanation in the user's language, e.g. Hinglish: "**KYC (Know Your Customer)**: aapki identity verify karne ki process."
++- Apply it to bot replies, case summaries, Excel reports (a glossary sheet) and the morning brief.
++
++GLOSSARY
++- Put it in a yaml file (config, not code) so new terms can be added without code changes.
++- Read-only first: scan the codebase, configs and knowledge files for every abbreviation the bot can show (e.g. KYC, PAN, FOS, CPA, CREDIT, RCU, BOPS, HOPS, FOIR, LTV, EMI, ITR, DL, OVD, CIBIL, GST, AA, JEV, OCR, ...) and propose a glossary table: abbreviation | full form | one-line meaning | source where found.
++- Mark any term whose full form isn't defined in the project as "NEEDS CONFIRMATION". Don't guess company-specific terms (stage names like BOPS/HOPS/RCU especially).
++- Show me the glossary for approval before using it.
++
++Add snapshot tests: the first mention is expanded, the second isn't, and "KYC kya hai?" gives full form + meaning.
++
++=== 2. RESPONSE FORMAT CONTRACT ===
++1. Direct answer first. No greeting, no filler.
++2. ONE next step or ONE question at the end, never both, never more than one question.
++3. Reply in the user's language.
++4. Data not available: say so with the reason. Never invent.
++
++=== 3. CLARIFYING QUESTIONS & UNDERSTANDING (intelligence) ===
++The bot must behave like a smart human assistant, not a menu.
++a) Unclear question: never show a generic menu. Ask ONE short, specific question using what it already knows (case, party, last topic), offering 2–3 concrete options.
++   Example: "Aap **status** jaanna chahte hain ya **pending documents**?"
++   Example: "Applicant ke docs dekhne hain ya **co-applicant (Priya)** ke?"
++b) Partly clear: answer the clear part, then ask only about the missing piece.
++c) Never ask something the bot can find out itself (case ID with one case, the party from context, etc.).
++d) Yes/No understanding: when the bot asked a question, the next reply is read in that context.
++   - YES: haan, ha, haa, yes, ok, okay, theek hai, kar do, chalega, sure, bilkul, hmm ok, 👍
++   - NO: nahi, na, no, mat karo, rehne do, abhi nahi, baad mein, 👎
++   - YES → do exactly what was offered. NO → acknowledge and offer one alternative.
++   - Ambiguous ("pata nahi", "shayad") → rephrase the question more simply.
++e) Choosing an option: "pehla wala", "second", "co-applicant wala", "2" → map to the options the bot offered.
++f) Corrections: "nahi, mera matlab tha..." → drop the last assumption and redo it.
++g) Typos and mixed language must still be understood ("pandig docs", "kyc kab hoga").
++h) Store the pending question and its offered options in the session state, so (d) and (e) work.
++
++=== 4. "VERIFY / UPLOAD" DIAGNOSE RULE ===
++When the user says anything like "verify karna hai", "upload karna hai", "document dalna hai", "KYC complete karna hai" or "kya upload karu", do NOT ask "which document?". Diagnose the case and show exactly what's needed:
++- Check every party (applicant + each co-applicant) for: mandatory documents not uploaded, REJECTED documents (with reason), KYC failures (field + values on each document), signature missing/rejected, documents in REVIEW (info only).
++- For each item, show WHAT is wrong, WHERE (party, document, field) and WHAT to upload. For a KYC mismatch, suggest the likely wrong document when the finding shows it; otherwise ask for the correct one of the two.
++- Order: ❌ fix first → ⏳ pending → ℹ️ under review.
++- All complete: "✅ All documents are verified. Your case is ready for **CPA**."
++- Group by party (👤 / 👥). Extend the step 4 document action view, don't build a new one.
++
++=== 5. FULL-SESSION CHATBOT MEMORY ===
++The bot remembers the WHOLE chat session, not just the last 6 turns. Reuse conversation_state, no new dependencies.
++1. Full history: every turn stored, masked.
++2. Structured session state, updated each turn: active case + party (by applicant/co-applicant ID), issues/documents last shown, uploads in this chat and their latest results, the pending question + offered options, language preference.
++3. Rolling summary: older turns compressed into a short factual summary (deterministic where possible).
++4. The router gets summary + state + last 6 turns, never the full raw history (CPU speed).
++5. Lifetime: the whole session. Replace the 30-min TTL with a configurable 24-hour inactivity timeout. A new chat starts fresh.
++Must work:
++- "LN1023 ka status" → later "uske docs?" → uses LN1023
++- PAN mismatch shown → user uploads PAN → "ab theek hai?" → re-checks PAN
++- "co-applicant ka dikhao" → later "aur applicant ka?" → switches party
++- 20+ messages later: "pehle wala case" → remembers
++- After an upload: "aur kya baaki?" → excludes what was just verified
++
++=== 6. DOCUMENT & STAGE RULES ===
++- Co-applicant mandatory: PAN, address proof, employment proof (configurable).
++- Every co-applicant has their own ID, like the applicant (step 5d).
++- Signature mandatory (new cases only, from activation_date), presence check only, no matching.
++- FOS → CPA only when KYC passes for all parties (name, DOB, address, PAN, father's name; income excluded).
++- Qwen router is ON by default; its flag is only an emergency kill-switch; the low-memory guard falls back to the fast lane.
++
++Co-applicant ID (step 5d -- recorded from the approved design, 2026-10-07; LOS_COAPP_IDENTITY):
++- Every co-applicant has a system-generated id COAPP-<12 hex>, like APP-<12 hex>; globally unique.
++- Understood by id ("COAPP-1023 ke docs kya baaki hai?"), by name ("Priya ke docs") and by role ("co-applicant ka KYC").
++- Allowed only when the caller owns the case the id is on; otherwise the same refusal as any other customer's case.
++- Session memory keeps the active party by id; "aur applicant ka?" switches party.
++- Answers about a co-applicant start with: 👥 **Co-applicant: Priya Sharma (COAPP-…)**
++- A name not declared on the form is shown only once their KYC name check has PASSED -- never from unverified OCR.
++
++Implementation: sections 1–2 into the templates; sections 3 and 5 in step 6; section 4 extends step 4's view.
++Testing in step 8: 40+ real phrasings including yes/no replies, option picks, corrections, typos and Hinglish, with accuracy per category.

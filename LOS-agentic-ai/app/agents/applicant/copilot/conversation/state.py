@@ -663,6 +663,20 @@ class ConversationState:
     #: WHOSE the last answer was: PRIMARY_APPLICANT / CO_APPLICANT / BOTH --
     #: "iska KYC?" after an answer about BOTH people cannot be guessed.
     last_subject_party: str | None = None
+    #: THE PARTY BY ID (LOS_COAPP_IDENTITY, step 5d): the applicant id or the
+    #: co-applicant id the last answer was about. A public id, never a name.
+    active_party_id: str | None = None
+    #: 6-MVP CASE WORKSPACE (COPILOT_CASE_WORKSPACE): the case the officer opened, and
+    #: the case ids of the last list shown (for "2" / "doosra"). Public ids only.
+    active_case_id: str | None = None
+    listed_case_ids: list[str] = field(default_factory=list)
+    #: 6e ABBREVIATION RULE: glossary terms already shown with their full form this session
+    explained_terms: list[str] = field(default_factory=list)
+    #: 6c SESSION MEMORY (COPILOT_SESSION_MEMORY): the last N turns as labels + a rolling summary
+    recent_turns: list[dict[str, Any]] = field(default_factory=list)
+    summary: dict[str, Any] = field(default_factory=dict)
+    #: 6c: the cases opened in this workspace, oldest first ("pehle wala case")
+    case_history: list[str] = field(default_factory=list)
     last_activity_at: float = field(default_factory=time.time)
     turns_since_pending: int = 0
 
@@ -683,6 +697,7 @@ class ConversationState:
             "last_language": self.language,
             "last_documents": list(self.last_documents),
             "last_document": self.last_document,
+            "memory": summary_line(self) or None,
         }
 
     def public(self) -> dict[str, Any]:
@@ -711,7 +726,7 @@ class ConversationStore:
             state = self._states.get((subject_key, conversation_id))
             if state is None:
                 return None
-            if time.time() - state.last_activity_at > _cfg_int("ttl_seconds", 1800):
+            if time.time() - state.last_activity_at > ttl_seconds():
                 self._states.pop((subject_key, conversation_id), None)
                 return None
             return state
@@ -777,7 +792,7 @@ class RepositoryConversationStore(ConversationStore):
         if not found:
             return None
         text, at = found
-        if time.time() - at > _cfg_int("ttl_seconds", 1800):
+        if time.time() - at > ttl_seconds():
             return None
         return _from_json(text)
 
@@ -791,7 +806,7 @@ class RepositoryConversationStore(ConversationStore):
             repository = get_repository()
             repository.put_conversation(state.subject_key, state.conversation_id,
                                         json.dumps(_to_json(state)), state.last_activity_at)
-            repository.delete_conversations(older_than=state.last_activity_at - _cfg_int("ttl_seconds", 1800))
+            repository.delete_conversations(older_than=state.last_activity_at - ttl_seconds())
         except Exception:  # noqa: BLE001
             logger.warning("conversation state not stored")
 
@@ -1093,6 +1108,21 @@ def _reask(pending: PendingClarification, *, after_yes: bool = False,
     if after_no:
         return f"Understood. Then which one: {choice}? You can also say 'leave it'."
     return f"Just to be sure, which one do you mean: {choice}?"
+
+
+def _reask_simpler(pending: PendingClarification) -> str:
+    """The open question, simpler (6d): a yes/no restated as one; options numbered, one short line each."""
+    if pending.question_type == YES_NO or len(pending.options) < 2:
+        return str(_cfg().get("reask_simpler_yes_no", "Simply yes or no: {question}")).format(
+            question=pending.question)
+    numbered = "\n".join(f"{i}. {o.label.rstrip('?')}" for i, o in enumerate(pending.options[:3], 1))
+    return str(_cfg().get("reask_simpler", "Let me make it simpler -- reply with a number:\n{options}")).format(
+        options=numbered)
+
+
+def _declined_reply() -> str:
+    """A "no": acknowledged, with ONE alternative offered (configurable)."""
+    return str(_cfg().get("declined_reply", "Okay. 👉 Want to see what is **pending** instead?"))
 
 
 def _is_field(text: str) -> bool:
@@ -1437,7 +1467,14 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
     # 4. A PENDING CLARIFICATION is answered before anything is classified.
     if pending is not None:
         count = len(pending.options)
-        if _has("AFFIRM", text):
+        if _has("UNSURE", text):
+            # "pata nahi" / "shayad" (6d, CHATBOT_SPEC 3d): asked again, more simply
+            pending.asked_times += 1
+            return Reading(STILL_AMBIGUOUS, text, reply=_reask_simpler(pending),
+                           options=[o.label for o in pending.options], note="unsure: asked more simply")
+        # to a YES/NO question, "ok" / "chalega" / "hmm ok" are a yes too (CHATBOT_SPEC 3d)
+        soft_yes = pending.question_type == YES_NO and (_has("CONFIRM_SOFT", text) or _has("ACK", text))
+        if _has("AFFIRM", text) or soft_yes:
             if pending.question_type == YES_NO and count == 1:
                 state.pending_clarification = None
                 return Reading(YES_NO_RESPONSE, pending.options[0].label, option_index=0,
@@ -1457,8 +1494,8 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
         if _has("NEGATE", text) or _has("NEITHER", text):
             if pending.question_type == YES_NO or _has("NEITHER", text):
                 state.pending_clarification = None
-                return Reading(USER_REJECTED_CLARIFICATION, "",
-                               reply="Okay. What would you like to know instead?")
+                # NO -> acknowledged, with ONE alternative (6d, CHATBOT_SPEC 3d; text in config)
+                return Reading(USER_REJECTED_CLARIFICATION, "", reply=_declined_reply())
             pending.asked_times += 1
             return Reading(NEGATION, text, reply=_reask(pending, after_no=True),
                            options=[o.label for o in pending.options])
@@ -1573,8 +1610,18 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
             return Reading(ACKNOWLEDGEMENT, text)
         return Reading(ACKNOWLEDGEMENT, "",
                        reply="Okay. What would you like to know about your application?")
+    if _has("UNSURE", text):
+        return Reading(NEGATION, "", reply=_declined_reply())
     if _has("NEGATE", text) or _has("NEITHER", text):
-        return Reading(NEGATION, "", reply="Alright. What would you like instead?")
+        from app.agents.applicant import conversation
+
+        # SMALL TALK IS NOT A "NO". The match is typo-tolerant, and a bare "thanks"
+        # came within a typo of "no thanks" -- it was answered "Alright. What would
+        # you like instead?" (fails on HEAD too; failure #3, 2026-10-07). What the
+        # conversation module already reads (thanks, greetings...) goes on as a new
+        # turn and is answered by it; "no thanks" is not small talk and stays a no.
+        if conversation.classify(text) is None:
+            return Reading(NEGATION, "", reply=_declined_reply())
     return Reading(PENDING_EXPIRED if expired else NEW_TOPIC, text)
 
 
@@ -1639,6 +1686,27 @@ def _proposed(response: dict[str, Any]) -> list[dict[str, Any]]:
     return _actions.confirmable(response.get("actions"))[:3]
 
 
+def _party_id_for(state: ConversationState, response: dict[str, Any]) -> str | None:
+    """The applicant / co-applicant ID this answer was about (LOS_COAPP_IDENTITY only)."""
+    try:
+        from app.agents.los import co_applicants
+
+        if not co_applicants.enabled():
+            return None
+        if state.last_subject_party == "PRIMARY_APPLICANT":
+            return str(response.get("applicant_id") or "") or None
+        if state.last_subject_party == "CO_APPLICANT":
+            named = response.get("co_applicant") if isinstance(response.get("co_applicant"), dict) else {}
+            if named.get("co_applicant_id"):
+                return str(named["co_applicant_id"])
+            case_id = response.get("case_id") or state.case_id
+            records = co_applicants.list_for_case(case_id) if case_id else []
+            return records[0]["co_applicant_id"] if len(records) == 1 else None
+    except Exception:  # noqa: BLE001 - memory is best-effort; the answer stands
+        return None
+    return None
+
+
 def update_from_response(state: ConversationState, message: str,
                          response: dict[str, Any], reading: Reading) -> None:
     """Record what this turn was about. Labels only."""
@@ -1680,6 +1748,9 @@ def update_from_response(state: ConversationState, message: str,
         state.last_subject_party = {"BOTH": "BOTH", "CO": "CO_APPLICANT", "CO_APPLICANT": "CO_APPLICANT",
                                     "SELF": "PRIMARY_APPLICANT", "PRIMARY": "PRIMARY_APPLICANT",
                                     "PRIMARY_APPLICANT": "PRIMARY_APPLICANT"}.get(whose)
+        party_id = _party_id_for(state, response)
+        if party_id:
+            state.active_party_id = party_id
         state.last_answer_reference = {
             "intent": response.get("intent"), "query_type": response.get("query_type"),
             "response_source": response.get("response_source"),
@@ -1733,7 +1804,88 @@ def update_from_response(state: ConversationState, message: str,
                 and str(response.get("intent") or "") not in ("UNKNOWN", "GUARDRAIL_BLOCKED"):
             state.last_message = sensitivity.mask_identifiers(message)[:200]
             state.last_resolved_frame = state.last_semantic_frame
+    remember_turn(state, response)
+    if memory_enabled():
+        # 6c / migration 0006: the turn's text, masked + encrypted (a no-op until the table exists)
+        from app.store import chat_history
+
+        if chat_history.enabled():
+            chat_history.record(subject=state.subject_key, conversation_id=state.conversation_id,
+                                case_id=state.case_id, turn_no=state.turn_id, question=message,
+                                answer=str(response.get("answer") or ""), intent=response.get("intent"))
     STORE.put(state)
+
+
+# --------------------------------------------------------------------------
+# 6c SESSION MEMORY (COPILOT_SESSION_MEMORY, default off; CHATBOT_SPEC section 5) -- labels only,
+# inside the existing conversation row: no schema change (turn TEXT history needs migration 0006).
+# --------------------------------------------------------------------------
+
+def memory_enabled() -> bool:
+    import os
+
+    return (os.getenv("COPILOT_SESSION_MEMORY", "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _memory_cfg() -> dict[str, Any]:
+    from app.agents.applicant import config
+
+    return config.chatbot("memory") or {}
+
+
+def ttl_seconds() -> int:
+    """The session's inactivity timeout: 24 h (memory.inactivity_seconds) with session memory on, else 30 min."""
+    if memory_enabled():
+        try:
+            return int(_memory_cfg().get("inactivity_seconds", 86400))
+        except (TypeError, ValueError):
+            return 86400
+    return _cfg_int("ttl_seconds", 1800)
+
+
+def remember_turn(state: ConversationState, response: dict[str, Any]) -> None:
+    """The last N turns as LABELS + a deterministic rolling summary (no text, no case values)."""
+    if not memory_enabled():
+        return
+    keep = int(_memory_cfg().get("recent_turns", 6) or 6)
+    label = {"turn": state.turn_id, "intent": str(response.get("intent") or "") or None,
+             "case": response.get("case_id") or state.case_id, "party": state.active_subject,
+             "documents": list(state.last_documents)[:5]}
+    state.recent_turns = (list(state.recent_turns) + [label])[-keep:]
+    summary = dict(state.summary or {})
+    topics = dict(summary.get("topics") or {})
+    if label["intent"]:
+        topics[label["intent"]] = int(topics.get(label["intent"], 0)) + 1
+    summary["topics"] = topics
+    summary["turns"] = int(summary.get("turns", 0)) + 1
+    for key, value in (("cases", label["case"]), ("parties", label["party"])):
+        seen = list(summary.get(key) or [])
+        if value and value not in seen:
+            seen.append(value)
+        summary[key] = seen[-10:]
+    documents = list(summary.get("documents") or [])
+    for d in label["documents"]:
+        if d not in documents:
+            documents.append(d)
+    summary["documents"] = documents[-20:]
+    uploads = response.get("uploads") or response.get("uploaded") or []
+    if isinstance(uploads, list) and uploads:
+        summary["uploads"] = (list(summary.get("uploads") or []) + [
+            {"type": u.get("document_type"), "status": u.get("status") or u.get("verdict")}
+            for u in uploads if isinstance(u, dict)])[-20:]
+    state.summary = summary
+
+
+def summary_line(state: ConversationState | None) -> str:
+    """The rolling summary as one short LABEL line (for the router; no text, no values)."""
+    if state is None or not memory_enabled():
+        return ""
+    s = state.summary or {}
+    top = sorted((s.get("topics") or {}).items(), key=lambda kv: -kv[1])[:3]
+    recent = ">".join(t["intent"] for t in state.recent_turns[-3:] if t.get("intent"))
+    parts = [f"turns={s.get('turns', 0)}", "topics=" + ",".join(k for k, _ in top) if top else "",
+             f"recent={recent}" if recent else "", "party=" + ",".join(s.get("parties") or []) if s.get("parties") else ""]
+    return "Memory: " + " ".join(p for p in parts if p)
 
 
 __all__ = ["STORE", "ConversationState", "ConversationStore", "Option",

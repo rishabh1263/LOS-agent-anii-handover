@@ -109,7 +109,8 @@ def _run_stage_override(approval: dict[str, Any]) -> dict[str, Any]:
         reason=(f"{p['reason']} [four-eyes {approval['approval_id']}: made by {approval['maker_id']}, "
                 f"checked by {approval['checker_id']}]")[:200],
         actor=approval["checker_id"], source="MAKER_CHECKER", expected_stage=p.get("expected_stage"),
-        idempotency_key=f"mc-{approval['approval_id']}", request_id=f"mc_{approval['approval_id']}")
+        idempotency_key=f"mc-{approval['approval_id']}", request_id=f"mc_{approval['approval_id']}",
+        approval_id=approval["approval_id"])
 
 
 def _run_deviation(approval: dict[str, Any]) -> dict[str, Any]:

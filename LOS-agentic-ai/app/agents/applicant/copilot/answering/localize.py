@@ -110,7 +110,8 @@ def _missing_labels(result: dict[str, Any]) -> list[str] | None:
     items = [i for i in result.get("pending_items") or [] if isinstance(i, dict)]
     if any(i.get("code") != "DOCUMENT_MISSING" or not i.get("slot") for i in items):
         return None                       # an item only English describes: keep English, never guess
-    return [answers._readable(i["slot"]) for i in items]
+    # a co-applicant's item (LOS_COAPP_MANDATORY_DOCS) is named as theirs
+    return [answers._doc_label(i["slot"], i.get("party_role")) for i in items]
 
 
 def _pending_list_sentence(result: dict[str, Any], language: str) -> str | None:
@@ -148,17 +149,47 @@ _FIELD_WORDS = {"hi": {"name": "नाम", "date of birth": "जन्मति
                 "mr": {"name": "नाव", "date of birth": "जन्मतारीख", "PAN": "PAN", "father's name": "वडिलांचे नाव"}}
 
 
-def _reason(reason: str, language: str) -> str:
-    """The recorded reason in `language` when it is the standard mismatch clause; else as recorded."""
+#: "the date of birth didn't match: the PAN says A, but the driving licence says B" -- the
+#: other recorded shape (case_memory_facts), localized only under the flag below.
+_MISMATCH_SAYS = re.compile(r"^the (?P<field>name|date of birth|PAN|PAN number|father's name|address) didn't match: "
+                            r"the (?P<doc1>.+?) says (?P<v1>.+?), but the (?P<doc2>.+?) says (?P<v2>.+?)\.?$")
+_EXTRA_FIELD_WORDS = {"hi": {"address": "पता", "PAN number": "PAN नंबर"},
+                      "hi-Latn": {"address": "pata", "PAN number": "PAN number"},
+                      "mr": {"address": "पत्ता", "PAN number": "PAN क्रमांक"}}
+KYC_REASONS_FLAG = "COPILOT_LOCALIZED_KYC_REASONS"
+
+
+def kyc_reasons_localized() -> bool:
+    """Quick win 5 (Phase 3 step 3), default off: every recorded mismatch clause in the reply's language."""
+    import os
+
+    return (os.getenv(KYC_REASONS_FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _one_clause(clause: str, language: str, words: dict[str, str]) -> str | None:
     from app.agents.applicant import language as languages
 
-    m = _MISMATCH.match(reason.strip())
-    words = _FIELD_WORDS.get(language) or {}
+    m = _MISMATCH.match(clause) or (_MISMATCH_SAYS.match(clause) if kyc_reasons_localized() else None)
     if not m or m.group("field") not in words:
-        return reason
-    said = languages.localized("mismatch_clause", language, field=words[m.group("field")], doc1=m.group("doc1"),
+        return None
+    return languages.localized("mismatch_clause", language, field=words[m.group("field")], doc1=m.group("doc1"),
                                v1=m.group("v1"), doc2=m.group("doc2"), v2=m.group("v2"))
-    return said or reason
+
+
+def _reason(reason: str, language: str) -> str:
+    """The recorded reason in `language` when it is the standard mismatch clause; else as recorded.
+
+    Under COPILOT_LOCALIZED_KYC_REASONS a reason of several clauses ("...; ...") is localized clause
+    by clause, in both recorded shapes; a clause with no template stays as recorded. Values are
+    always quoted exactly as recorded."""
+    words = dict(_FIELD_WORDS.get(language) or {})
+    if not kyc_reasons_localized():
+        return _one_clause(reason.strip(), language, words) or reason
+    words.update(_EXTRA_FIELD_WORDS.get(language) or {})
+    trailing = "." if reason.strip().endswith(".") else ""
+    clauses = [c.strip() for c in reason.strip().rstrip(".").split(";") if c.strip()]
+    said = [_one_clause(c, language, words) or c for c in clauses]
+    return "; ".join(said) + trailing if said else reason
 
 
 _NOT_UPLOADED = re.compile(r"^No (?P<doc>.+?) document has been uploaded for this case\.(?: However, (?:your|the) "
@@ -617,8 +648,12 @@ def _status_sentence(result: dict[str, Any], language: str) -> str | None:
     if shape.group("held"):
         declined = shape.group("held") == "was declined"
         if shape.group("reason"):
+            reason = shape.group("reason")
+            if kyc_reasons_localized():
+                # the recorded clause in the reply's language too, not English inside Hinglish
+                reason = _reason(reason, language)
             hold = languages.localized("status_declined" if declined else "status_review", language,
-                                       reason=shape.group("reason"))
+                                       reason=reason)
         else:
             hold = languages.localized("status_declined_plain" if declined else "status_review_plain", language)
         if not hold:

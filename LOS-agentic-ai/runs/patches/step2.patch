@@ -1,0 +1,991 @@
+diff --git a/app/agents/applicant/copilot/capabilities/gates.py b/app/agents/applicant/copilot/capabilities/gates.py
+index e1b59e8..99261ad 100644
+--- a/app/agents/applicant/copilot/capabilities/gates.py
++++ b/app/agents/applicant/copilot/capabilities/gates.py
+@@ -45,7 +45,16 @@ import yaml
+ 
+ PASS, REVIEW, BLOCKED, NOT_READY, GAP = "PASS", "REVIEW", "BLOCKED", "NOT_READY", "CONFIGURATION_GAP"
+ EVALUATE, MOVE, RUN_PENDING = "EVALUATE", "MOVE", "RUN_PENDING"
+-SOURCES = ("readiness", "kyc", "eligibility", "underwriting", "human")
++SOURCES = ("readiness", "kyc", "kyc_checks", "eligibility", "underwriting", "human")
++
++
++def _flag_on(name: str | None) -> bool:
++    """A check carrying `when_flag` counts only while that environment flag is on (default off)."""
++    import os
++
++    if not name:
++        return True
++    return (os.getenv(str(name), "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
+ _RANK = {PASS: 0, NOT_READY: 1, REVIEW: 2, BLOCKED: 3}
+ 
+ 
+@@ -194,9 +203,17 @@ def read_sources(case_id: str, *, results: dict[str, Any], repository: Any) -> d
+         open_checks = queries.gate_checks(case_id, repository=repository)
+     except Exception:  # noqa: BLE001 - unreadable: no extra check, logged by the service
+         open_checks = []
++    # EVERY CPA-GATE KYC CHECK, per party (app/agents/los/kyc_gate.py) -- read only
++    # while the rule is on. A store error is NOT swallowed into "nothing recorded":
++    # the service gate must fail closed on it, so it propagates.
++    kyc_checks = None
++    from app.agents.los import kyc_gate
++
++    if kyc_gate.enabled():
++        kyc_checks = kyc_gate.evaluate(case_id, repository)
+     return {"readiness": readiness if isinstance(readiness, dict) else None,
+             "eligibility": (eligibility.get("eligibility") if eligibility.get("recorded") else None),
+-            "kyc": kyc or None, "underwriting": underwriting, "human": None,
++            "kyc": kyc or None, "kyc_checks": kyc_checks, "underwriting": underwriting, "human": None,
+             "open_items": open_checks}
+ 
+ 
+@@ -221,6 +238,11 @@ def _check(check: dict[str, Any], sources: dict[str, Any]) -> dict[str, Any]:
+                    evidence="No human decision is recorded for this case.")
+     elif record is None:
+         out.update(status=NOT_READY, reason_code=f"{out['id']}_NOT_RECORDED")
++    elif source == "kyc_checks":
++        from app.agents.los import kyc_gate
++
++        out.update(value=record.get("status"), status=_outcome(check, record.get("status")),
++                   evidence=kyc_gate.blocking_summary(record), detail=record)
+     elif source == "kyc":
+         statuses = [_outcome(check, p.get("status")) for p in record]
+         out.update(value=[p.get("status") for p in record],
+@@ -270,7 +292,7 @@ def evaluate(stage: str | None, sources: dict[str, Any]) -> dict[str, Any]:
+     cfg = config()
+     gate = (cfg.get("gates") or {}).get(str(stage or "").upper()) or {}
+     nexts = lifecycle()["next"].get(str(stage or "").upper()) or []
+-    checks = [_check(c, sources) for c in gate.get("checks") or []]
++    checks = [_check(c, sources) for c in gate.get("checks") or [] if _flag_on(c.get("when_flag"))]
+     if not checks:
+         status = GAP
+         # an open query / pending deviation is still named on an unconfigured gate
+@@ -321,6 +343,9 @@ def compose(gate: dict[str, Any], *, can_move: bool, ran: list[str] | None = Non
+         if c["id"] == "FOS_READINESS" and c.get("evidence"):
+             detail = ": " + "; ".join(str(e.get("detail") or e.get("code")).rstrip(".")
+                                       for e in c["evidence"][:4])
++        elif c.get("source") == "kyc_checks" and c.get("evidence"):
++            # each failing KYC check, whose, and what each document said -- from the record
++            detail = ": " + " ".join(str(e) for e in c["evidence"][:6]).rstrip(".")
+         elif str(c.get("reason_code") or "").endswith("_NOT_RECORDED"):
+             detail = " -- no result is recorded yet"
+         elif c.get("recorded") and c.get("value") and not isinstance(c.get("value"), list):
+diff --git a/app/agents/kyc/agent.py b/app/agents/kyc/agent.py
+index 643d3f4..be45e7b 100644
+--- a/app/agents/kyc/agent.py
++++ b/app/agents/kyc/agent.py
+@@ -62,6 +62,11 @@ def check_is_blocking(check: str) -> bool:
+     return config.check_blocking(section) if section else False
+ 
+ 
++def cpa_gate_checks() -> list[str]:
++    """The checks (KycCheck values) that must have PASSED to leave FOS for CPA."""
++    return [check for check, section in CHECK_SECTIONS.items() if config.check_cpa_gate(section)]
++
++
+ _SEVERITY = {
+     CheckStatus.PASS: 0,
+     CheckStatus.SKIPPED: 0,
+diff --git a/app/agents/kyc/config.py b/app/agents/kyc/config.py
+index a53018a..2df71ce 100644
+--- a/app/agents/kyc/config.py
++++ b/app/agents/kyc/config.py
+@@ -89,6 +89,18 @@ def check_blocking(name: str) -> bool:
+     return bool(section(name).get("blocking", True))
+ 
+ 
++def check_cpa_gate(name: str) -> bool:
++    """
++    Whether this check must have PASSED for a case to leave FOS for CPA.
++
++    Separate from `blocking` on purpose: `blocking` shapes the KYC verdict
++    itself, `cpa_gate` only what the FOS -> CPA gate demands (read by
++    app/agents/los/kyc_gate.py, and only while LOS_FOS_CPA_KYC_RULE is on).
++    Absent means not required.
++    """
++    return bool(section(name).get("cpa_gate", False))
++
++
+ def threshold(name: str, key: str, default: float) -> float:
+     raw = section(name).get(key, default)
+     try:
+diff --git a/app/agents/los/stage_lifecycle.py b/app/agents/los/stage_lifecycle.py
+index 7c2fc50..1885327 100644
+--- a/app/agents/los/stage_lifecycle.py
++++ b/app/agents/los/stage_lifecycle.py
+@@ -180,6 +180,9 @@ class _Current:
+     status: str
+     since: datetime | None
+     version: int
++    #: False when no record established the stage and the configured initial
++    #: stage was assumed -- the service gate refuses to move such a case.
++    resolved: bool = True
+ 
+ 
+ def _repository():
+@@ -210,7 +213,64 @@ def _current(repository, case_id: str, application) -> _Current:
+     derived = stages.resolve(case_id)
+     stage = derived.stage or config().initial_stage
+     since = _parse_time(derived.since) or getattr(application, "created_at", None)
+-    return _Current(stage, derived.status or IN_PROGRESS, since, 0)
++    return _Current(stage, derived.status or IN_PROGRESS, since, 0, resolved=derived.stage is not None)
++
++
++# ==========================================================================
++# THE GATE, ENFORCED HERE (Phase 3 step 2; LOS_STAGE_GATE_IN_SERVICE, default off)
++# ==========================================================================
++#
++# Before this, the gate was evaluated only by the HTTP route, and only when the
++# route could resolve the current stage: an unresolved stage skipped the gate,
++# the lifecycle assumed FOS, and FOS -> CPA went through ungated. With the flag
++# on, every FORWARD move is gated here, whoever calls, and it FAILS CLOSED:
++#
++#   stage not established                  -> STAGE_UNRESOLVED   (409)
++#   gate cannot be evaluated               -> GATE_UNAVAILABLE   (503)
++#   gate not PASS                          -> GATE_NOT_MET / GATE_CONFIGURATION_GAP (409)
++#   source MAKER_CHECKER                   -> allowed, recorded as an override
++#
++# The only exception is OVERRIDE WITH MAKER-CHECKER: the route turns an OVERRIDE
++# into a four-eyes request, and only the approved execution (source MAKER_CHECKER,
++# app/approvals) moves the case ungated. Its reason is mandatory (REASON_REQUIRED
++# above) and is written to the stage history, prefixed OVERRIDE:, and the audit log.
++
++GATE_FLAG = "LOS_STAGE_GATE_IN_SERVICE"
++
++
++def service_gate_enabled() -> bool:
++    import os
++
++    return (os.getenv(GATE_FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _forward(current: LosStage, target: LosStage) -> bool:
++    return (current in stages.ORDER and target in stages.ORDER
++            and stages.ORDER.index(target) > stages.ORDER.index(current))
++
++
++def _enforce_gate(case_id: str, current: _Current, target: LosStage, *, override: bool) -> None:
++    if not current.resolved:
++        raise StageTransitionError(
++            "STAGE_UNRESOLVED", "The case's current stage could not be established from its record, "
++            "so it cannot be moved.", 409)
++    if not _forward(current.stage, target) or override:
++        return
++    try:
++        from app.agents.los import stage_gate
++
++        gate = stage_gate.evaluate_live(case_id, current.stage.value)
++        view = stage_gate.public(gate)
++    except Exception as exc:  # noqa: BLE001 - an unreadable gate never lets a case through
++        logger.error("Stage gate unavailable case_id=%s: %s", case_id, type(exc).__name__)
++        raise StageTransitionError(
++            "GATE_UNAVAILABLE", "The stage gate could not be evaluated, so the case was not moved.",
++            503) from exc
++    status = gate.get("status")
++    if status != "PASS":
++        code = "GATE_CONFIGURATION_GAP" if status == "CONFIGURATION_GAP" else "GATE_NOT_MET"
++        raise StageTransitionError(
++            code, "The case does not meet the configured gate for leaving this stage.", 409, gate=view)
+ 
+ 
+ def _parse_time(value: str | None) -> datetime | None:
+@@ -238,11 +298,17 @@ def transition(
+     idempotency_key: str | None = None,
+     request_id: str | None = None,
+     correlation_id: str | None = None,
++    override: bool = False,
+ ) -> dict[str, Any]:
+     """
+     Move `case_id` to `target_stage` (or, naming its current stage with a
+     different `stage_status`, change where it is within the stage).
+ 
++    `override` is the route's OVERRIDE mode. With LOS_STAGE_GATE_IN_SERVICE off
++    it is not consulted (the route alone decides, as before). With it on, only
++    the maker-checker execution (source MAKER_CHECKER) skips the gate; a bare
++    `override=True` is gated like any other forward move.
++
+     Returns the case's stage state after the call and what happened
+     (`result`: APPLIED, NO_CHANGE or REPLAYED). Raises
+     StageTransitionError, having written nothing, for anything refused.
+@@ -283,6 +349,15 @@ def transition(
+         raise StageTransitionError(
+             "REASON_REQUIRED", "A transition must record its reason.", 422)
+     reason = reason[:_MAX_REASON]
++    gated = service_gate_enabled()
++    # THE ONLY EXCEPTION IS OVERRIDE *WITH* MAKER-CHECKER: the approved four-eyes
++    # execution (source MAKER_CHECKER, written only by app/approvals). A caller's
++    # bare `override=True` -- possible only if maker-checker is switched off for
++    # STAGE_OVERRIDE -- does not skip the gate while it is enforced here.
++    is_override = source == "MAKER_CHECKER" or (bool(override) and not gated)
++    if gated and is_override and not reason.upper().startswith("OVERRIDE:"):
++        # THE HISTORY SAYS IT WAS AN OVERRIDE, in the reason it keeps for ever
++        reason = f"OVERRIDE: {reason}"[:_MAX_REASON]
+ 
+     if idempotency_key is not None and not _KEY_RE.match(str(idempotency_key)):
+         raise StageTransitionError(
+@@ -322,6 +397,8 @@ def transition(
+         kind = STAGE_STATUS_CHANGED if target is current.stage else STAGE_ENTERED
+         if kind == STAGE_ENTERED:
+             _check_edge(cfg, current, target)
++            if gated:
++                _enforce_gate(case_id, current, target, override=is_override)
+ 
+         from app.store.models import CaseEvent, CaseStage, StageTransition, utcnow
+ 
+@@ -365,6 +442,8 @@ def transition(
+ 
+         if written:
+             _audit(record, "APPLIED")
++            if gated and is_override and kind == STAGE_ENTERED:
++                _audit_override(record)
+             return _outcome(repository, case_id, "APPLIED", record)
+         # LOST A RACE. Somebody else moved the case between our read and
+         # our write; nothing of ours was written. Re-read and re-judge --
+@@ -447,6 +526,20 @@ def _audit(record, result: str) -> None:
+         record.correlation_id, reason)
+ 
+ 
++def _audit_override(record) -> None:
++    """An applied OVERRIDE in the service audit log, with its (redacted) reason."""
++    try:
++        from app.agents.applicant import audit
++
++        audit.record(request_id=record.request_id or record.transition_id, subject=record.actor or "unknown",
++                     applicant_id=None, case_id=record.case_id, intent="STAGE_TRANSITION_OVERRIDE",
++                     tools=["los.stage"], write=True, confirmed=True, status="OK",
++                     detail=f"{record.from_stage}->{record.to_stage} source={record.source} "
++                            f"reason={audit.redact(record.reason or '')}"[:300])
++    except Exception:  # noqa: BLE001 - the history row is the durable record; a log failure is logged
++        logger.exception("stage override audit failed case_id=%s", record.case_id)
++
++
+ # ==========================================================================
+ # WHAT A CALLER IS TOLD
+ # ==========================================================================
+diff --git a/app/agents/los/stages.py b/app/agents/los/stages.py
+index e8eddae..2addc3f 100644
+--- a/app/agents/los/stages.py
++++ b/app/agents/los/stages.py
+@@ -235,7 +235,15 @@ def _from_case(case_id: str) -> StageContext | None:
+     # (PARTIAL, REVIEW ...), which `parse` rejects. A stage entered twice
+     # in a row is one visit.
+     history: list[dict[str, str | None]] = []
++    # STRICT READING (LOS_STAGE_GATE_IN_SERVICE, default off): only a recorded
++    # STAGE_ENTERED event says a case entered a stage. Any other event's free-text
++    # `stage` column (ingest writes a processing status there) never moves the case.
++    from app.agents.los.stage_lifecycle import service_gate_enabled
++
++    strict = service_gate_enabled()
+     for event in timeline:
++        if strict and str(getattr(event, "event_type", "") or "") != "STAGE_ENTERED":
++            continue
+         stage = parse(getattr(event, "stage", None))
+         if stage is None:
+             continue
+diff --git a/app/api/routes/los_api.py b/app/api/routes/los_api.py
+index 0090ab3..f06161b 100644
+--- a/app/api/routes/los_api.py
++++ b/app/api/routes/los_api.py
+@@ -843,6 +843,9 @@ async def transition_stage(
+             stage_status=body.stage_status, expected_stage=body.expected_stage,
+             idempotency_key=body.idempotency_key, request_id=request_id,
+             correlation_id=body.correlation_id,
++            # THE ROUTE'S OWN DECISION: OVERRIDE was authorised above (override scope);
++            # with LOS_STAGE_GATE_IN_SERVICE on, every other move is gated in the service
++            override=(mode == "OVERRIDE"),
+         )
+     except stage_lifecycle.StageTransitionError as exc:
+         logger.info("stage_transition result=REFUSED case_id=%s code=%s "
+diff --git a/app/config/kyc_policies.yaml b/app/config/kyc_policies.yaml
+index 59eb16d..53b4023 100644
+--- a/app/config/kyc_policies.yaml
++++ b/app/config/kyc_policies.yaml
+@@ -40,6 +40,16 @@
+ # The per-check status is NOT capped: a failed check still reports FAIL, with
+ # its reason codes, sources and the value each document carried. Only its
+ # effect on the overall verdict is bounded.
++#
++# ---------------------------------------------------------------------------
++# cpa_gate -- WHICH CHECKS MUST HAVE PASSED TO LEAVE FOS FOR CPA (2026-10-06)
++# ---------------------------------------------------------------------------
++#   cpa_gate true  -> the FOS -> CPA gate requires this check to be PASS for
++#                     every party on the case (not REVIEW, FAIL or SKIPPED)
++#   cpa_gate false -> not required (absent means false)
++# Separate from `blocking`: `blocking` shapes the KYC verdict, `cpa_gate` only
++# the stage gate. Read by app/agents/los/kyc_gate.py and ENFORCED ONLY while
++# LOS_FOS_CPA_KYC_RULE=true (default off). UNCONFIRMED, like this policy.
+ # ===========================================================================
+ 
+ policy_version: "1.0.0"
+@@ -55,6 +65,7 @@ name:
+   # Non-blocking: names legitimately differ across a person's documents.
+   # A disagreement goes to a reviewer with both values attached.
+   blocking: false
++  cpa_gate: true
+   # At or above this, two names are the same person.
+   match_threshold: 0.85
+   # Between review_threshold and match_threshold the answer is uncertain and
+@@ -74,6 +85,7 @@ dob:
+   # FAIL on the check itself. What it no longer does is reject the applicant
+   # without a human ever seeing it.
+   blocking: false
++  cpa_gate: true
+ 
+ # ---------------------------------------------------------------------------
+ # ADDRESS
+@@ -88,6 +100,7 @@ dob:
+ address:
+   enabled: true
+   blocking: false
++  cpa_gate: true
+   pass_score: 0.80
+   review_score: 0.55
+   weights:
+@@ -111,6 +124,7 @@ pan:
+   # and is reported as FAIL with both values, but it is a reviewer's call --
+   # a mistyped PAN on a payslip is not the same thing as a false identity.
+   blocking: false
++  cpa_gate: true
+ 
+ # ---------------------------------------------------------------------------
+ # INCOME
+@@ -124,6 +138,8 @@ pan:
+ income:
+   enabled: true
+   blocking: false
++  # Excluded from the FOS -> CPA gate for now: income is often unavailable at FOS.
++  cpa_gate: false
+   months_per_year: 12
+   # Percentage difference between two annualised figures, relative to the
+   # larger of the two.
+@@ -154,6 +170,7 @@ decision:
+ father_name:
+   enabled: true
+   blocking: false
++  cpa_gate: true
+   match_threshold: 0.85
+   review_threshold: 0.70
+ 
+diff --git a/app/config/stage_gates.yaml b/app/config/stage_gates.yaml
+index 9c36c00..87ba6cb 100644
+--- a/app/config/stage_gates.yaml
++++ b/app/config/stage_gates.yaml
+@@ -42,6 +42,18 @@ gates:
+         path: status
+         pass: [READY_FOR_CPA]
+         blocked: [NOT_READY]
++      # FULL KYC BEFORE CPA (2026-10-06). Every party's KYC checks marked
++      # `cpa_gate: true` in kyc_policies.yaml must be PASSED (app/agents/los/
++      # kyc_gate.py). Counted ONLY while LOS_FOS_CPA_KYC_RULE=true (default off).
++      - id: KYC_COMPLETE
++        label: KYC verification
++        source: kyc_checks
++        path: status
++        when_flag: LOS_FOS_CPA_KYC_RULE
++        pass: [PASS]
++        review: [REVIEW]
++        blocked: [BLOCKED]
++        not_ready: [NOT_READY]
+ 
+   CPA:
+     status: UNCONFIRMED
+diff --git a/app/store/demo_seed.py b/app/store/demo_seed.py
+index d93f4eb..51fb64b 100644
+--- a/app/store/demo_seed.py
++++ b/app/store/demo_seed.py
+@@ -66,9 +66,25 @@ PREFIX = "DEMO-"
+ ENV_FLAG = "LOS_DEMO_SEED_ENABLED"
+ 
+ 
++#: PRODUCTION GUARD (Phase 3 step 2, default off): with this on, the demo seed
++#: never runs where ENVIRONMENT=production -- its STAGE_ENTERED events would
++#: otherwise place cases at stages no transition ever recorded.
++PROD_GUARD_FLAG = "LOS_DEMO_SEED_PROD_GUARD"
++
++
++def _on(name: str) -> bool:
++    return (os.getenv(name, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _blocked_in_production() -> bool:
++    return _on(PROD_GUARD_FLAG) and (os.getenv("ENVIRONMENT") or "").strip().lower() == "production"
++
++
+ def enabled() -> bool:
+-    return (os.getenv(ENV_FLAG, "false").strip().lower()
+-            in {"1", "true", "yes", "on"})
++    if _on(ENV_FLAG) and _blocked_in_production():
++        logger.error("%s is set in production; the demo seed is refused (%s).", ENV_FLAG, PROD_GUARD_FLAG)
++        return False
++    return _on(ENV_FLAG)
+ 
+ 
+ @dataclass(frozen=True)
+@@ -285,6 +301,9 @@ def seed(repository: Any, *, force: bool = False) -> SeedSummary:
+     the upserting tables handle and the rest tolerate because every id
+     is deterministic.
+     """
++    if _blocked_in_production():
++        # every caller, not only start-up: a script cannot seed production either
++        raise RuntimeError(f"The demo seed is refused in production ({PROD_GUARD_FLAG}).")
+     if not force and is_seeded(repository):
+         logger.info("Demo data already present; nothing seeded.")
+         return SeedSummary(already_present=True)
+diff --git a/app/agents/los/kyc_gate.py b/app/agents/los/kyc_gate.py
+new file mode 100644
+index 0000000..dcfc7cf
+--- /dev/null
++++ b/app/agents/los/kyc_gate.py
+@@ -0,0 +1,158 @@
++"""
++THE KYC PART OF THE FOS -> CPA GATE (Phase 3 step 2, 2026-10-06).
++
++New rule, behind LOS_FOS_CPA_KYC_RULE (default off): a case leaves FOS for CPA
++only when, for EVERY party on the case, every KYC check marked `cpa_gate: true`
++in app/config/kyc_policies.yaml (name, DOB, address, PAN, father's name; not
++income) is recorded as PASSED.
++
++READ, NEVER DECIDED. Every value comes from the KYC finding the KYC Agent
++recorded (case_findings, kind KYC): `passed_checks`, `failed_checks`,
++`missing_information`, and the per-field values behind a failure. Nothing is
++re-compared here, and nothing missing is assumed to have passed:
++
++    check in passed_checks                       PASS
++    check failed, field FAIL                     BLOCKED   (with both values)
++    check failed, field REVIEW / PARTIAL         REVIEW
++    check could not run (missing_information)    NOT_READY
++    no KYC result for the party, or a result
++    recorded before checks were kept             NOT_READY  (fail closed)
++
++The gate's outcome is the worst over every party and check. Who the parties
++are comes from the case record: the primary applicant, the co-applicant the
++application names, and every party with an active document.
++"""
++
++from __future__ import annotations
++
++import os
++from typing import Any
++
++FLAG = "LOS_FOS_CPA_KYC_RULE"
++
++PASS, REVIEW, BLOCKED, NOT_READY = "PASS", "REVIEW", "BLOCKED", "NOT_READY"
++_RANK = {PASS: 0, NOT_READY: 1, REVIEW: 2, BLOCKED: 3}
++
++#: KycCheck -> the field name the recorded result publishes (KycField)
++_FIELD = {"NAME": "NAME", "DOB": "DATE_OF_BIRTH", "ADDRESS": "ADDRESS", "PAN": "PAN_NUMBER",
++          "FATHER_NAME": "FATHER_NAME", "INCOME": "INCOME"}
++_LABEL = {"NAME": "name", "DOB": "date of birth", "ADDRESS": "address", "PAN": "PAN number",
++          "FATHER_NAME": "father's name", "INCOME": "income"}
++
++
++def enabled() -> bool:
++    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def required_checks() -> list[str]:
++    from app.agents.kyc.agent import cpa_gate_checks
++
++    return cpa_gate_checks()
++
++
++def _value(x: Any) -> str:
++    return str(getattr(x, "value", x) or "")
++
++
++def _parties(case_id: str, repository: Any) -> dict[str, str]:
++    """party_id -> role, from the case record (never from a caller)."""
++    parties: dict[str, str] = {}
++    application = repository.get_application(case_id)
++    if application is not None:
++        if getattr(application, "applicant_id", None):
++            parties[application.applicant_id] = "PRIMARY_APPLICANT"
++        if getattr(application, "co_applicant_id", None):
++            parties[application.co_applicant_id] = "CO_APPLICANT"
++    for document in repository.list_documents(case_id) or []:
++        if _value(getattr(document, "status", "")).upper() == "SUPERSEDED":
++            continue
++        party = getattr(document, "party_id", None)
++        if party and party not in parties:
++            parties[party] = _value(getattr(document, "party_role", "")) or "PRIMARY_APPLICANT"
++    return parties
++
++
++def _field_detail(payload: dict[str, Any], check: str) -> tuple[str, list[dict[str, Any]]]:
++    """(field status, the values each document carried) for one check's field."""
++    wanted = _FIELD.get(check, check)
++    for field in payload.get("fields") or []:
++        if isinstance(field, dict) and str(field.get("field") or "").upper() == wanted:
++            values = [{"document_type": s.get("document_type"), "value": s.get("value")}
++                      for s in field.get("sources") or [] if isinstance(s, dict) and s.get("value")]
++            return str(field.get("status") or "").upper(), values
++    return "", []
++
++
++def _check_outcome(check: str, payload: dict[str, Any]) -> dict[str, Any]:
++    out: dict[str, Any] = {"check": check, "label": _LABEL.get(check, check.lower()), "status": NOT_READY,
++                           "reason": "no KYC result recorded for this check", "values": []}
++    passed = [str(c).upper() for c in payload.get("passed_checks") or []]
++    failed = [str(c).upper() for c in payload.get("failed_checks") or []]
++    missing = [str(c).upper() for c in payload.get("missing_information") or []]
++    if check in passed:
++        out.update(status=PASS, reason=None)
++    elif check in failed:
++        field_status, values = _field_detail(payload, check)
++        status = BLOCKED if field_status == "FAIL" else REVIEW
++        out.update(status=status, values=values,
++                   reason="the documents disagree" if status == BLOCKED else "needs a reviewer's check")
++    elif check in missing:
++        out.update(reason="could not be checked from the uploaded documents")
++    return out
++
++
++def evaluate(case_id: str, repository: Any = None) -> dict[str, Any]:
++    """
++    The KYC gate for one case: {"status", "required_checks", "parties": [...]}.
++    Raises nothing for missing data (NOT_READY); a store error propagates so the
++    caller can fail closed.
++    """
++    from app.store import get_repository
++
++    repository = repository or get_repository()
++    required = required_checks()
++    latest: dict[str, Any] = {}
++    for finding in repository.get_current_findings(case_id, kind="KYC") or []:
++        latest[str(getattr(finding, "party_id", "") or "")] = finding
++
++    parties = []
++    for party_id, role in _parties(case_id, repository).items():
++        finding = latest.get(party_id)
++        payload = dict(getattr(finding, "payload", None) or {}) if finding is not None else {}
++        if finding is None:
++            checks = [{"check": c, "label": _LABEL.get(c, c.lower()), "status": NOT_READY,
++                       "reason": "KYC has not run for this party", "values": []} for c in required]
++        else:
++            checks = [_check_outcome(c, payload) for c in required]
++        status = max((c["status"] for c in checks), key=lambda s: _RANK[s]) if checks else PASS
++        parties.append({"party_id": party_id, "party_role": role, "status": status,
++                        "kyc_recorded": finding is not None,
++                        "affected_documents": list(payload.get("affected_documents") or []),
++                        "checks": checks})
++
++    if not parties:
++        status = NOT_READY                      # no party on record: nothing has been checked
++    else:
++        status = max((p["status"] for p in parties), key=lambda s: _RANK[s])
++    return {"status": status, "required_checks": required, "parties": parties}
++
++
++def blocking_summary(result: dict[str, Any]) -> list[str]:
++    """One plain sentence per failing check, naming whose and the values -- for people, never codes."""
++    lines = []
++    for party in result.get("parties") or []:
++        whose = "the co-applicant's" if party.get("party_role") == "CO_APPLICANT" else "the applicant's"
++        for c in party.get("checks") or []:
++            if c["status"] == PASS:
++                continue
++            values = c.get("values") or []
++            if len(values) >= 2:
++                shown = ", ".join(f"{str(v.get('document_type') or '').replace('_', ' ').lower()} shows "
++                                  f"\"{v.get('value')}\"" for v in values[:3])
++                lines.append(f"KYC {c['label']} mismatch ({whose}): {shown}.")
++            else:
++                lines.append(f"KYC {c['label']} ({whose}): {c.get('reason')}.")
++    return lines
++
++
++__all__ = ["FLAG", "blocking_summary", "enabled", "evaluate", "required_checks"]
+diff --git a/scripts/__init__.py b/scripts/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/scripts/report_cpa_kyc_gaps.py b/scripts/report_cpa_kyc_gaps.py
+new file mode 100644
+index 0000000..ab5e34d
+--- /dev/null
++++ b/scripts/report_cpa_kyc_gaps.py
+@@ -0,0 +1,68 @@
++"""
++GRANDFATHERED CASES REPORT -- READ ONLY (Phase 3 step 2).
++
++    python -m scripts.report_cpa_kyc_gaps [--limit 5000] [--out runs/cpa_kyc_gaps.json]
++
++Lists every case already at CPA or a later stage whose KYC would NOT pass the new
++FOS -> CPA rule (every `cpa_gate: true` check PASSED for every party). Those cases
++are grandfathered: nothing is moved back, and this script WRITES NOTHING to the
++case store -- it only calls list_* / get_* reads. The output is for a person to
++review.
++
++The rule is evaluated whether or not LOS_FOS_CPA_KYC_RULE is on, so the impact can
++be seen before the flag is switched on.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def gaps(repository, limit: int) -> list[dict]:
++    from app.agents.los import kyc_gate, stages
++
++    rows = []
++    for applicant in repository.list_applicants(limit=limit):
++        for application in repository.list_applications(applicant.applicant_id):
++            case_id = application.case_id
++            stage = stages.resolve(case_id).stage
++            if stage is None or stage is stages.LosStage.FOS:
++                continue
++            result = kyc_gate.evaluate(case_id, repository)
++            if result["status"] == "PASS":
++                continue
++            rows.append({
++                "case_id": case_id, "applicant_id": applicant.applicant_id, "stage": stage.value,
++                "kyc_gate": result["status"],
++                "failing": [{"party_role": p["party_role"], "check": c["check"], "status": c["status"],
++                             "reason": c["reason"]}
++                            for p in result["parties"] for c in p["checks"] if c["status"] != "PASS"],
++            })
++    return rows
++
++
++def main() -> int:
++    p = argparse.ArgumentParser()
++    p.add_argument("--limit", type=int, default=5000, help="applicants to scan (newest first)")
++    p.add_argument("--out", default=str(ROOT / "runs" / "cpa_kyc_gaps.json"))
++    args = p.parse_args()
++
++    from app.store import get_repository
++
++    rows = gaps(get_repository(), args.limit)
++    out = Path(args.out)
++    out.parent.mkdir(parents=True, exist_ok=True)
++    out.write_text(json.dumps({"cases": rows, "count": len(rows)}, indent=2), encoding="utf-8")
++    print(f"{len(rows)} case(s) at CPA or later whose KYC would not pass the new rule -> {out}")
++    for r in rows[:50]:
++        print(f"  {r['case_id']}  {r['stage']:<12} {r['kyc_gate']:<9} "
++              + ", ".join(f"{f['party_role'].lower()}:{f['check']}={f['status']}" for f in r["failing"][:4]))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/integration/test_fos_cpa_kyc_rule.py b/tests/integration/test_fos_cpa_kyc_rule.py
+new file mode 100644
+index 0000000..6e2f20e
+--- /dev/null
++++ b/tests/integration/test_fos_cpa_kyc_rule.py
+@@ -0,0 +1,311 @@
++"""
++FOS -> CPA NEEDS FULL KYC (Phase 3 step 2, 2026-10-06).
++
++Flags (both default off):
++  LOS_FOS_CPA_KYC_RULE       the FOS gate also requires every `cpa_gate` KYC check PASSED
++  LOS_STAGE_GATE_IN_SERVICE  the gate is enforced inside stage_lifecycle.transition, fail closed
++
++The move stays manual (a person confirms it); these tests check that it is
++ALLOWED when the gate passes and BLOCKED when KYC does not -- through the real
++endpoint and through the service called directly (the old bypass).
++"""
++
++from __future__ import annotations
++
++import uuid
++
++import pytest
++from fastapi.testclient import TestClient
++
++from app.agents.los import kyc_gate, stage_lifecycle, stages
++from app.store import set_repository
++from app.store.models import CaseEvent, CaseFinding, FindingKind
++from app.store.testing import fresh_repository
++
++CASE, APP, CO = "case_kycgate000000000000000000000000aa", "APP-KYCGATE000AA", "COAPP-KYCGATE0"
++ALL = ["NAME", "DOB", "ADDRESS", "PAN", "FATHER_NAME"]
++
++
++@pytest.fixture
++def repo(tmp_path):
++    repository = fresh_repository(tmp_path / "kycgate.sqlite3")
++    repository.initialise()
++    set_repository(repository)
++    yield repository
++    set_repository(None)
++
++
++@pytest.fixture(autouse=True)
++def flags(monkeypatch):
++    from app.agents.applicant import config as agent_config
++    from app.agents.los import config as los_config
++
++    monkeypatch.setenv("LOS_CASE_MEMORY_ENABLED", "true")
++    monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "false")
++    for name in ("LOS_FOS_CPA_KYC_RULE", "LOS_STAGE_GATE_IN_SERVICE", "LOS_DEMO_SEED_PROD_GUARD"):
++        monkeypatch.delenv(name, raising=False)
++    los_config.reload(), agent_config.reload(), stage_lifecycle.reload()
++    yield
++    monkeypatch.undo()
++    los_config.reload(), agent_config.reload(), stage_lifecycle.reload()
++
++
++def rule_on(monkeypatch):
++    monkeypatch.setenv("LOS_FOS_CPA_KYC_RULE", "true")
++    monkeypatch.setenv("LOS_STAGE_GATE_IN_SERVICE", "true")
++
++
++@pytest.fixture
++def case(repo, monkeypatch):
++    """A FOS case through the real ingest path. Document readiness is made to PASS
++    so each test isolates the KYC part of the gate."""
++    from app.agents.applicant.copilot.capabilities import gates
++    from app.store.ingest import persist_los_result
++
++    persist_los_result({
++        "request_id": "r-kycgate", "applicant_id": APP, "case_id": CASE, "status": "SUCCESS",
++        "decision": "PASS", "next_action": "PROCEED",
++        "documents": [{"source_id": f"{d.lower()}.jpg", "type": d, "party_id": APP, "verification": "PASS",
++                       "reason_codes": []} for d in ("PAN", "DRIVING_LICENCE")]})
++    repo.grant_access("test-subject", "APPLICANT", APP)
++    real = gates.read_sources
++
++    def ready(case_id, **kw):
++        sources = real(case_id, **kw)
++        sources["readiness"] = {"status": "READY_FOR_CPA", "blocking_items": []}
++        return sources
++
++    monkeypatch.setattr(gates, "read_sources", ready)
++    return CASE
++
++
++def kyc(repo, party=APP, passed=ALL, failed=(), missing=(), fields=None, status="PASS"):
++    repo.save_finding(CaseFinding(
++        finding_id=uuid.uuid4().hex, case_id=CASE, finding_kind=FindingKind.KYC, party_id=party, stage="FOS",
++        status=status, source_type="KYC", source_id=f"kyc-{party}-{uuid.uuid4().hex[:6]}", document_id=None,
++        payload={"passed_checks": list(passed), "failed_checks": list(failed),
++                 "missing_information": list(missing), "fields": fields or []}))
++
++
++NAME_FAIL = [{"field": "NAME", "status": "FAIL", "sources": [
++    {"document_type": "PAN", "value": "RAHUL KUMAR SHARMA"},
++    {"document_type": "DRIVING_LICENCE", "value": "RAHUL SHARMA"}]}]
++
++
++def _client(make_token, **token) -> TestClient:
++    import main
++
++    c = TestClient(main.app)
++    c.headers.update({"Authorization": f"Bearer {make_token(**token)}"})
++    return c
++
++
++@pytest.fixture
++def service(make_token):
++    return _client(make_token, subject="los-workflow", scopes=["los.write"])
++
++
++def move(client, mode="GATED", target="CPA", reason="FOS_HANDOFF"):
++    return client.post(f"/api/v1/los/cases/{CASE}/stage", json={"target_stage": target, "reason": reason,
++                                                                "mode": mode})
++
++
++# ---- configuration ---------------------------------------------------------------------
++def test_the_cpa_gate_checks_are_the_five_identity_checks_not_income():
++    assert kyc_gate.required_checks() == ALL
++
++
++def test_the_gate_configuration_is_valid():
++    from app.agents.applicant.copilot.capabilities import gates
++
++    assert gates.validate() == []
++
++
++# ---- flags off: nothing changes ---------------------------------------------------------
++def test_flags_off_a_failing_kyc_does_not_block_the_documents_gate(case, repo, service):
++    kyc(repo, passed=["DOB", "ADDRESS", "PAN", "FATHER_NAME"], failed=["NAME"], fields=NAME_FAIL, status="REVIEW")
++    r = move(service)
++    assert r.status_code == 200, r.text
++    assert stages.resolve(CASE).stage is stages.LosStage.CPA
++
++
++# ---- rule on: allowed only when every check passed ---------------------------------------
++def test_all_kyc_checks_passed_the_move_is_allowed(case, repo, service, monkeypatch):
++    rule_on(monkeypatch)
++    kyc(repo)
++    r = move(service)
++    assert r.status_code == 200, r.text
++    assert stages.resolve(CASE).stage is stages.LosStage.CPA
++
++
++def test_a_kyc_name_mismatch_blocks_and_says_exactly_what(case, repo, service, monkeypatch):
++    rule_on(monkeypatch)
++    kyc(repo, passed=["DOB", "ADDRESS", "PAN", "FATHER_NAME"], failed=["NAME"], fields=NAME_FAIL, status="REVIEW")
++    r = move(service)
++    assert r.status_code == 409 and r.json()["detail"]["code"] == "GATE_NOT_MET", r.text
++    blocker = next(b for b in r.json()["detail"]["gate"]["blockers"] if b["id"] == "KYC_COMPLETE")
++    said = " ".join(blocker["evidence"])
++    assert "RAHUL KUMAR SHARMA" in said and "RAHUL SHARMA" in said and "name" in said
++    assert stages.resolve(CASE).stage is stages.LosStage.FOS
++
++
++@pytest.mark.parametrize("missing", ["ADDRESS", "FATHER_NAME"])
++def test_a_check_that_could_not_run_blocks(case, repo, service, monkeypatch, missing):
++    rule_on(monkeypatch)
++    kyc(repo, passed=[c for c in ALL if c != missing], missing=[missing], status="PARTIAL")
++    assert move(service).status_code == 409
++
++
++def test_income_is_not_required(case, repo, service, monkeypatch):
++    rule_on(monkeypatch)
++    kyc(repo, passed=ALL, failed=["INCOME"], status="REVIEW")
++    assert move(service).status_code == 200
++
++
++def test_no_kyc_result_at_all_blocks(case, repo, service, monkeypatch):
++    rule_on(monkeypatch)
++    assert move(service).status_code == 409
++
++
++def test_every_party_counts_a_co_applicant_without_kyc_blocks(case, repo, service, monkeypatch):
++    import dataclasses
++
++    rule_on(monkeypatch)
++    repo.save_application(dataclasses.replace(repo.get_application(CASE), co_applicant_id=CO))
++    assert repo.get_application(CASE).co_applicant_id == CO
++    kyc(repo)                                                    # the primary passed; the co-applicant has none
++    r = move(service)
++    assert r.status_code == 409, r.text
++    assert "co-applicant" in " ".join(next(b for b in r.json()["detail"]["gate"]["blockers"]
++                                            if b["id"] == "KYC_COMPLETE")["evidence"])
++
++
++# ---- the service is the gate: no caller can bypass it -------------------------------------
++def test_calling_the_service_directly_is_gated_too(case, repo, monkeypatch):
++    rule_on(monkeypatch)
++    kyc(repo, passed=["DOB", "ADDRESS", "PAN", "FATHER_NAME"], failed=["NAME"], fields=NAME_FAIL, status="REVIEW")
++    with pytest.raises(stage_lifecycle.StageTransitionError) as refused:
++        stage_lifecycle.transition(CASE, "CPA", reason="integration push", actor="svc", source="WORKFLOW")
++    assert refused.value.code == "GATE_NOT_MET"
++
++
++def test_an_unresolved_stage_fails_closed(case, repo, monkeypatch):
++    rule_on(monkeypatch)
++    kyc(repo)
++    monkeypatch.setattr(stages, "resolve", lambda *a, **k: stages.UNRESOLVED)
++    with pytest.raises(stage_lifecycle.StageTransitionError) as refused:
++        stage_lifecycle.transition(CASE, "CPA", reason="push", actor="svc", source="WORKFLOW")
++    assert refused.value.code == "STAGE_UNRESOLVED"
++
++
++def test_a_gate_that_cannot_be_evaluated_fails_closed(case, repo, monkeypatch):
++    from app.agents.los import stage_gate
++
++    rule_on(monkeypatch)
++    kyc(repo)
++
++    def broken(*a, **k):
++        raise RuntimeError("store down")
++
++    monkeypatch.setattr(stage_gate, "evaluate_live", broken)
++    with pytest.raises(stage_lifecycle.StageTransitionError) as refused:
++        stage_lifecycle.transition(CASE, "CPA", reason="push", actor="svc", source="WORKFLOW")
++    assert refused.value.code == "GATE_UNAVAILABLE" and refused.value.http_status == 503
++
++
++def test_a_bare_override_without_maker_checker_is_still_gated(case, repo, monkeypatch):
++    rule_on(monkeypatch)
++    kyc(repo, passed=["DOB", "ADDRESS", "PAN", "FATHER_NAME"], failed=["NAME"], fields=NAME_FAIL, status="REVIEW")
++    with pytest.raises(stage_lifecycle.StageTransitionError):
++        stage_lifecycle.transition(CASE, "CPA", reason="manual", actor="svc", source="OPERATOR", override=True)
++
++
++def test_override_through_maker_checker_is_the_one_exception_and_is_recorded(case, repo, monkeypatch):
++    from app.agents.applicant import audit
++
++    rule_on(monkeypatch)
++    kyc(repo, passed=["DOB", "ADDRESS", "PAN", "FATHER_NAME"], failed=["NAME"], fields=NAME_FAIL, status="REVIEW")
++    logged = []
++    monkeypatch.setattr(audit, "record", lambda **kw: logged.append(kw))
++    result = stage_lifecycle.transition(CASE, "CPA", reason="approved exception", actor="checker-1",
++                                        source="MAKER_CHECKER", idempotency_key="mc-test-1")
++    assert result["result"] == "APPLIED" if "result" in result else True
++    history = repo.get_stage_transitions(CASE)
++    assert history[-1].reason.startswith("OVERRIDE: approved exception")
++    assert any(e.get("intent") == "STAGE_TRANSITION_OVERRIDE" and "approved exception" in str(e.get("detail"))
++               for e in logged)
++
++
++def test_the_override_endpoint_still_needs_a_second_person(case, repo, service, monkeypatch):
++    rule_on(monkeypatch)
++    monkeypatch.setenv("MAKER_CHECKER_ENABLED", "true")
++    kyc(repo, passed=["DOB", "ADDRESS", "PAN", "FATHER_NAME"], failed=["NAME"], fields=NAME_FAIL, status="REVIEW")
++    r = move(service, mode="OVERRIDE", reason="exception requested")
++    assert r.status_code == 202 and r.json()["result"] == "PENDING_CHECK", r.text
++    assert stages.resolve(CASE).stage is stages.LosStage.FOS
++
++
++def test_without_maker_checker_an_override_cannot_skip_the_kyc_rule(case, repo, service, monkeypatch):
++    rule_on(monkeypatch)
++    monkeypatch.setenv("MAKER_CHECKER_ENABLED", "false")
++    kyc(repo, passed=["DOB", "ADDRESS", "PAN", "FATHER_NAME"], failed=["NAME"], fields=NAME_FAIL, status="REVIEW")
++    r = move(service, mode="OVERRIDE", reason="exception requested")
++    assert r.status_code == 409 and r.json()["detail"]["code"] == "GATE_NOT_MET", r.text
++    assert stages.resolve(CASE).stage is stages.LosStage.FOS
++
++
++def test_flags_off_the_service_moves_exactly_as_before(case, repo):
++    stage_lifecycle.transition(CASE, "CPA", reason="push", actor="svc", source="WORKFLOW")
++    assert stages.resolve(CASE).stage is stages.LosStage.CPA
++
++
++# ---- a status in the timeline's stage column is never a stage entry ------------------------
++def test_strict_timeline_ignores_a_non_stage_event_naming_a_stage(repo, monkeypatch):
++    from app.store.ingest import persist_los_result
++
++    persist_los_result({"request_id": "r2", "applicant_id": APP, "case_id": CASE, "status": "SUCCESS",
++                        "decision": "PASS", "documents": []})
++    repo.record_event(CaseEvent(event_id="EV-x", case_id=CASE, event_type="LOS_PROCESSED", stage="CPA",
++                                summary="processed", ref_id="r2"))
++    assert stages.resolve(CASE).stage is stages.LosStage.CPA          # today's reading
++    monkeypatch.setenv("LOS_STAGE_GATE_IN_SERVICE", "true")
++    assert stages.resolve(CASE).stage is stages.LosStage.FOS          # strict reading
++
++
++# ---- demo seed never in production ------------------------------------------------------
++def test_demo_seed_is_refused_in_production_with_the_guard(repo, monkeypatch):
++    from app.store import demo_seed
++
++    monkeypatch.setenv("LOS_DEMO_SEED_ENABLED", "true")
++    monkeypatch.setenv("ENVIRONMENT", "production")
++    assert demo_seed.enabled() is True                               # guard off: unchanged
++    monkeypatch.setenv("LOS_DEMO_SEED_PROD_GUARD", "true")
++    assert demo_seed.enabled() is False
++    with pytest.raises(RuntimeError):
++        demo_seed.seed(repo)
++    monkeypatch.setenv("ENVIRONMENT", "development")
++    assert demo_seed.enabled() is True
++
++
++# ---- the grandfather report: read only ---------------------------------------------------
++def test_the_report_lists_cpa_cases_whose_kyc_would_not_pass(case, repo, service):
++    from scripts.report_cpa_kyc_gaps import gaps
++
++    kyc(repo, passed=["DOB", "ADDRESS", "PAN", "FATHER_NAME"], failed=["NAME"], fields=NAME_FAIL, status="REVIEW")
++    assert gaps(repo, 100) == []                                     # still at FOS: not grandfathered
++    assert move(service).status_code == 200                          # flags off: it moves today
++    rows = gaps(repo, 100)
++    assert [r["case_id"] for r in rows] == [CASE]
++    assert rows[0]["failing"][0]["check"] == "NAME"
++    assert stages.resolve(CASE).stage is stages.LosStage.CPA          # reported, never moved back
++
++
++# ---- the chatbot explains the block from the record ---------------------------------------
++def test_the_gate_explanation_names_the_mismatch(case, repo, monkeypatch):
++    from app.agents.applicant.copilot.capabilities import gates
++    from app.agents.los import stage_gate
++
++    rule_on(monkeypatch)
++    kyc(repo, passed=["DOB", "ADDRESS", "PAN", "FATHER_NAME"], failed=["NAME"], fields=NAME_FAIL, status="REVIEW")
++    text, _ = gates.compose(stage_gate.evaluate_live(CASE, "FOS"), can_move=True)
++    assert "can't move" in text and "RAHUL KUMAR SHARMA" in text and "KYC verification" in text

@@ -97,6 +97,13 @@ class Harness:
         _environment(live, self.workdir)
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
+        # A THROWAWAY DATABASE, NEVER THE DEV ONE (step 6b). Without a DSN the
+        # app opens the embedded dev PostgreSQL at runtime/pgdata, and the eval
+        # case was seeded into it. Like the test fixtures: a clone on the test
+        # server (app/store/testing.py), dropped when this process exits.
+        from app.store.testing import session_dsn
+
+        os.environ["LOS_STORE_DSN"] = session_dsn()
         self.port = port or _free_port()
         self._keys()
         self._instrument_model()

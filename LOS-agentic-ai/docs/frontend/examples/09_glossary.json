@@ -1,0 +1,64 @@
+{
+  "request": {
+    "action": "CUSTOM_QUERY",
+    "message": "KYC kya hai?"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "applicant_id": "APP-412D61CC2C7A",
+    "case_id": "CASE-A2AF2B678D6B",
+    "intent": "FOS_KNOWLEDGE",
+    "answer": "ℹ️ **KYC (Know Your Customer)**: aapki identity verify karne ki process.\n\n👉 Check your **status** or **pending documents**?",
+    "category": "KNOWLEDGE_ONLY",
+    "query_type": "PROCESS_KNOWLEDGE",
+    "response_source": "GLOSSARY",
+    "documents": [],
+    "actions": [],
+    "errors": [],
+    "tools_invoked": [],
+    "suggested_questions": [],
+    "glossary_term": "KYC",
+    "context": {},
+    "response_style": {
+      "applied": true,
+      "expanded": []
+    },
+    "presentation": {
+      "message": "ℹ️ **KYC (Know Your Customer)**: aapki identity verify karne ki process. 👉 Check your **status** or **pending documents**?",
+      "intent": "FOS_KNOWLEDGE",
+      "response_type": "ANSWER",
+      "response_depth": "NORMAL",
+      "language": null,
+      "status": "INFO",
+      "next_step": null,
+      "next_action": null,
+      "audio": {
+        "enabled": false,
+        "status": "NO_VOICE_FOR_LANGUAGE",
+        "language": null,
+        "voice": null,
+        "text": "ℹ️ **KYC (Know Your Customer)**: aapki identity verify karne ki process. 👉 Check your **status** or **pending documents**?",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "applicant_id": "APP-412D61CC2C7A",
+        "stage": null
+      },
+      "sections": [],
+      "documents": [],
+      "document_groups": [],
+      "actions": [],
+      "next_actions": [],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": null,
+        "response_source": "GLOSSARY"
+      }
+    }
+  }
+}

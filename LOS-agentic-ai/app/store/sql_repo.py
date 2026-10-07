@@ -685,11 +685,83 @@ class SqlRepository(Repository):
                    resource_id: str) -> bool:
         if not subject or not resource_id:
             return False
+        # A REVOKED GRANT NEVER COUNTS (migration 0004 adds revoked_at). Revocation
+        # keeps the row -- reversible, auditable -- and this is what makes it bite.
+        revoked = " AND revoked_at IS NULL" if self.grants_revocable() else ""
         return self._one(
             "SELECT 1 FROM access_grants WHERE subject = ? AND "
-            "resource_type = ? AND resource_id = ?",
+            "resource_type = ? AND resource_id = ?" + revoked,
             (str(subject), str(resource_type).upper(), str(resource_id)),
         ) is not None
+
+    # -- chat history (migration 0006; 6c) ------------------------------------------
+    def chat_history_ready(self) -> bool:
+        try:
+            self._one("SELECT 1 FROM chat_turns LIMIT 1", ())
+            return True
+        except Exception:  # noqa: BLE001 - no table yet (0006 not applied)
+            return False
+
+    def add_chat_turn(self, row: dict[str, Any]) -> None:
+        """One turn (already masked + sealed). A retry of the same turn is ignored (UNIQUE)."""
+        self._write(
+            "INSERT OR IGNORE INTO chat_turns (turn_id, subject_hash, conversation_id, case_id, turn_no, role, "
+            "text_sealed, intent, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (row["turn_id"], row["subject_hash"], row["conversation_id"], row.get("case_id"), int(row["turn_no"]),
+             row["role"], row["text_sealed"], row.get("intent"), row["created_at"], row["expires_at"]))
+
+    def chat_turns(self, subject_hash: str, conversation_id: str) -> list[dict[str, Any]]:
+        rows = self._all("SELECT * FROM chat_turns WHERE subject_hash = ? AND conversation_id = ? "
+                         "ORDER BY turn_no, role DESC", (subject_hash, conversation_id))
+        return [dict(r) for r in rows]
+
+    def delete_chat_turns(self, *, subject_hash: str | None = None, expired_before: str | None = None) -> int:
+        """FORGET ME (every row of one subject) or RETENTION (rows expired before a time). Returns the count."""
+        if subject_hash:
+            where, args = "subject_hash = ?", (subject_hash,)
+        elif expired_before:
+            where, args = "expires_at < ?", (expired_before,)
+        else:
+            return 0
+        n = self._one(f"SELECT count(*) AS n FROM chat_turns WHERE {where}", args)
+        self._write(f"DELETE FROM chat_turns WHERE {where}", args)
+        return int((n or {"n": 0})["n"] if isinstance(n, dict) or hasattr(n, "keys") else (n[0] if n else 0))
+
+    def list_granted_cases(self, subject: str, *, limit: int = 500) -> list[Application]:
+        """A subject's openable applications, through live CASE or APPLICANT grants (6-MVP)."""
+        if not subject:
+            return []
+        revoked = " AND g.revoked_at IS NULL" if self.grants_revocable() else ""
+        rows = self._all(
+            "SELECT a.* FROM applications a WHERE EXISTS (SELECT 1 FROM access_grants g WHERE g.subject = ?"
+            + revoked + " AND ((g.resource_type = 'CASE' AND g.resource_id = a.case_id) OR "
+            "(g.resource_type = 'APPLICANT' AND g.resource_id = a.applicant_id))) "
+            "ORDER BY a.updated_at DESC LIMIT ?",
+            (str(subject), int(limit)),
+        )
+        return [self._application(r) for r in rows]
+
+    def grants_revocable(self) -> bool:
+        """Whether access_grants has revoked_at (0004 applied). Cached; reset by reset_schema_cache()."""
+        cached = getattr(self, "_grants_revocable", None)
+        if cached is None:
+            cached = self._column_exists("access_grants", "revoked_at")
+            self._grants_revocable = cached
+        return cached
+
+    def table_exists(self, table: str) -> bool:
+        row = self._one("SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() "
+                        "AND table_name = ?", (table,))
+        return row is not None
+
+    def _column_exists(self, table: str, column: str) -> bool:
+        row = self._one("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+                        "AND table_name = ? AND column_name = ?", (table, column))
+        return row is not None
+
+    def reset_schema_cache(self) -> None:
+        """After a migration in this process: re-read which optional columns / tables exist."""
+        self._grants_revocable = None
 
     def _one(self, sql: str, args: tuple) -> Any | None:
         self.initialise()

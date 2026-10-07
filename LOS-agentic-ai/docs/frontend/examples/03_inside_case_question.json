@@ -1,0 +1,568 @@
+{
+  "request": {
+    "action": "CUSTOM_QUERY",
+    "message": "kya baaki hai?"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "applicant_id": "APP-412D61CC2C7A",
+    "case_id": "CASE-A2AF2B678D6B",
+    "action": "CUSTOM_QUERY",
+    "intent": "DOCUMENTS_PENDING",
+    "answer": "📍 CASE-A2AF2B678D6B\n⏳ Kripya sahi documents upload karein:\n📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nAbhi baaki:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Upload these to move the case to **CPA**.",
+    "query_type": "CASE_FACT",
+    "case_state": {
+      "case_id": "CASE-A2AF2B678D6B",
+      "product": "PERSONAL_LOAN",
+      "stage": "APPLICATION_CREATED",
+      "readiness": "NOT_READY",
+      "documents_collected": 1,
+      "documents_required": 3,
+      "documents_satisfied": 0,
+      "documents_missing": 2,
+      "documents_under_review": 0,
+      "documents_failed": 1,
+      "collection_progress": 0,
+      "applicant_fields_missing": []
+    },
+    "suggested_questions": [
+      "Why was the PAN rejected?",
+      "What can be used as address proof?",
+      "Why is address proof required for this application?",
+      "Why does the checklist depend on the employment type?"
+    ],
+    "available_actions": [
+      {
+        "action": "UPLOAD_DOCUMENT",
+        "label": "Upload a document",
+        "enabled": true
+      },
+      {
+        "action": "GET_DOCUMENT_CHECKLIST",
+        "label": "What is still needed",
+        "enabled": true
+      },
+      {
+        "action": "GET_VERIFICATION_STATUS",
+        "label": "Document verification status",
+        "enabled": true
+      },
+      {
+        "action": "MARK_FOR_REUPLOAD",
+        "label": "Ask for a document again",
+        "enabled": true,
+        "invoke": {
+          "action": "CUSTOM_QUERY",
+          "message_template": "Mark the {slot} for re-upload."
+        }
+      },
+      {
+        "action": "CHECK_CPA_READINESS",
+        "label": "Check readiness for handoff",
+        "enabled": true
+      },
+      {
+        "action": "GET_CASE_360",
+        "label": "Full case view",
+        "enabled": true
+      }
+    ],
+    "document_highlights": [
+      {
+        "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+        "document_type": "PAN",
+        "status": "REJECTED",
+        "severity": "BLOCKED",
+        "headline": "Rejected - collect this again",
+        "primary_reason_code": "DOCUMENT_UNREADABLE",
+        "reason_codes": [
+          "DOCUMENT_UNREADABLE"
+        ],
+        "needs_attention": true
+      }
+    ],
+    "clarification_required": null,
+    "followed_up": null,
+    "context": {
+      "conversation_id": "2338c6f6b9774629bec791d35f7d0743",
+      "case_id": "CASE-A2AF2B678D6B",
+      "last_query_type": "CASE_FACT",
+      "last_intent": "DOCUMENTS_PENDING",
+      "last_slot": "PAN",
+      "last_documents": [
+        "PAN",
+        "ADDRESS_PROOF",
+        "BANK_STATEMENT"
+      ],
+      "last_document": null,
+      "last_field": null,
+      "last_aspect": "PENDING",
+      "last_subject": null,
+      "last_task": "LIST_PENDING",
+      "last_object": "DOCUMENTS",
+      "last_stage": "FOS",
+      "last_source": "STRUCTURED",
+      "last_language": "hi-Latn"
+    },
+    "understanding": {
+      "frame": {
+        "task": "LIST_PENDING",
+        "object": "DOCUMENTS",
+        "qualifiers": [],
+        "referents": {},
+        "party": "SELF",
+        "stage": null,
+        "scope": "CURRENT_CASE",
+        "confidence": "high",
+        "language": "hi-Latn",
+        "document_type": null,
+        "source": "PARSER",
+        "concepts": [
+          "PENDING"
+        ]
+      },
+      "decided_by": "FRAME",
+      "referents": {},
+      "short_query": null,
+      "llm": {
+        "consulted": false,
+        "status": "NOT_NEEDED"
+      },
+      "parse_ms": 0.16,
+      "case_stage": "FOS",
+      "model_routing": {
+        "route": "FAST",
+        "reason": "model unreachable",
+        "phrased_by_model": false
+      },
+      "conversation": {
+        "conversation_id": "2338c6f6b9774629bec791d35f7d0743",
+        "turn_id": 1,
+        "outcome": "NEW_TOPIC",
+        "note": null,
+        "pending_before": null,
+        "turn_type": "NEW_REQUEST",
+        "pending_after": null,
+        "state": {
+          "conversation_id": "2338c6f6b9774629bec791d35f7d0743",
+          "turn_id": 1,
+          "current_topic": "DOCUMENTS",
+          "active_party": "SELF",
+          "active_stage": "FOS",
+          "language": "hi-Latn",
+          "pending_clarification": null,
+          "last_intent": "DOCUMENTS_PENDING",
+          "last_document": null,
+          "last_documents": []
+        }
+      },
+      "requested": {
+        "capability": "DOCUMENTS_PENDING",
+        "field": null,
+        "aspect": "PENDING",
+        "party": "SELF"
+      },
+      "response_plan": "ANSWER_ONLY",
+      "natural_composition": {
+        "plan": "ANSWER_ONLY",
+        "enabled": false,
+        "attempted": false,
+        "accepted": false,
+        "reason": "FLAG_OFF",
+        "ms": 0.0
+      }
+    },
+    "observability": {
+      "correlation_id": "<request_id>",
+      "surface": "fos",
+      "conversation_id": "2338c6f6b9774629bec791d35f7d0743",
+      "turn_id": 1,
+      "turn_type": "NEW_REQUEST",
+      "outcome": "NEW_TOPIC",
+      "scope": "fos",
+      "capability": "DOCUMENT_PENDING",
+      "intent": "DOCUMENTS_PENDING",
+      "category": "CASE_ONLY",
+      "query_type": "CASE_FACT",
+      "decided_by": "FRAME",
+      "language": "hi-Latn",
+      "model_route": "FAST",
+      "model_used": null,
+      "model_attempted": 0,
+      "model_calls": 0,
+      "model_ledger": {
+        "calls": 0,
+        "ok": 0,
+        "timeouts": 0,
+        "errors": 0,
+        "used": 0,
+        "ms": 0,
+        "detail": []
+      },
+      "model_fallbacks": 0,
+      "tools": [
+        "documents.get",
+        "workflow.pending_items",
+        "documents.checklist"
+      ],
+      "tool_calls": 3,
+      "source": "STRUCTURED",
+      "clarification": false,
+      "clarification_reason": null,
+      "guardrail": null,
+      "fidelity": null,
+      "status": "OK",
+      "error": null,
+      "latency": {
+        "security_ms": 0.68,
+        "conversation_ms": 13.13,
+        "routing_ms": 1.84,
+        "summary_ms": 371.02,
+        "language_ms": 0.15,
+        "total_ms": 38.51,
+        "semantic_ms": 0.16
+      }
+    },
+    "pending_items": [
+      {
+        "type": "DOCUMENT",
+        "code": "DOCUMENT_REJECTED",
+        "detail": "PAN was rejected and must be re-uploaded.",
+        "slot": "PAN",
+        "document_type": "PAN",
+        "reason_codes": [
+          "DOCUMENT_UNREADABLE"
+        ]
+      },
+      {
+        "type": "DOCUMENT",
+        "code": "DOCUMENT_MISSING",
+        "detail": "Address Proof has not been uploaded.",
+        "slot": "ADDRESS_PROOF",
+        "accepts": [
+          "DRIVING_LICENCE",
+          "PASSPORT",
+          "VOTER_ID"
+        ]
+      },
+      {
+        "type": "DOCUMENT",
+        "code": "DOCUMENT_MISSING",
+        "detail": "Bank Statement has not been uploaded.",
+        "slot": "BANK_STATEMENT",
+        "accepts": [
+          "BANK_STATEMENT"
+        ]
+      }
+    ],
+    "category": "CASE_ONLY",
+    "actions": [],
+    "response_source": "STRUCTURED",
+    "processing_ms": 22.96,
+    "errors": [],
+    "summary": "The application is open with PAN rejected. 3 item(s) remain outstanding.",
+    "status": null,
+    "processing_queue": [],
+    "grounded": true,
+    "response_type": "DOCUMENT_CHECKLIST",
+    "subject": {
+      "party": "PRIMARY_APPLICANT"
+    },
+    "language": "hi-Latn",
+    "processing": null,
+    "portfolio": null,
+    "scope": "CASE",
+    "language_contract": {
+      "language": "hi-Latn",
+      "script": "Latin",
+      "input_mode": "ROMANIZED",
+      "semantic_rewrite": true,
+      "confidence": 0.85,
+      "response_language": "hi-Latn",
+      "review_status": "SEED_UNREVIEWED",
+      "provider": "lexicon",
+      "provider_fallback": false,
+      "reply_language": "hi-Latn",
+      "localized": true
+    },
+    "pending_work": null,
+    "gate": null,
+    "semantic_decisions": null,
+    "presentation": {
+      "document_actions": {
+        "reupload": [
+          {
+            "party": "PRIMARY_APPLICANT",
+            "party_label": "Applicant",
+            "document_type": "PAN",
+            "label": "PAN",
+            "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+            "reasons": [
+              "Too little text could be read from this document. Re-upload a clearer copy."
+            ],
+            "source": "VERIFICATION",
+            "action": {
+              "type": "UPLOAD_DOCUMENT",
+              "document_type": "PAN",
+              "party": "PRIMARY_APPLICANT",
+              "label": "Upload PAN"
+            }
+          }
+        ],
+        "pending": [
+          {
+            "party": "PRIMARY_APPLICANT",
+            "party_label": "Applicant",
+            "document_type": "ADDRESS_PROOF",
+            "label": "Address Proof",
+            "action": {
+              "type": "UPLOAD_DOCUMENT",
+              "document_type": "ADDRESS_PROOF",
+              "party": "PRIMARY_APPLICANT",
+              "label": "Upload Address Proof"
+            }
+          },
+          {
+            "party": "PRIMARY_APPLICANT",
+            "party_label": "Applicant",
+            "document_type": "BANK_STATEMENT",
+            "label": "Bank Statement",
+            "action": {
+              "type": "UPLOAD_DOCUMENT",
+              "document_type": "BANK_STATEMENT",
+              "party": "PRIMARY_APPLICANT",
+              "label": "Upload Bank Statement"
+            }
+          }
+        ],
+        "under_review": [],
+        "kyc_issues": [],
+        "emphasis": [
+          "PAN",
+          "Address Proof"
+        ]
+      },
+      "workspace": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "header": "📍 CASE-A2AF2B678D6B",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "🔒 Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "🔁 Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "Kya baaki hai?",
+            "message": "Kya baaki hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Kyu atka hai?",
+            "message": "Kyu atka hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      },
+      "message": "📍 CASE-A2AF2B678D6B 📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy. 📄 Address Proof [Upload] 📄 Bank Statement [Upload] 👉 Upload these to move the case to **CPA**.",
+      "intent": "DOCUMENTS_PENDING",
+      "response_type": "STATUS",
+      "response_depth": "BRIEF",
+      "language": "hi-Latn",
+      "status": "ACTION_REQUIRED",
+      "next_step": "Upload Address Proof",
+      "next_action": {
+        "type": "UPLOAD_DOCUMENT",
+        "document_type": "ADDRESS_PROOF",
+        "label": "Upload Address Proof"
+      },
+      "audio": {
+        "enabled": false,
+        "status": "NO_VOICE_FOR_LANGUAGE",
+        "language": "hi-Latn",
+        "voice": "",
+        "text": "📍 CASE-A2AF2B678D6B. Kripya sahi documents upload karein: 📄 **PAN (Permanent Account Number)** [Upload], Too little text could be read from this document. Re-upload a clearer copy. Abhi baaki: 📄 Address Proof [Upload]. 📄 Bank Statement [Upload]. 👉 Upload these to move the case to **CPA**.",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "applicant_id": "APP-412D61CC2C7A",
+        "stage": null
+      },
+      "sections": [
+        {
+          "title": null,
+          "items": [
+            {
+              "icon": "⏳",
+              "label": "Kripya sahi documents upload karein:",
+              "status": null
+            }
+          ]
+        }
+      ],
+      "documents": [],
+      "document_groups": [],
+      "actions": [
+        {
+          "label": "Upload a document",
+          "action": "UPLOAD_DOCUMENT"
+        },
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Ask for a document again",
+          "action": "MARK_FOR_REUPLOAD"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "next_actions": [
+        {
+          "label": "Upload a document",
+          "action": "UPLOAD_DOCUMENT"
+        },
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Ask for a document again",
+          "action": "MARK_FOR_REUPLOAD"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": "hi-Latn",
+        "response_source": "STRUCTURED"
+      }
+    },
+    "workspace_view": {
+      "workspace": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "header": "📍 CASE-A2AF2B678D6B",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "🔒 Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "🔁 Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "Kya baaki hai?",
+            "message": "Kya baaki hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Kyu atka hai?",
+            "message": "Kyu atka hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      }
+    },
+    "document_actions": {
+      "reupload": [
+        {
+          "party": "PRIMARY_APPLICANT",
+          "party_label": "Applicant",
+          "document_type": "PAN",
+          "label": "PAN",
+          "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+          "reasons": [
+            "Too little text could be read from this document. Re-upload a clearer copy."
+          ],
+          "source": "VERIFICATION",
+          "action": {
+            "type": "UPLOAD_DOCUMENT",
+            "document_type": "PAN",
+            "party": "PRIMARY_APPLICANT",
+            "label": "Upload PAN"
+          }
+        }
+      ],
+      "pending": [
+        {
+          "party": "PRIMARY_APPLICANT",
+          "party_label": "Applicant",
+          "document_type": "ADDRESS_PROOF",
+          "label": "Address Proof",
+          "action": {
+            "type": "UPLOAD_DOCUMENT",
+            "document_type": "ADDRESS_PROOF",
+            "party": "PRIMARY_APPLICANT",
+            "label": "Upload Address Proof"
+          }
+        },
+        {
+          "party": "PRIMARY_APPLICANT",
+          "party_label": "Applicant",
+          "document_type": "BANK_STATEMENT",
+          "label": "Bank Statement",
+          "action": {
+            "type": "UPLOAD_DOCUMENT",
+            "document_type": "BANK_STATEMENT",
+            "party": "PRIMARY_APPLICANT",
+            "label": "Upload Bank Statement"
+          }
+        }
+      ],
+      "under_review": [],
+      "kyc_issues": [],
+      "emphasis": [
+        "PAN",
+        "Address Proof"
+      ]
+    },
+    "response_style": {
+      "applied": true,
+      "expanded": [
+        "PAN"
+      ]
+    }
+  }
+}

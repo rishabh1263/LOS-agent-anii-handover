@@ -1,0 +1,702 @@
+diff --git a/app/agents/applicant/config.py b/app/agents/applicant/config.py
+index b31e5ba..45aa174 100644
+--- a/app/agents/applicant/config.py
++++ b/app/agents/applicant/config.py
+@@ -278,6 +278,29 @@ def readiness_rules() -> dict[str, bool]:
+     }
+ 
+ 
++#: built-in co-applicant slots, used only when the YAML has none (step 5b)
++_CO_APPLICANT_DEFAULT = (
++    {"slot": "PAN", "accepts": ["PAN"]},
++    {"slot": "ADDRESS_PROOF", "accepts": ["AADHAAR", "PASSPORT", "DRIVING_LICENCE", "VOTER_ID", "UTILITY_BILL"]},
++    {"slot": "EMPLOYMENT_PROOF", "accepts": ["SALARY_SLIP", "EMPLOYMENT_LETTER", "OFFER_LETTER", "EMPLOYEE_ID"],
++     "accepts_self_employed": ["BUSINESS_REGISTRATION", "GST_CERTIFICATE", "ITR"]},
++)
++
++
++def co_applicant_documents() -> list[dict[str, Any]]:
++    """[{slot, accepts}] -- a co-applicant's mandatory slots (readiness.co_applicant_documents)."""
++    raw = _section("readiness").get("co_applicant_documents") or _CO_APPLICANT_DEFAULT
++    out = []
++    for entry in raw:
++        if not isinstance(entry, dict) or not entry.get("slot"):
++            continue
++        accepts = [str(a).upper() for a in (entry.get("accepts") or [])]
++        accepts += [str(a).upper() for a in (entry.get("accepts_self_employed") or []) if str(a).upper() not in accepts]
++        if accepts:
++            out.append({"slot": str(entry["slot"]).upper(), "accepts": accepts})
++    return out
++
++
+ # -- permissions ------------------------------------------------------------
+ 
+ def permissions_enforced() -> bool:
+diff --git a/app/agents/applicant/copilot/answering/answer.py b/app/agents/applicant/copilot/answering/answer.py
+index 3139357..5d40841 100644
+--- a/app/agents/applicant/copilot/answering/answer.py
++++ b/app/agents/applicant/copilot/answering/answer.py
+@@ -458,7 +458,8 @@ def deterministic_answer(
+         lines = []
+         for i in items:
+             if i.get("code") == "DOCUMENT_MISSING" and i.get("slot"):
+-                lines.append(_status_line(_readable(i.get("slot")), "MISSING"))
++                # a co-applicant's item (LOS_COAPP_MANDATORY_DOCS) is named as theirs
++                lines.append(_status_line(_doc_label(i.get("slot"), i.get("party_role")), "MISSING"))
+             else:
+                 lines.append(f"• {str(i.get('detail') or '').rstrip('.')}")
+         return "Pending:\n" + "\n".join(lines)
+diff --git a/app/agents/applicant/copilot/answering/localize.py b/app/agents/applicant/copilot/answering/localize.py
+index 42e4651..84dd8ab 100644
+--- a/app/agents/applicant/copilot/answering/localize.py
++++ b/app/agents/applicant/copilot/answering/localize.py
+@@ -110,7 +110,8 @@ def _missing_labels(result: dict[str, Any]) -> list[str] | None:
+     items = [i for i in result.get("pending_items") or [] if isinstance(i, dict)]
+     if any(i.get("code") != "DOCUMENT_MISSING" or not i.get("slot") for i in items):
+         return None                       # an item only English describes: keep English, never guess
+-    return [answers._readable(i["slot"]) for i in items]
++    # a co-applicant's item (LOS_COAPP_MANDATORY_DOCS) is named as theirs
++    return [answers._doc_label(i["slot"], i.get("party_role")) for i in items]
+ 
+ 
+ def _pending_list_sentence(result: dict[str, Any], language: str) -> str | None:
+@@ -148,17 +149,47 @@ _FIELD_WORDS = {"hi": {"name": "नाम", "date of birth": "जन्मति
+                 "mr": {"name": "नाव", "date of birth": "जन्मतारीख", "PAN": "PAN", "father's name": "वडिलांचे नाव"}}
+ 
+ 
+-def _reason(reason: str, language: str) -> str:
+-    """The recorded reason in `language` when it is the standard mismatch clause; else as recorded."""
++#: "the date of birth didn't match: the PAN says A, but the driving licence says B" -- the
++#: other recorded shape (case_memory_facts), localized only under the flag below.
++_MISMATCH_SAYS = re.compile(r"^the (?P<field>name|date of birth|PAN|PAN number|father's name|address) didn't match: "
++                            r"the (?P<doc1>.+?) says (?P<v1>.+?), but the (?P<doc2>.+?) says (?P<v2>.+?)\.?$")
++_EXTRA_FIELD_WORDS = {"hi": {"address": "पता", "PAN number": "PAN नंबर"},
++                      "hi-Latn": {"address": "pata", "PAN number": "PAN number"},
++                      "mr": {"address": "पत्ता", "PAN number": "PAN क्रमांक"}}
++KYC_REASONS_FLAG = "COPILOT_LOCALIZED_KYC_REASONS"
++
++
++def kyc_reasons_localized() -> bool:
++    """Quick win 5 (Phase 3 step 3), default off: every recorded mismatch clause in the reply's language."""
++    import os
++
++    return (os.getenv(KYC_REASONS_FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _one_clause(clause: str, language: str, words: dict[str, str]) -> str | None:
+     from app.agents.applicant import language as languages
+ 
+-    m = _MISMATCH.match(reason.strip())
+-    words = _FIELD_WORDS.get(language) or {}
++    m = _MISMATCH.match(clause) or (_MISMATCH_SAYS.match(clause) if kyc_reasons_localized() else None)
+     if not m or m.group("field") not in words:
+-        return reason
+-    said = languages.localized("mismatch_clause", language, field=words[m.group("field")], doc1=m.group("doc1"),
++        return None
++    return languages.localized("mismatch_clause", language, field=words[m.group("field")], doc1=m.group("doc1"),
+                                v1=m.group("v1"), doc2=m.group("doc2"), v2=m.group("v2"))
+-    return said or reason
++
++
++def _reason(reason: str, language: str) -> str:
++    """The recorded reason in `language` when it is the standard mismatch clause; else as recorded.
++
++    Under COPILOT_LOCALIZED_KYC_REASONS a reason of several clauses ("...; ...") is localized clause
++    by clause, in both recorded shapes; a clause with no template stays as recorded. Values are
++    always quoted exactly as recorded."""
++    words = dict(_FIELD_WORDS.get(language) or {})
++    if not kyc_reasons_localized():
++        return _one_clause(reason.strip(), language, words) or reason
++    words.update(_EXTRA_FIELD_WORDS.get(language) or {})
++    trailing = "." if reason.strip().endswith(".") else ""
++    clauses = [c.strip() for c in reason.strip().rstrip(".").split(";") if c.strip()]
++    said = [_one_clause(c, language, words) or c for c in clauses]
++    return "; ".join(said) + trailing if said else reason
+ 
+ 
+ _NOT_UPLOADED = re.compile(r"^No (?P<doc>.+?) document has been uploaded for this case\.(?: However, (?:your|the) "
+@@ -617,8 +648,12 @@ def _status_sentence(result: dict[str, Any], language: str) -> str | None:
+     if shape.group("held"):
+         declined = shape.group("held") == "was declined"
+         if shape.group("reason"):
++            reason = shape.group("reason")
++            if kyc_reasons_localized():
++                # the recorded clause in the reply's language too, not English inside Hinglish
++                reason = _reason(reason, language)
+             hold = languages.localized("status_declined" if declined else "status_review", language,
+-                                       reason=shape.group("reason"))
++                                       reason=reason)
+         else:
+             hold = languages.localized("status_declined_plain" if declined else "status_review_plain", language)
+         if not hold:
+diff --git a/app/agents/applicant/workflow.py b/app/agents/applicant/workflow.py
+index 3619c07..cf62adc 100644
+--- a/app/agents/applicant/workflow.py
++++ b/app/agents/applicant/workflow.py
+@@ -256,7 +256,24 @@ def pending_items(
+                 "detail": f"Application {field_name.replace('_', ' ')} is not set.",
+             })
+ 
+-    for entry in build_checklist(application, documents, resolution):
++    if coapp_mandatory_enabled():
++        # PER PARTY (LOS_COAPP_MANDATORY_DOCS): the applicant's slots from the
++        # applicant's own documents, and every co-applicant's from theirs
++        for party in party_checklists(application, documents, resolution):
++            items.extend(_document_items(party["checklist"], rules, party["party_role"], party["party_id"]))
++        return items
++    items.extend(_document_items(build_checklist(application, documents, resolution), rules))
++    return items
++
++
++def _document_items(checklist: list[dict[str, Any]], rules: dict[str, Any], party_role: str | None = None,
++                    party_id: str | None = None) -> list[dict[str, Any]]:
++    """The pending document items of one checklist. A co-applicant's are named as theirs."""
++    items: list[dict[str, Any]] = []
++    co = party_role == "CO_APPLICANT"
++    whose = "Co-applicant's " if co else ""
++    party = {"party_role": party_role, "party_id": party_id} if co else {}
++    for entry in checklist:
+         # An optional slot never blocks the handoff. It is still reported in
+         # the checklist so a FOS can see what has been collected beyond the
+         # minimum, but its absence is not a pending item.
+@@ -267,27 +284,30 @@ def pending_items(
+             items.append({
+                 "type": "DOCUMENT",
+                 "code": "DOCUMENT_MISSING",
+-                "detail": f"{_readable(entry['slot'])} has not been uploaded.",
++                "detail": f"{whose}{_readable(entry['slot'])} has not been uploaded.",
+                 "slot": entry["slot"],
+                 "accepts": entry["accepts"],
++                **party,
+             })
+         elif entry["status"] == DocumentStatus.REJECTED.value:
+             items.append({
+                 "type": "DOCUMENT",
+                 "code": "DOCUMENT_REJECTED",
+-                "detail": f"{_readable(entry['slot'])} was rejected and must be re-uploaded.",
++                "detail": f"{whose}{_readable(entry['slot'])} was rejected and must be re-uploaded.",
+                 "slot": entry["slot"],
+                 "document_type": entry["document_type"],
+                 "reason_codes": entry["reason_codes"],
++                **party,
+             })
+         elif entry["status"] == DocumentStatus.REVIEW.value and rules["block_on_review"]:
+             items.append({
+                 "type": "DOCUMENT",
+                 "code": "DOCUMENT_UNDER_REVIEW",
+-                "detail": f"{_readable(entry['slot'])} is under review.",
++                "detail": f"{whose}{_readable(entry['slot'])} is under review.",
+                 "slot": entry["slot"],
+                 "document_type": entry["document_type"],
+                 "reason_codes": entry["reason_codes"],
++                **party,
+             })
+         elif entry["status"] in {DocumentStatus.UPLOADED.value,
+                                  DocumentStatus.PROCESSING.value}:
+@@ -295,14 +315,79 @@ def pending_items(
+                 items.append({
+                     "type": "DOCUMENT",
+                     "code": "DOCUMENT_NOT_VERIFIED",
+-                    "detail": f"{_readable(entry['slot'])} has not completed verification.",
++                    "detail": f"{whose}{_readable(entry['slot'])} has not completed verification.",
+                     "slot": entry["slot"],
+                     "document_type": entry["document_type"],
++                    **party,
+                 })
+ 
+     return items
+ 
+ 
++# ==========================================================================
++# CO-APPLICANT MANDATORY DOCUMENTS (Phase 3 step 5b; LOS_COAPP_MANDATORY_DOCS, default off)
++# ==========================================================================
++#
++# A co-applicant's mandatory documents are ONLY the configured slots
++# (applicant_agent.yaml readiness.co_applicant_documents): PAN, address proof
++# (any one of Aadhaar / passport / licence / voter ID / utility bill) and
++# employment proof (salaried or self-employed documents); no bank statement --
++# verified by the existing OCR + verification + KYC flow (no Aadhaar API).
++# Each party's slots are matched against THAT party's documents only: with the
++# flag off, one checklist is matched against every document on the case, so a
++# co-applicant's PAN could satisfy the applicant's PAN slot.
++
++COAPP_FLAG = "LOS_COAPP_MANDATORY_DOCS"
++
++
++def coapp_mandatory_enabled() -> bool:
++    import os
++
++    return (os.getenv(COAPP_FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _party_role(document: Document) -> str:
++    return str(getattr(document, "party_role", None) or "PRIMARY_APPLICANT").upper()
++
++
++def co_applicant_parties(application: Application | None, documents: list[Document]) -> list[str]:
++    """Every co-applicant on the case: the one the application names, and any with a document."""
++    parties: list[str] = []
++    if application is not None and getattr(application, "co_applicant_id", None):
++        parties.append(application.co_applicant_id)
++    for document in documents:
++        if _party_role(document) == "CO_APPLICANT" and document.party_id and document.party_id not in parties:
++            parties.append(document.party_id)
++    return parties
++
++
++def co_applicant_requirements(resolution=None) -> list:
++    """A co-applicant's mandatory slots, from configuration -- never the applicant's full checklist."""
++    from app.agents.policy.engine import REQUIRED, Requirement
++
++    return [Requirement(slot=entry["slot"], accepts=tuple(entry["accepts"]), requirement=REQUIRED,
++                        rule_ids=("COAPP_MANDATORY_DOCS",), reason="Mandatory for every co-applicant.")
++            for entry in config.co_applicant_documents()]
++
++
++def party_checklists(application: Application | None, documents: list[Document],
++                     resolution=None) -> list[dict[str, Any]]:
++    """[{party_id, party_role, checklist}] -- the applicant first, then each co-applicant."""
++    resolution = resolution if resolution is not None else resolution_for(application)
++    primary = [d for d in documents if _party_role(d) != "CO_APPLICANT"]
++    out = [{"party_id": getattr(application, "applicant_id", None), "party_role": "PRIMARY_APPLICANT",
++            "checklist": build_checklist(application, primary, resolution)}]
++    requirements = co_applicant_requirements(resolution)
++    for party_id in co_applicant_parties(application, documents):
++        by_type: dict[str, list[Document]] = {}
++        for document in documents:
++            if document.party_id == party_id and _party_role(document) == "CO_APPLICANT":
++                by_type.setdefault((document.document_type or "").upper(), []).append(document)
++        out.append({"party_id": party_id, "party_role": "CO_APPLICANT",
++                    "checklist": [_slot(r, by_type, resolution) for r in requirements]})
++    return out
++
++
+ def _readable(slot: str) -> str:
+     # "PAN", not "Pan": the answer module's rendering keeps acronyms.
+     from app.agents.applicant.copilot.answering.answer import _readable as readable
+diff --git a/app/config/applicant_agent.yaml b/app/config/applicant_agent.yaml
+index ecbdba3..869e399 100644
+--- a/app/config/applicant_agent.yaml
++++ b/app/config/applicant_agent.yaml
+@@ -196,6 +196,24 @@ readiness:
+   # lets CPA adjudicate reviews instead of the FOS.
+   block_on_review: true
+ 
++  # CO-APPLICANT MANDATORY DOCUMENTS (Phase 3 step 5b). Enforced ONLY while
++  # LOS_COAPP_MANDATORY_DOCS=true (default off). One slot each; ANY ONE accepted
++  # type satisfies it, matched against the co-applicant's own documents and
++  # verified by the existing OCR + verification + KYC flow. Confirmed 2026-10-07:
++  # ONLY PAN, address proof and employment proof -- no bank statement.
++  #   accepts_self_employed: added to `accepts` (the application's employment
++  #   type is the applicant's, so it cannot choose for the co-applicant).
++  # NOTE: UTILITY_BILL, EMPLOYMENT_LETTER, OFFER_LETTER, EMPLOYEE_ID,
++  # BUSINESS_REGISTRATION and GST_CERTIFICATE are not yet classifiable types.
++  co_applicant_documents:
++    - slot: PAN
++      accepts: [PAN]
++    - slot: ADDRESS_PROOF
++      accepts: [AADHAAR, PASSPORT, DRIVING_LICENCE, VOTER_ID, UTILITY_BILL]
++    - slot: EMPLOYMENT_PROOF
++      accepts: [SALARY_SLIP, EMPLOYMENT_LETTER, OFFER_LETTER, EMPLOYEE_ID]
++      accepts_self_employed: [BUSINESS_REGISTRATION, GST_CERTIFICATE, ITR]
++
+ # -----------------------------------------------------------------------------
+ # PERMISSIONS
+ #
+diff --git a/app/agents/applicant/copilot/answering/document_actions.py b/app/agents/applicant/copilot/answering/document_actions.py
+new file mode 100644
+index 0000000..7202d25
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/document_actions.py
+@@ -0,0 +1,229 @@
++"""
++THE DOCUMENTS THAT NEED ACTION (Phase 3 step 4; flag COPILOT_DOCUMENT_ACTIONS, default off).
++
++"kaunse docs baaki hai?" / "what is pending?" shows only what someone must act on,
++built from the case store alone -- never from a model:
++
++    Upload again       REJECTED documents, with the verification's own reasons; and the
++                       documents a failed KYC check names, with the field and what each
++                       document said (the KYC finding's recorded values, quoted exactly)
++    Still pending      mandatory checklist slots with no document
++    Under review       REVIEW documents and documents still being verified -- information
++                       only, never offered for upload
++
++VERIFIED documents (unless a KYC mismatch names them) and SUPERSEDED documents are never
++listed. Every row is grouped by party (applicant / co-applicant).
++"""
++
++from __future__ import annotations
++
++import os
++from typing import Any
++
++FLAG = "COPILOT_DOCUMENT_ACTIONS"
++
++_FIELD_LABEL = {"NAME": "Name", "DATE_OF_BIRTH": "Date of birth", "PAN_NUMBER": "PAN number",
++                "FATHER_NAME": "Father's name", "ADDRESS": "Address"}
++_KYC_FIELDS = set(_FIELD_LABEL)
++_ROLE_LABEL = {"PRIMARY_APPLICANT": "Applicant", "CO_APPLICANT": "Co-applicant"}
++
++#: English defaults; languages.yaml carries hi / hi-Latn / mr under the same keys
++_EN = {
++    "docact_kyc_heading": "Your KYC verification needs attention:",
++    "docact_reupload_heading": "Please upload the correct documents:",
++    "docact_pending_heading": "Still pending:",
++    "docact_review_heading": "Under review (no action needed):",
++    "docact_none": "No document needs any action right now.",
++    "docact_mismatch": "{field} mismatch: {values}",
++    "docact_mismatch_check": "{field} needs a check across {documents}",
++    "docact_shows": "{document} shows \"{value}\"",
++    "docact_upload": "Upload",
++    "docact_being_verified": "being verified",
++}
++
++
++def enabled() -> bool:
++    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _t(key: str, language: str | None, **values: Any) -> str:
++    """The template in the reply's language, else English -- values inserted as given."""
++    said = None
++    if language and language != "en":
++        from app.agents.applicant import language as languages
++
++        said = languages.localized(key, language, **values)
++    return said or _EN[key].format(**values)
++
++
++#: KYC field -> the localizer's word key (answering/localize.py _FIELD_WORDS / _EXTRA_FIELD_WORDS)
++_FIELD_WORD_KEY = {"NAME": "name", "DATE_OF_BIRTH": "date of birth", "FATHER_NAME": "father's name",
++                   "ADDRESS": "address", "PAN_NUMBER": "PAN number"}
++
++
++def _field_label(field: str, language: str | None) -> str:
++    """The field's name in the reply's language (the same words the KYC answers use), else English."""
++    if language and language != "en":
++        from app.agents.applicant.copilot.answering import localize
++
++        words = {**(localize._FIELD_WORDS.get(language) or {}), **(localize._EXTRA_FIELD_WORDS.get(language) or {})}
++        word = words.get(_FIELD_WORD_KEY.get(field, ""))
++        if word:
++            return word[:1].upper() + word[1:]
++    return _FIELD_LABEL[field]
++
++
++def _value(x: Any) -> str:
++    return str(getattr(x, "value", x) or "")
++
++
++def _readable(document_type: Any) -> str:
++    from app.agents.applicant.copilot.answering.answer import _readable as readable
++
++    return readable(document_type)
++
++
++def _role(raw: Any) -> str:
++    role = _value(raw).upper()
++    return role if role in _ROLE_LABEL else "PRIMARY_APPLICANT"
++
++
++def _missing_slots(case_id: str, documents: list, repository: Any) -> list[str]:
++    from app.agents.applicant import workflow
++
++    try:
++        checklist = workflow.build_checklist(repository.get_application(case_id), documents)
++    except Exception:  # noqa: BLE001 - no policy for the product: nothing is imposed
++        return []
++    return [str(e["slot"]) for e in checklist if e.get("mandatory", True) and e.get("status") == "MISSING"]
++
++
++def build(case_id: str, *, party: str | None = None, repository: Any = None) -> dict[str, Any]:
++    """
++    {"reupload", "pending", "under_review", "kyc_issues"} for one case, from the store.
++    `party` (PRIMARY_APPLICANT / CO_APPLICANT) keeps only that party's rows.
++    """
++    from app.agents.applicant.copilot.answering.answer import _explained
++    from app.store import get_repository
++
++    repository = repository or get_repository()
++    stored = [d for d in repository.list_documents(case_id) or []
++              if _value(getattr(d, "status", "")).upper() != "SUPERSEDED"]
++    role_of_party = {getattr(d, "party_id", None): _role(getattr(d, "party_role", None)) for d in stored}
++
++    reupload: list[dict[str, Any]] = []
++    under_review: list[dict[str, Any]] = []
++    for d in stored:
++        status = _value(getattr(d, "status", "")).upper()
++        role = _role(getattr(d, "party_role", None))
++        row = {"party": role, "party_label": _ROLE_LABEL[role], "document_type": d.document_type,
++               "label": _readable(d.document_type)}
++        if status == "REJECTED":
++            reasons = [r for r in (_explained(c) for c in (getattr(d, "reason_codes", None) or [])) if r]
++            reupload.append({**row, "reasons": reasons[:2], "source": "VERIFICATION"})
++        elif status in ("REVIEW", "UPLOADED", "PROCESSING"):
++            under_review.append({**row, "state": "REVIEW" if status == "REVIEW" else "PROCESSING"})
++
++    # KYC: every failed / reviewed identity field, with the values the record kept
++    kyc_issues: list[dict[str, Any]] = []
++    try:
++        findings = repository.get_current_findings(case_id, kind="KYC") or []
++    except Exception:  # noqa: BLE001 - unreadable KYC: no KYC rows, never invented ones
++        findings = []
++    for finding in findings:
++        role = role_of_party.get(getattr(finding, "party_id", None)) or "PRIMARY_APPLICANT"
++        for field in (getattr(finding, "payload", None) or {}).get("fields") or []:
++            name = str((field or {}).get("field") or "").upper()
++            status = str((field or {}).get("status") or "").upper()
++            if name not in _KYC_FIELDS or status not in ("FAIL", "REVIEW", "PARTIAL"):
++                continue
++            sources = [s for s in field.get("sources") or [] if isinstance(s, dict) and s.get("document_type")]
++            kyc_issues.append({"party": role, "party_label": _ROLE_LABEL[role], "field": name,
++                               "field_label": _FIELD_LABEL[name], "status": status,
++                               "values": [{"document_type": s["document_type"], "label": _readable(s["document_type"]),
++                                           "value": s.get("value")} for s in sources]})
++            # the documents whose values disagree are the ones to upload again
++            if status == "FAIL":
++                for s in sources:
++                    if s.get("value") and not any(r["party"] == role and r["document_type"] == s["document_type"]
++                                                  for r in reupload):
++                        reupload.append({"party": role, "party_label": _ROLE_LABEL[role],
++                                         "document_type": s["document_type"], "label": _readable(s["document_type"]),
++                                         "reasons": [], "source": "KYC"})
++
++    from app.agents.applicant import workflow
++
++    if workflow.coapp_mandatory_enabled():
++        # EVERY PARTY'S missing mandatory documents (LOS_COAPP_MANDATORY_DOCS, step 5b)
++        pending = []
++        for checklist in workflow.party_checklists(repository.get_application(case_id), stored):
++            role = checklist["party_role"]          # (not `party`: that is this function's filter)
++            pending += [{"party": role, "party_label": _ROLE_LABEL[role], "document_type": e["slot"],
++                         "label": _readable(e["slot"])}
++                        for e in checklist["checklist"] if e.get("mandatory", True) and e.get("status") == "MISSING"]
++    else:
++        primary = [d for d in stored if _role(getattr(d, "party_role", None)) == "PRIMARY_APPLICANT"]
++        pending = [{"party": "PRIMARY_APPLICANT", "party_label": "Applicant", "document_type": slot,
++                    "label": _readable(slot)} for slot in _missing_slots(case_id, primary, repository)]
++
++    def keep(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
++        return [r for r in rows if party is None or r["party"] == party]
++
++    out = {"reupload": keep(reupload), "pending": keep(pending), "under_review": keep(under_review),
++           "kyc_issues": keep(kyc_issues)}
++    for row in out["reupload"] + out["pending"]:
++        row["action"] = {"type": "UPLOAD_DOCUMENT", "document_type": row["document_type"], "party": row["party"],
++                         "label": f"Upload {row['label']}"}
++    return out
++
++
++def render(view: dict[str, Any], language: str | None = None) -> dict[str, Any]:
++    """(answer text, the 1-2 words worth emphasis) from a built view. Compact; the payload holds the rest."""
++    two = len({r["party"] for k in ("reupload", "pending", "under_review", "kyc_issues") for r in view[k]}) > 1
++
++    def name(row: dict[str, Any]) -> str:
++        return f"{row['party_label']}'s {row['label']}" if two else row["label"]
++
++    lines: list[str] = []
++    emphasis: list[str] = []
++    issues = [i for i in view["kyc_issues"] if i["values"]]
++    if issues:
++        lines.append(_t("docact_kyc_heading", language))
++        for i in issues[:4]:
++            label = _field_label(i["field"], language)
++            field = f"{i['party_label']}'s {label[:1].lower() + label[1:]}" if two else label
++            with_values = [v for v in i["values"] if v.get("value")]
++            if len(with_values) >= 2:
++                shown = ", ".join(_t("docact_shows", language, document=v["label"], value=v["value"])
++                                  for v in with_values[:3])
++                lines.append("• " + _t("docact_mismatch", language, field=field, values=shown))
++            else:
++                docs = " / ".join(v["label"] for v in i["values"][:3])
++                lines.append("• " + _t("docact_mismatch_check", language, field=field, documents=docs))
++            emphasis.append(label)                       # the word as shown, so step 5 can bold it
++    upload = _t("docact_upload", language)
++    if view["reupload"]:
++        lines.append(_t("docact_reupload_heading", language))
++        for r in view["reupload"]:
++            reason = f" — {r['reasons'][0]}" if r.get("reasons") else ""
++            lines.append(f"📄 {name(r)} [{upload}]{reason}")
++            emphasis.append(r["label"])
++    if view["pending"]:
++        lines.append(_t("docact_pending_heading", language))
++        lines += [f"📄 {name(r)} [{upload}]" for r in view["pending"]]
++        emphasis += [r["label"] for r in view["pending"]]
++    if view["under_review"]:
++        lines.append(_t("docact_review_heading", language))
++        verifying = _t("docact_being_verified", language)
++        lines += [f"⏳ {name(r)}" + (f" ({verifying})" if r["state"] == "PROCESSING" else "")
++                  for r in view["under_review"]]
++    if not lines:
++        lines.append(_t("docact_none", language))
++    seen: list[str] = []
++    for word in emphasis:
++        if word not in seen:
++            seen.append(word)
++    return {"answer": "\n".join(lines), "emphasis": seen[:2]}
++
++
++__all__ = ["FLAG", "build", "enabled", "render"]
+diff --git a/tests/integration/test_step5b_coapp_documents.py b/tests/integration/test_step5b_coapp_documents.py
+new file mode 100644
+index 0000000..e8fec72
+--- /dev/null
++++ b/tests/integration/test_step5b_coapp_documents.py
+@@ -0,0 +1,156 @@
++"""
++PHASE 3 STEP 5b -- co-applicant mandatory documents (LOS_COAPP_MANDATORY_DOCS, default off).
++
++A co-applicant's mandatory documents are ONLY the configured slots
++(applicant_agent.yaml readiness.co_applicant_documents): PAN, address proof (any one of
++Aadhaar / passport / licence / voter ID / utility bill) and employment proof (salaried or
++self-employed documents). No bank statement. Each party's slots are matched against that
++party's own documents; the items count in FOS readiness and show in the document action view.
++"""
++
++from __future__ import annotations
++
++import dataclasses
++import uuid
++
++import pytest
++
++from app.agents.applicant import config as agent_config
++from app.agents.applicant import workflow
++from app.store.models import Document, DocumentStatus
++from tests.integration.test_fos_stage_boundary import open_case, upload
++from tests.integration.test_reupload_supersedes import RISHABH_DL, RISHABH_PAN, _store, client  # noqa: F401
++
++CO = "COAPP-5B-0001"
++
++
++@pytest.fixture(autouse=True)
++def flags_off(monkeypatch):
++    for name in (workflow.COAPP_FLAG, "COPILOT_DOCUMENT_ACTIONS"):
++        monkeypatch.delenv(name, raising=False)
++
++
++def add_co(repo, case_id, applicant_id, document_type, status=DocumentStatus.VERIFIED, party=CO):
++    repo.save_document(Document(document_id=f"doc_{uuid.uuid4().hex[:12]}", case_id=case_id,
++                                applicant_id=applicant_id, document_type=document_type, party_id=party,
++                                party_role="CO_APPLICANT", status=status))
++
++
++def joint(client, repo, *, upload_primary=True):
++    a, c = open_case(client)
++    if upload_primary:
++        upload(client, a, c, [("pan.jpg", RISHABH_PAN), ("dl.jpg", RISHABH_DL)], ["PAN", "DRIVING_LICENCE"])
++    repo.save_application(dataclasses.replace(repo.get_application(c), co_applicant_id=CO))
++    return a, c
++
++
++def state(repo, c):
++    application = repo.get_application(c)
++    return repo.get_applicant(application.applicant_id), application, repo.list_documents(c)
++
++
++def co_items(items):
++    return [i for i in items if i.get("party_role") == "CO_APPLICANT"]
++
++
++def co_slots(repo, c):
++    return {i["slot"]: i["code"] for i in co_items(workflow.pending_items(*state(repo, c)))}
++
++
++# ---- the rule -------------------------------------------------------------------------------
++def test_only_the_configured_slots_never_the_applicants_checklist():
++    slots = {r.slot: set(r.accepts) for r in workflow.co_applicant_requirements()}
++    assert set(slots) == {"PAN", "ADDRESS_PROOF", "EMPLOYMENT_PROOF"}          # no bank statement
++    assert {"AADHAAR", "PASSPORT", "DRIVING_LICENCE", "VOTER_ID", "UTILITY_BILL"} <= slots["ADDRESS_PROOF"]
++    assert {"SALARY_SLIP", "ITR", "GST_CERTIFICATE", "BUSINESS_REGISTRATION"} <= slots["EMPLOYMENT_PROOF"]
++    assert all(r.mandatory for r in workflow.co_applicant_requirements())
++
++
++def test_the_slots_are_configuration(monkeypatch):
++    monkeypatch.setattr(agent_config, "co_applicant_documents",
++                        lambda: [{"slot": "PAN", "accepts": ["PAN"]}])
++    assert [r.slot for r in workflow.co_applicant_requirements()] == ["PAN"]
++
++
++def test_flag_off_nothing_changes(client, _store):
++    a, c = joint(client, _store)
++    assert co_items(workflow.pending_items(*state(_store, c))) == []
++
++
++def test_flag_on_a_co_applicant_without_documents_blocks_readiness(client, _store, monkeypatch):
++    monkeypatch.setenv(workflow.COAPP_FLAG, "true")
++    a, c = joint(client, _store)
++    details = [i["detail"] for i in co_items(workflow.pending_items(*state(_store, c)))]
++    for slot in ("PAN", "Address Proof", "Employment Proof"):
++        assert f"Co-applicant's {slot} has not been uploaded." in details, details
++    assert not any("Bank Statement" in d for d in details), details
++    assert workflow.readiness(*state(_store, c))["status"] == "NOT_READY"
++
++
++@pytest.mark.parametrize("address", ["AADHAAR", "PASSPORT", "DRIVING_LICENCE", "VOTER_ID"])
++def test_any_one_address_document_satisfies_address_proof(client, _store, monkeypatch, address):
++    monkeypatch.setenv(workflow.COAPP_FLAG, "true")
++    a, c = joint(client, _store)
++    add_co(_store, c, a, address)
++    assert "ADDRESS_PROOF" not in co_slots(_store, c)
++
++
++def test_aadhaar_is_no_longer_separately_mandatory(client, _store, monkeypatch):
++    monkeypatch.setenv(workflow.COAPP_FLAG, "true")
++    a, c = joint(client, _store)
++    add_co(_store, c, a, "PASSPORT")
++    assert "AADHAAR" not in co_slots(_store, c)
++
++
++@pytest.mark.parametrize("employment", ["SALARY_SLIP", "ITR"])
++def test_salaried_or_self_employed_proof_satisfies_employment(client, _store, monkeypatch, employment):
++    monkeypatch.setenv(workflow.COAPP_FLAG, "true")
++    a, c = joint(client, _store)
++    add_co(_store, c, a, employment)
++    assert "EMPLOYMENT_PROOF" not in co_slots(_store, c)
++
++
++def test_a_complete_co_applicant_adds_nothing(client, _store, monkeypatch):
++    monkeypatch.setenv(workflow.COAPP_FLAG, "true")
++    a, c = joint(client, _store)
++    for doc_type in ("PAN", "AADHAAR", "SALARY_SLIP"):
++        add_co(_store, c, a, doc_type)
++    assert co_slots(_store, c) == {}
++
++
++def test_a_rejected_address_document_must_be_reuploaded(client, _store, monkeypatch):
++    monkeypatch.setenv(workflow.COAPP_FLAG, "true")
++    a, c = joint(client, _store)
++    add_co(_store, c, a, "AADHAAR", status=DocumentStatus.REJECTED)
++    assert co_slots(_store, c).get("ADDRESS_PROOF") == "DOCUMENT_REJECTED"
++
++
++def test_a_co_applicants_pan_never_fills_the_applicants_slot(client, _store, monkeypatch):
++    a, c = joint(client, _store, upload_primary=False)
++    add_co(_store, c, a, "PAN")
++    primary_pan = lambda: [i for i in workflow.pending_items(*state(_store, c))     # noqa: E731
++                           if i.get("slot") == "PAN" and not i.get("party_role")]
++    assert primary_pan() == []                                   # today: the co-applicant's PAN fills it
++    monkeypatch.setenv(workflow.COAPP_FLAG, "true")
++    assert primary_pan() and primary_pan()[0]["code"] == "DOCUMENT_MISSING"
++
++
++# ---- the document action view and the chat ------------------------------------------------------
++def test_document_actions_list_co_applicant_pending_grouped(client, _store, monkeypatch):
++    from app.agents.applicant.copilot.answering import document_actions
++
++    monkeypatch.setenv(workflow.COAPP_FLAG, "true")
++    a, c = joint(client, _store)
++    view = document_actions.build(c, repository=_store)
++    co_pending = {r["document_type"] for r in view["pending"] if r["party"] == "CO_APPLICANT"}
++    assert co_pending == {"PAN", "ADDRESS_PROOF", "EMPLOYMENT_PROOF"}
++    text = document_actions.render(view)["answer"]
++    assert "Co-applicant's PAN [Upload]" in text and "Co-applicant's Employment Proof [Upload]" in text
++
++
++def test_the_chat_names_the_co_applicants_pending_documents(client, _store, monkeypatch):
++    monkeypatch.setenv(workflow.COAPP_FLAG, "true")
++    a, c = joint(client, _store)
++    r = client.post("/api/v1/fos/copilot", json={"applicant_id": a, "case_id": c, "action": "CUSTOM_QUERY",
++                                                 "message": "what is pending?"})
++    assert r.status_code == 200 and "Co-applicant's PAN" in r.json()["answer"], r.text

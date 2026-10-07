@@ -215,6 +215,27 @@ class Repository(ABC):
         """Whether `subject` holds a grant on this APPLICANT or CASE."""
         return False
 
+    # -- chat history (migration 0006). Defaults: not available. ----------------------
+    def chat_history_ready(self) -> bool:
+        return False
+
+    def add_chat_turn(self, row: dict[str, Any]) -> None:
+        return None
+
+    def chat_turns(self, subject_hash: str, conversation_id: str) -> list[dict[str, Any]]:
+        return []
+
+    def delete_chat_turns(self, *, subject_hash: str | None = None, expired_before: str | None = None) -> int:
+        return 0
+
+    def list_granted_cases(self, subject: str, *, limit: int = 500) -> list[Application]:
+        """
+        Every application `subject` may open through a live (non-revoked) grant:
+        a CASE grant, or an APPLICANT grant (that applicant's cases). Newest first.
+        6-MVP "my cases"; a READ, no schema change. Default: none.
+        """
+        return []
+
 
     # -- case memory -------------------------------------------------------
     #

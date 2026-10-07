@@ -743,9 +743,47 @@ async def document_mark_for_reupload(
     return await _envelope("documents.mark_for_reupload", run)
 
 
+async def co_applicant_get(case_id: str, co_applicant_id: str) -> ToolEnvelope:
+    """
+    ONE CO-APPLICANT OF ONE CASE (LOS_COAPP_IDENTITY, step 5d): name, relationship, their
+    own documents, their KYC status and what is pending for them. SCOPED BY THE CASE, like
+    every read tool (no global retrieval): the caller's access to `case_id` is checked by
+    whoever calls (MCP server: _authorise), and the co-applicant must be ON that case.
+    """
+
+    async def run() -> dict[str, Any]:
+        from app.agents.applicant.copilot.answering import document_actions
+        from app.agents.los import co_applicants
+
+        cid = _require(case_id, "case_id")
+        co_id = _require(co_applicant_id, "co_applicant_id").upper()
+        if not co_applicants.enabled():
+            raise ToolError(ToolStatus.UNAVAILABLE, "CO_APPLICANT_IDENTITY_DISABLED",
+                            "Co-applicant ids need LOS_COAPP_IDENTITY.")
+        if cid not in co_applicants.cases_for(co_id):
+            # the same answer whether the id is unknown or on another case
+            raise ToolError(ToolStatus.NOT_FOUND, "CO_APPLICANT_NOT_FOUND",
+                            "This case has no co-applicant with that id.")
+        record = co_applicants.get(co_id) or {}
+        documents = [_document_json(d) for d in _repo().list_documents(cid)
+                     if d.party_id == co_id and str(getattr(d, "party_role", "")).upper() == "CO_APPLICANT"]
+        view = document_actions.build(cid, party="CO_APPLICANT", repository=_repo())
+        kyc = None
+        for finding in _repo().get_current_findings(cid, kind="KYC") or []:
+            if getattr(finding, "party_id", None) == co_id:
+                kyc = getattr(finding, "status", None)
+        return {"co_applicant_id": co_id, "case_id": cid, "name": record.get("name"),
+                "name_source": record.get("name_source"), "relationship": record.get("relationship"),
+                "documents": documents, "kyc_status": kyc,
+                "pending": view["pending"], "reupload": view["reupload"], "under_review": view["under_review"]}
+
+    return await _envelope("co_applicant.get", run)
+
+
 #: capability name -> coroutine. The registry the planner selects from; a tool
 #: not in here cannot be called, whatever a model asks for.
 READ_TOOLS = {
+    "co_applicant.get": co_applicant_get,
     "applicant.get": applicant_get,
     "application.get": application_get,
     "applications.list": applications_list,

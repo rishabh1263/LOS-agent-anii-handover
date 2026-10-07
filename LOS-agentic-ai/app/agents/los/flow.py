@@ -424,6 +424,18 @@ async def _run_specialist(
         if error and not result:
             raise RuntimeError(str(error))
 
+        # SIGNATURE PRESENCE (LOS_SIGNATURE_MANDATORY, step 5c): blank / handwritten,
+        # a separate result from the authenticity verdict, which stays untouched.
+        # Its codes ride on the document's reason codes, which is how readiness reads it.
+        presence_result = None
+        if agent_id == "signature_verification":
+            from app.agents.signature import presence
+
+            if presence.enabled():
+                from app.agents.document_agent.ocr import run_ocr
+
+                presence_result = await run_ocr(presence.check, document.content)
+
         elapsed = round((time.perf_counter() - started) * 1000, 2)
 
         return {
@@ -441,7 +453,10 @@ async def _run_specialist(
             "verification": {
                 "decision": result.get("decision"),
                 "checks": result.get("checks") or [],
-                "reason_codes": result.get("reason_codes") or [],
+                "reason_codes": [*(result.get("reason_codes") or []),
+                                 *((presence_result or {}).get("codes") or [])],
+                **({"signature_presence": {k: presence_result[k] for k in ("status", "reasons", "messages")}}
+                   if presence_result else {}),
                 # A specialist reported a verdict and its checks, and no
                 # numbers -- a sale deed came back REVIEW with four reason
                 # codes, `verification_score: null` and nothing to rank it

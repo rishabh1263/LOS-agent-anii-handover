@@ -1,0 +1,151 @@
+{
+  "request": {
+    "action": "OPEN_CASE",
+    "case_id": "CASE-A2AF2B678D6B"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "intent": "CASE_OPENED",
+    "answer": "🔓 **CASE-A2AF2B678D6B (Rahul Sharma)** opened.\n📍 Stage: **FOS**\n⚠️ **KYC (Know Your Customer)** name (the applicant's): KYC has not run for this party.\n\n👉 Try: \"Kya baaki hai?\"",
+    "category": "CASE_ONLY",
+    "query_type": "CASE_FACT",
+    "response_source": "STRUCTURED",
+    "documents": [],
+    "actions": [],
+    "errors": [],
+    "tools_invoked": [
+      "application.list"
+    ],
+    "suggested_questions": [],
+    "case_id": "CASE-A2AF2B678D6B",
+    "applicant_id": "APP-412D61CC2C7A",
+    "workspace_view": {
+      "workspace": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "header": "📍 CASE-A2AF2B678D6B",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "🔒 Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "🔁 Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "Kya baaki hai?",
+            "message": "Kya baaki hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Kyu atka hai?",
+            "message": "Kyu atka hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      }
+    },
+    "context": {
+      "workspace_id": "default"
+    },
+    "semantic_decisions": null,
+    "response_style": {
+      "applied": true,
+      "expanded": [
+        "KYC"
+      ]
+    },
+    "presentation": {
+      "workspace": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "header": "📍 CASE-A2AF2B678D6B",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "🔒 Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "🔁 Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "Kya baaki hai?",
+            "message": "Kya baaki hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Kyu atka hai?",
+            "message": "Kyu atka hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      },
+      "message": "🔓 **CASE-A2AF2B678D6B (Rahul Sharma)** opened. 📍 Stage: **FOS** 👉 Try: \"Kya baaki hai?\"",
+      "intent": "CASE_OPENED",
+      "response_type": "ANSWER",
+      "response_depth": "NORMAL",
+      "language": null,
+      "status": "INFO",
+      "next_step": null,
+      "next_action": null,
+      "audio": {
+        "enabled": false,
+        "status": "NO_VOICE_FOR_LANGUAGE",
+        "language": null,
+        "voice": null,
+        "text": "🔓 **CASE-A2AF2B678D6B (Rahul Sharma)** opened. 📍 Stage: **FOS**. ️ **KYC (Know Your Customer)** name (the applicant's): KYC has not run for this party. 👉 Try: \"Kya baaki hai?\".",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "applicant_id": "APP-412D61CC2C7A",
+        "stage": null
+      },
+      "sections": [
+        {
+          "title": null,
+          "items": [
+            {
+              "icon": "⚠",
+              "label": "️ **KYC (Know Your Customer)** name (the applicant's): KYC has not run for this party.",
+              "status": null
+            }
+          ]
+        }
+      ],
+      "documents": [],
+      "document_groups": [],
+      "actions": [],
+      "next_actions": [],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": null,
+        "response_source": "STRUCTURED"
+      }
+    }
+  }
+}

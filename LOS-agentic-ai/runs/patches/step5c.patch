@@ -1,0 +1,1501 @@
+diff --git a/app/agents/applicant/config.py b/app/agents/applicant/config.py
+index b31e5ba..cf948a7 100644
+--- a/app/agents/applicant/config.py
++++ b/app/agents/applicant/config.py
+@@ -278,6 +278,47 @@ def readiness_rules() -> dict[str, bool]:
+     }
+ 
+ 
++#: built-in co-applicant slots, used only when the YAML has none (step 5b)
++_CO_APPLICANT_DEFAULT = (
++    {"slot": "PAN", "accepts": ["PAN"]},
++    {"slot": "ADDRESS_PROOF", "accepts": ["AADHAAR", "PASSPORT", "DRIVING_LICENCE", "VOTER_ID", "UTILITY_BILL"]},
++    {"slot": "EMPLOYMENT_PROOF", "accepts": ["SALARY_SLIP", "EMPLOYMENT_LETTER", "OFFER_LETTER", "EMPLOYEE_ID"],
++     "accepts_self_employed": ["BUSINESS_REGISTRATION", "GST_CERTIFICATE", "ITR"]},
++)
++
++
++def co_applicant_documents() -> list[dict[str, Any]]:
++    """[{slot, accepts}] -- a co-applicant's mandatory slots (readiness.co_applicant_documents)."""
++    raw = _section("readiness").get("co_applicant_documents") or _CO_APPLICANT_DEFAULT
++    out = []
++    for entry in raw:
++        if not isinstance(entry, dict) or not entry.get("slot"):
++            continue
++        accepts = [str(a).upper() for a in (entry.get("accepts") or [])]
++        accepts += [str(a).upper() for a in (entry.get("accepts_self_employed") or []) if str(a).upper() not in accepts]
++        if accepts:
++            out.append({"slot": str(entry["slot"]).upper(), "accepts": accepts})
++    return out
++
++
++def signature_activation():
++    """(activation datetime in UTC, None) or (None, why it is unusable) -- readiness.signature_mandatory."""
++    from datetime import datetime, timezone
++
++    raw = (_section("readiness").get("signature_mandatory") or {}).get("activation_date")
++    if raw in (None, ""):
++        return None, "activation_date is not set"
++    try:
++        value = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw))
++    except (TypeError, ValueError):
++        # YAML reads a bare 2026-10-08 as a date object
++        try:
++            value = datetime.combine(raw, datetime.min.time())
++        except TypeError:
++            return None, f"activation_date {raw!r} is not a date"
++    return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)), None
++
++
+ # -- permissions ------------------------------------------------------------
+ 
+ def permissions_enforced() -> bool:
+diff --git a/app/agents/applicant/workflow.py b/app/agents/applicant/workflow.py
+index 3619c07..6ca9b23 100644
+--- a/app/agents/applicant/workflow.py
++++ b/app/agents/applicant/workflow.py
+@@ -256,7 +256,25 @@ def pending_items(
+                 "detail": f"Application {field_name.replace('_', ' ')} is not set.",
+             })
+ 
+-    for entry in build_checklist(application, documents, resolution):
++    if coapp_mandatory_enabled():
++        # PER PARTY (LOS_COAPP_MANDATORY_DOCS): the applicant's slots from the
++        # applicant's own documents, and every co-applicant's from theirs
++        for party in party_checklists(application, documents, resolution):
++            items.extend(_document_items(party["checklist"], rules, party["party_role"], party["party_id"]))
++    else:
++        items.extend(_document_items(build_checklist(application, documents, resolution), rules))
++    items.extend(signature_items(application, documents))
++    return items
++
++
++def _document_items(checklist: list[dict[str, Any]], rules: dict[str, Any], party_role: str | None = None,
++                    party_id: str | None = None) -> list[dict[str, Any]]:
++    """The pending document items of one checklist. A co-applicant's are named as theirs."""
++    items: list[dict[str, Any]] = []
++    co = party_role == "CO_APPLICANT"
++    whose = "Co-applicant's " if co else ""
++    party = {"party_role": party_role, "party_id": party_id} if co else {}
++    for entry in checklist:
+         # An optional slot never blocks the handoff. It is still reported in
+         # the checklist so a FOS can see what has been collected beyond the
+         # minimum, but its absence is not a pending item.
+@@ -267,27 +285,30 @@ def pending_items(
+             items.append({
+                 "type": "DOCUMENT",
+                 "code": "DOCUMENT_MISSING",
+-                "detail": f"{_readable(entry['slot'])} has not been uploaded.",
++                "detail": f"{whose}{_readable(entry['slot'])} has not been uploaded.",
+                 "slot": entry["slot"],
+                 "accepts": entry["accepts"],
++                **party,
+             })
+         elif entry["status"] == DocumentStatus.REJECTED.value:
+             items.append({
+                 "type": "DOCUMENT",
+                 "code": "DOCUMENT_REJECTED",
+-                "detail": f"{_readable(entry['slot'])} was rejected and must be re-uploaded.",
++                "detail": f"{whose}{_readable(entry['slot'])} was rejected and must be re-uploaded.",
+                 "slot": entry["slot"],
+                 "document_type": entry["document_type"],
+                 "reason_codes": entry["reason_codes"],
++                **party,
+             })
+         elif entry["status"] == DocumentStatus.REVIEW.value and rules["block_on_review"]:
+             items.append({
+                 "type": "DOCUMENT",
+                 "code": "DOCUMENT_UNDER_REVIEW",
+-                "detail": f"{_readable(entry['slot'])} is under review.",
++                "detail": f"{whose}{_readable(entry['slot'])} is under review.",
+                 "slot": entry["slot"],
+                 "document_type": entry["document_type"],
+                 "reason_codes": entry["reason_codes"],
++                **party,
+             })
+         elif entry["status"] in {DocumentStatus.UPLOADED.value,
+                                  DocumentStatus.PROCESSING.value}:
+@@ -295,14 +316,180 @@ def pending_items(
+                 items.append({
+                     "type": "DOCUMENT",
+                     "code": "DOCUMENT_NOT_VERIFIED",
+-                    "detail": f"{_readable(entry['slot'])} has not completed verification.",
++                    "detail": f"{whose}{_readable(entry['slot'])} has not completed verification.",
+                     "slot": entry["slot"],
+                     "document_type": entry["document_type"],
++                    **party,
+                 })
+ 
+     return items
+ 
+ 
++# ==========================================================================
++# CO-APPLICANT MANDATORY DOCUMENTS (Phase 3 step 5b; LOS_COAPP_MANDATORY_DOCS, default off)
++# ==========================================================================
++#
++# A co-applicant's mandatory documents are ONLY the configured slots
++# (applicant_agent.yaml readiness.co_applicant_documents): PAN, address proof
++# (any one of Aadhaar / passport / licence / voter ID / utility bill) and
++# employment proof (salaried or self-employed documents); no bank statement --
++# verified by the existing OCR + verification + KYC flow (no Aadhaar API).
++# Each party's slots are matched against THAT party's documents only: with the
++# flag off, one checklist is matched against every document on the case, so a
++# co-applicant's PAN could satisfy the applicant's PAN slot.
++
++COAPP_FLAG = "LOS_COAPP_MANDATORY_DOCS"
++
++
++def coapp_mandatory_enabled() -> bool:
++    import os
++
++    return (os.getenv(COAPP_FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _party_role(document: Document) -> str:
++    return str(getattr(document, "party_role", None) or "PRIMARY_APPLICANT").upper()
++
++
++def co_applicant_parties(application: Application | None, documents: list[Document]) -> list[str]:
++    """Every co-applicant on the case: the one the application names, and any with a document."""
++    parties: list[str] = []
++    if application is not None and getattr(application, "co_applicant_id", None):
++        parties.append(application.co_applicant_id)
++    for document in documents:
++        if _party_role(document) == "CO_APPLICANT" and document.party_id and document.party_id not in parties:
++            parties.append(document.party_id)
++    return parties
++
++
++def co_applicant_requirements(resolution=None) -> list:
++    """A co-applicant's mandatory slots, from configuration -- never the applicant's full checklist."""
++    from app.agents.policy.engine import REQUIRED, Requirement
++
++    return [Requirement(slot=entry["slot"], accepts=tuple(entry["accepts"]), requirement=REQUIRED,
++                        rule_ids=("COAPP_MANDATORY_DOCS",), reason="Mandatory for every co-applicant.")
++            for entry in config.co_applicant_documents()]
++
++
++def party_checklists(application: Application | None, documents: list[Document],
++                     resolution=None) -> list[dict[str, Any]]:
++    """[{party_id, party_role, checklist}] -- the applicant first, then each co-applicant."""
++    resolution = resolution if resolution is not None else resolution_for(application)
++    primary = [d for d in documents if _party_role(d) != "CO_APPLICANT"]
++    out = [{"party_id": getattr(application, "applicant_id", None), "party_role": "PRIMARY_APPLICANT",
++            "checklist": build_checklist(application, primary, resolution)}]
++    requirements = co_applicant_requirements(resolution)
++    for party_id in co_applicant_parties(application, documents):
++        by_type: dict[str, list[Document]] = {}
++        for document in documents:
++            if document.party_id == party_id and _party_role(document) == "CO_APPLICANT":
++                by_type.setdefault((document.document_type or "").upper(), []).append(document)
++        out.append({"party_id": party_id, "party_role": "CO_APPLICANT",
++                    "checklist": [_slot(r, by_type, resolution) for r in requirements]})
++    return out
++
++
++# --------------------------------------------------------------------------
++# MANDATORY SIGNATURE (step 5c, LOS_SIGNATURE_MANDATORY, default off)
++# --------------------------------------------------------------------------
++# The applicant and every co-applicant need a signature whose PRESENCE check
++# (signature/presence.py: blank / handwritten) is VERIFIED. Read from the
++# stored reason codes; the authenticity verdict (document status) is not used.
++# Only for cases created on or after readiness.signature_mandatory.activation_date.
++
++SIGNATURE_TYPES = frozenset({"SIGNATURE", "STANDALONE_SIGNATURE", "BANK_SIGNATURE"})
++_INACTIVE = frozenset({"SUPERSEDED"})
++
++
++def signature_rule_applies(application: Application | None) -> tuple[bool, str | None]:
++    """(applies, misconfiguration) for this case -- False for a case created before activation."""
++    from app.agents.signature import presence
++
++    if application is None or not presence.enabled():
++        return False, None
++    activation, problem = config.signature_activation()
++    if activation is None:
++        return True, problem
++    created = getattr(application, "created_at", None)
++    if created is None:
++        return True, None                       # no creation date: cannot prove it is older
++    if created.tzinfo is None:
++        from datetime import timezone
++
++        created = created.replace(tzinfo=timezone.utc)
++    return created >= activation, None
++
++
++def signature_rule_config_error() -> str | None:
++    """Why the mandatory signature rule cannot run, while its flag is on (startup and /ready)."""
++    from app.agents.signature import presence
++
++    if not presence.enabled():
++        return None
++    _, problem = config.signature_activation()
++    return f"{presence.FLAG} is on but {problem}" if problem else None
++
++
++def signature_parties(application: Application, documents: list[Document]) -> list[tuple[str | None, str]]:
++    """[(party_id, party_role)]: the applicant first, then every co-applicant."""
++    return [(application.applicant_id, "PRIMARY_APPLICANT"),
++            *[(p, "CO_APPLICANT") for p in co_applicant_parties(application, documents)]]
++
++
++def _party_signature(documents: list[Document], party_id: str | None, role: str, applicant_id: str):
++    """The party's latest active signature document, or None."""
++    mine = [d for d in documents
++            if (d.document_type or "").upper() in SIGNATURE_TYPES
++            and str(getattr(d.status, "value", d.status)).upper() not in _INACTIVE
++            and _party_role(d) == role
++            and (role != "CO_APPLICANT" or d.party_id == party_id)
++            and (role == "CO_APPLICANT" or (d.party_id or applicant_id) == applicant_id)]
++    return max(mine, key=lambda d: d.uploaded_at) if mine else None
++
++
++def signature_items(application: Application | None, documents: list[Document]) -> list[dict[str, Any]]:
++    """Blocking items for missing / rejected / unsure signatures; [] when the rule does not apply."""
++    from app.agents.signature import presence
++
++    applies, problem = signature_rule_applies(application)
++    if not applies:
++        return []
++    if problem:
++        # FAIL CLOSED: the flag is on but nobody can tell which cases it covers
++        return [{"type": "CONFIGURATION", "code": "SIGNATURE_RULE_MISCONFIGURED",
++                 "detail": f"Mandatory signature rule is on but {problem}."}]
++    return party_signature_items(application, documents)
++
++
++def party_signature_items(application: Application, documents: list[Document]) -> list[dict[str, Any]]:
++    """The rule itself, with no flag or date gate (the grandfathered-cases report reads it too)."""
++    from app.agents.signature import presence
++
++    items: list[dict[str, Any]] = []
++    for party_id, role in signature_parties(application, documents):
++        co = role == "CO_APPLICANT"
++        whose = "Co-applicant's signature" if co else "Signature"
++        base = {"type": "DOCUMENT", "slot": "SIGNATURE", "accepts": ["SIGNATURE"],
++                **({"party_role": role, "party_id": party_id} if co else {})}
++        document = _party_signature(documents, party_id, role, application.applicant_id)
++        if document is None:
++            items.append({**base, "code": "DOCUMENT_MISSING", "detail": f"{whose} has not been uploaded."})
++            continue
++        result = presence.from_codes(document.reason_codes)
++        if result is None:
++            # uploaded while the check was off: unsure, so never approved
++            items.append({**base, "code": "SIGNATURE_NOT_CHECKED", "document_id": document.document_id,
++                          "detail": f"{whose} has not been checked yet; please upload it again."})
++        elif result["status"] == presence.REJECTED:
++            why = "; ".join(result["messages"]) or "Signature was rejected"
++            items.append({**base, "code": "SIGNATURE_REJECTED", "document_id": document.document_id,
++                          "reasons": result["messages"], "detail": f"{whose} was rejected: {why}."})
++        elif result["status"] == presence.REVIEW:
++            items.append({**base, "code": "SIGNATURE_UNDER_REVIEW", "document_id": document.document_id,
++                          "reasons": result["messages"], "detail": f"{whose} is under review."})
++    return items
++
++
+ def _readable(slot: str) -> str:
+     # "PAN", not "Pan": the answer module's rendering keeps acronyms.
+     from app.agents.applicant.copilot.answering.answer import _readable as readable
+diff --git a/app/agents/los/flow.py b/app/agents/los/flow.py
+index f89e738..a61f67f 100644
+--- a/app/agents/los/flow.py
++++ b/app/agents/los/flow.py
+@@ -424,6 +424,18 @@ async def _run_specialist(
+         if error and not result:
+             raise RuntimeError(str(error))
+ 
++        # SIGNATURE PRESENCE (LOS_SIGNATURE_MANDATORY, step 5c): blank / handwritten,
++        # a separate result from the authenticity verdict, which stays untouched.
++        # Its codes ride on the document's reason codes, which is how readiness reads it.
++        presence_result = None
++        if agent_id == "signature_verification":
++            from app.agents.signature import presence
++
++            if presence.enabled():
++                from app.agents.document_agent.ocr import run_ocr
++
++                presence_result = await run_ocr(presence.check, document.content)
++
+         elapsed = round((time.perf_counter() - started) * 1000, 2)
+ 
+         return {
+@@ -441,7 +453,10 @@ async def _run_specialist(
+             "verification": {
+                 "decision": result.get("decision"),
+                 "checks": result.get("checks") or [],
+-                "reason_codes": result.get("reason_codes") or [],
++                "reason_codes": [*(result.get("reason_codes") or []),
++                                 *((presence_result or {}).get("codes") or [])],
++                **({"signature_presence": {k: presence_result[k] for k in ("status", "reasons", "messages")}}
++                   if presence_result else {}),
+                 # A specialist reported a verdict and its checks, and no
+                 # numbers -- a sale deed came back REVIEW with four reason
+                 # codes, `verification_score: null` and nothing to rank it
+diff --git a/app/agents/verification/reasons.py b/app/agents/verification/reasons.py
+index 51f4564..dd5d9c1 100644
+--- a/app/agents/verification/reasons.py
++++ b/app/agents/verification/reasons.py
+@@ -343,6 +343,20 @@ CATALOGUE: dict[str, str] = {
+     # passed. They are catalogued too: a code that reaches a caller as a
+     # bare identifier is unreadable whether or not it is bad news.
+     "SIGNATURE_PRESENT": "A signature was found on this document.",
++    # Signature PRESENCE check (step 5c): blank / handwritten, never a match.
++    "SIGNATURE_PRESENCE_VERIFIED": "The signature is present and looks handwritten.",
++    "SIGNATURE_PRESENCE_REJECTED": "The signature was not accepted; please upload it again.",
++    "SIGNATURE_PRESENCE_REVIEW": "The signature needs a person to check it.",
++    "SIGNATURE_PRESENCE_BLANK": "Signature is blank.",
++    "SIGNATURE_PRESENCE_PRINTED": "Signature looks printed, not handwritten.",
++    "SIGNATURE_PRESENCE_TYPED_TEXT": "Signature looks like a typed name, not handwritten.",
++    "SIGNATURE_PRESENCE_LINE": "Signature is only a straight line.",
++    "SIGNATURE_PRESENCE_DOT": "Signature is only a dot or a tiny mark.",
++    "SIGNATURE_PRESENCE_UNREADABLE": "The signature image could not be read.",
++    "SIGNATURE_PRESENCE_POSSIBLE_TEXT": "The signature may be printed text; a person will check it.",
++    "SIGNATURE_PRESENCE_TOO_MANY_STROKES": "The signature has unusually many separate marks; a person will check it.",
++    "SIGNATURE_PRESENCE_LOW_CONTRAST": "The signature is too faint to judge; a person will check it.",
++    "SIGNATURE_PRESENCE_OCR_UNAVAILABLE": "The typed-text check could not run; a person will check the signature.",
+     "SIGNATURE_ABSENT": "No signature was found where one was expected.",
+     "SIGNATURE_BLANK": "The signature area on this document is empty.",
+     "SIGNATURE_STRIP_BLANK": (
+diff --git a/app/api/routes/ops.py b/app/api/routes/ops.py
+index cc174a9..613a074 100644
+--- a/app/api/routes/ops.py
++++ b/app/api/routes/ops.py
+@@ -110,9 +110,19 @@ async def ready(response: Response) -> dict:
+     degraded = bool(mcp.get("degraded")) or jev not in ("READY", "DISABLED")
+     dependencies = {"case_store": "READY", "mcp": mcp["status"], "jev": jev}
+ 
++    # A RULE THAT BLOCKS EVERY CASE (step 5c: signature flag on, no activation
++    # date). The service still answers, so not a 503 -- but never plain READY.
++    from app.agents.applicant import workflow
++
++    configuration_errors = [e for e in (workflow.signature_rule_config_error(),) if e]
++    if configuration_errors:
++        logger.error("Readiness: configuration error: %s", "; ".join(configuration_errors))
++        degraded = True
++
+     return {
+         "status": "ready",
+         "overall": "DEGRADED" if degraded else "READY",
++        "configuration_errors": configuration_errors,
+         "dependencies": dependencies,
+         "case_store": store,
+         "mcp": mcp,
+diff --git a/app/config/applicant_agent.yaml b/app/config/applicant_agent.yaml
+index ecbdba3..905eb75 100644
+--- a/app/config/applicant_agent.yaml
++++ b/app/config/applicant_agent.yaml
+@@ -196,6 +196,36 @@ readiness:
+   # lets CPA adjudicate reviews instead of the FOS.
+   block_on_review: true
+ 
++  # CO-APPLICANT MANDATORY DOCUMENTS (Phase 3 step 5b). Enforced ONLY while
++  # LOS_COAPP_MANDATORY_DOCS=true (default off). One slot each; ANY ONE accepted
++  # type satisfies it, matched against the co-applicant's own documents and
++  # verified by the existing OCR + verification + KYC flow. Confirmed 2026-10-07:
++  # ONLY PAN, address proof and employment proof -- no bank statement.
++  #   accepts_self_employed: added to `accepts` (the application's employment
++  #   type is the applicant's, so it cannot choose for the co-applicant).
++  # NOTE: UTILITY_BILL, EMPLOYMENT_LETTER, OFFER_LETTER, EMPLOYEE_ID,
++  # BUSINESS_REGISTRATION and GST_CERTIFICATE are not yet classifiable types.
++  co_applicant_documents:
++    - slot: PAN
++      accepts: [PAN]
++    - slot: ADDRESS_PROOF
++      accepts: [AADHAAR, PASSPORT, DRIVING_LICENCE, VOTER_ID, UTILITY_BILL]
++    - slot: EMPLOYMENT_PROOF
++      accepts: [SALARY_SLIP, EMPLOYMENT_LETTER, OFFER_LETTER, EMPLOYEE_ID]
++      accepts_self_employed: [BUSINESS_REGISTRATION, GST_CERTIFICATE, ITR]
++
++  # MANDATORY SIGNATURE (Phase 3 step 5c). Enforced ONLY while
++  # LOS_SIGNATURE_MANDATORY=true (default off), for the applicant and every
++  # co-applicant: a signature whose PRESENCE check (blank / handwritten, never
++  # matched against another signature) is VERIFIED. REJECTED or REVIEW blocks.
++  # GRANDFATHERED: applies only to cases CREATED at or after activation_date
++  # (ISO date or datetime; no timezone = UTC). Set it on the day the flag is
++  # turned on. Older cases are listed by scripts/report_signature_gaps.py
++  # instead of being blocked. Flag on with no valid date FAILS CLOSED: every
++  # case reports SIGNATURE_RULE_MISCONFIGURED until the date is set.
++  signature_mandatory:
++    activation_date: null
++
+ # -----------------------------------------------------------------------------
+ # PERMISSIONS
+ #
+diff --git a/main.py b/main.py
+index 96c4176..35a00c7 100644
+--- a/main.py
++++ b/main.py
+@@ -191,6 +191,19 @@ async def lifespan(app: FastAPI):
+                 raise
+             print(f"auth configuration : INCOMPLETE ({exc}) -- development only")
+ 
++    # MANDATORY SIGNATURE RULE MISCONFIGURED (step 5c): flag on with no valid
++    # activation date blocks EVERY case (fail closed). Said loudly at startup,
++    # and /ready reports it, so it is noticed at once rather than case by case.
++    from app.agents.applicant import workflow as _workflow
++
++    _signature_problem = _workflow.signature_rule_config_error()
++    if _signature_problem:
++        logging.getLogger("los.startup").error(
++            "CONFIGURATION ERROR: %s -- every case is blocked with SIGNATURE_RULE_MISCONFIGURED "
++            "until readiness.signature_mandatory.activation_date is set in applicant_agent.yaml.",
++            _signature_problem)
++        print(f"signature rule     : MISCONFIGURED ({_signature_problem}) -- every case blocked")
++
+     # OPENTELEMETRY, when OTEL_ENABLED=true (OTLP or console export).
+     from app.observability import tracing as _tracing
+ 
+diff --git a/app/agents/signature/presence.py b/app/agents/signature/presence.py
+new file mode 100644
+index 0000000..e95689c
+--- /dev/null
++++ b/app/agents/signature/presence.py
+@@ -0,0 +1,255 @@
++"""
++Signature PRESENCE check (Phase 3 step 5c, LOS_SIGNATURE_MANDATORY, default off).
++
++A different question from the authenticity verdict in service.py, and kept
++apart from it on purpose. That verdict asks "does this match a specimen?" and
++is REVIEW without one, always. This one asks only:
++
++  1. is it blank?
++  2. is it a handwritten mark -- ink strokes, not printed or typed text, a
++     stamp, a single straight line or a dot?
++
++No matching against any other signature. CPU only: ink ratio, row profile
++(analysis.py), connected components (OpenCV, already installed for OCR) and
++the existing OCR engine to catch a typed name. No new dependency, no model.
++
++    VERIFIED  every test passed
++    REJECTED  clearly not a signature, with a reason a person can act on
++    REVIEW    unsure -- never auto-approved
++
++The result travels as reason codes on the stored document (no schema change):
++SIGNATURE_PRESENCE_<STATUS> plus one code per reason.
++"""
++
++from __future__ import annotations
++
++import io
++import logging
++import os
++from typing import Any, Callable
++
++from app.agents.signature import analysis
++
++logger = logging.getLogger(__name__)
++
++FLAG = "LOS_SIGNATURE_MANDATORY"
++
++VERIFIED = "VERIFIED"
++REJECTED = "REJECTED"
++REVIEW = "REVIEW"
++
++# Status codes, stored on the document.
++SIGNATURE_PRESENCE_VERIFIED = "SIGNATURE_PRESENCE_VERIFIED"
++SIGNATURE_PRESENCE_REJECTED = "SIGNATURE_PRESENCE_REJECTED"
++SIGNATURE_PRESENCE_REVIEW = "SIGNATURE_PRESENCE_REVIEW"
++
++# Reasons.
++SIGNATURE_PRESENCE_BLANK = "SIGNATURE_PRESENCE_BLANK"
++SIGNATURE_PRESENCE_PRINTED = "SIGNATURE_PRESENCE_PRINTED"
++SIGNATURE_PRESENCE_TYPED_TEXT = "SIGNATURE_PRESENCE_TYPED_TEXT"
++SIGNATURE_PRESENCE_LINE = "SIGNATURE_PRESENCE_LINE"
++SIGNATURE_PRESENCE_DOT = "SIGNATURE_PRESENCE_DOT"
++SIGNATURE_PRESENCE_UNREADABLE = "SIGNATURE_PRESENCE_UNREADABLE"
++SIGNATURE_PRESENCE_POSSIBLE_TEXT = "SIGNATURE_PRESENCE_POSSIBLE_TEXT"
++SIGNATURE_PRESENCE_TOO_MANY_STROKES = "SIGNATURE_PRESENCE_TOO_MANY_STROKES"
++SIGNATURE_PRESENCE_LOW_CONTRAST = "SIGNATURE_PRESENCE_LOW_CONTRAST"
++SIGNATURE_PRESENCE_OCR_UNAVAILABLE = "SIGNATURE_PRESENCE_OCR_UNAVAILABLE"
++
++STATUS_CODE = {VERIFIED: SIGNATURE_PRESENCE_VERIFIED, REJECTED: SIGNATURE_PRESENCE_REJECTED,
++               REVIEW: SIGNATURE_PRESENCE_REVIEW}
++
++#: What a person reads (the reason catalogue repeats these).
++MESSAGES = {
++    SIGNATURE_PRESENCE_BLANK: "Signature is blank",
++    SIGNATURE_PRESENCE_PRINTED: "Signature looks printed, not handwritten",
++    SIGNATURE_PRESENCE_TYPED_TEXT: "Signature looks like a typed name, not handwritten",
++    SIGNATURE_PRESENCE_LINE: "Signature is only a straight line",
++    SIGNATURE_PRESENCE_DOT: "Signature is only a dot or a tiny mark",
++    SIGNATURE_PRESENCE_UNREADABLE: "Signature image could not be read",
++    SIGNATURE_PRESENCE_POSSIBLE_TEXT: "Signature may be printed text; a person will check it",
++    SIGNATURE_PRESENCE_TOO_MANY_STROKES: "Signature has unusually many separate marks; a person will check it",
++    SIGNATURE_PRESENCE_LOW_CONTRAST: "Signature is too faint to judge; a person will check it",
++    SIGNATURE_PRESENCE_OCR_UNAVAILABLE: "Typed-text check could not run; a person will check it",
++}
++
++# Work size: big enough for strokes, small enough to stay cheap on a CPU.
++_WORK_EDGE = 512
++# Components smaller than this (in work-size pixels) are scan noise.
++_NOISE_AREA = 6
++# Ink box smaller than this fraction of the frame's longer side: a dot.
++_DOT_FRACTION = 0.05
++# Ink spread across its minor axis below this many pixels, with a long major
++# axis: one straight line.
++_LINE_MINOR_STD = 2.5
++_LINE_RATIO = 0.06
++# A handwritten signature is a few connected strokes; typed text is one
++# component per letter. Above this, a person looks.
++_MAX_COMPONENTS = 25
++# Printed letters share a height and a baseline; handwriting does not.
++_PRINTED_MIN_COMPONENTS = 5
++_PRINTED_HEIGHT_CV = 0.22
++_PRINTED_BASELINE = 0.12
++# OCR: letters/digits read at or above this mean confidence count as text.
++_OCR_MIN_CHARS = 4
++_OCR_TYPED_CONFIDENCE = 0.85
++_OCR_POSSIBLE_CONFIDENCE = 0.60
++
++
++def enabled() -> bool:
++    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _load(content: bytes):
++    """Greyscale, transparent pixels flattened onto white (as service._load_grey)."""
++    from PIL import Image
++
++    with Image.open(io.BytesIO(content)) as image:
++        if image.mode in ("RGBA", "LA", "PA") or "transparency" in image.info:
++            backdrop = Image.new("RGBA", image.size, (255, 255, 255, 255))
++            return Image.alpha_composite(backdrop, image.convert("RGBA")).convert("L")
++        return image.convert("L").copy()
++
++
++def _work(grey):
++    scale = _WORK_EDGE / max(1, max(grey.size))
++    if scale < 1:
++        grey = grey.resize((max(1, int(grey.width * scale)), max(1, int(grey.height * scale))))
++    return grey
++
++
++def components(ink) -> list[dict[str, float]]:
++    """Connected ink components (8-connected), noise removed: [{x, y, w, h, area}]."""
++    import cv2
++    import numpy as np
++
++    count, _, stats, _ = cv2.connectedComponentsWithStats(ink.astype(np.uint8), connectivity=8)
++    return [{"x": float(s[0]), "y": float(s[1]), "w": float(s[2]), "h": float(s[3]), "area": float(s[4])}
++            for s in stats[1:count] if s[4] >= _NOISE_AREA]
++
++
++def shape(ink) -> dict[str, float]:
++    """The ink's extent and how far it spreads across its principal axis."""
++    import numpy as np
++
++    ys, xs = np.nonzero(ink)
++    if xs.size < 2:
++        return {"extent": 0.0, "major_std": 0.0, "minor_std": 0.0}
++    coords = np.stack([xs, ys]).astype("float64")
++    eig = np.sort(np.linalg.eigvalsh(np.cov(coords)))
++    return {"extent": float(max(xs.max() - xs.min(), ys.max() - ys.min()) + 1),
++            "major_std": float(np.sqrt(max(eig[1], 0.0))), "minor_std": float(np.sqrt(max(eig[0], 0.0)))}
++
++
++def printed_layout(parts: list[dict[str, float]]) -> bool:
++    """Many components of one height sitting on one baseline: printed letters."""
++    import numpy as np
++
++    if len(parts) < _PRINTED_MIN_COMPONENTS:
++        return False
++    heights = np.array([p["h"] for p in parts])
++    bottoms = np.array([p["y"] + p["h"] for p in parts])
++    mean_h = float(heights.mean()) or 1.0
++    return float(heights.std()) / mean_h < _PRINTED_HEIGHT_CV and float(bottoms.std()) / mean_h < _PRINTED_BASELINE
++
++
++def ocr_text(grey) -> tuple[int, float]:
++    """(letters/digits read, mean confidence) from the existing OCR engine."""
++    import numpy as np
++
++    from app.agents.document_agent.ocr import get_engine
++
++    tokens, _ = get_engine().read_array(np.asarray(grey.convert("RGB")))
++    chars, weighted = 0, 0.0
++    for token in tokens or []:
++        text = str(getattr(token, "text", "") or "")
++        confidence = float(getattr(token, "confidence", 0.0) or 0.0)
++        n = sum(ch.isalnum() for ch in text)
++        chars += n
++        weighted += n * confidence
++    return chars, (weighted / chars if chars else 0.0)
++
++
++def _result(status: str, reasons: list[str], measures: dict[str, Any]) -> dict[str, Any]:
++    return {"status": status, "codes": [STATUS_CODE[status], *reasons], "reasons": reasons,
++            "messages": [MESSAGES[r] for r in reasons], "measures": measures}
++
++
++def check(content: bytes, *, ocr: Callable[[Any], tuple[int, float]] | None = None) -> dict[str, Any]:
++    """Assess one signature image. Never raises; anything unexpected is REVIEW or REJECTED, never VERIFIED."""
++    import numpy as np
++
++    try:
++        grey = _load(content)
++    except Exception as exc:  # noqa: BLE001 - not an image
++        logger.debug("Signature presence: unreadable image: %s", exc)
++        return _result(REJECTED, [SIGNATURE_PRESENCE_UNREADABLE], {})
++
++    try:
++        stats = analysis.measure(grey)
++        work = _work(grey)
++        ink = np.asarray(work, dtype="uint8") < 128
++        parts = components(ink)
++        if not parts:
++            return _result(REJECTED, [SIGNATURE_PRESENCE_BLANK], {"ink_ratio": stats.get("ink_ratio", 0.0)})
++
++        form = shape(ink)
++        frame = float(max(work.size))
++        measures = {"ink_ratio": stats.get("ink_ratio", 0.0), "components": len(parts),
++                    "extent_fraction": round(form["extent"] / frame, 4),
++                    "minor_std": round(form["minor_std"], 3), "major_std": round(form["major_std"], 3)}
++
++        # a dot first: it is also almost no ink, and "blank" would tell the person the wrong thing
++        if form["extent"] / frame < _DOT_FRACTION:
++            return _result(REJECTED, [SIGNATURE_PRESENCE_DOT], measures)
++        if analysis.is_blank(stats):
++            return _result(REJECTED, [SIGNATURE_PRESENCE_BLANK], measures)
++        if form["minor_std"] < _LINE_MINOR_STD and form["minor_std"] < _LINE_RATIO * max(form["major_std"], 1e-6):
++            return _result(REJECTED, [SIGNATURE_PRESENCE_LINE], measures)
++
++        profile = analysis.stroke_profile(grey)
++        printed = printed_layout(parts)
++        measures["printed_layout"] = printed
++        if not analysis.looks_handwritten(stats, profile):
++            return _result(REJECTED, [SIGNATURE_PRESENCE_PRINTED], measures)
++
++        review: list[str] = []
++        if float(stats.get("std", 0.0)) < analysis.LOW_CONTRAST_STD:
++            review.append(SIGNATURE_PRESENCE_LOW_CONTRAST)
++        if len(parts) > _MAX_COMPONENTS:
++            review.append(SIGNATURE_PRESENCE_TOO_MANY_STROKES)
++
++        try:
++            chars, confidence = (ocr or ocr_text)(grey)
++            measures.update(ocr_chars=chars, ocr_confidence=round(confidence, 3))
++        except Exception as exc:  # noqa: BLE001 - OCR down: unsure, never approved
++            logger.warning("Signature presence: OCR unavailable: %s", exc)
++            review.append(SIGNATURE_PRESENCE_OCR_UNAVAILABLE)
++            chars, confidence = 0, 0.0
++
++        reads_as_text = chars >= _OCR_MIN_CHARS
++        if reads_as_text and confidence >= _OCR_TYPED_CONFIDENCE and printed:
++            # confident text AND printed geometry: two independent tests agree
++            return _result(REJECTED, [SIGNATURE_PRESENCE_TYPED_TEXT], measures)
++        if (reads_as_text and confidence >= _OCR_POSSIBLE_CONFIDENCE) or printed:
++            # one test says text: a neat cursive name can read as text too, so a person decides
++            review.append(SIGNATURE_PRESENCE_POSSIBLE_TEXT)
++
++        if review:
++            return _result(REVIEW, list(dict.fromkeys(review)), measures)
++        return _result(VERIFIED, [], measures)
++    except Exception as exc:  # noqa: BLE001 - a check that broke established nothing
++        logger.warning("Signature presence check failed: %s", exc)
++        return _result(REVIEW, [SIGNATURE_PRESENCE_OCR_UNAVAILABLE], {})
++
++
++def from_codes(codes) -> dict[str, Any] | None:
++    """Read a stored presence result back from a document's reason codes; None if it was never checked."""
++    codes = [str(c) for c in codes or []]
++    status = next((s for s, code in STATUS_CODE.items() if code in codes), None)
++    if status is None:
++        return None
++    reasons = [c for c in codes if c in MESSAGES]
++    return {"status": status, "reasons": reasons, "messages": [MESSAGES[r] for r in reasons]}
++
++
++__all__ = ["FLAG", "MESSAGES", "REJECTED", "REVIEW", "VERIFIED", "check", "enabled", "from_codes"]
+diff --git a/app/agents/applicant/copilot/answering/document_actions.py b/app/agents/applicant/copilot/answering/document_actions.py
+new file mode 100644
+index 0000000..4f48aee
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/document_actions.py
+@@ -0,0 +1,248 @@
++"""
++THE DOCUMENTS THAT NEED ACTION (Phase 3 step 4; flag COPILOT_DOCUMENT_ACTIONS, default off).
++
++"kaunse docs baaki hai?" / "what is pending?" shows only what someone must act on,
++built from the case store alone -- never from a model:
++
++    Upload again       REJECTED documents, with the verification's own reasons; and the
++                       documents a failed KYC check names, with the field and what each
++                       document said (the KYC finding's recorded values, quoted exactly)
++    Still pending      mandatory checklist slots with no document
++    Under review       REVIEW documents and documents still being verified -- information
++                       only, never offered for upload
++
++VERIFIED documents (unless a KYC mismatch names them) and SUPERSEDED documents are never
++listed. Every row is grouped by party (applicant / co-applicant).
++"""
++
++from __future__ import annotations
++
++import os
++from typing import Any
++
++FLAG = "COPILOT_DOCUMENT_ACTIONS"
++
++_FIELD_LABEL = {"NAME": "Name", "DATE_OF_BIRTH": "Date of birth", "PAN_NUMBER": "PAN number",
++                "FATHER_NAME": "Father's name", "ADDRESS": "Address"}
++_KYC_FIELDS = set(_FIELD_LABEL)
++_ROLE_LABEL = {"PRIMARY_APPLICANT": "Applicant", "CO_APPLICANT": "Co-applicant"}
++
++#: English defaults; languages.yaml carries hi / hi-Latn / mr under the same keys
++_EN = {
++    "docact_kyc_heading": "Your KYC verification needs attention:",
++    "docact_reupload_heading": "Please upload the correct documents:",
++    "docact_pending_heading": "Still pending:",
++    "docact_review_heading": "Under review (no action needed):",
++    "docact_none": "No document needs any action right now.",
++    "docact_mismatch": "{field} mismatch: {values}",
++    "docact_mismatch_check": "{field} needs a check across {documents}",
++    "docact_shows": "{document} shows \"{value}\"",
++    "docact_upload": "Upload",
++    "docact_being_verified": "being verified",
++}
++
++
++def enabled() -> bool:
++    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _t(key: str, language: str | None, **values: Any) -> str:
++    """The template in the reply's language, else English -- values inserted as given."""
++    said = None
++    if language and language != "en":
++        from app.agents.applicant import language as languages
++
++        said = languages.localized(key, language, **values)
++    return said or _EN[key].format(**values)
++
++
++#: KYC field -> the localizer's word key (answering/localize.py _FIELD_WORDS / _EXTRA_FIELD_WORDS)
++_FIELD_WORD_KEY = {"NAME": "name", "DATE_OF_BIRTH": "date of birth", "FATHER_NAME": "father's name",
++                   "ADDRESS": "address", "PAN_NUMBER": "PAN number"}
++
++
++def _field_label(field: str, language: str | None) -> str:
++    """The field's name in the reply's language (the same words the KYC answers use), else English."""
++    if language and language != "en":
++        from app.agents.applicant.copilot.answering import localize
++
++        words = {**(localize._FIELD_WORDS.get(language) or {}), **(localize._EXTRA_FIELD_WORDS.get(language) or {})}
++        word = words.get(_FIELD_WORD_KEY.get(field, ""))
++        if word:
++            return word[:1].upper() + word[1:]
++    return _FIELD_LABEL[field]
++
++
++def _value(x: Any) -> str:
++    return str(getattr(x, "value", x) or "")
++
++
++def _readable(document_type: Any) -> str:
++    from app.agents.applicant.copilot.answering.answer import _readable as readable
++
++    return readable(document_type)
++
++
++def _role(raw: Any) -> str:
++    role = _value(raw).upper()
++    return role if role in _ROLE_LABEL else "PRIMARY_APPLICANT"
++
++
++def _missing_slots(case_id: str, documents: list, repository: Any) -> list[str]:
++    from app.agents.applicant import workflow
++
++    try:
++        checklist = workflow.build_checklist(repository.get_application(case_id), documents)
++    except Exception:  # noqa: BLE001 - no policy for the product: nothing is imposed
++        return []
++    return [str(e["slot"]) for e in checklist if e.get("mandatory", True) and e.get("status") == "MISSING"]
++
++
++def build(case_id: str, *, party: str | None = None, repository: Any = None) -> dict[str, Any]:
++    """
++    {"reupload", "pending", "under_review", "kyc_issues"} for one case, from the store.
++    `party` (PRIMARY_APPLICANT / CO_APPLICANT) keeps only that party's rows.
++    """
++    from app.agents.applicant.copilot.answering.answer import _explained
++    from app.store import get_repository
++
++    repository = repository or get_repository()
++    stored = [d for d in repository.list_documents(case_id) or []
++              if _value(getattr(d, "status", "")).upper() != "SUPERSEDED"]
++    role_of_party = {getattr(d, "party_id", None): _role(getattr(d, "party_role", None)) for d in stored}
++
++    reupload: list[dict[str, Any]] = []
++    under_review: list[dict[str, Any]] = []
++    for d in stored:
++        status = _value(getattr(d, "status", "")).upper()
++        role = _role(getattr(d, "party_role", None))
++        row = {"party": role, "party_label": _ROLE_LABEL[role], "document_type": d.document_type,
++               "label": _readable(d.document_type)}
++        if status == "REJECTED":
++            reasons = [r for r in (_explained(c) for c in (getattr(d, "reason_codes", None) or [])) if r]
++            reupload.append({**row, "reasons": reasons[:2], "source": "VERIFICATION"})
++        elif status in ("REVIEW", "UPLOADED", "PROCESSING"):
++            under_review.append({**row, "state": "REVIEW" if status == "REVIEW" else "PROCESSING"})
++
++    # KYC: every failed / reviewed identity field, with the values the record kept
++    kyc_issues: list[dict[str, Any]] = []
++    try:
++        findings = repository.get_current_findings(case_id, kind="KYC") or []
++    except Exception:  # noqa: BLE001 - unreadable KYC: no KYC rows, never invented ones
++        findings = []
++    for finding in findings:
++        role = role_of_party.get(getattr(finding, "party_id", None)) or "PRIMARY_APPLICANT"
++        for field in (getattr(finding, "payload", None) or {}).get("fields") or []:
++            name = str((field or {}).get("field") or "").upper()
++            status = str((field or {}).get("status") or "").upper()
++            if name not in _KYC_FIELDS or status not in ("FAIL", "REVIEW", "PARTIAL"):
++                continue
++            sources = [s for s in field.get("sources") or [] if isinstance(s, dict) and s.get("document_type")]
++            kyc_issues.append({"party": role, "party_label": _ROLE_LABEL[role], "field": name,
++                               "field_label": _FIELD_LABEL[name], "status": status,
++                               "values": [{"document_type": s["document_type"], "label": _readable(s["document_type"]),
++                                           "value": s.get("value")} for s in sources]})
++            # the documents whose values disagree are the ones to upload again
++            if status == "FAIL":
++                for s in sources:
++                    if s.get("value") and not any(r["party"] == role and r["document_type"] == s["document_type"]
++                                                  for r in reupload):
++                        reupload.append({"party": role, "party_label": _ROLE_LABEL[role],
++                                         "document_type": s["document_type"], "label": _readable(s["document_type"]),
++                                         "reasons": [], "source": "KYC"})
++
++    from app.agents.applicant import workflow
++
++    if workflow.coapp_mandatory_enabled():
++        # EVERY PARTY'S missing mandatory documents (LOS_COAPP_MANDATORY_DOCS, step 5b)
++        pending = []
++        for checklist in workflow.party_checklists(repository.get_application(case_id), stored):
++            role = checklist["party_role"]          # (not `party`: that is this function's filter)
++            pending += [{"party": role, "party_label": _ROLE_LABEL[role], "document_type": e["slot"],
++                         "label": _readable(e["slot"])}
++                        for e in checklist["checklist"] if e.get("mandatory", True) and e.get("status") == "MISSING"]
++    else:
++        primary = [d for d in stored if _role(getattr(d, "party_role", None)) == "PRIMARY_APPLICANT"]
++        pending = [{"party": "PRIMARY_APPLICANT", "party_label": "Applicant", "document_type": slot,
++                    "label": _readable(slot)} for slot in _missing_slots(case_id, primary, repository)]
++
++    application = repository.get_application(case_id)
++    if workflow.signature_rule_applies(application)[0]:
++        # MANDATORY SIGNATURE (LOS_SIGNATURE_MANDATORY, step 5c): signature rows come from the
++        # PRESENCE result readiness uses, not the authenticity status (REVIEW without a specimen)
++        signature = workflow.SIGNATURE_TYPES
++        reupload = [r for r in reupload if str(r["document_type"]).upper() not in signature]
++        under_review = [r for r in under_review if str(r["document_type"]).upper() not in signature]
++        for item in workflow.signature_items(application, stored):
++            role = _role(item.get("party_role"))
++            row = {"party": role, "party_label": _ROLE_LABEL[role], "document_type": "SIGNATURE",
++                   "label": _readable("SIGNATURE")}
++            if item["code"] in ("SIGNATURE_REJECTED", "SIGNATURE_NOT_CHECKED"):
++                reupload.append({**row, "reasons": (item.get("reasons") or [item["detail"]])[:2],
++                                 "source": "SIGNATURE_PRESENCE"})
++            elif item["code"] == "SIGNATURE_UNDER_REVIEW":
++                under_review.append({**row, "state": "REVIEW"})
++            elif item["code"] == "DOCUMENT_MISSING":
++                pending.append(row)
++
++    def keep(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
++        return [r for r in rows if party is None or r["party"] == party]
++
++    out = {"reupload": keep(reupload), "pending": keep(pending), "under_review": keep(under_review),
++           "kyc_issues": keep(kyc_issues)}
++    for row in out["reupload"] + out["pending"]:
++        row["action"] = {"type": "UPLOAD_DOCUMENT", "document_type": row["document_type"], "party": row["party"],
++                         "label": f"Upload {row['label']}"}
++    return out
++
++
++def render(view: dict[str, Any], language: str | None = None) -> dict[str, Any]:
++    """(answer text, the 1-2 words worth emphasis) from a built view. Compact; the payload holds the rest."""
++    two = len({r["party"] for k in ("reupload", "pending", "under_review", "kyc_issues") for r in view[k]}) > 1
++
++    def name(row: dict[str, Any]) -> str:
++        return f"{row['party_label']}'s {row['label']}" if two else row["label"]
++
++    lines: list[str] = []
++    emphasis: list[str] = []
++    issues = [i for i in view["kyc_issues"] if i["values"]]
++    if issues:
++        lines.append(_t("docact_kyc_heading", language))
++        for i in issues[:4]:
++            label = _field_label(i["field"], language)
++            field = f"{i['party_label']}'s {label[:1].lower() + label[1:]}" if two else label
++            with_values = [v for v in i["values"] if v.get("value")]
++            if len(with_values) >= 2:
++                shown = ", ".join(_t("docact_shows", language, document=v["label"], value=v["value"])
++                                  for v in with_values[:3])
++                lines.append("• " + _t("docact_mismatch", language, field=field, values=shown))
++            else:
++                docs = " / ".join(v["label"] for v in i["values"][:3])
++                lines.append("• " + _t("docact_mismatch_check", language, field=field, documents=docs))
++            emphasis.append(label)                       # the word as shown, so step 5 can bold it
++    upload = _t("docact_upload", language)
++    if view["reupload"]:
++        lines.append(_t("docact_reupload_heading", language))
++        for r in view["reupload"]:
++            reason = f" — {r['reasons'][0]}" if r.get("reasons") else ""
++            lines.append(f"📄 {name(r)} [{upload}]{reason}")
++            emphasis.append(r["label"])
++    if view["pending"]:
++        lines.append(_t("docact_pending_heading", language))
++        lines += [f"📄 {name(r)} [{upload}]" for r in view["pending"]]
++        emphasis += [r["label"] for r in view["pending"]]
++    if view["under_review"]:
++        lines.append(_t("docact_review_heading", language))
++        verifying = _t("docact_being_verified", language)
++        lines += [f"⏳ {name(r)}" + (f" ({verifying})" if r["state"] == "PROCESSING" else "")
++                  for r in view["under_review"]]
++    if not lines:
++        lines.append(_t("docact_none", language))
++    seen: list[str] = []
++    for word in emphasis:
++        if word not in seen:
++            seen.append(word)
++    return {"answer": "\n".join(lines), "emphasis": seen[:2]}
++
++
++__all__ = ["FLAG", "build", "enabled", "render"]
+diff --git a/scripts/report_signature_gaps.py b/scripts/report_signature_gaps.py
+new file mode 100644
+index 0000000..2f5d839
+--- /dev/null
++++ b/scripts/report_signature_gaps.py
+@@ -0,0 +1,64 @@
++"""
++GRANDFATHERED SIGNATURE REPORT -- READ ONLY (Phase 3 step 5c).
++
++    python -m scripts.report_signature_gaps [--limit 5000] [--out runs/signature_gaps.json]
++
++The mandatory signature rule (LOS_SIGNATURE_MANDATORY) blocks only cases created on
++or after readiness.signature_mandatory.activation_date. Every OLDER case is
++grandfathered: it is never blocked, and is listed here instead when the applicant or
++a co-applicant has no signature whose presence check is VERIFIED. With no activation
++date set, every case is treated as older. This script WRITES NOTHING to the case
++store; it only calls list_* / get_* reads.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def gaps(repository, limit: int) -> list[dict]:
++    from app.agents.applicant import config, workflow
++
++    activation, _ = config.signature_activation()
++    rows = []
++    for applicant in repository.list_applicants(limit=limit):
++        for application in repository.list_applications(applicant.applicant_id):
++            created = application.created_at
++            if activation is not None and created is not None:
++                if created.tzinfo is None:
++                    from datetime import timezone
++
++                    created = created.replace(tzinfo=timezone.utc)
++                if created >= activation:
++                    continue                 # covered by the rule, not grandfathered
++            items = workflow.party_signature_items(application, repository.list_documents(application.case_id))
++            if items:
++                rows.append({"case_id": application.case_id, "applicant_id": applicant.applicant_id,
++                             "created_at": str(application.created_at),
++                             "gaps": [{"party_role": i.get("party_role", "PRIMARY_APPLICANT"), "code": i["code"],
++                                       "detail": i["detail"]} for i in items]})
++    return rows
++
++
++def main() -> int:
++    p = argparse.ArgumentParser()
++    p.add_argument("--limit", type=int, default=5000, help="applicants to scan (newest first)")
++    p.add_argument("--out", default=str(ROOT / "runs" / "signature_gaps.json"))
++    args = p.parse_args()
++
++    from app.store import get_repository
++
++    rows = gaps(get_repository(), args.limit)
++    out = Path(args.out)
++    out.parent.mkdir(parents=True, exist_ok=True)
++    out.write_text(json.dumps({"cases": rows, "count": len(rows)}, indent=2), encoding="utf-8")
++    print(f"{len(rows)} grandfathered case(s) without a verified signature for every party -> {out}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/integration/test_step5c_signature_presence.py b/tests/integration/test_step5c_signature_presence.py
+new file mode 100644
+index 0000000..3d19d92
+--- /dev/null
++++ b/tests/integration/test_step5c_signature_presence.py
+@@ -0,0 +1,362 @@
++"""
++PHASE 3 STEP 5c -- mandatory signature PRESENCE (LOS_SIGNATURE_MANDATORY, default off).
++
++The applicant and every co-applicant need a signature that is (1) not blank and (2) a
++handwritten mark -- not printed / typed text, a stamp, a straight line or a dot. Never
++matched against another signature. VERIFIED / REJECTED (with a reason) / REVIEW when
++unsure, never approved when unsure. Separate from the authenticity verdict, which is
++untouched. Grandfathered: only cases created on or after the configured activation date.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import io
++import math
++import random
++import uuid
++from datetime import date, datetime, timedelta, timezone
++
++import pytest
++
++from app.agents.applicant import config as agent_config
++from app.agents.applicant import workflow
++from app.agents.signature import presence
++from app.store.models import Applicant, Application, Document, DocumentStatus
++from tests.integration.test_reupload_supersedes import _store  # noqa: F401
++
++NO_TEXT = lambda grey: (0, 0.0)                      # noqa: E731 - OCR stub: nothing read
++TYPED = lambda grey: (11, 0.99)                      # noqa: E731 - OCR stub: a confident name
++
++
++@pytest.fixture(autouse=True)
++def flags_off(monkeypatch):
++    for name in (presence.FLAG, workflow.COAPP_FLAG, "COPILOT_DOCUMENT_ACTIONS"):
++        monkeypatch.delenv(name, raising=False)
++
++
++# ---- images -----------------------------------------------------------------------------------
++def png(image) -> bytes:
++    buffer = io.BytesIO()
++    image.save(buffer, "PNG")
++    return buffer.getvalue()
++
++
++def canvas():
++    from PIL import Image
++
++    return Image.new("L", (640, 240), 250)
++
++
++def grain(image, seed=3):
++    rng, pixels = random.Random(seed), image.load()
++    for _ in range(image.width * image.height // 6):
++        x, y = rng.randrange(image.width), rng.randrange(image.height)
++        pixels[x, y] = max(0, min(255, pixels[x, y] + rng.randint(-18, 18)))
++    return image
++
++
++def scribble() -> bytes:
++    from PIL import ImageDraw
++
++    image = canvas()
++    draw = ImageDraw.Draw(image)
++    draw.line([(60 + k * 18, 120 + int(46 * math.sin(k * 0.7))) for k in range(30)], fill=20, width=8)
++    draw.line([(120, 60), (150, 190), (200, 80), (230, 170)], fill=20, width=7)
++    return png(grain(image))
++
++
++def typed_name() -> bytes:
++    from PIL import ImageDraw, ImageFont
++
++    image = canvas()
++    try:
++        font = ImageFont.truetype("arial.ttf", 64)
++    except OSError:
++        pytest.skip("no TrueType font on this machine")
++    ImageDraw.Draw(image).text((60, 80), "Rahul Sharma", fill=0, font=font)
++    return png(grain(image))
++
++
++def drawn(shape) -> bytes:
++    from PIL import ImageDraw
++
++    image = canvas()
++    shape(ImageDraw.Draw(image))
++    return png(grain(image))
++
++
++# ---- the check ---------------------------------------------------------------------------------
++def test_a_blank_signature_is_rejected():
++    r = presence.check(png(canvas()), ocr=NO_TEXT)
++    assert r["status"] == "REJECTED" and r["messages"] == ["Signature is blank"]
++
++
++def test_a_dot_is_rejected():
++    r = presence.check(drawn(lambda d: d.ellipse((316, 116, 326, 126), fill=10)), ocr=NO_TEXT)
++    assert r["status"] == "REJECTED" and r["reasons"] == ["SIGNATURE_PRESENCE_DOT"]
++
++
++def test_a_single_straight_line_is_rejected():
++    r = presence.check(drawn(lambda d: d.line((60, 140, 580, 142), fill=10, width=4)), ocr=NO_TEXT)
++    assert r["status"] == "REJECTED" and r["reasons"] == ["SIGNATURE_PRESENCE_LINE"]
++
++
++def test_printed_matter_is_rejected():
++    def bars(d):
++        for y in range(20, 230, 14):
++            d.rectangle((20, y, 620, y + 8), fill=0)
++    r = presence.check(drawn(bars), ocr=NO_TEXT)
++    assert r["status"] == "REJECTED" and r["messages"] == ["Signature looks printed, not handwritten"]
++
++
++def test_a_typed_name_is_rejected_by_the_real_ocr():
++    r = presence.check(typed_name())
++    assert r["status"] == "REJECTED" and r["reasons"] == ["SIGNATURE_PRESENCE_TYPED_TEXT"], r
++
++
++def test_a_handwritten_mark_is_verified():
++    r = presence.check(scribble(), ocr=NO_TEXT)
++    assert r["status"] == "VERIFIED" and r["reasons"] == [], r
++
++
++def test_ocr_that_cannot_run_is_review_never_verified():
++    def broken(grey):
++        raise RuntimeError("engine down")
++    assert presence.check(scribble(), ocr=broken)["status"] == "REVIEW"
++
++
++def test_confident_text_on_handwritten_geometry_is_review_not_rejected():
++    # a neat cursive name can read as text; one test alone never rejects it
++    r = presence.check(scribble(), ocr=TYPED)
++    assert r["status"] == "REVIEW" and "SIGNATURE_PRESENCE_POSSIBLE_TEXT" in r["reasons"]
++
++
++def test_an_unreadable_file_is_rejected():
++    assert presence.check(b"not an image")["status"] == "REJECTED"
++
++
++def test_the_result_round_trips_through_reason_codes():
++    r = presence.check(png(canvas()), ocr=NO_TEXT)
++    back = presence.from_codes(["SIGNATURE_BLANK", *r["codes"]])
++    assert back == {"status": "REJECTED", "reasons": ["SIGNATURE_PRESENCE_BLANK"], "messages": ["Signature is blank"]}
++    assert presence.from_codes(["SIGNATURE_PRESENT"]) is None
++
++
++def test_every_presence_code_has_a_sentence():
++    from app.agents.verification import reasons
++
++    codes = [*presence.STATUS_CODE.values(), *presence.MESSAGES]
++    assert all(code in reasons.CATALOGUE for code in codes)
++
++
++# ---- configuration -----------------------------------------------------------------------------
++@pytest.mark.parametrize("raw, expected", [
++    ("2026-10-08", datetime(2026, 10, 8, tzinfo=timezone.utc)),
++    (date(2026, 10, 8), datetime(2026, 10, 8, tzinfo=timezone.utc)),
++    ("2026-10-08T00:00:00+05:30", datetime(2026, 10, 8, tzinfo=timezone(timedelta(hours=5, minutes=30)))),
++])
++def test_the_activation_date_is_read_from_config(monkeypatch, raw, expected):
++    monkeypatch.setattr(agent_config, "_section", lambda name: {"signature_mandatory": {"activation_date": raw}})
++    assert agent_config.signature_activation() == (expected, None)
++
++
++@pytest.mark.parametrize("raw", [None, "", "next tuesday"])
++def test_a_missing_or_bad_activation_date_is_reported(monkeypatch, raw):
++    monkeypatch.setattr(agent_config, "_section", lambda name: {"signature_mandatory": {"activation_date": raw}})
++    value, problem = agent_config.signature_activation()
++    assert value is None and problem
++
++
++def test_the_shipped_config_has_no_activation_date():
++    agent_config.reload()
++    assert agent_config.signature_activation()[0] is None
++
++
++# ---- readiness ---------------------------------------------------------------------------------
++CO = "COAPP-5C-0001"
++NOW = datetime.now(timezone.utc)
++
++
++def activate(monkeypatch, when=NOW - timedelta(days=1)):
++    monkeypatch.setenv(presence.FLAG, "true")
++    monkeypatch.setattr(agent_config, "signature_activation", lambda: (when, None))
++
++
++def case(repo, *, co=False, created=NOW):
++    applicant_id, case_id = f"APP-{uuid.uuid4().hex[:8]}", f"CASE-{uuid.uuid4().hex[:8]}"
++    repo.save_applicant(Applicant(applicant_id=applicant_id))
++    repo.save_application(Application(case_id=case_id, applicant_id=applicant_id, product="PERSONAL_LOAN",
++                                      co_applicant_id=CO if co else None, created_at=created))
++    return repo.get_application(case_id)
++
++
++def sign(repo, application, codes, *, co=False, status=DocumentStatus.REVIEW):
++    repo.save_document(Document(
++        document_id=f"doc_{uuid.uuid4().hex[:12]}", case_id=application.case_id,
++        applicant_id=application.applicant_id, document_type="SIGNATURE",
++        party_id=CO if co else application.applicant_id,
++        party_role="CO_APPLICANT" if co else "PRIMARY_APPLICANT", status=status, reason_codes=list(codes)))
++
++
++def items(repo, application):
++    return workflow.signature_items(repo.get_application(application.case_id),
++                                    repo.list_documents(application.case_id))
++
++
++VERIFIED_CODES = ["SIGNATURE_PRESENT", "SIGNATURE_PRESENCE_VERIFIED"]
++BLANK_CODES = ["SIGNATURE_BLANK", "SIGNATURE_PRESENCE_REJECTED", "SIGNATURE_PRESENCE_BLANK"]
++
++
++def test_flag_off_nothing_changes(_store):
++    application = case(_store)
++    assert items(_store, application) == []
++    assert not any(i["code"].startswith("SIGNATURE") for i in workflow.pending_items(
++        _store.get_applicant(application.applicant_id), application, []))
++
++
++def test_a_new_case_without_a_signature_is_blocked(_store, monkeypatch):
++    activate(monkeypatch)
++    application = case(_store)
++    assert [(i["code"], i["detail"]) for i in items(_store, application)] == [
++        ("DOCUMENT_MISSING", "Signature has not been uploaded.")]
++    readiness = workflow.readiness(_store.get_applicant(application.applicant_id), application, [])
++    assert any(b["code"] == "DOCUMENT_MISSING" and b.get("slot") == "SIGNATURE" for b in readiness["blocking_items"])
++
++
++def test_a_case_created_before_activation_is_grandfathered(_store, monkeypatch):
++    activate(monkeypatch, when=NOW + timedelta(days=1))
++    assert items(_store, case(_store)) == []
++
++
++def test_a_verified_signature_satisfies_the_rule(_store, monkeypatch):
++    activate(monkeypatch)
++    application = case(_store)
++    sign(_store, application, VERIFIED_CODES)              # authenticity REVIEW (no specimen) is fine
++    assert items(_store, application) == []
++
++
++def test_a_rejected_signature_blocks_with_its_reason(_store, monkeypatch):
++    activate(monkeypatch)
++    application = case(_store)
++    sign(_store, application, BLANK_CODES, status=DocumentStatus.REJECTED)
++    (item,) = items(_store, application)
++    assert item["code"] == "SIGNATURE_REJECTED" and item["detail"] == "Signature was rejected: Signature is blank."
++
++
++def test_review_and_unchecked_signatures_block(_store, monkeypatch):
++    activate(monkeypatch)
++    review, unchecked = case(_store), case(_store)
++    sign(_store, review, ["SIGNATURE_PRESENCE_REVIEW", "SIGNATURE_PRESENCE_POSSIBLE_TEXT"])
++    sign(_store, unchecked, ["SIGNATURE_PRESENT"])
++    assert [i["code"] for i in items(_store, review)] == ["SIGNATURE_UNDER_REVIEW"]
++    assert [i["code"] for i in items(_store, unchecked)] == ["SIGNATURE_NOT_CHECKED"]
++
++
++def test_every_co_applicant_needs_their_own_signature(_store, monkeypatch):
++    activate(monkeypatch)
++    application = case(_store, co=True)
++    sign(_store, application, VERIFIED_CODES)              # the applicant's never counts for the co-applicant
++    (item,) = items(_store, application)
++    assert item["party_role"] == "CO_APPLICANT" and item["detail"] == "Co-applicant's signature has not been uploaded."
++    sign(_store, application, VERIFIED_CODES, co=True)
++    assert items(_store, application) == []
++
++
++def test_flag_on_without_an_activation_date_fails_closed(_store, monkeypatch):
++    monkeypatch.setenv(presence.FLAG, "true")
++    monkeypatch.setattr(agent_config, "signature_activation", lambda: (None, "activation_date is not set"))
++    assert [i["code"] for i in items(_store, case(_store))] == ["SIGNATURE_RULE_MISCONFIGURED"]
++
++
++# ---- the document action view -------------------------------------------------------------------
++def test_a_rejected_signature_is_listed_under_upload_the_correct_documents(_store, monkeypatch):
++    from app.agents.applicant.copilot.answering import document_actions
++
++    activate(monkeypatch)
++    application = case(_store)
++    sign(_store, application, BLANK_CODES, status=DocumentStatus.REJECTED)
++    view = document_actions.build(application.case_id, repository=_store)
++    rows = [r for r in view["reupload"] if r["document_type"] == "SIGNATURE"]
++    assert len(rows) == 1 and rows[0]["reasons"] == ["Signature is blank"]
++    text = document_actions.render(view)["answer"]
++    assert "Please upload the correct documents:" in text and "Signature [Upload] — Signature is blank" in text
++
++
++def test_a_verified_signature_is_not_shown_as_under_review(_store, monkeypatch):
++    from app.agents.applicant.copilot.answering import document_actions
++
++    activate(monkeypatch)
++    application = case(_store)
++    sign(_store, application, VERIFIED_CODES)
++    view = document_actions.build(application.case_id, repository=_store)
++    assert not any(r["document_type"] == "SIGNATURE" for k in ("reupload", "pending", "under_review") for r in view[k])
++
++
++# ---- the upload path and the report ------------------------------------------------------------
++def test_the_upload_path_stores_the_presence_result_and_leaves_the_verdict(monkeypatch):
++    from app.agents.los import flow
++    from app.orchestration import graph
++
++    async def fake_run_agent(**kwargs):
++        return {"result": {"decision": "REVIEW", "reason_codes": ["SIGNATURE_PRESENT", "REFERENCE_MISSING"]}}
++
++    monkeypatch.setattr(graph, "run_agent", fake_run_agent)
++    monkeypatch.setattr(presence, "ocr_text", NO_TEXT)
++    document = flow.UploadedDocument("s1", "sign.png", png(canvas()), expected_type="SIGNATURE")
++
++    off = asyncio.run(flow._run_specialist(document, "signature_verification", "r1"))
++    assert off["verification"]["reason_codes"] == ["SIGNATURE_PRESENT", "REFERENCE_MISSING"]
++
++    monkeypatch.setenv(presence.FLAG, "true")
++    on = asyncio.run(flow._run_specialist(document, "signature_verification", "r2"))
++    assert on["verification"]["decision"] == "REVIEW"                    # authenticity verdict untouched
++    assert "SIGNATURE_PRESENCE_REJECTED" in on["verification"]["reason_codes"]
++    assert on["verification"]["signature_presence"]["messages"] == ["Signature is blank"]
++
++
++def test_the_report_lists_only_grandfathered_cases(_store, monkeypatch):
++    from scripts import report_signature_gaps
++
++    old = case(_store, created=NOW - timedelta(days=10))
++    new = case(_store)
++    monkeypatch.setattr(agent_config, "signature_activation", lambda: (NOW - timedelta(days=1), None))
++    rows = report_signature_gaps.gaps(_store, 100)
++    assert [r["case_id"] for r in rows] == [old.case_id]
++    assert rows[0]["gaps"][0]["code"] == "DOCUMENT_MISSING" and new.case_id not in str(rows)
++
++
++# ---- a missing activation date is noticed at once ----------------------------------------------
++def test_the_misconfiguration_is_named_only_while_the_flag_is_on(monkeypatch):
++    monkeypatch.setattr(agent_config, "signature_activation", lambda: (None, "activation_date is not set"))
++    assert workflow.signature_rule_config_error() is None
++    monkeypatch.setenv(presence.FLAG, "true")
++    assert workflow.signature_rule_config_error() == "LOS_SIGNATURE_MANDATORY is on but activation_date is not set"
++
++
++def test_ready_reports_the_misconfiguration(monkeypatch):
++    from fastapi.testclient import TestClient
++
++    import main
++
++    monkeypatch.setenv(presence.FLAG, "true")
++    monkeypatch.setattr(agent_config, "signature_activation", lambda: (None, "activation_date is not set"))
++    body = TestClient(main.app).get("/ready").json()
++    if body.get("status") != "ready":
++        pytest.skip(f"service not ready here for another reason: {body.get('reason')}")
++    assert body["overall"] == "DEGRADED"
++    assert body["configuration_errors"] == ["LOS_SIGNATURE_MANDATORY is on but activation_date is not set"]
++
++
++def test_startup_logs_the_misconfiguration(monkeypatch, caplog):
++    import logging
++
++    from fastapi.testclient import TestClient
++
++    import main
++
++    monkeypatch.setenv(presence.FLAG, "true")
++    monkeypatch.setattr(agent_config, "signature_activation", lambda: (None, "activation_date is not set"))
++    with caplog.at_level(logging.ERROR, logger="los.startup"), TestClient(main.app):
++        pass
++    assert any("SIGNATURE_RULE_MISCONFIGURED" in r.getMessage() for r in caplog.records)
+diff --git a/docs/CHATBOT_SPEC.md b/docs/CHATBOT_SPEC.md
+new file mode 100644
+index 0000000..f5005ea
+--- /dev/null
++++ b/docs/CHATBOT_SPEC.md
+@@ -0,0 +1,94 @@
++# Chatbot Spec
++
++> Saved word for word from the user's instructions (received 2026-10-07, in three messages).
++> **COMPLETE:** sections 1–6.
++
++=== 1. RESPONSE STYLE GUIDE ===
++Goal: clean, scannable, professional. Never a wall of text.
++- First line: short direct answer with a status emoji.
++- Bold only the key words: status, document name, mismatch field, amount, date.
++- Bullet points for any list, one short item per line.
++- Sections get a short bold heading plus an emoji, with a blank line between sections.
++- End with ONE next step (👉) or ONE question.
++- Max ~8 lines, except document lists.
++- Same style in English, Hindi, Hinglish and Marathi.
++
++Emoji map (use ONLY these, consistently):
++✅ verified/done | ❌ rejected/failed | ⏳ pending/under review | ⚠️ mismatch/attention
++📄 document | 📤 upload action | 👤 applicant | 👥 co-applicant
++💰 amount/EMI | 📍 current stage | 👉 next step | ℹ️ info/definition
++
++Example (documents):
++⚠️ **KYC verification failed.** A few details don't match.
++
++**❌ Mismatch found**
++- **Name**: PAN shows "Rahul Kumar Sharma", DL shows "Rahul Sharma"
++
++**📤 Upload correct documents**
++- 📄 **PAN Card**
++
++**⏳ Still pending**
++- 📄 **Bank Statement**
++
++👉 Upload these to move your case to **CPA**.
++
++Example (status): 📍 Your application **LN1023** is in **FOS stage**. ⏳ Waiting on **2 documents**. 👉 Want to see which ones?
++Example (definition): ℹ️ **CIBIL score** is a 3-digit number (300–900) showing repayment reliability. 👉 Your credit check is handled by the Credit team.
++Example (out of scope): 🙏 I can only help with your loan application. 👉 Check your **status** or **pending documents**?
++
++Technical: emojis and bullets go in both answer_markdown and answer_plain; answer_plain drops the ** markers. Add snapshot tests (English + Hinglish).
++
++=== 2. RESPONSE FORMAT CONTRACT ===
++1. Direct answer first. No greeting, no filler.
++2. ONE next step or ONE question at the end, never both, never more than one question.
++3. Reply in the user's language.
++4. Data not available: say so with the reason. Never invent.
++
++=== 3. CLARIFYING QUESTIONS & UNDERSTANDING (intelligence) ===
++The bot must behave like a smart human assistant, not a menu.
++a) Unclear question: never show a generic menu. Ask ONE short, specific question using what it already knows (case, party, last topic), offering 2–3 concrete options.
++   Example: "Aap **status** jaanna chahte hain ya **pending documents**?"
++   Example: "Applicant ke docs dekhne hain ya **co-applicant (Priya)** ke?"
++b) Partly clear: answer the clear part, then ask only about the missing piece.
++c) Never ask something the bot can find out itself (case ID with one case, the party from context, etc.).
++d) Yes/No understanding: when the bot asked a question, the next reply is read in that context.
++   - YES: haan, ha, haa, yes, ok, okay, theek hai, kar do, chalega, sure, bilkul, hmm ok, 👍
++   - NO: nahi, na, no, mat karo, rehne do, abhi nahi, baad mein, 👎
++   - YES → do exactly what was offered. NO → acknowledge and offer one alternative.
++   - Ambiguous ("pata nahi", "shayad") → rephrase the question more simply.
++e) Choosing an option: "pehla wala", "second", "co-applicant wala", "2" → map to the options the bot offered.
++f) Corrections: "nahi, mera matlab tha..." → drop the last assumption and redo it.
++g) Typos and mixed language must still be understood ("pandig docs", "kyc kab hoga").
++h) Store the pending question and its offered options in the session state, so (d) and (e) work.
++
++=== 4. "VERIFY / UPLOAD" DIAGNOSE RULE ===
++When the user says anything like "verify karna hai", "upload karna hai", "document dalna hai", "KYC complete karna hai" or "kya upload karu", do NOT ask "which document?". Diagnose the case and show exactly what's needed:
++- Check every party (applicant + each co-applicant) for: mandatory documents not uploaded, REJECTED documents (with reason), KYC failures (field + values on each document), signature missing/rejected, documents in REVIEW (info only).
++- For each item, show WHAT is wrong, WHERE (party, document, field) and WHAT to upload. For a KYC mismatch, suggest the likely wrong document when the finding shows it; otherwise ask for the correct one of the two.
++- Order: ❌ fix first → ⏳ pending → ℹ️ under review.
++- All complete: "✅ All documents are verified. Your case is ready for **CPA**."
++- Group by party (👤 / 👥). Extend the step 4 document action view, don't build a new one.
++
++=== 5. FULL-SESSION CHATBOT MEMORY ===
++The bot remembers the WHOLE chat session, not just the last 6 turns. Reuse conversation_state, no new dependencies.
++1. Full history: every turn stored, masked.
++2. Structured session state, updated each turn: active case + party (by applicant/co-applicant ID), issues/documents last shown, uploads in this chat and their latest results, the pending question + offered options, language preference.
++3. Rolling summary: older turns compressed into a short factual summary (deterministic where possible).
++4. The router gets summary + state + last 6 turns, never the full raw history (CPU speed).
++5. Lifetime: the whole session. Replace the 30-min TTL with a configurable 24-hour inactivity timeout. A new chat starts fresh.
++Must work:
++- "LN1023 ka status" → later "uske docs?" → uses LN1023
++- PAN mismatch shown → user uploads PAN → "ab theek hai?" → re-checks PAN
++- "co-applicant ka dikhao" → later "aur applicant ka?" → switches party
++- 20+ messages later: "pehle wala case" → remembers
++- After an upload: "aur kya baaki?" → excludes what was just verified
++
++=== 6. DOCUMENT & STAGE RULES ===
++- Co-applicant mandatory: PAN, address proof, employment proof (configurable).
++- Every co-applicant has their own ID, like the applicant (step 5d).
++- Signature mandatory (new cases only, from activation_date), presence check only, no matching.
++- FOS → CPA only when KYC passes for all parties (name, DOB, address, PAN, father's name; income excluded).
++- Qwen router is ON by default; its flag is only an emergency kill-switch; the low-memory guard falls back to the fast lane.
++
++Implementation: sections 1–2 into the templates; sections 3 and 5 in step 6; section 4 extends step 4's view.
++Testing in step 8: 40+ real phrasings including yes/no replies, option picks, corrections, typos and Hinglish, with accuracy per category.

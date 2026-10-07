@@ -1,0 +1,46 @@
+{
+  "run_id": "BF-20261007T055418-9C73",
+  "backup_file": "C:\\Users\\ET0002183\\AppData\\Local\\Temp\\pytest-of-ET0002183\\pytest-1806\\test_apply_then_revert_round_t0\\los_test.dump",
+  "actions": [
+    {
+      "remap_id": "2dd0594bee9c4cb397a80e1d7835a443",
+      "run_id": "BF-20261007T055418-9C73",
+      "action": "REMAP_ID",
+      "case_id": "CASE-97B74545E967",
+      "old_id": "COAPP-J1",
+      "new_id": "COAPP-4B6CFAC9007A",
+      "detail": "{\"case_id\": \"CASE-97B74545E967\", \"old_id\": \"COAPP-J1\", \"new_id\": \"COAPP-4B6CFAC9007A\", \"kept_on\": \"CASE-2A65DEAF84E5\", \"rows\": {\"applications\": 1, \"documents\": 2, \"case_findings\": 1, \"document_versions\": 0, \"case_events\": 0, \"ocr_jobs\": 0}, \"append_only_rows_left_on_old_id\": {\"jev_runs\": 0}}",
+      "applied_at": "2026-10-07T05:54:18.833616+00:00"
+    },
+    {
+      "remap_id": "bfa6facf0b7b4dbe80beedb9c0686130",
+      "run_id": "BF-20261007T055418-9C73",
+      "action": "INSERT_CO_APPLICANT",
+      "case_id": "CASE-2A65DEAF84E5",
+      "old_id": null,
+      "new_id": "COAPP-J1",
+      "detail": "{\"case_id\": \"CASE-2A65DEAF84E5\", \"applicant_id\": \"APP-B3BBB7B0806B\", \"co_applicant_id\": \"COAPP-J1\", \"also_an_applicant_id\": false, \"name_filled\": true}",
+      "applied_at": "2026-10-07T05:54:18.833616+00:00"
+    },
+    {
+      "remap_id": "7c428852c8dd4604b5403632909f30ed",
+      "run_id": "BF-20261007T055418-9C73",
+      "action": "INSERT_CO_APPLICANT",
+      "case_id": "CASE-97B74545E967",
+      "old_id": null,
+      "new_id": "COAPP-4B6CFAC9007A",
+      "detail": "{\"case_id\": \"CASE-97B74545E967\", \"applicant_id\": \"APP-DB473C26EC6A\", \"co_applicant_id\": \"COAPP-4B6CFAC9007A\", \"also_an_applicant_id\": false, \"name_filled\": true}",
+      "applied_at": "2026-10-07T05:54:18.833616+00:00"
+    },
+    {
+      "remap_id": "0a3a4973499340a19037149419a8ce3b",
+      "run_id": "BF-20261007T055418-9C73",
+      "action": "REVOKE_GRANT",
+      "case_id": null,
+      "old_id": "COAPP-J1",
+      "new_id": null,
+      "detail": "{\"subject\": \"joiner\", \"resource_type\": \"APPLICANT\", \"resource_id\": \"COAPP-J1\", \"granted_at\": \"2026-10-07T05:54:18.800584+00:00\"}",
+      "applied_at": "2026-10-07T05:54:18.833616+00:00"
+    }
+  ]
+}

@@ -250,7 +250,18 @@ def build(envelope: dict[str, Any]) -> dict[str, Any]:
     kind = _response_type(envelope, status)
     language = (contract or {}).get("reply_language") or envelope.get("language")
     next_action = _next_action(envelope, documents, actions)
+    extra = {}
+    if isinstance(envelope.get("document_actions"), dict):
+        # the documents that need action, grouped (answering/document_actions.py) -- only when built
+        extra["document_actions"] = envelope["document_actions"]
+    if isinstance(envelope.get("workspace_view"), dict):
+        # the case workspace (6-MVP; capabilities/workspace.py): case_list / counts / workspace -- only when built
+        extra.update(envelope["workspace_view"])
+    if "answer_markdown" in envelope:
+        # bold key words, three ways (answering/emphasis.py) -- only when built
+        extra.update({k: envelope[k] for k in ("emphasis", "answer_markdown", "answer_plain")})
     return {
+        **extra,
         "message": message or None,
         "intent": envelope.get("intent"),
         "response_type": kind,

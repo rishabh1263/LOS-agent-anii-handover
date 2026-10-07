@@ -176,6 +176,42 @@ def maker_checker_off_by_default(monkeypatch, request):
 
 
 @pytest.fixture(autouse=True)
+def stage_rules_off_by_default(monkeypatch):
+    """
+    The Phase 3 stage rules are OFF in every test unless the test opts in
+    (monkeypatch.setenv(...) inside the test, as test_fos_cpa_kyc_rule.py does):
+
+      LOS_STAGE_GATE_IN_SERVICE  gate enforced inside stage_lifecycle.transition
+      LOS_FOS_CPA_KYC_RULE       FOS -> CPA also requires full KYC
+
+    main.py loads .env at import, so a developer's local flag would otherwise
+    reach every test -- and the suites that set up later-stage fixtures with a
+    bare OVERRIDE (maker-checker is off above) would be refused. Pinned here,
+    existing suites keep testing what they were written for.
+    """
+    monkeypatch.setenv("LOS_STAGE_GATE_IN_SERVICE", "false")
+    monkeypatch.setenv("LOS_FOS_CPA_KYC_RULE", "false")
+
+
+@pytest.fixture(autouse=True)
+def llm_router_off_by_default(monkeypatch):
+    """
+    The LLM router (step 6b) is ON by default in the service, so a test run on a
+    machine with Ollama up would call the real model: slow, nondeterministic,
+    and it breaks the rule never to run tests beside the live model. Pinned OFF
+    here; the router tests opt in with a fake model (test_step6b_llm_router.py).
+    The decision and knowledge caches are emptied so no test sees another's.
+    """
+    monkeypatch.setenv("COPILOT_LLM_ROUTER", "false")
+    monkeypatch.delenv("COPILOT_UNDERSTANDING_LLM", raising=False)
+    from app.agents.applicant.copilot import agent as _agent
+    from app.agents.applicant.copilot.semantics import llm_router as _router
+
+    _router.clear_cache()
+    _agent.KNOWLEDGE_ANSWERS.clear()
+
+
+@pytest.fixture(autouse=True)
 def deterministic_summary_by_default(monkeypatch):
     """
     No test reaches a real language model unless it asks to.
