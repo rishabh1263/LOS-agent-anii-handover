@@ -692,6 +692,19 @@ def resolve_names(message: str, parties: list["Party"], names: dict[str, str]) -
     return {"role": None}
 
 
+def carried(message: str, last_subject: str | None) -> "Kind | None":
+    """
+    A THIRD-PERSON PRONOUN after an answer about the co-applicant means the co-applicant
+    ("uska kya baaki hai?"). The pronouns are semantic_concepts.yaml THIRD_PERSON
+    (6b-fastlane-fix); a role named in the message always wins over this.
+    """
+    if str(last_subject or "").upper() != "CO_APPLICANT":
+        return None
+    from app.agents.applicant.copilot.semantics import semantic_frame as _sf
+
+    return Kind.CO if any(c == "THIRD_PERSON" for _, c in _sf.concepts_in(message)) else None
+
+
 def party_question(message: str, classification: Any) -> Any | None:
     """
     A question NAMING the co-applicant (or both) that asks for a person's
@@ -706,6 +719,17 @@ def party_question(message: str, classification: Any) -> Any | None:
             and not re.search(r"\bdecision\b", text, _I):
         return _intents.Classification(Intent.KYC_RESULT, matched_on="party_kyc",
                                        fields={"want": _intents.kyc_want(text)},
+                                       frame=getattr(classification, "frame", None))
+    # A PARTY'S STATUS ("co-applicant ka kya status hai?", "documents ka kya scene hai
+    # co-applicant ke") is what is pending for them -- KYC issues and documents -- not the
+    # list of what they uploaded (6b-fastlane-fix; STATUS words in semantic_concepts.yaml).
+    from app.agents.applicant.copilot.semantics import semantic_frame as _sf
+
+    if any(concept == "STATUS" for _, concept in _sf.concepts_in(text)):
+        if _DOCUMENT_NOUN.search(text):
+            return _intents.Classification(Intent.DOCUMENTS_PENDING, matched_on="party_documents_status",
+                                           frame=getattr(classification, "frame", None))
+        return _intents.Classification(Intent.PENDING_ITEMS, matched_on="party_status",
                                        frame=getattr(classification, "frame", None))
     intent = classification.intent
     profile_like = intent in (Intent.UNKNOWN, Intent.APPLICANT_PROFILE, Intent.APPLICANT_DETAILS,

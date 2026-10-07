@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FOS Copilot reference widget</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --muted:#677084; --line:#dde1e8; --accent:#1f6feb; }
+  * { box-sizing:border-box } body { margin:0; font:15px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--ink) }
+  header { padding:12px 16px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:8px; flex-wrap:wrap }
+  header input { flex:1 1 200px; padding:6px 8px; border:1px solid var(--line); border-radius:6px }
+  #log { padding:16px; max-width:820px; margin:0 auto 140px }
+  .msg { margin:10px 0; padding:10px 12px; border-radius:10px; background:var(--card); border:1px solid var(--line); white-space:pre-wrap }
+  .me { background:#e8f0fe; border-color:#c6d8fc; margin-left:20% }
+  .status { color:var(--muted); font-style:italic }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:8px; margin-top:8px }
+  .card { padding:10px; border:1px solid var(--line); border-radius:8px; background:#fff; cursor:pointer }
+  .card:hover { border-color:var(--accent) } .card b { display:block }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px }
+  button, .chip { padding:6px 10px; border-radius:16px; border:1px solid var(--line); background:#fff; cursor:pointer }
+  .ws { position:sticky; top:0; background:#fffbe6; border:1px solid #f0d878; padding:8px 12px; border-radius:8px; margin-bottom:8px }
+  footer { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--line); padding:10px 16px }
+  footer form { display:flex; gap:8px; max-width:820px; margin:0 auto } footer input { flex:1; padding:10px; border-radius:8px; border:1px solid var(--line) }
+</style>
+</head>
+<body>
+<!-- REFERENCE ONLY: shows how to render the contract in docs/frontend/FRONTEND_API.md. Not production UI. -->
+<header>
+  <input id="base" placeholder="API base, e.g. http://127.0.0.1:8010" value="http://127.0.0.1:8010">
+  <input id="token" placeholder="JWT (Bearer token)">
+  <input id="applicant" placeholder="applicant_id (optional in the workspace)">
+  <label><input type="checkbox" id="stream"> stream</label>
+  <button onclick="send({action:'LIST_CASES'}, 'My cases')">📂 My cases</button>
+</header>
+<div id="log"><div id="ws"></div></div>
+<footer><form onsubmit="event.preventDefault(); const t=q.value.trim(); if(t){ send({action:'CUSTOM_QUERY', message:t}, t); q.value=''; }">
+  <input id="q" placeholder="Ask… (e.g. mere cases dikhao)"><button>Send</button></form></footer>
+<script>
+let context = null, caseId = null;
+const $ = (id) => document.getElementById(id);
+const md = (s) => (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+function bubble(html, cls='msg') { const d=document.createElement('div'); d.className=cls; d.innerHTML=html; $('log').appendChild(d); window.scrollTo(0, document.body.scrollHeight); return d; }
+function headers() { return {'Content-Type':'application/json', 'Authorization':'Bearer ' + $('token').value.trim()}; }
+
+async function send(extra, shown) {
+  if (shown) bubble(md(shown), 'msg me');
+  const body = {action:'CUSTOM_QUERY', ...extra, context};
+  if ($('applicant').value.trim()) body.applicant_id = $('applicant').value.trim();
+  // inside a case nothing else is needed: the server's workspace supplies case_id / applicant_id
+  if ($('stream').checked) return stream(body);
+  const r = await fetch($('base').value + '/api/v1/fos/copilot', {method:'POST', headers:headers(), body:JSON.stringify(body)});
+  const data = await r.json();
+  if (!r.ok) return bubble('⚠️ ' + md((data.detail && data.detail.message) || r.status));
+  render(data);
+}
+
+async function stream(body) {
+  const status = bubble('…', 'msg status');
+  const r = await fetch($('base').value + '/api/v1/fos/copilot/stream', {method:'POST', headers:headers(), body:JSON.stringify(body)});
+  const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+  for (;;) {
+    const {value, done} = await reader.read(); if (done) break;
+    buf += dec.decode(value, {stream:true});
+    let i; while ((i = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, i); buf = buf.slice(i + 2);
+      const ev = (block.match(/^event: (.*)$/m) || [])[1], data = JSON.parse((block.match(/^data: (.*)$/m) || [,'{}'])[1]);
+      if (ev === 'status') status.textContent = data.text;
+      if (ev === 'answer') { status.remove(); render(data); }
+      if (ev === 'error') { status.remove(); bubble('⚠️ ' + md((data.detail && data.detail.message) || data.status)); }
+    }
+  }
+}
+
+function chip(label, onClick) { const b=document.createElement('button'); b.className='chip'; b.textContent=label; b.onclick=onClick; return b; }
+
+function render(data) {
+  context = data.context || context;
+  const box = bubble(md(data.answer_markdown || data.answer));
+  const p = data.presentation || {};
+  // case list -> clickable cards (OPEN_CASE)
+  if (Array.isArray(p.case_list) && p.case_list.length) {
+    const grid = document.createElement('div'); grid.className = 'cards';
+    for (const row of p.case_list) {
+      const c = document.createElement('div'); c.className = 'card';
+      c.innerHTML = `<b>${row.number ? row.number + '. ' : ''}${row.case_id}</b>${row.applicant_name || ''}<br>📍 ${row.stage || ''} · ${row.status_label || ''}`;
+      c.onclick = () => send({action:'OPEN_CASE', case_id: row.action.case_id}, 'Open ' + row.case_id);
+      grid.appendChild(c);
+    }
+    box.appendChild(grid);
+  }
+  // inside a case: header + buttons
+  if (p.workspace) {
+    caseId = p.workspace.case_id;
+    const ws = $('ws'); ws.className = 'ws'; ws.innerHTML = `<b>${p.workspace.header}</b> `;
+    for (const b of p.workspace.buttons) ws.appendChild(chip(b.label, () =>
+      b.type === 'exit_case' ? send({action:'EXIT_CASE'}, 'Exit') :
+      b.type === 'switch_case' ? send({action:'LIST_CASES'}, 'Switch case') : send({action:'CUSTOM_QUERY', message:b.message}, b.message)));
+  } else if (['CASE_LIST'].includes(data.intent)) { caseId = null; $('ws').className = ''; $('ws').innerHTML = ''; }
+  // clarifying options / suggestions -> chips
+  const options = (data.clarification_required && data.clarification_required.options) || data.suggested_questions || [];
+  if (options.length) { const row = document.createElement('div'); row.className = 'chips';
+    options.forEach((o) => row.appendChild(chip(o, () => send({action:'CUSTOM_QUERY', message:o}, o)))); box.appendChild(row); }
+  // action buttons
+  const acts = data.actions || [];
+  if (acts.length) { const row = document.createElement('div'); row.className = 'chips';
+    for (const a of acts) {
+      if (a.type === 'OPEN_URL') row.appendChild(chip('👁️ View', async () => {
+        const r = await fetch($('base').value + a.url, {headers:headers()});
+        if (!r.ok) return bubble('⚠️ link expired'); window.open(URL.createObjectURL(await r.blob())); }));
+      if (a.type === 'RAISE_QUERY') row.appendChild(chip(a.label, () => {
+        const query = {...a.query}; if (a.editable) { const t = prompt('Edit the query', query.text); if (!t) return; query.text = t; }
+        send({action:'RAISE_QUERY', confirm:true, query}, 'Send query'); }));
+      if (a.type === 'MARK_QUERY_SENT') { row.appendChild(chip('📋 Copy', () => navigator.clipboard.writeText(a.copy_text || '')));
+        row.appendChild(chip('✅ Mark as sent', () => send({action:'MARK_QUERY_SENT', query_id:a.query_id}, 'Marked as sent'))); }
+      if (a.type === 'OPEN_UI_NEW_CASE') row.appendChild(chip('➕ New case', () => alert('Open your new-case form here.')));
+    }
+    box.appendChild(row); }
+  // documents that need action -> a view button per document
+  const da = data.document_actions;
+  if (da) { const row = document.createElement('div'); row.className = 'chips';
+    for (const r of [...(da.reupload || []), ...(da.under_review || [])]) if (r.document_id)
+      row.appendChild(chip('👁️ ' + r.label, () => send({action:'VIEW_DOCUMENT', document_id:r.document_id}, 'View ' + r.label)));
+    if (row.children.length) box.appendChild(row); }
+  if (data.retry_after_seconds) { $('q').disabled = true; setTimeout(() => $('q').disabled = false, data.retry_after_seconds * 1000); }
+}
+</script>
+</body>
+</html>

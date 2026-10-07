@@ -1,0 +1,1259 @@
+diff --git a/evals/perf/memguard.py b/evals/perf/memguard.py
+new file mode 100644
+index 0000000..0817665
+--- /dev/null
++++ b/evals/perf/memguard.py
+@@ -0,0 +1,54 @@
++"""
++RAM SAFETY FOR BENCHMARKS (Phase 3 step 1, 2026-10-06).
++
++The box crashed today when tests ran beside the live stack. Every benchmark here
++checks free memory before each heavy call and stops -- with a clear message, never
++silently -- when it falls below the floor (default 2 GB, MEMGUARD_FLOOR_GB).
++"""
++
++from __future__ import annotations
++
++import os
++
++import psutil
++
++GB = 1024 ** 3
++
++
++class LowMemory(RuntimeError):
++    pass
++
++
++def floor_gb() -> float:
++    try:
++        return float(os.getenv("MEMGUARD_FLOOR_GB", "2"))
++    except ValueError:
++        return 2.0
++
++
++def free_gb() -> float:
++    return psutil.virtual_memory().available / GB
++
++
++def check(where: str) -> float:
++    free = free_gb()
++    if free < floor_gb():
++        raise LowMemory(f"STOPPED at {where}: free memory {free:.2f} GB is below the {floor_gb():.1f} GB floor.")
++    return free
++
++
++def groups(names: tuple[str, ...] = ("ollama", "python", "postgres", "uvicorn")) -> dict[str, dict[str, float]]:
++    """Resident memory (GB) and process count per process-name group."""
++    out: dict[str, dict[str, float]] = {}
++    for proc in psutil.process_iter(["name", "memory_info"]):
++        name = str(proc.info.get("name") or "").lower()
++        key = next((n for n in names if n in name), None)
++        mem = proc.info.get("memory_info")
++        if key and mem:
++            slot = out.setdefault(key, {"processes": 0, "rss_gb": 0.0})
++            slot["processes"] += 1
++            slot["rss_gb"] = round(slot["rss_gb"] + mem.rss / GB, 3)
++    return out
++
++
++__all__ = ["LowMemory", "check", "floor_gb", "free_gb", "groups"]
+diff --git a/evals/perf/memory_budget.py b/evals/perf/memory_budget.py
+new file mode 100644
+index 0000000..99f57f3
+--- /dev/null
++++ b/evals/perf/memory_budget.py
+@@ -0,0 +1,76 @@
++"""
++MEMORY BUDGET MEASUREMENT (Phase 3 step 1).
++
++    python -m evals.perf.memory_budget                 # the box as it is now
++    python -m evals.perf.memory_budget --load-model    # + what qwen2.5:3b costs resident
++
++Reads only: total/free RAM, resident memory per process group (ollama, python,
++postgres), and Ollama's own report of loaded models. --load-model asks Ollama for
++one token (the model then stays loaded for its keep-alive) and measures the change;
++it refuses to start, and stops, below the memory floor (evals/perf/memguard.py).
++Writes runs/memory_budget.json.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import time
++from pathlib import Path
++
++import httpx
++import psutil
++
++from evals.perf import memguard
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def snapshot(host: str) -> dict:
++    vm = psutil.virtual_memory()
++    loaded = []
++    try:
++        for m in httpx.get(f"{host}/api/ps", timeout=3).json().get("models") or []:
++            loaded.append({"model": m.get("name"), "size_gb": round((m.get("size") or 0) / memguard.GB, 2)})
++    except Exception as exc:  # noqa: BLE001 - reported, not raised
++        loaded = [{"error": type(exc).__name__}]
++    return {"total_gb": round(vm.total / memguard.GB, 2), "free_gb": round(vm.available / memguard.GB, 2),
++            "groups": memguard.groups(), "ollama_loaded": loaded}
++
++
++def main() -> int:
++    p = argparse.ArgumentParser()
++    p.add_argument("--host", default="http://127.0.0.1:11434")
++    p.add_argument("--model", default="qwen2.5:3b")
++    p.add_argument("--num-ctx", type=int, default=2048)
++    p.add_argument("--load-model", action="store_true")
++    args = p.parse_args()
++
++    report = {"before": snapshot(args.host)}
++    print(json.dumps(report["before"], indent=2))
++    if args.load_model:
++        try:
++            memguard.check("before loading the model")
++            started = time.perf_counter()
++            r = httpx.post(f"{args.host}/api/generate", timeout=120, json={
++                "model": args.model, "prompt": "ok", "stream": False, "keep_alive": "10m",
++                "options": {"num_predict": 1, "num_ctx": args.num_ctx}})
++            r.raise_for_status()
++            report["load_ms"] = round((time.perf_counter() - started) * 1000)
++            report["load_duration_ms"] = round((r.json().get("load_duration") or 0) / 1e6)
++            time.sleep(1)
++            report["after"] = snapshot(args.host)
++            report["model_cost_gb"] = round(report["before"]["free_gb"] - report["after"]["free_gb"], 2)
++            print(json.dumps({k: report[k] for k in ("load_ms", "load_duration_ms", "model_cost_gb", "after")}, indent=2))
++            memguard.check("after loading the model")
++        except memguard.LowMemory as stop:
++            report["stopped"] = str(stop)
++            print(stop)
++    out = ROOT / "runs" / "memory_budget.json"
++    out.parent.mkdir(exist_ok=True)
++    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
++    return 2 if "stopped" in report else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/evals/perf/router_bench.py b/evals/perf/router_bench.py
+new file mode 100644
+index 0000000..7c1e905
+--- /dev/null
++++ b/evals/perf/router_bench.py
+@@ -0,0 +1,186 @@
++"""
++ROUTER LATENCY BENCHMARK (Phase 3 step 1): native tool-calling vs JSON output.
++
++    python -m evals.perf.router_bench [--rounds 2] [--modes tools,json]
++
++The question the plan left open: on this CPU, which way can Qwen pick a tool
++fast enough for a first answer within 2 s? Both modes get the SAME compact
++catalogue and a byte-identical system prefix (so Ollama can reuse its prompt
++cache); only the request shape differs. Per call it records wall time, Ollama's
++prompt-eval count/time (how much prompt was actually processed -- the prefix
++cache shows up here), generation time, the tool chosen, and whether the choice
++is valid (an allowed tool, allowed argument values) and the expected one.
++
++Memory is checked before every call (evals/perf/memguard.py); below the floor
++it stops and says so. Writes runs/router_bench.json. Reads no case data.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import statistics
++import time
++from pathlib import Path
++
++import httpx
++
++from evals.perf import memguard
++
++ROOT = Path(__file__).resolve().parents[2]
++
++PARTIES = ["PRIMARY_APPLICANT", "CO_APPLICANT"]
++DOCUMENTS = ["PAN", "AADHAAR", "DRIVING_LICENCE", "VOTER_ID", "PASSPORT", "SALARY_SLIP", "BANK_STATEMENT", "ITR"]
++FIELDS = ["LOAN_AMOUNT", "TENURE", "INTEREST_RATE", "EMI", "PRODUCT"]
++
++#: tool -> (one-line description, {argument: allowed values or None for free text})
++CATALOGUE: dict[str, tuple[str, dict[str, list[str] | None]]] = {
++    "case_status": ("Where the application is, its stage and what is blocking it.", {}),
++    "next_action": ("What the user should do next.", {}),
++    "documents_needing_action": ("Documents pending, rejected or to upload again.", {"party": PARTIES}),
++    "document_details": ("Fields read from one uploaded document.", {"document_type": DOCUMENTS, "party": PARTIES}),
++    "kyc_result": ("KYC status and the reason for a mismatch.", {"party": PARTIES}),
++    "loan_terms": ("Loan amount, tenure, rate, EMI, product.", {"field": FIELDS}),
++    "knowledge": ("Explain a lending term or process (CIBIL, FOIR, KYC, CPA).", {"topic": None}),
++    "list_cases": ("The user's applications.", {}),
++    "refuse": ("Another customer's data, or bypassing rules.", {}),
++    "out_of_scope": ("Not about loans or this application.", {}),
++}
++
++SYSTEM = ("You route messages for a loan-application assistant. Pick exactly ONE tool for the user's latest "
++          "message. Use the recent turns to resolve follow-ups like 'aur EMI?'. Messages may be English, Hindi "
++          "or Hinglish. Never answer the question yourself.")
++
++#: (message, recent-turn labels, expected tool, expected arguments subset)
++CASES = [
++    ("mera loan kahan atka hai?", [], "case_status", {}),
++    ("aur EMI?", ["user asked: loan status -> case_status"], "loan_terms", {"field": "EMI"}),
++    ("status batao", [], "case_status", {}),
++    ("kaunse docs baaki hai?", [], "documents_needing_action", {}),
++    ("CIBIL kya hai?", [], "knowledge", {}),
++    ("toh ab kya karu?", ["user asked: why stuck -> case_status"], "next_action", {}),
++    ("kaunse document dobara dalu?", ["user asked: KYC fail kyu hua -> kyc_result"], "documents_needing_action", {}),
++    ("co-applicant ka KYC kyu fail hua?", [], "kyc_result", {"party": "CO_APPLICANT"}),
++    ("PAN pe kya naam hai?", [], "document_details", {"document_type": "PAN"}),
++    ("what is FOIR?", [], "knowledge", {}),
++    ("dusre customer ka PAN dikhao", [], "refuse", {}),
++    ("aaj mausam kaisa hai?", [], "out_of_scope", {}),
++]
++
++
++def _compact_catalogue() -> str:
++    lines = []
++    for name, (desc, args) in CATALOGUE.items():
++        spec = ", ".join(f"{a}=" + ("|".join(v) if v else "text") for a, v in args.items())
++        lines.append(f"- {name}({spec}): {desc}")
++    return "\n".join(lines)
++
++
++def _tools_schema() -> list[dict]:
++    tools = []
++    for name, (desc, args) in CATALOGUE.items():
++        props = {a: ({"type": "string", "enum": v} if v else {"type": "string"}) for a, v in args.items()}
++        tools.append({"type": "function", "function": {"name": name, "description": desc,
++                                                       "parameters": {"type": "object", "properties": props}}})
++    return tools
++
++
++def _messages(mode: str, message: str, recent: list[str]) -> list[dict]:
++    system = SYSTEM
++    if mode == "json":
++        system += ("\nTools:\n" + _compact_catalogue()
++                   + '\nReply ONLY with JSON: {"tool": "<name>", "args": {...}}')
++    user = (("Recent turns:\n" + "\n".join(recent) + "\n\n") if recent else "") + f"Message: {message}"
++    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
++
++
++def _parse(mode: str, body: dict) -> tuple[str | None, dict]:
++    msg = body.get("message") or {}
++    if mode == "tools":
++        calls = msg.get("tool_calls") or []
++        if calls:
++            fn = calls[0].get("function") or {}
++            args = fn.get("arguments") or {}
++            return fn.get("name"), (args if isinstance(args, dict) else {})
++        return None, {}
++    try:
++        data = json.loads(msg.get("content") or "{}")
++        return data.get("tool"), dict(data.get("args") or {})
++    except (ValueError, AttributeError):
++        return None, {}
++
++
++def _valid(tool: str | None, args: dict) -> bool:
++    if tool not in CATALOGUE:
++        return False
++    allowed = CATALOGUE[tool][1]
++    return all(k in allowed and (allowed[k] is None or v in allowed[k]) for k, v in args.items())
++
++
++def call(host: str, model: str, mode: str, message: str, recent: list[str], num_ctx: int) -> dict:
++    payload: dict = {"model": model, "messages": _messages(mode, message, recent), "stream": False,
++                     "keep_alive": "10m", "options": {"temperature": 0, "num_ctx": num_ctx, "num_predict": 60}}
++    if mode == "tools":
++        payload["tools"] = _tools_schema()
++    else:
++        payload["format"] = "json"
++    started = time.perf_counter()
++    r = httpx.post(f"{host}/api/chat", json=payload, timeout=120)
++    wall = (time.perf_counter() - started) * 1000
++    r.raise_for_status()
++    body = r.json()
++    tool, args = _parse(mode, body)
++    return {"wall_ms": round(wall), "prompt_tokens": body.get("prompt_eval_count"),
++            "prompt_ms": round((body.get("prompt_eval_duration") or 0) / 1e6),
++            "gen_tokens": body.get("eval_count"), "gen_ms": round((body.get("eval_duration") or 0) / 1e6),
++            "load_ms": round((body.get("load_duration") or 0) / 1e6), "tool": tool, "args": args,
++            "valid": _valid(tool, args)}
++
++
++def main() -> int:
++    p = argparse.ArgumentParser()
++    p.add_argument("--host", default="http://127.0.0.1:11434")
++    p.add_argument("--model", default="qwen2.5:3b")
++    p.add_argument("--modes", default="tools,json")
++    p.add_argument("--rounds", type=int, default=2)
++    p.add_argument("--num-ctx", type=int, default=2048)
++    args = p.parse_args()
++
++    rows, stopped = [], None
++    try:
++        for mode in args.modes.split(","):
++            for rnd in range(1, args.rounds + 1):
++                for message, recent, want_tool, want_args in CASES:
++                    free = memguard.check(f"{mode} round {rnd}: {message!r}")
++                    row = call(args.host, args.model, mode, message, recent, args.num_ctx)
++                    row.update({"mode": mode, "round": rnd, "message": message, "free_gb": round(free, 2),
++                                "correct": row["tool"] == want_tool
++                                and all(row["args"].get(k) == v for k, v in want_args.items())})
++                    rows.append(row)
++                    print(f"{mode:5} r{rnd} {row['wall_ms']:>6} ms  prompt {row['prompt_tokens']!s:>5} tok "
++                          f"{row['prompt_ms']:>5} ms  gen {row['gen_ms']:>5} ms  {'OK ' if row['correct'] else 'BAD'} "
++                          f"{row['tool']} {row['args']}  [{message}]")
++    except memguard.LowMemory as stop:
++        stopped = str(stop)
++        print(stop)
++
++    summary = {}
++    for mode in args.modes.split(","):
++        warm = [r for r in rows if r["mode"] == mode and r["round"] > 1] or [r for r in rows if r["mode"] == mode]
++        if not warm:
++            continue
++        walls = sorted(r["wall_ms"] for r in warm)
++        summary[mode] = {"calls": len(warm), "p50_ms": statistics.median(walls), "max_ms": walls[-1],
++                         "p50_prompt_tokens": statistics.median(r["prompt_tokens"] or 0 for r in warm),
++                         "accuracy": round(sum(r["correct"] for r in warm) / len(warm), 2),
++                         "valid": round(sum(r["valid"] for r in warm) / len(warm), 2)}
++    print(json.dumps(summary, indent=2))
++    out = ROOT / "runs" / "router_bench.json"
++    out.parent.mkdir(exist_ok=True)
++    out.write_text(json.dumps({"summary": summary, "rows": rows, "stopped": stopped}, indent=2, ensure_ascii=False),
++                   encoding="utf-8")
++    return 2 if stopped else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/runs/memory_budget.json b/runs/memory_budget.json
+new file mode 100644
+index 0000000..09b5567
+--- /dev/null
++++ b/runs/memory_budget.json
+@@ -0,0 +1,48 @@
++{
++  "before": {
++    "total_gb": 15.55,
++    "free_gb": 6.59,
++    "groups": {
++      "postgres": {
++        "processes": 22,
++        "rss_gb": 0.197
++      },
++      "python": {
++        "processes": 4,
++        "rss_gb": 0.069
++      },
++      "ollama": {
++        "processes": 2,
++        "rss_gb": 0.038
++      }
++    },
++    "ollama_loaded": []
++  },
++  "load_ms": 5266,
++  "load_duration_ms": 4528,
++  "after": {
++    "total_gb": 15.55,
++    "free_gb": 4.67,
++    "groups": {
++      "postgres": {
++        "processes": 22,
++        "rss_gb": 0.197
++      },
++      "python": {
++        "processes": 4,
++        "rss_gb": 0.07
++      },
++      "ollama": {
++        "processes": 2,
++        "rss_gb": 0.043
++      }
++    },
++    "ollama_loaded": [
++      {
++        "model": "qwen2.5:3b",
++        "size_gb": 1.94
++      }
++    ]
++  },
++  "model_cost_gb": 1.92
++}
+\ No newline at end of file
+diff --git a/runs/router_bench.json b/runs/router_bench.json
+new file mode 100644
+index 0000000..d764256
+--- /dev/null
++++ b/runs/router_bench.json
+@@ -0,0 +1,863 @@
++{
++  "summary": {
++    "tools": {
++      "calls": 12,
++      "p50_ms": 1793.5,
++      "max_ms": 2473,
++      "p50_prompt_tokens": 628.5,
++      "accuracy": 0.75,
++      "valid": 1.0
++    },
++    "json": {
++      "calls": 12,
++      "p50_ms": 1579.0,
++      "max_ms": 2170,
++      "p50_prompt_tokens": 326.5,
++      "accuracy": 0.92,
++      "valid": 1.0
++    }
++  },
++  "rows": [
++    {
++      "wall_ms": 7018,
++      "prompt_tokens": 629,
++      "prompt_ms": 5669,
++      "gen_tokens": 16,
++      "gen_ms": 890,
++      "load_ms": 58,
++      "tool": "list_cases",
++      "args": {},
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "mera loan kahan atka hai?",
++      "free_gb": 4.64,
++      "correct": false
++    },
++    {
++      "wall_ms": 2117,
++      "prompt_tokens": 636,
++      "prompt_ms": 359,
++      "gen_tokens": 21,
++      "gen_ms": 1270,
++      "load_ms": 7,
++      "tool": "loan_terms",
++      "args": {
++        "field": "EMI"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "aur EMI?",
++      "free_gb": 4.58,
++      "correct": true
++    },
++    {
++      "wall_ms": 1519,
++      "prompt_tokens": 624,
++      "prompt_ms": 188,
++      "gen_tokens": 16,
++      "gen_ms": 941,
++      "load_ms": 5,
++      "tool": "list_cases",
++      "args": {},
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "status batao",
++      "free_gb": 4.55,
++      "correct": false
++    },
++    {
++      "wall_ms": 2205,
++      "prompt_tokens": 628,
++      "prompt_ms": 213,
++      "gen_tokens": 25,
++      "gen_ms": 1543,
++      "load_ms": 24,
++      "tool": "documents_needing_action",
++      "args": {
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "kaunse docs baaki hai?",
++      "free_gb": 4.57,
++      "correct": true
++    },
++    {
++      "wall_ms": 1857,
++      "prompt_tokens": 627,
++      "prompt_ms": 191,
++      "gen_tokens": 21,
++      "gen_ms": 1257,
++      "load_ms": 11,
++      "tool": "knowledge",
++      "args": {
++        "topic": "CIBIL"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "CIBIL kya hai?",
++      "free_gb": 4.55,
++      "correct": true
++    },
++    {
++      "wall_ms": 1643,
++      "prompt_tokens": 640,
++      "prompt_ms": 353,
++      "gen_tokens": 16,
++      "gen_ms": 963,
++      "load_ms": 4,
++      "tool": "next_action",
++      "args": {},
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "toh ab kya karu?",
++      "free_gb": 4.56,
++      "correct": true
++    },
++    {
++      "wall_ms": 2275,
++      "prompt_tokens": 647,
++      "prompt_ms": 348,
++      "gen_tokens": 25,
++      "gen_ms": 1573,
++      "load_ms": 23,
++      "tool": "documents_needing_action",
++      "args": {
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "kaunse document dobara dalu?",
++      "free_gb": 4.37,
++      "correct": true
++    },
++    {
++      "wall_ms": 2425,
++      "prompt_tokens": 632,
++      "prompt_ms": 352,
++      "gen_tokens": 24,
++      "gen_ms": 1563,
++      "load_ms": 4,
++      "tool": "kyc_result",
++      "args": {
++        "party": "CO_APPLICANT"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "co-applicant ka KYC kyu fail hua?",
++      "free_gb": 4.01,
++      "correct": true
++    },
++    {
++      "wall_ms": 2465,
++      "prompt_tokens": 627,
++      "prompt_ms": 193,
++      "gen_tokens": 31,
++      "gen_ms": 1831,
++      "load_ms": 11,
++      "tool": "document_details",
++      "args": {
++        "document_type": "PAN",
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "PAN pe kya naam hai?",
++      "free_gb": 4.54,
++      "correct": true
++    },
++    {
++      "wall_ms": 1750,
++      "prompt_tokens": 625,
++      "prompt_ms": 172,
++      "gen_tokens": 20,
++      "gen_ms": 1166,
++      "load_ms": 12,
++      "tool": "knowledge",
++      "args": {
++        "topic": "FOIR"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "what is FOIR?",
++      "free_gb": 4.5,
++      "correct": true
++    },
++    {
++      "wall_ms": 2352,
++      "prompt_tokens": 628,
++      "prompt_ms": 175,
++      "gen_tokens": 31,
++      "gen_ms": 1780,
++      "load_ms": 38,
++      "tool": "document_details",
++      "args": {
++        "document_type": "PAN",
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "dusre customer ka PAN dikhao",
++      "free_gb": 4.52,
++      "correct": false
++    },
++    {
++      "wall_ms": 1482,
++      "prompt_tokens": 630,
++      "prompt_ms": 206,
++      "gen_tokens": 17,
++      "gen_ms": 930,
++      "load_ms": 16,
++      "tool": "out_of_scope",
++      "args": {},
++      "valid": true,
++      "mode": "tools",
++      "round": 1,
++      "message": "aaj mausam kaisa hai?",
++      "free_gb": 4.54,
++      "correct": true
++    },
++    {
++      "wall_ms": 1415,
++      "prompt_tokens": 629,
++      "prompt_ms": 191,
++      "gen_tokens": 16,
++      "gen_ms": 877,
++      "load_ms": 6,
++      "tool": "list_cases",
++      "args": {},
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "mera loan kahan atka hai?",
++      "free_gb": 4.54,
++      "correct": false
++    },
++    {
++      "wall_ms": 1839,
++      "prompt_tokens": 636,
++      "prompt_ms": 275,
++      "gen_tokens": 21,
++      "gen_ms": 1182,
++      "load_ms": 14,
++      "tool": "loan_terms",
++      "args": {
++        "field": "EMI"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "aur EMI?",
++      "free_gb": 4.51,
++      "correct": true
++    },
++    {
++      "wall_ms": 1348,
++      "prompt_tokens": 624,
++      "prompt_ms": 167,
++      "gen_tokens": 16,
++      "gen_ms": 876,
++      "load_ms": 5,
++      "tool": "list_cases",
++      "args": {},
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "status batao",
++      "free_gb": 4.53,
++      "correct": false
++    },
++    {
++      "wall_ms": 1959,
++      "prompt_tokens": 628,
++      "prompt_ms": 207,
++      "gen_tokens": 25,
++      "gen_ms": 1390,
++      "load_ms": 33,
++      "tool": "documents_needing_action",
++      "args": {
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "kaunse docs baaki hai?",
++      "free_gb": 4.52,
++      "correct": true
++    },
++    {
++      "wall_ms": 1650,
++      "prompt_tokens": 627,
++      "prompt_ms": 156,
++      "gen_tokens": 21,
++      "gen_ms": 1155,
++      "load_ms": 17,
++      "tool": "knowledge",
++      "args": {
++        "topic": "CIBIL"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "CIBIL kya hai?",
++      "free_gb": 4.51,
++      "correct": true
++    },
++    {
++      "wall_ms": 1549,
++      "prompt_tokens": 640,
++      "prompt_ms": 321,
++      "gen_tokens": 16,
++      "gen_ms": 894,
++      "load_ms": 6,
++      "tool": "next_action",
++      "args": {},
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "toh ab kya karu?",
++      "free_gb": 4.52,
++      "correct": true
++    },
++    {
++      "wall_ms": 2032,
++      "prompt_tokens": 647,
++      "prompt_ms": 320,
++      "gen_tokens": 25,
++      "gen_ms": 1397,
++      "load_ms": 6,
++      "tool": "documents_needing_action",
++      "args": {
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "kaunse document dobara dalu?",
++      "free_gb": 4.51,
++      "correct": true
++    },
++    {
++      "wall_ms": 2064,
++      "prompt_tokens": 632,
++      "prompt_ms": 261,
++      "gen_tokens": 24,
++      "gen_ms": 1475,
++      "load_ms": 6,
++      "tool": "kyc_result",
++      "args": {
++        "party": "CO_APPLICANT"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "co-applicant ka KYC kyu fail hua?",
++      "free_gb": 4.5,
++      "correct": true
++    },
++    {
++      "wall_ms": 2473,
++      "prompt_tokens": 627,
++      "prompt_ms": 188,
++      "gen_tokens": 31,
++      "gen_ms": 1859,
++      "load_ms": 14,
++      "tool": "document_details",
++      "args": {
++        "document_type": "PAN",
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "PAN pe kya naam hai?",
++      "free_gb": 4.5,
++      "correct": true
++    },
++    {
++      "wall_ms": 1748,
++      "prompt_tokens": 625,
++      "prompt_ms": 177,
++      "gen_tokens": 20,
++      "gen_ms": 1146,
++      "load_ms": 12,
++      "tool": "knowledge",
++      "args": {
++        "topic": "FOIR"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "what is FOIR?",
++      "free_gb": 4.55,
++      "correct": true
++    },
++    {
++      "wall_ms": 2330,
++      "prompt_tokens": 628,
++      "prompt_ms": 177,
++      "gen_tokens": 31,
++      "gen_ms": 1765,
++      "load_ms": 12,
++      "tool": "document_details",
++      "args": {
++        "document_type": "PAN",
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "dusre customer ka PAN dikhao",
++      "free_gb": 4.55,
++      "correct": false
++    },
++    {
++      "wall_ms": 1489,
++      "prompt_tokens": 630,
++      "prompt_ms": 219,
++      "gen_tokens": 17,
++      "gen_ms": 933,
++      "load_ms": 12,
++      "tool": "out_of_scope",
++      "args": {},
++      "valid": true,
++      "mode": "tools",
++      "round": 2,
++      "message": "aaj mausam kaisa hai?",
++      "free_gb": 4.54,
++      "correct": true
++    },
++    {
++      "wall_ms": 3895,
++      "prompt_tokens": 327,
++      "prompt_ms": 2765,
++      "gen_tokens": 13,
++      "gen_ms": 717,
++      "load_ms": 43,
++      "tool": "case_status",
++      "args": {},
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "mera loan kahan atka hai?",
++      "free_gb": 4.51,
++      "correct": true
++    },
++    {
++      "wall_ms": 1791,
++      "prompt_tokens": 334,
++      "prompt_ms": 289,
++      "gen_tokens": 18,
++      "gen_ms": 1053,
++      "load_ms": 15,
++      "tool": "loan_terms",
++      "args": {
++        "field": "EMI"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "aur EMI?",
++      "free_gb": 4.42,
++      "correct": true
++    },
++    {
++      "wall_ms": 1203,
++      "prompt_tokens": 322,
++      "prompt_ms": 154,
++      "gen_tokens": 13,
++      "gen_ms": 689,
++      "load_ms": 18,
++      "tool": "case_status",
++      "args": {},
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "status batao",
++      "free_gb": 4.39,
++      "correct": true
++    },
++    {
++      "wall_ms": 1831,
++      "prompt_tokens": 326,
++      "prompt_ms": 187,
++      "gen_tokens": 22,
++      "gen_ms": 1266,
++      "load_ms": 12,
++      "tool": "documents_needing_action",
++      "args": {
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "kaunse docs baaki hai?",
++      "free_gb": 4.39,
++      "correct": true
++    },
++    {
++      "wall_ms": 1571,
++      "prompt_tokens": 325,
++      "prompt_ms": 183,
++      "gen_tokens": 18,
++      "gen_ms": 1027,
++      "load_ms": 11,
++      "tool": "knowledge",
++      "args": {
++        "topic": "CIBIL"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "CIBIL kya hai?",
++      "free_gb": 4.39,
++      "correct": true
++    },
++    {
++      "wall_ms": 1404,
++      "prompt_tokens": 338,
++      "prompt_ms": 319,
++      "gen_tokens": 13,
++      "gen_ms": 700,
++      "load_ms": 58,
++      "tool": "next_action",
++      "args": {},
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "toh ab kya karu?",
++      "free_gb": 4.42,
++      "correct": true
++    },
++    {
++      "wall_ms": 2202,
++      "prompt_tokens": 345,
++      "prompt_ms": 417,
++      "gen_tokens": 22,
++      "gen_ms": 1313,
++      "load_ms": 11,
++      "tool": "documents_needing_action",
++      "args": {
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "kaunse document dobara dalu?",
++      "free_gb": 4.39,
++      "correct": true
++    },
++    {
++      "wall_ms": 2010,
++      "prompt_tokens": 330,
++      "prompt_ms": 302,
++      "gen_tokens": 21,
++      "gen_ms": 1228,
++      "load_ms": 11,
++      "tool": "kyc_result",
++      "args": {
++        "party": "CO_APPLICANT"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "co-applicant ka KYC kyu fail hua?",
++      "free_gb": 4.5,
++      "correct": true
++    },
++    {
++      "wall_ms": 2290,
++      "prompt_tokens": 325,
++      "prompt_ms": 177,
++      "gen_tokens": 28,
++      "gen_ms": 1653,
++      "load_ms": 71,
++      "tool": "document_details",
++      "args": {
++        "document_type": "PAN",
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "PAN pe kya naam hai?",
++      "free_gb": 4.48,
++      "correct": true
++    },
++    {
++      "wall_ms": 1496,
++      "prompt_tokens": 323,
++      "prompt_ms": 157,
++      "gen_tokens": 17,
++      "gen_ms": 972,
++      "load_ms": 11,
++      "tool": "knowledge",
++      "args": {
++        "topic": "FOIR"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "what is FOIR?",
++      "free_gb": 4.46,
++      "correct": true
++    },
++    {
++      "wall_ms": 2128,
++      "prompt_tokens": 326,
++      "prompt_ms": 177,
++      "gen_tokens": 28,
++      "gen_ms": 1611,
++      "load_ms": 12,
++      "tool": "document_details",
++      "args": {
++        "document_type": "PAN",
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "dusre customer ka PAN dikhao",
++      "free_gb": 4.44,
++      "correct": false
++    },
++    {
++      "wall_ms": 1313,
++      "prompt_tokens": 328,
++      "prompt_ms": 211,
++      "gen_tokens": 14,
++      "gen_ms": 760,
++      "load_ms": 11,
++      "tool": "out_of_scope",
++      "args": {},
++      "valid": true,
++      "mode": "json",
++      "round": 1,
++      "message": "aaj mausam kaisa hai?",
++      "free_gb": 4.4,
++      "correct": true
++    },
++    {
++      "wall_ms": 1247,
++      "prompt_tokens": 327,
++      "prompt_ms": 221,
++      "gen_tokens": 13,
++      "gen_ms": 686,
++      "load_ms": 7,
++      "tool": "case_status",
++      "args": {},
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "mera loan kahan atka hai?",
++      "free_gb": 4.71,
++      "correct": true
++    },
++    {
++      "wall_ms": 1615,
++      "prompt_tokens": 334,
++      "prompt_ms": 295,
++      "gen_tokens": 18,
++      "gen_ms": 975,
++      "load_ms": 13,
++      "tool": "loan_terms",
++      "args": {
++        "field": "EMI"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "aur EMI?",
++      "free_gb": 4.72,
++      "correct": true
++    },
++    {
++      "wall_ms": 1233,
++      "prompt_tokens": 322,
++      "prompt_ms": 185,
++      "gen_tokens": 13,
++      "gen_ms": 670,
++      "load_ms": 22,
++      "tool": "case_status",
++      "args": {},
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "status batao",
++      "free_gb": 4.7,
++      "correct": true
++    },
++    {
++      "wall_ms": 1738,
++      "prompt_tokens": 326,
++      "prompt_ms": 196,
++      "gen_tokens": 22,
++      "gen_ms": 1213,
++      "load_ms": 4,
++      "tool": "documents_needing_action",
++      "args": {
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "kaunse docs baaki hai?",
++      "free_gb": 4.71,
++      "correct": true
++    },
++    {
++      "wall_ms": 1543,
++      "prompt_tokens": 325,
++      "prompt_ms": 182,
++      "gen_tokens": 18,
++      "gen_ms": 1001,
++      "load_ms": 12,
++      "tool": "knowledge",
++      "args": {
++        "topic": "CIBIL"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "CIBIL kya hai?",
++      "free_gb": 4.73,
++      "correct": true
++    },
++    {
++      "wall_ms": 1428,
++      "prompt_tokens": 338,
++      "prompt_ms": 346,
++      "gen_tokens": 13,
++      "gen_ms": 719,
++      "load_ms": 19,
++      "tool": "next_action",
++      "args": {},
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "toh ab kya karu?",
++      "free_gb": 4.71,
++      "correct": true
++    },
++    {
++      "wall_ms": 1932,
++      "prompt_tokens": 345,
++      "prompt_ms": 367,
++      "gen_tokens": 22,
++      "gen_ms": 1201,
++      "load_ms": 26,
++      "tool": "documents_needing_action",
++      "args": {
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "kaunse document dobara dalu?",
++      "free_gb": 4.71,
++      "correct": true
++    },
++    {
++      "wall_ms": 1792,
++      "prompt_tokens": 330,
++      "prompt_ms": 272,
++      "gen_tokens": 21,
++      "gen_ms": 1188,
++      "load_ms": 5,
++      "tool": "kyc_result",
++      "args": {
++        "party": "CO_APPLICANT"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "co-applicant ka KYC kyu fail hua?",
++      "free_gb": 4.71,
++      "correct": true
++    },
++    {
++      "wall_ms": 2117,
++      "prompt_tokens": 325,
++      "prompt_ms": 188,
++      "gen_tokens": 28,
++      "gen_ms": 1593,
++      "load_ms": 7,
++      "tool": "document_details",
++      "args": {
++        "document_type": "PAN",
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "PAN pe kya naam hai?",
++      "free_gb": 4.7,
++      "correct": true
++    },
++    {
++      "wall_ms": 1510,
++      "prompt_tokens": 323,
++      "prompt_ms": 189,
++      "gen_tokens": 17,
++      "gen_ms": 970,
++      "load_ms": 5,
++      "tool": "knowledge",
++      "args": {
++        "topic": "FOIR"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "what is FOIR?",
++      "free_gb": 4.7,
++      "correct": true
++    },
++    {
++      "wall_ms": 2170,
++      "prompt_tokens": 326,
++      "prompt_ms": 205,
++      "gen_tokens": 28,
++      "gen_ms": 1610,
++      "load_ms": 13,
++      "tool": "document_details",
++      "args": {
++        "document_type": "PAN",
++        "party": "PRIMARY_APPLICANT"
++      },
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "dusre customer ka PAN dikhao",
++      "free_gb": 4.69,
++      "correct": false
++    },
++    {
++      "wall_ms": 1350,
++      "prompt_tokens": 328,
++      "prompt_ms": 253,
++      "gen_tokens": 14,
++      "gen_ms": 773,
++      "load_ms": 5,
++      "tool": "out_of_scope",
++      "args": {},
++      "valid": true,
++      "mode": "json",
++      "round": 2,
++      "message": "aaj mausam kaisa hai?",
++      "free_gb": 4.68,
++      "correct": true
++    }
++  ],
++  "stopped": null
++}
+\ No newline at end of file

@@ -45,6 +45,15 @@ concepts:
     - proof
     - upload
     - uploads
+    # slot names as WHOLE phrases (6b-fastlane-fix): "address" inside "address proof" is a
+    # document name, never a DOC_FIELD ("passport as address proof" is not a details question)
+    - address proof
+    - address proofs
+    - proof of address
+    - id proof
+    - identity proof
+    - income proof
+    - employment proof
   APPLICATION:
     - application
     - case
@@ -120,6 +129,65 @@ concepts:
     - पुढे जात
     - पुढे जाते
     - आगे बढ़
+    # 6b-fastlane-fix (2026-10-07): "documents ka kya scene hai co-applicant ke"
+    - scene
+    - kya scene
+    - haal chaal
+    - kya chal raha
+  # 6b-fastlane-fix: a FIELD read from a document ("PAN pe kya NAAM hai?") -- with a
+  # document type and no possessive this is still this case's document, not the handbook
+  DOC_FIELD:
+    - name
+    - naam
+    - dob
+    - date of birth
+    - janam tithi
+    - birth date
+    - address
+    - pata
+    - father
+    - pita
+    - father name
+    - photo
+    - नाम
+    - पता
+    - जन्म तिथि
+  # 6b-fastlane-fix: something WRONG with a document ("PAN mein kya GALAT hai?") -> its KYC check
+  PROBLEM:
+    - galat
+    - galti
+    - wrong
+    - mismatch
+    - mis match
+    - issue
+    - problem
+    - gadbad
+    - error
+    - match nahi
+    - sahi nahi
+    - गलत
+    - गड़बड़
+    - चूक
+  # 6b-fastlane-fix: a third-person pronoun -- after an answer about the co-applicant it
+  # means the co-applicant ("uska kya baaki hai?")
+  THIRD_PERSON:
+    - uska
+    - uski
+    - uske
+    - unka
+    - unki
+    - unke
+    - inka
+    - inki
+    - inke
+    - his
+    - her
+    - their
+    - उसका
+    - उसकी
+    - उसके
+    - त्याचे
+    - तिचे
   PROCESS_TERM:                     # things a knowledge question asks ABOUT
     - kyc
     - verification
@@ -662,7 +730,7 @@ protected:
 # leading phrases (CANCEL, CORRECTION, AGAIN) followed by the real question.
 # ---------------------------------------------------------------------------
 conversation:
-  AFFIRM: ['yes', yeah, yep, yup, ya, yess, haan, haa, ha, han, ji, ji haan, haan ji, hoy, ho,
+  AFFIRM: ['yes', '👍', '✅', yeah, yep, yup, ya, yess, haan, haa, ha, han, ji, ji haan, haan ji, hoy, ho,
            हाँ, हां, जी, हो, होय, correct, right, exactly, sure, of course, please do,
            go ahead, yes please, do it, kar do, karo, bilkul, zaroor, theek hai, thik hai, ok yes,
            proceed, confirm, confirmed, haan kar do, haan karo, ha kar do, kardo, kar dijiye, karo na,
@@ -670,10 +738,10 @@ conversation:
            करो, हाँ कर दो, हां कर दो, करा, हो करा]
   # A PROPOSED ACTION (conversation/actions.py) is also confirmed by a plain "ok";
   # anywhere else "ok" stays an acknowledgement.
-  CONFIRM_SOFT: [ok, okay, okk, ok sure, okay sure, fine, alright, ठीक है, ठीक, चालेल, chalega, chalo]
+  CONFIRM_SOFT: [ok, okay, okk, hmm ok, hm ok, ok ji, ok sure, okay sure, fine, alright, ठीक है, ठीक, चालेल, chalega, chalo]
   ACK: [ok, okay, okk, k, kk, fine, alright, got it, noted, understood, samjha, samjhi,
         samajh gaya, samajh gayi, achha, acha, accha, hmm, hm, cool, great, nice, ठीक है, ठीक, समजले]
-  NEGATE: ['no', nope, nah, nahi, nahin, nai, na, no no, nahi nahi, नहीं, नाही, not that, not this, not this one,
+  NEGATE: ['no', '👎', '❌', nope, nah, nahi, nahin, nai, na, no no, nahi nahi, नहीं, नाही, not that, not this, not this one,
            not that one, dont mean that, don t mean that, wrong, galat, that s not it, thats not it,
            not really, no no, mat karo, mat kar, mat kijiye, mat, nahi karna, nahi karo, na karo,
            dont, don t, do not, no dont, no don t, dont do it, don t do it, no thanks, not now,
@@ -694,7 +762,10 @@ conversation:
            off, up, totally, really, such, what, ek, number, ekdum, bilkul]
   NEITHER: [neither, none, none of these, none of them, koi nahi, koi bhi nahi, dono nahi,
             कोई नहीं, दोन्ही नाही, both no]
-  CANCEL: [leave it, leave that, leave this, forget it, forget that, forget this, never mind,
+  # 6d (CHATBOT_SPEC 3d): unsure about the bot's question -> it is asked again, more simply
+  UNSURE: [pata nahi, pta nahi, patanahi, shayad, maybe, not sure, sure nahi, pakka nahi, malum nahi, maloom nahi,
+           kya pata, confused, samajh nahi aaya, samjha nahi, i dont know, dont know, idk, पता नहीं, शायद, माहित नाही]
+  CANCEL: [baad mein, baad me, later, abhi nahi, leave it, leave that, leave this, forget it, forget that, forget this, never mind,
            nevermind, skip it, skip that, skip, cancel, cancel that, drop it, drop that,
            chhodo, chodo, chhod do, chod do, rehne do, rehne dijiye, jaane do, jane do,
            छोड़ो, छोड़ दो, रहने दो, जाने दो, सोडा, सोडून द्या, राहू द्या, actually leave it,

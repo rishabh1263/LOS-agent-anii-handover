@@ -51,7 +51,11 @@ def run(report: str | None) -> int:
     from app.agents.applicant.copilot import agent
 
     cases = json.loads(CORPUS.read_text(encoding="utf-8"))
-    handbook = _norm(" ".join(p.read_text(encoding="utf-8") for p in HANDBOOK.glob("*.md")))
+    from app.knowledge.markdown_repo import in_effect, knowledge_metadata
+
+    # grounded against the files the index holds right now (a requires_flag file only while its flag is on)
+    texts = [p.read_text(encoding="utf-8") for p in sorted(HANDBOOK.glob("*.md"))]
+    handbook = _norm(" ".join(t for t in texts if in_effect(knowledge_metadata("FOS", "", t)[0])))
     m = {k: 0 for k in ("answerable", "retrieval_cases", "retrieval_hit", "top1_relevance",
                         "answer_correct", "citation_correct", "grounded", "unanswerable",
                         "no_answer_accuracy", "false_confidence")}
@@ -80,19 +84,24 @@ def run(report: str | None) -> int:
         if case["answerable"]:
             m["answerable"] += 1
             expected = case["source"]
+            # "also_source_when_flag_on": {FLAG: file} -- with that flag on, that file is ALSO a valid source
+            accepted = [expected] + [alt for flag, alt in (case.get("also_source_when_flag_on") or {}).items()
+                                     if (os.getenv(flag, "false") or "false").strip().lower()
+                                     in {"1", "true", "yes", "on"}]
             if expected != "stage_guide":
                 m["retrieval_cases"] += 1
-                hit = confident and any(expected in s for s in sources)
+                hit = confident and any(e in s for e in accepted for s in sources)
                 m["retrieval_hit"] += hit
-                m["top1_relevance"] += bool(confident and sources and expected in sources[0])
+                m["top1_relevance"] += bool(confident and sources and any(e in sources[0] for e in accepted))
                 row["retrieval_hit"] = hit
             lowered = text.lower()
             correct = any(a.lower() in lowered for a in case.get("any", [])) and not any(
                 x.lower() in lowered for x in case.get("lacks", []))
             m["answer_correct"] += correct
-            stem = expected.split(".")[0]
-            cited = expected == "stage_guide" or stem.replace("_", " ") in lowered or stem in json.dumps(
-                detail.get("citations") or [])
+            stems = [e.split(".")[0] for e in accepted]
+            cited = expected == "stage_guide" or any(
+                stem.replace("_", " ") in lowered or stem in json.dumps(detail.get("citations") or [])
+                for stem in stems)
             m["citation_correct"] += cited
             configured = any(str(c).startswith("configuration:") for c in detail.get("citations") or [])
             sentences = [s for s in re.split(r"(?<=[.!?])\s+|;\s+|\s(?=-\s+\*\*)", body) if len(s.split()) >= 4]

@@ -180,6 +180,9 @@ class _Current:
     status: str
     since: datetime | None
     version: int
+    #: False when no record established the stage and the configured initial
+    #: stage was assumed -- the service gate refuses to move such a case.
+    resolved: bool = True
 
 
 def _repository():
@@ -210,7 +213,64 @@ def _current(repository, case_id: str, application) -> _Current:
     derived = stages.resolve(case_id)
     stage = derived.stage or config().initial_stage
     since = _parse_time(derived.since) or getattr(application, "created_at", None)
-    return _Current(stage, derived.status or IN_PROGRESS, since, 0)
+    return _Current(stage, derived.status or IN_PROGRESS, since, 0, resolved=derived.stage is not None)
+
+
+# ==========================================================================
+# THE GATE, ENFORCED HERE (Phase 3 step 2; LOS_STAGE_GATE_IN_SERVICE, default off)
+# ==========================================================================
+#
+# Before this, the gate was evaluated only by the HTTP route, and only when the
+# route could resolve the current stage: an unresolved stage skipped the gate,
+# the lifecycle assumed FOS, and FOS -> CPA went through ungated. With the flag
+# on, every FORWARD move is gated here, whoever calls, and it FAILS CLOSED:
+#
+#   stage not established                  -> STAGE_UNRESOLVED   (409)
+#   gate cannot be evaluated               -> GATE_UNAVAILABLE   (503)
+#   gate not PASS                          -> GATE_NOT_MET / GATE_CONFIGURATION_GAP (409)
+#   source MAKER_CHECKER                   -> allowed, recorded as an override
+#
+# The only exception is OVERRIDE WITH MAKER-CHECKER: the route turns an OVERRIDE
+# into a four-eyes request, and only the approved execution (source MAKER_CHECKER,
+# app/approvals) moves the case ungated. Its reason is mandatory (REASON_REQUIRED
+# above) and is written to the stage history, prefixed OVERRIDE:, and the audit log.
+
+GATE_FLAG = "LOS_STAGE_GATE_IN_SERVICE"
+
+
+def service_gate_enabled() -> bool:
+    import os
+
+    return (os.getenv(GATE_FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _forward(current: LosStage, target: LosStage) -> bool:
+    return (current in stages.ORDER and target in stages.ORDER
+            and stages.ORDER.index(target) > stages.ORDER.index(current))
+
+
+def _enforce_gate(case_id: str, current: _Current, target: LosStage, *, override: bool) -> None:
+    if not current.resolved:
+        raise StageTransitionError(
+            "STAGE_UNRESOLVED", "The case's current stage could not be established from its record, "
+            "so it cannot be moved.", 409)
+    if not _forward(current.stage, target) or override:
+        return
+    try:
+        from app.agents.los import stage_gate
+
+        gate = stage_gate.evaluate_live(case_id, current.stage.value)
+        view = stage_gate.public(gate)
+    except Exception as exc:  # noqa: BLE001 - an unreadable gate never lets a case through
+        logger.error("Stage gate unavailable case_id=%s: %s", case_id, type(exc).__name__)
+        raise StageTransitionError(
+            "GATE_UNAVAILABLE", "The stage gate could not be evaluated, so the case was not moved.",
+            503) from exc
+    status = gate.get("status")
+    if status != "PASS":
+        code = "GATE_CONFIGURATION_GAP" if status == "CONFIGURATION_GAP" else "GATE_NOT_MET"
+        raise StageTransitionError(
+            code, "The case does not meet the configured gate for leaving this stage.", 409, gate=view)
 
 
 def _parse_time(value: str | None) -> datetime | None:
@@ -238,10 +298,20 @@ def transition(
     idempotency_key: str | None = None,
     request_id: str | None = None,
     correlation_id: str | None = None,
+    override: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Move `case_id` to `target_stage` (or, naming its current stage with a
     different `stage_status`, change where it is within the stage).
+
+    `approval_id` is REQUIRED with source MAKER_CHECKER and is checked against
+    the approval record (`_verify_approval`): the source alone proves nothing.
+
+    `override` is the route's OVERRIDE mode. With LOS_STAGE_GATE_IN_SERVICE off
+    it is not consulted (the route alone decides, as before). With it on, only
+    the maker-checker execution (source MAKER_CHECKER) skips the gate; a bare
+    `override=True` is gated like any other forward move.
 
     Returns the case's stage state after the call and what happened
     (`result`: APPLIED, NO_CHANGE or REPLAYED). Raises
@@ -283,6 +353,19 @@ def transition(
         raise StageTransitionError(
             "REASON_REQUIRED", "A transition must record its reason.", 422)
     reason = reason[:_MAX_REASON]
+    if source == "MAKER_CHECKER":
+        # THE SOURCE IS NOT THE PROOF (step 5d hardening): an approved four-eyes record
+        # for THIS case and THIS target must exist, or nothing moves.
+        _verify_approval(approval_id, case_id, target_stage)
+    gated = service_gate_enabled()
+    # THE ONLY EXCEPTION IS OVERRIDE *WITH* MAKER-CHECKER: the approved four-eyes
+    # execution (source MAKER_CHECKER, written only by app/approvals). A caller's
+    # bare `override=True` -- possible only if maker-checker is switched off for
+    # STAGE_OVERRIDE -- does not skip the gate while it is enforced here.
+    is_override = source == "MAKER_CHECKER" or (bool(override) and not gated)
+    if gated and is_override and not reason.upper().startswith("OVERRIDE:"):
+        # THE HISTORY SAYS IT WAS AN OVERRIDE, in the reason it keeps for ever
+        reason = f"OVERRIDE: {reason}"[:_MAX_REASON]
 
     if idempotency_key is not None and not _KEY_RE.match(str(idempotency_key)):
         raise StageTransitionError(
@@ -322,6 +405,8 @@ def transition(
         kind = STAGE_STATUS_CHANGED if target is current.stage else STAGE_ENTERED
         if kind == STAGE_ENTERED:
             _check_edge(cfg, current, target)
+            if gated:
+                _enforce_gate(case_id, current, target, override=is_override)
 
         from app.store.models import CaseEvent, CaseStage, StageTransition, utcnow
 
@@ -365,6 +450,8 @@ def transition(
 
         if written:
             _audit(record, "APPLIED")
+            if gated and is_override and kind == STAGE_ENTERED:
+                _audit_override(record)
             return _outcome(repository, case_id, "APPLIED", record)
         # LOST A RACE. Somebody else moved the case between our read and
         # our write; nothing of ours was written. Re-read and re-judge --
@@ -445,6 +532,49 @@ def _audit(record, result: str) -> None:
         record.from_stage, record.from_status, record.to_stage,
         record.to_status, record.source, record.actor, record.request_id,
         record.correlation_id, reason)
+
+
+def _verify_approval(approval_id: str | None, case_id: str, target_stage: object) -> None:
+    """
+    MAKER_CHECKER is honoured only with an approval that is APPROVED, a STAGE_OVERRIDE,
+    for this case and this target, made and checked by two different people, and not
+    yet executed. Anything else: 403 OVERRIDE_NOT_APPROVED -- never a silent pass.
+    """
+    refused = StageTransitionError(
+        "OVERRIDE_NOT_APPROVED", "A maker-checker move needs an approved four-eyes request for this case "
+        "and target.", 403)
+    if not approval_id:
+        raise refused
+    try:
+        from app.store import get_repository
+
+        approval = get_repository().get_approval(str(approval_id))
+    except Exception as exc:  # noqa: BLE001 - an unreadable approval is not an approval
+        raise refused from exc
+    if not approval:
+        raise refused
+    target = getattr(target_stage, "value", target_stage)
+    wanted = str((approval.get("payload") or {}).get("target_stage") or "")
+    wanted = getattr(wanted, "value", wanted)
+    maker, checker = approval.get("maker_id"), approval.get("checker_id")
+    if (approval.get("action_type") != "STAGE_OVERRIDE" or approval.get("status") != "APPROVED"
+            or approval.get("case_id") != case_id or str(wanted).upper() != str(target).upper()
+            or not maker or not checker or maker == checker or approval.get("result")):
+        raise refused
+
+
+def _audit_override(record) -> None:
+    """An applied OVERRIDE in the service audit log, with its (redacted) reason."""
+    try:
+        from app.agents.applicant import audit
+
+        audit.record(request_id=record.request_id or record.transition_id, subject=record.actor or "unknown",
+                     applicant_id=None, case_id=record.case_id, intent="STAGE_TRANSITION_OVERRIDE",
+                     tools=["los.stage"], write=True, confirmed=True, status="OK",
+                     detail=f"{record.from_stage}->{record.to_stage} source={record.source} "
+                            f"reason={audit.redact(record.reason or '')}"[:300])
+    except Exception:  # noqa: BLE001 - the history row is the durable record; a log failure is logged
+        logger.exception("stage override audit failed case_id=%s", record.case_id)
 
 
 # ==========================================================================

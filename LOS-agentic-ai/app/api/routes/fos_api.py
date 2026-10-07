@@ -22,6 +22,7 @@ instead of eleven.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 
@@ -70,6 +71,23 @@ class FosAction(str, Enum):
     CHECK_CPA_READINESS = "CHECK_CPA_READINESS"
     UPLOAD_DOCUMENT = "UPLOAD_DOCUMENT"
     CUSTOM_QUERY = "CUSTOM_QUERY"
+    # 6-MVP CASE WORKSPACE (COPILOT_CASE_WORKSPACE; refused with 422 while it is off)
+    LIST_CASES = "LIST_CASES"
+    OPEN_CASE = "OPEN_CASE"
+    EXIT_CASE = "EXIT_CASE"
+    # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS; refused with 422 while it is off)
+    VIEW_DOCUMENT = "VIEW_DOCUMENT"
+    RAISE_QUERY = "RAISE_QUERY"
+    MARK_QUERY_SENT = "MARK_QUERY_SENT"
+    LIST_QUERIES = "LIST_QUERIES"
+    NEW_CASE = "NEW_CASE"
+
+
+#: the workspace actions (6-MVP)
+_WORKSPACE_ACTIONS = frozenset({FosAction.LIST_CASES, FosAction.OPEN_CASE, FosAction.EXIT_CASE})
+#: the case actions (6i)
+_CASE_ACTIONS = frozenset({FosAction.VIEW_DOCUMENT, FosAction.RAISE_QUERY, FosAction.MARK_QUERY_SENT,
+                           FosAction.LIST_QUERIES, FosAction.NEW_CASE})
 
 
 #: Action -> the phrasing the existing intent classifier already understands.
@@ -123,6 +141,14 @@ _ACTION_PHRASE: dict[FosAction, str] = {
     FosAction.GET_NEXT_ACTION: "What should I do next?",
     FosAction.GET_CASE_360: "Give me a complete summary of this applicant.",
     FosAction.CHECK_CPA_READINESS: "Is this ready for CPA?",
+    FosAction.LIST_CASES: "Show my cases.",
+    FosAction.OPEN_CASE: "Open this case.",
+    FosAction.EXIT_CASE: "Close this case.",
+    FosAction.VIEW_DOCUMENT: "View this document.",
+    FosAction.RAISE_QUERY: "Raise a query.",
+    FosAction.MARK_QUERY_SENT: "Mark the query as sent.",
+    FosAction.LIST_QUERIES: "Show the queries on this case.",
+    FosAction.NEW_CASE: "Start a new case.",
 }
 
 #: Human labels for the dropdown, served with the action list.
@@ -138,6 +164,14 @@ _ACTION_LABELS: dict[FosAction, str] = {
     FosAction.CHECK_CPA_READINESS: "CPA readiness",
     FosAction.UPLOAD_DOCUMENT: "Upload a document",
     FosAction.CUSTOM_QUERY: "Ask a question",
+    FosAction.LIST_CASES: "My cases",
+    FosAction.OPEN_CASE: "Open a case",
+    FosAction.EXIT_CASE: "Close the case",
+    FosAction.VIEW_DOCUMENT: "View document",
+    FosAction.RAISE_QUERY: "Raise a query",
+    FosAction.MARK_QUERY_SENT: "Mark as sent",
+    FosAction.LIST_QUERIES: "Track queries",
+    FosAction.NEW_CASE: "New case",
 }
 
 
@@ -260,7 +294,10 @@ class CopilotRequest(BaseModel):
     endpoint -- see the endpoint description.
     """
 
-    applicant_id: str = Field(..., max_length=128, examples=["APP-3D51FFAC6342"])
+    applicant_id: str | None = Field(
+        None, max_length=128, examples=["APP-3D51FFAC6342"],
+        description="Required, except in the case workspace (COPILOT_CASE_WORKSPACE) where an opened case "
+                    "supplies it.")
     case_id: str | None = Field(
         None, max_length=128, examples=["CASE-7DFE2F497522"],
         description="Required for everything case-specific, which is most actions.",
@@ -282,6 +319,18 @@ class CopilotRequest(BaseModel):
             "detection (lexicon / Lingua) is used only when this is omitted. Facts never change with "
             "the language; where no template covers a fact the English answer stands and "
             "`language_contract.localized` is false."),
+    )
+    # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS)
+    document_id: str | None = Field(None, max_length=256, description="VIEW_DOCUMENT: the document to open.")
+    query: dict[str, Any] | None = Field(None, description="RAISE_QUERY: the (edited) draft to send.")
+    query_id: str | None = Field(None, max_length=128, description="MARK_QUERY_SENT: the query.")
+    confirm: bool = Field(False, description="RAISE_QUERY: true only from the explicit Send button.")
+    co_applicant_id: str | None = Field(
+        None, max_length=128, examples=["COAPP-7F2A11C4D9E0"],
+        description=(
+            "Ask about one CO-APPLICANT by their id (LOS_COAPP_IDENTITY). Resolved through the case: "
+            "allowed only when the caller may open the case it is on; otherwise the same 403 as any "
+            "case the caller does not own."),
     )
     context: dict[str, Any] | None = Field(
         None,
@@ -1101,8 +1150,52 @@ async def copilot(
                         published["answer"] = f"{str(published.get('answer') or '').rstrip()} {said}".strip()
             # AN EMPTY CHECKLIST NEVER HIDES AN OPEN REVIEW (answering/attention.py)
             from app.agents.applicant.copilot.answering import attention as _attention
+            from app.agents.applicant.copilot.answering import document_actions as _doc_actions
 
-            published = _attention.amend(published)
+            _diagnose = bool(getattr(request.state, "verify_diagnose", False))
+            if ((_doc_actions.enabled() or _diagnose) and published.get("case_id")
+                    and str(published.get("intent") or "") in {"DOCUMENTS_PENDING", "DOCUMENTS_MISSING",
+                                                               "PENDING_ITEMS"}):
+                # ONLY WHAT NEEDS ACTION, from the store (COPILOT_DOCUMENT_ACTIONS, default off)
+                _view = _doc_actions.build(published["case_id"], party=_attention._asked_party(published))
+                _lang = (published.get("language_contract") or {}).get("reply_language") \
+                    if isinstance(published.get("language_contract"), dict) else None
+                _said = _doc_actions.render(_view, _lang)
+                if _diagnose and not any(_view.get(k) for k in ("reupload", "pending", "under_review", "kyc_issues")):
+                    _said = {**_said, "answer": _doc_actions.all_done_text()}      # 6f: nothing left to do
+                published["document_actions"] = {**_view, "emphasis": _said["emphasis"]}
+                if _diagnose:
+                    published["verify_diagnose"] = True
+                _other = [i for i in published.get("pending_items") or []
+                          if isinstance(i, dict) and i.get("type") not in (None, "DOCUMENT", "INFO")]
+                if not _other:
+                    published["answer"] = _said["answer"]
+                else:
+                    # a pending applicant / application detail keeps the original answer, which names it
+                    published = _attention.amend(published)
+            else:
+                published = _attention.amend(published)
+            # RESPONSE STYLE + ABBREVIATION RULE (COPILOT_RESPONSE_STYLE, default off; answering/style.py):
+            # status emoji, one 👉 next step, first mention of a glossary term expanded (per session)
+            from app.agents.applicant.copilot.answering import style as _style
+            from app.agents.applicant.copilot.capabilities import safety as _safety_out
+
+            if _safety_out.enabled():
+                published = _safety_out.mask_output(published)     # 6h: an address keeps only its last part
+            if _style.enabled():
+                published = _styled(published, claims)
+            # INSIDE AN OPENED CASE (6-MVP): the "📍 CASE-xxx" line goes first, after every rewrite above
+            from app.agents.applicant.copilot.capabilities import workspace as _ws_header
+
+            published = _ws_header.in_case_header(published)
+            # THE 1-2 KEY WORDS, BOLD (COPILOT_EMPHASIS, default off; answering/emphasis.py):
+            # emphasis + answer_markdown + clean answer_plain; `answer` itself unchanged
+            from app.agents.applicant.copilot.answering import emphasis as _emphasis
+
+            if _emphasis.enabled():
+                published = _emphasis.apply(published)
+            # WHOSE ANSWER, BY ID (LOS_COAPP_IDENTITY): 👥 **Co-applicant: <name> (<id>)**
+            published = _co_applicant_header(request, published)
             # THE STRUCTURED CONTRACT beside the prose, derived from it (presentation.py).
             from app.agents.applicant.copilot.answering import presentation as _presentation
 
@@ -1121,6 +1214,118 @@ async def copilot(
             "request_id": request_id, "error": "COPILOT_FAILED",
             "message": "The request could not be completed.",
         }) from exc
+
+
+def _resolve_co_applicant(payload: "CopilotRequest", claims: dict[str, Any], request_id: str,
+                          case_id: str | None, message: str, action: "FosAction"):
+    """
+    ((case_id, co_applicant_id) | None, case_id, message) for this turn.
+
+    An id (request field, or typed: "COAPP-1023 ke docs kya baaki hai?") is resolved
+    through the case and refused with 403 unless the caller owns it; a name ("Priya ke
+    docs") is matched only on a case the caller is already authorized for. Either way
+    the reference is rewritten to "co-applicant", so the existing party routing answers.
+    """
+    from app.agents.los import co_applicants as _co
+    from app.security import access as _acc
+    from app.security.auth import get_scopes, get_subject
+
+    subject, scopes = get_subject(claims), get_scopes(claims)
+    requested = [str(payload.co_applicant_id).strip().upper()] if payload.co_applicant_id else []
+    typed = _co.ids_in(message) if action is FosAction.CUSTOM_QUERY else []
+    resolved = None
+    for co_id in dict.fromkeys(requested + typed):
+        try:
+            found = _acc.authorize_co_applicant(subject, scopes, co_id, case_id=case_id, conversation=True)
+        except _acc.AccessDenied as denied:
+            audit.record(request_id=request_id, subject=subject, applicant_id=payload.applicant_id,
+                         case_id=case_id, intent="CO_APPLICANT_ACCESS", tools=[], write=False,
+                         status="DENIED", detail=denied.code)
+            raise _acc.http_denied(denied, request_id) from None
+        if resolved and resolved[0] != found:            # two ids on two different cases
+            raise _acc.http_denied(_acc.AccessDenied(), request_id)
+        case_id, resolved = found, (found, co_id)
+        if co_id in typed:
+            message = _co.replace_reference(message, co_id)
+    if case_id and action is FosAction.CUSTOM_QUERY:
+        try:
+            _acc.authorize(subject, scopes, case_id=case_id)
+        except _acc.AccessDenied:
+            return resolved, case_id, message           # refused later, exactly as before
+        named = _co.names_in(message, _co.list_for_case(case_id))
+        if len(named) == 1:                             # two people with that name: never guessed
+            full = named[0]["name"].strip()
+            message = _co.replace_reference(_co.replace_reference(message, full), full.split()[0])
+            resolved = resolved or (case_id, named[0]["co_applicant_id"])
+    return resolved, case_id, message
+
+
+def _party_recognition_on() -> bool:
+    import os
+
+    return (os.getenv("COPILOT_PARTY_RECOGNITION", "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _same_name_question(case_id: str | None, message: str, request_id: str, claims: dict[str, Any]) -> dict | None:
+    """
+    6g (COPILOT_PARTY_RECOGNITION): a NAME that fits more than one person on the case -- two
+    co-applicants, or the applicant and a co-applicant -- is asked back once, never guessed.
+    Only on a case the caller may open; the names come from the case record.
+    """
+    from app.agents.los import co_applicants as _co
+    from app.security import access as _acc
+    from app.store import get_repository
+
+    if not (case_id and _party_recognition_on() and _co.enabled()):
+        return None
+    try:
+        _acc.authorize_claims(claims, case_id=case_id)
+    except _acc.AccessDenied:
+        return None
+    people = [{"label": f"Co-applicant {c['name']} ({c['co_applicant_id']})", "name": c["name"]}
+              for c in _co.list_for_case(case_id) if c.get("name")]
+    application = get_repository().get_application(case_id)
+    applicant = get_repository().get_applicant(application.applicant_id) if application else None
+    if applicant is not None and applicant.full_name:
+        people.append({"label": f"Applicant {applicant.full_name}", "name": applicant.full_name})
+    words = set(re.findall(r"[a-z]+", str(message or "").lower()))
+    hits = [p for p in people if any(part.lower() in words for part in str(p["name"]).split() if len(part) >= 3)]
+    if len(hits) < 2:
+        return None
+    options = [h["label"] for h in hits[:3]]
+    question = "Which person do you mean?"
+    return {"request_id": request_id, "case_id": case_id, "intent": "UNKNOWN", "category": "UNSUPPORTED",
+            "query_type": "CLARIFICATION", "answer": question + "\n" + "\n".join(f"{i}. {o}" for i, o in enumerate(options, 1)),
+            "response_source": "CONVERSATION", "documents": [], "actions": [], "errors": [], "tools_invoked": [],
+            "suggested_questions": options,
+            "clarification_required": {"reason": "PARTY_AMBIGUOUS", "question": question, "options": options}}
+
+
+def _co_applicant_header(request: Request, published: dict[str, Any]) -> dict[str, Any]:
+    """👥 **Co-applicant: <name> (<id>)** on an answer about a co-applicant (LOS_COAPP_IDENTITY)."""
+    from app.agents.applicant.copilot.answering import attention as _attention
+    from app.agents.los import co_applicants as _co
+
+    if not _co.enabled() or not published.get("case_id"):
+        return published
+    asked = getattr(request.state, "co_applicant", None)
+    if not asked and _attention._asked_party(published) != "CO_APPLICANT":
+        return published
+    records = _co.list_for_case(published["case_id"])
+    if asked:
+        record = next((r for r in records if r["co_applicant_id"] == asked["co_applicant_id"]), None)
+        co_id = asked["co_applicant_id"]
+    elif len(records) == 1:
+        record, co_id = records[0], records[0]["co_applicant_id"]
+    else:
+        return published
+    said = _co.header(record, co_id)
+    published["co_applicant"] = {"co_applicant_id": co_id, "name": (record or {}).get("name")}
+    for key, line in (("answer", said["plain"]), ("answer_plain", said["plain"]),
+                      ("answer_markdown", said["markdown"])):
+        if isinstance(published.get(key), str) and not published[key].startswith("👥"):
+            published[key] = f"{line}\n{published[key]}"
+    return published
 
 
 async def _copilot_json(
@@ -1156,16 +1361,194 @@ async def _copilot_json(
     else:
         message = _ACTION_PHRASE[action]
 
-    return await _run_action(
+    # 6h GUARDRAIL HARDENING (COPILOT_GUARDRAIL_HARDENING): rate limit, self-harm care, threats,
+    # social engineering, abuse cooldown -- BEFORE anything is read
+    from app.agents.applicant.copilot.capabilities import safety as _safety
+
+    if _safety.enabled() and action is FosAction.CUSTOM_QUERY:
+        from app.security.auth import get_subject as _safety_subject
+
+        screened = _safety.screen(message, str(_safety_subject(claims) or "anonymous"), request_id, payload.case_id)
+        if screened is not None:
+            return screened
+
+    # NO CASE ID (COPILOT_SINGLE_CASE_RESOLVE, default off; capabilities/case_pick.py):
+    # one case of the applicant's is answered for, several are listed and asked about.
+    case_id, picked = payload.case_id, None
+
+    # "verify karna hai" / "kya upload karu" (6f, COPILOT_VERIFY_DIAGNOSE): never "which document?" --
+    # the case is diagnosed (step 4's document action view, every party)
+    from app.agents.applicant.copilot.answering import document_actions as _diag
+
+    if _diag.diagnose_enabled() and action is FosAction.CUSTOM_QUERY and _diag.asks_to_verify(message):
+        action = FosAction.GET_PENDING_ITEMS
+        request.state.verify_diagnose = True
+
+    # 6-MVP CASE WORKSPACE (COPILOT_CASE_WORKSPACE, default off; capabilities/workspace.py):
+    # list / open / exit the caller's OWN cases; inside an opened case every question is
+    # answered for it. Off: the workspace actions are refused and applicant_id stays required.
+    from app.agents.applicant.copilot.capabilities import workspace as _ws
+
+    ws_turn = None
+    if not _ws.enabled():
+        if action in _WORKSPACE_ACTIONS:
+            raise HTTPException(422, detail={"request_id": request_id, "error": "WORKSPACE_DISABLED",
+                                             "message": f"{action.value} needs the case workspace (off)."})
+        if not payload.applicant_id:
+            raise HTTPException(422, detail={"request_id": request_id, "error": "APPLICANT_ID_REQUIRED",
+                                             "message": "applicant_id is required."})
+    else:
+        from app.security import access as _ws_access
+
+        try:
+            ws_turn = _ws.handle(action.value, message, case_id, claims, request_id, payload.context)
+        except _ws_access.AccessDenied as exc:
+            raise _ws_access.http_denied(exc, request_id) from None
+        if ws_turn.reply is not None:
+            return ws_turn.reply
+        if ws_turn.case_id:
+            case_id = ws_turn.case_id
+            payload.applicant_id = ws_turn.applicant_id or payload.applicant_id
+        if not case_id and not payload.applicant_id:
+            return _ws._base(request_id, "CASE_SELECTION", _ws._label("no_case"))
+
+    # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS): view a document, raise / track queries, new case.
+    # Nothing is created or sent without the explicit Send (confirm=true).
+    from app.agents.applicant.copilot.capabilities import case_actions as _ca
+
+    if action in _CASE_ACTIONS and not _ca.enabled():
+        raise HTTPException(422, detail={"request_id": request_id, "error": "CASE_ACTIONS_DISABLED",
+                                         "message": f"{action.value} needs case actions (off)."})
+    if _ca.enabled():
+        wanted = action
+        if action is FosAction.CUSTOM_QUERY:
+            wanted = (FosAction.RAISE_QUERY if _ca.asks("raise_query", message) else
+                      FosAction.LIST_QUERIES if _ca.asks("list_queries", message) else
+                      FosAction.NEW_CASE if _ca.asks("new_case", message) else action)
+        if wanted in _CASE_ACTIONS:
+            from app.agents.los.queries import QueryError
+            from app.security import access as _ca_access
+
+            try:
+                if wanted is FosAction.NEW_CASE:
+                    return _ca.new_case(request_id)
+                if not case_id:
+                    return {"request_id": request_id, "intent": "CASE_SELECTION", "case_id": None,
+                            "answer": "👉 Open a case first.", "errors": [], "actions": []}
+                if wanted is FosAction.VIEW_DOCUMENT:
+                    return _ca.view_document(case_id, str(payload.document_id or ""), claims, request_id)
+                if wanted is FosAction.RAISE_QUERY:
+                    if payload.confirm and isinstance(payload.query, dict):
+                        return _ca.raise_confirmed(case_id, payload.query, claims, request_id)
+                    return _ca.draft(case_id, claims, request_id)
+                if wanted is FosAction.MARK_QUERY_SENT:
+                    return _ca.mark_sent(case_id, str(payload.query_id or ""), claims, request_id)
+                return _ca.list_view(case_id, claims, request_id)
+            except _ca_access.AccessDenied as exc:
+                raise _ca_access.http_denied(exc, request_id) from None
+            except QueryError as exc:
+                raise HTTPException(exc.http_status, detail={"request_id": request_id, "error": exc.code,
+                                                             "message": exc.message}) from None
+
+    # "X kya hai?" / "X ka full form?" (6e, COPILOT_RESPONSE_STYLE): the glossary's full form +
+    # one line, in the user's language -- a PENDING term shows no full form (app/config/glossary.yaml)
+    from app.agents.applicant.copilot.answering import style as _style
+
+    if _style.enabled() and action is FosAction.CUSTOM_QUERY:
+        term = _style.defined_term(message)
+        if term:
+            from app.agents.applicant import language as _language
+
+            spoken = payload.response_language or _language.detect(message).code
+            context = dict(payload.context or {}) if isinstance(payload.context, dict) else {}
+            reply = {"request_id": request_id, "applicant_id": payload.applicant_id, "case_id": case_id,
+                     "intent": "FOS_KNOWLEDGE", "answer": _style.definition(term, spoken), "category": "KNOWLEDGE_ONLY",
+                     "query_type": "PROCESS_KNOWLEDGE", "response_source": "GLOSSARY", "documents": [], "actions": [],
+                     "errors": [], "tools_invoked": [], "suggested_questions": [],
+                     "glossary_term": term, "context": {k: context[k] for k in ("conversation_id", "workspace_id")
+                                                        if context.get(k)}}
+            state = _session_state(claims, reply)
+            if state is not None and term not in (state.explained_terms or []):
+                from app.agents.applicant.copilot.conversation import state as _conv
+
+                state.explained_terms = sorted(set(state.explained_terms or []) | {term})
+                _conv.STORE.put(state)
+            return reply
+
+    # A CO-APPLICANT BY ID OR NAME (LOS_COAPP_IDENTITY, step 5d), BEFORE anything is
+    # read: an id that is not on a case the caller owns is refused here -- zero
+    # downstream calls -- with the same 403 as any case the caller does not own.
+    from app.agents.los import co_applicants as _co
+
+    if _co.enabled():
+        same_name = _same_name_question(case_id, message, request_id, claims) \
+            if action is FosAction.CUSTOM_QUERY else None
+        if same_name is not None:
+            return same_name                             # 6g: two people with that name -> one question
+        resolved, case_id, message = _resolve_co_applicant(payload, claims, request_id, case_id, message, action)
+        if resolved:
+            request.state.co_applicant = {"case_id": resolved[0], "co_applicant_id": resolved[1]}
+    if not case_id and action is FosAction.CUSTOM_QUERY and payload.applicant_id:
+        from app.agents.applicant.copilot.capabilities import case_pick
+
+        if case_pick.enabled():
+            from app.security import access as _pick_access
+
+            try:
+                picked = case_pick.resolve(payload.applicant_id, claims)
+            except _pick_access.AccessDenied as exc:
+                raise _pick_access.http_denied(exc, request_id) from None
+            if picked.kind == case_pick.MANY:
+                return case_pick.ask_which(picked, payload.applicant_id, request_id, message)
+            if picked.kind == case_pick.NONE:
+                return case_pick.no_case(payload.applicant_id, request_id)
+            case_id = picked.case_id
+
+    result = await _run_action(
         action,
         applicant_id=payload.applicant_id,
-        case_id=payload.case_id,
+        case_id=case_id,
         claims=claims,
         request_id=request_id,
         message=message,
         context=payload.context,
         response_language=payload.response_language,
     )
+    if picked is not None and isinstance(result, dict):
+        # THE CASE ANSWERED FOR IS NAMED, since the user did not name it
+        result["case_resolved_from_applicant"] = True
+        result["answer"] = f"For application {case_id}: {str(result.get('answer') or '').lstrip()}"
+    if ws_turn is not None:
+        result = _ws.decorate(result, ws_turn)
+    return result
+
+
+def _session_state(claims: dict[str, Any], published: dict[str, Any]):
+    """The conversation state this response belongs to (labels only), or None."""
+    from app.agents.applicant.copilot.conversation import state as _conv
+    from app.security.auth import get_subject
+
+    context = published.get("context") if isinstance(published.get("context"), dict) else {}
+    key = context.get("conversation_id") or (("ws:" + context["workspace_id"]) if context.get("workspace_id") else None)
+    if not key:
+        return None
+    return _conv.STORE.get(str(get_subject(claims) or "anonymous"), key)
+
+
+def _styled(published: dict[str, Any], claims: dict[str, Any]) -> dict[str, Any]:
+    """6e: style the answer; the glossary terms explained are remembered for the session."""
+    from app.agents.applicant.copilot.answering import style as _style
+    from app.agents.applicant.copilot.conversation import state as _conv
+
+    state = _session_state(claims, published)
+    explained = set(getattr(state, "explained_terms", None) or [])
+    language = ((published.get("language_contract") or {}).get("response_language")
+                if isinstance(published.get("language_contract"), dict) else None)
+    published, newly = _style.apply(published, explained=explained, language=language)
+    if state is not None and newly:
+        state.explained_terms = sorted(explained | newly)
+        _conv.STORE.put(state)
+    return published
 
 
 def _select_language(result: dict[str, Any], selected: str | None) -> None:
@@ -1669,6 +2052,22 @@ async def _copilot_upload(
             "request_id": request_id, "error": exc.code, "message": exc.message,
         }) from exc
 
+    # A CO-APPLICANT'S UPLOAD (LOS_COAPP_IDENTITY, step 5d): `co_applicant_id` must be ON
+    # this case, which the caller was just authorized to write -- else the same 403.
+    upload_co_id = str(form.get("co_applicant_id") or "").strip().upper() or None
+    if upload_co_id:
+        from app.agents.los import co_applicants as _co
+        from app.security import access as _acc
+
+        if not _co.enabled():
+            raise HTTPException(422, detail={
+                "request_id": request_id, "error": "CO_APPLICANT_ID_NOT_SUPPORTED",
+                "message": "co_applicant_id on an upload needs LOS_COAPP_IDENTITY."})
+        try:
+            _acc.authorize_co_applicant(caller.subject, caller.scopes, upload_co_id, case_id=case_id, write=True)
+        except _acc.AccessDenied as denied:
+            raise _acc.http_denied(denied, request_id) from None
+
     # Checklist SLOT names are accepted here as well as document classes.
     # The checklist the FOS is looking at says "ADDRESS_PROOF"; refusing the
     # value it just showed them would be the API arguing with its own screen.
@@ -1729,11 +2128,12 @@ async def _copilot_upload(
     # separate KYC assessment per document -- each seeing one source and
     # finding nothing to cross-check.
     los = await process_application(
-        documents,
+        [] if upload_co_id else documents,
         operation=PROCESS,
         applicant_id=applicant_id,
         case_id=case_id,
         request_id=request_id,
+        **({"co_applicant_id": upload_co_id, "co_applicant_uploads": documents} if upload_co_id else {}),
         # THE FOS STAGE BOUNDARY.
         #
         # FOS owns classification and basic document verification: is this
@@ -2339,6 +2739,74 @@ def _raise_from(request_id: str, envelope) -> None:
 # and a client using both should not have to hold two shapes in mind.
 # Fields an action does not populate come back null or empty, exactly as
 # they always have.
+
+
+@router.post(
+    "/copilot/stream",
+    summary="The FOS copilot as Server-Sent Events: status lines while it works, then the answer (step 7)",
+    responses={200: {"content": {"text/event-stream": {}}}, 404: {"description": "Streaming is off."}},
+)
+async def copilot_stream(request: Request, claims: dict[str, Any] = Depends(require_jwt)):
+    """
+    The same JSON request as /fos/copilot (COPILOT_STREAMING, default off -> 404). Events: `status`
+    (at once, then every tick_seconds), then `answer` (the full /fos/copilot response + `latency`) or
+    `error` (an HTTP status + detail). One pipeline: the answer IS the /fos/copilot answer.
+    """
+    from fastapi.responses import StreamingResponse
+
+    from app.agents.applicant.copilot.answering import streaming as _streaming
+
+    if not _streaming.enabled():
+        raise HTTPException(404, detail={"error": "STREAMING_DISABLED", "message": "Streaming is off."})
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 - the copilot reports an unreadable body itself
+        body = {}
+    status_text = _streaming.first_status(str((body or {}).get("message") or ""), str((body or {}).get("action") or ""))
+    return StreamingResponse(_streaming.events(lambda: copilot(request, claims), status_text),
+                             media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.get(
+    "/documents/view",
+    summary="Open a document through a short-lived signed link (6i VIEW_DOCUMENT)",
+    responses={200: {"description": "The document bytes, inline."}, 403: {"description": "Invalid / expired link."}},
+)
+async def view_document(token: str, claims: dict[str, Any] = Depends(require_jwt)):
+    """
+    The link from VIEW_DOCUMENT: valid only for the SAME subject, for `view_ttl_seconds` (5 min), and
+    re-checked against the case's ownership now. The bytes come from the document store by id -- no
+    path is ever part of a request or a response. Every open is audited.
+    """
+    from fastapi.responses import Response
+
+    from app.agents.applicant.copilot.capabilities import case_actions as _ca
+    from app.security import access as _acc
+    from app.security.auth import get_subject
+    from app.store import get_repository
+    from app.store.documents import get_document_store
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    found = _ca.verify(token, str(get_subject(claims) or "")) if _ca.enabled() else None
+    if found is None:
+        raise HTTPException(403, detail={"request_id": request_id, "error": "LINK_INVALID",
+                                         "message": "This link is invalid or has expired."})
+    try:
+        _ca._authorize(claims, found["case_id"])
+    except _acc.AccessDenied as exc:
+        raise _acc.http_denied(exc, request_id) from None
+    document = get_repository().get_document(found["document_id"])
+    store = get_document_store()
+    content = store.get(found["document_id"]) if document is not None else None
+    if document is None or document.case_id != found["case_id"] or content is None:
+        raise HTTPException(404, detail={"request_id": request_id, "error": "DOCUMENT_NOT_AVAILABLE",
+                                         "message": "The document is not available."})
+    _ca._audit(request_id, claims, found["case_id"], "VIEW_DOCUMENT", "OPENED", document.document_type)
+    described = store.describe(found["document_id"])
+    return Response(content=content, media_type=(described.content_type if described else None)
+                    or "application/octet-stream",
+                    headers={"Content-Disposition": "inline", "Cache-Control": "no-store"})
 
 
 @router.get(

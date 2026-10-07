@@ -1,0 +1,48 @@
+{
+  "run_id": "BF-20261007T062255-901F",
+  "plan_file": "runs/backfills/plan_coapp_20261007.json",
+  "plan_fingerprint": "839f2d1fde01b73b9ce05d4f43fe7ab2d3b3e2badfd1afad96342ced92108a03",
+  "backup_file": "runs/backups/los_dev_20261007T112640.dump",
+  "actions": [
+    {
+      "remap_id": "722edcab53934fe2a70e11319e2b4634",
+      "run_id": "BF-20261007T062255-901F",
+      "action": "REMAP_ID",
+      "case_id": "CASE-852CC948E7CE",
+      "old_id": "COAPP-J1",
+      "new_id": "COAPP-3351F2C1A068",
+      "detail": "{\"case_id\": \"CASE-852CC948E7CE\", \"old_id\": \"COAPP-J1\", \"new_id\": \"COAPP-3351F2C1A068\", \"reason\": \"DUPLICATE\", \"kept_on\": \"CASE-B623BB6413DF\", \"rows\": {\"applications\": 1, \"documents\": 2, \"case_findings\": 5, \"document_versions\": 2, \"case_events\": 0, \"ocr_jobs\": 0}, \"append_only_rows_left_on_old_id\": {\"jev_runs\": 0}}",
+      "applied_at": "2026-10-07T06:22:55.245974+00:00"
+    },
+    {
+      "remap_id": "f325ff53bd304ad9bf0406f2b1bde17b",
+      "run_id": "BF-20261007T062255-901F",
+      "action": "INSERT_CO_APPLICANT",
+      "case_id": "CASE-B623BB6413DF",
+      "old_id": null,
+      "new_id": "COAPP-J1",
+      "detail": "{\"case_id\": \"CASE-B623BB6413DF\", \"applicant_id\": \"APP-18E7D65C5048\", \"co_applicant_id\": \"COAPP-J1\", \"name_filled\": false}",
+      "applied_at": "2026-10-07T06:22:55.245974+00:00"
+    },
+    {
+      "remap_id": "77b58aebdaa449a88e0a3f9d63446a58",
+      "run_id": "BF-20261007T062255-901F",
+      "action": "INSERT_CO_APPLICANT",
+      "case_id": "CASE-852CC948E7CE",
+      "old_id": null,
+      "new_id": "COAPP-3351F2C1A068",
+      "detail": "{\"case_id\": \"CASE-852CC948E7CE\", \"applicant_id\": \"APP-60614FADAA03\", \"co_applicant_id\": \"COAPP-3351F2C1A068\", \"name_filled\": false}",
+      "applied_at": "2026-10-07T06:22:55.245974+00:00"
+    },
+    {
+      "remap_id": "6bdaf0798535467ebc42c0dca25a58cc",
+      "run_id": "BF-20261007T062255-901F",
+      "action": "REVOKE_GRANT",
+      "case_id": null,
+      "old_id": "COAPP-J1",
+      "new_id": null,
+      "detail": "{\"subject\": \"joint-officer\", \"resource_type\": \"APPLICANT\", \"resource_id\": \"COAPP-J1\", \"granted_at\": \"2026-10-06T11:29:50.996399+00:00\"}",
+      "applied_at": "2026-10-07T06:22:55.245974+00:00"
+    }
+  ]
+}

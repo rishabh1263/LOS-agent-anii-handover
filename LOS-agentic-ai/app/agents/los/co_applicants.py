@@ -1,0 +1,272 @@
+"""
+CO-APPLICANT IDENTITY (Phase 3 step 5d; LOS_COAPP_IDENTITY, default off).
+
+Every co-applicant is a record of its own -- `co_applicants` (migration 0004) --
+with a system-generated id in the applicant's convention (COAPP-<12 hex> beside
+APP-<12 hex>), the case it belongs to, and the profile the application form
+declared. `applications.co_applicant_id` keeps pointing at the (first)
+co-applicant, so everything written before keeps working.
+
+THE RULES:
+  * The system generates the id. A caller-supplied id is accepted only when it
+    already belongs to THAT case; anything else is refused.
+  * Access goes through the case: a co-applicant id is allowed exactly when the
+    caller may open the case it is on (security/access.authorize_co_applicant).
+    No grant is ever written on a co-applicant id.
+  * Name, DOB, PAN, father's name and address are encrypted one by one
+    (store/crypto.seal_value) and never logged.
+  * A co-applicant whose name was not declared gets one ONLY from a PASSED KYC
+    name check -- never from unverified OCR (`fill_verified_names`).
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import re
+import uuid
+from datetime import datetime, timezone
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+FLAG = "LOS_COAPP_IDENTITY"
+ID_PATTERN = re.compile(r"\bCOAPP-[A-Za-z0-9_.:-]{1,64}\b", re.IGNORECASE)
+_PII = ("name", "dob", "pan", "father_name", "address")
+_WARNED: set[str] = set()
+
+
+class CoApplicantError(ValueError):
+    """A co-applicant id that cannot be used as asked."""
+
+    def __init__(self, code: str, message: str, http_status: int = 422):
+        super().__init__(message)
+        self.code, self.message, self.http_status = code, message, http_status
+
+
+def flag_on() -> bool:
+    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _repo(repository=None):
+    if repository is not None:
+        return repository
+    from app.store import get_repository
+
+    return get_repository()
+
+
+def schema_ready(repository=None) -> bool:
+    try:
+        return bool(_repo(repository).table_exists("co_applicants"))
+    except Exception:  # noqa: BLE001 - an unreadable store is not a ready one
+        return False
+
+
+def enabled(repository=None) -> bool:
+    """Flag on AND migration 0004 applied. Flag on without it is reported (config_error), never guessed."""
+    if not flag_on():
+        return False
+    ready = schema_ready(repository)
+    if not ready and "schema" not in _WARNED:
+        _WARNED.add("schema")
+        logger.error("%s is on but migration 0004 (co_applicants) is not applied; co-applicant identity is OFF",
+                     FLAG)
+    return ready
+
+
+def config_error(repository=None) -> str | None:
+    """For /ready: the flag is on but the table it needs does not exist."""
+    if flag_on() and not schema_ready(repository):
+        return f"{FLAG} is on but migration 0004 (co_applicants) is not applied"
+    return None
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ---- ids -----------------------------------------------------------------------------------------
+def _id_taken(repository, candidate: str) -> bool:
+    return bool(repository._one("SELECT 1 FROM co_applicants WHERE co_applicant_id = ?", (candidate,))
+                or repository._one("SELECT 1 FROM applications WHERE co_applicant_id = ?", (candidate,))
+                or repository._one("SELECT 1 FROM applicants WHERE applicant_id = ?", (candidate,)))
+
+
+def generate_id(repository=None) -> str:
+    """A new COAPP-<12 hex>, unused as a co-applicant AND as an applicant id."""
+    repository = _repo(repository)
+    for _ in range(5):
+        candidate = f"COAPP-{uuid.uuid4().hex[:12].upper()}"
+        if not _id_taken(repository, candidate):
+            return candidate
+    raise CoApplicantError("CO_APPLICANT_ID_UNAVAILABLE", "Could not generate a unique co-applicant id.", 503)
+
+
+def cases_for(co_applicant_id: str, repository=None) -> list[str]:
+    """Every case this id is on (the record first, then the legacy pointer). Unique after the backfill."""
+    repository = _repo(repository)
+    cases: list[str] = []
+    for row in repository._all("SELECT case_id FROM co_applicants WHERE co_applicant_id = ?", (co_applicant_id,)):
+        cases.append(row["case_id"])
+    for row in repository._all("SELECT case_id FROM applications WHERE co_applicant_id = ?", (co_applicant_id,)):
+        if row["case_id"] not in cases:
+            cases.append(row["case_id"])
+    return cases
+
+
+def accept_supplied(case_id: str | None, co_applicant_id: str, repository=None) -> str:
+    """A caller-supplied id, accepted ONLY when it already belongs to this case."""
+    if case_id and case_id in cases_for(co_applicant_id, repository):
+        return co_applicant_id
+    raise CoApplicantError(
+        "CO_APPLICANT_ID_NOT_ON_CASE",
+        "co_applicant_id is generated by the system; a supplied one must already belong to this case.")
+
+
+# ---- records -------------------------------------------------------------------------------------
+def _row(raw) -> dict[str, Any]:
+    from app.store.crypto import open_value
+
+    out = {k: raw[k] for k in ("co_applicant_id", "case_id", "applicant_id", "name_source", "relationship",
+                               "source", "created_at", "updated_at")}
+    for key in _PII:
+        out[key] = open_value(raw[key])
+    return out
+
+
+def get(co_applicant_id: str, repository=None) -> dict[str, Any] | None:
+    raw = _repo(repository)._one("SELECT * FROM co_applicants WHERE co_applicant_id = ?", (co_applicant_id,))
+    return _row(raw) if raw else None
+
+
+def list_for_case(case_id: str, repository=None) -> list[dict[str, Any]]:
+    rows = _repo(repository)._all("SELECT * FROM co_applicants WHERE case_id = ? ORDER BY created_at",
+                                  (case_id,))
+    return [_row(r) for r in rows]
+
+
+def record_intake(case_id: str, applicant_id: str, co_applicant_id: str, profile: dict[str, Any] | None,
+                  relationship: str | None = None, repository=None) -> None:
+    """Create or update the co-applicant record with the DECLARED profile (encrypted)."""
+    from app.store.crypto import seal_value
+
+    repository = _repo(repository)
+    profile = profile or {}
+    values = {"name": profile.get("name"), "dob": profile.get("date_of_birth"), "pan": profile.get("pan_number"),
+              "father_name": profile.get("father_name"), "address": profile.get("address")}
+    sealed = {k: seal_value(v) for k, v in values.items()}
+    now = _now()
+    existing = repository._one("SELECT * FROM co_applicants WHERE co_applicant_id = ?", (co_applicant_id,))
+    if existing is None:
+        repository._write(
+            "INSERT INTO co_applicants (co_applicant_id, case_id, applicant_id, name, name_source, dob, pan, "
+            "father_name, address, relationship, source, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INTAKE', ?, ?)",
+            (co_applicant_id, case_id, applicant_id, sealed["name"], "DECLARED" if sealed["name"] else None,
+             sealed["dob"], sealed["pan"], sealed["father_name"], sealed["address"],
+             (relationship or "").strip().upper() or None, now, now))
+        return
+    if existing["case_id"] != case_id:
+        raise CoApplicantError("CO_APPLICANT_ID_NOT_ON_CASE", "This co-applicant belongs to another case.", 403)
+    # a later upload fills what was missing; a declared value never overwrites a KYC-verified name
+    keep_name = existing["name_source"] == "KYC_VERIFIED"
+    updates = {k: v for k, v in sealed.items() if v is not None and not (k == "name" and keep_name)}
+    if relationship:
+        updates["relationship"] = relationship.strip().upper()
+    if "name" in updates:
+        updates["name_source"] = "DECLARED"
+    if not updates:
+        return
+    assignments = ", ".join(f"{k} = ?" for k in updates)
+    repository._write(f"UPDATE co_applicants SET {assignments}, updated_at = ? WHERE co_applicant_id = ?",
+                      (*updates.values(), now, co_applicant_id))
+
+
+def fill_verified_names(case_id: str, repository=None) -> int:
+    """
+    A co-applicant with NO name gets one from a PASSED KYC name check on their own
+    documents -- the PAN's spelling where the documents differ. Never from OCR alone.
+    Returns how many names were filled.
+    """
+    from app.store.crypto import seal_value
+
+    repository = _repo(repository)
+    filled = 0
+    for co in list_for_case(case_id, repository):
+        if co["name"]:
+            continue
+        verified = verified_name(case_id, co["co_applicant_id"], repository)
+        if not verified:
+            continue
+        repository._write("UPDATE co_applicants SET name = ?, name_source = 'KYC_VERIFIED', updated_at = ? "
+                          "WHERE co_applicant_id = ? AND name IS NULL",
+                          (seal_value(verified), _now(), co["co_applicant_id"]))
+        filled += 1
+    return filled
+
+
+def verified_name(case_id: str, party_id: str, repository=None) -> str | None:
+    """The name a PASSED KYC NAME check reports for this party, or None."""
+    try:
+        findings = _repo(repository).get_current_findings(case_id, kind="KYC") or []
+    except Exception:  # noqa: BLE001 - no readable KYC: nothing is verified
+        return None
+    mine = [f for f in findings if getattr(f, "party_id", None) == party_id]
+    # THE LATEST KYC RESULT decides: an older REVIEW does not hide a newer PASS, and a
+    # newer REVIEW withdraws an older PASS
+    mine.sort(key=lambda f: str(getattr(f, "updated_at", None) or getattr(f, "created_at", None) or ""),
+              reverse=True)
+    for finding in mine:
+        for field in (getattr(finding, "payload", None) or {}).get("fields") or []:
+            if str((field or {}).get("field") or "").upper() != "NAME":
+                continue
+            if str(field.get("status") or "").upper() != "PASS":
+                return None
+            sources = [s for s in field.get("sources") or [] if isinstance(s, dict) and s.get("value")]
+            pan = [s for s in sources if str(s.get("document_type") or "").upper() == "PAN"]
+            chosen = (pan or sources)[:1]
+            return str(chosen[0]["value"]).strip() if chosen else None
+    return None
+
+
+# ---- the chat ------------------------------------------------------------------------------------
+def ids_in(message: str) -> list[str]:
+    """Every co-applicant id typed in a message, upper-cased, in order."""
+    seen: list[str] = []
+    for match in ID_PATTERN.finditer(message or ""):
+        value = match.group(0).upper()
+        if value not in seen:
+            seen.append(value)
+    return seen
+
+
+def names_in(message: str, co_applicants: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The co-applicants a message names, by full name or first name (whole words, any case)."""
+    text = f" {(message or '').lower()} "
+    found: list[dict[str, Any]] = []
+    for co in co_applicants:
+        name = (co.get("name") or "").strip()
+        if not name:
+            continue
+        forms = {name.lower(), name.split()[0].lower()}
+        if any(re.search(rf"(?<![\w]){re.escape(f)}(?![\w])", text) for f in forms if len(f) >= 3):
+            found.append(co)
+    return found
+
+
+def replace_reference(message: str, token: str) -> str:
+    """The message with an id or a name replaced by "co-applicant", so the existing party routing applies."""
+    return re.sub(rf"(?<![\w]){re.escape(token)}(?![\w])", "co-applicant", message, flags=re.IGNORECASE)
+
+
+def header(co: dict[str, Any] | None, co_applicant_id: str) -> dict[str, str]:
+    """👥 **Co-applicant: Priya Sharma (COAPP-…)** -- markdown and plain."""
+    name = (co or {}).get("name")
+    label = f"Co-applicant: {name} ({co_applicant_id})" if name else f"Co-applicant ({co_applicant_id})"
+    return {"markdown": f"👥 **{label}**", "plain": f"👥 {label}"}
+
+
+__all__ = ["CoApplicantError", "FLAG", "accept_supplied", "cases_for", "config_error", "enabled", "fill_verified_names",
+           "flag_on", "generate_id", "get", "header", "ids_in", "list_for_case", "names_in", "record_intake",
+           "replace_reference", "verified_name"]

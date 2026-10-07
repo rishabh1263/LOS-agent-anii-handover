@@ -45,7 +45,16 @@ import yaml
 
 PASS, REVIEW, BLOCKED, NOT_READY, GAP = "PASS", "REVIEW", "BLOCKED", "NOT_READY", "CONFIGURATION_GAP"
 EVALUATE, MOVE, RUN_PENDING = "EVALUATE", "MOVE", "RUN_PENDING"
-SOURCES = ("readiness", "kyc", "eligibility", "underwriting", "human")
+SOURCES = ("readiness", "kyc", "kyc_checks", "eligibility", "underwriting", "human")
+
+
+def _flag_on(name: str | None) -> bool:
+    """A check carrying `when_flag` counts only while that environment flag is on (default off)."""
+    import os
+
+    if not name:
+        return True
+    return (os.getenv(str(name), "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
 _RANK = {PASS: 0, NOT_READY: 1, REVIEW: 2, BLOCKED: 3}
 
 
@@ -194,9 +203,17 @@ def read_sources(case_id: str, *, results: dict[str, Any], repository: Any) -> d
         open_checks = queries.gate_checks(case_id, repository=repository)
     except Exception:  # noqa: BLE001 - unreadable: no extra check, logged by the service
         open_checks = []
+    # EVERY CPA-GATE KYC CHECK, per party (app/agents/los/kyc_gate.py) -- read only
+    # while the rule is on. A store error is NOT swallowed into "nothing recorded":
+    # the service gate must fail closed on it, so it propagates.
+    kyc_checks = None
+    from app.agents.los import kyc_gate
+
+    if kyc_gate.enabled():
+        kyc_checks = kyc_gate.evaluate(case_id, repository)
     return {"readiness": readiness if isinstance(readiness, dict) else None,
             "eligibility": (eligibility.get("eligibility") if eligibility.get("recorded") else None),
-            "kyc": kyc or None, "underwriting": underwriting, "human": None,
+            "kyc": kyc or None, "kyc_checks": kyc_checks, "underwriting": underwriting, "human": None,
             "open_items": open_checks}
 
 
@@ -221,6 +238,11 @@ def _check(check: dict[str, Any], sources: dict[str, Any]) -> dict[str, Any]:
                    evidence="No human decision is recorded for this case.")
     elif record is None:
         out.update(status=NOT_READY, reason_code=f"{out['id']}_NOT_RECORDED")
+    elif source == "kyc_checks":
+        from app.agents.los import kyc_gate
+
+        out.update(value=record.get("status"), status=_outcome(check, record.get("status")),
+                   evidence=kyc_gate.blocking_summary(record), detail=record)
     elif source == "kyc":
         statuses = [_outcome(check, p.get("status")) for p in record]
         out.update(value=[p.get("status") for p in record],
@@ -270,7 +292,7 @@ def evaluate(stage: str | None, sources: dict[str, Any]) -> dict[str, Any]:
     cfg = config()
     gate = (cfg.get("gates") or {}).get(str(stage or "").upper()) or {}
     nexts = lifecycle()["next"].get(str(stage or "").upper()) or []
-    checks = [_check(c, sources) for c in gate.get("checks") or []]
+    checks = [_check(c, sources) for c in gate.get("checks") or [] if _flag_on(c.get("when_flag"))]
     if not checks:
         status = GAP
         # an open query / pending deviation is still named on an unconfigured gate
@@ -321,6 +343,9 @@ def compose(gate: dict[str, Any], *, can_move: bool, ran: list[str] | None = Non
         if c["id"] == "FOS_READINESS" and c.get("evidence"):
             detail = ": " + "; ".join(str(e.get("detail") or e.get("code")).rstrip(".")
                                       for e in c["evidence"][:4])
+        elif c.get("source") == "kyc_checks" and c.get("evidence"):
+            # each failing KYC check, whose, and what each document said -- from the record
+            detail = ": " + " ".join(str(e) for e in c["evidence"][:6]).rstrip(".")
         elif str(c.get("reason_code") or "").endswith("_NOT_RECORDED"):
             detail = " -- no result is recorded yet"
         elif c.get("recorded") and c.get("value") and not isinstance(c.get("value"), list):

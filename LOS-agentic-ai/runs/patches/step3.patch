@@ -1,0 +1,490 @@
+diff --git a/app/agents/applicant/copilot/answering/localize.py b/app/agents/applicant/copilot/answering/localize.py
+index 42e4651..955c4ce 100644
+--- a/app/agents/applicant/copilot/answering/localize.py
++++ b/app/agents/applicant/copilot/answering/localize.py
+@@ -148,17 +148,47 @@ _FIELD_WORDS = {"hi": {"name": "नाम", "date of birth": "जन्मति
+                 "mr": {"name": "नाव", "date of birth": "जन्मतारीख", "PAN": "PAN", "father's name": "वडिलांचे नाव"}}
+ 
+ 
+-def _reason(reason: str, language: str) -> str:
+-    """The recorded reason in `language` when it is the standard mismatch clause; else as recorded."""
++#: "the date of birth didn't match: the PAN says A, but the driving licence says B" -- the
++#: other recorded shape (case_memory_facts), localized only under the flag below.
++_MISMATCH_SAYS = re.compile(r"^the (?P<field>name|date of birth|PAN|PAN number|father's name|address) didn't match: "
++                            r"the (?P<doc1>.+?) says (?P<v1>.+?), but the (?P<doc2>.+?) says (?P<v2>.+?)\.?$")
++_EXTRA_FIELD_WORDS = {"hi": {"address": "पता", "PAN number": "PAN नंबर"},
++                      "hi-Latn": {"address": "pata", "PAN number": "PAN number"},
++                      "mr": {"address": "पत्ता", "PAN number": "PAN क्रमांक"}}
++KYC_REASONS_FLAG = "COPILOT_LOCALIZED_KYC_REASONS"
++
++
++def kyc_reasons_localized() -> bool:
++    """Quick win 5 (Phase 3 step 3), default off: every recorded mismatch clause in the reply's language."""
++    import os
++
++    return (os.getenv(KYC_REASONS_FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _one_clause(clause: str, language: str, words: dict[str, str]) -> str | None:
+     from app.agents.applicant import language as languages
+ 
+-    m = _MISMATCH.match(reason.strip())
+-    words = _FIELD_WORDS.get(language) or {}
++    m = _MISMATCH.match(clause) or (_MISMATCH_SAYS.match(clause) if kyc_reasons_localized() else None)
+     if not m or m.group("field") not in words:
+-        return reason
+-    said = languages.localized("mismatch_clause", language, field=words[m.group("field")], doc1=m.group("doc1"),
++        return None
++    return languages.localized("mismatch_clause", language, field=words[m.group("field")], doc1=m.group("doc1"),
+                                v1=m.group("v1"), doc2=m.group("doc2"), v2=m.group("v2"))
+-    return said or reason
++
++
++def _reason(reason: str, language: str) -> str:
++    """The recorded reason in `language` when it is the standard mismatch clause; else as recorded.
++
++    Under COPILOT_LOCALIZED_KYC_REASONS a reason of several clauses ("...; ...") is localized clause
++    by clause, in both recorded shapes; a clause with no template stays as recorded. Values are
++    always quoted exactly as recorded."""
++    words = dict(_FIELD_WORDS.get(language) or {})
++    if not kyc_reasons_localized():
++        return _one_clause(reason.strip(), language, words) or reason
++    words.update(_EXTRA_FIELD_WORDS.get(language) or {})
++    trailing = "." if reason.strip().endswith(".") else ""
++    clauses = [c.strip() for c in reason.strip().rstrip(".").split(";") if c.strip()]
++    said = [_one_clause(c, language, words) or c for c in clauses]
++    return "; ".join(said) + trailing if said else reason
+ 
+ 
+ _NOT_UPLOADED = re.compile(r"^No (?P<doc>.+?) document has been uploaded for this case\.(?: However, (?:your|the) "
+@@ -617,8 +647,12 @@ def _status_sentence(result: dict[str, Any], language: str) -> str | None:
+     if shape.group("held"):
+         declined = shape.group("held") == "was declined"
+         if shape.group("reason"):
++            reason = shape.group("reason")
++            if kyc_reasons_localized():
++                # the recorded clause in the reply's language too, not English inside Hinglish
++                reason = _reason(reason, language)
+             hold = languages.localized("status_declined" if declined else "status_review", language,
+-                                       reason=shape.group("reason"))
++                                       reason=reason)
+         else:
+             hold = languages.localized("status_declined_plain" if declined else "status_review_plain", language)
+         if not hold:
+diff --git a/app/agents/applicant/copilot/semantics/intents.py b/app/agents/applicant/copilot/semantics/intents.py
+index e645a9c..af96ceb 100644
+--- a/app/agents/applicant/copilot/semantics/intents.py
++++ b/app/agents/applicant/copilot/semantics/intents.py
+@@ -1496,6 +1496,13 @@ def classify(message: str) -> Classification:
+                               document_type=_document_type(text),
+                               matched_on="document_rejected")
+ 
++    # "CIBIL kya hai?" ASKS WHAT A TERM MEANS (semantics/terms.py; COPILOT_TERMS_KNOWLEDGE,
++    # default off): answered from the knowledge base, never as a bureau result
++    from app.agents.applicant.copilot.semantics import terms as _terms
++
++    if _terms.enabled() and _terms.is_definition(text):
++        return Classification(Intent.FOS_KNOWLEDGE, matched_on="lending_term_definition")
++
+     if not asks_process:
+         for pattern, route in _COMPILED_OOS:
+             if pattern.search(text):
+diff --git a/app/api/routes/fos_api.py b/app/api/routes/fos_api.py
+index b874673..f07e38f 100644
+--- a/app/api/routes/fos_api.py
++++ b/app/api/routes/fos_api.py
+@@ -1156,16 +1156,40 @@ async def _copilot_json(
+     else:
+         message = _ACTION_PHRASE[action]
+ 
+-    return await _run_action(
++    # NO CASE ID (COPILOT_SINGLE_CASE_RESOLVE, default off; capabilities/case_pick.py):
++    # one case of the applicant's is answered for, several are listed and asked about.
++    case_id, picked = payload.case_id, None
++    if not case_id and action is FosAction.CUSTOM_QUERY and payload.applicant_id:
++        from app.agents.applicant.copilot.capabilities import case_pick
++
++        if case_pick.enabled():
++            from app.security import access as _pick_access
++
++            try:
++                picked = case_pick.resolve(payload.applicant_id, claims)
++            except _pick_access.AccessDenied as exc:
++                raise _pick_access.http_denied(exc, request_id) from None
++            if picked.kind == case_pick.MANY:
++                return case_pick.ask_which(picked, payload.applicant_id, request_id, message)
++            if picked.kind == case_pick.NONE:
++                return case_pick.no_case(payload.applicant_id, request_id)
++            case_id = picked.case_id
++
++    result = await _run_action(
+         action,
+         applicant_id=payload.applicant_id,
+-        case_id=payload.case_id,
++        case_id=case_id,
+         claims=claims,
+         request_id=request_id,
+         message=message,
+         context=payload.context,
+         response_language=payload.response_language,
+     )
++    if picked is not None and isinstance(result, dict):
++        # THE CASE ANSWERED FOR IS NAMED, since the user did not name it
++        result["case_resolved_from_applicant"] = True
++        result["answer"] = f"For application {case_id}: {str(result.get('answer') or '').lstrip()}"
++    return result
+ 
+ 
+ def _select_language(result: dict[str, Any], selected: str | None) -> None:
+diff --git a/app/agents/applicant/copilot/capabilities/case_pick.py b/app/agents/applicant/copilot/capabilities/case_pick.py
+new file mode 100644
+index 0000000..67ae33e
+--- /dev/null
++++ b/app/agents/applicant/copilot/capabilities/case_pick.py
+@@ -0,0 +1,96 @@
++"""
++A QUESTION WITH NO CASE ID (Phase 3 step 3, quick win 2; flag COPILOT_SINGLE_CASE_RESOLVE, default off).
++
++"status batao" with only an applicant id used to be answered "I can't share that
++detail here". With the flag on, the applicant's own cases are read -- after the
++caller is authorised on the applicant AND on each case -- and:
++
++    exactly one case   -> the question is answered for it, naming the case id
++    several cases      -> they are listed and the user is asked which one
++    none               -> said so
++
++Nothing is guessed: a case the caller may not open is never listed or used.
++"""
++
++from __future__ import annotations
++
++import os
++from dataclasses import dataclass, field
++from typing import Any
++
++FLAG = "COPILOT_SINGLE_CASE_RESOLVE"
++ONE, MANY, NONE = "ONE", "MANY", "NONE"
++
++
++def enabled() -> bool:
++    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++@dataclass(frozen=True)
++class Pick:
++    kind: str
++    case_id: str | None = None
++    cases: list[dict[str, Any]] = field(default_factory=list)
++
++
++def _label(application: Any) -> dict[str, Any]:
++    from app.agents.applicant.copilot.answering.answer import _readable
++    from app.agents.los import stages
++
++    stage = stages.resolve(application.case_id).stage
++    amount = getattr(application, "loan_amount", None)
++    try:
++        from app.agents.applicant.copilot.facts.document_facts import _rupees
++
++        amount_text = _rupees(amount) if amount not in (None, "") else None
++    except Exception:  # noqa: BLE001 - an unformattable amount is shown as recorded
++        amount_text = str(amount) if amount else None
++    product = _readable(getattr(application, "product", None)) if getattr(application, "product", None) else None
++    parts = [p for p in (product, amount_text, _readable(stage.value) if stage else None) if p]
++    return {"case_id": application.case_id, "label": f"{application.case_id} -- {', '.join(parts)}" if parts
++            else application.case_id}
++
++
++def resolve(applicant_id: str, claims: dict[str, Any]) -> Pick:
++    """The applicant's cases this caller may open. Raises AccessDenied for an applicant it may not."""
++    from app.security import access
++    from app.store import get_repository
++
++    access.authorize_claims(claims, applicant_id=applicant_id)
++    allowed = []
++    for application in get_repository().list_applications(applicant_id):
++        try:
++            access.authorize_claims(claims, case_id=application.case_id)
++        except access.AccessDenied:
++            continue
++        allowed.append(application)
++    if not allowed:
++        return Pick(NONE)
++    if len(allowed) == 1:
++        return Pick(ONE, case_id=allowed[0].case_id)
++    return Pick(MANY, cases=[_label(a) for a in allowed[:8]])
++
++
++def ask_which(pick: Pick, applicant_id: str, request_id: str, message: str) -> dict[str, Any]:
++    """The clarification for several cases, in the copilot envelope's shape."""
++    options = [c["label"] for c in pick.cases]
++    answer = ("This applicant has more than one application. Which one do you mean?\n"
++              + "\n".join(f"{i}. {o}" for i, o in enumerate(options, 1)))
++    return {"request_id": request_id, "applicant_id": applicant_id, "case_id": None,
++            "intent": "CASE_SELECTION", "answer": answer, "category": "UNSUPPORTED",
++            "query_type": "CLARIFICATION", "response_source": "CONVERSATION", "documents": [],
++            "actions": [], "errors": [], "tools_invoked": [], "suggested_questions": [],
++            "clarification_required": {"reason": "CASE_NOT_SPECIFIED", "question": answer,
++                                       "options": options, "original_message": message[:200]},
++            "cases": pick.cases}
++
++
++def no_case(applicant_id: str, request_id: str) -> dict[str, Any]:
++    answer = "I couldn't find an application for this applicant that you can open."
++    return {"request_id": request_id, "applicant_id": applicant_id, "case_id": None, "intent": "CASE_SELECTION",
++            "answer": answer, "category": "CONVERSATION", "query_type": "CLARIFICATION",
++            "response_source": "CONVERSATION", "documents": [], "actions": [], "errors": [],
++            "tools_invoked": [], "suggested_questions": [], "cases": []}
++
++
++__all__ = ["FLAG", "MANY", "NONE", "ONE", "Pick", "ask_which", "enabled", "no_case", "resolve"]
+diff --git a/app/agents/applicant/copilot/semantics/terms.py b/app/agents/applicant/copilot/semantics/terms.py
+new file mode 100644
+index 0000000..053836a
+--- /dev/null
++++ b/app/agents/applicant/copilot/semantics/terms.py
+@@ -0,0 +1,63 @@
++"""
++"WHAT IS <LENDING TERM>?" IS A KNOWLEDGE QUESTION (Phase 3 step 3, quick win 3).
++
++Flag COPILOT_TERMS_KNOWLEDGE (default off). "CIBIL kya hai?" was routed out of
++scope ("bureau information is handled by the Credit process") because every
++mention of a bureau term was. Asking what a term MEANS is not asking for a
++bureau result: with the flag on, a definition question about a configured term
++is answered from the FOS knowledge base (knowledge/fos/*.md).
++
++A question about THIS case ("mera CIBIL score kitna hai?", "what is my credit
++score?") is never a definition: any possessive or case word keeps the old route.
++The terms are configuration (applicant_agent.yaml `terms_knowledge.terms`).
++"""
++
++from __future__ import annotations
++
++import os
++import re
++from functools import lru_cache
++
++FLAG = "COPILOT_TERMS_KNOWLEDGE"
++
++_DEFAULT_TERMS = ("cibil", "cibil score", "credit score", "credit bureau", "bureau", "credit report", "foir",
++                  "emi", "ltv", "loan to value", "kyc", "cpa", "fos", "sanction", "disbursement", "tenure")
++
++#: whose -- any of these makes it a question about a case, not a definition
++_POSSESSIVE = re.compile(r"\b(my|mine|our|his|her|their|mera|meri|mere|hamara|hamari|apna|apni|iska|iski|uska|"
++                         r"uski|is\s+case|this\s+case|the\s+case|application\s+ka|customer\s+ka)\b", re.IGNORECASE)
++
++
++def enabled() -> bool:
++    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++@lru_cache(maxsize=1)
++def _terms() -> tuple[str, ...]:
++    try:
++        from app.agents.applicant import config
++
++        configured = (config.chatbot("terms_knowledge") or {}).get("terms")
++    except Exception:  # noqa: BLE001 - no configuration: the built-in list
++        configured = None
++    return tuple(str(t).lower() for t in (configured or _DEFAULT_TERMS))
++
++
++@lru_cache(maxsize=1)
++def _pattern() -> re.Pattern[str]:
++    term = "|".join(re.escape(t).replace(r"\ ", r"\s+") for t in sorted(_terms(), key=len, reverse=True))
++    return re.compile(
++        rf"^\s*(what\s+is|what's|whats|what\s+are|explain|define|meaning\s+of|tell\s+me\s+about)\s+"
++        rf"(a\s+|an\s+|the\s+)?({term})\b[\s?.!]*$"
++        rf"|^\s*({term})\s+(kya|kya\s+hai|kya\s+hota\s+hai|kya\s+hoti\s+hai|ka\s+matlab(\s+kya\s+hai)?|"
++        rf"matlab|means?|meaning|kay\s+aahe|mhanje\s+kay)\b[\s?.!]*(hai|h)?[\s?.!]*$",
++        re.IGNORECASE)
++
++
++def is_definition(text: str) -> bool:
++    """A definition question about a configured lending term, and about nobody's case."""
++    text = " ".join(str(text or "").split())
++    return bool(text) and not _POSSESSIVE.search(text) and _pattern().search(text) is not None
++
++
++__all__ = ["FLAG", "enabled", "is_definition"]
+diff --git a/knowledge/fos/cibil.md b/knowledge/fos/cibil.md
+new file mode 100644
+index 0000000..4523388
+--- /dev/null
++++ b/knowledge/fos/cibil.md
+@@ -0,0 +1,39 @@
++---
++id: fos.cibil
++knowledge_type: HANDBOOK
++title: CIBIL and credit scores
++description: What CIBIL and a credit score are, and where they fit in this loan process.
++domain: credit
++language: en
++source: LOS curated knowledge (this repository)
++derived_from:
++- app/config/stage_lifecycle.yaml
++related:
++- fos.eligibility_terms
++- fos.fos_workflow
++---
++# CIBIL and credit scores
++
++## What is CIBIL?
++
++**CIBIL** (TransUnion CIBIL) is one of India's **credit bureaus**. A credit bureau
++collects how a person has handled loans and credit cards -- repayments, delays,
++defaults, open accounts and recent loan enquiries -- from banks and lenders.
++
++## What is a CIBIL score (credit score)?
++
++A **credit score** is a three-digit number, from **300 to 900**, that a bureau
++calculates from that history. A higher score means a better repayment record.
++Each lender sets its own minimum score; there is no single cut-off for everyone.
++
++The score improves with on-time repayments and low use of available credit, and
++falls with late payments, defaults and many loan applications in a short time.
++
++## Where it fits in this process
++
++The FOS stage collects documents and checks KYC; it does **not** fetch or decide
++on a credit score. This system does not pull a bureau report. Creditworthiness,
++including any bureau check, is assessed later, at the **Credit** stage.
++
++So the assistant can explain what a credit score is, but it cannot tell you an
++applicant's score.
+diff --git a/tests/integration/test_step3_quick_wins.py b/tests/integration/test_step3_quick_wins.py
+new file mode 100644
+index 0000000..bb0804c
+--- /dev/null
++++ b/tests/integration/test_step3_quick_wins.py
+@@ -0,0 +1,130 @@
++"""
++PHASE 3 STEP 3 -- quick wins 2, 3 and 5, each behind its own flag (default off):
++
++  COPILOT_SINGLE_CASE_RESOLVE    no case id: one case answered (named), several listed and asked
++  COPILOT_TERMS_KNOWLEDGE        "CIBIL kya hai?" answered from the knowledge base, never refused
++  COPILOT_LOCALIZED_KYC_REASONS  the recorded mismatch clause in the reply's language
++
++With every flag off, the answers are exactly what they were.
++"""
++
++from __future__ import annotations
++
++import dataclasses
++
++import pytest
++
++from app.agents.applicant.copilot.answering.localize import _reason
++from tests.integration.test_fos_stage_boundary import open_case, upload
++from tests.integration.test_reupload_supersedes import OTHER_PAN, RISHABH_DL, _store, client  # noqa: F401
++
++FLAGS = ("COPILOT_SINGLE_CASE_RESOLVE", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_LOCALIZED_KYC_REASONS")
++
++
++@pytest.fixture(autouse=True)
++def flags_off(monkeypatch):
++    for name in FLAGS:
++        monkeypatch.delenv(name, raising=False)
++
++
++def ask(client, applicant_id, message, case_id=None):
++    body = {"applicant_id": applicant_id, "action": "CUSTOM_QUERY", "message": message}
++    if case_id:
++        body["case_id"] = case_id
++    return client.post("/api/v1/fos/copilot", json=body)
++
++
++# ---- quick win 2: no case id ----------------------------------------------------------
++def test_no_case_id_flag_off_is_unchanged(client):
++    a, _ = open_case(client)
++    r = ask(client, a, "status batao")
++    assert r.status_code == 200 and not r.json()["answer"].startswith("For application")
++
++
++def test_no_case_id_with_one_case_answers_for_it_and_names_it(client, monkeypatch):
++    monkeypatch.setenv("COPILOT_SINGLE_CASE_RESOLVE", "true")
++    a, c = open_case(client)
++    body = ask(client, a, "status batao").json()
++    assert body["answer"].startswith(f"For application {c}:"), body["answer"]
++    assert body.get("case_resolved_from_applicant") is True and body.get("case_id") == c
++
++
++def test_no_case_id_with_several_cases_lists_them_and_asks(client, monkeypatch, _store):
++    monkeypatch.setenv("COPILOT_SINGLE_CASE_RESOLVE", "true")
++    a, c = open_case(client)
++    second = "case_" + "2" * 32
++    _store.save_application(dataclasses.replace(_store.get_application(c), case_id=second))
++    _store.grant_access("test-subject", "CASE", second)
++    body = ask(client, a, "status batao").json()
++    assert body["intent"] == "CASE_SELECTION", body
++    assert c in body["answer"] and second in body["answer"] and "Which one" in body["answer"]
++    assert body["clarification_required"]["reason"] == "CASE_NOT_SPECIFIED"
++
++
++def test_no_case_id_for_someone_elses_applicant_is_refused(client, monkeypatch, make_token):
++    monkeypatch.setenv("COPILOT_SINGLE_CASE_RESOLVE", "true")
++    a, _ = open_case(client)
++    from tests.integration.test_fos_stage_boundary import FOS_SCOPES
++
++    client.headers.update({"Authorization": f"Bearer {make_token(subject='someone-else', scopes=FOS_SCOPES)}"})
++    r = ask(client, a, "status batao")
++    assert r.status_code == 403, r.text
++
++
++# ---- quick win 3: lending-term definitions ----------------------------------------------
++def test_cibil_definition_flag_off_is_unchanged(client):
++    a, c = open_case(client)
++    body = ask(client, a, "CIBIL kya hai?", c).json()
++    assert body["intent"] == "OUT_OF_SCOPE"
++
++
++@pytest.mark.parametrize("question,expect", [("CIBIL kya hai?", "credit"), ("what is CIBIL?", "bureau"),
++                                             ("FOIR ka matlab", "obligation")])
++def test_a_lending_term_definition_is_answered_from_knowledge(client, monkeypatch, question, expect):
++    monkeypatch.setenv("COPILOT_TERMS_KNOWLEDGE", "true")
++    a, c = open_case(client)
++    body = ask(client, a, question, c).json()
++    assert body["intent"] == "FOS_KNOWLEDGE", body
++    assert expect in body["answer"].lower(), body["answer"]
++
++
++@pytest.mark.parametrize("question", ["mera cibil score kitna hai?", "what is my CIBIL score?"])
++def test_a_question_about_the_case_score_is_still_not_a_definition(client, monkeypatch, question):
++    monkeypatch.setenv("COPILOT_TERMS_KNOWLEDGE", "true")
++    a, c = open_case(client)
++    body = ask(client, a, question, c).json()
++    assert body["intent"] == "OUT_OF_SCOPE", body                 # the case's score: still routed downstream
++
++
++# ---- quick win 5: the mismatch clause in the reply's language -----------------------------
++TWO = ("the name on the PAN, LAXMI GUPTA, does not match the driving licence name, RISHABH SINGH; "
++       "the date of birth didn't match: the PAN says 2004-12-20, but the driving licence says 2002-06-12")
++
++
++def test_kyc_reasons_flag_off_keeps_todays_text():
++    # TODAY'S OUTPUT, pinned: the first clause localized, the second left in English inside it
++    assert _reason(TWO, "hi-Latn") == ("PAN par naam LAXMI GUPTA hai, lekin driving licence par RISHABH SINGH; "
++                                       "the date of birth didn't match: the PAN says 2004-12-20, but the "
++                                       "driving licence says 2002-06-12")
++
++
++def test_kyc_reasons_every_clause_localized_values_exact(monkeypatch):
++    monkeypatch.setenv("COPILOT_LOCALIZED_KYC_REASONS", "true")
++    said = _reason(TWO, "hi-Latn")
++    assert "does not match" not in said and "didn't match" not in said, said
++    for value in ("LAXMI GUPTA", "RISHABH SINGH", "2004-12-20", "2002-06-12"):
++        assert value in said
++    assert "naam" in said and "janmatithi" in said
++
++
++def test_kyc_reasons_unknown_clause_stays_as_recorded(monkeypatch):
++    monkeypatch.setenv("COPILOT_LOCALIZED_KYC_REASONS", "true")
++    assert _reason("a reviewer must look at it", "hi-Latn") == "a reviewer must look at it"
++
++
++def test_the_hinglish_status_answer_carries_no_english_mismatch_clause(client, monkeypatch):
++    monkeypatch.setenv("COPILOT_LOCALIZED_KYC_REASONS", "true")
++    a, c = open_case(client)
++    upload(client, a, c, [("pan.jpg", OTHER_PAN), ("dl.jpg", RISHABH_DL)], ["PAN", "DRIVING_LICENCE"])
++    answer = ask(client, a, "status batao", c).json()["answer"]
++    assert "does not match" not in answer and "didn't match" not in answer, answer

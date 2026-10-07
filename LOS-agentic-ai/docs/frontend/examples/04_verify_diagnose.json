@@ -1,0 +1,715 @@
+{
+  "request": {
+    "action": "CUSTOM_QUERY",
+    "message": "verify karna hai"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "applicant_id": "APP-412D61CC2C7A",
+    "case_id": "CASE-A2AF2B678D6B",
+    "action": "GET_PENDING_ITEMS",
+    "intent": "PENDING_ITEMS",
+    "answer": "📍 CASE-A2AF2B678D6B\n⏳ Please upload the correct documents:\n📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to **CPA**.",
+    "applicant": null,
+    "application": null,
+    "stage": null,
+    "documents": [],
+    "checklist": [
+      {
+        "slot": "PAN",
+        "accepts": [
+          "PAN"
+        ],
+        "mandatory": true,
+        "requirement": "REQUIRED",
+        "rule_ids": [
+          "PL_BASE"
+        ],
+        "reason": "PAN is the applicant's identity proof at the FOS stage: it establishes who is applying, and its name, date of birth and PAN number are what the other documents are matched against in the KYC check.",
+        "policy_status": "UNCONFIRMED",
+        "content_requirements": {
+          "PAN": {
+            "required_fields": [
+              "pan_number",
+              "name"
+            ],
+            "preferred_fields": [
+              "date_of_birth",
+              "father_name"
+            ],
+            "verification_required": true,
+            "notes": "The name on the PAN is compared with other documents at the KYC stage, which is downstream of FOS."
+          }
+        },
+        "status": "REJECTED",
+        "fulfilment": "FAILED",
+        "document_type": "PAN",
+        "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+        "reason_codes": [
+          "DOCUMENT_UNREADABLE"
+        ],
+        "category": "PAN",
+        "label": "PAN",
+        "accepted_types": [
+          "PAN"
+        ],
+        "accepts_any_one_of": false,
+        "required": true,
+        "actions": [
+          {
+            "action": "UPLOAD_DOCUMENT",
+            "document_type": "PAN",
+            "accepted_types": [
+              "PAN"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "slot": "ADDRESS_PROOF",
+        "accepts": [
+          "DRIVING_LICENCE",
+          "PASSPORT",
+          "VOTER_ID"
+        ],
+        "mandatory": true,
+        "requirement": "REQUIRED",
+        "rule_ids": [
+          "PL_BASE"
+        ],
+        "reason": "An officially valid document evidencing the applicant's address. Any one of the accepted types satisfies the requirement.",
+        "policy_status": "UNCONFIRMED",
+        "content_requirements": {
+          "DRIVING_LICENCE": {
+            "required_fields": [
+              "dl_number",
+              "name"
+            ],
+            "preferred_fields": [
+              "date_of_birth",
+              "address",
+              "valid_until"
+            ],
+            "verification_required": true,
+            "expiry_field": "valid_until",
+            "satisfies_slots": [
+              "ADDRESS_PROOF"
+            ]
+          },
+          "PASSPORT": {
+            "required_fields": [
+              "passport_number",
+              "name"
+            ],
+            "preferred_fields": [
+              "date_of_birth",
+              "address",
+              "valid_until"
+            ],
+            "verification_required": true,
+            "expiry_field": "valid_until",
+            "satisfies_slots": [
+              "ADDRESS_PROOF"
+            ]
+          },
+          "VOTER_ID": {
+            "required_fields": [
+              "voter_id",
+              "name"
+            ],
+            "preferred_fields": [
+              "address"
+            ],
+            "verification_required": true,
+            "satisfies_slots": [
+              "ADDRESS_PROOF"
+            ]
+          }
+        },
+        "status": "MISSING",
+        "fulfilment": "MISSING",
+        "document_type": null,
+        "document_id": null,
+        "reason_codes": [],
+        "category": "ADDRESS_PROOF",
+        "label": "Address Proof",
+        "accepted_types": [
+          "DRIVING_LICENCE",
+          "PASSPORT",
+          "VOTER_ID"
+        ],
+        "accepts_any_one_of": true,
+        "required": true,
+        "actions": [
+          {
+            "action": "UPLOAD_DOCUMENT",
+            "document_type": "ADDRESS_PROOF",
+            "accepted_types": [
+              "DRIVING_LICENCE",
+              "PASSPORT",
+              "VOTER_ID"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "slot": "BANK_STATEMENT",
+        "accepts": [
+          "BANK_STATEMENT"
+        ],
+        "mandatory": true,
+        "requirement": "REQUIRED",
+        "rule_ids": [
+          "PL_BASE"
+        ],
+        "reason": "A bank statement evidences the applicant's banking relationship and is passed to the credit stage for assessment.",
+        "policy_status": "UNCONFIRMED",
+        "content_requirements": {
+          "BANK_STATEMENT": {
+            "required_fields": [
+              "account_number_masked",
+              "period_start",
+              "period_end"
+            ],
+            "verification_required": true,
+            "min_months": 3,
+            "min_months_status": "UNCONFIRMED",
+            "integrity": {
+              "reconciliation_required": true,
+              "allow_inconclusive": true
+            },
+            "notes": "Transaction-level analysis belongs to the credit stage. FOS checks that the statement is a readable, complete, internally consistent document."
+          }
+        },
+        "status": "MISSING",
+        "fulfilment": "MISSING",
+        "document_type": null,
+        "document_id": null,
+        "reason_codes": [],
+        "category": "BANK_STATEMENT",
+        "label": "Bank Statement",
+        "accepted_types": [
+          "BANK_STATEMENT"
+        ],
+        "accepts_any_one_of": false,
+        "required": true,
+        "actions": [
+          {
+            "action": "UPLOAD_DOCUMENT",
+            "document_type": "BANK_STATEMENT",
+            "accepted_types": [
+              "BANK_STATEMENT"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "slot": "SIGNATURE",
+        "accepts": [
+          "SIGNATURE"
+        ],
+        "mandatory": false,
+        "requirement": "OPTIONAL",
+        "rule_ids": [
+          "PL_BASE"
+        ],
+        "reason": "A photo of the applicant's signature for the application record. It is checked by the signature service; without a reference specimen it is REVIEW, never PASS.",
+        "policy_status": "UNCONFIRMED",
+        "content_requirements": {
+          "SIGNATURE": {
+            "required_fields": [],
+            "verification_required": true
+          }
+        },
+        "status": "MISSING",
+        "fulfilment": "MISSING",
+        "document_type": null,
+        "document_id": null,
+        "reason_codes": [],
+        "category": "SIGNATURE",
+        "label": "Signature",
+        "accepted_types": [
+          "SIGNATURE"
+        ],
+        "accepts_any_one_of": false,
+        "required": false,
+        "actions": [
+          {
+            "action": "UPLOAD_DOCUMENT",
+            "document_type": "SIGNATURE",
+            "accepted_types": [
+              "SIGNATURE"
+            ],
+            "enabled": true
+          }
+        ]
+      }
+    ],
+    "required_documents": [
+      "PAN",
+      "ADDRESS_PROOF",
+      "BANK_STATEMENT"
+    ],
+    "policy": {
+      "policy_id": "PERSONAL_LOAN_FOS_DOCUMENTS",
+      "policy_version": "0.1.1-DEMO",
+      "status": "UNCONFIRMED",
+      "source": "personal_loan.yaml",
+      "product": "PERSONAL_LOAN",
+      "applied_rules": [
+        "PL_BASE",
+        "PL_STANDARD"
+      ],
+      "unevaluated_rules": [
+        {
+          "rule_id": "PL_SELF_EMPLOYED",
+          "missing_attributes": [
+            "employment_type"
+          ],
+          "reason": "PL_SELF_EMPLOYED depends on employment_type, which the case has not captured, so the rule was not applied.",
+          "would_require": [
+            "INCOME_PROOF"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "pinned_version": "0.1.1-DEMO",
+      "pinned_at": "<timestamp>",
+      "version_changed": false
+    },
+    "query_type": "CASE_FACT",
+    "case_state": {
+      "case_id": "CASE-A2AF2B678D6B",
+      "product": "PERSONAL_LOAN",
+      "stage": "APPLICATION_CREATED",
+      "readiness": "NOT_READY",
+      "documents_collected": 1,
+      "documents_required": 3,
+      "documents_satisfied": 0,
+      "documents_missing": 2,
+      "documents_under_review": 0,
+      "documents_failed": 1,
+      "collection_progress": 0,
+      "applicant_fields_missing": []
+    },
+    "suggested_questions": [
+      "Why was the PAN rejected?",
+      "What can be used as address proof?",
+      "Why is address proof required for this application?",
+      "Why does the checklist depend on the employment type?"
+    ],
+    "available_actions": [
+      {
+        "action": "UPLOAD_DOCUMENT",
+        "label": "Upload a document",
+        "enabled": true
+      },
+      {
+        "action": "GET_DOCUMENT_CHECKLIST",
+        "label": "What is still needed",
+        "enabled": true
+      },
+      {
+        "action": "GET_VERIFICATION_STATUS",
+        "label": "Document verification status",
+        "enabled": true
+      },
+      {
+        "action": "MARK_FOR_REUPLOAD",
+        "label": "Ask for a document again",
+        "enabled": true,
+        "invoke": {
+          "action": "CUSTOM_QUERY",
+          "message_template": "Mark the {slot} for re-upload."
+        }
+      },
+      {
+        "action": "CHECK_CPA_READINESS",
+        "label": "Check readiness for handoff",
+        "enabled": true
+      },
+      {
+        "action": "GET_CASE_360",
+        "label": "Full case view",
+        "enabled": true
+      }
+    ],
+    "document_highlights": [],
+    "clarification_required": null,
+    "followed_up": null,
+    "context": {
+      "conversation_id": null,
+      "case_id": "CASE-A2AF2B678D6B",
+      "last_query_type": "CASE_FACT",
+      "last_intent": "PENDING_ITEMS",
+      "last_slot": "PAN",
+      "last_documents": [
+        "PAN",
+        "ADDRESS_PROOF",
+        "BANK_STATEMENT"
+      ],
+      "last_document": null,
+      "last_field": null,
+      "last_aspect": null,
+      "last_subject": null,
+      "last_task": null,
+      "last_object": null,
+      "last_stage": null,
+      "last_source": "STRUCTURED",
+      "last_language": null
+    },
+    "understanding": null,
+    "observability": null,
+    "pending_items": [
+      {
+        "type": "DOCUMENT",
+        "code": "DOCUMENT_REJECTED",
+        "detail": "PAN was rejected and must be re-uploaded.",
+        "slot": "PAN",
+        "document_type": "PAN",
+        "reason_codes": [
+          "DOCUMENT_UNREADABLE"
+        ]
+      },
+      {
+        "type": "DOCUMENT",
+        "code": "DOCUMENT_MISSING",
+        "detail": "Address Proof has not been uploaded.",
+        "slot": "ADDRESS_PROOF",
+        "accepts": [
+          "DRIVING_LICENCE",
+          "PASSPORT",
+          "VOTER_ID"
+        ]
+      },
+      {
+        "type": "DOCUMENT",
+        "code": "DOCUMENT_MISSING",
+        "detail": "Bank Statement has not been uploaded.",
+        "slot": "BANK_STATEMENT",
+        "accepts": [
+          "BANK_STATEMENT"
+        ]
+      }
+    ],
+    "verification": null,
+    "kyc": null,
+    "knowledge": null,
+    "category": "CASE_ONLY",
+    "next_action": null,
+    "readiness": null,
+    "actions": [],
+    "route_to": null,
+    "response_source": "STRUCTURED",
+    "processing_ms": 3.77,
+    "errors": [],
+    "summary": "The application is open. 3 item(s) remain outstanding.",
+    "status": null,
+    "processing_queue": [],
+    "grounded": true,
+    "response_type": "NEXT_ACTION",
+    "subject": {
+      "party": null
+    },
+    "language": null,
+    "processing": null,
+    "portfolio": null,
+    "scope": "CASE",
+    "language_contract": {
+      "language": "hi-Latn",
+      "script": "Latin",
+      "input_mode": "ROMANIZED",
+      "semantic_rewrite": true,
+      "confidence": 0.75,
+      "response_language": "hi-Latn",
+      "review_status": "SEED_UNREVIEWED",
+      "provider": "lexicon",
+      "provider_fallback": false,
+      "reply_language": "en",
+      "localized": false
+    },
+    "pending_work": null,
+    "gate": null,
+    "semantic_decisions": null,
+    "presentation": {
+      "document_actions": {
+        "reupload": [
+          {
+            "party": "PRIMARY_APPLICANT",
+            "party_label": "Applicant",
+            "document_type": "PAN",
+            "label": "PAN",
+            "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+            "reasons": [
+              "Too little text could be read from this document. Re-upload a clearer copy."
+            ],
+            "source": "VERIFICATION",
+            "action": {
+              "type": "UPLOAD_DOCUMENT",
+              "document_type": "PAN",
+              "party": "PRIMARY_APPLICANT",
+              "label": "Upload PAN"
+            }
+          }
+        ],
+        "pending": [
+          {
+            "party": "PRIMARY_APPLICANT",
+            "party_label": "Applicant",
+            "document_type": "ADDRESS_PROOF",
+            "label": "Address Proof",
+            "action": {
+              "type": "UPLOAD_DOCUMENT",
+              "document_type": "ADDRESS_PROOF",
+              "party": "PRIMARY_APPLICANT",
+              "label": "Upload Address Proof"
+            }
+          },
+          {
+            "party": "PRIMARY_APPLICANT",
+            "party_label": "Applicant",
+            "document_type": "BANK_STATEMENT",
+            "label": "Bank Statement",
+            "action": {
+              "type": "UPLOAD_DOCUMENT",
+              "document_type": "BANK_STATEMENT",
+              "party": "PRIMARY_APPLICANT",
+              "label": "Upload Bank Statement"
+            }
+          }
+        ],
+        "under_review": [],
+        "kyc_issues": [],
+        "emphasis": [
+          "PAN",
+          "Address Proof"
+        ]
+      },
+      "workspace": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "header": "📍 CASE-A2AF2B678D6B",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "🔒 Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "🔁 Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "Kya baaki hai?",
+            "message": "Kya baaki hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Kyu atka hai?",
+            "message": "Kyu atka hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      },
+      "message": "📍 CASE-A2AF2B678D6B 📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy. 📄 Address Proof [Upload] 📄 Bank Statement [Upload] 👉 Clear these to move the case to **CPA**.",
+      "intent": "PENDING_ITEMS",
+      "response_type": "STATUS",
+      "response_depth": "BRIEF",
+      "language": "en",
+      "status": "ACTION_REQUIRED",
+      "next_step": "Upload Address Proof",
+      "next_action": {
+        "type": "UPLOAD_DOCUMENT",
+        "document_type": "ADDRESS_PROOF",
+        "label": "Upload Address Proof"
+      },
+      "audio": {
+        "enabled": false,
+        "status": "DEGRADED",
+        "language": "en",
+        "voice": "Zira",
+        "text": "📍 CASE-A2AF2B678D6B. Please upload the correct documents: 📄 **PAN (Permanent Account Number)** [Upload], Too little text could be read from this document. Re-upload a clearer copy. Still pending: 📄 Address Proof [Upload]. 📄 Bank Statement [Upload]. 👉 Clear these to move the case to **CPA**.",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "applicant_id": "APP-412D61CC2C7A",
+        "stage": null
+      },
+      "sections": [
+        {
+          "title": null,
+          "items": [
+            {
+              "icon": "⏳",
+              "label": "Please upload the correct documents:",
+              "status": null
+            }
+          ]
+        }
+      ],
+      "documents": [],
+      "document_groups": [],
+      "actions": [
+        {
+          "label": "Upload a document",
+          "action": "UPLOAD_DOCUMENT"
+        },
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Ask for a document again",
+          "action": "MARK_FOR_REUPLOAD"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "next_actions": [
+        {
+          "label": "Upload a document",
+          "action": "UPLOAD_DOCUMENT"
+        },
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Ask for a document again",
+          "action": "MARK_FOR_REUPLOAD"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": "en",
+        "response_source": "STRUCTURED"
+      }
+    },
+    "workspace_view": {
+      "workspace": {
+        "case_id": "CASE-A2AF2B678D6B",
+        "header": "📍 CASE-A2AF2B678D6B",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "🔒 Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "🔁 Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "Kya baaki hai?",
+            "message": "Kya baaki hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Kyu atka hai?",
+            "message": "Kyu atka hai?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      }
+    },
+    "document_actions": {
+      "reupload": [
+        {
+          "party": "PRIMARY_APPLICANT",
+          "party_label": "Applicant",
+          "document_type": "PAN",
+          "label": "PAN",
+          "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+          "reasons": [
+            "Too little text could be read from this document. Re-upload a clearer copy."
+          ],
+          "source": "VERIFICATION",
+          "action": {
+            "type": "UPLOAD_DOCUMENT",
+            "document_type": "PAN",
+            "party": "PRIMARY_APPLICANT",
+            "label": "Upload PAN"
+          }
+        }
+      ],
+      "pending": [
+        {
+          "party": "PRIMARY_APPLICANT",
+          "party_label": "Applicant",
+          "document_type": "ADDRESS_PROOF",
+          "label": "Address Proof",
+          "action": {
+            "type": "UPLOAD_DOCUMENT",
+            "document_type": "ADDRESS_PROOF",
+            "party": "PRIMARY_APPLICANT",
+            "label": "Upload Address Proof"
+          }
+        },
+        {
+          "party": "PRIMARY_APPLICANT",
+          "party_label": "Applicant",
+          "document_type": "BANK_STATEMENT",
+          "label": "Bank Statement",
+          "action": {
+            "type": "UPLOAD_DOCUMENT",
+            "document_type": "BANK_STATEMENT",
+            "party": "PRIMARY_APPLICANT",
+            "label": "Upload Bank Statement"
+          }
+        }
+      ],
+      "under_review": [],
+      "kyc_issues": [],
+      "emphasis": [
+        "PAN",
+        "Address Proof"
+      ]
+    },
+    "verify_diagnose": true,
+    "response_style": {
+      "applied": true,
+      "expanded": [
+        "PAN"
+      ]
+    }
+  }
+}

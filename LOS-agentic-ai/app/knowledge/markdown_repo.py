@@ -55,10 +55,14 @@ _FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 #:   effective_from / effective_to   the window it is in force (absent = no bound)
 #:   derived_from  the configuration files the text restates (provenance)
 #:   related       ids of related items
+#:   requires_flag an environment flag; the item is in effect only while it is on
+#:                 (absent = always). Flag off: never indexed, never retrieved.
 _DECLARABLE = ("id", "knowledge_type", "title", "description", "domain", "language",
                "version", "effective_date", "effective_from", "effective_to", "status",
                "applies_to", "product", "source", "owner", "derived_from", "related",
-               "policy_status")
+               "policy_status", "requires_flag")
+
+_FLAG_ON = frozenset({"1", "true", "yes", "on"})
 
 #: The statuses a retrieval may return. Anything else is kept out of the index.
 RETRIEVABLE = frozenset({"CURRENT"})
@@ -102,7 +106,7 @@ def knowledge_metadata(stage: str, filename: str, text: str) -> tuple[dict, str]
         return [str(v) for v in value] if isinstance(value, list) else ([str(value)] if value else None)
 
     okf = {key: declared[key] for key in ("id", "title", "description", "domain", "language",
-                                          "owner", "policy_status") if declared.get(key)}
+                                          "owner", "policy_status", "requires_flag") if declared.get(key)}
     return {
         **okf,
         "status": str(declared.get("status") or "CURRENT").upper(),
@@ -127,12 +131,17 @@ def in_effect(metadata: dict, today: str | None = None) -> bool:
     Whether an item may be retrieved TODAY: status CURRENT and inside its
     declared window. An item with no window is always in effect; a superseded
     or retired one never is, so obsolete text cannot outrank current text.
-    Dates compare as ISO strings (YYYY-MM-DD).
+    Dates compare as ISO strings (YYYY-MM-DD). An item that declares
+    `requires_flag` is in effect only while that flag is on.
     """
+    import os
     from datetime import date
 
     meta = metadata or {}
     if str(meta.get("status") or "CURRENT").upper() not in RETRIEVABLE:
+        return False
+    flag = meta.get("requires_flag")
+    if flag and (os.getenv(str(flag), "false") or "false").strip().lower() not in _FLAG_ON:
         return False
     today = today or date.today().isoformat()
     starts, ends = meta.get("effective_from"), meta.get("effective_to")
@@ -166,6 +175,9 @@ class MarkdownKnowledgeRepository(KnowledgeRepository):
     def __init__(self, root: Path | str) -> None:
         self._root = Path(root)
         self._cache: dict[str, list[Chunk]] | None = None
+        #: every `requires_flag` named by a file, indexed or not -- the knowledge layer
+        #: rebuilds the index when one of them changes (app/knowledge/__init__.py)
+        self.gated_flags: set[str] = set()
 
     # -- loading ----------------------------------------------------------
 
@@ -193,6 +205,8 @@ class MarkdownKnowledgeRepository(KnowledgeRepository):
                     logger.warning("Could not read %s: %s", path, exc)
                     continue
                 meta, body = knowledge_metadata(stage, path.name, text)
+                if meta.get("requires_flag"):
+                    self.gated_flags.add(str(meta["requires_flag"]))
                 if not in_effect(meta):
                     # SUPERSEDED / RETIRED / DRAFT, or outside its window: kept
                     # on disk for provenance, never indexed, never retrieved

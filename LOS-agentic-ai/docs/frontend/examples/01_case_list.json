@@ -1,0 +1,144 @@
+{
+  "request": {
+    "action": "CUSTOM_QUERY",
+    "message": "mere cases dikhao"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "intent": "CASE_LIST",
+    "answer": "📂 **Your cases** -- 2 total · ⏳ 2 pending\n\n1. **CASE-A5C1C58A1704** (Priya V.) · 📍 **FOS (Field Officer Sales)** · ⏳ 3 docs pending\n2. **CASE-A2AF2B678D6B** (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
+    "category": "CASE_ONLY",
+    "query_type": "CASE_FACT",
+    "response_source": "STRUCTURED",
+    "documents": [],
+    "actions": [],
+    "errors": [],
+    "tools_invoked": [
+      "application.list"
+    ],
+    "suggested_questions": [
+      "1",
+      "2"
+    ],
+    "workspace_view": {
+      "case_list": [
+        {
+          "number": 1,
+          "case_id": "CASE-A5C1C58A1704",
+          "applicant_id": "APP-92BF31107A01",
+          "applicant_name": "Priya V.",
+          "stage": "FOS",
+          "status_label": "⏳ 3 docs pending",
+          "status_kind": "DOCS",
+          "emoji": "⏳",
+          "action": {
+            "type": "open_case",
+            "case_id": "CASE-A5C1C58A1704"
+          }
+        },
+        {
+          "number": 2,
+          "case_id": "CASE-A2AF2B678D6B",
+          "applicant_id": "APP-412D61CC2C7A",
+          "applicant_name": "Rahul S.",
+          "stage": "FOS",
+          "status_label": "⏳ 3 docs pending",
+          "status_kind": "DOCS",
+          "emoji": "⏳",
+          "action": {
+            "type": "open_case",
+            "case_id": "CASE-A2AF2B678D6B"
+          }
+        }
+      ],
+      "counts": {
+        "total": 2,
+        "pending": 2
+      },
+      "page": 0,
+      "has_more": false
+    },
+    "context": {
+      "workspace_id": "default"
+    },
+    "response_style": {
+      "applied": true,
+      "expanded": [
+        "FOS"
+      ]
+    },
+    "presentation": {
+      "case_list": [
+        {
+          "number": 1,
+          "case_id": "CASE-A5C1C58A1704",
+          "applicant_id": "APP-92BF31107A01",
+          "applicant_name": "Priya V.",
+          "stage": "FOS",
+          "status_label": "⏳ 3 docs pending",
+          "status_kind": "DOCS",
+          "emoji": "⏳",
+          "action": {
+            "type": "open_case",
+            "case_id": "CASE-A5C1C58A1704"
+          }
+        },
+        {
+          "number": 2,
+          "case_id": "CASE-A2AF2B678D6B",
+          "applicant_id": "APP-412D61CC2C7A",
+          "applicant_name": "Rahul S.",
+          "stage": "FOS",
+          "status_label": "⏳ 3 docs pending",
+          "status_kind": "DOCS",
+          "emoji": "⏳",
+          "action": {
+            "type": "open_case",
+            "case_id": "CASE-A2AF2B678D6B"
+          }
+        }
+      ],
+      "counts": {
+        "total": 2,
+        "pending": 2
+      },
+      "page": 0,
+      "has_more": false,
+      "message": "📂 **Your cases** -- 2 total · ⏳ 2 pending 1. **CASE-A5C1C58A1704** (Priya V.) · 📍 **FOS (Field Officer Sales)** · ⏳ 3 docs pending 2. **CASE-A2AF2B678D6B** (Rahul S.) · 📍 FOS · ⏳ 3 docs pending 👉 Kis case mein jaana hai?",
+      "intent": "CASE_LIST",
+      "response_type": "ANSWER",
+      "response_depth": "NORMAL",
+      "language": null,
+      "status": "INFO",
+      "next_step": null,
+      "next_action": null,
+      "audio": {
+        "enabled": false,
+        "status": "NO_VOICE_FOR_LANGUAGE",
+        "language": null,
+        "voice": null,
+        "text": "📂 **Your cases**, 2 total ·  2 pending. 1. **CASE-A5C1C58A1704** (Priya V.) · 📍 **FOS (Field Officer Sales)** ·  3 docs pending. 2. **CASE-A2AF2B678D6B** (Rahul S.) · 📍 FOS ·  3 docs pending. 👉 Kis case mein jaana hai?",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": null,
+        "applicant_id": null,
+        "stage": null
+      },
+      "sections": [],
+      "documents": [],
+      "document_groups": [],
+      "actions": [],
+      "next_actions": [],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": null,
+        "response_source": "STRUCTURED"
+      }
+    }
+  }
+}

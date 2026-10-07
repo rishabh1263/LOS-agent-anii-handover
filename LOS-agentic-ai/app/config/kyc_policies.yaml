@@ -40,6 +40,16 @@
 # The per-check status is NOT capped: a failed check still reports FAIL, with
 # its reason codes, sources and the value each document carried. Only its
 # effect on the overall verdict is bounded.
+#
+# ---------------------------------------------------------------------------
+# cpa_gate -- WHICH CHECKS MUST HAVE PASSED TO LEAVE FOS FOR CPA (2026-10-06)
+# ---------------------------------------------------------------------------
+#   cpa_gate true  -> the FOS -> CPA gate requires this check to be PASS for
+#                     every party on the case (not REVIEW, FAIL or SKIPPED)
+#   cpa_gate false -> not required (absent means false)
+# Separate from `blocking`: `blocking` shapes the KYC verdict, `cpa_gate` only
+# the stage gate. Read by app/agents/los/kyc_gate.py and ENFORCED ONLY while
+# LOS_FOS_CPA_KYC_RULE=true (default off). UNCONFIRMED, like this policy.
 # ===========================================================================
 
 policy_version: "1.0.0"
@@ -55,6 +65,7 @@ name:
   # Non-blocking: names legitimately differ across a person's documents.
   # A disagreement goes to a reviewer with both values attached.
   blocking: false
+  cpa_gate: true
   # At or above this, two names are the same person.
   match_threshold: 0.85
   # Between review_threshold and match_threshold the answer is uncertain and
@@ -74,6 +85,7 @@ dob:
   # FAIL on the check itself. What it no longer does is reject the applicant
   # without a human ever seeing it.
   blocking: false
+  cpa_gate: true
 
 # ---------------------------------------------------------------------------
 # ADDRESS
@@ -88,6 +100,7 @@ dob:
 address:
   enabled: true
   blocking: false
+  cpa_gate: true
   pass_score: 0.80
   review_score: 0.55
   weights:
@@ -111,6 +124,7 @@ pan:
   # and is reported as FAIL with both values, but it is a reviewer's call --
   # a mistyped PAN on a payslip is not the same thing as a false identity.
   blocking: false
+  cpa_gate: true
 
 # ---------------------------------------------------------------------------
 # INCOME
@@ -124,6 +138,8 @@ pan:
 income:
   enabled: true
   blocking: false
+  # Excluded from the FOS -> CPA gate for now: income is often unavailable at FOS.
+  cpa_gate: false
   months_per_year: 12
   # Percentage difference between two annualised figures, relative to the
   # larger of the two.
@@ -154,6 +170,7 @@ decision:
 father_name:
   enabled: true
   blocking: false
+  cpa_gate: true
   match_threshold: 0.85
   review_threshold: 0.70
 

@@ -1,0 +1,48 @@
+{
+  "run_id": "BF-20261007T072110-2CE5",
+  "plan_file": "C:\\Users\\ET0002183\\AppData\\Local\\Temp\\pytest-of-ET0002183\\pytest-1819\\test_apply_executes_exactly_th0\\plan_552110.json",
+  "plan_fingerprint": "02097ea9936bd6ff2d4188f7f6f0755c7c6cb412e2f5289a09f980b7c898ffc0",
+  "backup_file": "C:\\Users\\ET0002183\\AppData\\Local\\Temp\\pytest-of-ET0002183\\pytest-1819\\test_apply_executes_exactly_th0\\los_test.dump",
+  "actions": [
+    {
+      "remap_id": "8f32816f30d241528a98800de7799652",
+      "run_id": "BF-20261007T072110-2CE5",
+      "action": "REMAP_ID",
+      "case_id": "CASE-53DDCFD8767B",
+      "old_id": "COAPP-J1",
+      "new_id": "COAPP-E22BE93A84D5",
+      "detail": "{\"case_id\": \"CASE-53DDCFD8767B\", \"old_id\": \"COAPP-J1\", \"new_id\": \"COAPP-E22BE93A84D5\", \"reason\": \"DUPLICATE\", \"kept_on\": \"CASE-0D80223FAFA5\", \"rows\": {\"applications\": 1, \"documents\": 2, \"case_findings\": 1, \"document_versions\": 0, \"case_events\": 0, \"ocr_jobs\": 0}, \"append_only_rows_left_on_old_id\": {\"jev_runs\": 0}}",
+      "applied_at": "2026-10-07T07:21:10.551177+00:00"
+    },
+    {
+      "remap_id": "048f036fd9a04bb3b7797f6a1ee653ee",
+      "run_id": "BF-20261007T072110-2CE5",
+      "action": "INSERT_CO_APPLICANT",
+      "case_id": "CASE-0D80223FAFA5",
+      "old_id": null,
+      "new_id": "COAPP-J1",
+      "detail": "{\"case_id\": \"CASE-0D80223FAFA5\", \"applicant_id\": \"APP-776E404AD379\", \"co_applicant_id\": \"COAPP-J1\", \"name_filled\": true}",
+      "applied_at": "2026-10-07T07:21:10.551177+00:00"
+    },
+    {
+      "remap_id": "1f623c8538e742d5837df2f15aaef8ed",
+      "run_id": "BF-20261007T072110-2CE5",
+      "action": "INSERT_CO_APPLICANT",
+      "case_id": "CASE-53DDCFD8767B",
+      "old_id": null,
+      "new_id": "COAPP-E22BE93A84D5",
+      "detail": "{\"case_id\": \"CASE-53DDCFD8767B\", \"applicant_id\": \"APP-00935D086584\", \"co_applicant_id\": \"COAPP-E22BE93A84D5\", \"name_filled\": true}",
+      "applied_at": "2026-10-07T07:21:10.551177+00:00"
+    },
+    {
+      "remap_id": "226a827c9da645859424bcbdcf28327b",
+      "run_id": "BF-20261007T072110-2CE5",
+      "action": "REVOKE_GRANT",
+      "case_id": null,
+      "old_id": "COAPP-J1",
+      "new_id": null,
+      "detail": "{\"subject\": \"joiner\", \"resource_type\": \"APPLICANT\", \"resource_id\": \"COAPP-J1\", \"granted_at\": \"2026-10-07T07:21:10.500095+00:00\"}",
+      "applied_at": "2026-10-07T07:21:10.551177+00:00"
+    }
+  ]
+}

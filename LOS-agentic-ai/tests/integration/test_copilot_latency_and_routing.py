@@ -134,7 +134,10 @@ def test_keep_warm_is_a_load_only_ping(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", Client)
     assert asyncio.run(keep_warm.ping()) is True
     assert sent["url"].endswith("/api/generate")
-    assert set(sent["body"]) == {"model", "keep_alive"}      # no prompt: nothing generated
+    # no prompt: nothing generated. The only option is the shared context size (step 6b),
+    # so the ping loads the model exactly as the real calls use it (no reload later).
+    assert set(sent["body"]) == {"model", "keep_alive", "options"}
+    assert set(sent["body"]["options"]) == {"num_ctx"}
 
 
 def test_keep_warm_can_be_switched_off(monkeypatch):

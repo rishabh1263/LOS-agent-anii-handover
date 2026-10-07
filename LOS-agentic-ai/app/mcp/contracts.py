@@ -42,6 +42,7 @@ def _string(description: str) -> dict[str, Any]:
 
 CASE_ID = _string("The case this applies to.")
 APPLICANT_ID = _string("The applicant this applies to.")
+CO_APPLICANT_ID = _string("The co-applicant this applies to (COAPP-...).")
 
 
 @dataclass(frozen=True)
@@ -143,6 +144,18 @@ CONTRACTS: dict[str, ToolContract] = {
         summary="Every application belonging to one applicant.",
         input_schema=_schema({"applicant_id": APPLICANT_ID}, ["applicant_id"]),
         scope_key="application",
+        never=DOWNSTREAM_CONCERNS,
+    ),
+    "co_applicant.get": ToolContract(
+        name="co_applicant.get",
+        summary=(
+            "One co-applicant of a case: name, relationship, their own documents, their KYC status "
+            "and what is pending for them. Scoped by the case (the caller must own it); the "
+            "co-applicant must be on that case."
+        ),
+        input_schema=_schema({"case_id": CASE_ID, "co_applicant_id": CO_APPLICANT_ID},
+                             ["case_id", "co_applicant_id"]),
+        scope_key="documents",
         never=DOWNSTREAM_CONCERNS,
     ),
     "documents.get": ToolContract(
@@ -410,6 +423,7 @@ PROVIDERS: dict[str, str] = {
     "workflow.readiness": "workflow",
     "eligibility.get": "eligibility_record",
     "applicant.360": "case_view",
+    "co_applicant.get": "case_store",
     "applicant.create": "case_store",
     "applicant.update": "case_store",
     "application.create": "case_store",

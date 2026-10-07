@@ -1496,6 +1496,13 @@ def classify(message: str) -> Classification:
                               document_type=_document_type(text),
                               matched_on="document_rejected")
 
+    # "CIBIL kya hai?" ASKS WHAT A TERM MEANS (semantics/terms.py; COPILOT_TERMS_KNOWLEDGE,
+    # default off): answered from the knowledge base, never as a bureau result
+    from app.agents.applicant.copilot.semantics import terms as _terms
+
+    if _terms.enabled() and _terms.is_definition(text):
+        return Classification(Intent.FOS_KNOWLEDGE, matched_on="lending_term_definition")
+
     if not asks_process:
         for pattern, route in _COMPILED_OOS:
             if pattern.search(text):
@@ -1881,10 +1888,20 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
         routed = semantic_frame.route(frame)
         if routed:
             intent = Intent(routed)
+            # ONE LABEL FOR ONE MEANING (step 6a). "Which stage is my case at?" read by
+            # the frame is the same question the structural rule calls "current_stage",
+            # and the consumers key on that label: the localized stage template
+            # (copilot_api) and the knowledge exclusion below. Labelled "frame:..." it
+            # missed both, so a Hindi / Marathi / Tamil stage question was answered in
+            # English. The frame stays attached (understanding="FRAME") as provenance.
+            current_stage = (intent is Intent.APPLICATION_STAGE
+                             and frame.task is semantic_frame.Task.CURRENT_STAGE
+                             and frame.object is semantic_frame.Object.STAGE)
             base = Classification(
                 intent, confidence=frame.confidence,
                 document_type=frame.document_type or _document_type(text),
-                matched_on=f"frame:{frame.task.value}/{frame.object.value}",
+                matched_on=("current_stage" if current_stage
+                            else f"frame:{frame.task.value}/{frame.object.value}"),
                 frame=frame, understanding="FRAME")
             # A knowledge clause attached to a case question is still MIXED
             # -- when the tail IS a knowledge question. "At this point in my
@@ -2145,6 +2162,25 @@ def _framed_as_general(text: str, classification: Classification) -> Classificat
     return None
 
 
+def _document_on_case(text: str) -> Classification | None:
+    """A named document + a PROBLEM word -> its KYC check; + a FIELD word -> its read details."""
+    document = _document_type(text)
+    if not document:
+        return None
+    from app.agents.applicant.copilot.semantics import semantic_frame as _sf
+
+    # the document's OWN name is not a field: "the address proof" names a document, it asks no field
+    own = set(str(document).lower().split("_"))
+    rest = " ".join(w for w in re.findall(r"[\wऀ-ॿ]+", text.lower()) if w not in own)
+    found = {concept for _, concept in _sf.concepts_in(rest)}
+    if "PROBLEM" in found:
+        return Classification(Intent.KYC_RESULT, matched_on="document_problem", document_type=document,
+                              fields={"want": kyc_want(text)})
+    if "DOC_FIELD" in found:
+        return Classification(Intent.DOCUMENT_DETAILS, matched_on="document_field", document_type=document)
+    return None
+
+
 def _general_question(message: str, classification: Classification) -> Classification | None:
     """
     LIVE DATA VS KNOWLEDGE. "Can I use an electricity bill as address proof?",
@@ -2166,6 +2202,13 @@ def _general_question(message: str, classification: Classification) -> Classific
     framed = _framed_as_general(text, classification)
     if framed is not None:
         return framed
+    # A DOCUMENT OF THIS CASE named with a FIELD or a PROBLEM ("PAN pe kya naam hai?",
+    # "PAN mein kya galat hai?") is about this case's document, never the handbook --
+    # with or without "my" (6b-fastlane-fix; the words are semantic_concepts.yaml
+    # DOC_FIELD / PROBLEM).
+    on_document = _document_on_case(text)
+    if on_document is not None:
+        return on_document
     if classification.matched_on in ("kyc", "findings", "stage_history"):
         return None
     # "which documents are mandatory?" is this case's checklist; only a named

@@ -1,0 +1,65 @@
+{
+  "request": {
+    "action": "NEW_CASE"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "case_id": null,
+    "intent": "NEW_CASE",
+    "answer": "👉 Tap **New case** to open the case form.",
+    "category": "CASE_ONLY",
+    "query_type": "ACTION_REQUEST",
+    "response_source": "STRUCTURED",
+    "documents": [],
+    "errors": [],
+    "tools_invoked": [],
+    "suggested_questions": [],
+    "actions": [
+      {
+        "type": "OPEN_UI_NEW_CASE",
+        "label": "New case"
+      }
+    ],
+    "response_style": {
+      "applied": true,
+      "expanded": []
+    },
+    "presentation": {
+      "message": "👉 Tap **New case** to open the case form.",
+      "intent": "NEW_CASE",
+      "response_type": "ANSWER",
+      "response_depth": "NORMAL",
+      "language": null,
+      "status": "INFO",
+      "next_step": null,
+      "next_action": null,
+      "audio": {
+        "enabled": false,
+        "status": "NO_VOICE_FOR_LANGUAGE",
+        "language": null,
+        "voice": null,
+        "text": "👉 Tap **New case** to open the case form.",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": null,
+        "applicant_id": null,
+        "stage": null
+      },
+      "sections": [],
+      "documents": [],
+      "document_groups": [],
+      "actions": [],
+      "next_actions": [],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": null,
+        "response_source": "STRUCTURED"
+      }
+    }
+  }
+}

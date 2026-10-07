@@ -191,6 +191,19 @@ async def lifespan(app: FastAPI):
                 raise
             print(f"auth configuration : INCOMPLETE ({exc}) -- development only")
 
+    # MANDATORY SIGNATURE RULE MISCONFIGURED (step 5c): flag on with no valid
+    # activation date blocks EVERY case (fail closed). Said loudly at startup,
+    # and /ready reports it, so it is noticed at once rather than case by case.
+    from app.agents.applicant import workflow as _workflow
+
+    _signature_problem = _workflow.signature_rule_config_error()
+    if _signature_problem:
+        logging.getLogger("los.startup").error(
+            "CONFIGURATION ERROR: %s -- every case is blocked with SIGNATURE_RULE_MISCONFIGURED "
+            "until readiness.signature_mandatory.activation_date is set in applicant_agent.yaml.",
+            _signature_problem)
+        print(f"signature rule     : MISCONFIGURED ({_signature_problem}) -- every case blocked")
+
     # OPENTELEMETRY, when OTEL_ENABLED=true (OTLP or console export).
     from app.observability import tracing as _tracing
 
@@ -346,8 +359,25 @@ async def lifespan(app: FastAPI):
     # the first composed answer is not the one that falls back (measured:
     # the only summary fallback in the Phase 3 benchmark was that cold start).
     from app.agents.applicant import config as _composer_config
+    # THE ROUTER (step 6b) uses the same model and is ON by default: warmed and
+    # kept warm so the ~4.5 s cold load never lands on a user's turn.
+    from app.agents.applicant.copilot.semantics import llm_router as _llm_router
 
-    if _los_config.llm_summary_enabled() or _composer_config.llm_enabled():
+    if _llm_router.deprecated_flag_in_use():
+        logger.warning("COPILOT_UNDERSTANDING_LLM is DEPRECATED: it now maps to %s (removed after go-live)",
+                       _llm_router.FLAG)
+        print(f"WARNING            : COPILOT_UNDERSTANDING_LLM is deprecated -> {_llm_router.FLAG}")
+    print(f"copilot LLM router : {'ON' if _llm_router.enabled() else 'OFF (kill-switch)'}")
+
+    if _llm_router.enabled():
+        # THE COLD LOAD IS PAID HERE, with no 2.5 s router limit (keep_warm.warm_up,
+        # default 180 s). Until it succeeds /ready reports DEGRADED (MODEL_NOT_WARM).
+        from app.llm import keep_warm as _router_warm
+
+        _ok = await _router_warm.warm_up()
+        print(f"router model load  : {'OK' if _ok else 'FAILED (router turns ask a clarifying question)'}"
+              f" ({_router_warm.state().get('load_ms')} ms)")
+    if _los_config.llm_summary_enabled() or _composer_config.llm_enabled() or _llm_router.enabled():
         from app.agents.los.summary import warmup as _llm_warmup
 
         print(f"LLM warmup         : {await _llm_warmup():.0f} ms")
@@ -410,7 +440,31 @@ async def lifespan(app: FastAPI):
     # KEEP THE COMPOSER MODEL RESIDENT between quiet stretches (app/llm/
     # keep_warm.py): an unloaded qwen2.5:3b cost 6.0 s on the next request.
     keep_warm_task = None
-    if _composer_config.llm_enabled() or _los_config.llm_summary_enabled():
+    # CHAT HISTORY RETENTION (migration 0006; app/store/chat_history.py): once at startup, then every
+    # cleanup_interval_hours -- only with session memory on and the table present
+    chat_cleanup_task = None
+    from app.agents.applicant.copilot.conversation.state import memory_enabled as _memory_enabled
+
+    if _memory_enabled():
+        from app.store import chat_history as _chat_history
+
+        _mem = _applicant_config.chatbot("memory") or {}
+
+        async def _chat_cleanup_loop() -> None:
+            if _mem.get("cleanup_at_startup", True):
+                await asyncio.to_thread(_chat_history.cleanup)
+            hours = float(_mem.get("cleanup_interval_hours", 24) or 0)
+            while hours > 0:
+                await asyncio.sleep(hours * 3600)
+                try:
+                    await asyncio.to_thread(_chat_history.cleanup)
+                except Exception as exc:  # noqa: BLE001 - never fatal
+                    logger.warning("chat history cleanup failed: %r", exc)
+
+        chat_cleanup_task = asyncio.create_task(_chat_cleanup_loop())
+        print(f"chat history clean : at startup + every {_mem.get('cleanup_interval_hours', 24)} h")
+
+    if _composer_config.llm_enabled() or _los_config.llm_summary_enabled() or _llm_router.enabled():
         from app.llm import keep_warm as _keep_warm
 
         if _keep_warm.interval_seconds() > 0:
@@ -421,6 +475,8 @@ async def lifespan(app: FastAPI):
 
     if keep_warm_task is not None:
         keep_warm_task.cancel()
+    if chat_cleanup_task is not None:
+        chat_cleanup_task.cancel()
 
     # The worker holds a thread and a claimed job. Asked to stop, it
     # finishes the iteration it is in and leaves the job PROCESSING,

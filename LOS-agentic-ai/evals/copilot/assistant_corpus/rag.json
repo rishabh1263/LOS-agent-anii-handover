@@ -97,6 +97,9 @@
   "q": "Can I check the applicant's CIBIL score from this chatbot?",
   "answerable": true,
   "source": "faq.md",
+  "also_source_when_flag_on": {
+   "COPILOT_TERMS_KNOWLEDGE": "cibil.md"
+  },
   "any": [
    "route_to",
    "later stages"

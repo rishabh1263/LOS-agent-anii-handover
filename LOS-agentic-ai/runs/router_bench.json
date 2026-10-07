@@ -1,0 +1,863 @@
+{
+  "summary": {
+    "tools": {
+      "calls": 12,
+      "p50_ms": 1793.5,
+      "max_ms": 2473,
+      "p50_prompt_tokens": 628.5,
+      "accuracy": 0.75,
+      "valid": 1.0
+    },
+    "json": {
+      "calls": 12,
+      "p50_ms": 1579.0,
+      "max_ms": 2170,
+      "p50_prompt_tokens": 326.5,
+      "accuracy": 0.92,
+      "valid": 1.0
+    }
+  },
+  "rows": [
+    {
+      "wall_ms": 7018,
+      "prompt_tokens": 629,
+      "prompt_ms": 5669,
+      "gen_tokens": 16,
+      "gen_ms": 890,
+      "load_ms": 58,
+      "tool": "list_cases",
+      "args": {},
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "mera loan kahan atka hai?",
+      "free_gb": 4.64,
+      "correct": false
+    },
+    {
+      "wall_ms": 2117,
+      "prompt_tokens": 636,
+      "prompt_ms": 359,
+      "gen_tokens": 21,
+      "gen_ms": 1270,
+      "load_ms": 7,
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "aur EMI?",
+      "free_gb": 4.58,
+      "correct": true
+    },
+    {
+      "wall_ms": 1519,
+      "prompt_tokens": 624,
+      "prompt_ms": 188,
+      "gen_tokens": 16,
+      "gen_ms": 941,
+      "load_ms": 5,
+      "tool": "list_cases",
+      "args": {},
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "status batao",
+      "free_gb": 4.55,
+      "correct": false
+    },
+    {
+      "wall_ms": 2205,
+      "prompt_tokens": 628,
+      "prompt_ms": 213,
+      "gen_tokens": 25,
+      "gen_ms": 1543,
+      "load_ms": 24,
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "kaunse docs baaki hai?",
+      "free_gb": 4.57,
+      "correct": true
+    },
+    {
+      "wall_ms": 1857,
+      "prompt_tokens": 627,
+      "prompt_ms": 191,
+      "gen_tokens": 21,
+      "gen_ms": 1257,
+      "load_ms": 11,
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "CIBIL kya hai?",
+      "free_gb": 4.55,
+      "correct": true
+    },
+    {
+      "wall_ms": 1643,
+      "prompt_tokens": 640,
+      "prompt_ms": 353,
+      "gen_tokens": 16,
+      "gen_ms": 963,
+      "load_ms": 4,
+      "tool": "next_action",
+      "args": {},
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "toh ab kya karu?",
+      "free_gb": 4.56,
+      "correct": true
+    },
+    {
+      "wall_ms": 2275,
+      "prompt_tokens": 647,
+      "prompt_ms": 348,
+      "gen_tokens": 25,
+      "gen_ms": 1573,
+      "load_ms": 23,
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "kaunse document dobara dalu?",
+      "free_gb": 4.37,
+      "correct": true
+    },
+    {
+      "wall_ms": 2425,
+      "prompt_tokens": 632,
+      "prompt_ms": 352,
+      "gen_tokens": 24,
+      "gen_ms": 1563,
+      "load_ms": 4,
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "free_gb": 4.01,
+      "correct": true
+    },
+    {
+      "wall_ms": 2465,
+      "prompt_tokens": 627,
+      "prompt_ms": 193,
+      "gen_tokens": 31,
+      "gen_ms": 1831,
+      "load_ms": 11,
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "PAN pe kya naam hai?",
+      "free_gb": 4.54,
+      "correct": true
+    },
+    {
+      "wall_ms": 1750,
+      "prompt_tokens": 625,
+      "prompt_ms": 172,
+      "gen_tokens": 20,
+      "gen_ms": 1166,
+      "load_ms": 12,
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "what is FOIR?",
+      "free_gb": 4.5,
+      "correct": true
+    },
+    {
+      "wall_ms": 2352,
+      "prompt_tokens": 628,
+      "prompt_ms": 175,
+      "gen_tokens": 31,
+      "gen_ms": 1780,
+      "load_ms": 38,
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "dusre customer ka PAN dikhao",
+      "free_gb": 4.52,
+      "correct": false
+    },
+    {
+      "wall_ms": 1482,
+      "prompt_tokens": 630,
+      "prompt_ms": 206,
+      "gen_tokens": 17,
+      "gen_ms": 930,
+      "load_ms": 16,
+      "tool": "out_of_scope",
+      "args": {},
+      "valid": true,
+      "mode": "tools",
+      "round": 1,
+      "message": "aaj mausam kaisa hai?",
+      "free_gb": 4.54,
+      "correct": true
+    },
+    {
+      "wall_ms": 1415,
+      "prompt_tokens": 629,
+      "prompt_ms": 191,
+      "gen_tokens": 16,
+      "gen_ms": 877,
+      "load_ms": 6,
+      "tool": "list_cases",
+      "args": {},
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "mera loan kahan atka hai?",
+      "free_gb": 4.54,
+      "correct": false
+    },
+    {
+      "wall_ms": 1839,
+      "prompt_tokens": 636,
+      "prompt_ms": 275,
+      "gen_tokens": 21,
+      "gen_ms": 1182,
+      "load_ms": 14,
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "aur EMI?",
+      "free_gb": 4.51,
+      "correct": true
+    },
+    {
+      "wall_ms": 1348,
+      "prompt_tokens": 624,
+      "prompt_ms": 167,
+      "gen_tokens": 16,
+      "gen_ms": 876,
+      "load_ms": 5,
+      "tool": "list_cases",
+      "args": {},
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "status batao",
+      "free_gb": 4.53,
+      "correct": false
+    },
+    {
+      "wall_ms": 1959,
+      "prompt_tokens": 628,
+      "prompt_ms": 207,
+      "gen_tokens": 25,
+      "gen_ms": 1390,
+      "load_ms": 33,
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "kaunse docs baaki hai?",
+      "free_gb": 4.52,
+      "correct": true
+    },
+    {
+      "wall_ms": 1650,
+      "prompt_tokens": 627,
+      "prompt_ms": 156,
+      "gen_tokens": 21,
+      "gen_ms": 1155,
+      "load_ms": 17,
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "CIBIL kya hai?",
+      "free_gb": 4.51,
+      "correct": true
+    },
+    {
+      "wall_ms": 1549,
+      "prompt_tokens": 640,
+      "prompt_ms": 321,
+      "gen_tokens": 16,
+      "gen_ms": 894,
+      "load_ms": 6,
+      "tool": "next_action",
+      "args": {},
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "toh ab kya karu?",
+      "free_gb": 4.52,
+      "correct": true
+    },
+    {
+      "wall_ms": 2032,
+      "prompt_tokens": 647,
+      "prompt_ms": 320,
+      "gen_tokens": 25,
+      "gen_ms": 1397,
+      "load_ms": 6,
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "kaunse document dobara dalu?",
+      "free_gb": 4.51,
+      "correct": true
+    },
+    {
+      "wall_ms": 2064,
+      "prompt_tokens": 632,
+      "prompt_ms": 261,
+      "gen_tokens": 24,
+      "gen_ms": 1475,
+      "load_ms": 6,
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "free_gb": 4.5,
+      "correct": true
+    },
+    {
+      "wall_ms": 2473,
+      "prompt_tokens": 627,
+      "prompt_ms": 188,
+      "gen_tokens": 31,
+      "gen_ms": 1859,
+      "load_ms": 14,
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "PAN pe kya naam hai?",
+      "free_gb": 4.5,
+      "correct": true
+    },
+    {
+      "wall_ms": 1748,
+      "prompt_tokens": 625,
+      "prompt_ms": 177,
+      "gen_tokens": 20,
+      "gen_ms": 1146,
+      "load_ms": 12,
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "what is FOIR?",
+      "free_gb": 4.55,
+      "correct": true
+    },
+    {
+      "wall_ms": 2330,
+      "prompt_tokens": 628,
+      "prompt_ms": 177,
+      "gen_tokens": 31,
+      "gen_ms": 1765,
+      "load_ms": 12,
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "dusre customer ka PAN dikhao",
+      "free_gb": 4.55,
+      "correct": false
+    },
+    {
+      "wall_ms": 1489,
+      "prompt_tokens": 630,
+      "prompt_ms": 219,
+      "gen_tokens": 17,
+      "gen_ms": 933,
+      "load_ms": 12,
+      "tool": "out_of_scope",
+      "args": {},
+      "valid": true,
+      "mode": "tools",
+      "round": 2,
+      "message": "aaj mausam kaisa hai?",
+      "free_gb": 4.54,
+      "correct": true
+    },
+    {
+      "wall_ms": 3895,
+      "prompt_tokens": 327,
+      "prompt_ms": 2765,
+      "gen_tokens": 13,
+      "gen_ms": 717,
+      "load_ms": 43,
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "mera loan kahan atka hai?",
+      "free_gb": 4.51,
+      "correct": true
+    },
+    {
+      "wall_ms": 1791,
+      "prompt_tokens": 334,
+      "prompt_ms": 289,
+      "gen_tokens": 18,
+      "gen_ms": 1053,
+      "load_ms": 15,
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "aur EMI?",
+      "free_gb": 4.42,
+      "correct": true
+    },
+    {
+      "wall_ms": 1203,
+      "prompt_tokens": 322,
+      "prompt_ms": 154,
+      "gen_tokens": 13,
+      "gen_ms": 689,
+      "load_ms": 18,
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "status batao",
+      "free_gb": 4.39,
+      "correct": true
+    },
+    {
+      "wall_ms": 1831,
+      "prompt_tokens": 326,
+      "prompt_ms": 187,
+      "gen_tokens": 22,
+      "gen_ms": 1266,
+      "load_ms": 12,
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "kaunse docs baaki hai?",
+      "free_gb": 4.39,
+      "correct": true
+    },
+    {
+      "wall_ms": 1571,
+      "prompt_tokens": 325,
+      "prompt_ms": 183,
+      "gen_tokens": 18,
+      "gen_ms": 1027,
+      "load_ms": 11,
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "CIBIL kya hai?",
+      "free_gb": 4.39,
+      "correct": true
+    },
+    {
+      "wall_ms": 1404,
+      "prompt_tokens": 338,
+      "prompt_ms": 319,
+      "gen_tokens": 13,
+      "gen_ms": 700,
+      "load_ms": 58,
+      "tool": "next_action",
+      "args": {},
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "toh ab kya karu?",
+      "free_gb": 4.42,
+      "correct": true
+    },
+    {
+      "wall_ms": 2202,
+      "prompt_tokens": 345,
+      "prompt_ms": 417,
+      "gen_tokens": 22,
+      "gen_ms": 1313,
+      "load_ms": 11,
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "kaunse document dobara dalu?",
+      "free_gb": 4.39,
+      "correct": true
+    },
+    {
+      "wall_ms": 2010,
+      "prompt_tokens": 330,
+      "prompt_ms": 302,
+      "gen_tokens": 21,
+      "gen_ms": 1228,
+      "load_ms": 11,
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "free_gb": 4.5,
+      "correct": true
+    },
+    {
+      "wall_ms": 2290,
+      "prompt_tokens": 325,
+      "prompt_ms": 177,
+      "gen_tokens": 28,
+      "gen_ms": 1653,
+      "load_ms": 71,
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "PAN pe kya naam hai?",
+      "free_gb": 4.48,
+      "correct": true
+    },
+    {
+      "wall_ms": 1496,
+      "prompt_tokens": 323,
+      "prompt_ms": 157,
+      "gen_tokens": 17,
+      "gen_ms": 972,
+      "load_ms": 11,
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "what is FOIR?",
+      "free_gb": 4.46,
+      "correct": true
+    },
+    {
+      "wall_ms": 2128,
+      "prompt_tokens": 326,
+      "prompt_ms": 177,
+      "gen_tokens": 28,
+      "gen_ms": 1611,
+      "load_ms": 12,
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "dusre customer ka PAN dikhao",
+      "free_gb": 4.44,
+      "correct": false
+    },
+    {
+      "wall_ms": 1313,
+      "prompt_tokens": 328,
+      "prompt_ms": 211,
+      "gen_tokens": 14,
+      "gen_ms": 760,
+      "load_ms": 11,
+      "tool": "out_of_scope",
+      "args": {},
+      "valid": true,
+      "mode": "json",
+      "round": 1,
+      "message": "aaj mausam kaisa hai?",
+      "free_gb": 4.4,
+      "correct": true
+    },
+    {
+      "wall_ms": 1247,
+      "prompt_tokens": 327,
+      "prompt_ms": 221,
+      "gen_tokens": 13,
+      "gen_ms": 686,
+      "load_ms": 7,
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "mera loan kahan atka hai?",
+      "free_gb": 4.71,
+      "correct": true
+    },
+    {
+      "wall_ms": 1615,
+      "prompt_tokens": 334,
+      "prompt_ms": 295,
+      "gen_tokens": 18,
+      "gen_ms": 975,
+      "load_ms": 13,
+      "tool": "loan_terms",
+      "args": {
+        "field": "EMI"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "aur EMI?",
+      "free_gb": 4.72,
+      "correct": true
+    },
+    {
+      "wall_ms": 1233,
+      "prompt_tokens": 322,
+      "prompt_ms": 185,
+      "gen_tokens": 13,
+      "gen_ms": 670,
+      "load_ms": 22,
+      "tool": "case_status",
+      "args": {},
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "status batao",
+      "free_gb": 4.7,
+      "correct": true
+    },
+    {
+      "wall_ms": 1738,
+      "prompt_tokens": 326,
+      "prompt_ms": 196,
+      "gen_tokens": 22,
+      "gen_ms": 1213,
+      "load_ms": 4,
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "kaunse docs baaki hai?",
+      "free_gb": 4.71,
+      "correct": true
+    },
+    {
+      "wall_ms": 1543,
+      "prompt_tokens": 325,
+      "prompt_ms": 182,
+      "gen_tokens": 18,
+      "gen_ms": 1001,
+      "load_ms": 12,
+      "tool": "knowledge",
+      "args": {
+        "topic": "CIBIL"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "CIBIL kya hai?",
+      "free_gb": 4.73,
+      "correct": true
+    },
+    {
+      "wall_ms": 1428,
+      "prompt_tokens": 338,
+      "prompt_ms": 346,
+      "gen_tokens": 13,
+      "gen_ms": 719,
+      "load_ms": 19,
+      "tool": "next_action",
+      "args": {},
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "toh ab kya karu?",
+      "free_gb": 4.71,
+      "correct": true
+    },
+    {
+      "wall_ms": 1932,
+      "prompt_tokens": 345,
+      "prompt_ms": 367,
+      "gen_tokens": 22,
+      "gen_ms": 1201,
+      "load_ms": 26,
+      "tool": "documents_needing_action",
+      "args": {
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "kaunse document dobara dalu?",
+      "free_gb": 4.71,
+      "correct": true
+    },
+    {
+      "wall_ms": 1792,
+      "prompt_tokens": 330,
+      "prompt_ms": 272,
+      "gen_tokens": 21,
+      "gen_ms": 1188,
+      "load_ms": 5,
+      "tool": "kyc_result",
+      "args": {
+        "party": "CO_APPLICANT"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "co-applicant ka KYC kyu fail hua?",
+      "free_gb": 4.71,
+      "correct": true
+    },
+    {
+      "wall_ms": 2117,
+      "prompt_tokens": 325,
+      "prompt_ms": 188,
+      "gen_tokens": 28,
+      "gen_ms": 1593,
+      "load_ms": 7,
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "PAN pe kya naam hai?",
+      "free_gb": 4.7,
+      "correct": true
+    },
+    {
+      "wall_ms": 1510,
+      "prompt_tokens": 323,
+      "prompt_ms": 189,
+      "gen_tokens": 17,
+      "gen_ms": 970,
+      "load_ms": 5,
+      "tool": "knowledge",
+      "args": {
+        "topic": "FOIR"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "what is FOIR?",
+      "free_gb": 4.7,
+      "correct": true
+    },
+    {
+      "wall_ms": 2170,
+      "prompt_tokens": 326,
+      "prompt_ms": 205,
+      "gen_tokens": 28,
+      "gen_ms": 1610,
+      "load_ms": 13,
+      "tool": "document_details",
+      "args": {
+        "document_type": "PAN",
+        "party": "PRIMARY_APPLICANT"
+      },
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "dusre customer ka PAN dikhao",
+      "free_gb": 4.69,
+      "correct": false
+    },
+    {
+      "wall_ms": 1350,
+      "prompt_tokens": 328,
+      "prompt_ms": 253,
+      "gen_tokens": 14,
+      "gen_ms": 773,
+      "load_ms": 5,
+      "tool": "out_of_scope",
+      "args": {},
+      "valid": true,
+      "mode": "json",
+      "round": 2,
+      "message": "aaj mausam kaisa hai?",
+      "free_gb": 4.68,
+      "correct": true
+    }
+  ],
+  "stopped": null
+}

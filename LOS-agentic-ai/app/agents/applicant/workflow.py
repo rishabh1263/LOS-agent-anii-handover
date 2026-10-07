@@ -256,7 +256,25 @@ def pending_items(
                 "detail": f"Application {field_name.replace('_', ' ')} is not set.",
             })
 
-    for entry in build_checklist(application, documents, resolution):
+    if coapp_mandatory_enabled():
+        # PER PARTY (LOS_COAPP_MANDATORY_DOCS): the applicant's slots from the
+        # applicant's own documents, and every co-applicant's from theirs
+        for party in party_checklists(application, documents, resolution):
+            items.extend(_document_items(party["checklist"], rules, party["party_role"], party["party_id"]))
+    else:
+        items.extend(_document_items(build_checklist(application, documents, resolution), rules))
+    items.extend(signature_items(application, documents))
+    return items
+
+
+def _document_items(checklist: list[dict[str, Any]], rules: dict[str, Any], party_role: str | None = None,
+                    party_id: str | None = None) -> list[dict[str, Any]]:
+    """The pending document items of one checklist. A co-applicant's are named as theirs."""
+    items: list[dict[str, Any]] = []
+    co = party_role == "CO_APPLICANT"
+    whose = "Co-applicant's " if co else ""
+    party = {"party_role": party_role, "party_id": party_id} if co else {}
+    for entry in checklist:
         # An optional slot never blocks the handoff. It is still reported in
         # the checklist so a FOS can see what has been collected beyond the
         # minimum, but its absence is not a pending item.
@@ -267,27 +285,30 @@ def pending_items(
             items.append({
                 "type": "DOCUMENT",
                 "code": "DOCUMENT_MISSING",
-                "detail": f"{_readable(entry['slot'])} has not been uploaded.",
+                "detail": f"{whose}{_readable(entry['slot'])} has not been uploaded.",
                 "slot": entry["slot"],
                 "accepts": entry["accepts"],
+                **party,
             })
         elif entry["status"] == DocumentStatus.REJECTED.value:
             items.append({
                 "type": "DOCUMENT",
                 "code": "DOCUMENT_REJECTED",
-                "detail": f"{_readable(entry['slot'])} was rejected and must be re-uploaded.",
+                "detail": f"{whose}{_readable(entry['slot'])} was rejected and must be re-uploaded.",
                 "slot": entry["slot"],
                 "document_type": entry["document_type"],
                 "reason_codes": entry["reason_codes"],
+                **party,
             })
         elif entry["status"] == DocumentStatus.REVIEW.value and rules["block_on_review"]:
             items.append({
                 "type": "DOCUMENT",
                 "code": "DOCUMENT_UNDER_REVIEW",
-                "detail": f"{_readable(entry['slot'])} is under review.",
+                "detail": f"{whose}{_readable(entry['slot'])} is under review.",
                 "slot": entry["slot"],
                 "document_type": entry["document_type"],
                 "reason_codes": entry["reason_codes"],
+                **party,
             })
         elif entry["status"] in {DocumentStatus.UPLOADED.value,
                                  DocumentStatus.PROCESSING.value}:
@@ -295,11 +316,177 @@ def pending_items(
                 items.append({
                     "type": "DOCUMENT",
                     "code": "DOCUMENT_NOT_VERIFIED",
-                    "detail": f"{_readable(entry['slot'])} has not completed verification.",
+                    "detail": f"{whose}{_readable(entry['slot'])} has not completed verification.",
                     "slot": entry["slot"],
                     "document_type": entry["document_type"],
+                    **party,
                 })
 
+    return items
+
+
+# ==========================================================================
+# CO-APPLICANT MANDATORY DOCUMENTS (Phase 3 step 5b; LOS_COAPP_MANDATORY_DOCS, default off)
+# ==========================================================================
+#
+# A co-applicant's mandatory documents are ONLY the configured slots
+# (applicant_agent.yaml readiness.co_applicant_documents): PAN, address proof
+# (any one of Aadhaar / passport / licence / voter ID / utility bill) and
+# employment proof (salaried or self-employed documents); no bank statement --
+# verified by the existing OCR + verification + KYC flow (no Aadhaar API).
+# Each party's slots are matched against THAT party's documents only: with the
+# flag off, one checklist is matched against every document on the case, so a
+# co-applicant's PAN could satisfy the applicant's PAN slot.
+
+COAPP_FLAG = "LOS_COAPP_MANDATORY_DOCS"
+
+
+def coapp_mandatory_enabled() -> bool:
+    import os
+
+    return (os.getenv(COAPP_FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _party_role(document: Document) -> str:
+    return str(getattr(document, "party_role", None) or "PRIMARY_APPLICANT").upper()
+
+
+def co_applicant_parties(application: Application | None, documents: list[Document]) -> list[str]:
+    """Every co-applicant on the case: the one the application names, and any with a document."""
+    parties: list[str] = []
+    if application is not None and getattr(application, "co_applicant_id", None):
+        parties.append(application.co_applicant_id)
+    for document in documents:
+        if _party_role(document) == "CO_APPLICANT" and document.party_id and document.party_id not in parties:
+            parties.append(document.party_id)
+    return parties
+
+
+def co_applicant_requirements(resolution=None) -> list:
+    """A co-applicant's mandatory slots, from configuration -- never the applicant's full checklist."""
+    from app.agents.policy.engine import REQUIRED, Requirement
+
+    return [Requirement(slot=entry["slot"], accepts=tuple(entry["accepts"]), requirement=REQUIRED,
+                        rule_ids=("COAPP_MANDATORY_DOCS",), reason="Mandatory for every co-applicant.")
+            for entry in config.co_applicant_documents()]
+
+
+def party_checklists(application: Application | None, documents: list[Document],
+                     resolution=None) -> list[dict[str, Any]]:
+    """[{party_id, party_role, checklist}] -- the applicant first, then each co-applicant."""
+    resolution = resolution if resolution is not None else resolution_for(application)
+    primary = [d for d in documents if _party_role(d) != "CO_APPLICANT"]
+    out = [{"party_id": getattr(application, "applicant_id", None), "party_role": "PRIMARY_APPLICANT",
+            "checklist": build_checklist(application, primary, resolution)}]
+    requirements = co_applicant_requirements(resolution)
+    for party_id in co_applicant_parties(application, documents):
+        by_type: dict[str, list[Document]] = {}
+        for document in documents:
+            if document.party_id == party_id and _party_role(document) == "CO_APPLICANT":
+                by_type.setdefault((document.document_type or "").upper(), []).append(document)
+        out.append({"party_id": party_id, "party_role": "CO_APPLICANT",
+                    "checklist": [_slot(r, by_type, resolution) for r in requirements]})
+    return out
+
+
+# --------------------------------------------------------------------------
+# MANDATORY SIGNATURE (step 5c, LOS_SIGNATURE_MANDATORY, default off)
+# --------------------------------------------------------------------------
+# The applicant and every co-applicant need a signature whose PRESENCE check
+# (signature/presence.py: blank / handwritten) is VERIFIED. Read from the
+# stored reason codes; the authenticity verdict (document status) is not used.
+# Only for cases created on or after readiness.signature_mandatory.activation_date.
+
+SIGNATURE_TYPES = frozenset({"SIGNATURE", "STANDALONE_SIGNATURE", "BANK_SIGNATURE"})
+_INACTIVE = frozenset({"SUPERSEDED"})
+
+
+def signature_rule_applies(application: Application | None) -> tuple[bool, str | None]:
+    """(applies, misconfiguration) for this case -- False for a case created before activation."""
+    from app.agents.signature import presence
+
+    if application is None or not presence.enabled():
+        return False, None
+    activation, problem = config.signature_activation()
+    if activation is None:
+        return True, problem
+    created = getattr(application, "created_at", None)
+    if created is None:
+        return True, None                       # no creation date: cannot prove it is older
+    if created.tzinfo is None:
+        from datetime import timezone
+
+        created = created.replace(tzinfo=timezone.utc)
+    return created >= activation, None
+
+
+def signature_rule_config_error() -> str | None:
+    """Why the mandatory signature rule cannot run, while its flag is on (startup and /ready)."""
+    from app.agents.signature import presence
+
+    if not presence.enabled():
+        return None
+    _, problem = config.signature_activation()
+    return f"{presence.FLAG} is on but {problem}" if problem else None
+
+
+def signature_parties(application: Application, documents: list[Document]) -> list[tuple[str | None, str]]:
+    """[(party_id, party_role)]: the applicant first, then every co-applicant."""
+    return [(application.applicant_id, "PRIMARY_APPLICANT"),
+            *[(p, "CO_APPLICANT") for p in co_applicant_parties(application, documents)]]
+
+
+def _party_signature(documents: list[Document], party_id: str | None, role: str, applicant_id: str):
+    """The party's latest active signature document, or None."""
+    mine = [d for d in documents
+            if (d.document_type or "").upper() in SIGNATURE_TYPES
+            and str(getattr(d.status, "value", d.status)).upper() not in _INACTIVE
+            and _party_role(d) == role
+            and (role != "CO_APPLICANT" or d.party_id == party_id)
+            and (role == "CO_APPLICANT" or (d.party_id or applicant_id) == applicant_id)]
+    return max(mine, key=lambda d: d.uploaded_at) if mine else None
+
+
+def signature_items(application: Application | None, documents: list[Document]) -> list[dict[str, Any]]:
+    """Blocking items for missing / rejected / unsure signatures; [] when the rule does not apply."""
+    from app.agents.signature import presence
+
+    applies, problem = signature_rule_applies(application)
+    if not applies:
+        return []
+    if problem:
+        # FAIL CLOSED: the flag is on but nobody can tell which cases it covers
+        return [{"type": "CONFIGURATION", "code": "SIGNATURE_RULE_MISCONFIGURED",
+                 "detail": f"Mandatory signature rule is on but {problem}."}]
+    return party_signature_items(application, documents)
+
+
+def party_signature_items(application: Application, documents: list[Document]) -> list[dict[str, Any]]:
+    """The rule itself, with no flag or date gate (the grandfathered-cases report reads it too)."""
+    from app.agents.signature import presence
+
+    items: list[dict[str, Any]] = []
+    for party_id, role in signature_parties(application, documents):
+        co = role == "CO_APPLICANT"
+        whose = "Co-applicant's signature" if co else "Signature"
+        base = {"type": "DOCUMENT", "slot": "SIGNATURE", "accepts": ["SIGNATURE"],
+                **({"party_role": role, "party_id": party_id} if co else {})}
+        document = _party_signature(documents, party_id, role, application.applicant_id)
+        if document is None:
+            items.append({**base, "code": "DOCUMENT_MISSING", "detail": f"{whose} has not been uploaded."})
+            continue
+        result = presence.from_codes(document.reason_codes)
+        if result is None:
+            # uploaded while the check was off: unsure, so never approved
+            items.append({**base, "code": "SIGNATURE_NOT_CHECKED", "document_id": document.document_id,
+                          "detail": f"{whose} has not been checked yet; please upload it again."})
+        elif result["status"] == presence.REJECTED:
+            why = "; ".join(result["messages"]) or "Signature was rejected"
+            items.append({**base, "code": "SIGNATURE_REJECTED", "document_id": document.document_id,
+                          "reasons": result["messages"], "detail": f"{whose} was rejected: {why}."})
+        elif result["status"] == presence.REVIEW:
+            items.append({**base, "code": "SIGNATURE_UNDER_REVIEW", "document_id": document.document_id,
+                          "reasons": result["messages"], "detail": f"{whose} is under review."})
     return items
 
 

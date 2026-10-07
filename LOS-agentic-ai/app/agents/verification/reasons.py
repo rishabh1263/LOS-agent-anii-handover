@@ -343,6 +343,20 @@ CATALOGUE: dict[str, str] = {
     # passed. They are catalogued too: a code that reaches a caller as a
     # bare identifier is unreadable whether or not it is bad news.
     "SIGNATURE_PRESENT": "A signature was found on this document.",
+    # Signature PRESENCE check (step 5c): blank / handwritten, never a match.
+    "SIGNATURE_PRESENCE_VERIFIED": "The signature is present and looks handwritten.",
+    "SIGNATURE_PRESENCE_REJECTED": "The signature was not accepted; please upload it again.",
+    "SIGNATURE_PRESENCE_REVIEW": "The signature needs a person to check it.",
+    "SIGNATURE_PRESENCE_BLANK": "Signature is blank.",
+    "SIGNATURE_PRESENCE_PRINTED": "Signature looks printed, not handwritten.",
+    "SIGNATURE_PRESENCE_TYPED_TEXT": "Signature looks like a typed name, not handwritten.",
+    "SIGNATURE_PRESENCE_LINE": "Signature is only a straight line.",
+    "SIGNATURE_PRESENCE_DOT": "Signature is only a dot or a tiny mark.",
+    "SIGNATURE_PRESENCE_UNREADABLE": "The signature image could not be read.",
+    "SIGNATURE_PRESENCE_POSSIBLE_TEXT": "The signature may be printed text; a person will check it.",
+    "SIGNATURE_PRESENCE_TOO_MANY_STROKES": "The signature has unusually many separate marks; a person will check it.",
+    "SIGNATURE_PRESENCE_LOW_CONTRAST": "The signature is too faint to judge; a person will check it.",
+    "SIGNATURE_PRESENCE_OCR_UNAVAILABLE": "The typed-text check could not run; a person will check the signature.",
     "SIGNATURE_ABSENT": "No signature was found where one was expected.",
     "SIGNATURE_BLANK": "The signature area on this document is empty.",
     "SIGNATURE_STRIP_BLANK": (

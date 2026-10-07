@@ -14,6 +14,7 @@ never disagree -- in words, never codes. Nothing here decides anything.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 _EMPTY_ANSWERS = ("Nothing is pending", "No required documents are missing", "No documents are pending",
@@ -48,10 +49,10 @@ def amend(published: dict[str, Any]) -> dict[str, Any]:
                    or not r.get("party_role") and not r["review_type"].startswith("KYC")]
     if not reviews:
         return published
-    two_party = len({r.get("party_role") for r in reviews if r.get("party_role")}) > 1
-    lead = answer.split(".")[0].replace("Nothing is pending for this case", "Nothing is missing from the checklist")
-    lines = [f"{lead}, but {'one thing still needs' if len(reviews) == 1 else 'these still need'} attention:"]
-    seen: set[str] = set()
+    # A JOINT CASE names whose each item is, even when only one party has one
+    two_party = (len({r.get("party_role") for r in reviews if r.get("party_role")}) > 1
+                 or (asked is None and "co-applicant" in answer.lower()))
+    items: list[str] = []
     for r in reviews[:4]:
         what = _WHAT.get(r["review_type"], "something needs a review")
         if r.get("party_role") == "CO_APPLICANT" and (two_party or asked != "CO_APPLICANT"):
@@ -65,12 +66,18 @@ def amend(published: dict[str, Any]) -> dict[str, Any]:
         # never "KYC needs a review -- KYC needs a review": no reason, no dash
         line = f"⚠ {what[0].upper()}{what[1:]}" + (f" — {reason}." if reason and reason.lower() != what.lower()
                                                     else ".")
-        if line not in seen:                       # the same item twice is said once
-            seen.add(line)
-            lines.append(line)
-    if len(lines) == 2:
-        lines[0] = lines[0].replace("these still need", "one thing still needs")
-    published["answer"] = "\n".join(lines)
+        if line not in items:                      # the same item twice is said once
+            items.append(line)
+    one = len(items) == 1
+    sentences = [s for s in re.split(r"(?<=\.)\s+", answer.strip()) if s.strip()]
+    if len(sentences) > 1:
+        # EVERY SENTENCE KEPT: "both of us" says one per party, and keeping only
+        # the first dropped the co-applicant's (eval m_both_pending, 2026-10-06)
+        head = [answer.strip(), f"{'One thing still needs' if one else 'These still need'} attention:"]
+    else:
+        lead = answer.split(".")[0].replace("Nothing is pending for this case", "Nothing is missing from the checklist")
+        head = [f"{lead}, but {'one thing still needs' if one else 'these still need'} attention:"]
+    published["answer"] = "\n".join(head + items)
     return published
 
 

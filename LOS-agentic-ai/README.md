@@ -101,6 +101,39 @@ directory holds real customer documents and is not distributed.
 
 ---
 
+## Backups before schema changes
+
+Gated migrations (0004 / 0005, co-applicant identity) and the co-applicant
+backfill **refuse to run without a fresh pg_dump** (taken within 24 hours):
+
+```bash
+# production / any server named by LOS_STORE_DSN
+pg_dump --format=custom --file=runs/backups/los_$(date +%Y%m%dT%H%M%S).dump "$LOS_STORE_DSN"
+
+# restore, if ever needed (into an EMPTY database)
+pg_restore --clean --if-exists --dbname="$LOS_STORE_DSN" runs/backups/los_<stamp>.dump
+```
+
+The embedded dev database (`runtime/pgdata`) ships `pg_dump` with pgserver:
+`.venv/Lib/site-packages/pgserver/pginstall/bin/pg_dump`, pointed at the URI the
+server prints on start.
+
+Then, in this order:
+
+```bash
+python -m scripts.apply_migration 0004 --backup-file runs/backups/los_<stamp>.dump
+python -m scripts.backfill_co_applicants                         # dry-run, read-only: review it
+python -m scripts.backfill_co_applicants --apply --backup-file runs/backups/los_<stamp>.dump
+python -m scripts.apply_migration 0005 --backup-file runs/backups/los_<stamp>.dump
+```
+
+In production the server never applies 0004 / 0005 by itself. Rollback:
+`scripts/sql/rollback_coapp_identity_1.sql`, then
+`python -m scripts.backfill_co_applicants --revert <run_id> --backup-file ...`, then
+`scripts/sql/rollback_coapp_identity_2.sql` (both tables are copied to `*_backup_<stamp>` first).
+
+---
+
 ## What this service does not do
 
 - **It does not establish authenticity.** Verification checks class,

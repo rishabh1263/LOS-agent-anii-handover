@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import os
 import contextvars
 import re
 import time
@@ -1038,66 +1039,29 @@ async def answer_question(
             classification = Classification(
                 intent_override, confidence="high", matched_on="action")
         else:
-            # NORMALISED, CLASSIFIED, AND ONLY THEN THE SEMANTIC FALLBACK --
-            # see intents.understand. A WRITE is classified on the words as
-            # typed: normalisation rewrites short words, and a name or an
-            # address being saved must reach the store exactly as given.
-            classification = classify(message)
-            if classification.intent not in WRITE_INTENTS:
-                # WHO THE QUESTION IS ABOUT, read from its words (a role only --
-                # the person is read from the case record below). When a role is
-                # named, the question is classified with the subject phrase
-                # neutralised, so the ordinary rules decide WHAT is being asked
-                # (app/agents/applicant/copilot/routing/subjects.py).
-                from app.agents.applicant import normalize
-
-                said = normalize.normalise(message).text or message
-                named_subject = (subjects.mentioned(said)
-                                 or subjects.mentioned(message))
-                # NEUTRALISED AS TYPED: normalisation's typo pass reads
-                # "co-applicant's" as "co-applicants" and loses the possessive
-                # that says a document noun follows. `understand` normalises
-                # the neutral text itself.
-                classification = understand(
-                    subjects.neutral(message)
-                    if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH) else message,
-                    has_case=bool(case_id))
-                if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
-                    # A PERSON'S DETAILS OR KYC, asked of the co-applicant: the
-                    # party's own record answers it (subjects.party_question).
-                    asked_of_party = subjects.party_question(said, classification)
-                    if asked_of_party is not None:
-                        classification = asked_of_party
-                if named_subject:
-                    message = said
-                    # THE FRAME KEEPS THE PARTY the neutral text dropped, so a
-                    # clarification asks about the co-applicant, not "my documents".
-                    from app.agents.applicant.copilot.semantics import semantic_frame as _frames
-
-                    frame_ = getattr(classification, "frame", None)
-                    if frame_ is not None and named_subject in (subjects.Kind.CO,
-                                                                subjects.Kind.BOTH):
-                        frame_.party = _frames.Party.CO_APPLICANT
-                elif classification.normalized:
-                    message = classification.normalized
+            classification, named_subject, message = _classify_typed(message, has_case=bool(case_id))
 
         _annotate(_routing_span, intent=classification.intent.value,
                   matched_on=(classification.matched_on or "")[:40],
                   confidence=classification.confidence,
                   normalized=bool(classification.normalized),
                   followed_up=bool(getattr(resolution, "rewritten", False)))
+    if named_subject is None and intent_override is None:
+        # "uska kya baaki hai?" right after an answer about the co-applicant: the co-applicant
+        named_subject = subjects.carried(message, followup.Context.from_payload(context).last_subject)
     intent = classification.intent
     _routing_ms[0] = round((time.perf_counter() - routing_started) * 1000, 2)
 
     # ------------------------------------------------------------------
     # UNDERSTANDING, BEYOND THE RULES (semantic_frame.py).
     #
-    # 1. QWEN AS A BOUNDED FALLBACK FOR MEANING. Only when nothing above
-    #    understood the question, and it is not a bare follow-up: ONE call
-    #    proposes a frame in the closed enums, validated like any other.
-    #    It chooses no tool and states no fact; a timeout or an invalid
-    #    answer leaves the question UNKNOWN. Never called when the parser
-    #    or the rules were confident.
+    # 1. QWEN AS A BOUNDED ROUTER (llm_router.py, step 6b; replaces the frame
+    #    call in this slot). Only when nothing above understood the question,
+    #    and it is not a bare follow-up: ONE call picks a catalogue tool, which
+    #    becomes its canonical question and is routed by the same rules. It
+    #    states no fact; a timeout, low memory, Ollama down or an invalid
+    #    choice leaves the question UNKNOWN (one clarifying question). Never
+    #    called when the rules were confident. The input guardrail ran first.
     # 2. REFERENTS. "this stage" is the case's recorded stage; "that
     #    document" the document the previous answer was about. One that
     #    cannot be resolved safely is asked back, by name.
@@ -1150,20 +1114,44 @@ async def answer_question(
     if (intent is Intent.UNKNOWN and intent_override is None
             and not followup.is_bare(message)
             and resolution.reason != followup.EXPLAIN_REASON):
-        proposed, llm_trace = await semantic_frame.llm_frame(message)
+        from app.agents.applicant.copilot.semantics import llm_router
+
+        chosen, llm_trace = await llm_router.route(message, followup.Context.from_payload(context))
         understanding_trace["llm"] = llm_trace
-        if proposed is not None:
-            routed = semantic_frame.route(proposed)
-            if routed and Intent(routed) not in WRITE_INTENTS:
-                classification = Classification(
-                    Intent(routed), confidence="medium",
-                    document_type=proposed.document_type or classification.document_type,
-                    matched_on=f"llm_frame:{proposed.task.value}/{proposed.object.value}",
-                    frame=proposed, understanding="LLM")
+        if chosen is not None and chosen.options:
+            # THE BANK AND THE MODEL DISAGREE (6b-tune-2): never a guess -- both
+            # readings are offered as one tap each; nothing is read until one is picked.
+            choices = [o.question or o.tool for o in chosen.options][:3]
+            audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
+                         case_id=case_id, intent=Intent.UNKNOWN.value, tools=[], status="CLARIFICATION",
+                         message=message)
+            return envelope(
+                intent=Intent.UNKNOWN.value,
+                category=routing.QueryCategory.UNSUPPORTED.value,
+                query_type=QueryType.CLARIFICATION.value,
+                clarification_required={"reason": "ROUTER_UNSURE", "question": "Which of these did you mean?",
+                                        "options": choices},
+                suggested_questions=choices,
+                answer="Which of these did you mean?\n" + "\n".join(f"- {c}" for c in choices),
+            )
+        if chosen is not None and chosen.intent:
+            # refuse / out_of_scope: answered as that intent, nothing is read
+            classification = Classification(Intent(chosen.intent), confidence="medium",
+                                            matched_on=f"llm_router:{chosen.tool}", understanding="LLM")
+            intent = classification.intent
+        elif chosen is not None and chosen.question:
+            # THE SAME PATH AS A TYPED QUESTION, party detection included
+            rerouted, routed_subject, routed_message = _classify_typed(chosen.question, has_case=bool(case_id))
+            if rerouted.intent is not Intent.UNKNOWN and rerouted.intent not in WRITE_INTENTS:
+                llm_trace["question"] = chosen.question
+                classification = rerouted
+                classification.matched_on = f"llm_router:{chosen.tool}"
                 intent = classification.intent
-                frame = proposed
-            else:
-                frame = proposed
+                frame = getattr(classification, "frame", None)
+                named_subject = routed_subject
+                message = routed_message
+                # ONE MODEL CALL PER TURN: a routed turn is worded from templates, never rephrased
+                compose_with_model = False
 
     # A follow-up whose pronoun the previous turn cannot settle ("why is it
     # still pending?" after two pending documents) is asked back, not guessed.
@@ -2985,7 +2973,103 @@ def _describe_answer(response: dict[str, Any], evidence: list[dict[str, str]]) -
         understanding["answer_evidence"] = list(evidence)
 
 
+def _classify_typed(message: str, *, has_case: bool) -> tuple[Classification, Any, str]:
+    """
+    A typed question -> (classification, the role it names, the message as routed).
+
+    The same path for a person's words and for the LLM router's canonical
+    question (step 6b), so a routed "co-applicant" question keeps its party.
+    """
+    # NORMALISED, CLASSIFIED, AND ONLY THEN THE SEMANTIC FALLBACK --
+    # see intents.understand. A WRITE is classified on the words as
+    # typed: normalisation rewrites short words, and a name or an
+    # address being saved must reach the store exactly as given.
+    named_subject = None
+    classification = classify(message)
+    if classification.intent not in WRITE_INTENTS:
+        # WHO THE QUESTION IS ABOUT, read from its words (a role only --
+        # the person is read from the case record below). When a role is
+        # named, the question is classified with the subject phrase
+        # neutralised, so the ordinary rules decide WHAT is being asked
+        # (app/agents/applicant/copilot/routing/subjects.py).
+        from app.agents.applicant import normalize
+
+        said = normalize.normalise(message).text or message
+        named_subject = (subjects.mentioned(said)
+                         or subjects.mentioned(message))
+        # NEUTRALISED AS TYPED: normalisation's typo pass reads
+        # "co-applicant's" as "co-applicants" and loses the possessive
+        # that says a document noun follows. `understand` normalises
+        # the neutral text itself.
+        classification = understand(
+            subjects.neutral(message)
+            if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH) else message,
+            has_case=has_case)
+        if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
+            # A PERSON'S DETAILS OR KYC, asked of the co-applicant: the
+            # party's own record answers it (subjects.party_question).
+            asked_of_party = subjects.party_question(said, classification)
+            if asked_of_party is not None:
+                classification = asked_of_party
+        if named_subject:
+            message = said
+            # THE FRAME KEEPS THE PARTY the neutral text dropped, so a
+            # clarification asks about the co-applicant, not "my documents".
+            from app.agents.applicant.copilot.semantics import semantic_frame as _frames
+
+            frame_ = getattr(classification, "frame", None)
+            if frame_ is not None and named_subject in (subjects.Kind.CO,
+                                                        subjects.Kind.BOTH):
+                frame_.party = _frames.Party.CO_APPLICANT
+        elif classification.normalized:
+            message = classification.normalized
+    return classification, named_subject, message
+
+
+from app.agents.applicant.copilot.caching import TTLCache as _TTLCache, settings_from as _settings_from
+
+#: KNOWLEDGE ANSWERS, cached in process (step 6b): handbook text is the same for
+#: every caller, so no case data is in the key or the value. Keyed on the
+#: normalised question (its language included), the product, the model switch,
+#: the length cap, the flags that change the index and the live retriever, so a
+#: reindex or a flag change is a miss, never a stale answer.
+KNOWLEDGE_ANSWERS = _TTLCache(_settings_from("router", "knowledge_cache", 600.0, 256))
+
+
+def _knowledge_key(message: str, product: str | None, allow_model: bool,
+                   max_sentences: int | None) -> tuple | None:
+    try:
+        from app.agents.applicant.copilot.semantics.llm_router import normalise
+
+        retriever = knowledge_answer.knowledge_layer.get_retriever() \
+            if knowledge_answer.knowledge_layer.enabled() else None
+        return (normalise(message), product, bool(allow_model), max_sentences,
+                os.getenv("COPILOT_TERMS_KNOWLEDGE", ""), id(retriever))
+    except Exception:  # noqa: BLE001 - no key, no cache: the answer is computed
+        return None
+
+
 async def _knowledge_reply(
+    message: str,
+    *,
+    product: str | None = None,
+    allow_model: bool = True,
+    max_sentences: int | None = None,
+) -> tuple[str, str, dict[str, Any]]:
+    """A knowledge answer, from the in-process cache when the same question was answered recently."""
+    key = _knowledge_key(message, product, allow_model, max_sentences)
+    if key is not None:
+        hit = KNOWLEDGE_ANSWERS.get(key)
+        if hit is not None:
+            return hit
+    result = await _knowledge_reply_uncached(message, product=product, allow_model=allow_model,
+                                             max_sentences=max_sentences)
+    if key is not None:
+        KNOWLEDGE_ANSWERS.put(key, result)
+    return result
+
+
+async def _knowledge_reply_uncached(
     message: str,
     *,
     product: str | None = None,

@@ -1,0 +1,5582 @@
+openapi: 3.1.0
+info:
+  title: FOS Copilot API (frontend subset)
+  description: Deterministic document extraction and risk assessment, orchestrated
+    through LangGraph. Language models write summaries; they never decide.
+  version: 1.0.0
+paths:
+  /api/v1/fos/copilot:
+    post:
+      tags:
+      - FOS
+      summary: 'The FOS copilot: questions, dropdown actions and document upload'
+      description: '**The single endpoint a FOS frontend needs.**
+
+
+        `action` selects what happens. Two request forms:
+
+
+        - **`application/json`** for every action except upload. Use `CUSTOM_QUERY`
+        with `message` for natural language; use any other action for a dropdown selection.
+
+        - **`multipart/form-data`** for `UPLOAD_DOCUMENT`, with `file` and an optional
+        `document_type`.
+
+
+        An upload runs the existing LOS pipeline — classification, then the verification
+        gate, then extraction only behind a PASS — and stores the verdict, which every
+        later query then reports.
+
+
+        Credit, risk, KYC, RCU and lending questions are **routed**, never answered:
+        the response carries `route_to` and no verdict.
+
+
+        Every action returns the same response shape; fields an action does not populate
+        come back null or empty.
+
+
+        **Actions:** `GET_APPLICANT`, `GET_APPLICATION_STATUS`, `GET_DOCUMENTS`, `GET_DOCUMENT_CHECKLIST`,
+        `GET_VERIFICATION_STATUS`, `GET_PENDING_ITEMS`, `GET_NEXT_ACTION`, `GET_CASE_360`,
+        `CHECK_CPA_READINESS`, `UPLOAD_DOCUMENT`, `CUSTOM_QUERY`. Render the dropdown
+        from `GET /api/v1/fos/actions`.'
+      operationId: copilot_api_v1_fos_copilot_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopilotRequest'
+            examples:
+              ask_a_question:
+                summary: CUSTOM_QUERY — natural language
+                value:
+                  applicant_id: APP-3D51FFAC6342
+                  case_id: CASE-7DFE2F497522
+                  action: CUSTOM_QUERY
+                  message: What documents are pending?
+              documents:
+                summary: GET_DOCUMENTS — what has been uploaded
+                value:
+                  applicant_id: APP-3D51FFAC6342
+                  case_id: CASE-7DFE2F497522
+                  action: GET_DOCUMENTS
+              checklist:
+                summary: GET_DOCUMENT_CHECKLIST — what this product needs
+                value:
+                  applicant_id: APP-3D51FFAC6342
+                  case_id: CASE-7DFE2F497522
+                  action: GET_DOCUMENT_CHECKLIST
+              pending:
+                summary: GET_PENDING_ITEMS — everything outstanding
+                value:
+                  applicant_id: APP-3D51FFAC6342
+                  case_id: CASE-7DFE2F497522
+                  action: GET_PENDING_ITEMS
+              next_action:
+                summary: GET_NEXT_ACTION — the one thing to do now
+                value:
+                  applicant_id: APP-3D51FFAC6342
+                  case_id: CASE-7DFE2F497522
+                  action: GET_NEXT_ACTION
+              case_360:
+                summary: GET_CASE_360 — the whole picture
+                value:
+                  applicant_id: APP-3D51FFAC6342
+                  case_id: CASE-7DFE2F497522
+                  action: GET_CASE_360
+              readiness:
+                summary: CHECK_CPA_READINESS — may this go to CPA?
+                value:
+                  applicant_id: APP-3D51FFAC6342
+                  case_id: CASE-7DFE2F497522
+                  action: CHECK_CPA_READINESS
+              out_of_scope:
+                summary: A downstream question — routed, not answered
+                value:
+                  applicant_id: APP-3D51FFAC6342
+                  case_id: CASE-7DFE2F497522
+                  action: CUSTOM_QUERY
+                  message: Should we approve this loan?
+          multipart/form-data:
+            schema:
+              properties:
+                applicant_id:
+                  type: string
+                  example: APP-3D51FFAC6342
+                case_id:
+                  type: string
+                  example: CASE-7DFE2F497522
+                action:
+                  type: string
+                  enum:
+                  - UPLOAD_DOCUMENT
+                  example: UPLOAD_DOCUMENT
+                files:
+                  items:
+                    type: string
+                    format: binary
+                  type: array
+                  description: 'One or more documents. In Swagger, press **Add string
+                    item** once per document and pick a file for each.
+
+
+                    Each file is classified and verified independently and gets its
+                    own entry in `verification.documents_processed`, so one bad file
+                    never stops the rest.'
+                document_types:
+                  items:
+                    type: string
+                  type: array
+                  description: 'Optional, positional: the Nth value asserts the type
+                    of the Nth file. Omit the field entirely to let the pipeline classify
+                    everything, or leave an individual entry blank to classify just
+                    that file.
+
+
+                    Send it as repeated parts (one per file). A single comma-separated
+                    value (`PAN,DRIVING_LICENCE`) is also accepted, because some clients
+                    join array fields that way.
+
+
+                    An assertion is CHECKED, never applied: a file that is not the
+                    type claimed fails with DOCUMENT_TYPE_MISMATCH and is not silently
+                    reclassified. A checklist slot name such as ADDRESS_PROOF is accepted
+                    and resolves to the document types that satisfy it.'
+                  example:
+                  - PAN
+                  - DRIVING_LICENCE
+              type: object
+              required:
+              - applicant_id
+              - case_id
+              - action
+            encoding:
+              files:
+                style: form
+                explode: true
+              document_types:
+                contentType: text/plain
+                style: form
+                explode: true
+        required: true
+      responses:
+        '200':
+          description: The answer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FosResponse'
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/fos/copilot/stream:
+    post:
+      tags:
+      - FOS
+      summary: 'The FOS copilot as Server-Sent Events: status lines while it works,
+        then the answer (step 7)'
+      description: 'The same JSON request as /fos/copilot (COPILOT_STREAMING, default
+        off -> 404). Events: `status`
+
+        (at once, then every tick_seconds), then `answer` (the full /fos/copilot response
+        + `latency`) or
+
+        `error` (an HTTP status + detail). One pipeline: the answer IS the /fos/copilot
+        answer.'
+      operationId: copilot_stream_api_v1_fos_copilot_stream_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+            text/event-stream: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Streaming is off.
+      security:
+      - HTTPBearer: []
+  /api/v1/fos/documents/view:
+    get:
+      tags:
+      - FOS
+      summary: Open a document through a short-lived signed link (6i VIEW_DOCUMENT)
+      description: 'The link from VIEW_DOCUMENT: valid only for the SAME subject,
+        for `view_ttl_seconds` (5 min), and
+
+        re-checked against the case''s ownership now. The bytes come from the document
+        store by id -- no
+
+        path is ever part of a request or a response. Every open is audited.'
+      operationId: view_document_api_v1_fos_documents_view_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Token
+      responses:
+        '200':
+          description: The document bytes, inline.
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Invalid / expired link.
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    AddressInput:
+      properties:
+        raw:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Raw
+        house:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: House
+        street:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Street
+        locality:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Locality
+        city:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: City
+        state:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: State
+        pincode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pincode
+      additionalProperties: false
+      type: object
+      title: AddressInput
+      description: 'An address, ideally already split into components.
+
+
+        `raw` is accepted for callers that only hold the printed line. It is parsed
+
+        into components before comparison, because comparing raw address strings
+
+        fails almost every genuine applicant: documents abbreviate, reorder and
+
+        punctuate differently.'
+    AgentAction:
+      properties:
+        action_id:
+          type: string
+          title: Action Id
+        type:
+          type: string
+          title: Type
+          examples:
+          - UPDATE_APPLICANT
+        tool:
+          type: string
+          title: Tool
+        arguments:
+          additionalProperties: true
+          type: object
+          title: Arguments
+        requires_confirmation:
+          type: boolean
+          title: Requires Confirmation
+          default: true
+        summary:
+          type: string
+          title: Summary
+      type: object
+      required:
+      - action_id
+      - type
+      - tool
+      - summary
+      title: AgentAction
+      description: A change the agent is offering to make. Never already applied.
+    AgentDescriptor:
+      properties:
+        agent_id:
+          type: string
+          title: Agent Id
+        agent_name:
+          type: string
+          title: Agent Name
+        stage:
+          type: string
+          title: Stage
+        enabled:
+          type: boolean
+          title: Enabled
+        registered:
+          type: boolean
+          title: Registered
+        routable:
+          type: boolean
+          title: Routable
+        model:
+          type: string
+          title: Model
+        version:
+          type: string
+          title: Version
+      type: object
+      required:
+      - agent_id
+      - agent_name
+      - stage
+      - enabled
+      - registered
+      - routable
+      - model
+      - version
+      title: AgentDescriptor
+      description: Public description of a configured agent.
+    AgentErrorInfo:
+      properties:
+        code:
+          type: string
+          title: Code
+        message:
+          type: string
+          title: Message
+      type: object
+      required:
+      - code
+      - message
+      title: AgentErrorInfo
+    AgentExecutionRequest:
+      properties:
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+          description: Explicit agent to run, e.g. 'fraud_risk_agent'.
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+          description: 'Alternative to agent_id: resolve the agent by stage, e.g.
+            ''risk_assessment''.'
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+          description: Agent-specific input payload.
+      additionalProperties: false
+      type: object
+      title: AgentExecutionRequest
+      description: "Request from the .NET LOS.\n\nSupply either:\n    - agent_id\n\
+        \    - stage\n\nAt least one is required."
+    AgentExecutionResponse:
+      properties:
+        request_id:
+          type: string
+          title: Request Id
+        agent_id:
+          type: string
+          title: Agent Id
+        agent_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Name
+        status:
+          type: string
+          title: Status
+        approval_required:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Approval Required
+        result:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Result
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        error_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Type
+        used_fallback:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Used Fallback
+        fallback_from:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fallback From
+        attempts:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Attempts
+        duration_ms:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Duration Ms
+        trace:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Trace
+      type: object
+      required:
+      - request_id
+      - agent_id
+      - status
+      title: AgentExecutionResponse
+      description: "Envelope returned to the .NET LOS.\n\nDiagnostics are omitted\
+        \ from healthy responses unless:\n    ?detail=true\n\nor the execution failed\
+        \ / used fallback."
+    ApplicantCreateRequest:
+      properties:
+        full_name:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Full Name
+          examples:
+          - Rahul Sharma
+        mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Mobile
+          examples:
+          - '9876543210'
+        email:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Email
+        date_of_birth:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Date Of Birth
+          examples:
+          - '1990-04-12'
+        address:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Address
+        applicant_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Applicant Id
+          description: Optional. Generated when omitted.
+      type: object
+      title: ApplicantCreateRequest
+    ApplicantDetails:
+      properties:
+        full_name:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Full Name
+          examples:
+          - Rahul Sharma
+        mobile:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Mobile
+          examples:
+          - '9876543210'
+        email:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Email
+          examples:
+          - rahul.sharma@example.com
+        date_of_birth:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Date Of Birth
+          examples:
+          - '1990-04-12'
+        address:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Address
+          examples:
+          - Mumbai, Maharashtra
+      type: object
+      title: ApplicantDetails
+    ApplicationCreateRequest:
+      properties:
+        applicant_id:
+          type: string
+          maxLength: 128
+          title: Applicant Id
+        product:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Product
+          examples:
+          - PERSONAL_LOAN
+        loan_amount:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Loan Amount
+          examples:
+          - '500000'
+        case_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Case Id
+          description: Optional. Generated when omitted.
+      type: object
+      required:
+      - applicant_id
+      title: ApplicationCreateRequest
+    ApplicationDetails:
+      properties:
+        product:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Product
+          description: Decides the document checklist. See GET /api/v1/fos/config.
+          examples:
+          - PERSONAL_LOAN
+        loan_amount:
+          anyOf:
+          - type: number
+          - type: string
+          - type: 'null'
+          title: Loan Amount
+          description: Drives the amount-based document rules. Omit it and those rules
+            are reported as unevaluated in `policy.unevaluated_rules` rather than
+            guessed at, so the checklist is the base one and is known to be provisional.
+          examples:
+          - 500000
+        employment_type:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Employment Type
+          description: 'An applicant attribute the document policy may key on. Not
+            defaulted: a rule that depends on it is reported as unevaluated when it
+            is absent.'
+          examples:
+          - SALARIED
+          - SELF_EMPLOYED
+        tenure_months:
+          anyOf:
+          - type: integer
+          - type: string
+          - type: 'null'
+          title: Tenure Months
+          description: Repayment period in months. Without it no instalment can be
+            computed and eligibility reports EMI_INPUTS_MISSING.
+          examples:
+          - 36
+        interest_rate_pct:
+          anyOf:
+          - type: number
+          - type: string
+          - type: 'null'
+          title: Interest Rate Pct
+          description: Annual interest rate. Without it no instalment can be computed
+            and eligibility reports EMI_INPUTS_MISSING.
+          examples:
+          - 12.5
+        declared_monthly_obligations:
+          anyOf:
+          - type: number
+          - type: string
+          - type: 'null'
+          title: Declared Monthly Obligations
+          description: 'What the applicant says they already repay each month. DECLARED,
+            and recorded as declared: whether a declared figure may be used in an
+            affordability calculation is a policy decision, set in eligibility_policy.yaml,
+            and it is not accepted by default.'
+          examples:
+          - 8000
+        declared_monthly_income:
+          anyOf:
+          - type: number
+          - type: string
+          - type: 'null'
+          title: Declared Monthly Income
+          description: 'What the applicant says they earn each month. DECLARED, and
+            recorded as declared: it is never used as verified income. Optional; credit
+            underwriting reports its comparison with the documented income as unavailable
+            when it is absent.'
+          examples:
+          - 65000
+        property_value:
+          anyOf:
+          - type: number
+          - type: string
+          - type: 'null'
+          title: Property Value
+          description: The property's value, for a secured product such as HOME_LOAN,
+            where eligibility computes LTV. Recorded as DECLARED. Ignored for an unsecured
+            product, where LTV is NOT_APPLICABLE.
+          examples:
+          - 8000000
+      type: object
+      title: ApplicationDetails
+    ApplicationOverview:
+      properties:
+        status:
+          type: string
+          title: Status
+          examples:
+          - SUCCESS
+          - PARTIAL
+          - REVIEW
+        decision:
+          type: string
+          title: Decision
+          examples:
+          - PASS
+          - REVIEW
+          - REJECT
+        next_action:
+          type: string
+          title: Next Action
+          examples:
+          - MANUAL_REVIEW
+          - CONTINUE
+        issues:
+          items:
+            $ref: '#/components/schemas/PartyIssue'
+          type: array
+          title: Issues
+          description: Every party's issues in one list, each tagged with whose.
+        missing:
+          items:
+            additionalProperties:
+              type: string
+            type: object
+          type: array
+          title: Missing
+          description: '**Always empty.** This endpoint has no checklist: required-document
+            policy lives in the applicant agent and is never computed here. The key
+            is present because its absence would read as "nothing is missing", which
+            is a claim this endpoint cannot make.'
+        summary:
+          type: string
+          title: Summary
+          description: Why the application stands where it does, one party at a time.
+            DETERMINISTIC and separate from the top-level `summary`, which a model
+            may write.
+          examples:
+          - Primary applicant verification passed. Co-applicant verification requires
+            review due to NAME_MISMATCH.
+        processing_summary:
+          $ref: '#/components/schemas/ProcessingSummary'
+      type: object
+      required:
+      - status
+      - decision
+      - next_action
+      - summary
+      - processing_summary
+      title: ApplicationOverview
+      description: 'The application in one object: what happened, and whose problem
+        it is.
+
+
+        PURELY A REGROUPING. `status`, `decision` and `next_action` are the
+
+        very values published at top level, produced by the existing rules;
+
+        the issues are each party''s own recorded reason codes, tagged with
+
+        whose they are. Nothing here ranks or re-derives any of it.'
+    Body_extract_document_upload_api_v1_extract_document_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          description: PAN, Driving Licence, Voter ID or Passport image / PDF
+          format: binary
+      type: object
+      required:
+      - file
+      title: Body_extract_document_upload_api_v1_extract_document_post
+    Body_extract_documents_batch_api_v1_extract_document_batch_post:
+      properties:
+        files:
+          items:
+            type: string
+            contentMediaType: application/octet-stream
+            format: binary
+          type: array
+          title: Files
+          description: Up to 10 PAN / DL files
+      type: object
+      required:
+      - files
+      title: Body_extract_documents_batch_api_v1_extract_document_batch_post
+    Body_extract_financial_api_v1_financial_extract_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          description: Bank statement, ITR, salary slip or sale deed PDF
+          format: binary
+        document_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Document Type
+          description: 'Optional hint: BANK_STATEMENT, ITR, SALARY_SLIP or SALE_DEED.
+            Detection is automatic.'
+      type: object
+      required:
+      - file
+      title: Body_extract_financial_api_v1_financial_extract_post
+    Body_process_api_v1_los_process_post:
+      properties:
+        files:
+          anyOf:
+          - items:
+              type: string
+              contentMediaType: application/octet-stream
+              format: binary
+            type: array
+          - type: 'null'
+          title: Files
+          description: '**PRIMARY APPLICANT** documents. Positionally matched to `expected_types`.
+
+
+            Optional **only** in the sense that a request may instead carry `co_applicant_files`
+            alone: the two parties are processed independently, and a co-applicant''s
+            documents must not wait on the primary''s. At least one party must send
+            something.'
+        operation:
+          type: string
+          enum:
+          - PROCESS
+          - EXTRACT
+          - VERIFY
+          title: Operation
+          description: 'PROCESS runs the whole application: classify, verify, extract
+            behind the verification gate, route specialist evidence, cross-check with
+            KYC, then decide. EXTRACT and VERIFY are the Document Agent''s own modes,
+            kept for existing callers -- VERIFY never releases extracted fields.'
+          default: PROCESS
+        applicant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Id
+        case_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Case Id
+          description: The case this upload belongs to. Omit to start a new case for
+            the applicant; supply one to add documents to an existing case. One applicant
+            may have several cases, and they stay separate.
+        expected_types:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Expected Types
+          description: '**PRIMARY APPLICANT** — one expected document type per file
+            in `files`, in order. Repeat the field once per file (`expected_types=PAN&expected_types=BANK_STATEMENT`).
+            Use `AUTO` to let classification decide for that file. A single comma-separated
+            string is still accepted.'
+          examples:
+          - - PAN
+            - DRIVING_LICENCE
+        document_types:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Document Types
+          description: Alias of `expected_types` -- the name the FOS upload route
+            uses. Sending both with different values is refused.
+        co_applicant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Co Applicant Id
+          description: '**CO-APPLICANT** identifier. Required whenever `co_applicant_files`
+            is sent, and must differ from `applicant_id`. Omit it entirely for a single-applicant
+            case.'
+          examples:
+          - ''
+        co_applicant_files:
+          anyOf:
+          - items:
+              type: string
+              contentMediaType: application/octet-stream
+              format: binary
+            type: array
+          - type: 'null'
+          title: Co Applicant Files
+          description: '**CO-APPLICANT** documents — a different person from `files`.
+            Positionally matched to `co_applicant_expected_types`.'
+        reference_signature:
+          anyOf:
+          - type: string
+            contentMediaType: application/octet-stream
+            format: binary
+          - type: string
+          - type: 'null'
+          title: Reference Signature
+          description: '**PRIMARY APPLICANT** known-good specimen signature (an image).
+            Used ONLY to compare this applicant''s SIGNATURE uploads in this request;
+            without it a signature is REVIEW (no reference), never PASS.'
+        co_applicant_reference_signature:
+          anyOf:
+          - type: string
+            contentMediaType: application/octet-stream
+            format: binary
+          - type: string
+          - type: 'null'
+          title: Co Applicant Reference Signature
+          description: '**CO-APPLICANT** known-good specimen signature, for their
+            SIGNATURE uploads.'
+        co_applicant_expected_types:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Co Applicant Expected Types
+          description: '**CO-APPLICANT** — one expected document type per file in
+            `co_applicant_files`, in order. Same rules as `expected_types`.'
+          examples:
+          - - PAN
+        applicant_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Name
+          description: '**PRIMARY APPLICANT** declared name, matched against their
+            own documents.'
+        applicant_dob:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Dob
+          description: '**PRIMARY APPLICANT** declared date of birth (any common format;
+            normalised before comparison).'
+        applicant_pan:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Pan
+          description: '**PRIMARY APPLICANT** declared PAN. Compared exactly after
+            normalisation, never fuzzily.'
+        applicant_father_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Father Name
+        applicant_address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Address
+        co_applicant_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Co Applicant Name
+          description: '**CO-APPLICANT** declared name, matched against **their**
+            documents only.'
+        co_applicant_dob:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Co Applicant Dob
+        co_applicant_pan:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Co Applicant Pan
+        co_applicant_father_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Co Applicant Father Name
+        co_applicant_address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Co Applicant Address
+        co_applicant_relationship:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Co Applicant Relationship
+          description: '**CO-APPLICANT** relationship to the applicant (e.g. SPOUSE).
+            Stored with LOS_COAPP_IDENTITY on.'
+          examples:
+          - ''
+      type: object
+      title: Body_process_api_v1_los_process_post
+    Body_process_document_api_api_v1_document_agent_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          format: binary
+        operation:
+          type: string
+          title: Operation
+          default: VERIFY
+        expected_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expected Type
+      type: object
+      required:
+      - file
+      title: Body_process_document_api_api_v1_document_agent_post
+    Body_verify_document_api_v1_verify_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          description: Document image or PDF
+          format: binary
+        expected_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expected Type
+          description: Optional. Name a class (PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT,
+            AADHAAR, MARK_SHEET, SALE_DEED) to assert what you believe you sent; a
+            mismatch then fails. Leave empty to accept whatever the document turns
+            out to be.
+      type: object
+      required:
+      - file
+      title: Body_verify_document_api_v1_verify_post
+    Body_verify_financial_api_v1_financial_verify_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          description: Bank statement, ITR, salary slip or sale deed PDF
+          format: binary
+      type: object
+      required:
+      - file
+      title: Body_verify_financial_api_v1_financial_verify_post
+    CaseDataResponse:
+      properties:
+        case_id:
+          type: string
+          title: Case Id
+        app_id:
+          type: string
+          title: App Id
+        found:
+          type: boolean
+          title: Found
+          default: true
+        applicant:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Applicant
+        application:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Application
+        checklist:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Checklist
+        documents:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Documents
+        required_documents:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Required Documents
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+        data:
+          additionalProperties: true
+          type: object
+          title: Data
+        message:
+          type: string
+          title: Message
+          default: Case data fetched successfully
+      type: object
+      required:
+      - case_id
+      - app_id
+      title: CaseDataResponse
+      description: 'All data returned for a given Case ID + APP ID pair.
+
+
+        Fields map 1-to-1 with the underlying FOS GET endpoints.
+
+        Any field is null/empty when the upstream call fails or returns
+
+        no data -- the fetch endpoint never errors out on partial data.'
+    CaseFetchRequest:
+      properties:
+        case_id:
+          type: string
+          minLength: 1
+          title: Case Id
+          examples:
+          - CASE-abc123
+        app_id:
+          type: string
+          minLength: 1
+          title: App Id
+          examples:
+          - APP-xyz789
+      type: object
+      required:
+      - case_id
+      - app_id
+      title: CaseFetchRequest
+      description: Body for POST /api/v1/case/fetch
+    Check:
+      properties:
+        name:
+          type: string
+          title: Name
+        passed:
+          type: boolean
+          title: Passed
+        detail:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Detail
+      type: object
+      required:
+      - name
+      - passed
+      title: Check
+    CheckResult:
+      properties:
+        check:
+          $ref: '#/components/schemas/KycCheck'
+        status:
+          $ref: '#/components/schemas/CheckStatus'
+        score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Score
+        reason_codes:
+          items:
+            $ref: '#/components/schemas/ReasonCode'
+          type: array
+          title: Reason Codes
+        detail:
+          type: string
+          title: Detail
+          default: ''
+        evidence:
+          items:
+            $ref: '#/components/schemas/Evidence'
+          type: array
+          title: Evidence
+        comparisons:
+          items:
+            $ref: '#/components/schemas/PairComparison'
+          type: array
+          title: Comparisons
+        basis:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Basis
+      type: object
+      required:
+      - check
+      - status
+      title: CheckResult
+    CheckStatus:
+      type: string
+      enum:
+      - PASS
+      - REVIEW
+      - FAIL
+      - SKIPPED
+      title: CheckStatus
+    ConfirmRequest:
+      properties:
+        action:
+          additionalProperties: true
+          type: object
+          title: Action
+          description: The action object returned in `actions[]` by a previous query,
+            passed back unchanged.
+      type: object
+      required:
+      - action
+      title: ConfirmRequest
+      description: Confirmation of a change the agent proposed.
+    CopilotQueryRequest:
+      properties:
+        message:
+          type: string
+          maxLength: 1000
+          minLength: 1
+          title: Message
+          description: The question, in natural language.
+          examples:
+          - Why is this case in review?
+        case_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Case Id
+          description: 'The case the question is about.
+
+
+            **Optional.** With a case, the answer is scoped to it and the caller must
+            own it. Without one, the question is about the APPLICANT and is scoped
+            to their own applications -- ''how many cases do I have'', ''what happened
+            across my cases''. There is no unscoped read either way: every tool requires
+            a case_id or an applicant_id.'
+          examples:
+          - CASE-9B2E7F1A4C60
+        applicant_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Applicant Id
+          description: The applicant. Resolved from the case when omitted.
+          examples:
+          - APP-4C1D9E2B7A03
+        party_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Party Id
+          description: Narrow the answer to one party on a joint case. Omit to answer
+            across the case.
+          examples:
+          - COAPP-7F2A11C4D9E0
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+          description: 'The LOS stage this question is about: FOS, CPA, CREDIT, RCU,
+            BOPS, HOPS or DISBURSEMENT.
+
+
+            **Advisory only.** It is used ONLY when the case record establishes no
+            stage of its own. A caller that could override the case''s stage could
+            choose which stage''s answers it receives, which would make stage scoping
+            a preference rather than a boundary. The response''s `stage_resolution`
+            says which source was used.'
+          examples:
+          - FOS
+        conversation_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Conversation Id
+          description: Echoed back so a client can correlate turns. **Not stored**
+            -- there is no server-side conversation memory yet, and pretending otherwise
+            would invite a client to rely on one.
+        language:
+          anyOf:
+          - type: string
+            maxLength: 16
+          - type: 'null'
+          title: Language
+          description: 'The language to answer in (e.g. `en`, `hi`, `mr`, `hi-Latn`).
+            Omitted: the language the question was written in. A recorded fact is
+            localized only where a deterministic template exists for it; otherwise
+            the English answer is returned and `language.localized` is false. The
+            business truth never depends on it.'
+          examples:
+          - en
+        channel:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Channel
+          description: 'The channel the question came from: web, mobile, whatsapp,
+            fos_app, agent_desktop or api. Echoed back and counted; it NEVER changes
+            identity, authorization, tools, evidence or the answer.'
+          examples:
+          - web
+        context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Context
+          description: 'The `context` block from the previous response, sent back
+            unchanged, so a follow-up such as *"why?"* or *"what about the document?"*
+            is understood. **Untrusted and advisory**: it can only rewrite the message
+            into another question, which is then classified and authorised like any
+            other. It never selects a case, a stage or a tool.'
+          examples:
+          - last_intent: CASE_HISTORY
+            last_query_type: CASE_FACT
+            last_slot: PAN
+      type: object
+      required:
+      - message
+      title: CopilotQueryRequest
+      description: One question about one case.
+    CopilotQueryResponse:
+      properties:
+        request_id:
+          type: string
+          title: Request Id
+        eligibility:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Eligibility
+          description: 'The Eligibility Agent''s recorded result, verbatim, on an
+            eligibility answer: state (ELIGIBLE / NOT_ELIGIBLE / REVIEW / PENDING
+            / CONFIGURATION_GAP), rules, passed / failed rule ids, missing information,
+            blockers, next actions. Never computed by the Copilot.'
+        case_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Case Id
+        applicant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Id
+        party_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Party Id
+        conversation_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Conversation Id
+        context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Context
+          description: Send this back as `context` with the next question.
+        followed_up:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Followed Up
+          description: 'Present when a follow-up was rewritten using `context`: what
+            was typed and what it was taken to mean.'
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+          description: The LOS stage this answer was scoped to. **Absent when the
+            stage could not be established** -- defaulting to FOS would answer every
+            unresolvable case out of the FOS corpus.
+          examples:
+          - FOS
+        stage_resolution:
+          type: string
+          title: Stage Resolution
+          description: 'Where the stage came from: `CASE_TIMELINE` (the pipeline recorded
+            it), `APPLICATION_STATUS` (derived from the case), `CALLER_SUPPLIED` (the
+            record was silent and the caller offered one), or `UNRESOLVED`.'
+          default: UNRESOLVED
+          examples:
+          - CASE_TIMELINE
+        stage_source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage Source
+          description: '`CASE_STATE` when the case record decided the stage, `CALLER`
+            when only the caller did, `NONE` when nothing did. Never the question''s
+            wording and never a model.'
+          examples:
+          - CASE_STATE
+        stage_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage Status
+          description: Where the case is WITHIN its stage -- `IN_PROGRESS`, or `READY_FOR_HANDOFF`
+            for a FOS case ready for CPA. A workflow status, kept apart from the application
+            status (`status` on a status question), document statuses and decisions.
+          examples:
+          - IN_PROGRESS
+        category:
+          type: string
+          title: Category
+          description: Which kind of question this was.
+          examples:
+          - CASE_ONLY
+          - KNOWLEDGE_ONLY
+          - MIXED
+          - DOWNSTREAM
+        intent:
+          type: string
+          title: Intent
+          examples:
+          - CASE_HISTORY
+        answer:
+          type: string
+          title: Answer
+          description: Prose for the officer to read.
+        response_source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Response Source
+          description: Who produced the wording — deterministic or a model.
+          examples:
+          - deterministic
+        grounded:
+          type: boolean
+          title: Grounded
+          description: Whether retrieved evidence backed this answer. **False means
+            the answer says so** -- an answer with no evidence states that the available
+            evidence is insufficient rather than offering a plausible one.
+          default: false
+        sources:
+          items:
+            $ref: '#/components/schemas/CopilotSource'
+          type: array
+          title: Sources
+          description: The recorded findings behind the answer. Present on a case-history
+            answer; empty when nothing was cited.
+        tool_invoked:
+          items:
+            type: string
+          type: array
+          title: Tool Invoked
+          description: MCP tools this answer used.
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+          description: 'On a status or stage question, the application status the
+            case record holds. Otherwise present only when the request could not be
+            served as asked: `CAPABILITY_UNAVAILABLE` means this stage has no registered
+            capability for this kind of question -- which is neither an authorisation
+            failure, nor missing case data, nor an unrecognised question.'
+          examples:
+          - UNDER_REVIEW
+          - CAPABILITY_UNAVAILABLE
+        errors:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Errors
+        stage_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage Label
+          description: The current stage, as a person reads it.
+        delay:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Delay
+          description: 'On a delay question: the current stage and since when, whether
+            the records ESTABLISH a cause, what holds the case (finding, impact, subject),
+            the recorded events in this stage and the next action -- codes only. No
+            cause is inferred where the records establish none.'
+        subject:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Subject
+          description: 'Who the answer is about, when the question named a party:
+            `kind` (PRIMARY_APPLICANT, CO_APPLICANT or BOTH) and the case''s `parties`
+            it covers, each with `party_id` and `party_role`. Absent on a case-level
+            answer.'
+        history:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: History
+          description: 'On a "what changed" answer: the `window` it used (label, kind,
+            start), the recorded `changes` in order (event type, when, subject, source,
+            previous -> current), how many recorded changes carried no time, and which
+            kinds of change the store does not record.'
+        next_actions:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Next Actions
+          description: 'The Next Best Action result (deterministic): `primary` and
+            `additional` actions -- each with a language-neutral `action_code`, `owner`,
+            `subject` (scope, party_role), `document`, `blocking`, `priority` and
+            English `text` -- and the `handoff` signal. Read-only guidance: nothing
+            is performed.'
+        handoff:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Handoff
+          description: 'Whether a person should take this case: `required`, `reason`
+            (an action code, or USER_REQUEST), `priority` (null -- none is configured).
+            Never set from sentiment.'
+        sentiment:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Sentiment
+          description: 'The tone signal: `level` (neutral / confused / frustrated
+            / high_frustration), `intensity`, the marker families that matched, and
+            `affects: TONE_ONLY`. It may add an empathetic opening line and recommend
+            a handoff; it never changes a business fact.'
+        language:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Language
+          description: 'Language handling: `detected`, `script`, `romanized`, `code_mixed`,
+            `review_status` of the lexicon, `response_language`, and `localized` (whether
+            the answer text is in that language).'
+        channel:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Channel
+          description: The channel echoed back (channel-independent answer; see the
+            request field).
+        response_contract_version:
+          type: string
+          title: Response Contract Version
+          description: Version of this structured response contract.
+          default: '3.0'
+        problems:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Problems
+          description: 'Recorded problems holding the case: type, message, the document
+            and field each rests on. Never values.'
+        pending_items:
+          items:
+            type: string
+          type: array
+          title: Pending Items
+          description: What is still outstanding.
+        next_action:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Action
+          description: The next action the workflow recorded.
+        timeline:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Timeline
+          description: 'The recorded stage history: stage, when entered and left,
+            from where, and the recorded reason.'
+        answer_basis:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Answer Basis
+          description: 'Why this answer: the governed tools (and MCP transport) the
+            case facts came from, knowledge retrieved, whether a semantic layer contributed,
+            and whether the published sentence was validated.'
+        timings:
+          additionalProperties:
+            type: number
+          type: object
+          title: Timings
+          description: 'Milliseconds per step: stage, agent (tools, model), rag, compose,
+            total.'
+        processing_ms:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Processing Ms
+        correlation_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Correlation Id
+          description: Correlates this answer with its logs and spans.
+        observability:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Observability
+          description: 'Why this answer: capability, intent, model, tools and latency
+            by component -- codes, counts and milliseconds only.'
+      type: object
+      required:
+      - request_id
+      - category
+      - intent
+      - answer
+      title: CopilotQueryResponse
+      description: One answered question.
+    CopilotSource:
+      properties:
+        type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Type
+          description: The kind of evidence, in the vocabulary the rest of the response
+            uses. `kind` is the same thing in lower case and is kept for callers that
+            already read it.
+          examples:
+          - CASE_FINDING
+          - CASE_DOCUMENT
+          - PROCESS_KNOWLEDGE
+        kind:
+          type: string
+          title: Kind
+          examples:
+          - case_finding
+          - case_decision
+        finding_kind:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Finding Kind
+          examples:
+          - VERIFICATION
+          - KYC
+        reason_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Code
+          examples:
+          - DOCUMENT_TYPE_MISMATCH
+        document_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Document Id
+        source_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Id
+          examples:
+          - pan.jpg
+        party_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Party Id
+        decision:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Decision
+          examples:
+          - REVIEW
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+          examples:
+          - PARTIAL
+        source_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Type
+          description: What the evidence was derived from. `PROCESS_KNOWLEDGE` is
+            stage guidance, not a fact about this case.
+          examples:
+          - CASE_EVENT
+          - CASE_FINDING
+          - PROCESS_KNOWLEDGE
+        case_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Case Id
+          description: Null on process knowledge, which belongs to no case.
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+          examples:
+          - RCU
+        document_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Document Type
+          examples:
+          - PAN
+      type: object
+      required:
+      - kind
+      title: CopilotSource
+      description: What one part of the answer rests on.
+    CreateCaseRequest:
+      properties:
+        applicant:
+          $ref: '#/components/schemas/ApplicantDetails'
+        application:
+          anyOf:
+          - $ref: '#/components/schemas/ApplicationDetails'
+          - type: 'null'
+        applicant_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Applicant Id
+          description: Optional. Generated when omitted.
+        case_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Case Id
+          description: Optional. Generated when omitted.
+      type: object
+      required:
+      - applicant
+      title: CreateCaseRequest
+      description: 'One call: the applicant, their application, and the opened case.'
+    CrossDocument:
+      properties:
+        status:
+          type: string
+          title: Status
+          description: 'Worst of the checks that actually ran, capped by policy: a
+            failed check that is not marked blocking in kyc_policies.yaml contributes
+            at most REVIEW. Documents disagreeing routes the case to a human; it is
+            not treated as fraud. SKIPPED if nothing was comparable.'
+          examples:
+          - PASS
+          - REVIEW
+          - FAIL
+          - SKIPPED
+        checks:
+          items:
+            $ref: '#/components/schemas/CrossDocumentCheck'
+          type: array
+          title: Checks
+      type: object
+      required:
+      - status
+      title: CrossDocument
+      description: 'Agreement between documents.
+
+
+        An object rather than a list of disagreements, because a bare list could
+
+        not distinguish "every field agreed" from "nothing was comparable" --
+
+        both arrived empty, and they mean opposite things to a reviewer.'
+    CrossDocumentCheck:
+      properties:
+        check:
+          type: string
+          title: Check
+          examples:
+          - NAME
+          - DOB
+          - ADDRESS
+          - PAN
+          - INCOME
+        party_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Party Id
+          description: 'Whose documents this check ran over. Present only on a case
+            with a co-applicant, where two people each produce their own NAME row
+            and a reviewer has to tell them apart. Absent on a single-applicant case,
+            exactly as before.
+
+
+            Every check is scoped to ONE party. Nothing in this list compares one
+            applicant against another -- two people on a joint application legitimately
+            have different names, and reporting that as a mismatch is a defect this
+            field exists to make visible.'
+          examples:
+          - COAPP-7F2A11C4D9E0
+        status:
+          type: string
+          title: Status
+          description: SKIPPED means there was nothing to compare, not agreement.
+          examples:
+          - PASS
+          - REVIEW
+          - FAIL
+          - SKIPPED
+        reason_codes:
+          items:
+            type: string
+          type: array
+          title: Reason Codes
+        sources:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Sources
+          description: The documents this check compared -- or, where it failed, the
+            ones that disagree.
+          examples:
+          - - pan.jpg
+            - itr.pdf
+        details:
+          anyOf:
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
+          title: Details
+          description: What each document said for the compared field, by source_id.
+            Present only where the check did not pass, so a reviewer can see the disagreement
+            without reopening every file. These are the same normalised values already
+            published under documents[].extraction -- never OCR text or candidates.
+          examples:
+          - dl.jpg: RISHABH AJIT SINGH
+            pan.jpg: MUKESH KUMAR
+      type: object
+      required:
+      - check
+      - status
+      title: CrossDocumentCheck
+      description: One named agreement check across the uploaded documents.
+    DecideRequest:
+      properties:
+        state:
+          additionalProperties: true
+          type: object
+          title: State
+          description: Recorded statuses to decide on, in the shape app/jev/state.py
+            builds, e.g. {"documents":[{"document_type":"PAN","verification":"PASS"}],"kyc":{"status":"REVIEW","reason_codes":["NAME_MISMATCH"]}}
+          examples:
+          - documents:
+            - document_type: PAN
+              reason_codes: []
+              verification: PASS
+            kyc:
+              reason_codes:
+              - NAME_MISMATCH
+              status: REVIEW
+        scope:
+          type: string
+          maxLength: 40
+          title: Scope
+          default: CASE_TRIAGE
+      type: object
+      required:
+      - state
+      title: DecideRequest
+    DecisionRequest:
+      properties:
+        decision:
+          type: string
+          maxLength: 10
+          title: Decision
+          description: APPROVE, REJECT or RETURN.
+        comments:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Comments
+      type: object
+      required:
+      - decision
+      title: DecisionRequest
+    DeviationDecisionRequest:
+      properties:
+        decision:
+          type: string
+          maxLength: 20
+          title: Decision
+          description: APPROVED, REJECTED or WITHDRAWN.
+        justification:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Justification
+      type: object
+      required:
+      - decision
+      title: DeviationDecisionRequest
+    DocumentError:
+      properties:
+        code:
+          type: string
+          title: Code
+          examples:
+          - INVALID_DOCUMENT
+        message:
+          type: string
+          title: Message
+        source_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Id
+      type: object
+      required:
+      - code
+      - message
+      title: DocumentError
+    DocumentExtractionResult:
+      properties:
+        document_type:
+          $ref: '#/components/schemas/DocumentType'
+        status:
+          $ref: '#/components/schemas/DocumentStatus'
+        classification_confidence:
+          type: number
+          title: Classification Confidence
+          default: 0.0
+        fields:
+          additionalProperties:
+            $ref: '#/components/schemas/ExtractedField'
+          type: object
+          title: Fields
+        processing:
+          $ref: '#/components/schemas/ProcessingTimes'
+        ocr_engine:
+          type: string
+          title: Ocr Engine
+          default: ''
+        errors:
+          items:
+            type: string
+          type: array
+          title: Errors
+        warnings:
+          items:
+            type: string
+          type: array
+          title: Warnings
+      type: object
+      required:
+      - document_type
+      - status
+      title: DocumentExtractionResult
+      description: Structured result returned to the LOS.
+    DocumentStatus:
+      type: string
+      enum:
+      - SUCCESS
+      - PARTIAL
+      - FAILED
+      - UNSUPPORTED
+      title: DocumentStatus
+    DocumentType:
+      type: string
+      enum:
+      - PAN
+      - DRIVING_LICENCE
+      - VOTER_ID
+      - PASSPORT
+      - UNKNOWN
+      title: DocumentType
+    ErrorDetail:
+      properties:
+        code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Code
+          description: Machine code on access / Copilot routes, e.g. CASE_ACCESS_DENIED.
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+          description: Machine code on agent routes, e.g. agent_execution_failed.
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Message
+          description: A sentence for a person. Never a stack trace or a path.
+        request_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Request Id
+          description: Quote this to support; it ties the call to the audit trail.
+      type: object
+      title: ErrorDetail
+    ErrorResponse:
+      properties:
+        detail:
+          anyOf:
+          - type: string
+          - $ref: '#/components/schemas/ErrorDetail'
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          title: Detail
+          description: A sentence (authentication), an ErrorDetail, or FastAPI's list
+            of field errors (422).
+      type: object
+      required:
+      - detail
+      title: ErrorResponse
+    Evidence:
+      properties:
+        source_id:
+          type: string
+          title: Source Id
+        document_type:
+          $ref: '#/components/schemas/KycDocumentType'
+        field:
+          type: string
+          title: Field
+        value:
+          title: Value
+      type: object
+      required:
+      - source_id
+      - document_type
+      - field
+      title: Evidence
+      description: The exact value, from the exact document, a verdict was drawn from.
+    EvidenceRef:
+      properties:
+        source_id:
+          type: string
+          title: Source Id
+          examples:
+          - sig.png
+        locator:
+          type: string
+          title: Locator
+          description: 'source_id, optionally with #page=N or #region=x0,y0,x1,y1.'
+          examples:
+          - sig.png#region=0,136,640,166
+          - deed.pdf#page=1
+      type: object
+      required:
+      - source_id
+      - locator
+      title: EvidenceRef
+      description: 'Where a finding came from, as a reference the caller can resolve.
+
+
+        Anchored on the caller''s own source_id -- never an internal or temporary
+
+        file path, and never the capability''s wording for how it looked.'
+    ExtractedField:
+      properties:
+        value:
+          title: Value
+        confidence:
+          type: number
+          title: Confidence
+          default: 0.0
+        status:
+          $ref: '#/components/schemas/app__agents__document_agent__schemas__FieldStatus'
+          default: MISSING
+        validation:
+          $ref: '#/components/schemas/ValidationStatus'
+          default: NOT_VALIDATED
+        validation_error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Validation Error
+        evidence:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Evidence
+        ocr_confidence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Ocr Confidence
+        match_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Match Key
+      type: object
+      title: ExtractedField
+      description: One field with its evidence and validation verdict.
+    FieldCorrectionRequest:
+      properties:
+        field:
+          type: string
+          maxLength: 60
+          title: Field
+          description: The extracted field, e.g. pan_number, net_pay.
+        corrected_value:
+          type: string
+          maxLength: 300
+          title: Corrected Value
+        reason:
+          type: string
+          maxLength: 300
+          minLength: 3
+          title: Reason
+          description: Why the extracted value was wrong.
+      type: object
+      required:
+      - field
+      - corrected_value
+      - reason
+      title: FieldCorrectionRequest
+    FieldResult:
+      properties:
+        field:
+          $ref: '#/components/schemas/KycField'
+        status:
+          $ref: '#/components/schemas/app__agents__kyc__schemas__FieldStatus'
+        match_score:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Match Score
+          description: How closely the available values match EACH OTHER. 100 means
+            identical after normalisation. 0 on a SKIPPED field means nothing was
+            compared, not that nothing matched.
+          default: 0
+        confidence:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Confidence
+          description: How far this RESULT can be relied on -- a different question
+            from match_score, and never a copy of it. Built from the comparison method,
+            how many documents were compared, how complete the field was across them,
+            the extraction quality reported upstream, and how close the score sits
+            to a decision threshold. A perfect match between two poorly-read fields
+            scores 100 for match and well below it for confidence.
+          default: 0
+        reason_code:
+          type: string
+          title: Reason Code
+          default: ''
+        reason:
+          type: string
+          title: Reason
+          default: ''
+        sources:
+          items:
+            $ref: '#/components/schemas/FieldSource'
+          type: array
+          title: Sources
+        confidence_factors:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Confidence Factors
+          description: 'How the confidence was arrived at: the base and each adjustment,
+            named. Present so a number nobody can explain never reaches an operator.'
+      type: object
+      required:
+      - field
+      - status
+      title: FieldResult
+      description: 'One comparable field, resolved across every document that carried
+        it.
+
+
+        This is the operational view: what a field officer reads. The pairwise
+
+        comparison matrix behind it stays on CheckResult, because it grows with
+
+        the square of the document count and nobody acts on it.'
+    FieldSource:
+      properties:
+        source_id:
+          type: string
+          title: Source Id
+        document_type:
+          $ref: '#/components/schemas/KycDocumentType'
+        value:
+          title: Value
+        normalized_value:
+          title: Normalized Value
+      type: object
+      required:
+      - source_id
+      - document_type
+      title: FieldSource
+      description: 'One document''s contribution to a field comparison.
+
+
+        `value` is what the document carried, exactly as extraction released it.
+
+        `normalized_value` is what was actually compared. Both are published
+
+        because a reviewer looking at a near-miss needs to see whether the
+
+        difference is in the document or in the normalisation.
+
+
+        NEITHER IS OCR DATA. These are the released, validated field values that
+
+        already appear under documents[].extraction; no token, box or raw OCR
+
+        string reaches here.'
+    FinancialDocumentType:
+      type: string
+      enum:
+      - BANK_STATEMENT
+      - ITR
+      - SALE_DEED
+      - SALARY_SLIP
+      - UNKNOWN
+      title: FinancialDocumentType
+    FinancialResult:
+      properties:
+        document_type:
+          $ref: '#/components/schemas/FinancialDocumentType'
+        status:
+          $ref: '#/components/schemas/FinancialStatus'
+        pan:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pan
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        name_match_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name Match Key
+        account_number_masked:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Account Number Masked
+        evidence:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Evidence
+        income_evidence:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Income Evidence
+        employer_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Employer Name
+        period_start:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Period Start
+        period_end:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Period End
+        signals:
+          $ref: '#/components/schemas/IncomeSignals'
+        verified:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Verified
+        verification_checks:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Verification Checks
+        verification_note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Verification Note
+        detail:
+          additionalProperties: true
+          type: object
+          title: Detail
+        processing_ms:
+          type: number
+          title: Processing Ms
+          default: 0.0
+        confidence:
+          type: number
+          title: Confidence
+          default: 0.0
+        errors:
+          items:
+            type: string
+          type: array
+          title: Errors
+        warnings:
+          items:
+            type: string
+          type: array
+          title: Warnings
+      type: object
+      required:
+      - document_type
+      - status
+      title: FinancialResult
+      description: One financial document, normalised.
+    FinancialStatus:
+      type: string
+      enum:
+      - SUCCESS
+      - PARTIAL
+      - REQUIRES_OCR
+      - UNSUPPORTED
+      - FAILED
+      title: FinancialStatus
+    FosErrorInfo:
+      properties:
+        code:
+          type: string
+          title: Code
+        message:
+          type: string
+          title: Message
+      type: object
+      required:
+      - code
+      - message
+      title: FosErrorInfo
+    FosResponse:
+      properties:
+        request_id:
+          type: string
+          title: Request Id
+        applicant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Id
+        case_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Case Id
+        action:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Action
+          examples:
+          - GET_DOCUMENTS
+        intent:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Intent
+          examples:
+          - DOCUMENTS_UPLOADED
+        answer:
+          type: string
+          title: Answer
+          description: Prose for the officer to read.
+          default: ''
+        applicant:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Applicant
+        application:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Application
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+          examples:
+          - DOCUMENT_COLLECTION
+        documents:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Documents
+        checklist:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Checklist
+        required_documents:
+          items:
+            type: string
+          type: array
+          title: Required Documents
+          description: Mandatory slots for this product. Optional slots appear in
+            `checklist` with mandatory=false.
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Policy
+          description: 'Where the checklist came from. Present whenever `checklist`
+            is.
+
+
+            - `policy_id`, `policy_version`, `status` — the configured policy that
+            produced the requirements. A `status` of `UNCONFIRMED` means the thresholds
+            in that file are placeholders that no lender has signed off, and a UI
+            should say so rather than presenting them as policy.
+
+            - `applied_rules` — the rule ids that fired. Every checklist row names
+            its own in `rule_ids`.
+
+            - `unevaluated_rules` — rules that could NOT be decided because the case
+            has not captured what they key on (a loan amount, an employment type).
+            Their documents are **not** imposed; each entry names the missing attribute
+            and what the rule would have required, so the checklist is known to be
+            provisional rather than appearing final.
+
+            - `pinned_version` / `version_changed` — the policy version the case was
+            opened under. This service resolves against the current file; when it
+            differs from the pin, `version_changed` is true and `note` says so.'
+        pending_items:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Pending Items
+        query_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Query Type
+          description: What was ASKED FOR, as opposed to `category`, which says what
+            was CONSULTED. One of CASE_FACT, DOCUMENT_STATUS, POLICY_REQUIREMENT,
+            PROCESS_KNOWLEDGE, MIXED, ACTION_REQUEST, DOWNSTREAM, CLARIFICATION.
+          examples:
+          - POLICY_REQUIREMENT
+        case_state:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Case State
+          description: 'Compact header state: counts of required, satisfied, missing,
+            under-review and failed documents, and `collection_progress` over REQUIRED
+            slots. Counted from the same checklist this response carries. Null on
+            an answer that did not read the case.'
+        suggested_questions:
+          items:
+            type: string
+          type: array
+          title: Suggested Questions
+          description: Follow-ups THIS case can answer, most blocking first. Built
+            from what is outstanding, never from a model, and never a downstream question
+            the stage would refuse.
+        available_actions:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Available Actions
+          description: What can be done now. Each entry has `action`, `label` and
+            `enabled`, plus `disabled_reason` when it is off. Disabled rather than
+            hidden, so the panel keeps its shape and says why.
+        document_highlights:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Document Highlights
+          description: 'One card per document: `severity`, a one-line `headline` and
+            `primary_reason_code`. Reason codes are passed through from verification,
+            never rephrased.'
+        followed_up:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Followed Up
+          description: Set when a bare follow-up was expanded into a whole question.
+            Carries `original_message`, `interpreted_as` and `reason`, so a misreading
+            is visible instead of producing an answer that does not match the question.
+        context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Context
+          description: Echo this back as the request's `context` on the next question
+            so a follow-up can be resolved. This service holds no conversation state;
+            the caller carries it.
+        understanding:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Understanding
+          description: 'How the question was understood: the semantic frame (task,
+            object, qualifiers, referents, stage, language), what each referent resolved
+            to, which layer decided (FRAME / RULES / LLM) and whether the understanding
+            model was called.'
+        clarification_required:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Clarification Required
+          description: Set when the service declined to guess what was meant. Carries
+            a `question` and `options` the caller can pick from. A null here is a
+            claim that the request WAS understood.
+        verification:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Verification
+          description: 'Populated by GET_VERIFICATION_STATUS and UPLOAD_DOCUMENT.
+
+
+            On an upload it carries `documents_processed` — **one entry per file**,
+            with that file''s own class, verdict and reason codes — plus `total`,
+            `passed` and `not_passed`. A batch where one document failed reports the
+            failure beside the successes rather than collapsing to a single verdict.'
+        kyc:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Kyc
+          description: 'Cross-document consistency, as the KYC agent computed it over
+            the documents that cleared the verification gate: field-level `match_score`
+            and `confidence`, source attribution, and an overall score.
+
+
+            Consumed here, never re-derived — FOS has no KYC logic of its own. It
+            establishes that the documents describe the same person; it does NOT establish
+            that any of them is genuine, and it is not a credit, fraud or lending
+            decision.'
+        knowledge:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Knowledge
+          description: 'Present when an answer drew on the FOS knowledge base. `grounded`
+            says whether retrieval was confident enough to answer at all; `sources`
+            names the passages used.
+
+
+            Absent on a pure case answer — no knowledge was consulted, and citing
+            some would imply a source the facts did not have.'
+        summary:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Summary
+          description: 'One or two sentences describing where the case stands. Phrasing
+            only: every fact in it is computed before any model is called, and `response_source`
+            says whether a model wrote the words.'
+          examples:
+          - The application is at basic document verification with PAN verified and
+            the bank statement under review.
+        status:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Status
+          description: The stage and the application status, together.
+          examples:
+          - application_status: BASIC_DOCUMENT_VERIFICATION
+            stage: BASIC_DOCUMENT_VERIFICATION
+        processing_queue:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Processing Queue
+          description: Documents still being read in the background, with the state
+            of each. A document here is neither finished nor forgotten.
+          examples:
+          - - document_type: BANK_STATEMENT
+              status: QUEUED
+        grounded:
+          type: boolean
+          title: Grounded
+          description: Whether the answer rests on stored records. False for a clarification
+            or a refusal, which rest on nothing.
+          default: false
+        next_action:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Next Action
+        response_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Response Type
+          description: 'What kind of answer this is, for the UI to pick a renderer:
+            CONVERSATION, REFUSAL, CLARIFICATION, KNOWLEDGE_ANSWER, CASE_FACT, CASE_STATUS,
+            DOCUMENT_CHECKLIST, DOCUMENT_STATUS, DOCUMENT_VERIFICATION_SELECTION,
+            DOCUMENT_VERIFICATION_RESULT, KYC_RESULT, NEXT_ACTION, CASE_PORTFOLIO,
+            PENDING_WORK, ACTION_RESULT, UPLOAD_RESULT, UPLOAD_VALIDATION, ROUTED,
+            HANDOFF.'
+        subject:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Subject
+          description: 'Whose answer this is: {"party": PRIMARY_APPLICANT | CO_APPLICANT
+            | BOTH | null}.'
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+          description: The language the question was asked in (en, hi, hi-Latn, mr).
+        scope:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scope
+          description: 'What the answer is about: CASE (this application), APPLICANT
+            (the person''s recorded details), APPLICANT_CASES (every case the caller
+            may see), NONE (a chat reply, a handbook answer or a refusal).'
+        language_contract:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Language Contract
+          description: 'How the question was read: `language`, `script`, `input_mode`
+            (ENGLISH / NATIVE_SCRIPT / ROMANIZED / CODE_MIXED), `confidence`, `response_language`
+            (asked for), `reply_language` (what the prose is really in), `localized`,
+            `provider`. Never the user''s words.'
+        portfolio:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Portfolio
+          description: 'Every case of the applicant the caller may see: `count`, `blocked`,
+            `focus` (LATEST / PREVIOUS / ATTENTION) and one row per case -- status,
+            verification counts, KYC, blockers, next step. Unauthorized cases are
+            never counted.'
+        gate:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Gate
+          description: 'The current stage''s gate (app/config/stage_gates.yaml, criteria
+            UNCONFIRMED): `status` PASS / REVIEW / BLOCKED / NOT_READY / CONFIGURATION_GAP,
+            one `checks` entry per criterion with the recorded value, `reason_code`,
+            `evidence` and `next_action`, and `moved_to` when an authorized move was
+            made.'
+        pending_work:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Pending Work
+          description: 'What is left on the case: one item per document / slot / KYC
+            check with its `state` and `owner` (USER, SYSTEM, REVIEWER, PROCESSING,
+            COMPLETED), a `summary`, and -- after "do what''s pending" -- what was
+            `executed`, read back from the store.'
+        processing:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Processing
+          description: 'A verification run: documents verified now, reused from the
+            record, or still PROCESSING with their job ids -- poll GET_VERIFICATION_STATUS
+            for the rest.'
+        readiness:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Readiness
+          description: Whether the FOS stage is complete enough to hand to CPA. NOT
+            a credit, risk, KYC or lending decision.
+        actions:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Actions
+          description: Changes awaiting confirmation. Never already applied.
+        route_to:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Route To
+          description: Set when the question belongs downstream.
+          examples:
+          - CREDIT
+        category:
+          type: string
+          title: Category
+          description: What kind of question this was, and therefore what was consulted.
+            `CASE_ONLY` the store answered it. `KNOWLEDGE_ONLY` the FOS knowledge
+            base did, and no record was read. `MIXED` both. `DOWNSTREAM` neither —
+            it was routed. `UNSUPPORTED` it was not understood.
+          default: CASE_ONLY
+          examples:
+          - CASE_ONLY
+          - KNOWLEDGE_ONLY
+          - MIXED
+          - DOWNSTREAM
+        response_source:
+          type: string
+          title: Response Source
+          description: 'What the answer was actually built from. `STRUCTURED` computed
+            from stored records. `KNOWLEDGE` retrieved from the FOS knowledge base.
+            `MIXED` both. `LLM` a model phrased it — the FACTS still came from one
+            of the others. `ROUTED` no answer was produced. Differs from `category`
+            where retrieval was attempted and came back unconfident: the category
+            says what was consulted, this says what contributed.'
+          default: STRUCTURED
+          examples:
+          - STRUCTURED
+          - KNOWLEDGE
+          - MIXED
+          - LLM
+          - ROUTED
+        processing_ms:
+          type: number
+          title: Processing Ms
+          default: 0.0
+        errors:
+          items:
+            $ref: '#/components/schemas/FosErrorInfo'
+          type: array
+          title: Errors
+        semantic_decisions:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Semantic Decisions
+          description: 'JEV typed decisions on this case (the semantic decision layer):
+            `semantic_decisions[]` with decision_type, answer, confidence, confidence_band,
+            probabilities, severity, recommended_action, status; `semantic_actions[]`
+            with what code executed (EXECUTED / BLOCKED / DEFERRED / SKIPPED); `jev_status`
+            COMPLETED / CONFIGURATION_GAP / EXTERNAL_DEPENDENCY_REQUIRED / NOT_EVALUATED
+            / SCHEDULED. Never changes a KYC, eligibility, credit or risk status (`authoritative_statuses_changed`
+            is always false).'
+        presentation:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Presentation
+          description: 'THE CANONICAL RESPONSE CONTRACT -- present on every route
+            (typed question, dropdown read, upload) with the same shape. DERIVED from
+            the fields above; nothing in it is model-written, and it carries no internal
+            ids, reason codes, scores or provider names.
+
+
+            - `message` the prose answer minus list lines; `intent`; `status` one
+            of ACTION_REQUIRED / PROCESSING / REVIEW / OK / INFO; `next_step` (or
+            null); `case_context` {case_id, applicant_id, stage}
+
+            - `sections[]` {title, items[{icon, label, status}]} -- the lists in the
+            answer, structured
+
+            - `documents[]` {party, label, document_type, icon, status, state (VERIFIED
+            / REVIEW / REJECTED / PROCESSING), reason, action, action_required}; SUPERSEDED
+            documents are never listed
+
+            - `document_groups[]` {party, documents[]} -- grouped by applicant / co-applicant
+
+            - `actions[]` {label, action} (alias `next_actions`)
+
+            - `knowledge_sources[]` {title, source, type, version, effective_date}
+            (alias `citations`) -- provenance is here, never in the prose
+
+            - `semantic_decisions[]` {type, severity, subject, confidence, recommended_action,
+            source: JEV, acted_upon} -- ADVISORY; never changes a document, KYC, eligibility
+            or credit result
+
+            - `metadata` {request_id, language, response_source}'
+        observability:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Observability
+          description: 'Why this answer: the capability and intent selected, the model
+            consulted (if any), the tools called and latency by component. Codes,
+            counts and milliseconds only -- never a value.'
+      type: object
+      required:
+      - request_id
+      title: FosResponse
+      description: 'The single response contract.
+
+
+        Every field is always present. Ones an action does not populate come back
+
+        null or empty, so a frontend binds one model rather than branching on the
+
+        action it sent.'
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    IncomeConsistency:
+      properties:
+        status:
+          type: string
+          title: Status
+          description: PASS the stated and observed figures agree within the configured
+            tolerance. REVIEW they differ, or the evidence is too thin to compare.
+            SKIPPED one of the two documents is absent or carries no figure -- which
+            is NOT a failure.
+          examples:
+          - PASS
+          - REVIEW
+          - SKIPPED
+        reason_codes:
+          items:
+            type: string
+          type: array
+          title: Reason Codes
+          examples:
+          - - INCOME_CONSISTENT
+          - - INCOME_AMOUNT_MISMATCH
+        bank_statement:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Bank Statement
+          description: 'What the statement evidenced: the recurring credit type, the
+            estimated monthly amount, how many months were observed and how far the
+            evidence can be relied on. Never a salary figure -- a statement records
+            money arriving, not why.'
+        salary_slip:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Salary Slip
+          description: The figure the slip states, and which figure it is.
+        difference:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Difference
+          description: 'Stated minus observed, absolute, as a decimal string. Present
+            only when both figures were. A STRING, like every other money figure in
+            this response: a float would round it.'
+          examples:
+          - '1500.00'
+        tolerance:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Tolerance
+          description: The configured tolerance this comparison applied.
+      type: object
+      required:
+      - status
+      title: IncomeConsistency
+      description: 'Whether the income documents tell one story.
+
+
+        A SIGNAL, NOT A VERDICT ON THE APPLICANT. A salary slip states what
+
+        an employer says it paid; a bank statement shows what arrived. They
+
+        differ for ordinary reasons -- a mid-month joining, reimbursements
+
+        paid separately, a deduction at source, a revision between the two
+
+        months, a second account. So a difference is REVIEW, meaning a
+
+        person should look, and never FRAUD, FAKE or REJECT.
+
+
+        SEPARATE FROM IDENTITY KYC and unable to affect it. Nothing here
+
+        changes the NAME, DATE_OF_BIRTH, PAN, FATHER_NAME or ADDRESS
+
+        verdicts, the KYC score, the case decision or the next action.'
+    IncomeInput:
+      properties:
+        monthly_net_salary:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Monthly Net Salary
+        monthly_gross_salary:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Monthly Gross Salary
+        average_monthly_credit:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Average Monthly Credit
+        declared_annual_income:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Declared Annual Income
+      type: object
+      title: IncomeInput
+      description: 'Income signals, named exactly as the Financial Agent emits them.
+
+
+        This mirrors app.agents.financial.schemas.IncomeSignals so a caller can
+
+        forward that object through without reshaping it.'
+    IncomeSignals:
+      properties:
+        declared_annual_income:
+          anyOf:
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Declared Annual Income
+        monthly_net_salary:
+          anyOf:
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Monthly Net Salary
+        monthly_gross_salary:
+          anyOf:
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Monthly Gross Salary
+        average_monthly_credit:
+          anyOf:
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Average Monthly Credit
+        closing_balance:
+          anyOf:
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Closing Balance
+        total_credits:
+          anyOf:
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Total Credits
+        total_debits:
+          anyOf:
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Total Debits
+        months_covered:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Months Covered
+        source_document:
+          anyOf:
+          - $ref: '#/components/schemas/FinancialDocumentType'
+          - type: 'null'
+      type: object
+      title: IncomeSignals
+      description: 'The figures underwriting actually consumes.
+
+
+        Deliberately small. Every value here is copied from a document field, not
+
+        computed by a model, and each carries the document it came from so a
+
+        reviewer can trace it back.'
+    KycCheck:
+      type: string
+      enum:
+      - NAME
+      - DOB
+      - ADDRESS
+      - PAN
+      - FATHER_NAME
+      - INCOME
+      title: KycCheck
+    KycDocumentType:
+      type: string
+      enum:
+      - PAN
+      - DRIVING_LICENCE
+      - VOTER_ID
+      - PASSPORT
+      - SALARY_SLIP
+      - BANK_STATEMENT
+      - ITR
+      - APPLICATION
+      title: KycDocumentType
+      description: Sources KYC can cross-check. Mirrors the two upstream agents.
+    KycField:
+      type: string
+      enum:
+      - NAME
+      - DATE_OF_BIRTH
+      - PAN_NUMBER
+      - FATHER_NAME
+      - ADDRESS
+      - INCOME
+      title: KycField
+      description: 'The field names the FOS-facing result publishes.
+
+
+        Deliberately NOT the same identifiers as KycCheck. The internal check
+
+        names are this service''s vocabulary and predate the FOS surface; renaming
+
+        them would break every existing caller of `cross_document.checks`. These
+
+        are what an operator reads on screen, mapped at the boundary.'
+    KycFieldResult:
+      properties:
+        field:
+          type: string
+          title: Field
+          examples:
+          - NAME
+          - DATE_OF_BIRTH
+          - PAN_NUMBER
+          - FATHER_NAME
+          - ADDRESS
+        party_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Party Id
+          description: Whose row this is. Present **only** on the case-level `kyc`
+            of a two-party case, where both parties contribute a NAME row and a reviewer
+            must be able to tell them apart. Absent on a single-applicant response
+            and inside a party's own `kyc`, where it would say nothing.
+          examples:
+          - APP-1
+          - COAPP-7F2A11C4D9E0
+        status:
+          type: string
+          title: Status
+          description: PASS the values agree. PARTIAL they overlap materially but
+            are not identical. REVIEW the comparison was inconclusive. FAIL they plainly
+            differ. SKIPPED nothing was compared -- which is NOT a failure and never
+            becomes one.
+          examples:
+          - PASS
+          - PARTIAL
+          - REVIEW
+          - FAIL
+          - SKIPPED
+        match_score:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Match Score
+          description: How closely the available values match EACH OTHER. 0 on a SKIPPED
+            field means nothing was compared, not that nothing matched.
+          default: 0
+        confidence:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Confidence
+          description: How far this result can be relied on -- a DIFFERENT question
+            from match_score, and never a copy of it. Built from the comparison method
+            used, how many documents were compared, how complete the field was across
+            them, the extraction quality reported upstream, and how near the score
+            sits to a decision threshold. Two poorly-read fields that agree exactly
+            score 100 for match and well under it for confidence. Two cleanly-read
+            fields that plainly differ score 0 for match and HIGH for confidence --
+            the disagreement is real and a reviewer should act on it.
+          default: 0
+        reason_code:
+          type: string
+          title: Reason Code
+          default: ''
+          examples:
+          - EXACT_MATCH
+          - PARTIAL_ADDRESS_MATCH
+          - NAME_MISMATCH
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+          description: 'Deterministic. Never model-generated.
+
+
+            **Absent whenever `reason_code` is present**, which is almost always:
+            `NAME_MISMATCH` beside "Name differs across PAN and Driving Licence."
+            is the same fact twice, and the sentence was the largest thing in a party''s
+            KYC after the sources. Present only on the rare row that reached a verdict
+            without a code, where the sentence is the only explanation there is.'
+          examples:
+          - Name matches across PAN and Driving Licence.
+        sources:
+          items:
+            $ref: '#/components/schemas/KycFieldSource'
+          type: array
+          title: Sources
+      type: object
+      required:
+      - field
+      - status
+      title: KycFieldResult
+      description: 'One comparable identity field, resolved across the uploaded documents.
+
+
+        The operational view. The pairwise comparison matrix behind it stays
+
+        internal: it grows with the square of the document count and nobody acts
+
+        on it.'
+    KycFieldSource:
+      properties:
+        source_id:
+          type: string
+          title: Source Id
+          description: The filename as uploaded.
+        document_type:
+          type: string
+          title: Document Type
+          examples:
+          - PAN
+          - DRIVING_LICENCE
+        value:
+          anyOf:
+          - type: string
+          - additionalProperties:
+              type: string
+            type: object
+          - type: number
+          - type: integer
+          - type: 'null'
+          title: Value
+          description: 'What this document carried, as extraction released it. Already
+            published under documents[].extraction -- never OCR text, tokens or boxes.
+
+
+            An ADDRESS arrives as components (`pincode`, `state`, `city`, and the
+            free-text parts where they are short enough to be real ones), because
+            the printed line on a card is read as one region and its unplaced remainder
+            is recogniser output, not a value. Omitted entirely when nothing usable
+            could be identified.'
+        normalized_value:
+          anyOf:
+          - type: string
+          - additionalProperties:
+              type: string
+            type: object
+          - type: number
+          - type: integer
+          - type: 'null'
+          title: Normalized Value
+          description: 'What was actually compared. Published beside `value` so a
+            near-miss can be read correctly: the difference is either in the documents
+            or in the normalisation, and only showing both says which.
+
+
+            **Absent when normalisation changed nothing** — on most rows it did, and
+            repeating the value said the same thing twice. Also absent on an ADDRESS,
+            where the canonical components in `value` are themselves the normalised
+            form.'
+      type: object
+      required:
+      - source_id
+      - document_type
+      title: KycFieldSource
+      description: One document's contribution to a KYC field comparison.
+    KycOutcome:
+      properties:
+        title:
+          type: string
+          title: Title
+          examples:
+          - Identity verification requires review
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Message
+          description: Present only where the reason code carries enough to say something
+            true. A code with no entry produces no sentence rather than a plausible
+            one.
+        action:
+          type: string
+          title: Action
+          description: What a human does next. Never an approval.
+          examples:
+          - Manual review required
+          - No action required
+      type: object
+      required:
+      - title
+      - action
+      title: KycOutcome
+      description: 'The verdict as a sentence, selected deterministically by reason
+        code.
+
+
+        NAMED `KycOutcome`, NOT `KycResult`. The KYC agent already publishes a
+
+        `KycResult` of its own, and two models with one name make FastAPI
+
+        disambiguate BOTH into `app__agents__kyc__schemas__KycResult` --
+
+        renaming an existing public schema as a side effect of adding a new
+
+        one.'
+    KycRequest:
+      properties:
+        applicant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Id
+        documents:
+          items:
+            $ref: '#/components/schemas/SourceDocument'
+          type: array
+          minItems: 1
+          title: Documents
+      additionalProperties: false
+      type: object
+      required:
+      - documents
+      title: KycRequest
+      description: A set of documents believed to belong to one applicant.
+    KycResult:
+      properties:
+        request_id:
+          type: string
+          title: Request Id
+          default: ''
+        applicant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Id
+        status:
+          $ref: '#/components/schemas/CheckStatus'
+        reason_codes:
+          items:
+            $ref: '#/components/schemas/ReasonCode'
+          type: array
+          title: Reason Codes
+        checks:
+          items:
+            $ref: '#/components/schemas/CheckResult'
+          type: array
+          title: Checks
+        fields:
+          items:
+            $ref: '#/components/schemas/FieldResult'
+          type: array
+          title: Fields
+        overall_score:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Overall Score
+          description: Weighted mean of the field match_scores, over the fields that
+            were actually compared. Weights come from kyc_policies.yaml. Skipped fields
+            are excluded and the remaining weights are renormalised, so an absent
+            field neither helps nor hurts.
+          default: 0
+        overall_confidence:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Overall Confidence
+          description: Weighted mean of the field confidences, same basis.
+          default: 0
+        sources_received:
+          type: integer
+          title: Sources Received
+          default: 0
+        policy_version:
+          type: string
+          title: Policy Version
+          default: ''
+        processing_ms:
+          type: number
+          title: Processing Ms
+          default: 0.0
+        authenticity_checked:
+          type: boolean
+          title: Authenticity Checked
+          default: false
+        state:
+          type: string
+          title: State
+          default: REVIEW
+        reason:
+          type: string
+          title: Reason
+          default: ''
+        affected_documents:
+          items:
+            type: string
+          type: array
+          title: Affected Documents
+        mismatched_fields:
+          items:
+            type: string
+          type: array
+          title: Mismatched Fields
+        next_action:
+          type: string
+          title: Next Action
+          default: ''
+        passed_checks:
+          items:
+            type: string
+          type: array
+          title: Passed Checks
+        failed_checks:
+          items:
+            type: string
+          type: array
+          title: Failed Checks
+        missing_information:
+          items:
+            type: string
+          type: array
+          title: Missing Information
+        next_actions:
+          items:
+            additionalProperties:
+              type: string
+            type: object
+          type: array
+          title: Next Actions
+      type: object
+      required:
+      - status
+      title: KycResult
+      description: The overall verdict, and everything it was built from.
+    KycScore:
+      properties:
+        value:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Value
+          description: Exactly `overall_score`.
+        type:
+          type: string
+          title: Type
+          description: What the score measured. A single-field score names that field;
+            a score over several fields is `KYC_CONSISTENCY`. Never an accuracy figure
+            -- nothing in this pipeline measures how often the extractor is right.
+          examples:
+          - NAME_MATCH
+          - ADDRESS_MATCH
+          - KYC_CONSISTENCY
+        label:
+          type: string
+          title: Label
+          examples:
+          - Name Match Score
+        interpretation:
+          type: string
+          title: Interpretation
+          description: 'The score in words. EXPLANATORY ONLY -- it draws no PASS/FAIL
+            boundary. Those thresholds live in kyc_policies.yaml, so a band and a
+            verdict may legitimately differ: a non-blocking check can FAIL and still
+            leave the case at REVIEW.'
+          examples:
+          - Exact match
+          - Low similarity
+        confidence:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Confidence
+          description: Exactly `overall_confidence`.
+      type: object
+      required:
+      - value
+      - type
+      - label
+      - interpretation
+      - confidence
+      title: KycScore
+      description: 'What `overall_score` actually measured.
+
+
+        THE NUMBER ALONE IS AMBIGUOUS. `overall_score` is a weighted mean over
+
+        the fields that could be compared, so on a bundle where only the name
+
+        was comparable it IS the name-match score -- and a reviewer reading
+
+        "38" with no label reasonably takes it for an accuracy figure. This
+
+        names the basis instead of leaving it to be inferred.
+
+
+        Nothing here is a new calculation: `value` and `confidence` are the
+
+        existing `overall_score` and `overall_confidence`.'
+    KycSummary:
+      properties:
+        status:
+          type: string
+          title: Status
+          examples:
+          - PASS
+          - REVIEW
+          - FAIL
+          - SKIPPED
+        reason_codes:
+          items:
+            type: string
+          type: array
+          title: Reason Codes
+        overall_score:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Overall Score
+          description: Weighted mean of the field match scores, over the fields that
+            were actually compared. Weights are in kyc_policies.yaml. A skipped field
+            is excluded and the rest renormalised, so an absent field neither helps
+            nor hurts. NOT a risk score.
+          default: 0
+        overall_confidence:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Overall Confidence
+          description: Weighted mean of the field confidences, same basis.
+          default: 0
+        overall_score_basis:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Overall Score Basis
+          description: 'What `overall_score` measured, for a client reading only that
+            number.
+
+
+            **Party-qualified on a joint case.** At case level `overall_score` is
+            the MINIMUM of the parties'' scores, not a mean across them, and a minimum
+            belongs to one person -- so `CO_APPLICANT_NAME_MATCH` rather than a bare
+            `NAME_MATCH`, which would read as a figure describing the whole case.'
+          examples:
+          - NAME_MATCH
+          - CO_APPLICANT_NAME_MATCH
+          - KYC_CONSISTENCY
+        score:
+          anyOf:
+          - $ref: '#/components/schemas/KycScore'
+          - type: 'null'
+          description: '`overall_score`, with what it measured. Absent when no field
+            was comparable -- `roll_up` returns 0 there, and that 0 does not mean
+            the documents disagreed.'
+        verification_summary:
+          anyOf:
+          - $ref: '#/components/schemas/KycVerificationSummary'
+          - type: 'null'
+          description: Counts over the checks, from the checks.
+        state:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: State
+          description: 'What `status` MEANS for the case. PASS: the documents describe
+            the same person. PARTIAL: what was compared agrees, but a blocking check
+            could not run. REVIEW: details differ and a person should confirm. FAIL:
+            the documents describe different people. PENDING: only one source so far
+            -- waiting for another document, not a problem. CONFIGURATION_GAP: KYC
+            is switched off or not configured. `status` stays the gate.'
+          examples:
+          - PASS
+          - PARTIAL
+          - REVIEW
+          - FAIL
+          - PENDING
+          - CONFIGURATION_GAP
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+          description: Why, in words. Field names only, never values.
+        affected_documents:
+          items:
+            type: string
+          type: array
+          title: Affected Documents
+          description: Document types the outcome rests on.
+        mismatched_fields:
+          items:
+            type: string
+          type: array
+          title: Mismatched Fields
+          description: Fields that did not match.
+        next_action:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Action
+          description: The next step, in words.
+        passed_checks:
+          items:
+            type: string
+          type: array
+          title: Passed Checks
+          description: Checks that passed (NAME, DOB, ...).
+        failed_checks:
+          items:
+            type: string
+          type: array
+          title: Failed Checks
+          description: Checks in REVIEW or FAIL.
+        missing_information:
+          items:
+            type: string
+          type: array
+          title: Missing Information
+          description: 'Checks that could not run: a document did not carry the value.'
+        next_actions:
+          items:
+            additionalProperties:
+              type: string
+            type: object
+          type: array
+          title: Next Actions
+          description: 'Coded next steps: {code, label}. Empty on PASS.'
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/KycOutcome'
+          - type: 'null'
+          description: The verdict in words.
+        issues:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PartyIssue'
+            type: array
+          - type: 'null'
+          title: Issues
+          description: 'The reason codes as a reader acts on them, one object per
+            code. ADDED BESIDE `reason_codes`, never instead of it: the codes are
+            published, documented and read by existing consumers, and dropping them
+            to tidy the shape would break them. Present inside a party''s section.'
+        fields:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/KycFieldResult'
+            type: array
+          - type: 'null'
+          title: Fields
+          description: 'One row per comparable identity field.
+
+
+            **Absent from the case-level `kyc` on a two-party case**, where every
+            row is already published under the party it belongs to and a second copy
+            could not say whose was whose. Present on a single-applicant case, and
+            always present inside a party''s own `kyc`.'
+      type: object
+      required:
+      - status
+      title: KycSummary
+      description: 'The KYC verdict.
+
+
+        Establishes that the documents describe the same person consistently. It
+
+        does NOT establish that any of them is genuine, and it is NOT a credit,
+
+        risk or fraud score.'
+    KycVerificationSummary:
+      properties:
+        checks_evaluated:
+          type: integer
+          title: Checks Evaluated
+          description: Checks that were not skipped.
+        checks_passed:
+          type: integer
+          title: Checks Passed
+          default: 0
+        checks_failed:
+          type: integer
+          title: Checks Failed
+          default: 0
+        checks_review:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Checks Review
+          description: Checks that reached REVIEW. Present only when there are any,
+            so that passed + failed + review + skipped always equals the total --
+            a summary whose numbers do not add up invites the reader to assume the
+            rest failed.
+        checks_skipped:
+          type: integer
+          title: Checks Skipped
+          default: 0
+        primary_applicant:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Primary Applicant
+          description: This party's own counts. Present only on a case with a co-applicant
+            -- "four of five checks passed" across two people describes neither of
+            them. The case-wide counts above are unchanged and stay beside these.
+        co_applicant:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Co Applicant
+          description: The co-applicant's own counts.
+        primary_issue:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Primary Issue
+          description: The reason code a reviewer should read first.
+          examples:
+          - NAME_MISMATCH
+      type: object
+      required:
+      - checks_evaluated
+      title: KycVerificationSummary
+      description: How many checks ran, and how they came out.
+    LoginRequest:
+      properties:
+        username:
+          type: string
+          title: Username
+          examples:
+          - local-dev-user
+        password:
+          type: string
+          title: Password
+          examples:
+          - <your local dev password>
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+        case_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Case Id
+          description: Optional Case ID to load on login
+        app_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: App Id
+          description: Optional Applicant ID to load on login
+      type: object
+      required:
+      - username
+      - password
+      title: LoginRequest
+    LogoutRequest:
+      properties:
+        refresh_token:
+          type: string
+          title: Refresh Token
+      type: object
+      required:
+      - refresh_token
+      title: LogoutRequest
+    LosProcessResponse:
+      properties:
+        request_id:
+          type: string
+          title: Request Id
+          examples:
+          - los_8604ee9d1f2b4c0a9e7d3f1a2b3c4d5e
+        applicant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Id
+        co_applicant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Co Applicant Id
+          description: The second party on this case. **Absent entirely** on a single-applicant
+            case — a null here would read as 'there is a co-applicant and we do not
+            know who'. Both parties share the one `case_id`; each document says which
+            of them it belongs to in `documents[].party_id`.
+          examples:
+          - COAPP-7F2A11C4D9E0
+        case_id:
+          type: string
+          title: Case Id
+          description: Generated when none is supplied. One applicant may hold several.
+        status:
+          type: string
+          title: Status
+          description: Worst-wins across every document and the KYC result.
+          examples:
+          - SUCCESS
+          - PARTIAL
+          - REVIEW
+          - REJECTED
+          - FAILED
+        documents:
+          items:
+            $ref: '#/components/schemas/ProcessedDocument'
+          type: array
+          title: Documents
+        kyc:
+          $ref: '#/components/schemas/KycSummary'
+        cross_document:
+          $ref: '#/components/schemas/CrossDocument'
+        income_consistency:
+          anyOf:
+          - $ref: '#/components/schemas/IncomeConsistency'
+          - type: 'null'
+          description: Whether the salary slip and the bank statement agree about
+            income. Absent when the caller's stage did not run the comparison -- a
+            FOS upload verifies documents and has no authority to say anything about
+            income.
+        eligibility:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Eligibility
+          description: 'Whether the affordability policy is satisfied on the evidence
+            available: status, reason codes, and the figures behind them (income used
+            and its source, obligations and their source, proposed EMI, FOIR, threshold).
+
+
+            **NOT A LENDING DECISION.** A PASS says the affordability policy is satisfied;
+            approving a loan weighs risk, RCU and a human. `decision` is computed
+            without reading this. Absent when the caller''s stage did not run it.'
+        risk:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Risk
+          description: Risk signals from the deterministic risk engine. The FOIR rule
+            BANDS the percentage `eligibility` published and does not compute a second
+            one. `decision` is computed without reading this. Absent when the caller's
+            stage did not run it.
+        decision:
+          type: string
+          title: Decision
+          description: 'The deterministic outcome. NOT a credit decision and not an
+            underwriting verdict: it restates the roll-up under a name a client can
+            read. PASS requires that something was actually verified.'
+          examples:
+          - PASS
+          - REVIEW
+          - REJECT
+        next_action:
+          type: string
+          title: Next Action
+          description: 'What should happen to this application next, derived from
+            results that are already final. `REQUEST_CORRECT_DOCUMENT` means the wrong
+            file was sent and `REQUEST_VALID_DOCUMENT` that the right one could not
+            be read -- the applicant has to do different things about those two.
+
+
+            Case-level and authoritative: there is no party-level `next_action`, because
+            one beside a case-level `MANUAL_REVIEW` would read as permission to proceed.'
+          examples:
+          - CONTINUE
+          - MANUAL_REVIEW
+          - REQUEST_VALID_DOCUMENT
+          - REQUEST_CORRECT_DOCUMENT
+        summary:
+          type: string
+          title: Summary
+          description: One sentence. Never decides anything.
+        summary_source:
+          type: string
+          title: Summary Source
+          description: Who wrote the summary sentence. Published because a client
+            showing it to a human needs to know whether a model produced it; every
+            decision above was already final when it was written.
+          examples:
+          - deterministic
+          - llm
+        processing_ms:
+          type: number
+          title: Processing Ms
+          description: How long the call took. Stage timings stay internal.
+        profile_match:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PartyProfileMatch'
+            type: array
+          - type: 'null'
+          title: Profile Match
+          description: One entry per party whose profile was supplied or held on file.
+            **Absent entirely** when no profile was available to match -- this block
+            is additional evidence and never changes a verdict above.
+        overall:
+          anyOf:
+          - $ref: '#/components/schemas/ApplicationOverview'
+          - type: 'null'
+          description: 'The application in one object. Additive: every value in it
+            is also published at top level or inside a party section, so an existing
+            caller is unaffected.'
+        primary_applicant:
+          anyOf:
+          - $ref: '#/components/schemas/PartySection'
+          - type: 'null'
+          description: The primary applicant's documents, profile match and verification
+            counts, grouped. The same results as the top-level fields, not a second
+            computation.
+        co_applicant:
+          anyOf:
+          - $ref: '#/components/schemas/PartySection'
+          - type: 'null'
+          description: '**Absent entirely** on a single-applicant case. Present only
+            when the request supplied a second party.'
+        errors:
+          items:
+            $ref: '#/components/schemas/DocumentError'
+          type: array
+          title: Errors
+      type: object
+      required:
+      - request_id
+      - case_id
+      - status
+      - documents
+      - kyc
+      - cross_document
+      - decision
+      - next_action
+      - summary
+      - summary_source
+      - processing_ms
+      title: LosProcessResponse
+      description: One applicant's documents, processed end to end.
+    PairComparison:
+      properties:
+        left_source_id:
+          type: string
+          title: Left Source Id
+        right_source_id:
+          type: string
+          title: Right Source Id
+        left_value:
+          title: Left Value
+        right_value:
+          title: Right Value
+        agreed:
+          type: boolean
+          title: Agreed
+        score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Score
+        detail:
+          type: string
+          title: Detail
+          default: ''
+      type: object
+      required:
+      - left_source_id
+      - right_source_id
+      - agreed
+      title: PairComparison
+      description: One document compared against one other, and what came of it.
+    PartyIssue:
+      properties:
+        code:
+          type: string
+          title: Code
+          examples:
+          - NAME_MISMATCH
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Message
+          description: The code in words. Absent for a code with no entry in the lookup
+            -- a sentence guessed from a code that does not carry the fact would be
+            a fabrication with a citation.
+        source_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Id
+          description: The document this came from, where it was one.
+        party:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Party
+          description: Whose issue this is. Present in the application-level `overall.issues`,
+            where both parties' issues share one list; absent inside a party's own
+            section, where it would repeat the section's own identity.
+          examples:
+          - CO_APPLICANT
+      type: object
+      required:
+      - code
+      title: PartyIssue
+      description: One thing wrong, as a reader acts on it.
+    PartyProfileMatch:
+      properties:
+        party_id:
+          type: string
+          title: Party Id
+          examples:
+          - APP-1
+        party_role:
+          type: string
+          title: Party Role
+          examples:
+          - PRIMARY_APPLICANT
+          - CO_APPLICANT
+        score:
+          type: integer
+          title: Score
+          description: 0-100 over the fields ACTUALLY COMPARED. A field nobody could
+            compare contributes nothing, so a gap never reads as a disagreement --
+            read it beside fields_compared.
+          examples:
+          - 100
+        confidence:
+          type: integer
+          title: Confidence
+          examples:
+          - 94
+        fields_expected:
+          type: integer
+          title: Fields Expected
+          description: Declared for this party.
+          examples:
+          - 3
+        fields_extracted:
+          type: integer
+          title: Fields Extracted
+          description: Released by this party's documents.
+          examples:
+          - 2
+        fields_compared:
+          type: integer
+          title: Fields Compared
+          description: Present on both sides, so actually checked.
+          examples:
+          - 2
+        fields:
+          items:
+            $ref: '#/components/schemas/ProfileFieldMatch'
+          type: array
+          title: Fields
+      type: object
+      required:
+      - party_id
+      - party_role
+      - score
+      - confidence
+      - fields_expected
+      - fields_extracted
+      - fields_compared
+      title: PartyProfileMatch
+      description: 'One party''s declared profile against that party''s own documents.
+
+
+        SEPARATE FROM KYC, AND SEPARATE PER PARTY. KYC asks whether the
+
+        documents agree with each other; this asks whether they describe the
+
+        person the application declared. The primary applicant''s profile is
+
+        only ever compared with the primary applicant''s documents.
+
+
+        IT DECIDES NOTHING. Every verdict, reason code and score elsewhere in
+
+        this response is what verification found, with or without this block.'
+    PartySection:
+      properties:
+        party_id:
+          type: string
+          title: Party Id
+          examples:
+          - APP-1
+        role:
+          type: string
+          title: Role
+          examples:
+          - PRIMARY_APPLICANT
+          - CO_APPLICANT
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+          description: '**This party''s document and KYC state only** -- the same
+            worst-wins roll-up the case uses, over this party''s own documents and
+            their own KYC.
+
+
+            It is NOT a decision and there is deliberately no party-level `next_action`:
+            a party-level CONTINUE beside a case-level MANUAL_REVIEW would read as
+            permission to proceed. There is ONE decision on a loan, and `decision`
+            and `next_action` stay at the top level where they are true.
+
+
+            A party who has been declared but has uploaded nothing reports REVIEW,
+            never SUCCESS -- nothing is known about them yet.'
+          examples:
+          - SUCCESS
+          - PARTIAL
+          - REVIEW
+          - REJECTED
+          - FAILED
+        document_ids:
+          items:
+            type: string
+          type: array
+          title: Document Ids
+          description: 'This party''s documents, by `source_id` -- the filename as
+            uploaded.
+
+
+            **References, not copies.** The full objects are published once in the
+            top-level `documents[]`, each already carrying its own `party_id`; repeating
+            them here put every document in the response twice. Join on `source_id`
+            within a party, or filter `documents[]` by `party_id` directly.'
+          examples:
+          - - pan.jpg
+            - dl.jpg
+        verification_summary:
+          $ref: '#/components/schemas/PartyVerificationSummary'
+        verification:
+          anyOf:
+          - $ref: '#/components/schemas/PartyVerification'
+          - type: 'null'
+          description: This party's verification outcome. **Null** when they sent
+            nothing -- absent input is not a verdict.
+        profile_match:
+          anyOf:
+          - $ref: '#/components/schemas/PartyProfileMatch'
+          - type: 'null'
+          description: '**Absent** when this party had no declared or stored profile
+            to match -- an empty object would read as ''we matched and found nothing'',
+            which is a much stronger claim.'
+        kyc:
+          anyOf:
+          - $ref: '#/components/schemas/KycSummary'
+          - type: 'null'
+          description: '**This party''s own** cross-document KYC: do THEIR documents
+            describe one person? Never compared against the other party''s documents
+            -- two people disagreeing is what a joint application IS, not evidence
+            against it. Absent when this party released nothing to cross-check.'
+      type: object
+      required:
+      - party_id
+      - role
+      - verification_summary
+      title: PartySection
+      description: 'One party''s slice of the response: whose, what they sent, how
+        it went.
+
+
+        A REGROUPING, NOT A SECOND RESULT. `document_ids` names this
+
+        party''s entries in the top-level `documents[]`, split by the
+
+        `party_id` stamped on each one -- never by filename or document
+
+        type, because both parties routinely upload `pan.jpg` and both
+
+        routinely send a PAN.
+
+
+        `primary_applicant` is always present. `co_applicant` appears only
+
+        when the case actually has a second party.'
+    PartyVerification:
+      properties:
+        status:
+          type: string
+          title: Status
+          examples:
+          - PASS
+          - REVIEW
+          - FAIL
+        issues:
+          items:
+            $ref: '#/components/schemas/PartyIssue'
+          type: array
+          title: Issues
+      type: object
+      required:
+      - status
+      title: PartyVerification
+      description: 'How one party''s documents came out.
+
+
+        The same verdicts `verification_summary` counts, read as a status
+
+        and its reasons. **Null when the party sent nothing** -- not an
+
+        object reading SKIPPED, which would claim verification looked.'
+    PartyVerificationSummary:
+      properties:
+        total_documents:
+          type: integer
+          title: Total Documents
+          examples:
+          - 3
+        passed:
+          type: integer
+          title: Passed
+          examples:
+          - 2
+        review:
+          type: integer
+          title: Review
+          examples:
+          - 1
+        failed:
+          type: integer
+          title: Failed
+          description: 'FAILED and REJECTED together: one means the file could not
+            be processed and the other that it was processed and refused, and triage
+            treats both the same. The distinction survives on each document''s own
+            `verification`.'
+          examples:
+          - 0
+        skipped:
+          type: integer
+          title: Skipped
+          examples:
+          - 0
+      type: object
+      required:
+      - total_documents
+      - passed
+      - review
+      - failed
+      - skipped
+      title: PartyVerificationSummary
+      description: 'How one party''s documents came out, counted.
+
+
+        DERIVED, NEVER DECIDED. Every number is a tally of verdicts
+
+        verification already reached; nothing here can change an outcome. The
+
+        four buckets always sum to `total_documents`.'
+    ProcessedDocument:
+      properties:
+        source_id:
+          type: string
+          title: Source Id
+          description: The filename as uploaded.
+        party_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Party Id
+          description: Which person on the case this document belongs to. Present
+            whenever parties were supplied. Two people on one case may upload files
+            with the same name — this is what tells them apart, and a frontend should
+            group documents by it rather than by filename or upload order.
+          examples:
+          - APP-3D51FFAC6342
+        party_role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Party Role
+          description: '`PRIMARY_APPLICANT` or `CO_APPLICANT`.'
+          examples:
+          - PRIMARY_APPLICANT
+        type:
+          type: string
+          title: Type
+          description: The type this service identified. UNKNOWN when it could not.
+          examples:
+          - PAN
+          - DRIVING_LICENCE
+          - ITR
+          - BANK_STATEMENT
+        status:
+          type: string
+          title: Status
+          description: This document's roll-up.
+          examples:
+          - SUCCESS
+          - REVIEW
+          - SKIPPED
+          - FAILED
+        verification:
+          type: string
+          title: Verification
+          description: The verification verdict. SKIPPED is NOT a pass -- a check
+            that did not run has established nothing, and extraction is withheld.
+          examples:
+          - PASS
+          - REVIEW
+          - FAIL
+          - SKIPPED
+        extraction:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Extraction
+          description: 'The extracted fields, released ONLY behind a verification
+            PASS and only while extraction is enabled. Absent otherwise. The keys
+            depend on the document type.
+
+
+            Values are JSON-native: money is a **number**, never a stringified `Decimal`.
+            An `address` is an **object** of components rather than the printed line,
+            and is omitted when no component could be identified -- a field whose
+            value would be the recogniser''s read of a region is not a field worth
+            publishing.'
+          examples:
+          - date_of_birth: '1988-04-12'
+            name: SUNIL KUMAR VERMA
+            pan_number: ABCPV1234K
+        reason_codes:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Reason Codes
+          description: Why this verdict. Absent when there is nothing to say.
+        verification_score:
+          anyOf:
+          - type: integer
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Verification Score
+          description: 'How much of what should have been established about this document
+            was. NOT a risk or credit score: it describes the document and the checking
+            of it, and no figure on a bank statement moves it.'
+          examples:
+          - 91
+        verification_confidence:
+          anyOf:
+          - type: integer
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Verification Confidence
+          description: How far `verification_score` can be relied on -- the share
+            of checks that reached a conclusion either way. A document that plainly
+            fails every check scores 0 with HIGH confidence. One whose checks could
+            not run scores 0 with LOW confidence. Those are very different situations
+            and one number cannot say both.
+          examples:
+          - 94
+        reasons:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Reasons
+          description: Plain-language explanation for a REVIEW or FAIL, one per reason
+            code. Absent on a pass.
+          examples:
+          - - This bank statement needs review because its transaction integrity could
+              not be established confidently.
+        has_extracted_fields:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Has Extracted Fields
+          description: Whether the verification gate released any fields.
+        authenticity:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authenticity
+          description: 'Present on identity documents. Always NOT_ESTABLISHED: this
+            service has no issuer API, government lookup or issuer signature to check
+            against, so a PASS means the document is structurally valid and internally
+            consistent -- never that it was issued by the authority it names.'
+          examples:
+          - NOT_ESTABLISHED
+        verification_scope:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Verification Scope
+          description: 'What the verdict rests on -- document integrity checks such
+            as format, field consistency or balance reconciliation. Never issuance:
+            see `issuer_verified`.'
+          examples:
+          - DOCUMENT_STRUCTURE_AND_FIELD_CONSISTENCY
+          - DOCUMENT_STRUCTURE_AND_BALANCE_RECONCILIATION
+        issuer_verified:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Issuer Verified
+          description: Whether the issuing authority (government, bank, employer),
+            through a trusted provider, confirmed the document. True ONLY on a real
+            provider confirmation -- never for OCR confidence, a valid format, an
+            MRZ checksum or a clean-looking file.
+          examples:
+          - false
+        issuer_verification:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Issuer Verification
+          description: 'The issuer''s answer: status (ISSUER_CONFIRMED, ISSUER_MISMATCH
+            or NOT_ESTABLISHED), provider, reference_id, consent_id, verified_at,
+            verified_fields, mismatched_fields, reason_codes. Field NAMES only, never
+            values.'
+        fraud_signals:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Fraud Signals
+          description: 'Image/PDF forensic signals (code, severity, detail). Signals
+            only: they can flag or hold a document, never establish that it is genuine.'
+        advisories:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Advisories
+          description: Findings a reviewer should see that are NOT grounds to refuse
+            the document, and did not change the verdict. Deliberately separate from
+            `reason_codes`, where a code reads as a problem with the document.
+          examples:
+          - - PAN_NAME_INITIAL_MISMATCH
+        specialist:
+          anyOf:
+          - $ref: '#/components/schemas/SpecialistVerdict'
+          - type: 'null'
+          description: Present only for a specialist-handled document.
+        expected_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expected Type
+          description: 'The type the caller asserted for this file through expected_types,
+            echoed back. Present whenever they asserted one; absent for AUTO. Read
+            it beside `type`: where the two differ the document carries DOCUMENT_TYPE_MISMATCH,
+            failed verification and released no fields.'
+          examples:
+          - PAN
+        hint:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Hint
+          description: The type the CALLER asserted, echoed when classification was
+            switched off. Never a type this service found.
+        evidence_refs:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/EvidenceRef'
+            type: array
+          - type: 'null'
+          title: Evidence Refs
+        errors:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/DocumentError'
+            type: array
+          - type: 'null'
+          title: Errors
+      type: object
+      required:
+      - source_id
+      - type
+      - status
+      - verification
+      title: ProcessedDocument
+      description: One uploaded document, as the client sees it.
+    ProcessingSummary:
+      properties:
+        documents_received:
+          type: integer
+          title: Documents Received
+        documents_processed:
+          type: integer
+          title: Documents Processed
+          description: 'Equal to `documents_received` by construction: every upload
+            produces a result row, including one that failed, so nothing received
+            can go unprocessed. Both are published so a reader can see that rather
+            than trust it.'
+      type: object
+      required:
+      - documents_received
+      - documents_processed
+      title: ProcessingSummary
+      description: What was handled, and how long it took.
+    ProcessingTimes:
+      properties:
+        ocr_ms:
+          type: number
+          title: Ocr Ms
+          default: 0.0
+        classification_ms:
+          type: number
+          title: Classification Ms
+          default: 0.0
+        extraction_ms:
+          type: number
+          title: Extraction Ms
+          default: 0.0
+        normalization_ms:
+          type: number
+          title: Normalization Ms
+          default: 0.0
+        validation_ms:
+          type: number
+          title: Validation Ms
+          default: 0.0
+        name_spacing_ms:
+          type: number
+          title: Name Spacing Ms
+          default: 0.0
+        name_spacing_calls:
+          type: integer
+          title: Name Spacing Calls
+          default: 0
+        total_ms:
+          type: number
+          title: Total Ms
+          default: 0.0
+        source_width:
+          type: integer
+          title: Source Width
+          default: 0
+        source_height:
+          type: integer
+          title: Source Height
+          default: 0
+        processed_width:
+          type: integer
+          title: Processed Width
+          default: 0
+        processed_height:
+          type: integer
+          title: Processed Height
+          default: 0
+        ocr_thread:
+          type: string
+          title: Ocr Thread
+          default: ''
+        ocr_passes:
+          type: integer
+          title: Ocr Passes
+          default: 0
+      type: object
+      title: ProcessingTimes
+    ProfileFieldMatch:
+      properties:
+        field:
+          type: string
+          title: Field
+          examples:
+          - PAN_NUMBER
+        status:
+          type: string
+          title: Status
+          description: PASS, PARTIAL, FAIL or SKIPPED. **SKIPPED is not a mismatch.**
+            It means the comparison could not be made -- the value was never supplied,
+            or no verified document released it.
+          examples:
+          - PASS
+          - PARTIAL
+          - FAIL
+          - SKIPPED
+        match_score:
+          type: integer
+          title: Match Score
+          description: 0-100, how closely the two values agree. 0 on a SKIPPED field
+            means nothing was compared, not that nothing matched.
+          examples:
+          - 100
+        confidence:
+          type: integer
+          title: Confidence
+          description: '0-100, how far that answer can be relied on. NOT a rescale
+            of match_score: a perfect match read off a poor photograph is a high score
+            at a lower confidence.'
+          examples:
+          - 94
+        reason_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Code
+          examples:
+          - PROFILE_MATCH
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+          examples:
+          - The PAN on PAN matches the one supplied for this party.
+        source:
+          anyOf:
+          - $ref: '#/components/schemas/ProfileMatchSource'
+          - type: 'null'
+      type: object
+      required:
+      - field
+      - status
+      - match_score
+      - confidence
+      title: ProfileFieldMatch
+      description: One declared field, compared against this party's own documents.
+    ProfileMatchSource:
+      properties:
+        source_id:
+          type: string
+          title: Source Id
+          examples:
+          - pan.jpg
+        document_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Document Type
+          examples:
+          - PAN
+      type: object
+      required:
+      - source_id
+      title: ProfileMatchSource
+      description: The document a profile field was checked against.
+    QueryRequest:
+      properties:
+        message:
+          type: string
+          maxLength: 1000
+          minLength: 1
+          title: Message
+          description: The question, in natural language.
+          examples:
+          - What's pending and what should I do next?
+        applicant_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Applicant Id
+          description: The applicant this question is about.
+          examples:
+          - APP-4C1D9E2B7A03
+        case_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Case Id
+          description: 'The application this question is about. Required for anything
+            case-specific: documents, pending items, next action, readiness.'
+          examples:
+          - CASE-9B2E7F1A4C60
+      type: object
+      required:
+      - message
+      title: QueryRequest
+      description: A field officer's question about one case.
+    QueryResponse:
+      properties:
+        request_id:
+          type: string
+          title: Request Id
+        applicant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Id
+        case_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Case Id
+        intent:
+          type: string
+          title: Intent
+          examples:
+          - PENDING_ITEMS
+          - OUT_OF_SCOPE
+        answer:
+          type: string
+          title: Answer
+          description: Prose for the officer to read.
+        applicant:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Applicant
+        application:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Application
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+          examples:
+          - DOCUMENT_COLLECTION
+        documents:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Documents
+        checklist:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Checklist
+        pending_items:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Pending Items
+        next_action:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Next Action
+        readiness:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Readiness
+          description: Whether the case may be handed to CPA. NOT a credit decision
+            and not a prediction of approval.
+        actions:
+          items:
+            $ref: '#/components/schemas/AgentAction'
+          type: array
+          title: Actions
+          description: Proposed changes awaiting confirmation. Never applied.
+        route_to:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Route To
+          description: Set when the question belongs to a downstream capability.
+          examples:
+          - CREDIT_AGENT
+        response_source:
+          type: string
+          title: Response Source
+          description: Who phrased the answer. Every FACT comes from the tool results
+            either way; this says whether a model wrote the sentence.
+          examples:
+          - deterministic
+          - llm
+        processing_ms:
+          type: number
+          title: Processing Ms
+        errors:
+          items:
+            $ref: '#/components/schemas/AgentErrorInfo'
+          type: array
+          title: Errors
+      type: object
+      required:
+      - request_id
+      - intent
+      - answer
+      - response_source
+      - processing_ms
+      title: QueryResponse
+      description: One answered question, ready for a copilot panel.
+    QueryStatusRequest:
+      properties:
+        status:
+          type: string
+          maxLength: 20
+          title: Status
+          description: RESPONDED, RESOLVED, REOPENED or CANCELLED.
+        note:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Note
+      type: object
+      required:
+      - status
+      title: QueryStatusRequest
+    RaiseQueryRequest:
+      properties:
+        target_type:
+          type: string
+          maxLength: 20
+          title: Target Type
+          description: DOCUMENT, PARTY, CASE, FINDING or STAGE.
+        target_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Target Id
+          description: The document id for a DOCUMENT target; must be on this case.
+        query_type:
+          type: string
+          maxLength: 40
+          title: Query Type
+          description: A configured query type (see GET .../queries -> query_types).
+          default: CLARIFICATION
+        text:
+          type: string
+          maxLength: 1000
+          title: Text
+          description: What is being asked.
+        party_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Party Id
+        evidence_refs:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          maxItems: 10
+          title: Evidence Refs
+        idempotency_key:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Idempotency Key
+          description: A retry with the same key returns the same query.
+        target_stage:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Target Stage
+          description: The stage the query is sent to (configured routes, e.g. FOS
+            -> CPA).
+        severity:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Severity
+          description: LOW, MEDIUM, HIGH or CRITICAL.
+        subject:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Subject
+          description: What the query is about, in words.
+        related_field:
+          anyOf:
+          - type: string
+            maxLength: 60
+          - type: 'null'
+          title: Related Field
+      type: object
+      required:
+      - target_type
+      - text
+      title: RaiseQueryRequest
+    ReasonCode:
+      type: string
+      enum:
+      - NAME_MISMATCH
+      - NAME_PARTIAL_MATCH
+      - NAME_MISSING
+      - NAME_SINGLE_SOURCE
+      - DOB_MISMATCH
+      - DOB_MISSING
+      - DOB_SINGLE_SOURCE
+      - ADDRESS_MISMATCH
+      - ADDRESS_PARTIAL_MATCH
+      - ADDRESS_MISSING
+      - ADDRESS_SINGLE_SOURCE
+      - ADDRESS_NOT_COMPARABLE
+      - FATHER_NAME_MISMATCH
+      - FATHER_NAME_PARTIAL_MATCH
+      - FATHER_NAME_MISSING
+      - FATHER_NAME_SINGLE_SOURCE
+      - PAN_MISMATCH
+      - PAN_INVALID_FORMAT
+      - PAN_MISSING
+      - PAN_SINGLE_SOURCE
+      - INCOME_INCONSISTENT
+      - INCOME_VARIANCE_HIGH
+      - INCOME_MISSING
+      - INCOME_SINGLE_SOURCE
+      - EXACT_MATCH
+      - NORMALISED_MATCH
+      - PARTIAL_ADDRESS_MATCH
+      - INSUFFICIENT_SOURCES
+      - INSUFFICIENT_DATA
+      - CHECK_DISABLED
+      title: ReasonCode
+      description: 'Why a check did not pass.
+
+
+        Every non-PASS result carries at least one of these plus the evidence it
+
+        was drawn from, so a reviewer never has to re-derive the reasoning.'
+    RefreshRequest:
+      properties:
+        refresh_token:
+          type: string
+          title: Refresh Token
+      type: object
+      required:
+      - refresh_token
+      title: RefreshRequest
+    SignatureFinding:
+      properties:
+        present:
+          type: boolean
+          title: Present
+        presence:
+          type: string
+          title: Presence
+          examples:
+          - PRESENT
+          - ABSENT
+        quality:
+          type: string
+          title: Quality
+          examples:
+          - SUFFICIENT
+          - POOR
+        comparison:
+          type: string
+          title: Comparison
+          examples:
+          - MATCH
+          - NOT_COMPARABLE
+        match_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Match Score
+        synthetic_risk:
+          type: string
+          title: Synthetic Risk
+          examples:
+          - LOW
+        manipulation_risk:
+          type: string
+          title: Manipulation Risk
+          examples:
+          - LOW
+      type: object
+      required:
+      - present
+      - presence
+      - quality
+      - comparison
+      - synthetic_risk
+      - manipulation_risk
+      title: SignatureFinding
+      description: The four questions a caller actually asks about a signature.
+    SourceDocument:
+      properties:
+        source_id:
+          type: string
+          title: Source Id
+          description: Caller's reference for this document, echoed in evidence.
+        document_type:
+          $ref: '#/components/schemas/KycDocumentType'
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        father_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Father Name
+        date_of_birth:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date Of Birth
+        pan:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pan
+        address:
+          anyOf:
+          - $ref: '#/components/schemas/AddressInput'
+          - type: 'null'
+        income:
+          anyOf:
+          - $ref: '#/components/schemas/IncomeInput'
+          - type: 'null'
+        field_quality:
+          anyOf:
+          - additionalProperties:
+              type: number
+            type: object
+          - type: 'null'
+          title: Field Quality
+          description: Per-field extraction quality, 0.0-1.0, as the EXTRACTOR reported
+            it -- not a number invented here. Keys are the extractor's field names.
+            Absent when the caller has no quality signal, in which case confidence
+            is computed without that factor rather than assuming a value.
+      additionalProperties: false
+      type: object
+      required:
+      - source_id
+      - document_type
+      title: SourceDocument
+      description: One already-extracted document offered for cross-checking.
+    SpecialistVerdict:
+      properties:
+        decision:
+          type: string
+          title: Decision
+          examples:
+          - PASS
+          - REVIEW
+          - FAIL
+          - SKIPPED
+        reason_codes:
+          items:
+            type: string
+          type: array
+          title: Reason Codes
+        subtype:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Subtype
+          description: The kind of instrument, where that changes what the document
+            is worth. A gift deed is not a sale deed.
+          examples:
+          - SALE_DEED
+          - GIFT_DEED
+        signature:
+          anyOf:
+          - $ref: '#/components/schemas/SignatureFinding'
+          - type: 'null'
+        ownership_verified:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Ownership Verified
+          description: 'Never true: no capability here establishes ownership.'
+        authenticity_verified:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Authenticity Verified
+          description: 'Never true: authenticity is not established here.'
+        business_existence_verified:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Business Existence Verified
+      additionalProperties: true
+      type: object
+      required:
+      - decision
+      title: SpecialistVerdict
+      description: 'A specialist capability''s verdict on one document.
+
+
+        The business answer only: what was decided, why, and what it refused to
+
+        claim. Which service ran, how it was called and what it routed on are
+
+        this service''s business.'
+    StageTransitionRequest:
+      properties:
+        target_stage:
+          type: string
+          maxLength: 40
+          title: Target Stage
+          description: FOS, CPA, CREDIT, RCU, BOPS, HOPS or DISBURSEMENT.
+        reason:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Reason
+          description: Why -- recorded on the history as given, e.g. FOS_HANDOFF.
+        stage_status:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Stage Status
+          description: IN_PROGRESS, READY_FOR_HANDOFF or ON_HOLD. With the current
+            stage as target, changes only the status.
+        expected_stage:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Expected Stage
+          description: The stage the caller believes the case is in. When it has since
+            moved on, the request is refused as STALE_STAGE instead of overwriting
+            the newer stage.
+        idempotency_key:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Idempotency Key
+          description: Retrying with the same key returns the transition already made
+            (REPLAYED) instead of making another.
+        source:
+          type: string
+          maxLength: 40
+          title: Source
+          description: WORKFLOW, LOS_INTEGRATION or OPERATOR.
+          default: WORKFLOW
+        correlation_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Correlation Id
+        mode:
+          type: string
+          maxLength: 16
+          title: Mode
+          description: 'GATED (default): the configured stage gate is evaluated now,
+            from the records; not ready -> 409 GATE_NOT_MET, no criteria configured
+            -> 409 GATE_CONFIGURATION_GAP. OVERRIDE: a deliberate, caller-decided
+            ungated move -- needs the override scope (or the service write-all scope);
+            recorded on the history and in the response as an override, with the gate
+            status it overrode.'
+          default: GATED
+      type: object
+      required:
+      - target_stage
+      - reason
+      title: StageTransitionRequest
+      description: Move a case to `target_stage`, or change its status within a stage.
+    TokenResponse:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        refresh_token:
+          type: string
+          title: Refresh Token
+        token_type:
+          type: string
+          title: Token Type
+          default: bearer
+        expires_in:
+          type: integer
+          title: Expires In
+        case_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Case Id
+        app_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: App Id
+        case_data:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Case Data
+      type: object
+      required:
+      - access_token
+      - refresh_token
+      - expires_in
+      title: TokenResponse
+    TtsRequest:
+      properties:
+        text:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Text
+          description: '`presentation.audio.text` from a chat reply.'
+        language:
+          type: string
+          maxLength: 12
+          title: Language
+          description: '`presentation.audio.language`.'
+          examples:
+          - mr
+      type: object
+      required:
+      - text
+      - language
+      title: TtsRequest
+    UnderwritingRunRequest:
+      properties:
+        case_id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Case Id
+          examples:
+          - CASE-3D51FFAC6342
+        correlation_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Correlation Id
+          description: Propagated to the run, traces and audit.
+      additionalProperties: false
+      type: object
+      required:
+      - case_id
+      title: UnderwritingRunRequest
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    ValidationStatus:
+      type: string
+      enum:
+      - VALID
+      - INVALID
+      - NOT_VALIDATED
+      title: ValidationStatus
+    VerificationDepth:
+      type: string
+      enum:
+      - QUICK
+      - FULL
+      title: VerificationDepth
+    VerificationResult:
+      properties:
+        document_type:
+          type: string
+          title: Document Type
+        requested_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requested Type
+        status:
+          $ref: '#/components/schemas/VerificationStatus'
+        depth:
+          $ref: '#/components/schemas/VerificationDepth'
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+        confidence:
+          type: number
+          title: Confidence
+          default: 0.0
+        verification_score:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Verification Score
+        verification_confidence:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Verification Confidence
+        checks:
+          items:
+            $ref: '#/components/schemas/Check'
+          type: array
+          title: Checks
+        reason_codes:
+          items:
+            type: string
+          type: array
+          title: Reason Codes
+        identifier:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Identifier
+        authenticity_checked:
+          type: boolean
+          title: Authenticity Checked
+          default: false
+        processing_ms:
+          type: number
+          title: Processing Ms
+          default: 0.0
+        request_id:
+          type: string
+          title: Request Id
+          default: ''
+        hint:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Hint
+      type: object
+      required:
+      - document_type
+      - status
+      - depth
+      title: VerificationResult
+    VerificationStatus:
+      type: string
+      enum:
+      - PASS
+      - FAIL
+      - REVIEW
+      - SKIPPED
+      title: VerificationStatus
+    app__agents__document_agent__schemas__FieldStatus:
+      type: string
+      enum:
+      - EXTRACTED
+      - MISSING
+      - UNCERTAIN
+      - NOT_APPLICABLE
+      title: FieldStatus
+    app__agents__kyc__schemas__FieldStatus:
+      type: string
+      enum:
+      - PASS
+      - PARTIAL
+      - REVIEW
+      - FAIL
+      - SKIPPED
+      title: FieldStatus
+      description: 'A field-level verdict.
+
+
+        PARTIAL is the one CheckStatus does not have, and it is the point of this
+
+        enum: an address that agrees on locality, city and pincode but not on the
+
+        house number is not a pass and is not a failure, and reporting it as
+
+        either loses the only thing a reviewer needed to know.'
+    FosAction:
+      description: 'Everything the copilot endpoint can be asked to do.
+
+
+        A frontend renders its dropdown from this list -- served by
+
+        GET /api/v1/fos/actions with labels -- rather than hardcoding it, so
+
+        adding an action does not require a frontend release.'
+      enum:
+      - GET_APPLICANT
+      - GET_APPLICATION_STATUS
+      - GET_DOCUMENTS
+      - GET_DOCUMENT_CHECKLIST
+      - GET_VERIFICATION_STATUS
+      - GET_PENDING_ITEMS
+      - GET_NEXT_ACTION
+      - GET_CASE_360
+      - CHECK_CPA_READINESS
+      - UPLOAD_DOCUMENT
+      - CUSTOM_QUERY
+      - LIST_CASES
+      - OPEN_CASE
+      - EXIT_CASE
+      - VIEW_DOCUMENT
+      - RAISE_QUERY
+      - MARK_QUERY_SENT
+      - LIST_QUERIES
+      - NEW_CASE
+      title: FosAction
+      type: string
+    CopilotRequest:
+      description: 'One request shape for every copilot action.
+
+
+        `action` decides what happens. `message` is required only for
+
+        CUSTOM_QUERY. Document upload uses the multipart form of this same
+
+        endpoint -- see the endpoint description.'
+      properties:
+        applicant_id:
+          anyOf:
+          - maxLength: 128
+            type: string
+          - type: 'null'
+          default: null
+          description: Required, except in the case workspace (COPILOT_CASE_WORKSPACE)
+            where an opened case supplies it.
+          examples:
+          - APP-3D51FFAC6342
+          title: Applicant Id
+        case_id:
+          anyOf:
+          - maxLength: 128
+            type: string
+          - type: 'null'
+          default: null
+          description: Required for everything case-specific, which is most actions.
+          examples:
+          - CASE-7DFE2F497522
+          title: Case Id
+        action:
+          $ref: '#/components/schemas/FosAction'
+          default: CUSTOM_QUERY
+          description: What to do. CUSTOM_QUERY answers `message` in natural language.
+        message:
+          anyOf:
+          - maxLength: 1000
+            type: string
+          - type: 'null'
+          default: null
+          description: The question, for CUSTOM_QUERY. Ignored otherwise.
+          examples:
+          - What documents are pending?
+          title: Message
+        response_language:
+          anyOf:
+          - maxLength: 12
+            type: string
+          - type: 'null'
+          default: null
+          description: 'THE LANGUAGE SELECTED IN THE FRONTEND (en, hi, hi-Latn, mr,
+            mr-Latn, ...). AUTHORITATIVE: the answer is presented in it whatever language
+            the question was typed in -- detection (lexicon / Lingua) is used only
+            when this is omitted. Facts never change with the language; where no template
+            covers a fact the English answer stands and `language_contract.localized`
+            is false.'
+          examples:
+          - mr
+          title: Response Language
+        document_id:
+          anyOf:
+          - maxLength: 256
+            type: string
+          - type: 'null'
+          default: null
+          description: 'VIEW_DOCUMENT: the document to open.'
+          title: Document Id
+        query:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          description: 'RAISE_QUERY: the (edited) draft to send.'
+          title: Query
+        query_id:
+          anyOf:
+          - maxLength: 128
+            type: string
+          - type: 'null'
+          default: null
+          description: 'MARK_QUERY_SENT: the query.'
+          title: Query Id
+        confirm:
+          default: false
+          description: 'RAISE_QUERY: true only from the explicit Send button.'
+          title: Confirm
+          type: boolean
+        co_applicant_id:
+          anyOf:
+          - maxLength: 128
+            type: string
+          - type: 'null'
+          default: null
+          description: 'Ask about one CO-APPLICANT by their id (LOS_COAPP_IDENTITY).
+            Resolved through the case: allowed only when the caller may open the case
+            it is on; otherwise the same 403 as any case the caller does not own.'
+          examples:
+          - COAPP-7F2A11C4D9E0
+          title: Co Applicant Id
+        context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          description: 'The `context` block from the PREVIOUS response, echoed back
+            so a bare follow-up such as "why?" can be resolved.
+
+
+            This service holds no conversation state, so the caller carries it. The
+            context can only rewrite the message into another question, which is then
+            classified exactly as a typed one is -- it selects no intent, names no
+            case and skips no permission check. When a follow-up is resolved, the
+            response says so in `followed_up`.'
+          examples:
+          - last_intent: DOCUMENTS_MISSING
+            last_query_type: POLICY_REQUIREMENT
+            last_slot: ADDRESS_PROOF
+          title: Context
+      title: CopilotRequest
+      type: object
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer

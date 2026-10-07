@@ -235,7 +235,15 @@ def _from_case(case_id: str) -> StageContext | None:
     # (PARTIAL, REVIEW ...), which `parse` rejects. A stage entered twice
     # in a row is one visit.
     history: list[dict[str, str | None]] = []
+    # STRICT READING (LOS_STAGE_GATE_IN_SERVICE, default off): only a recorded
+    # STAGE_ENTERED event says a case entered a stage. Any other event's free-text
+    # `stage` column (ingest writes a processing status there) never moves the case.
+    from app.agents.los.stage_lifecycle import service_gate_enabled
+
+    strict = service_gate_enabled()
     for event in timeline:
+        if strict and str(getattr(event, "event_type", "") or "") != "STAGE_ENTERED":
+            continue
         stage = parse(getattr(event, "stage", None))
         if stage is None:
             continue

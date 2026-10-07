@@ -62,6 +62,11 @@ def check_is_blocking(check: str) -> bool:
     return config.check_blocking(section) if section else False
 
 
+def cpa_gate_checks() -> list[str]:
+    """The checks (KycCheck values) that must have PASSED to leave FOS for CPA."""
+    return [check for check, section in CHECK_SECTIONS.items() if config.check_cpa_gate(section)]
+
+
 _SEVERITY = {
     CheckStatus.PASS: 0,
     CheckStatus.SKIPPED: 0,

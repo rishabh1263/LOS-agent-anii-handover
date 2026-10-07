@@ -98,7 +98,7 @@ _SAFE_TYPE = re.compile(r"^[A-Za-z0-9_ ]{1,64}$")
 
 
 def _authorise(ctx: Context, name: str, *, applicant_id: str | None,
-               case_id: str | None) -> dict[str, Any] | None:
+               case_id: str | None, co_applicant_id: str | None = None) -> dict[str, Any] | None:
     """
     None when the caller may make this call; else the refusal envelope.
 
@@ -142,9 +142,14 @@ def _authorise(ctx: Context, name: str, *, applicant_id: str | None,
     except permissions.PermissionDenied as denied:
         return _refused(name, denied.code, denied.message)
     try:
-        access.authorize(caller.subject, caller.scopes,
-                         applicant_id=applicant_id or None,
-                         case_id=case_id or None, write=False)
+        if co_applicant_id:
+            # THROUGH THE CASE (step 5d): the named case must be the caller's AND carry this co-applicant
+            access.authorize_co_applicant(caller.subject, caller.scopes, co_applicant_id,
+                                          case_id=case_id or None)
+        else:
+            access.authorize(caller.subject, caller.scopes,
+                             applicant_id=applicant_id or None,
+                             case_id=case_id or None, write=False)
     except access.AccessDenied as denied:
         return _refused(name, "CASE_ACCESS_DENIED", denied.message)
     return None
@@ -167,26 +172,30 @@ def _bounded(name: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _run(name: str, ctx: Context, *, applicant_id: str | None = None,
-               case_id: str | None = None, document_type: str | None = None
-               ) -> dict[str, Any]:
+               case_id: str | None = None, document_type: str | None = None,
+               co_applicant_id: str | None = None) -> dict[str, Any]:
     if name not in allowed_tools():
         return _refused(name, "TOOL_NOT_ALLOWED",
                         "This tool is not available over MCP.")
     # TYPED, BOUNDED INPUT, checked before anything is read.
-    for label, value in (("applicant_id", applicant_id), ("case_id", case_id)):
+    for label, value in (("applicant_id", applicant_id), ("case_id", case_id),
+                         ("co_applicant_id", co_applicant_id)):
         if value is not None and not _SAFE_ID.match(value):
             return _invalid(name, f"{label} is not a valid identifier.")
     if document_type and not _SAFE_TYPE.match(document_type):
         return _invalid(name, "document_type is not a valid document type.")
 
-    refused = _authorise(ctx, name, applicant_id=applicant_id, case_id=case_id)
+    refused = _authorise(ctx, name, applicant_id=applicant_id, case_id=case_id,
+                         co_applicant_id=co_applicant_id)
     if refused is not None:
         logger.info("mcp_server tool=%s authorized=false code=%s", name,
                     refused["error"]["code"])
         return refused
 
     handler = capabilities.READ_TOOLS[name]
-    if name in ("applicant.get", "applications.list"):
+    if name == "co_applicant.get":
+        envelope = await handler(case_id, co_applicant_id)
+    elif name in ("applicant.get", "applications.list"):
         envelope = await handler(applicant_id)
     elif name == "documents.verification":
         envelope = await handler(case_id, document_type or "")
@@ -212,6 +221,12 @@ def _by_case(name: str):
     return tool
 
 
+def _by_co_applicant(name: str):
+    async def tool(case_id: str, co_applicant_id: str, ctx: Context) -> dict[str, Any]:
+        return await _run(name, ctx, case_id=case_id, co_applicant_id=co_applicant_id)
+    return tool
+
+
 def _by_case_and_document(name: str):
     async def tool(case_id: str, document_type: str,
                    ctx: Context) -> dict[str, Any]:
@@ -223,7 +238,9 @@ def _by_case_and_document(name: str):
 for _name in sorted(allowed_tools()):
     _contract = CONTRACTS[_name]
     _fields = set(_contract.input_schema.get("properties") or ())
-    if "applicant_id" in _fields and "case_id" not in _fields:
+    if "co_applicant_id" in _fields:
+        _fn = _by_co_applicant(_name)
+    elif "applicant_id" in _fields and "case_id" not in _fields:
         _fn = _by_applicant(_name)
     elif "document_type" in _fields:
         _fn = _by_case_and_document(_name)

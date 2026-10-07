@@ -1,0 +1,339 @@
+diff --git a/app/agents/applicant/copilot/answering/presentation.py b/app/agents/applicant/copilot/answering/presentation.py
+index 1ae9f2c..f8a95e4 100644
+--- a/app/agents/applicant/copilot/answering/presentation.py
++++ b/app/agents/applicant/copilot/answering/presentation.py
+@@ -250,7 +250,15 @@ def build(envelope: dict[str, Any]) -> dict[str, Any]:
+     kind = _response_type(envelope, status)
+     language = (contract or {}).get("reply_language") or envelope.get("language")
+     next_action = _next_action(envelope, documents, actions)
++    extra = {}
++    if isinstance(envelope.get("document_actions"), dict):
++        # the documents that need action, grouped (answering/document_actions.py) -- only when built
++        extra["document_actions"] = envelope["document_actions"]
++    if "answer_markdown" in envelope:
++        # bold key words, three ways (answering/emphasis.py) -- only when built
++        extra.update({k: envelope[k] for k in ("emphasis", "answer_markdown", "answer_plain")})
+     return {
++        **extra,
+         "message": message or None,
+         "intent": envelope.get("intent"),
+         "response_type": kind,
+diff --git a/app/api/routes/fos_api.py b/app/api/routes/fos_api.py
+index b874673..8b12599 100644
+--- a/app/api/routes/fos_api.py
++++ b/app/api/routes/fos_api.py
+@@ -1101,8 +1101,32 @@ async def copilot(
+                         published["answer"] = f"{str(published.get('answer') or '').rstrip()} {said}".strip()
+             # AN EMPTY CHECKLIST NEVER HIDES AN OPEN REVIEW (answering/attention.py)
+             from app.agents.applicant.copilot.answering import attention as _attention
+-
+-            published = _attention.amend(published)
++            from app.agents.applicant.copilot.answering import document_actions as _doc_actions
++
++            if (_doc_actions.enabled() and published.get("case_id")
++                    and str(published.get("intent") or "") in {"DOCUMENTS_PENDING", "DOCUMENTS_MISSING",
++                                                               "PENDING_ITEMS"}):
++                # ONLY WHAT NEEDS ACTION, from the store (COPILOT_DOCUMENT_ACTIONS, default off)
++                _view = _doc_actions.build(published["case_id"], party=_attention._asked_party(published))
++                _lang = (published.get("language_contract") or {}).get("reply_language") \
++                    if isinstance(published.get("language_contract"), dict) else None
++                _said = _doc_actions.render(_view, _lang)
++                published["document_actions"] = {**_view, "emphasis": _said["emphasis"]}
++                _other = [i for i in published.get("pending_items") or []
++                          if isinstance(i, dict) and i.get("type") not in (None, "DOCUMENT", "INFO")]
++                if not _other:
++                    published["answer"] = _said["answer"]
++                else:
++                    # a pending applicant / application detail keeps the original answer, which names it
++                    published = _attention.amend(published)
++            else:
++                published = _attention.amend(published)
++            # THE 1-2 KEY WORDS, BOLD (COPILOT_EMPHASIS, default off; answering/emphasis.py):
++            # emphasis + answer_markdown + clean answer_plain; `answer` itself unchanged
++            from app.agents.applicant.copilot.answering import emphasis as _emphasis
++
++            if _emphasis.enabled():
++                published = _emphasis.apply(published)
+             # THE STRUCTURED CONTRACT beside the prose, derived from it (presentation.py).
+             from app.agents.applicant.copilot.answering import presentation as _presentation
+ 
+@@ -1156,16 +1180,40 @@ async def _copilot_json(
+     else:
+         message = _ACTION_PHRASE[action]
+ 
+-    return await _run_action(
++    # NO CASE ID (COPILOT_SINGLE_CASE_RESOLVE, default off; capabilities/case_pick.py):
++    # one case of the applicant's is answered for, several are listed and asked about.
++    case_id, picked = payload.case_id, None
++    if not case_id and action is FosAction.CUSTOM_QUERY and payload.applicant_id:
++        from app.agents.applicant.copilot.capabilities import case_pick
++
++        if case_pick.enabled():
++            from app.security import access as _pick_access
++
++            try:
++                picked = case_pick.resolve(payload.applicant_id, claims)
++            except _pick_access.AccessDenied as exc:
++                raise _pick_access.http_denied(exc, request_id) from None
++            if picked.kind == case_pick.MANY:
++                return case_pick.ask_which(picked, payload.applicant_id, request_id, message)
++            if picked.kind == case_pick.NONE:
++                return case_pick.no_case(payload.applicant_id, request_id)
++            case_id = picked.case_id
++
++    result = await _run_action(
+         action,
+         applicant_id=payload.applicant_id,
+-        case_id=payload.case_id,
++        case_id=case_id,
+         claims=claims,
+         request_id=request_id,
+         message=message,
+         context=payload.context,
+         response_language=payload.response_language,
+     )
++    if picked is not None and isinstance(result, dict):
++        # THE CASE ANSWERED FOR IS NAMED, since the user did not name it
++        result["case_resolved_from_applicant"] = True
++        result["answer"] = f"For application {case_id}: {str(result.get('answer') or '').lstrip()}"
++    return result
+ 
+ 
+ def _select_language(result: dict[str, Any], selected: str | None) -> None:
+diff --git a/app/agents/applicant/copilot/answering/emphasis.py b/app/agents/applicant/copilot/answering/emphasis.py
+new file mode 100644
+index 0000000..4b65e5d
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/emphasis.py
+@@ -0,0 +1,117 @@
++"""
++THE 1-2 WORDS THAT MATTER, BOLD (Phase 3 step 5a; flag COPILOT_EMPHASIS, default off).
++
++The frontend's markdown support is not confirmed, so the emphasis is sent three ways
++and the client picks what it can render:
++
++    emphasis         [{"text", "start", "end"}]  -- structured, positions in `answer_plain`
++    answer_markdown  the answer with those terms in **bold**
++    answer_plain     the answer with every markdown marker removed
++    answer           unchanged (existing clients see no difference)
++
++WHAT IS BOLDED comes from the response's own structured data, never from guessing at
++the prose, in this order: a KYC mismatch field (document_actions), a status word for a
++document or the case, an amount, a document name. A term must appear verbatim in the
++answer and be short (at most 5 words) -- a sentence is never bolded. At most two terms.
++"""
++
++from __future__ import annotations
++
++import os
++import re
++from typing import Any
++
++FLAG = "COPILOT_EMPHASIS"
++MAX_TERMS = 2
++MAX_WORDS = 5
++
++#: status words a reader scans for (English and the Hinglish the localized answers use)
++_STATUS_TERMS = ("Needs review", "Not uploaded yet", "Ready for CPA", "ready for CPA", "under review", "Rejected",
++                 "rejected", "Verified", "verified", "Pending", "pending", "did not pass", "passed", "failed",
++                 "review mein", "reject hua", "baaki", "approved", "not ready")
++_AMOUNT = re.compile(r"₹\s?\d[\d,]*(?:\.\d+)?")
++_MARKDOWN = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
++
++
++def enabled() -> bool:
++    return (os.getenv(FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def plain(text: str) -> str:
++    """The answer without markdown emphasis markers -- and already PII-masked, so the positions
++    in `emphasis` still hold after the route's final masking pass (masking is idempotent)."""
++    from app.security import sensitivity
++
++    return sensitivity.mask_identifiers(_MARKDOWN.sub(lambda m: m.group(1) or m.group(2), str(text or "")))
++
++
++def _document_labels(published: dict[str, Any]) -> list[str]:
++    from app.agents.applicant.copilot.answering.answer import _doc_label, _readable
++
++    labels: list[str] = []
++    for row in published.get("documents") or []:
++        if isinstance(row, dict) and row.get("document_type"):
++            labels += [_doc_label(row["document_type"], row.get("party_role")), _readable(row["document_type"])]
++    return labels
++
++
++def _candidates(published: dict[str, Any], text: str) -> list[str]:
++    """Terms in priority order, each taken from the structured response."""
++    ordered: list[str] = []
++    view = published.get("document_actions")
++    if isinstance(view, dict):
++        ordered += [str(t) for t in view.get("emphasis") or []]          # mismatch field, document to upload
++    ordered += [t for t in _STATUS_TERMS if t in text]                   # a status
++    ordered += [m.group(0) for m in _AMOUNT.finditer(text)]              # an amount (rendered from the DB)
++    ordered += _document_labels(published)                              # a document name
++    return ordered
++
++
++def pick(published: dict[str, Any]) -> list[dict[str, Any]]:
++    """Up to two short terms found verbatim in the plain answer, with their positions."""
++    text = plain(published.get("answer") or "")
++    chosen: list[dict[str, Any]] = []
++    for term in _candidates(published, text):
++        term = term.strip()
++        if not term or len(term.split()) > MAX_WORDS:
++            continue
++        start = _word_find(text, term)
++        if start < 0:
++            continue
++        end = start + len(term)
++        if any(start < c["end"] and c["start"] < end for c in chosen):  # overlaps one already chosen
++            continue
++        chosen.append({"text": term, "start": start, "end": end})
++        if len(chosen) == MAX_TERMS:
++            break
++    return sorted(chosen, key=lambda c: c["start"])
++
++
++def _word_find(text: str, term: str) -> int:
++    """First occurrence of `term` as whole words ("PAN" not inside "PANEL")."""
++    m = re.search(rf"(?<![\w]){re.escape(term)}(?![\w])", text)
++    return m.start() if m else -1
++
++
++def markdown(text: str, terms: list[dict[str, Any]]) -> str:
++    out, cursor = [], 0
++    for t in terms:
++        out += [text[cursor:t["start"]], f"**{text[t['start']:t['end']]}**"]
++        cursor = t["end"]
++    out.append(text[cursor:])
++    return "".join(out)
++
++
++def apply(published: dict[str, Any]) -> dict[str, Any]:
++    """Adds emphasis, answer_markdown and answer_plain. `answer` itself is not changed."""
++    if not str(published.get("answer") or "").strip():
++        return published
++    text = plain(published["answer"])
++    terms = pick(published)
++    published["emphasis"] = terms
++    published["answer_plain"] = text
++    published["answer_markdown"] = markdown(text, terms)
++    return published
++
++
++__all__ = ["FLAG", "apply", "enabled", "markdown", "pick", "plain"]
+diff --git a/tests/integration/test_step5a_emphasis.py b/tests/integration/test_step5a_emphasis.py
+new file mode 100644
+index 0000000..5cca17f
+--- /dev/null
++++ b/tests/integration/test_step5a_emphasis.py
+@@ -0,0 +1,108 @@
++"""
++PHASE 3 STEP 5a -- bold key words (COPILOT_EMPHASIS, default off).
++
++Sent three ways (frontend markdown support unconfirmed): `emphasis` (structured, with
++positions), `answer_markdown` (**bold**) and `answer_plain` (no markers). `answer` itself
++never changes. At most two short terms, taken from the response's structured data.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from app.agents.applicant.copilot.answering import emphasis
++from tests.integration.test_fos_stage_boundary import open_case, upload
++from tests.integration.test_reupload_supersedes import OTHER_PAN, RISHABH_DL, RISHABH_PAN, _store, client  # noqa: F401
++
++
++@pytest.fixture(autouse=True)
++def flag_off(monkeypatch):
++    monkeypatch.delenv(emphasis.FLAG, raising=False)
++    monkeypatch.delenv("COPILOT_DOCUMENT_ACTIONS", raising=False)
++
++
++# ---- the rules ---------------------------------------------------------------------------
++def test_status_and_document_name_are_bolded():
++    out = emphasis.apply({"answer": "Your PAN is verified.", "documents": [{"document_type": "PAN"}]})
++    assert out["answer_markdown"] == "Your **PAN** is **verified**."
++    assert [t["text"] for t in out["emphasis"]] == ["PAN", "verified"]
++    assert out["answer"] == "Your PAN is verified."                   # unchanged
++
++
++def test_never_more_than_two_terms_and_never_a_sentence():
++    out = emphasis.apply({"answer": "PAN is verified, Bank Statement is pending, Salary Slip was rejected.",
++                          "documents": [{"document_type": t} for t in ("PAN", "BANK_STATEMENT", "SALARY_SLIP")]})
++    assert len(out["emphasis"]) <= 2
++    assert all(len(t["text"].split()) <= emphasis.MAX_WORDS for t in out["emphasis"])
++
++
++def test_an_amount_is_bolded_when_there_is_no_status():
++    out = emphasis.apply({"answer": "The loan amount on the application is ₹5,00,000."})
++    assert "**₹5,00,000**" in out["answer_markdown"]
++
++
++def test_the_mismatch_field_from_document_actions_comes_first():
++    out = emphasis.apply({"answer": "Name mismatch: PAN shows \"A\", Driving Licence shows \"B\". PAN is verified.",
++                          "document_actions": {"emphasis": ["Name"]}, "documents": [{"document_type": "PAN"}]})
++    assert out["emphasis"][0]["text"] == "Name"
++
++
++def test_positions_point_at_the_terms_in_answer_plain():
++    out = emphasis.apply({"answer": "Your **PAN** is verified.", "documents": [{"document_type": "PAN"}]})
++    assert out["answer_plain"] == "Your PAN is verified."               # existing markdown removed
++    for t in out["emphasis"]:
++        assert out["answer_plain"][t["start"]:t["end"]] == t["text"]
++
++
++def test_a_word_inside_another_word_is_not_bolded():
++    out = emphasis.apply({"answer": "The PANEL review is pending.", "documents": [{"document_type": "PAN"}]})
++    assert "**PAN**" not in out["answer_markdown"]
++
++
++def test_nothing_to_emphasise_leaves_markdown_equal_to_plain():
++    out = emphasis.apply({"answer": "Hello! How can I help with the application today?"})
++    assert out["emphasis"] == [] and out["answer_markdown"] == out["answer_plain"]
++
++
++# ---- through the real API ----------------------------------------------------------------
++def ask(client, a, c, message):
++    r = client.post("/api/v1/fos/copilot", json={"applicant_id": a, "case_id": c, "action": "CUSTOM_QUERY",
++                                                 "message": message})
++    assert r.status_code == 200, r.text
++    return r.json()
++
++
++@pytest.fixture
++def case(client):
++    a, c = open_case(client)
++    upload(client, a, c, [("pan.jpg", RISHABH_PAN), ("dl.jpg", RISHABH_DL)], ["PAN", "DRIVING_LICENCE"])
++    return a, c
++
++
++def test_flag_off_the_response_has_no_emphasis_fields(client, case):
++    body = ask(client, *case, "is my PAN verified?")
++    assert "answer_markdown" not in body and "answer_markdown" not in body["presentation"]
++
++
++def test_flag_on_a_real_answer_carries_all_three(client, case, monkeypatch):
++    monkeypatch.setenv(emphasis.FLAG, "true")
++    body = ask(client, *case, "is my PAN verified?")
++    assert body["answer_plain"] and "**" not in body["answer_plain"]
++    assert body["emphasis"] and all(body["answer_plain"][t["start"]:t["end"]] == t["text"] for t in body["emphasis"])
++    assert body["answer_markdown"].count("**") == 2 * len(body["emphasis"])
++    assert body["presentation"]["answer_markdown"] == body["answer_markdown"]
++
++
++def test_flag_on_hinglish_answer_is_emphasised_too(client, case, monkeypatch):
++    monkeypatch.setenv(emphasis.FLAG, "true")
++    body = ask(client, *case, "PAN verify hua kya?")
++    assert body["emphasis"], body["answer"]
++
++
++def test_positions_survive_the_routes_pii_masking(client, monkeypatch):
++    monkeypatch.setenv(emphasis.FLAG, "true")
++    a, c = open_case(client)
++    upload(client, a, c, [("pan.jpg", OTHER_PAN), ("dl.jpg", RISHABH_DL)], ["PAN", "DRIVING_LICENCE"])
++    body = ask(client, a, c, "PAN number kya hai?")
++    for t in body["emphasis"]:
++        assert body["answer_plain"][t["start"]:t["end"]] == t["text"]

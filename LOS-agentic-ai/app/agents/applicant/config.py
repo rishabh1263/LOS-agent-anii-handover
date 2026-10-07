@@ -278,6 +278,47 @@ def readiness_rules() -> dict[str, bool]:
     }
 
 
+#: built-in co-applicant slots, used only when the YAML has none (step 5b)
+_CO_APPLICANT_DEFAULT = (
+    {"slot": "PAN", "accepts": ["PAN"]},
+    {"slot": "ADDRESS_PROOF", "accepts": ["AADHAAR", "PASSPORT", "DRIVING_LICENCE", "VOTER_ID", "UTILITY_BILL"]},
+    {"slot": "EMPLOYMENT_PROOF", "accepts": ["SALARY_SLIP", "EMPLOYMENT_LETTER", "OFFER_LETTER", "EMPLOYEE_ID"],
+     "accepts_self_employed": ["BUSINESS_REGISTRATION", "GST_CERTIFICATE", "ITR"]},
+)
+
+
+def co_applicant_documents() -> list[dict[str, Any]]:
+    """[{slot, accepts}] -- a co-applicant's mandatory slots (readiness.co_applicant_documents)."""
+    raw = _section("readiness").get("co_applicant_documents") or _CO_APPLICANT_DEFAULT
+    out = []
+    for entry in raw:
+        if not isinstance(entry, dict) or not entry.get("slot"):
+            continue
+        accepts = [str(a).upper() for a in (entry.get("accepts") or [])]
+        accepts += [str(a).upper() for a in (entry.get("accepts_self_employed") or []) if str(a).upper() not in accepts]
+        if accepts:
+            out.append({"slot": str(entry["slot"]).upper(), "accepts": accepts})
+    return out
+
+
+def signature_activation():
+    """(activation datetime in UTC, None) or (None, why it is unusable) -- readiness.signature_mandatory."""
+    from datetime import datetime, timezone
+
+    raw = (_section("readiness").get("signature_mandatory") or {}).get("activation_date")
+    if raw in (None, ""):
+        return None, "activation_date is not set"
+    try:
+        value = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        # YAML reads a bare 2026-10-08 as a date object
+        try:
+            value = datetime.combine(raw, datetime.min.time())
+        except TypeError:
+            return None, f"activation_date {raw!r} is not a date"
+    return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)), None
+
+
 # -- permissions ------------------------------------------------------------
 
 def permissions_enforced() -> bool:

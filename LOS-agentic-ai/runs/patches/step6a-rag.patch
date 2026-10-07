@@ -1,0 +1,192 @@
+diff --git a/app/knowledge/markdown_repo.py b/app/knowledge/markdown_repo.py
+index 6e0438c..ff6707a 100644
+--- a/app/knowledge/markdown_repo.py
++++ b/app/knowledge/markdown_repo.py
+@@ -55,10 +55,14 @@ _FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+ #:   effective_from / effective_to   the window it is in force (absent = no bound)
+ #:   derived_from  the configuration files the text restates (provenance)
+ #:   related       ids of related items
++#:   requires_flag an environment flag; the item is in effect only while it is on
++#:                 (absent = always). Flag off: never indexed, never retrieved.
+ _DECLARABLE = ("id", "knowledge_type", "title", "description", "domain", "language",
+                "version", "effective_date", "effective_from", "effective_to", "status",
+                "applies_to", "product", "source", "owner", "derived_from", "related",
+-               "policy_status")
++               "policy_status", "requires_flag")
++
++_FLAG_ON = frozenset({"1", "true", "yes", "on"})
+ 
+ #: The statuses a retrieval may return. Anything else is kept out of the index.
+ RETRIEVABLE = frozenset({"CURRENT"})
+@@ -102,7 +106,7 @@ def knowledge_metadata(stage: str, filename: str, text: str) -> tuple[dict, str]
+         return [str(v) for v in value] if isinstance(value, list) else ([str(value)] if value else None)
+ 
+     okf = {key: declared[key] for key in ("id", "title", "description", "domain", "language",
+-                                          "owner", "policy_status") if declared.get(key)}
++                                          "owner", "policy_status", "requires_flag") if declared.get(key)}
+     return {
+         **okf,
+         "status": str(declared.get("status") or "CURRENT").upper(),
+@@ -127,13 +131,18 @@ def in_effect(metadata: dict, today: str | None = None) -> bool:
+     Whether an item may be retrieved TODAY: status CURRENT and inside its
+     declared window. An item with no window is always in effect; a superseded
+     or retired one never is, so obsolete text cannot outrank current text.
+-    Dates compare as ISO strings (YYYY-MM-DD).
++    Dates compare as ISO strings (YYYY-MM-DD). An item that declares
++    `requires_flag` is in effect only while that flag is on.
+     """
++    import os
+     from datetime import date
+ 
+     meta = metadata or {}
+     if str(meta.get("status") or "CURRENT").upper() not in RETRIEVABLE:
+         return False
++    flag = meta.get("requires_flag")
++    if flag and (os.getenv(str(flag), "false") or "false").strip().lower() not in _FLAG_ON:
++        return False
+     today = today or date.today().isoformat()
+     starts, ends = meta.get("effective_from"), meta.get("effective_to")
+     if starts and str(starts) > today:
+diff --git a/evals/copilot/assistant_corpus/rag.json b/evals/copilot/assistant_corpus/rag.json
+index d27df3d..196245d 100644
+--- a/evals/copilot/assistant_corpus/rag.json
++++ b/evals/copilot/assistant_corpus/rag.json
+@@ -97,6 +97,9 @@
+   "q": "Can I check the applicant's CIBIL score from this chatbot?",
+   "answerable": true,
+   "source": "faq.md",
++  "also_source_when_flag_on": {
++   "COPILOT_TERMS_KNOWLEDGE": "cibil.md"
++  },
+   "any": [
+    "route_to",
+    "later stages"
+diff --git a/evals/copilot/rag_metrics.py b/evals/copilot/rag_metrics.py
+index 87102a1..847317c 100644
+--- a/evals/copilot/rag_metrics.py
++++ b/evals/copilot/rag_metrics.py
+@@ -51,7 +51,11 @@ def run(report: str | None) -> int:
+     from app.agents.applicant.copilot import agent
+ 
+     cases = json.loads(CORPUS.read_text(encoding="utf-8"))
+-    handbook = _norm(" ".join(p.read_text(encoding="utf-8") for p in HANDBOOK.glob("*.md")))
++    from app.knowledge.markdown_repo import in_effect, knowledge_metadata
++
++    # grounded against the files the index holds right now (a requires_flag file only while its flag is on)
++    texts = [p.read_text(encoding="utf-8") for p in sorted(HANDBOOK.glob("*.md"))]
++    handbook = _norm(" ".join(t for t in texts if in_effect(knowledge_metadata("FOS", "", t)[0])))
+     m = {k: 0 for k in ("answerable", "retrieval_cases", "retrieval_hit", "top1_relevance",
+                         "answer_correct", "citation_correct", "grounded", "unanswerable",
+                         "no_answer_accuracy", "false_confidence")}
+@@ -80,19 +84,24 @@ def run(report: str | None) -> int:
+         if case["answerable"]:
+             m["answerable"] += 1
+             expected = case["source"]
++            # "also_source_when_flag_on": {FLAG: file} -- with that flag on, that file is ALSO a valid source
++            accepted = [expected] + [alt for flag, alt in (case.get("also_source_when_flag_on") or {}).items()
++                                     if (os.getenv(flag, "false") or "false").strip().lower()
++                                     in {"1", "true", "yes", "on"}]
+             if expected != "stage_guide":
+                 m["retrieval_cases"] += 1
+-                hit = confident and any(expected in s for s in sources)
++                hit = confident and any(e in s for e in accepted for s in sources)
+                 m["retrieval_hit"] += hit
+-                m["top1_relevance"] += bool(confident and sources and expected in sources[0])
++                m["top1_relevance"] += bool(confident and sources and any(e in sources[0] for e in accepted))
+                 row["retrieval_hit"] = hit
+             lowered = text.lower()
+             correct = any(a.lower() in lowered for a in case.get("any", [])) and not any(
+                 x.lower() in lowered for x in case.get("lacks", []))
+             m["answer_correct"] += correct
+-            stem = expected.split(".")[0]
+-            cited = expected == "stage_guide" or stem.replace("_", " ") in lowered or stem in json.dumps(
+-                detail.get("citations") or [])
++            stems = [e.split(".")[0] for e in accepted]
++            cited = expected == "stage_guide" or any(
++                stem.replace("_", " ") in lowered or stem in json.dumps(detail.get("citations") or [])
++                for stem in stems)
+             m["citation_correct"] += cited
+             configured = any(str(c).startswith("configuration:") for c in detail.get("citations") or [])
+             sentences = [s for s in re.split(r"(?<=[.!?])\s+|;\s+|\s(?=-\s+\*\*)", body) if len(s.split()) >= 4]
+diff --git a/tests/integration/test_copilot_rag_metrics.py b/tests/integration/test_copilot_rag_metrics.py
+index c506a70..0a66b8e 100644
+--- a/tests/integration/test_copilot_rag_metrics.py
++++ b/tests/integration/test_copilot_rag_metrics.py
+@@ -13,6 +13,8 @@ import subprocess
+ import sys
+ from pathlib import Path
+ 
++import pytest
++
+ ROOT = Path(__file__).resolve().parents[2]
+ 
+ 
+@@ -21,10 +23,13 @@ def _ratio(value: str) -> tuple[int, int]:
+     return int(got), int(total)
+ 
+ 
+-def test_rag_is_grounded_cited_and_never_falsely_confident(tmp_path):
++@pytest.mark.parametrize("terms_knowledge", ["false", "true"], ids=["terms-flag-off", "terms-flag-on"])
++def test_rag_is_grounded_cited_and_never_falsely_confident(tmp_path, terms_knowledge):
+     report = tmp_path / "rag.json"
+     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST")}
+     env["PYTHONIOENCODING"] = "utf-8"
++    # knowledge/fos/cibil.md is indexed only with COPILOT_TERMS_KNOWLEDGE on: both ways must pass
++    env["COPILOT_TERMS_KNOWLEDGE"] = terms_knowledge
+     completed = subprocess.run(
+         [sys.executable, "-m", "evals.copilot.rag_metrics", "--report", str(report)],
+         cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
+diff --git a/knowledge/fos/cibil.md b/knowledge/fos/cibil.md
+new file mode 100644
+index 0000000..ce5949d
+--- /dev/null
++++ b/knowledge/fos/cibil.md
+@@ -0,0 +1,48 @@
++---
++id: fos.cibil
++knowledge_type: HANDBOOK
++title: CIBIL and credit scores
++description: What CIBIL and a credit score are, and where they fit in this loan process.
++domain: credit
++language: en
++source: LOS curated knowledge (this repository)
++requires_flag: COPILOT_TERMS_KNOWLEDGE
++derived_from:
++- app/config/stage_lifecycle.yaml
++related:
++- fos.eligibility_terms
++- fos.fos_workflow
++---
++# CIBIL and credit scores
++
++This chatbot does not fetch CIBIL scores; the credit check happens at the Credit
++stage, one of the later stages of this loan process.
++
++## What is CIBIL?
++
++**CIBIL** (TransUnion CIBIL) is one of India's **credit bureaus**. A credit bureau
++collects how a person has handled loans and credit cards -- repayments, delays,
++defaults, open accounts and recent loan enquiries -- from banks and lenders.
++
++## What is a CIBIL score (credit score)?
++
++A **credit score** is a three-digit number, from **300 to 900**, that a bureau
++calculates from that history. A higher score means a better repayment record.
++
++The score improves with on-time repayments and low use of available credit, and
++falls with late payments, defaults and many loan applications in a short time.
++
++## Approval thresholds
++
++This chatbot cannot state the score needed for a loan approval. Whether an
++application meets the lender's requirements is decided at the **Credit** stage,
++one of the later stages, not at FOS.
++
++## Where it fits in this process
++
++The FOS stage collects documents and checks KYC; it does **not** fetch or decide
++on a credit score. This system does not pull a bureau report. Creditworthiness,
++including any bureau check, is assessed in the later stages, at the **Credit** stage.
++
++So the assistant can explain what a credit score is, but it cannot tell you an
++applicant's score.

@@ -1002,6 +1002,47 @@ templates:
     hi: "सह-आवेदक"
     hi-Latn: "Co-applicant"
     mr: "सह-अर्जदार"
+  # Documents that need action (answering/document_actions.py; COPILOT_DOCUMENT_ACTIONS)
+  docact_kyc_heading:
+    hi: "आपके KYC सत्यापन पर ध्यान देना ज़रूरी है:"
+    hi-Latn: "Aapke KYC verification par dhyan dena zaroori hai:"
+    mr: "तुमच्या KYC पडताळणीकडे लक्ष देणे आवश्यक आहे:"
+  docact_reupload_heading:
+    hi: "कृपया सही दस्तावेज़ अपलोड करें:"
+    hi-Latn: "Kripya sahi documents upload karein:"
+    mr: "कृपया योग्य कागदपत्रे अपलोड करा:"
+  docact_pending_heading:
+    hi: "अभी बाकी:"
+    hi-Latn: "Abhi baaki:"
+    mr: "अजून बाकी:"
+  docact_review_heading:
+    hi: "समीक्षा में (कोई कार्रवाई ज़रूरी नहीं):"
+    hi-Latn: "Review mein (koi action zaroori nahi):"
+    mr: "पुनरावलोकनात (कोणतीही कृती आवश्यक नाही):"
+  docact_none:
+    hi: "अभी किसी दस्तावेज़ पर कोई कार्रवाई ज़रूरी नहीं है।"
+    hi-Latn: "Abhi kisi document par koi action zaroori nahi hai."
+    mr: "सध्या कोणत्याही कागदपत्रावर कृती आवश्यक नाही."
+  docact_mismatch:
+    hi: "{field} मेल नहीं खाता: {values}"
+    hi-Latn: "{field} match nahi hota: {values}"
+    mr: "{field} जुळत नाही: {values}"
+  docact_mismatch_check:
+    hi: "{field} की {documents} में जाँच ज़रूरी है"
+    hi-Latn: "{field} ki {documents} mein jaanch zaroori hai"
+    mr: "{field} ची {documents} मध्ये तपासणी आवश्यक आहे"
+  docact_shows:
+    hi: "{document} पर \"{value}\""
+    hi-Latn: "{document} par \"{value}\""
+    mr: "{document} वर \"{value}\""
+  docact_upload:
+    hi: "अपलोड"
+    hi-Latn: "Upload"
+    mr: "अपलोड"
+  docact_being_verified:
+    hi: "सत्यापन जारी"
+    hi-Latn: "verification chal raha hai"
+    mr: "पडताळणी सुरू"
   doc_status_verified:
     hi: "सत्यापित"
     hi-Latn: "Verified"

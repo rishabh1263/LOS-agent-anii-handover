@@ -419,9 +419,18 @@ async def process(
     co_applicant_pan: str | None = Form(default=None),
     co_applicant_father_name: str | None = Form(default=None),
     co_applicant_address: str | None = Form(default=None),
+    co_applicant_relationship: str | None = Form(
+        default=None, examples=[""],
+        description="**CO-APPLICANT** relationship to the applicant (e.g. SPOUSE). Stored with "
+                    "LOS_COAPP_IDENTITY on."),
     claims: dict[str, Any] = Depends(_PROCESS_SCOPE),
 ):
     request_id = f"los_{uuid.uuid4().hex}"
+    # CO-APPLICANT IDENTITY (LOS_COAPP_IDENTITY, step 5d): the system generates the id;
+    # a supplied one must already belong to this case. Off: exactly as before.
+    from app.agents.los import co_applicants as _co
+
+    co_identity = _co.enabled()
 
     # Validated here so an unknown operation is refused at the boundary with
     # a message naming what IS accepted, rather than surfacing as a 500 from
@@ -476,7 +485,7 @@ async def process(
             },
         )
 
-    if co_files and not str(co_applicant_id or "").strip():
+    if co_files and not str(co_applicant_id or "").strip() and not co_identity:
         # REFUSED, NOT GUESSED. A document with no owner cannot be filed
         # against a case: attributing it to the primary applicant would
         # put one person's evidence on another person's file, which is
@@ -513,12 +522,19 @@ async def process(
         access.authorize_claims(
             claims, applicant_id=_party_or_none(applicant_id),
             case_id=_party_or_none(case_id), write=True, creating=True)
-        if _party_or_none(co_applicant_id):
+        if _party_or_none(co_applicant_id) and not co_identity:
             access.authorize_claims(
                 claims, applicant_id=_party_or_none(co_applicant_id),
                 write=True, creating=True)
     except access.AccessDenied as denied:
         raise access.http_denied(denied, request_id) from None
+    if co_identity and _party_or_none(co_applicant_id):
+        # the case was authorized above; the id must already be ON it
+        try:
+            co_applicant_id = _co.accept_supplied(_party_or_none(case_id), _party_or_none(co_applicant_id).upper())
+        except _co.CoApplicantError as exc:
+            raise HTTPException(status_code=exc.http_status, detail={
+                "request_id": request_id, "error": exc.code, "message": exc.message}) from None
 
     async def build(
         incoming: list[UploadFile],
@@ -577,6 +593,8 @@ async def process(
         return built
 
     co_applicant_id = _party_or_none(co_applicant_id)
+    if co_identity and co_files and not co_applicant_id:
+        co_applicant_id = _co.generate_id()
 
     uploads = await build(list(files), expected_types, "Applicant")
     co_uploads = await build(co_files, co_applicant_expected_types,
@@ -655,7 +673,19 @@ async def process(
             case_id=str(result.get("case_id") or "") or None)
         co_id = str(result.get("co_applicant_id") or "") or _party_or_none(
             co_applicant_id)
-        if co_id:
+        if co_id and co_identity and result.get("case_id"):
+            # THE CO-APPLICANT'S OWN RECORD, with the declared profile (encrypted).
+            # No grant on the co-applicant id: access goes through the case.
+            try:
+                _co.record_intake(str(result["case_id"]), str(result.get("applicant_id") or applicant_id or ""),
+                                  co_id, {"name": co_applicant_name, "date_of_birth": co_applicant_dob,
+                                          "pan_number": co_applicant_pan, "father_name": co_applicant_father_name,
+                                          "address": co_applicant_address}, co_applicant_relationship)
+                _co.fill_verified_names(str(result["case_id"]))
+            except Exception as exc:  # noqa: BLE001 - the upload already succeeded; reported, not hidden
+                logger.error("co-applicant record not written case_id=%s: %s", result.get("case_id"),
+                             type(exc).__name__)
+        elif co_id:
             access.record_ownership(get_subject(claims), applicant_id=co_id)
 
         return result
@@ -843,6 +873,9 @@ async def transition_stage(
             stage_status=body.stage_status, expected_stage=body.expected_stage,
             idempotency_key=body.idempotency_key, request_id=request_id,
             correlation_id=body.correlation_id,
+            # THE ROUTE'S OWN DECISION: OVERRIDE was authorised above (override scope);
+            # with LOS_STAGE_GATE_IN_SERVICE on, every other move is gated in the service
+            override=(mode == "OVERRIDE"),
         )
     except stage_lifecycle.StageTransitionError as exc:
         logger.info("stage_transition result=REFUSED case_id=%s code=%s "

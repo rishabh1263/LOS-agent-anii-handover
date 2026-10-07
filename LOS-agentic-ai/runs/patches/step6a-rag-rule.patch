@@ -1,0 +1,50 @@
+diff --git a/app/agents/applicant/knowledge_answer.py b/app/agents/applicant/knowledge_answer.py
+index e633864..8fbe5bf 100644
+--- a/app/agents/applicant/knowledge_answer.py
++++ b/app/agents/applicant/knowledge_answer.py
+@@ -237,6 +237,26 @@ def _asks_threshold(text: str) -> bool:
+                            r"upper\s+limit|lower\s+limit)\b", text, _re.I))
+ 
+ 
++def _states_threshold(canonical: str, groups: list[list[str]], hits) -> bool:
++    """
++    Whether a THRESHOLD question ("minimum", "cut-off", ...) has a passage that states one.
++
++    THE NUMBER MUST BE IN THE PASSAGE THAT ANSWERS. A digit anywhere in the top
++    three is not a stated threshold: "minimum CIBIL score for approval" came back
++    confident on a definition's "300 to 900" while the passage that covered the
++    question stated none (rag_036, 2026-10-07). The passage carrying the number
++    must itself cover what was asked -- as the rescued path requires of its top
++    passage. Any other question: True.
++    """
++    if not _asks_threshold(canonical):
++        return True
++    return any(
++        any(ch.isdigit() for ch in h.chunk.text)
++        and (len(groups) < 2 or (_group_coverage(groups, h)[0] >= _ACCEPT_COVERAGE
++                                 and _group_coverage(groups, h)[1] >= _MIN_MATCHED))
++        for h in hits)
++
++
+ def _concepts(*texts: str) -> tuple[list[list[str]], set[str]]:
+     """
+     THE ASKED CONCEPTS, each as the handbook words that would answer it, and
+@@ -400,8 +420,7 @@ def _second_look(retriever, question: str, first, limit: int):
+         covers = not groups or len(groups) < 2 or any(
+             _group_coverage(groups, h)[0] >= _ACCEPT_COVERAGE and _group_coverage(groups, h)[1] >= _MIN_MATCHED
+             for h in top)
+-        states_number = not _asks_threshold(canonical) or any(
+-            ch.isdigit() for h in top for ch in h.chunk.text)
++        states_number = _states_threshold(canonical, groups, top)
+         if not covers or _unknown_subject(terms) or not states_number:
+             return replace(first, hits=list(first.hits[:limit]), confident=False)
+     if first.confident:
+@@ -411,6 +430,8 @@ def _second_look(retriever, question: str, first, limit: int):
+                             and _group_coverage(groups, h)[1] >= _MIN_MATCHED
+                             for h in first.hits[:3]):
+             return replace(first, hits=list(first.hits[:limit]), confident=False)
++        if not _states_threshold(canonical, groups, first.hits[:3]):
++            return replace(first, hits=list(first.hits[:limit]), confident=False)
+         if len(groups) < 2:
+             return _trimmed(first, limit)
+         pool = {h.chunk.chunk_id: h for h in first.hits}

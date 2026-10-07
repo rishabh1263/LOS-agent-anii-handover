@@ -110,9 +110,33 @@ async def ready(response: Response) -> dict:
     degraded = bool(mcp.get("degraded")) or jev not in ("READY", "DISABLED")
     dependencies = {"case_store": "READY", "mcp": mcp["status"], "jev": jev}
 
+    # A RULE THAT BLOCKS EVERY CASE (step 5c: signature flag on, no activation
+    # date). The service still answers, so not a 503 -- but never plain READY.
+    from app.agents.applicant import workflow
+    from app.agents.los import co_applicants
+
+    configuration_errors = [e for e in (workflow.signature_rule_config_error(),
+                                        co_applicants.config_error()) if e]
+    if configuration_errors:
+        logger.error("Readiness: configuration error: %s", "; ".join(configuration_errors))
+        degraded = True
+
+    # THE LLM ROUTER'S MODEL (step 6b-tune): while the router is on and Qwen is not
+    # loaded, a router turn would time out into a clarification -- never plain READY.
+    from app.agents.applicant.copilot.semantics import llm_router
+    from app.llm import keep_warm
+
+    if llm_router.enabled():
+        dependencies["llm_router"] = "READY" if keep_warm.is_warm() else "MODEL_NOT_WARM"
+        if not keep_warm.is_warm():
+            degraded = True
+    else:
+        dependencies["llm_router"] = "DISABLED"
+
     return {
         "status": "ready",
         "overall": "DEGRADED" if degraded else "READY",
+        "configuration_errors": configuration_errors,
         "dependencies": dependencies,
         "case_store": store,
         "mcp": mcp,

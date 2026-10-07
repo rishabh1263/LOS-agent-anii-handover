@@ -144,7 +144,7 @@ def validate(text: str, assessment: CreditAssessment):
 async def _generate(payload: dict[str, Any]) -> str:
     import httpx
 
-    from app.llm.config import ollama_host, ollama_model
+    from app.llm.config import ollama_host, ollama_model, with_num_ctx
     from app.security import guardrails
 
     body = {
@@ -155,7 +155,7 @@ async def _generate(payload: dict[str, Any]) -> str:
                 guardrails.untrusted(payload), indent=1, default=str)},
         ],
         "stream": False,
-        "options": {"temperature": 0.1, "num_predict": 110},
+        "options": with_num_ctx({"temperature": 0.1, "num_predict": 110}),
     }
     async with httpx.AsyncClient(timeout=config.memo_timeout_seconds()) as client:
         response = await client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body)
