@@ -102,3 +102,35 @@ def test_the_frontend_flows(client, demo, _store):
     if os.getenv("WRITE_FRONTEND_EXAMPLES") == "1":
         text = re.sub(r'"(fos|cp)_[0-9a-f]{32}"', '"<request_id>"', r.text)
         (OUT / "14_stream.txt").write_text(text[:4000], encoding="utf-8")
+
+
+# ---- what the frontend builds its UI from: /fos/actions and /fos/config -------------------------
+def test_actions_list_only_what_is_on(client, monkeypatch):
+    for flag in ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS"):
+        monkeypatch.delenv(flag, raising=False)
+    off = {a["value"] for a in client.get("/api/v1/fos/actions").json()["actions"]}
+    assert "LIST_CASES" not in off and "RAISE_QUERY" not in off and "CUSTOM_QUERY" in off
+    monkeypatch.setenv("COPILOT_CASE_WORKSPACE", "true")
+    monkeypatch.setenv("COPILOT_CASE_ACTIONS", "true")
+    on = {a["value"]: a for a in client.get("/api/v1/fos/actions").json()["actions"]}
+    assert on["OPEN_CASE"]["group"] == "workspace" and on["OPEN_CASE"]["extra_fields"] == ["case_id"]
+    assert on["RAISE_QUERY"]["extra_fields"] == ["confirm", "query"]
+
+
+def test_write_actions_config_and_error_examples(client, demo):
+    """Example payloads for the supporting endpoints and an error shape (written with WRITE_FRONTEND_EXAMPLES=1)."""
+    save("15_actions", {"method": "GET", "path": "/api/v1/fos/actions"}, client.get("/api/v1/fos/actions").json())
+    full = client.get("/api/v1/fos/config").json()
+    save("16_config_features", {"method": "GET", "path": "/api/v1/fos/config"},
+         {key: full[key] for key in ("features", "endpoints", "workspace")})
+    body = {"action": "OPEN_CASE", "case_id": "CASE-NOTMINE00001"}
+    r = client.post("/api/v1/fos/copilot", json=body)
+    save("17_error_not_yours", body, {"status": r.status_code, **r.json()})
+    assert r.status_code in (403, 404)
+
+
+def test_config_tells_the_frontend_which_features_are_on(client, demo):
+    body = client.get("/api/v1/fos/config").json()
+    assert body["features"]["case_workspace"] is True and body["features"]["streaming"] is True
+    assert body["endpoints"]["stream"] == "/api/v1/fos/copilot/stream"
+    assert body["workspace"]["quick_questions"] == ["Kya baaki hai?", "Kyu atka hai?", "Co-applicant", "Summary"]

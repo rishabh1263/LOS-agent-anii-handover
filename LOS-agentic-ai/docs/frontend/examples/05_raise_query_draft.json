@@ -5,7 +5,7 @@
   },
   "response": {
     "request_id": "<request_id>",
-    "case_id": "CASE-A2AF2B678D6B",
+    "case_id": "CASE-AB355D618BF7",
     "intent": "RAISE_QUERY_DRAFT",
     "answer": "📝 **Draft query** for Applicant -- **PAN (Permanent Account Number)**:\n> PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.\n👉 Send it, or edit it first?",
     "category": "CASE_ONLY",
@@ -18,30 +18,30 @@
     "query_draft": {
       "target_type": "DOCUMENT",
       "query_type": "VERIFICATION_ISSUE",
-      "target_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+      "target_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
       "text": "PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy."
     },
     "actions": [
       {
         "type": "RAISE_QUERY",
-        "case_id": "CASE-A2AF2B678D6B",
+        "case_id": "CASE-AB355D618BF7",
         "confirm": true,
         "query": {
           "target_type": "DOCUMENT",
           "query_type": "VERIFICATION_ISSUE",
-          "target_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+          "target_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
           "text": "PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy."
         },
         "label": "Send"
       },
       {
         "type": "RAISE_QUERY",
-        "case_id": "CASE-A2AF2B678D6B",
+        "case_id": "CASE-AB355D618BF7",
         "confirm": false,
         "query": {
           "target_type": "DOCUMENT",
           "query_type": "VERIFICATION_ISSUE",
-          "target_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+          "target_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
           "text": "PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy."
         },
         "label": "Edit",
@@ -54,7 +54,25 @@
         "PAN"
       ]
     },
+    "emphasis": [
+      {
+        "text": "verified",
+        "start": 82,
+        "end": 90
+      }
+    ],
+    "answer_plain": "📝 Draft query for Applicant -- PAN (Permanent Account Number):\n> PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.\n👉 Send it, or edit it first?",
+    "answer_markdown": "📝 Draft query for Applicant -- PAN (Permanent Account Number):\n> PAN could not be **verified**: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.\n👉 Send it, or edit it first?",
     "presentation": {
+      "emphasis": [
+        {
+          "text": "verified",
+          "start": 82,
+          "end": 90
+        }
+      ],
+      "answer_markdown": "📝 Draft query for Applicant -- PAN (Permanent Account Number):\n> PAN could not be **verified**: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.\n👉 Send it, or edit it first?",
+      "answer_plain": "📝 Draft query for Applicant -- PAN (Permanent Account Number):\n> PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.\n👉 Send it, or edit it first?",
       "message": "> PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy. 👉 Send it, or edit it first?",
       "intent": "RAISE_QUERY_DRAFT",
       "response_type": "ANSWER",
@@ -73,7 +91,7 @@
         "format": "wav"
       },
       "case_context": {
-        "case_id": "CASE-A2AF2B678D6B",
+        "case_id": "CASE-AB355D618BF7",
         "applicant_id": null,
         "stage": null
       },

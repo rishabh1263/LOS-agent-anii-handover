@@ -5,7 +5,7 @@
   "response": {
     "request_id": "<request_id>",
     "intent": "CASE_LIST",
-    "answer": "🔒 **CASE-A2AF2B678D6B** closed.\n\n📂 **Your cases** -- 2 total · ⏳ 2 pending\n\n1. **CASE-A5C1C58A1704** (Priya V.) · 📍 FOS · ⏳ 3 docs pending\n2. **CASE-A2AF2B678D6B** (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
+    "answer": "🔒 **CASE-AB355D618BF7** closed.\n\n📂 **Your cases** -- 2 total · ⏳ 2 pending\n\n1. **CASE-F7AD07E53966** (Priya V.) · 📍 FOS · ⏳ 3 docs pending\n2. **CASE-AB355D618BF7** (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
     "category": "CASE_ONLY",
     "query_type": "CASE_FACT",
     "response_source": "STRUCTURED",
@@ -23,8 +23,8 @@
       "case_list": [
         {
           "number": 1,
-          "case_id": "CASE-A5C1C58A1704",
-          "applicant_id": "APP-92BF31107A01",
+          "case_id": "CASE-F7AD07E53966",
+          "applicant_id": "APP-592D56C9BB98",
           "applicant_name": "Priya V.",
           "stage": "FOS",
           "status_label": "⏳ 3 docs pending",
@@ -32,13 +32,13 @@
           "emoji": "⏳",
           "action": {
             "type": "open_case",
-            "case_id": "CASE-A5C1C58A1704"
+            "case_id": "CASE-F7AD07E53966"
           }
         },
         {
           "number": 2,
-          "case_id": "CASE-A2AF2B678D6B",
-          "applicant_id": "APP-412D61CC2C7A",
+          "case_id": "CASE-AB355D618BF7",
+          "applicant_id": "APP-B597637EF37D",
           "applicant_name": "Rahul S.",
           "stage": "FOS",
           "status_label": "⏳ 3 docs pending",
@@ -46,7 +46,7 @@
           "emoji": "⏳",
           "action": {
             "type": "open_case",
-            "case_id": "CASE-A2AF2B678D6B"
+            "case_id": "CASE-AB355D618BF7"
           }
         }
       ],
@@ -64,12 +64,21 @@
       "applied": true,
       "expanded": []
     },
+    "emphasis": [
+      {
+        "text": "pending",
+        "start": 59,
+        "end": 66
+      }
+    ],
+    "answer_plain": "🔒 CASE-AB355D618BF7 closed.\n\n📂 Your cases -- 2 total · ⏳ 2 pending\n\n1. CASE-F7AD07E53966 (Priya V.) · 📍 FOS · ⏳ 3 docs pending\n2. CASE-AB355D618BF7 (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
+    "answer_markdown": "🔒 CASE-AB355D618BF7 closed.\n\n📂 Your cases -- 2 total · ⏳ 2 **pending**\n\n1. CASE-F7AD07E53966 (Priya V.) · 📍 FOS · ⏳ 3 docs pending\n2. CASE-AB355D618BF7 (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
     "presentation": {
       "case_list": [
         {
           "number": 1,
-          "case_id": "CASE-A5C1C58A1704",
-          "applicant_id": "APP-92BF31107A01",
+          "case_id": "CASE-F7AD07E53966",
+          "applicant_id": "APP-592D56C9BB98",
           "applicant_name": "Priya V.",
           "stage": "FOS",
           "status_label": "⏳ 3 docs pending",
@@ -77,13 +86,13 @@
           "emoji": "⏳",
           "action": {
             "type": "open_case",
-            "case_id": "CASE-A5C1C58A1704"
+            "case_id": "CASE-F7AD07E53966"
           }
         },
         {
           "number": 2,
-          "case_id": "CASE-A2AF2B678D6B",
-          "applicant_id": "APP-412D61CC2C7A",
+          "case_id": "CASE-AB355D618BF7",
+          "applicant_id": "APP-B597637EF37D",
           "applicant_name": "Rahul S.",
           "stage": "FOS",
           "status_label": "⏳ 3 docs pending",
@@ -91,7 +100,7 @@
           "emoji": "⏳",
           "action": {
             "type": "open_case",
-            "case_id": "CASE-A2AF2B678D6B"
+            "case_id": "CASE-AB355D618BF7"
           }
         }
       ],
@@ -101,7 +110,16 @@
       },
       "page": 0,
       "has_more": false,
-      "message": "🔒 **CASE-A2AF2B678D6B** closed. 📂 **Your cases** -- 2 total · ⏳ 2 pending 1. **CASE-A5C1C58A1704** (Priya V.) · 📍 FOS · ⏳ 3 docs pending 2. **CASE-A2AF2B678D6B** (Rahul S.) · 📍 FOS · ⏳ 3 docs pending 👉 Kis case mein jaana hai?",
+      "emphasis": [
+        {
+          "text": "pending",
+          "start": 59,
+          "end": 66
+        }
+      ],
+      "answer_markdown": "🔒 CASE-AB355D618BF7 closed.\n\n📂 Your cases -- 2 total · ⏳ 2 **pending**\n\n1. CASE-F7AD07E53966 (Priya V.) · 📍 FOS · ⏳ 3 docs pending\n2. CASE-AB355D618BF7 (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
+      "answer_plain": "🔒 CASE-AB355D618BF7 closed.\n\n📂 Your cases -- 2 total · ⏳ 2 pending\n\n1. CASE-F7AD07E53966 (Priya V.) · 📍 FOS · ⏳ 3 docs pending\n2. CASE-AB355D618BF7 (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
+      "message": "🔒 **CASE-AB355D618BF7** closed. 📂 **Your cases** -- 2 total · ⏳ 2 pending 1. **CASE-F7AD07E53966** (Priya V.) · 📍 FOS · ⏳ 3 docs pending 2. **CASE-AB355D618BF7** (Rahul S.) · 📍 FOS · ⏳ 3 docs pending 👉 Kis case mein jaana hai?",
       "intent": "CASE_LIST",
       "response_type": "ANSWER",
       "response_depth": "NORMAL",
@@ -114,7 +132,7 @@
         "status": "NO_VOICE_FOR_LANGUAGE",
         "language": null,
         "voice": null,
-        "text": "🔒 **CASE-A2AF2B678D6B** closed. 📂 **Your cases**, 2 total ·  2 pending. 1. **CASE-A5C1C58A1704** (Priya V.) · 📍 FOS ·  3 docs pending. 2. **CASE-A2AF2B678D6B** (Rahul S.) · 📍 FOS ·  3 docs pending. 👉 Kis case mein jaana hai?",
+        "text": "🔒 **CASE-AB355D618BF7** closed. 📂 **Your cases**, 2 total ·  2 pending. 1. **CASE-F7AD07E53966** (Priya V.) · 📍 FOS ·  3 docs pending. 2. **CASE-AB355D618BF7** (Rahul S.) · 📍 FOS ·  3 docs pending. 👉 Kis case mein jaana hai?",
         "endpoint": null,
         "format": "wav"
       },

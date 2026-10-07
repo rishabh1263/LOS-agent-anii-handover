@@ -300,7 +300,9 @@ def test_there_is_exactly_one_universal_copilot_endpoint():
     paths = [p for p in main.app.openapi()["paths"] if "copilot" in p]
 
     assert "/api/v1/copilot/query" in paths
-    assert sorted(paths) == ["/api/v1/copilot/query", "/api/v1/fos/copilot"]
+    # /fos/copilot/stream (Phase 3 step 7) is the SAME FOS endpoint delivered as Server-Sent Events -- the same
+    # handler and pipeline (fos_api.copilot_stream calls copilot()), not a second copilot
+    assert sorted(paths) == ["/api/v1/copilot/query", "/api/v1/fos/copilot", "/api/v1/fos/copilot/stream"]
 
 
 def test_every_stage_reaches_the_same_endpoint(client, repo):

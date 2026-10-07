@@ -2745,6 +2745,16 @@ def _raise_from(request_id: str, envelope) -> None:
     "/copilot/stream",
     summary="The FOS copilot as Server-Sent Events: status lines while it works, then the answer (step 7)",
     responses={200: {"content": {"text/event-stream": {}}}, 404: {"description": "Streaming is off."}},
+    # the SAME JSON body as /fos/copilot; declared so Swagger "Try it out" shows a body box (it sent none -> JSONDecodeError)
+    openapi_extra={"requestBody": {"required": True, "content": {"application/json": {
+        "schema": {"$ref": "#/components/schemas/CopilotRequest"},
+        "examples": {
+            "in_case_question": {"summary": "CUSTOM_QUERY on a case",
+                                 "value": {"applicant_id": "APP-3D51FFAC6342", "case_id": "CASE-7DFE2F497522",
+                                           "action": "CUSTOM_QUERY", "message": "kaunse documents pending hain?"}},
+            "case_list": {"summary": "CUSTOM_QUERY -- my cases (case workspace on)",
+                          "value": {"action": "CUSTOM_QUERY", "message": "mere cases dikhao"}},
+        }}}}},
 )
 async def copilot_stream(request: Request, claims: dict[str, Any] = Depends(require_jwt)):
     """
@@ -2952,6 +2962,21 @@ async def post_documents(
     ),
 )
 async def actions(claims: dict[str, Any] = Depends(require_jwt)):
+    # ONLY WHAT THIS DEPLOYMENT ACCEPTS (Phase 3): the workspace / case actions are listed only while
+    # their flag is on -- a frontend that builds its buttons from this never shows one that returns 422.
+    from app.agents.applicant.copilot.capabilities import case_actions as _ca
+    from app.agents.applicant.copilot.capabilities import workspace as _ws
+
+    def offered(action: FosAction) -> bool:
+        if action in _WORKSPACE_ACTIONS:
+            return _ws.enabled()
+        if action in _CASE_ACTIONS:
+            return _ca.enabled()
+        return True
+
+    group = {**{a: "workspace" for a in _WORKSPACE_ACTIONS}, **{a: "case_action" for a in _CASE_ACTIONS}}
+    extra = {FosAction.OPEN_CASE: ["case_id"], FosAction.VIEW_DOCUMENT: ["document_id"],
+             FosAction.RAISE_QUERY: ["confirm", "query"], FosAction.MARK_QUERY_SENT: ["query_id"]}
     return {
         "actions": [
             {
@@ -2962,8 +2987,10 @@ async def actions(claims: dict[str, Any] = Depends(require_jwt)):
                 "content_type": ("multipart/form-data"
                                  if action is FosAction.UPLOAD_DOCUMENT
                                  else "application/json"),
+                "group": group.get(action, "case"),
+                "extra_fields": extra.get(action, []),
             }
-            for action in FosAction
+            for action in FosAction if offered(action)
         ],
     }
 
@@ -3018,7 +3045,45 @@ async def fos_config(claims: dict[str, Any] = Depends(require_jwt)):
         # attributes; these say which ones matter.
         "policies": policies,
         "query_types": [t.value for t in _QueryType],
+        # WHAT THE CHAT UI SHOULD SHOW (Phase 3): the features this deployment has on, where to call, and
+        # the workspace settings -- a frontend reads this instead of hard-coding, so turning a feature on or
+        # off needs no frontend release. Contract: docs/frontend/FRONTEND_API.md.
+        **_frontend_features(),
     }
+
+
+def _frontend_features() -> dict[str, Any]:
+    import os
+
+    from app.agents.applicant.copilot.answering import document_actions as _da
+    from app.agents.applicant.copilot.answering import streaming as _st
+    from app.agents.applicant.copilot.answering import style as _sy
+    from app.agents.applicant.copilot.capabilities import case_actions as _ca
+    from app.agents.applicant.copilot.capabilities import safety as _sa
+    from app.agents.applicant.copilot.capabilities import workspace as _ws
+    from app.agents.applicant.copilot.conversation.state import memory_enabled
+    from app.agents.applicant.copilot.semantics import llm_router as _lr
+    from app.agents.los import co_applicants as _co
+
+    features = {
+        "case_workspace": _ws.enabled(), "case_actions": _ca.enabled(), "streaming": _st.enabled(),
+        "response_style": _sy.enabled(), "verify_diagnose": _da.diagnose_enabled(),
+        "document_actions": _da.enabled(), "guardrail_hardening": _sa.enabled(),
+        "session_memory": memory_enabled(), "party_recognition": _party_recognition_on(),
+        "co_applicant_identity": _co.enabled(), "llm_router": _lr.enabled(),
+        "emphasis": (os.getenv("COPILOT_EMPHASIS", "false") or "false").strip().lower() in {"1", "true", "yes", "on"},
+    }
+    endpoints = {"copilot": "/api/v1/fos/copilot", "actions": "/api/v1/fos/actions", "config": "/api/v1/fos/config"}
+    if features["streaming"]:
+        endpoints["stream"] = "/api/v1/fos/copilot/stream"
+    if features["case_actions"]:
+        endpoints["view_document"] = "/api/v1/fos/documents/view?token={token}"
+    out: dict[str, Any] = {"features": features, "endpoints": endpoints}
+    if features["case_workspace"]:
+        cfg = config.chatbot("case_workspace") or {}
+        out["workspace"] = {"page_size": cfg.get("page_size", 10), "quick_questions": cfg.get("quick_questions") or [],
+                            "list_message": "mere cases dikhao"}
+    return out
 
 
 @router.get(

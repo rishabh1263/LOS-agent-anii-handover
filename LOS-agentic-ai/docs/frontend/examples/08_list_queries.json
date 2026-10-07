@@ -4,9 +4,9 @@
   },
   "response": {
     "request_id": "<request_id>",
-    "case_id": "CASE-A2AF2B678D6B",
+    "case_id": "CASE-AB355D618BF7",
     "intent": "LIST_QUERIES",
-    "answer": "📋 **Queries on this case**\n- **QRY-5F7C1B6F2C** · OPEN · 0d · **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
+    "answer": "📋 **Queries on this case**\n- **QRY-811CBF4FE6** · OPEN · 0d · **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
     "category": "CASE_ONLY",
     "query_type": "ACTION_REQUEST",
     "response_source": "STRUCTURED",
@@ -16,7 +16,7 @@
     "suggested_questions": [],
     "queries": [
       {
-        "query_id": "QRY-5F7C1B6F2C",
+        "query_id": "QRY-811CBF4FE6",
         "reason": "PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
         "status": "OPEN",
         "days_open": 0,
@@ -29,8 +29,26 @@
         "PAN"
       ]
     },
+    "emphasis": [
+      {
+        "text": "verified",
+        "start": 98,
+        "end": 106
+      }
+    ],
+    "answer_plain": "📋 Queries on this case\n- QRY-811CBF4FE6 · OPEN · 0d · PAN (Permanent Account Number) could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
+    "answer_markdown": "📋 Queries on this case\n- QRY-811CBF4FE6 · OPEN · 0d · PAN (Permanent Account Number) could not be **verified**: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
     "presentation": {
-      "message": "📋 **Queries on this case** - **QRY-5F7C1B6F2C** · OPEN · 0d · **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
+      "emphasis": [
+        {
+          "text": "verified",
+          "start": 98,
+          "end": 106
+        }
+      ],
+      "answer_markdown": "📋 Queries on this case\n- QRY-811CBF4FE6 · OPEN · 0d · PAN (Permanent Account Number) could not be **verified**: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
+      "answer_plain": "📋 Queries on this case\n- QRY-811CBF4FE6 · OPEN · 0d · PAN (Permanent Account Number) could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
+      "message": "📋 **Queries on this case** - **QRY-811CBF4FE6** · OPEN · 0d · **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
       "intent": "LIST_QUERIES",
       "response_type": "ANSWER",
       "response_depth": "NORMAL",
@@ -43,12 +61,12 @@
         "status": "NO_VOICE_FOR_LANGUAGE",
         "language": null,
         "voice": null,
-        "text": "📋 **Queries on this case**. **QRY-5F7C1B6F2C** · OPEN · 0d · **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
+        "text": "📋 **Queries on this case**. **QRY-811CBF4FE6** · OPEN · 0d · **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
         "endpoint": null,
         "format": "wav"
       },
       "case_context": {
-        "case_id": "CASE-A2AF2B678D6B",
+        "case_id": "CASE-AB355D618BF7",
         "applicant_id": null,
         "stage": null
       },

@@ -25,7 +25,25 @@
       "applied": true,
       "expanded": []
     },
+    "emphasis": [
+      {
+        "text": "pending",
+        "start": 150,
+        "end": 157
+      }
+    ],
+    "answer_plain": "⚠️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is pending.",
+    "answer_markdown": "⚠️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is **pending**.",
     "presentation": {
+      "emphasis": [
+        {
+          "text": "pending",
+          "start": 150,
+          "end": 157
+        }
+      ],
+      "answer_markdown": "⚠️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is **pending**.",
+      "answer_plain": "⚠️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is pending.",
       "message": null,
       "intent": "SOCIAL_ENGINEERING",
       "response_type": "ANSWER",
