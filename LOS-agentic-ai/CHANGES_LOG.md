@@ -1214,3 +1214,15 @@ documents/view), examples/01..14, widget.html; contract test tests/integration/t
   and `workspace` (page_size, quick_questions, list_message) -- the UI adapts without a frontend release.
 - docs/frontend/FRONTEND_API.md section 2a; openapi.yaml now also has /fos/actions and /fos/config.
 - Tests: test_frontend_contract.py 3 passed. The repo's `frontend/` folder was NOT touched.
+
+## .env -- Phase 3 features turned ON (user, 2026-10-07: "sab on kro joh bhi new h use hone wali h")
+- Backup first: `.env.bak-before-phase3-flags`. Appended (no existing line changed, no secret touched):
+  COPILOT_CASE_WORKSPACE, COPILOT_CASE_ACTIONS, COPILOT_RESPONSE_STYLE, COPILOT_VERIFY_DIAGNOSE, COPILOT_DOCUMENT_ACTIONS,
+  COPILOT_TERMS_KNOWLEDGE, COPILOT_LOCALIZED_KYC_REASONS, COPILOT_SINGLE_CASE_RESOLVE, COPILOT_EMPHASIS,
+  COPILOT_STREAMING, COPILOT_SESSION_MEMORY, LOS_COAPP_IDENTITY, COPILOT_PARTY_RECOGNITION, COPILOT_GUARDRAIL_HARDENING
+  = true. COPILOT_LLM_ROUTER is on by default.
+- Kept OFF on purpose: LOS_STAGE_GATE_IN_SERVICE (go-live decision, step 8 stop), LOS_FOS_CPA_KYC_RULE (KYC sign-off),
+  LOS_SIGNATURE_MANDATORY (needs an activation date or every case blocks), LOS_COAPP_MANDATORY_DOCS (blocks 2 READY).
+- Verified: /fos/config features all ON, co-applicant config error none (0004-0006 applied on dev).
+- tests/conftest.py now pins these flags OFF in tests (main.py loads .env at import; each test turns on its own).
+- Takes effect at the next server start. Undo: restore .env from the backup.

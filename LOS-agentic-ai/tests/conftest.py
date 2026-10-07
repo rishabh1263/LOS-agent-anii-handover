@@ -193,6 +193,21 @@ def stage_rules_off_by_default(monkeypatch):
     monkeypatch.setenv("LOS_FOS_CPA_KYC_RULE", "false")
 
 
+#: Phase 3 feature flags a developer's .env may turn on (README_CHATBOT "Demo setup"). main.py loads .env
+#: at import, so without this every "flag off" test would see them ON. Each test that needs one sets it.
+_PHASE3_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESPONSE_STYLE", "COPILOT_VERIFY_DIAGNOSE",
+                 "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_LOCALIZED_KYC_REASONS",
+                 "COPILOT_SINGLE_CASE_RESOLVE", "COPILOT_EMPHASIS", "COPILOT_STREAMING", "COPILOT_SESSION_MEMORY",
+                 "LOS_COAPP_IDENTITY", "COPILOT_PARTY_RECOGNITION", "COPILOT_GUARDRAIL_HARDENING",
+                 "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY")
+
+
+@pytest.fixture(autouse=True)
+def phase3_flags_off_by_default(monkeypatch):
+    for flag in _PHASE3_FLAGS:
+        monkeypatch.delenv(flag, raising=False)
+
+
 @pytest.fixture(autouse=True)
 def llm_router_off_by_default(monkeypatch):
     """
