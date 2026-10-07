@@ -1,0 +1,39 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/fos/config"
+  },
+  "response": {
+    "features": {
+      "case_workspace": true,
+      "case_actions": true,
+      "streaming": true,
+      "response_style": true,
+      "verify_diagnose": true,
+      "document_actions": true,
+      "guardrail_hardening": true,
+      "session_memory": false,
+      "party_recognition": false,
+      "co_applicant_identity": false,
+      "llm_router": false,
+      "emphasis": false
+    },
+    "endpoints": {
+      "copilot": "/api/v1/fos/copilot",
+      "actions": "/api/v1/fos/actions",
+      "config": "/api/v1/fos/config",
+      "stream": "/api/v1/fos/copilot/stream",
+      "view_document": "/api/v1/fos/documents/view?token={token}"
+    },
+    "workspace": {
+      "page_size": 10,
+      "quick_questions": [
+        "Kya baaki hai?",
+        "Kyu atka hai?",
+        "Co-applicant",
+        "Summary"
+      ],
+      "list_message": "mere cases dikhao"
+    }
+  }
+}

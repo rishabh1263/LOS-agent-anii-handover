@@ -1,0 +1,20 @@
+{
+  "request": {
+    "action": "OPEN_CASE",
+    "case_id": "CASE-NOTMINE00001"
+  },
+  "response": {
+    "status": 403,
+    "detail": {
+      "code": "CASE_ACCESS_DENIED",
+      "message": "You are not authorized to access this case.",
+      "request_id": "<request_id>"
+    },
+    "error": {
+      "code": "CASE_ACCESS_DENIED",
+      "message": "You are not authorized to access this case.",
+      "retryable": false,
+      "request_id": "<request_id>"
+    }
+  }
+}

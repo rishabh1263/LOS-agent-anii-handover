@@ -5,11 +5,11 @@
   },
   "response": {
     "request_id": "<request_id>",
-    "applicant_id": "APP-412D61CC2C7A",
-    "case_id": "CASE-A2AF2B678D6B",
+    "applicant_id": "APP-B597637EF37D",
+    "case_id": "CASE-AB355D618BF7",
     "action": "GET_PENDING_ITEMS",
     "intent": "PENDING_ITEMS",
-    "answer": "📍 CASE-A2AF2B678D6B\n⏳ Please upload the correct documents:\n📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to **CPA**.",
+    "answer": "📍 CASE-AB355D618BF7\n⏳ Please upload the correct documents:\n📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to **CPA**.",
     "applicant": null,
     "application": null,
     "stage": null,
@@ -44,7 +44,7 @@
         "status": "REJECTED",
         "fulfilment": "FAILED",
         "document_type": "PAN",
-        "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+        "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
         "reason_codes": [
           "DOCUMENT_UNREADABLE"
         ],
@@ -282,7 +282,7 @@
     },
     "query_type": "CASE_FACT",
     "case_state": {
-      "case_id": "CASE-A2AF2B678D6B",
+      "case_id": "CASE-AB355D618BF7",
       "product": "PERSONAL_LOAN",
       "stage": "APPLICATION_CREATED",
       "readiness": "NOT_READY",
@@ -342,7 +342,7 @@
     "followed_up": null,
     "context": {
       "conversation_id": null,
-      "case_id": "CASE-A2AF2B678D6B",
+      "case_id": "CASE-AB355D618BF7",
       "last_query_type": "CASE_FACT",
       "last_intent": "PENDING_ITEMS",
       "last_slot": "PAN",
@@ -404,7 +404,7 @@
     "actions": [],
     "route_to": null,
     "response_source": "STRUCTURED",
-    "processing_ms": 3.77,
+    "processing_ms": 6.86,
     "errors": [],
     "summary": "The application is open. 3 item(s) remain outstanding.",
     "status": null,
@@ -442,7 +442,7 @@
             "party_label": "Applicant",
             "document_type": "PAN",
             "label": "PAN",
-            "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+            "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
             "reasons": [
               "Too little text could be read from this document. Re-upload a clearer copy."
             ],
@@ -489,8 +489,8 @@
         ]
       },
       "workspace": {
-        "case_id": "CASE-A2AF2B678D6B",
-        "header": "📍 CASE-A2AF2B678D6B",
+        "case_id": "CASE-AB355D618BF7",
+        "header": "📍 CASE-AB355D618BF7",
         "buttons": [
           {
             "type": "exit_case",
@@ -522,7 +522,21 @@
           }
         ]
       },
-      "message": "📍 CASE-A2AF2B678D6B 📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy. 📄 Address Proof [Upload] 📄 Bank Statement [Upload] 👉 Clear these to move the case to **CPA**.",
+      "emphasis": [
+        {
+          "text": "PAN",
+          "start": 61,
+          "end": 64
+        },
+        {
+          "text": "Address Proof",
+          "start": 196,
+          "end": 209
+        }
+      ],
+      "answer_markdown": "📍 CASE-AB355D618BF7\n⏳ Please upload the correct documents:\n📄 **PAN** (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 **Address Proof** [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to CPA.",
+      "answer_plain": "📍 CASE-AB355D618BF7\n⏳ Please upload the correct documents:\n📄 PAN (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to CPA.",
+      "message": "📍 CASE-AB355D618BF7 📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy. 📄 Address Proof [Upload] 📄 Bank Statement [Upload] 👉 Clear these to move the case to **CPA**.",
       "intent": "PENDING_ITEMS",
       "response_type": "STATUS",
       "response_depth": "BRIEF",
@@ -539,13 +553,13 @@
         "status": "DEGRADED",
         "language": "en",
         "voice": "Zira",
-        "text": "📍 CASE-A2AF2B678D6B. Please upload the correct documents: 📄 **PAN (Permanent Account Number)** [Upload], Too little text could be read from this document. Re-upload a clearer copy. Still pending: 📄 Address Proof [Upload]. 📄 Bank Statement [Upload]. 👉 Clear these to move the case to **CPA**.",
+        "text": "📍 CASE-AB355D618BF7. Please upload the correct documents: 📄 **PAN (Permanent Account Number)** [Upload], Too little text could be read from this document. Re-upload a clearer copy. Still pending: 📄 Address Proof [Upload]. 📄 Bank Statement [Upload]. 👉 Clear these to move the case to **CPA**.",
         "endpoint": null,
         "format": "wav"
       },
       "case_context": {
-        "case_id": "CASE-A2AF2B678D6B",
-        "applicant_id": "APP-412D61CC2C7A",
+        "case_id": "CASE-AB355D618BF7",
+        "applicant_id": "APP-B597637EF37D",
         "stage": null
       },
       "sections": [
@@ -617,8 +631,8 @@
     },
     "workspace_view": {
       "workspace": {
-        "case_id": "CASE-A2AF2B678D6B",
-        "header": "📍 CASE-A2AF2B678D6B",
+        "case_id": "CASE-AB355D618BF7",
+        "header": "📍 CASE-AB355D618BF7",
         "buttons": [
           {
             "type": "exit_case",
@@ -658,7 +672,7 @@
           "party_label": "Applicant",
           "document_type": "PAN",
           "label": "PAN",
-          "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+          "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
           "reasons": [
             "Too little text could be read from this document. Re-upload a clearer copy."
           ],
@@ -710,6 +724,20 @@
       "expanded": [
         "PAN"
       ]
-    }
+    },
+    "emphasis": [
+      {
+        "text": "PAN",
+        "start": 61,
+        "end": 64
+      },
+      {
+        "text": "Address Proof",
+        "start": 196,
+        "end": 209
+      }
+    ],
+    "answer_plain": "📍 CASE-AB355D618BF7\n⏳ Please upload the correct documents:\n📄 PAN (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to CPA.",
+    "answer_markdown": "📍 CASE-AB355D618BF7\n⏳ Please upload the correct documents:\n📄 **PAN** (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 **Address Proof** [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to CPA."
   }
 }

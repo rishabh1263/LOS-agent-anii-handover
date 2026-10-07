@@ -5,14 +5,14 @@
   },
   "response": {
     "request_id": "<request_id>",
-    "applicant_id": "APP-412D61CC2C7A",
-    "case_id": "CASE-A2AF2B678D6B",
+    "applicant_id": "APP-B597637EF37D",
+    "case_id": "CASE-AB355D618BF7",
     "action": "CUSTOM_QUERY",
     "intent": "DOCUMENTS_PENDING",
-    "answer": "📍 CASE-A2AF2B678D6B\n⏳ Kripya sahi documents upload karein:\n📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nAbhi baaki:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Upload these to move the case to **CPA**.",
+    "answer": "📍 CASE-AB355D618BF7\n⏳ Kripya sahi documents upload karein:\n📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nAbhi baaki:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Upload these to move the case to **CPA**.",
     "query_type": "CASE_FACT",
     "case_state": {
-      "case_id": "CASE-A2AF2B678D6B",
+      "case_id": "CASE-AB355D618BF7",
       "product": "PERSONAL_LOAN",
       "stage": "APPLICATION_CREATED",
       "readiness": "NOT_READY",
@@ -69,7 +69,7 @@
     ],
     "document_highlights": [
       {
-        "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+        "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
         "document_type": "PAN",
         "status": "REJECTED",
         "severity": "BLOCKED",
@@ -84,8 +84,8 @@
     "clarification_required": null,
     "followed_up": null,
     "context": {
-      "conversation_id": "2338c6f6b9774629bec791d35f7d0743",
-      "case_id": "CASE-A2AF2B678D6B",
+      "conversation_id": "be0615132ee542a9812bc70d79c5b8d4",
+      "case_id": "CASE-AB355D618BF7",
       "last_query_type": "CASE_FACT",
       "last_intent": "DOCUMENTS_PENDING",
       "last_slot": "PAN",
@@ -128,7 +128,7 @@
         "consulted": false,
         "status": "NOT_NEEDED"
       },
-      "parse_ms": 0.16,
+      "parse_ms": 0.18,
       "case_stage": "FOS",
       "model_routing": {
         "route": "FAST",
@@ -136,7 +136,7 @@
         "phrased_by_model": false
       },
       "conversation": {
-        "conversation_id": "2338c6f6b9774629bec791d35f7d0743",
+        "conversation_id": "be0615132ee542a9812bc70d79c5b8d4",
         "turn_id": 1,
         "outcome": "NEW_TOPIC",
         "note": null,
@@ -144,7 +144,7 @@
         "turn_type": "NEW_REQUEST",
         "pending_after": null,
         "state": {
-          "conversation_id": "2338c6f6b9774629bec791d35f7d0743",
+          "conversation_id": "be0615132ee542a9812bc70d79c5b8d4",
           "turn_id": 1,
           "current_topic": "DOCUMENTS",
           "active_party": "SELF",
@@ -175,7 +175,7 @@
     "observability": {
       "correlation_id": "<request_id>",
       "surface": "fos",
-      "conversation_id": "2338c6f6b9774629bec791d35f7d0743",
+      "conversation_id": "be0615132ee542a9812bc70d79c5b8d4",
       "turn_id": 1,
       "turn_type": "NEW_REQUEST",
       "outcome": "NEW_TOPIC",
@@ -214,13 +214,13 @@
       "status": "OK",
       "error": null,
       "latency": {
-        "security_ms": 0.68,
-        "conversation_ms": 13.13,
-        "routing_ms": 1.84,
-        "summary_ms": 371.02,
-        "language_ms": 0.15,
-        "total_ms": 38.51,
-        "semantic_ms": 0.16
+        "security_ms": 0.87,
+        "conversation_ms": 17.71,
+        "routing_ms": 2.16,
+        "summary_ms": 533.64,
+        "language_ms": 0.13,
+        "total_ms": 57.83,
+        "semantic_ms": 0.18
       }
     },
     "pending_items": [
@@ -258,7 +258,7 @@
     "category": "CASE_ONLY",
     "actions": [],
     "response_source": "STRUCTURED",
-    "processing_ms": 22.96,
+    "processing_ms": 30.27,
     "errors": [],
     "summary": "The application is open with PAN rejected. 3 item(s) remain outstanding.",
     "status": null,
@@ -296,7 +296,7 @@
             "party_label": "Applicant",
             "document_type": "PAN",
             "label": "PAN",
-            "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+            "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
             "reasons": [
               "Too little text could be read from this document. Re-upload a clearer copy."
             ],
@@ -343,8 +343,8 @@
         ]
       },
       "workspace": {
-        "case_id": "CASE-A2AF2B678D6B",
-        "header": "📍 CASE-A2AF2B678D6B",
+        "case_id": "CASE-AB355D618BF7",
+        "header": "📍 CASE-AB355D618BF7",
         "buttons": [
           {
             "type": "exit_case",
@@ -376,7 +376,21 @@
           }
         ]
       },
-      "message": "📍 CASE-A2AF2B678D6B 📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy. 📄 Address Proof [Upload] 📄 Bank Statement [Upload] 👉 Upload these to move the case to **CPA**.",
+      "emphasis": [
+        {
+          "text": "PAN",
+          "start": 61,
+          "end": 64
+        },
+        {
+          "text": "Address Proof",
+          "start": 193,
+          "end": 206
+        }
+      ],
+      "answer_markdown": "📍 CASE-AB355D618BF7\n⏳ Kripya sahi documents upload karein:\n📄 **PAN** (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nAbhi baaki:\n📄 **Address Proof** [Upload]\n📄 Bank Statement [Upload]\n\n👉 Upload these to move the case to CPA.",
+      "answer_plain": "📍 CASE-AB355D618BF7\n⏳ Kripya sahi documents upload karein:\n📄 PAN (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nAbhi baaki:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Upload these to move the case to CPA.",
+      "message": "📍 CASE-AB355D618BF7 📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy. 📄 Address Proof [Upload] 📄 Bank Statement [Upload] 👉 Upload these to move the case to **CPA**.",
       "intent": "DOCUMENTS_PENDING",
       "response_type": "STATUS",
       "response_depth": "BRIEF",
@@ -393,13 +407,13 @@
         "status": "NO_VOICE_FOR_LANGUAGE",
         "language": "hi-Latn",
         "voice": "",
-        "text": "📍 CASE-A2AF2B678D6B. Kripya sahi documents upload karein: 📄 **PAN (Permanent Account Number)** [Upload], Too little text could be read from this document. Re-upload a clearer copy. Abhi baaki: 📄 Address Proof [Upload]. 📄 Bank Statement [Upload]. 👉 Upload these to move the case to **CPA**.",
+        "text": "📍 CASE-AB355D618BF7. Kripya sahi documents upload karein: 📄 **PAN (Permanent Account Number)** [Upload], Too little text could be read from this document. Re-upload a clearer copy. Abhi baaki: 📄 Address Proof [Upload]. 📄 Bank Statement [Upload]. 👉 Upload these to move the case to **CPA**.",
         "endpoint": null,
         "format": "wav"
       },
       "case_context": {
-        "case_id": "CASE-A2AF2B678D6B",
-        "applicant_id": "APP-412D61CC2C7A",
+        "case_id": "CASE-AB355D618BF7",
+        "applicant_id": "APP-B597637EF37D",
         "stage": null
       },
       "sections": [
@@ -471,8 +485,8 @@
     },
     "workspace_view": {
       "workspace": {
-        "case_id": "CASE-A2AF2B678D6B",
-        "header": "📍 CASE-A2AF2B678D6B",
+        "case_id": "CASE-AB355D618BF7",
+        "header": "📍 CASE-AB355D618BF7",
         "buttons": [
           {
             "type": "exit_case",
@@ -512,7 +526,7 @@
           "party_label": "Applicant",
           "document_type": "PAN",
           "label": "PAN",
-          "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1",
+          "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
           "reasons": [
             "Too little text could be read from this document. Re-upload a clearer copy."
           ],
@@ -563,6 +577,20 @@
       "expanded": [
         "PAN"
       ]
-    }
+    },
+    "emphasis": [
+      {
+        "text": "PAN",
+        "start": 61,
+        "end": 64
+      },
+      {
+        "text": "Address Proof",
+        "start": 193,
+        "end": 206
+      }
+    ],
+    "answer_plain": "📍 CASE-AB355D618BF7\n⏳ Kripya sahi documents upload karein:\n📄 PAN (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nAbhi baaki:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Upload these to move the case to CPA.",
+    "answer_markdown": "📍 CASE-AB355D618BF7\n⏳ Kripya sahi documents upload karein:\n📄 **PAN** (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nAbhi baaki:\n📄 **Address Proof** [Upload]\n📄 Bank Statement [Upload]\n\n👉 Upload these to move the case to CPA."
   }
 }

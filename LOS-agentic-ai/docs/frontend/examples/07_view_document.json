@@ -1,11 +1,11 @@
 {
   "request": {
     "action": "VIEW_DOCUMENT",
-    "document_id": "CASE-A2AF2B678D6B:APP-412D61CC2C7A:pan1"
+    "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1"
   },
   "response": {
     "request_id": "<request_id>",
-    "case_id": "CASE-A2AF2B678D6B",
+    "case_id": "CASE-AB355D618BF7",
     "intent": "VIEW_DOCUMENT",
     "answer": "📄 **Pan** -- the link works for 5 minutes.",
     "category": "CASE_ONLY",
@@ -26,7 +26,13 @@
       "applied": true,
       "expanded": []
     },
+    "emphasis": [],
+    "answer_plain": "📄 Pan -- the link works for 5 minutes.",
+    "answer_markdown": "📄 Pan -- the link works for 5 minutes.",
     "presentation": {
+      "emphasis": [],
+      "answer_markdown": "📄 Pan -- the link works for 5 minutes.",
+      "answer_plain": "📄 Pan -- the link works for 5 minutes.",
       "message": "📄 **Pan** -- the link works for 5 minutes.",
       "intent": "VIEW_DOCUMENT",
       "response_type": "ANSWER",
@@ -45,7 +51,7 @@
         "format": "wav"
       },
       "case_context": {
-        "case_id": "CASE-A2AF2B678D6B",
+        "case_id": "CASE-AB355D618BF7",
         "applicant_id": null,
         "stage": null
       },

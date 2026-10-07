@@ -2745,6 +2745,16 @@ def _raise_from(request_id: str, envelope) -> None:
     "/copilot/stream",
     summary="The FOS copilot as Server-Sent Events: status lines while it works, then the answer (step 7)",
     responses={200: {"content": {"text/event-stream": {}}}, 404: {"description": "Streaming is off."}},
+    # the SAME JSON body as /fos/copilot; declared so Swagger "Try it out" shows a body box (it sent none -> JSONDecodeError)
+    openapi_extra={"requestBody": {"required": True, "content": {"application/json": {
+        "schema": {"$ref": "#/components/schemas/CopilotRequest"},
+        "examples": {
+            "in_case_question": {"summary": "CUSTOM_QUERY on a case",
+                                 "value": {"applicant_id": "APP-3D51FFAC6342", "case_id": "CASE-7DFE2F497522",
+                                           "action": "CUSTOM_QUERY", "message": "kaunse documents pending hain?"}},
+            "case_list": {"summary": "CUSTOM_QUERY -- my cases (case workspace on)",
+                          "value": {"action": "CUSTOM_QUERY", "message": "mere cases dikhao"}},
+        }}}}},
 )
 async def copilot_stream(request: Request, claims: dict[str, Any] = Depends(require_jwt)):
     """

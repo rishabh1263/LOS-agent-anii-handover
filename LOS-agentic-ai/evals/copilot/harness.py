@@ -66,6 +66,14 @@ class Trajectory:
 TRACE = Trajectory()
 
 
+#: the Phase 3 feature flags (README_CHATBOT "Demo setup"); also pinned off in tests/conftest.py
+PHASE3_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESPONSE_STYLE", "COPILOT_VERIFY_DIAGNOSE",
+                "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_LOCALIZED_KYC_REASONS",
+                "COPILOT_SINGLE_CASE_RESOLVE", "COPILOT_EMPHASIS", "COPILOT_STREAMING", "COPILOT_SESSION_MEMORY",
+                "LOS_COAPP_IDENTITY", "COPILOT_PARTY_RECOGNITION", "COPILOT_GUARDRAIL_HARDENING",
+                "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY")
+
+
 def _environment(live: bool, workdir: str) -> None:
     os.environ.update({
         "ENVIRONMENT": "test", "AUTH_ENABLED": "true",
@@ -79,6 +87,10 @@ def _environment(live: bool, workdir: str) -> None:
     })
     # PRODUCTION ACCESS DEFAULT: customer-facing (never enabled here).
     os.environ.pop("COPILOT_SERVICE_SCOPE_ACCESS", None)
+    # PHASE 3 FEATURE FLAGS OFF unless an eval arm turns one on (EVAL_OVERRIDE_<FLAG> below): a developer's
+    # .env may switch them on, and main.py loads .env -- "false" here is not overwritten by load_dotenv.
+    for flag in PHASE3_FLAGS:
+        os.environ[flag] = "false"
     if not live:
         os.environ["OLLAMA_HOST"] = "http://127.0.0.1:9"     # no model: fallback paths
     # A/B ARMS: EVAL_OVERRIDE_<NAME>=<value> sets <NAME> after the defaults

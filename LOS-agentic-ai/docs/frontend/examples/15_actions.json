@@ -1,0 +1,190 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/fos/actions"
+  },
+  "response": {
+    "actions": [
+      {
+        "value": "GET_APPLICANT",
+        "label": "Applicant details",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "GET_APPLICATION_STATUS",
+        "label": "Application status",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "GET_DOCUMENTS",
+        "label": "Uploaded documents",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "GET_DOCUMENT_CHECKLIST",
+        "label": "Document checklist",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "GET_VERIFICATION_STATUS",
+        "label": "Verification status",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "GET_PENDING_ITEMS",
+        "label": "Pending items",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "GET_NEXT_ACTION",
+        "label": "Next action",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "GET_CASE_360",
+        "label": "Case 360",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "CHECK_CPA_READINESS",
+        "label": "CPA readiness",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "UPLOAD_DOCUMENT",
+        "label": "Upload a document",
+        "requires_message": false,
+        "requires_file": true,
+        "content_type": "multipart/form-data",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "CUSTOM_QUERY",
+        "label": "Ask a question",
+        "requires_message": true,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case",
+        "extra_fields": []
+      },
+      {
+        "value": "LIST_CASES",
+        "label": "My cases",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "workspace",
+        "extra_fields": []
+      },
+      {
+        "value": "OPEN_CASE",
+        "label": "Open a case",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "workspace",
+        "extra_fields": [
+          "case_id"
+        ]
+      },
+      {
+        "value": "EXIT_CASE",
+        "label": "Close the case",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "workspace",
+        "extra_fields": []
+      },
+      {
+        "value": "VIEW_DOCUMENT",
+        "label": "View document",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case_action",
+        "extra_fields": [
+          "document_id"
+        ]
+      },
+      {
+        "value": "RAISE_QUERY",
+        "label": "Raise a query",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case_action",
+        "extra_fields": [
+          "confirm",
+          "query"
+        ]
+      },
+      {
+        "value": "MARK_QUERY_SENT",
+        "label": "Mark as sent",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case_action",
+        "extra_fields": [
+          "query_id"
+        ]
+      },
+      {
+        "value": "LIST_QUERIES",
+        "label": "Track queries",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case_action",
+        "extra_fields": []
+      },
+      {
+        "value": "NEW_CASE",
+        "label": "New case",
+        "requires_message": false,
+        "requires_file": false,
+        "content_type": "application/json",
+        "group": "case_action",
+        "extra_fields": []
+      }
+    ]
+  }
+}

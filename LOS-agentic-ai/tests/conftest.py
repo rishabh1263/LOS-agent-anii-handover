@@ -204,8 +204,10 @@ _PHASE3_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESP
 
 @pytest.fixture(autouse=True)
 def phase3_flags_off_by_default(monkeypatch):
+    # pinned to "false", not deleted: ocr.py calls load_dotenv() mid-test, which would put a deleted
+    # flag back from the deployment .env (load_dotenv never overrides a variable that is set)
     for flag in _PHASE3_FLAGS:
-        monkeypatch.delenv(flag, raising=False)
+        monkeypatch.setenv(flag, "false")
 
 
 @pytest.fixture(autouse=True)

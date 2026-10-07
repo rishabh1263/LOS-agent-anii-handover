@@ -117,6 +117,18 @@ def test_actions_list_only_what_is_on(client, monkeypatch):
     assert on["RAISE_QUERY"]["extra_fields"] == ["confirm", "query"]
 
 
+def test_write_actions_config_and_error_examples(client, demo):
+    """Example payloads for the supporting endpoints and an error shape (written with WRITE_FRONTEND_EXAMPLES=1)."""
+    save("15_actions", {"method": "GET", "path": "/api/v1/fos/actions"}, client.get("/api/v1/fos/actions").json())
+    full = client.get("/api/v1/fos/config").json()
+    save("16_config_features", {"method": "GET", "path": "/api/v1/fos/config"},
+         {key: full[key] for key in ("features", "endpoints", "workspace")})
+    body = {"action": "OPEN_CASE", "case_id": "CASE-NOTMINE00001"}
+    r = client.post("/api/v1/fos/copilot", json=body)
+    save("17_error_not_yours", body, {"status": r.status_code, **r.json()})
+    assert r.status_code in (403, 404)
+
+
 def test_config_tells_the_frontend_which_features_are_on(client, demo):
     body = client.get("/api/v1/fos/config").json()
     assert body["features"]["case_workspace"] is True and body["features"]["streaming"] is True

@@ -1226,3 +1226,5 @@ documents/view), examples/01..14, widget.html; contract test tests/integration/t
 - Verified: /fos/config features all ON, co-applicant config error none (0004-0006 applied on dev).
 - tests/conftest.py now pins these flags OFF in tests (main.py loads .env at import; each test turns on its own).
 - Takes effect at the next server start. Undo: restore .env from the backup.
+- docs/frontend/API_REQUEST_RESPONSE.md: every new API's request + response (generated from real responses of the
+  contract test; 17 examples incl. /fos/actions, /fos/config, an error, streaming, the document link).

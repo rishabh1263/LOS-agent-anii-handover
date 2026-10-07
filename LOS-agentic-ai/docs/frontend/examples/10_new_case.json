@@ -24,7 +24,13 @@
       "applied": true,
       "expanded": []
     },
+    "emphasis": [],
+    "answer_plain": "👉 Tap New case to open the case form.",
+    "answer_markdown": "👉 Tap New case to open the case form.",
     "presentation": {
+      "emphasis": [],
+      "answer_markdown": "👉 Tap New case to open the case form.",
+      "answer_plain": "👉 Tap New case to open the case form.",
       "message": "👉 Tap **New case** to open the case form.",
       "intent": "NEW_CASE",
       "response_type": "ANSWER",
