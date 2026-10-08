@@ -1,0 +1,148 @@
+# GENERAL QUESTIONS a loan field officer (FOS) asks -- the coverage bank (2026-10-08).
+# Built from research (lender / RBI KYC / LAP-process pages) + this LOS's own config. Every question here must be
+# answered WITH NO CASE OPEN: never "Which case is this about?", never "I don't know" for something the system knows.
+#
+#   expect: answer        -- a real answer (glossary / knowledge / config / calculator)
+#           not_configured -- a company number that is not in config: say so + who decides (never a guessed number)
+#           decline       -- a credit decision the bot must not make: say who decides
+#           unknown       -- deliberately not in the knowledge base (said plainly, logged)
+#           case          -- needs a case: "which case?" is the RIGHT answer
+#
+# tests/integration/test_general_coverage.py runs every question and reports the coverage per category.
+
+categories:
+  terms:
+    - { q: "what is FOIR", expect: answer }
+    - { q: "FOIR kya hai", expect: answer }
+    - { q: "what is LTV", expect: answer }
+    - { q: "LTV ka matlab", expect: answer }
+    - { q: "what is EMI", expect: answer }
+    - { q: "what is CIBIL score", expect: answer }
+    - { q: "cibil score kya hota hai", expect: answer }
+    - { q: "what is KYC", expect: answer }
+    - { q: "what is OVD", expect: unknown }   # owner 2026-10-07: OVD left out of the glossary on purpose
+    - { q: "what is CKYC", expect: answer, must: ["registry"] }
+    - { q: "what is video KYC", expect: answer, must: ["video call"] }
+    - { q: "what is NACH", expect: answer, must: ["mandate"] }
+    - { q: "what is e-mandate", expect: answer, must: ["mandate"] }
+    - { q: "what is a co-applicant", expect: answer, must: ["together"] }
+    - { q: "what is a guarantor", expect: answer, must: ["not a borrower"] }
+    - { q: "difference between co-applicant and guarantor", expect: answer, must: ["guarantor", "co-applicant"] }
+    - { q: "what is sanction letter", expect: answer, must: ["approval"] }
+    - { q: "what is disbursement", expect: answer, must: ["release"] }
+    - { q: "what is tenure", expect: answer, must: ["repayment period"] }
+    - { q: "what is processing fee", expect: answer, must: ["one-time"] }
+    - { q: "what is foreclosure", expect: answer, must: ["early"] }
+    - { q: "what is prepayment", expect: answer, must: ["principal"] }
+    - { q: "what is part payment", expect: answer, must: ["principal"] }
+    - { q: "what is balance transfer", expect: answer, must: ["another lender"] }
+    - { q: "what is top up loan", expect: answer, must: ["top-up"] }
+    - { q: "what is loan against property", expect: answer, must: ["property"] }
+    - { q: "what is RCU", expect: answer }
+    - { q: "what is field investigation", expect: answer, must: ["visit"] }
+    - { q: "what is personal discussion", expect: answer, must: ["interview"] }
+    - { q: "what is legal verification", expect: answer, must: ["title"] }
+    - { q: "what is technical valuation", expect: answer, must: ["value"] }
+    - { q: "what is CERSAI", expect: answer, must: ["registry"] }
+    - { q: "what is ITR", expect: answer }
+    - { q: "what is form 16", expect: answer, must: ["employer"] }
+    - { q: "what is net salary", expect: answer, must: ["take-home"] }
+    - { q: "what is BOPS", expect: answer }
+    - { q: "what is HOPS", expect: answer }
+    - { q: "what is FOS", expect: answer }
+    - { q: "what is CPA", expect: answer }
+    - { q: "what is credit stage", expect: answer, must: ["credit team"] }
+
+  calculators:
+    - { q: "EMI for 5 lakh at 12% for 3 years", expect: answer, must: ["16,607"] }
+    - { q: "5 lakh ka emi 12 percent 36 months", expect: answer, must: ["16,607"] }
+    - { q: "calculate FOIR income 50000 emi 15000", expect: answer, must: ["30.0%"] }
+    - { q: "LTV for 40 lakh loan on 60 lakh property", expect: answer, must: ["66.7%"] }
+
+  eligibility_policy:
+    - { q: "what is the maximum FOIR", expect: answer, must: ["50%", "DEMO"] }
+    - { q: "minimum income required", expect: answer, must: ["25,000"] }
+    - { q: "minimum salary for personal loan", expect: answer }
+    - { q: "which income is used for eligibility", expect: answer }
+    - { q: "minimum cibil score required", expect: not_configured }
+    - { q: "maximum loan amount for personal loan", expect: answer, must: ["10,00,000", "DEMO"] }          # configured (demo values, said so)
+    - { q: "what is the interest rate", expect: answer, must: ["14%", "DEMO"] }          # configured (demo values, said so)
+    - { q: "maximum tenure for home loan", expect: answer, must: ["360"] }          # configured (demo values, said so)
+    - { q: "age limit for loan", expect: not_configured }
+    - { q: "maximum LTV for home loan", expect: answer, must: ["80%"] }          # configured (demo values, said so)
+
+  documents:
+    - { q: "documents required for personal loan", expect: answer }
+    - { q: "home loan ke liye kya documents chahiye", expect: answer }
+    - { q: "which documents are accepted as address proof", expect: answer, must: ["Passport"] }
+    - { q: "is aadhaar mandatory", expect: answer }
+    - { q: "can I use electricity bill as address proof", expect: answer, must: ["not accepted"] }
+    - { q: "how many months bank statement is needed", expect: not_configured }   # the period is not in config: said so
+    - { q: "documents for co-applicant", expect: answer, must: ["|"] }
+    - { q: "is signature mandatory", expect: answer, must: ["signature"] }
+    - { q: "what does document rejected mean", expect: answer }
+    - { q: "what does in review mean", expect: answer, must: ["person"] }
+    - { q: "why is a document rejected", expect: answer }
+    - { q: "can I upload a photo of the document", expect: answer }
+
+  process:
+    - { q: "how to create a new case", expect: answer, must: ["Create New Case", "1."] }
+    - { q: "how do i upload documents", expect: answer, must: ["Upload"] }
+    - { q: "how to move case to CPA", expect: answer, must: ["Move to CPA"] }
+    - { q: "what happens after CPA", expect: answer, must: ["Credit", "RCU"] }
+    - { q: "what are the stages of a loan", expect: answer, must: ["RCU", "Disbursement"] }
+    - { q: "loan process kya hai", expect: answer, must: ["RCU"] }
+    - { q: "how does KYC work", expect: answer, must: ["application form", "each other"] }
+    - { q: "KYC fail ho gaya to kya kare", expect: answer, must: ["upload"] }
+    - { q: "how to add a co-applicant", expect: answer, must: ["party"] }
+    - { q: "who approves the loan", expect: answer, must: ["credit team"] }
+    - { q: "how long does approval take", expect: not_configured }
+    - { q: "how to fix a rejected document", expect: answer, must: ["upload"] }
+    - { q: "process to verify documents", expect: answer, must: ["1."] }
+
+  app_help:
+    - { q: "what can you help with", expect: answer }
+    - { q: "how do i download the case list", expect: answer }
+    - { q: "how do i import cases from excel", expect: answer }
+    - { q: "what is my role", expect: answer }
+    - { q: "show my cases", expect: answer }
+    - { q: "pending cases dikhao", expect: answer }
+
+  decisions:
+    - { q: "will this loan get approved", expect: decline }
+    - { q: "can you approve the loan", expect: decline }
+    - { q: "should I reject this customer", expect: decline }
+
+  hinglish:                    # held-out wordings (added AFTER the rules were tuned): measures generalisation
+    - { q: "PAN kaise upload kare", expect: answer, must: ["Upload"] }
+    - { q: "documents kaise verify hote hai", expect: answer, must: ["1."] }
+    - { q: "co-applicant kya hota hai", expect: answer, must: ["together"] }
+    - { q: "sanction letter kya hai", expect: answer, must: ["approval"] }
+    - { q: "loan approve kaun karta hai", expect: answer, must: ["credit team"] }
+    - { q: "10 lakh ka emi 10% 5 saal", expect: answer, must: ["21,247"] }
+    - { q: "tenure kya hota hai", expect: answer, must: ["repayment period"] }
+    - { q: "address proof mein kya chalega", expect: answer, must: ["Passport"] }
+    - { q: "document reject ho gaya to kya kare", expect: answer, must: ["upload"] }
+    - { q: "naya case kaise banaye", expect: answer, must: ["Create New Case"] }
+    - { q: "guarantor aur co-applicant mein kya fark hai", expect: answer, must: ["guarantor"] }
+    - { q: "processing fee kitni hai", expect: not_configured }
+
+  held_out_2:                  # written 2026-10-08 BEFORE running, after round 1 was tuned: the honest score
+    - { q: "what is RCU stage", expect: answer, must: ["risk"] }
+    - { q: "minimum loan amount for home loan", expect: answer, must: ["5,00,000"] }
+    - { q: "EMI 20 lakh 9% 20 years", expect: answer, must: ["17,99"] }
+    - { q: "can self employed apply", expect: answer, must: ["self"] }
+    - { q: "pan card mandatory hai kya", expect: answer, must: ["PAN"] }
+    - { q: "what is the difference between net and gross salary", expect: answer, must: ["gross"] }
+    - { q: "kyc kaise hota hai", expect: answer, must: ["application form"] }
+    - { q: "who decides the loan", expect: answer, must: ["credit team"] }
+    - { q: "foreclosure charges kitne hai", expect: not_configured }
+    - { q: "what is a deviation", expect: answer, must: ["deviation"] }
+    - { q: "is rent agreement accepted as address proof", expect: answer, must: ["not accepted"] }
+    - { q: "what is EMI bounce", expect: answer, must: ["bounce"] }
+    - { q: "loan kitne din mein milega", expect: not_configured }
+
+  case_questions:              # these DO need a case: asking which one is right
+    - { q: "kyc status", expect: case }
+    - { q: "what is pending", expect: case }
+    - { q: "loan amount kitna hai", expect: case }

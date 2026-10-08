@@ -166,6 +166,10 @@ def get_jwks() -> dict[str, Any]:
     return {"keys": keys}
 
 
+#: claims a caller may add to an access token: shown to the user, never read for scope or authorization
+_DISPLAY_CLAIMS = frozenset({"stage"})
+
+
 def issue_access_token(
     *,
     subject: str,
@@ -173,6 +177,7 @@ def issue_access_token(
     audience: str,
     scopes: Iterable[str] | None = None,
     roles: Iterable[str] | None = None,
+    extra_claims: dict[str, Any] | None = None,
 ) -> str:
     """Issue a short-lived RS256 access token that require_jwt will accept."""
     now = int(time.time())
@@ -193,6 +198,11 @@ def issue_access_token(
 
     if scopes:
         payload["scope"] = " ".join(scopes)
+    # the stage chosen at login (MASTER SPEC 15.1): display-only, so ONLY the allowlisted keys are signed in --
+    # a scope / role / identity key can never ride in here
+    for key, value in (extra_claims or {}).items():
+        if key in _DISPLAY_CLAIMS and key not in payload and value not in (None, ""):
+            payload[key] = value
 
     return jwt.encode(
         payload,

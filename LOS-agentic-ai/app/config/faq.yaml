@@ -170,6 +170,7 @@ answers:
               hi: "FOS गाइड: दस्तावेज़ अपलोड करना", mr: "FOS मार्गदर्शक: कागदपत्रे अपलोड करणे" }
   - id: how_create
     match: [how do i create a case, how to create a case, how to create new case, how to make a new case,
+            how to create a new case, how do i create a new case, how can i create a case, steps to create a case,
             naya case kaise banaye, case kaise banaye, case kaise banate hain, नया केस कैसे बनाएँ, नवीन केस कशी तयार करावी]
     steps:
       en: ["Tap Create New Case (top of the home screen, or the button below this chat).", "Fill in the applicant's

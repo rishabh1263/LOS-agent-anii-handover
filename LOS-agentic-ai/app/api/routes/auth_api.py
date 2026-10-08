@@ -119,6 +119,7 @@ def _issue_token_pair(
     case_id: str | None = None,
     app_id: str | None = None,
     case_data: dict[str, Any] | None = None,
+    stage: str | None = None,
 ) -> TokenResponse:
     if not auth_config.JWT_ISSUER or not auth_config.JWT_AUDIENCE:
         raise HTTPException(
@@ -131,6 +132,7 @@ def _issue_token_pair(
         audience=auth_config.JWT_AUDIENCE,
         scopes=_DEFAULT_SCOPES,
         roles=_DEFAULT_ROLES,
+        extra_claims={"stage": stage},
     )
     refresh_token = dev_idp.issue_refresh_token(subject=subject)
     return TokenResponse(
@@ -299,6 +301,7 @@ async def login(payload: LoginRequest, request: Request) -> TokenResponse:
         case_id=c_id,
         app_id=a_id,
         case_data=case_data,
+        stage=login_stage,
     )
     issued.stage = login_stage
     return issued

@@ -1,0 +1,1895 @@
+diff --git a/LOS-agentic-ai/app/api/routes/auth_api.py b/LOS-agentic-ai/app/api/routes/auth_api.py
+index 087a3a8..1f494e8 100644
+--- a/LOS-agentic-ai/app/api/routes/auth_api.py
++++ b/LOS-agentic-ai/app/api/routes/auth_api.py
+@@ -119,6 +119,7 @@ def _issue_token_pair(
+     case_id: str | None = None,
+     app_id: str | None = None,
+     case_data: dict[str, Any] | None = None,
++    stage: str | None = None,
+ ) -> TokenResponse:
+     if not auth_config.JWT_ISSUER or not auth_config.JWT_AUDIENCE:
+         raise HTTPException(
+@@ -131,6 +132,7 @@ def _issue_token_pair(
+         audience=auth_config.JWT_AUDIENCE,
+         scopes=_DEFAULT_SCOPES,
+         roles=_DEFAULT_ROLES,
++        extra_claims={"stage": stage},
+     )
+     refresh_token = dev_idp.issue_refresh_token(subject=subject)
+     return TokenResponse(
+@@ -299,6 +301,7 @@ async def login(payload: LoginRequest, request: Request) -> TokenResponse:
+         case_id=c_id,
+         app_id=a_id,
+         case_data=case_data,
++        stage=login_stage,
+     )
+     issued.stage = login_stage
+     return issued
+diff --git a/LOS-agentic-ai/app/api/routes/copilot_api.py b/LOS-agentic-ai/app/api/routes/copilot_api.py
+index 13360c7..7c353c9 100644
+--- a/LOS-agentic-ai/app/api/routes/copilot_api.py
++++ b/LOS-agentic-ai/app/api/routes/copilot_api.py
+@@ -1510,13 +1510,31 @@ async def query(
+                 request.applicant_id = _owned_case.applicant_id
+         except _own.AccessDenied:
+             pass
++    # the context the reply no longer carries, reloaded FIRST: the general layer below must see a pending question
++    # ("ok" / "haan" / "2" answer it) exactly as the case logic does
++    chat_id = request.chat_id or request.conversation_id
++    if _contract.enabled():
++        if request.new_chat:
++            _contract.forget(subject, chat_id)
++        elif request.context is None:
++            request.context = _contract.recall(subject, chat_id)
++    if request.chat_id:
++        # ONE WORKSPACE PER CHAT, as on /fos/copilot: a pending question, the open case or the last list never
++        # leak from one chat into another. An explicit workspace_id still wins.
++        request.context = {**(request.context if isinstance(request.context, dict) else {})}
++        request.context.setdefault("workspace_id", str(request.chat_id)[:128])
++    # THE GENERAL LAYER, the same as /fos/copilot (section 19): needs no case, answered before any case logic
++    from app.agents.applicant.copilot.answering import language_lock as _gen_lock
++    from app.agents.applicant.copilot.capabilities import general as _general
++
++    _gen_lock.set_for_request(request.reply_language, request.language)
++    general_reply = await _general.answer(request.message or "", claims, request.context, f"cp_{uuid.uuid4().hex}",
++                                          _gen_lock.current() or "en")
++    if general_reply is not None:
++        return _contract.publish(general_reply, chat_key=(subject, chat_id)) \
++            if _contract.enabled() else general_reply
+     if not _contract.enabled():
+         return await _query(request, claims)
+-    chat_id = request.chat_id or request.conversation_id
+-    if request.new_chat:
+-        _contract.forget(subject, chat_id)
+-    elif request.context is None:
+-        request.context = _contract.recall(subject, chat_id)
+     reply = await _query(request, claims)
+     if hasattr(reply, "model_dump"):
+         reply = reply.model_dump()
+@@ -1526,6 +1544,7 @@ async def query(
+     from app.agents.applicant.copilot.answering import case_brief as _why
+ 
+     reply = _why.why_fallback(reply)
++    reply = _general.after(reply, request.message or "", claims, request.context, _gen_lock.current() or "en")
+     from app.agents.applicant.copilot.capabilities import product_flow as _stage_note
+ 
+     reply = _stage_note.stage_move_note(reply, request.message or "")
+diff --git a/LOS-agentic-ai/app/api/routes/fos_api.py b/LOS-agentic-ai/app/api/routes/fos_api.py
+index bd4d056..13969e7 100644
+--- a/LOS-agentic-ai/app/api/routes/fos_api.py
++++ b/LOS-agentic-ai/app/api/routes/fos_api.py
+@@ -1287,6 +1287,14 @@ async def copilot(
+             from app.agents.applicant.copilot.answering import case_brief as _why
+ 
+             published = _why.why_fallback(published)          # "kyu?" with nothing recorded: the real blocker
++            # "Do you mean X or Y?" when the router's best two are close; the second miss in a row -> the closest FAQ
++            # questions + the supervisor line (capabilities/general.py)
++            from app.agents.applicant.copilot.answering import language_lock as _after_lock
++            from app.agents.applicant.copilot.capabilities import general as _general_after
++
++            published = _general_after.after(published, str(getattr(request.state, "copilot_message", "") or ""),
++                                             claims, getattr(request.state, "copilot_context", None),
++                                             _after_lock.current() or "en")
+             # golden rule 4, said first: a stage move / approval asked in chat is never done here
+             from app.agents.applicant.copilot.capabilities import product_flow as _stage_note
+ 
+@@ -1666,6 +1674,19 @@ async def _copilot_json(
+         if formed is not None:
+             return formed
+ 
++    # THE GENERAL LAYER (owner 2026-10-08; capabilities/general.py): help / ok / frustration, role and stage from
++    # the login, definitions and full forms, process steps from the live config, the product checklist, "whose
++    # name?", unknown terms -- answered BEFORE any case logic, so they never meet "which case?"
++    request.state.copilot_context = payload.context
++    if action is FosAction.CUSTOM_QUERY:
++        from app.agents.applicant.copilot.answering import language_lock as _gen_lock
++        from app.agents.applicant.copilot.capabilities import general as _general
++
++        general_reply = await _general.answer(message, claims, payload.context, request_id,
++                                              _gen_lock.current() or "en")
++        if general_reply is not None:
++            return general_reply
++
+     # "verify karna hai" / "kya upload karu" (6f, COPILOT_VERIFY_DIAGNOSE): never "which document?" --
+     # the case is diagnosed (step 4's document action view, every party)
+     from app.agents.applicant.copilot.answering import document_actions as _diag
+diff --git a/LOS-agentic-ai/app/config/applicant_agent.yaml b/LOS-agentic-ai/app/config/applicant_agent.yaml
+index 57ed9ec..16fefb4 100644
+--- a/LOS-agentic-ai/app/config/applicant_agent.yaml
++++ b/LOS-agentic-ai/app/config/applicant_agent.yaml
+@@ -1362,14 +1362,15 @@ chatbot:
+     # The `list` phrases above are matched first; this only adds wordings that ask for nothing else.
+     list_rule:
+       case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
+-      cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, my, मेरे, सारे, सब]
++      cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, mera, meri, my,
++             मेरे, सारे, सब]
+       # (2026-10-08: "view all cases" -- view / see / display / check are list verbs too, see `allowed`)
+       allowed: [ka, ki, ke, of, a, the, me, mujhe, show, give, do, dikhao, dikha, batao, bata, hai, h, hain, how,
+                 please, plz, pls, kya, wale, wala, kaun, kaunse, konse, which, are, i, have, bhai, yaar, open,
+                 dekhna, dekhne, chahiye, दिखाओ, बताओ, है, हैं, का, के, की,
+                 # courtesy / filler words around a list request ("sorry, my cases", "ok mere cases dikhao")
+                 sorry, ok, okay, acha, achha, theek, thik, thanks, thank, you, now, ab, फिर, ठीक,
+-                view, see, display, check, get, fetch, open, all, total, dekho, dekhao, dikha, batana]
++                view, see, display, check, get, fetch, open, all, total, dekho, dekhao, dikha, batana, what]
+     labels:
+       header: "📂 **Your cases**"
+       total: "{n} total"
+diff --git a/LOS-agentic-ai/app/config/faq.yaml b/LOS-agentic-ai/app/config/faq.yaml
+index 5fdb4ff..a2f58e3 100644
+--- a/LOS-agentic-ai/app/config/faq.yaml
++++ b/LOS-agentic-ai/app/config/faq.yaml
+@@ -170,6 +170,7 @@ answers:
+               hi: "FOS गाइड: दस्तावेज़ अपलोड करना", mr: "FOS मार्गदर्शक: कागदपत्रे अपलोड करणे" }
+   - id: how_create
+     match: [how do i create a case, how to create a case, how to create new case, how to make a new case,
++            how to create a new case, how do i create a new case, how can i create a case, steps to create a case,
+             naya case kaise banaye, case kaise banaye, case kaise banate hain, नया केस कैसे बनाएँ, नवीन केस कशी तयार करावी]
+     steps:
+       en: ["Tap Create New Case (top of the home screen, or the button below this chat).", "Fill in the applicant's
+diff --git a/LOS-agentic-ai/app/config/knowledge_vocabulary.yaml b/LOS-agentic-ai/app/config/knowledge_vocabulary.yaml
+index c7273ed..33b824f 100644
+--- a/LOS-agentic-ai/app/config/knowledge_vocabulary.yaml
++++ b/LOS-agentic-ai/app/config/knowledge_vocabulary.yaml
+@@ -57,3 +57,15 @@ concepts:
+     handbook: [name, names]
+   - asks: [alag, different, differs, differ, mismatch, "अलग"]
+     handbook: [differ, mismatch, tolerates]
++  # 2026-10-08 general questions outside a case (evals/general_questions.yaml): how officers ask in Hinglish
++  - asks: [fail ho gaya, fail ho gya, fail hua, fail hui, failed ho gaya, kyc fail]
++    handbook: [failed, fails]
++  - asks: [kya kare, kya karu, kya karein, kya karna hai, what to do, what should i do, how to fix, fix, sahi kare,
++           theek kare, "क्या करें"]
++    handbook: [fix, next step]
++  - asks: [approves, approve karta, approve karti, kaun approve, who decides, decides, decision, sanction karta]
++    handbook: [approves, credit team]
++  - asks: [loan process, process kya hai, loan ka process, steps of loan, loan journey, stages of a loan, stages of loan]
++    handbook: [stages, lifecycle]
++  - asks: [kitne mahine, how many months, months of, kitne months]
++    handbook: [months, period]
+diff --git a/LOS-agentic-ai/app/security/dev_idp.py b/LOS-agentic-ai/app/security/dev_idp.py
+index b595fe2..f421f21 100644
+--- a/LOS-agentic-ai/app/security/dev_idp.py
++++ b/LOS-agentic-ai/app/security/dev_idp.py
+@@ -166,6 +166,10 @@ def get_jwks() -> dict[str, Any]:
+     return {"keys": keys}
+ 
+ 
++#: claims a caller may add to an access token: shown to the user, never read for scope or authorization
++_DISPLAY_CLAIMS = frozenset({"stage"})
++
++
+ def issue_access_token(
+     *,
+     subject: str,
+@@ -173,6 +177,7 @@ def issue_access_token(
+     audience: str,
+     scopes: Iterable[str] | None = None,
+     roles: Iterable[str] | None = None,
++    extra_claims: dict[str, Any] | None = None,
+ ) -> str:
+     """Issue a short-lived RS256 access token that require_jwt will accept."""
+     now = int(time.time())
+@@ -193,6 +198,11 @@ def issue_access_token(
+ 
+     if scopes:
+         payload["scope"] = " ".join(scopes)
++    # the stage chosen at login (MASTER SPEC 15.1): display-only, so ONLY the allowlisted keys are signed in --
++    # a scope / role / identity key can never ride in here
++    for key, value in (extra_claims or {}).items():
++        if key in _DISPLAY_CLAIMS and key not in payload and value not in (None, ""):
++            payload[key] = value
+ 
+     return jwt.encode(
+         payload,
+diff --git a/app/agents/applicant/copilot/capabilities/general.py b/app/agents/applicant/copilot/capabilities/general.py
+new file mode 100644
+index 0000000..2532330
+--- /dev/null
++++ b/app/agents/applicant/copilot/capabilities/general.py
+@@ -0,0 +1,790 @@
++"""
++THE GENERAL LAYER (owner decisions 2026-10-08; config app/config/conversation_general.yaml).
++
++Runs BEFORE any case logic, so a question that needs no case never meets "which case?":
++
++    help / ok / frustration      short reply + the officer's case summary + 2-3 suggestions (or options + supervisor)
++    role / stage                 from the LOGIN (JWT claims), never guessed
++    "WHAT IS NAME"               one question: the applicant's / the co-applicant's / your login name
++    definitions, full forms      glossary.yaml, then the knowledge base (with its source)
++    process steps                numbered steps whose facts are filled from the live config (FOS gate checks, the
++                                 product checklist, the required form fields, the KYC rule) -- with a source
++    product documents            the product checklist (required vs optional, per party)
++    unknown terms                "not in the knowledge base yet" + logged to evals/knowledge_gaps.yaml
++
++`after()` runs on every reply: "Do you mean X or Y?" when the router's top two tools are close, and the gradual
++fallback (the second miss in a row -> the closest FAQ questions + the supervisor contact line).
++"""
++
++from __future__ import annotations
++
++import difflib
++import re
++import threading
++from datetime import date
++from pathlib import Path
++from typing import Any
++
++import yaml
++
++_ROOT = Path(__file__).resolve().parents[4]
++_PATH = _ROOT / "config" / "conversation_general.yaml"
++_CFG: dict[str, Any] = {"mtime": None, "data": {}}
++_LOCK = threading.RLock()
++
++
++def cfg() -> dict[str, Any]:
++    try:
++        mtime = _PATH.stat().st_mtime
++    except OSError:
++        return {}
++    with _LOCK:
++        if _CFG["mtime"] != mtime:
++            _CFG["data"] = yaml.safe_load(_PATH.read_text(encoding="utf-8")) or {}
++            _CFG["mtime"] = mtime
++        return _CFG["data"]
++
++
++def enabled() -> bool:
++    return bool(cfg().get("enabled", False))
++
++
++def _say(key: str, lang: str, seed: int = 0, **values: Any) -> str:
++    from app.agents.applicant.copilot.capabilities import product_flow
++
++    return product_flow.say((cfg().get("texts") or {}).get(key), lang, seed, **values)
++
++
++def _pick(value: Any, lang: str) -> Any:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    return language_lock.pick(value, lang) if isinstance(value, dict) else value
++
++
++def _norm(text: str) -> str:
++    return " " + re.sub(r"\s+", " ", re.sub(r"[^\w\sऀ-ॿ'-]", " ", str(text or "").lower())).strip() + " "
++
++
++def _has(text: str, kind: str) -> bool:
++    said = _norm(text)
++    return any(_norm(p) in said for p in (cfg().get("phrases") or {}).get(kind) or [])
++
++
++def _only(text: str, kind: str) -> bool:
++    return _norm(text).strip() in {_norm(p).strip() for p in (cfg().get("phrases") or {}).get(kind) or []}
++
++
++def _reply(request_id: str, intent: str, answer: str, *, block: str = "", case_id: str | None = None,
++           tts: str | None = None, **extra: Any) -> dict[str, Any]:
++    out = {"request_id": request_id, "intent": intent, "answer": answer, "case_id": case_id,
++           "category": "KNOWLEDGE_ONLY", "query_type": "CONVERSATION", "response_source": "GENERAL",
++           "documents": [], "actions": [], "errors": [], "tools_invoked": [], "suggested_questions": [],
++           "no_case_links": True, **extra}
++    if block:
++        out["faq_block"] = block
++    if tts:
++        out["tts_text"] = tts
++    return out
++
++
++def _asks(questions: list[str]) -> str:
++    from app.agents.applicant.copilot.answering import contract
++
++    return " · ".join(contract.ask(q) for q in questions if q)
++
++
++def _state(claims: dict[str, Any], context: dict[str, Any] | None):
++    from app.agents.applicant.copilot.capabilities import workspace
++
++    workspace_id = (context or {}).get("workspace_id") if isinstance(context, dict) else None
++    return workspace._state(workspace._subject(claims), workspace_id)
++
++
++def _asked(state) -> bool:
++    return bool(state is not None and (getattr(state, "pending_clarification", None)
++                                       or getattr(state, "pending_options", None)))
++
++
++def _pending(state, claims: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> bool:
++    """A question this chat is waiting on -- "ok" / "haan" / "2" answer it, never small talk.
++
++    Three places hold one: the workspace's product flow (portfolio Yes/No, "which case?" pick, a write proposal),
++    the workspace record's own clarification, and the agent's conversation (context.conversation_id).
++    """
++    flow = dict(getattr(state, "flow", None) or {})
++    if (flow.get("portfolio") or {}).get("pending") or flow.get("after_pick") or flow.get("write") or _asked(state):
++        return True
++    conversation_id = (context or {}).get("conversation_id") if isinstance(context, dict) else None
++    if not conversation_id or claims is None:
++        return False
++    from app.agents.applicant.copilot.capabilities import workspace
++    from app.agents.applicant.copilot.conversation import state as conv
++
++    return _asked(conv.STORE.get(workspace._subject(claims), conversation_id))
++
++
++# --------------------------------------------------------------------------
++# the answers
++# --------------------------------------------------------------------------
++
++def _summary(claims: dict[str, Any], lang: str) -> str:
++    """The officer's case summary line (the case list's own counts)."""
++    from app.agents.applicant.copilot.capabilities import case_list
++
++    page = case_list.run(claims, case_list.ListQuery(size=1, with_counts=True))
++    if not page.all_total:
++        return case_list._say("none", lang)
++    order = ((case_list.cfg().get("sorts") or {}).get("needs_action") or {}).get("order") or list(page.counts)
++    parts = [case_list._name_of("part", k, lang, n=page.counts[k]) for k in order if page.counts.get(k)]
++    return case_list._say("summary", lang, total=page.all_total, parts=", ".join(parts))
++
++
++def _suggestions(state, lang: str, n: int = 3) -> list[str]:
++    from app.agents.applicant.copilot.capabilities import faq
++
++    return [i["send"] for i in faq.items(getattr(state, "active_case_id", None), lang, n)]
++
++
++def _fos_checks() -> list[str]:
++    """What the FOS gate checks now: the readiness report's own groups (its labels, the same rules switch them on),
++    then any other configured gate check. The gate's catch-all "FOS requirements" is never shown by itself."""
++    from app.agents.applicant import workflow
++    from app.agents.applicant.copilot.answering import readiness_report
++    from app.agents.applicant.copilot.capabilities import gates
++    from app.agents.los import kyc_gate
++    from app.agents.signature import presence
++
++    groups = ["group_application", "group_applicant_documents"]
++    groups += ["group_co_applicant_documents"] if workflow.coapp_mandatory_enabled() else []
++    groups += ["group_signature"] if presence.enabled() else []
++    groups += ["group_kyc"] if kyc_gate.enabled() else []
++    out = [readiness_report._label(g) for g in groups]
++    covered = {"readiness", "kyc_checks"}           # the sources the groups above already stand for
++    for check in ((gates.config().get("gates") or {}).get("FOS") or {}).get("checks") or []:
++        if gates._flag_on(check.get("when_flag")) and check.get("source") not in covered:
++            out.append(str(check.get("label") or check.get("id")))
++    return out
++
++
++def _product_of(text: str) -> str | None:
++    from app.agents.applicant import config
++
++    said = _norm(text)
++    for product in config.products() or []:
++        name = str(product)
++        if name.lower() == "default":
++            continue
++        if _norm(name.replace("_", " ")) in said or _norm(name) in said:
++            return name
++    return None
++
++
++def _readable(value: Any) -> str:
++    from app.agents.applicant.copilot.answering.answer import _readable as readable
++
++    return readable(value)
++
++
++def _process(topic: str, state, lang: str) -> tuple[str, str]:
++    """(markdown, tts) of one process answer, its facts read from the live config now."""
++    from app.agents.applicant import config
++    from app.agents.applicant.copilot.capabilities import case_form
++
++    texts = cfg().get("texts") or {}
++    source = _say("source", lang, source=(texts.get("sources") or {}).get(
++        "complete_case" if topic == "complete_case" else topic, ""))
++    if topic == "what_is_cpa":
++        from app.agents.applicant.copilot.answering import professional, style
++
++        head = professional.strip_emojis(style.definition("CPA", lang) or "").strip()
++        tail = _pick(texts.get("what_is_cpa_tail"), lang).format(checks=", ".join(_fos_checks()))
++        return f"{head}\n\n{tail}\n\n{source}", f"{professional.plain(head)} {tail}"
++    if topic == "verify_documents":
++        steps = _pick(texts.get("verify_documents"), lang) or []
++    else:
++        products = [p for p in config.products() or [] if str(p).lower() != "default"]
++        product = None
++        if getattr(state, "active_case_id", None):
++            from app.store import get_repository
++
++            application = get_repository().get_application(state.active_case_id)
++            product = getattr(application, "product", None)
++        product = product or (products[0] if products else "")
++        mandatory = [_readable(e.get("slot")) for e in config.checklist_for(product) or [] if e.get("mandatory", True)]
++        from app.agents.los import kyc_gate
++
++        kyc_step = _pick(texts.get("kyc_step"), lang) if kyc_gate.enabled() else ""
++        steps = [str(s).format(fields=", ".join(case_form.label(f, lang) for f in case_form._cfg().get("required") or []),
++                               product=_readable(product), documents=", ".join(mandatory), kyc_step=kyc_step,
++                               checks=", ".join(_fos_checks()))
++                 for s in (_pick(texts.get("move_to_cpa"), lang) or [])]
++    steps = [s for s in steps if str(s).strip()]
++    md = "\n".join(f"{n}. {s}" for n, s in enumerate(steps, 1)) + f"\n\n{source}"
++    return md, "\n".join(f"{n}. {s}" for n, s in enumerate(steps, 1))
++
++
++def _products_table(product: str, lang: str) -> tuple[str, str]:
++    from app.agents.applicant import config, workflow
++
++    texts = cfg().get("texts") or {}
++    cols = _pick(texts.get("products_columns"), lang) or ["Document", "Required", "Accepted as"]
++    rows = []
++    for e in config.checklist_for(product) or []:
++        rows.append(f"| {_readable(e.get('slot'))} | {_say('required' if e.get('mandatory', True) else 'optional', lang)} | "
++                    + ", ".join(_readable(a) for a in e.get("accepts") or []) + " |")
++    lines = [_say("products_heading", lang, product=_readable(product)),
++             "", "| " + " | ".join(cols) + " |", "|" + "---|" * len(cols), *rows]
++    coapp = workflow.coapp_mandatory_enabled()
++    if coapp:
++        lines += ["", _say("coapp_heading", lang), "", "| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
++        lines += [f"| {_readable(e['slot'])} | {_say('required', lang)} | " + ", ".join(_readable(a) for a in e.get("accepts") or []) + " |"
++                  for e in config.co_applicant_documents() or []]
++    lines += ["", _say("products_note", lang),
++              _say("source", lang, source=str((texts.get("sources") or {}).get("products", "")).format(
++                  coapp=", co-applicant documents" if coapp else ""))]
++    required = [_readable(e.get("slot")) for e in config.checklist_for(product) or [] if e.get("mandatory", True)]
++    return "\n".join(lines), f"{_readable(product)}: " + ", ".join(required) + "."
++
++
++def _coapp_table(lang: str) -> tuple[str, str]:
++    from app.agents.applicant import config, workflow
++
++    texts = cfg().get("texts") or {}
++    cols = _pick(texts.get("products_columns"), lang) or ["Document", "Required", "Accepted as"]
++    rows = [f"| {_readable(e['slot'])} | {_say('required', lang)} | " + ", ".join(_readable(a) for a in e.get("accepts") or []) + " |"
++            for e in config.co_applicant_documents() or []]
++    note = [] if workflow.coapp_mandatory_enabled() else ["", _say("coapp_optional", lang)]
++    lines = [_say("coapp_heading", lang), "", "| " + " | ".join(cols) + " |", "|" + "---|" * len(cols), *rows, *note,
++             "", _say("source", lang, source="applicant_agent.yaml (readiness.co_applicant_documents)")]
++    return "\n".join(lines), ", ".join(_readable(e["slot"]) for e in config.co_applicant_documents() or []) + "."
++
++
++def _log_gap(term: str, kind: str = "terms") -> None:
++    """The unknown term (or general question) for the owner (text, count, last seen -- never case data)."""
++    path = _ROOT.parent / str(cfg().get("gaps_file") or "evals/knowledge_gaps.yaml")
++    with _LOCK:
++        try:
++            data = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else None
++        except Exception:  # noqa: BLE001 - a broken file is rewritten, never fails the reply
++            data = None
++        data = data if isinstance(data, dict) else {}
++        terms = data.setdefault(kind, {})
++        entry = terms.setdefault(term.upper() if kind == "terms" else term[:200], {"count": 0})
++        entry["count"] = int(entry.get("count", 0)) + 1
++        entry["last_seen"] = date.today().isoformat()
++        try:
++            path.parent.mkdir(parents=True, exist_ok=True)
++            path.write_text("# Terms the chatbot was asked and could not find (general.py). Add them to\n"
++                            "# app/config/glossary.yaml or knowledge/ -- then remove them here.\n"
++                            + yaml.safe_dump(data, sort_keys=True, allow_unicode=True), encoding="utf-8")
++        except OSError:
++            pass
++
++
++async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
++                 lang: str) -> dict[str, Any] | None:
++    """The reply when this message needs no case (see the module doc), else None (the message goes on)."""
++    if not enabled() or not str(message or "").strip():
++        return None
++    from app.security.auth import get_subject
++
++    state = _state(claims, context)
++    seed = int(getattr(state, "turn_id", 0) or 0)
++    text = str(message)
++    case_id = getattr(state, "active_case_id", None)
++
++    if _has(text, "frustrated"):
++        options = ["My pending cases", "What is pending?" if case_id else "Show my cases"]
++        block = _asks(options) + "\n" + _pick((cfg().get("fallback") or {}).get("supervisor"), lang)
++        return _reply(request_id, "FRUSTRATED", _say("frustrated", lang) + "\n" + _summary(claims, lang),
++                      block=block, case_id=case_id)
++    if _has(text, "help") or _only(text, "help"):
++        return _reply(request_id, "GENERAL_HELP", _say("help", lang) + "\n\n" + _summary(claims, lang),
++                      block=_asks(_suggestions(state, lang, 3)), case_id=case_id,
++                      tts=_say("help", lang) + " " + _summary(claims, lang))
++    if _only(text, "ack") and not _pending(state, claims, context):
++        return _reply(request_id, "ACK", _say("ack", lang, seed) + " " + _say("ack_next", lang),
++                      block=_asks(_suggestions(state, lang, 2)), case_id=case_id)
++    if _has(text, "role"):
++        role = str(claims.get("role") or " ".join(claims.get("roles") or []) or "--")
++        return _reply(request_id, "LOGIN_ROLE", _say("role", lang, user=get_subject(claims), role=role),
++                      case_id=case_id)
++    if _has(text, "login_stage"):
++        stage = str(claims.get("stage") or "").upper()
++        lines = [_say("login_stage", lang, stage=stage) if stage else _say("no_login_stage", lang)]
++        if case_id:
++            from app.agents.applicant.copilot.capabilities import workspace
++
++            lines.append(_say("case_stage", lang, case_id=case_id, stage=workspace._stage(case_id) or "--"))
++        return _reply(request_id, "LOGIN_STAGE", " ".join(lines), case_id=case_id)
++    if _only(text, "name"):
++        options = _pick(_say_list("name_options"), lang)
++        return _reply(request_id, "NAME_CLARIFY", _say("name_question", lang), block=_asks(options),
++                      case_id=case_id, query_type="CLARIFICATION")
++    login_option = (_pick((cfg().get("texts") or {}).get("name_options"), lang) or [None] * 3)[-1]
++    if login_option and _norm(text).strip() == _norm(login_option).strip():
++        return _reply(request_id, "LOGIN_NAME", _say("login_name", lang, user=get_subject(claims)), case_id=case_id)
++    for topic, spec in (cfg().get("processes") or {}).items():
++        if any(_norm(p) in _norm(text) for p in spec.get("phrases") or []):
++            md, spoken = _process(topic, state, lang)
++            return _reply(request_id, "PROCESS_ANSWER", md, case_id=case_id, tts=spoken,
++                          query_type="PROCESS_KNOWLEDGE")
++    if _has(text, "product_documents") and _has(text, "co_applicant") and not _product_of(text):
++        md, spoken = _coapp_table(lang)
++        return _reply(request_id, "PRODUCT_CHECKLIST", md, case_id=case_id, tts=spoken, query_type="PROCESS_KNOWLEDGE")
++    # "which documents are accepted as ADDRESS PROOF" asks about one document: the knowledge path answers it
++    if _has(text, "product_documents") and not _has(text, "one_document"):
++        product = _product_of(text)
++        if product is None and not case_id:
++            from app.agents.applicant import config
++
++            choices = [f"mandatory documents for {_readable(p).lower()}" for p in config.products() or []
++                       if str(p).lower() != "default"]
++            return _reply(request_id, "PRODUCT_CLARIFY", _say("which_product", lang), block=_asks(choices),
++                          query_type="CLARIFICATION")
++        if product is not None:
++            md, spoken = _products_table(product, lang)
++            return _reply(request_id, "PRODUCT_CHECKLIST", md, case_id=case_id, tts=spoken,
++                          query_type="PROCESS_KNOWLEDGE")
++    if _decision(text):
++        spec = cfg().get("decisions") or {}
++        return _reply(request_id, "CREDIT_DECISION_DECLINED", _pick(spec.get("text"), lang), case_id=case_id,
++                      block=_asks(_pick(spec.get("suggestions"), lang) or []), query_type="PROCESS_KNOWLEDGE")
++    calculated = _calculate(text, lang)
++    if calculated is not None:
++        return _reply(request_id, "CALCULATOR", calculated, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
++    policy_answer = _policy(text, state, lang)
++    if policy_answer is not None:
++        return _reply(request_id, "POLICY_ANSWER", policy_answer, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
++    defined = await _definition(text, request_id, lang, case_id)
++    if defined is not None:
++        return defined
++    if _general_question(text):
++        return await _knowledge(text, request_id, lang, case_id)
++    return None
++
++
++# --------------------------------------------------------------------------
++# general questions with no case: credit decisions, calculators, policy numbers, the knowledge base
++# --------------------------------------------------------------------------
++
++def _plain(text: str) -> str:
++    return _norm(text).strip()
++
++
++def _decision(text: str) -> bool:
++    said = _norm(text)
++    return any(_norm(p) in said for p in (cfg().get("decisions") or {}).get("phrases") or [])
++
++
++def _general_question(text: str) -> bool:
++    """Shaped like general knowledge and pointing at no case (conversation_general.yaml general_question)."""
++    spec = cfg().get("general_question") or {}
++    said = _plain(text)
++    if not said or any(re.search(p, said) for p in spec.get("case_only") or []):
++        return False
++    # the English question words are dropped first: "what IS LOAN against property" is not Hindi "is loan" (this loan)
++    rest = " " + re.sub(r"^(what|whats|what s|how|why|where|which) (is|are|s)\b", "", said).strip() + " "
++    # a referent is matched as a word PREFIX: "my case" also covers "my cases"
++    if any(" " + _plain(r) in rest for r in spec.get("case_referents") or []):
++        return False
++    from app.agents.applicant.copilot.capabilities import workspace
++
++    if workspace._only_asks_for_the_list(text):
++        return False                                    # "what are my cases": the case list answers
++    if any(pattern.search(text) for pattern in workspace._ID.values()):
++        return False                                    # a case / applicant id named: the case logic answers
++    return any(re.search(p, said) for p in spec.get("shapes") or [])
++
++
++async def _knowledge(text: str, request_id: str, lang: str, case_id: str | None) -> dict[str, Any]:
++    """The knowledge pipeline: a configured FAQ answer, then configured facts + the handbook (a model only
++    phrases, checked)."""
++    from app.agents.applicant.copilot.capabilities import faq
++
++    configured = faq.answer_for(text, lang) if faq.enabled() else None
++    if configured:
++        return _reply(request_id, "GENERAL_KNOWLEDGE", configured, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
++    allow = bool((cfg().get("general_question") or {}).get("allow_model", True))
++    # as typed, then the English shape (when a rewrite applies). A CONFIGURED FACT from either wins; otherwise the
++    # first accepted handbook answer ("address proof mein kya chalega" -> the configured accepted list)
++    found: list[tuple[bool, dict[str, Any]]] = []
++    for query in dict.fromkeys([text, _english_shape(text)]):
++        answer = await _knowledge_candidate(query, request_id, case_id, allow)
++        if answer is not None:
++            found.append(answer)
++            if answer[0]:
++                break
++    if found:
++        return next((reply for authoritative, reply in found if authoritative), found[0][1])
++    _log_gap(_plain(text), kind="questions")
++    return _reply(request_id, "UNKNOWN_TERM", _pick(cfg().get("general_unknown"), lang), case_id=case_id)
++
++
++async def _knowledge_candidate(query: str, request_id: str, case_id: str | None,
++                               allow: bool) -> tuple[bool, dict[str, Any]] | None:
++    """(authoritative, reply) for one wording of the question, or None when nothing relevant was found."""
++    try:
++        from app.agents.applicant.copilot.agent import _knowledge_reply
++
++        reply_text, _source, detail = await _knowledge_reply(query, allow_model=allow)
++        tied = None if detail.get("authoritative") else _tie_break(query)     # a configured fact always wins
++        if tied is not None:
++            # two sections scored alike: the one whose HEADING is the question wins, as written in the handbook
++            # ("what happens after CPA" -> "What happens after CPA?", not "CPA readiness")
++            return False, _reply(request_id, "GENERAL_KNOWLEDGE", tied.chunk.text.strip(), case_id=case_id,
++                                 query_type="PROCESS_KNOWLEDGE", citations=[tied.chunk.citation])
++    except Exception:  # noqa: BLE001 - knowledge unavailable: said as not known, never guessed
++        return None
++    heading = _heading_of((detail.get("citations") or [""])[0])
++    if detail.get("confident") and str(reply_text or "").strip() and _about(query, f"{reply_text} {heading}"):
++        return bool(detail.get("authoritative")), _reply(
++            request_id, "GENERAL_KNOWLEDGE", reply_text, case_id=case_id, query_type="PROCESS_KNOWLEDGE",
++            citations=detail.get("citations") or [])
++    return None
++
++
++def _heading_of(citation: str) -> str:
++    return str(citation).split("#", 1)[1] if "#" in str(citation) else ""
++
++
++def _tie_break(question: str):
++    """The hit to answer from when the top hits TIE and another one's heading matches the question clearly better
++    than the first one's; else None (the ordinary knowledge answer stands)."""
++    from app.agents.applicant import knowledge_answer
++
++    result = knowledge_answer.retrieve(question)
++    if result is None or not result.confident or len(result.hits) < 2:
++        return None
++    top = result.hits[0].score
++    tied = [h for h in result.hits if top - h.score <= 0.02]
++    if len(tied) < 2:
++        return None
++    said = _plain(question)
++    score = lambda h: difflib.SequenceMatcher(None, said, _plain(h.chunk.heading or "")).ratio()  # noqa: E731
++    best = max(tied[1:], key=score)
++    return best if score(best) - score(tied[0]) > 0.15 else None
++
++
++def _english_shape(text: str) -> str:
++    """A Hinglish question in the handbook's English shape, for the knowledge search only (config rewrites)."""
++    said = _plain(text)
++    for pattern, replacement in (cfg().get("general_question") or {}).get("retrieval_rewrites") or []:
++        said = re.sub(pattern, replacement, said)
++    return said
++
++
++def _flat(text: str) -> str:
++    return " " + re.sub(r"[-_\s]+", " ", _plain(text)) + " "
++
++
++def _subject_words(text: str) -> list[str]:
++    """What a general question is ABOUT: its words minus the question words and the generic ones (config)."""
++    filler = {_plain(w) for w in (cfg().get("general_question") or {}).get("filler") or []}
++    return list(dict.fromkeys(w for w in _flat(text).split() if w not in filler and len(w) > 2))
++
++
++def _about(question: str, answer: str) -> bool:
++    """A retrieved answer is used only when it is ABOUT what was asked: most of the subject words appear in it.
++    A confident-but-unrelated passage ("top up loan" -> a paragraph on filenames) is never shown as the answer."""
++    words = _subject_words(question)
++    if not words:
++        return True
++    said = _flat(answer)
++    hits = sum(1 for w in words if f" {w}" in said or f" {w.rstrip('s')}" in said)
++    return hits >= max(1, -(-len(words) * 3 // 5))           # at least 60 %, rounded up
++
++
++_AMOUNT = re.compile(r"(?:rs\.?|inr|₹)?\s*(\d+(?:[.,]\d+)*)\s*(crore|cr|lakh|lakhs|lac|lacs|l|k|thousand|hazar|hazaar)?\b",
++                     re.I)
++_RATE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|(?:percent|pct|pc)\b)", re.I)
++_YEARS = re.compile(r"(\d+(?:\.\d+)?)\s*(?:years?|yrs?|saal)\b", re.I)
++_MONTHS = re.compile(r"(\d+)\s*(?:months?|mahine|mahina|mths?|m)\b", re.I)
++_SCALE = {"crore": 1e7, "cr": 1e7, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5, "l": 1e5, "k": 1e3,
++          "thousand": 1e3, "hazar": 1e3, "hazaar": 1e3}
++
++
++def _amounts(text: str) -> list[tuple[int, float]]:
++    """(position, rupees) of every amount typed -- rates and tenures excluded."""
++    taken = [m.span() for p in (_RATE, _YEARS, _MONTHS) for m in p.finditer(text)]
++    out = []
++    for m in _AMOUNT.finditer(text):
++        if any(a <= m.start() < b for a, b in taken):
++            continue
++        value = float(m.group(1).replace(",", ""))
++        out.append((m.start(1), value * _SCALE.get((m.group(2) or "").lower(), 1)))
++    return out
++
++
++def _nearest(amounts: list[tuple[int, float]], text: str, words: list[str]) -> float | None:
++    spots = [m.end() for w in words for m in re.finditer(rf"\b{re.escape(w)}\b", text, re.I)]
++    if not spots or not amounts:
++        return None
++    return min(amounts, key=lambda a: min(abs(a[0] - s) for s in spots))[1]
++
++
++def _inr(value: float) -> str:
++    """Rs. in the Indian grouping (12,34,567), no paise for whole rupees."""
++    whole, paise = divmod(round(value * 100), 100)
++    s = str(int(whole))
++    head, tail = s[:-3], s[-3:]
++    while len(head) > 2:
++        tail, head = head[-2:] + "," + tail, head[:-2]
++    grouped = (head + "," + tail) if head else tail
++    return "₹" + grouped + (f".{paise:02d}" if paise else "")
++
++
++def _calculate(text: str, lang: str) -> str | None:
++    spec = cfg().get("calculators") or {}
++    texts, said = spec.get("texts") or {}, _norm(text)
++    has = lambda key: any(_norm(w) in said for w in spec.get(key) or [])  # noqa: E731
++    amounts = _amounts(text)
++    note = _say_text(texts.get("note"), lang)
++    if has("ltv_words") and amounts:
++        loan = _nearest(amounts, text, ["loan"])
++        value = _nearest(amounts, text, ["property", "value", "ghar", "house", "makaan"])
++        if (loan is None or value is None or loan == value) and len(amounts) >= 2:
++            loan, value = sorted(a[1] for a in amounts)[:2]
++        if not loan or not value or loan == value:
++            return _missing("LTV", "the loan amount and the property value", spec, "ltv", lang)
++        lines = [_say_text(texts.get("ltv"), lang, loan=_inr(loan), property_value=_inr(value), ltv=f"{loan / value * 100:.1f}")]
++        limit = _policy_values("ltv")
++        if limit:
++            lines.append(_say_text(texts.get("ltv_limit"), lang, **limit))
++        return "\n\n".join(lines + [note])
++    if has("foir_words") and amounts:
++        income = _nearest(amounts, text, ["income", "salary", "kamai", "earning", "earnings"])
++        obligations = _nearest(amounts, text, ["emi", "emis", "obligation", "obligations"])
++        if (income is None or obligations is None or income == obligations) and len(amounts) >= 2:
++            obligations, income = sorted(a[1] for a in amounts)[:2]
++        if not income or obligations is None or income == obligations:
++            return _missing("FOIR", "the monthly income and the monthly EMIs", spec, "foir", lang)
++        lines = [_say_text(texts.get("foir"), lang, obligations=_inr(obligations), income=_inr(income),
++                           foir=f"{obligations / income * 100:.1f}")]
++        limit = _policy_values("foir")
++        if limit:
++            lines.append(_say_text(texts.get("foir_limit"), lang, **limit))
++        return "\n\n".join(lines + [note])
++    if has("emi_words") and (amounts or _RATE.search(text)):
++        rate = _RATE.search(text)
++        years, months = _YEARS.search(text), _MONTHS.search(text)
++        n = int(months.group(1)) if months else (round(float(years.group(1)) * 12) if years else 0)
++        principal = max((a[1] for a in amounts), default=0)
++        if not rate or not n or not principal:
++            return _missing("the EMI", "the loan amount, the yearly rate and the tenure", spec, "emi", lang)
++        r = float(rate.group(1)) / 1200
++        emi = principal / n if r == 0 else principal * r * (1 + r) ** n / ((1 + r) ** n - 1)
++        return "\n\n".join([
++            _say_text(texts.get("emi"), lang, principal=_inr(principal), rate=rate.group(1), months=n,
++                      emi=_inr(round(emi)), interest=_inr(round(emi * n - principal)), total=_inr(round(emi * n))),
++            _say_text(texts.get("emi_formula"), lang), note])
++    return None
++
++
++def _missing(what: str, needs: str, spec: dict[str, Any], key: str, lang: str) -> str:
++    return _say_text((spec.get("texts") or {}).get("missing"), lang, what=what, needs=needs,
++                     example=(spec.get("examples") or {}).get(key, ""))
++
++
++def _say_text(template: Any, lang: str, **values: Any) -> str:
++    from app.agents.applicant.copilot.capabilities import product_flow
++
++    return product_flow.say(template, lang, 0, **values)
++
++
++def _policies(product: str | None = None) -> list[Any]:
++    """The live eligibility policies (one product, else every configured one); [] when unavailable."""
++    from app.agents.applicant import config
++    from app.agents.eligibility import policy as eligibility_policy
++
++    names = [product] if product else [p for p in config.products() or [] if str(p).lower() != "default"]
++    out = []
++    for name in names:
++        try:
++            out.append(eligibility_policy.get_policy(name))
++        except Exception:  # noqa: BLE001 - PolicyUnavailable (production refuses a demo policy) or no policy
++            continue
++    return out
++
++
++def _policy_values(kind: str) -> dict[str, Any] | None:
++    """The configured limit a calculator compares with (the first product that sets one)."""
++    for p in _policies():
++        if kind == "foir" and p.foir_maximum_percent is not None:
++            return {"limit": f"{p.foir_maximum_percent:g}", "policy_id": p.policy_id}
++        if kind == "ltv" and p.ltv_enabled and p.ltv_maximum_percent is not None:
++            return {"limit": f"{p.ltv_maximum_percent:g}", "policy_id": p.policy_id, "product": _readable(p.product)}
++    return None
++
++
++def _policy(text: str, state, lang: str) -> str | None:
++    """A policy number asked ("maximum tenure for home loan"): read from the eligibility policy now, never typed."""
++    spec = cfg().get("policy") or {}
++    said = _norm(text)
++    subject = next((s for s, words in (spec.get("subjects") or {}).items()
++                    if any(_norm(w) in said for w in words)), None)
++    if subject is None:
++        return None
++    texts = spec.get("texts") or {}
++    source = _say("source", lang, source=spec.get("source", ""))
++    if subject in {"cibil", "turnaround", "fees"}:
++        return _say_text(texts.get(subject), lang)
++    if subject == "signature":
++        from app.agents.applicant import config
++        from app.agents.signature import presence
++
++        if not presence.enabled():
++            return _say_text(texts.get("signature_off"), lang)
++        activation, problem = config.signature_activation()
++        if activation is None:
++            return _say_text(texts.get("signature_on_undated"), lang, problem=problem)
++        return _say_text(texts.get("signature_on"), lang, date=activation.date().isoformat())
++    product = _product_of(text)
++    if product is None and getattr(state, "active_case_id", None):
++        from app.store import get_repository
++
++        product = getattr(get_repository().get_application(state.active_case_id), "product", None)
++    policies = _policies(product)
++    if not policies:
++        return _say_text(texts.get("unavailable"), lang)
++    lines = []
++    for p in policies:
++        name = _readable(p.product)
++        if subject == "loan_amount" and p.loan_maximum_amount is not None:
++            lines.append(_say_text(texts.get("loan_amount"), lang, product=name,
++                                   minimum=_inr(p.loan_minimum_amount or 0), maximum=_inr(p.loan_maximum_amount)))
++        elif subject == "tenure" and p.tenure_maximum_months is not None:
++            lines.append(_say_text(texts.get("tenure"), lang, product=name, minimum=p.tenure_minimum_months or 0,
++                                   maximum=p.tenure_maximum_months))
++        elif subject == "interest" and p.annual_rate_percent is not None:
++            lines.append(_say_text(texts.get("interest"), lang, product=name, rate=f"{p.annual_rate_percent:g}"))
++        elif subject == "age" and p.age_maximum_years is not None:
++            lines.append(_say_text(texts.get("age"), lang, product=name, minimum=p.age_minimum_years or 0,
++                                   maximum=p.age_maximum_years))
++        elif subject == "ltv":
++            lines.append(_say_text(texts.get("ltv"), lang, product=name, maximum=f"{p.ltv_maximum_percent:g}")
++                         if p.ltv_enabled and p.ltv_maximum_percent is not None
++                         else _say_text(texts.get("ltv_off"), lang, product=name))
++        elif subject == "foir" and p.foir_maximum_percent is not None:
++            lines.append(_say_text(texts.get("foir"), lang, product=name, maximum=f"{p.foir_maximum_percent:g}"))
++        elif subject == "income" and p.minimum_monthly_income is not None:
++            lines.append(_say_text(texts.get("income"), lang, product=name, minimum=_inr(p.minimum_monthly_income),
++                                   basis=_readable(p.income_basis).lower()))
++        elif subject == "employment" and p.employment_allowed:
++            lines.append(_say_text(texts.get("employment"), lang, product=name,
++                                   allowed=", ".join(_readable(e) for e in p.employment_allowed)))
++        else:
++            lines.append(_say_text(texts.get("not_set"), lang, product=name))
++    demo = [p.policy_id for p in policies if not p.is_production]
++    tail = [_say_text(texts.get("demo"), lang, policy_ids=", ".join(demo))] if demo else []
++    return "\n".join(f"- {line}" for line in lines) + "\n\n" + "\n".join(tail + [source])
++
++
++def _say_list(key: str) -> Any:
++    return (cfg().get("texts") or {}).get(key)
++
++
++async def _definition(text: str, request_id: str, lang: str, case_id: str | None) -> dict[str, Any] | None:
++    """A definition / full form: the glossary, then the knowledge base; an unknown ACRONYM is logged."""
++    term = None
++    for pattern in (cfg().get("phrases") or {}).get("definition") or []:
++        found = re.match(pattern, text.strip(), re.I)
++        if found:
++            term = found.group("term")
++            break
++    if not term:
++        return None
++    from app.agents.applicant.copilot.answering import professional, style
++
++    known = style.defined_term(text) or style.defined_term(f"{term} kya hai")
++    if known:
++        said = professional.strip_emojis(style.definition(known, lang) or "").strip()
++        source = _say("source", lang, source="glossary.yaml")
++        return _reply(request_id, "DEFINITION", f"{said}\n\n{source}", case_id=case_id,
++                      tts=professional.plain(said), query_type="PROCESS_KNOWLEDGE")
++    # an ACRONYM: typed in capitals, or a short token with no vowel ("fnr", "ftnr") -- never an ordinary word
++    acronym = term.isupper() or (2 <= len(term) <= 5 and not re.search(r"[aeiou]", term.lower()))
++    if not acronym:
++        return None                     # "what is pending" is a case question: the ordinary pipeline answers
++    try:
++        from app.agents.applicant.copilot.agent import _knowledge_reply
++
++        reply_text, source, detail = await _knowledge_reply(text, allow_model=False)
++    except Exception:  # noqa: BLE001 - knowledge unavailable: said as unknown, never guessed
++        reply_text, detail = "", {"confident": False}
++    if detail.get("confident") and reply_text and _about(text, reply_text):
++        return _reply(request_id, "DEFINITION", reply_text, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
++    if acronym:
++        _log_gap(term)
++        return _reply(request_id, "UNKNOWN_TERM", _say("unknown_term", lang, term=term.upper()), case_id=case_id)
++    return None
++
++
++# --------------------------------------------------------------------------
++# after every reply: "Do you mean X or Y?" and the gradual fallback
++# --------------------------------------------------------------------------
++
++def after(published: Any, message: str, claims: dict[str, Any], context: dict[str, Any] | None, lang: str) -> Any:
++    from app.agents.applicant.copilot.capabilities import workspace
++
++    if not enabled() or not isinstance(published, dict) or published.get("atomic") or not message:
++        return published
++    fb = cfg().get("fallback") or {}
++    missed = str(published.get("intent") or "").upper() in {str(i).upper() for i in fb.get("miss_intents") or []}
++    # "Do you mean: <case tool> or <case tool>?" only for a CASE question the router half-understood -- a general
++    # question the knowledge base lacks gets the plain "not in the knowledge base yet" (never case-tool guesses)
++    knowledge_miss = str(published.get("intent") or "").upper() == "UNKNOWN_TERM" or _general_question(message)
++    if missed and not knowledge_miss:
++        clarified = _did_you_mean(message, lang)
++        if clarified:
++            published["answer"], published["faq_block"] = clarified
++            published["intent"], published["no_case_links"] = "DID_YOU_MEAN", True
++            published.pop("answer_markdown", None)
++    state = _state(claims, context)
++    flow = dict(getattr(state, "flow", None) or {})
++    misses = int(flow.get("misses", 0)) + 1 if missed else 0
++    flow["misses"] = misses
++    state.flow = flow
++    workspace._save(state)
++    if missed and misses >= int(fb.get("misses_before_help", 2)):
++        closest = _closest_faq(message, getattr(state, "active_case_id", None), lang)
++        block = "\n".join(x for x in [_pick(fb.get("heading"), lang), _asks(closest),
++                                      _pick(fb.get("supervisor"), lang)] if x)
++        published["faq_block"] = (str(published.get("faq_block") or "") + "\n\n" + block).strip()
++        published["no_case_links"] = True
++    return published
++
++
++def _did_you_mean(message: str, lang: str) -> tuple[str, str] | None:
++    """When the router's best two tools are close: ("Do you mean:", the two questions as links)."""
++    try:
++        from app.agents.applicant.copilot.semantics import embedding_router
++
++        if not embedding_router.enabled():
++            return None
++        match = embedding_router.bank().match(message)
++    except Exception:  # noqa: BLE001 - no router: no guess
++        return None
++    spec = cfg().get("clarify") or {}
++    if match is None or not match.runner_up or match.score < float(spec.get("min_score", 0.35)) \
++            or match.score - match.runner_up_score > float(spec.get("max_gap", 0.05)):
++        return None
++    questions = spec.get("tool_questions") or {}
++    first, second = questions.get(match.tool), questions.get(match.runner_up)
++    if not first or not second:
++        return None
++    return _pick(spec.get("question"), lang), _asks([_pick(first, lang), _pick(second, lang)])
++
++
++def _closest_faq(message: str, case_id: str | None, lang: str, n: int = 3) -> list[str]:
++    from app.agents.applicant.copilot.capabilities import faq
++
++    pool = [i["send"] for i in faq.items(case_id, lang)]
++    for item in faq.cfg().get("answers") or []:
++        pool += [str(m) for m in (item.get("match") or [])[:1]]
++    said = _norm(message).strip()
++    ranked = sorted(dict.fromkeys(pool), key=lambda q: -difflib.SequenceMatcher(None, said, _norm(q).strip()).ratio())
++    return ranked[:n]
++
++
++__all__ = ["after", "answer", "cfg", "enabled"]
+diff --git a/app/config/conversation_general.yaml b/app/config/conversation_general.yaml
+new file mode 100644
+index 0000000..92cbc87
+--- /dev/null
++++ b/app/config/conversation_general.yaml
+@@ -0,0 +1,284 @@
++# THE GENERAL LAYER (owner decisions 2026-10-08) -- read by app/agents/applicant/copilot/capabilities/general.py.
++# Runs BEFORE any case logic: help / ok / frustration, role and stage (from the login), definitions and full forms
++# (glossary.yaml, then the knowledge base), process steps BUILT FROM the stage gates / checklists / verification
++# config, the product checklist, "whose name?", unknown terms (logged for the owner). Only a real case question
++# reaches "which case?". Nothing here is invented: every fact comes from config, the knowledge base or the login.
++
++enabled: true
++
++phrases:
++  help: [what can you help with, what can you do, how can you help, what do you do, help me, kya kar sakte ho,
++         kya madad kar sakte ho, tum kya kar sakte ho, aap kya kar sakte ho, क्या मदद कर सकते हो]
++  ack: ["ok", "okay", "ok thanks", "thanks", "thank you", "got it", "hmm", "accha", "acha", "theek hai", "thik hai",
++        "fine", "cool", "ठीक है", "धन्यवाद"]
++  frustrated: [why you are not answering, why are you not answering, why you not answering, not answering me,
++               you are not helping, not helpful, useless bot, bekar, kuch samajh nahi aa raha, jawab nahi de raha,
++               wrong answer, galat jawab, samjha nahi, you don't understand, you dont understand]
++  role: [what is my role, my role, mera role, meri role, who am i, which role, my designation]
++  login_stage: [what is my stage, my stage, mera stage, which stage am i, my login stage, mera login stage]
++  name: [what is name, what is the name, name kya hai, naam kya hai, whats the name, what's the name, name batao]
++  product_documents: [mandatory documents, required documents, documents required, documents needed, which documents,
++                      kaunse documents, documents for, document list, checklist for, kya documents chahiye,
++                      documents chahiye]
++  co_applicant: [co-applicant, co applicant, coapplicant, co-applicants, co applicants]
++  # a question about ONE named document is not a request for the product checklist
++  one_document: [address proof, id proof, identity proof, income proof, bank statement, salary slip, signature, aadhaar,
++                 aadhar, pan, passport, voter, driving licence, driving license, photo, form 16, itr, accepted as]
++  # a definition / full form: "what is X", "X meaning", "X full form", "X kya hai", "X ka matlab"
++  definition: ["^(?:what is|what's|whats|what does|define)\\s+(?:a |an |the )?(?P<term>[A-Za-z][A-Za-z0-9-]{1,14})(?:\\s+(?:stage|step|desk|check))?(?:\\s+mean| stand for)?\\s*\\??$",
++               "^(?P<term>[A-Za-z][A-Za-z0-9-]{1,14})\\s+(?:meaning|full form|ka matlab|matlab|kya hai|kya hota hai|means)\\s*\\??$"]
++
++# PROCESS ANSWERS: numbered steps whose FACTS are filled from the live config at answer time
++processes:
++  move_to_cpa:
++    phrases: [how to move cpa, how to move to cpa, how do i move to cpa, move to cpa process, how to send to cpa,
++              cpa kaise bheje, cpa mein kaise bheje, how to move the case to cpa, steps to move to cpa,
++              how to move case to cpa, move case to cpa, case cpa mein kaise bheje, case ko cpa kaise bheje]
++  complete_case:
++    phrases: [steps to complete the case, how to complete the case, how to complete a case, case complete kaise kare,
++              steps to complete case, process to complete the case, what are the steps]
++  verify_documents:
++    phrases: [process to verify documents, how are documents verified, how to verify documents, verification process,
++              document verification process, verify kaise hota hai, documents kaise verify hote hai]
++  what_is_cpa:
++    phrases: [what is cpa, cpa kya hai, cpa meaning, what does cpa mean, what is cpa stage]
++
++texts:
++  help:
++    en: "I can help with your cases, documents, KYC and moving a case to CPA, and answer questions about the process."
++    hi-Latn: "Main aapke cases, documents, KYC aur case ko CPA bhejne mein madad kar sakta hoon, aur process ke sawalon ka jawab de sakta hoon."
++    hi: "मैं आपके केस, दस्तावेज़, KYC और केस को CPA भेजने में मदद कर सकता हूँ, और प्रक्रिया के सवालों के जवाब दे सकता हूँ।"
++    mr: "मी तुमच्या केस, कागदपत्रे, KYC आणि केस CPA कडे पाठवण्यात मदत करू शकतो, आणि प्रक्रियेच्या प्रश्नांची उत्तरे देऊ शकतो."
++  ack:
++    en: ["Okay.", "Sure."]
++    hi-Latn: ["Theek hai.", "Zaroor."]
++    hi: ["ठीक है।"]
++    mr: ["ठीक आहे."]
++  ack_next: { en: "Anything else?", hi-Latn: "Aur kuch?", hi: "और कुछ?", mr: "आणखी काही?" }
++  frustrated:
++    en: "Sorry about that. Here is what I can do for you right now:"
++    hi-Latn: "Maaf kijiye. Abhi main yeh kar sakta hoon:"
++    hi: "माफ़ कीजिए। अभी मैं यह कर सकता हूँ:"
++    mr: "माफ करा. आत्ता मी हे करू शकतो:"
++  role: { en: "You are signed in as **{user}**, role **{role}**.", hi-Latn: "Aap **{user}** ke roop mein signed in hain, role **{role}**.",
++          hi: "आप **{user}** के रूप में साइन इन हैं, भूमिका **{role}**।", mr: "तुम्ही **{user}** म्हणून साइन इन आहात, भूमिका **{role}**." }
++  login_stage: { en: "You signed in for the **{stage}** stage.", hi-Latn: "Aapne **{stage}** stage ke liye sign in kiya hai.",
++                 hi: "आपने **{stage}** चरण के लिए साइन इन किया है।", mr: "तुम्ही **{stage}** टप्प्यासाठी साइन इन केले आहे." }
++  no_login_stage: { en: "Your login does not carry a stage.", hi-Latn: "Aapke login mein stage nahi hai.",
++                    hi: "आपके लॉगिन में चरण नहीं है।", mr: "तुमच्या लॉगिनमध्ये टप्पा नाही." }
++  case_stage: { en: "The open case {case_id} is at **{stage}**.", hi-Latn: "Khula case {case_id} **{stage}** par hai.",
++                hi: "खुला केस {case_id} **{stage}** पर है।", mr: "उघडी केस {case_id} **{stage}** वर आहे." }
++  name_question: { en: "Whose name do you mean?", hi-Latn: "Kiska naam?", hi: "किसका नाम?", mr: "कोणाचे नाव?" }
++  name_options:
++    en: ["The applicant's name", "The co-applicant's name", "My login name"]
++    hi-Latn: ["Applicant ka naam", "Co-applicant ka naam", "Mera login naam"]
++    hi: ["आवेदक का नाम", "सह-आवेदक का नाम", "मेरा लॉगिन नाम"]
++    mr: ["अर्जदाराचे नाव", "सह-अर्जदाराचे नाव", "माझे लॉगिन नाव"]
++  login_name: { en: "Your login name is **{user}**.", hi-Latn: "Aapka login naam **{user}** hai.",
++                hi: "आपका लॉगिन नाम **{user}** है।", mr: "तुमचे लॉगिन नाव **{user}** आहे." }
++  unknown_term:
++    en: "**{term}** is not in the knowledge base yet. I've noted it for the team."
++    hi-Latn: "**{term}** abhi knowledge base mein nahi hai. Maine team ke liye note kar liya hai."
++    hi: "**{term}** अभी ज्ञान-आधार में नहीं है। मैंने टीम के लिए नोट कर लिया है।"
++    mr: "**{term}** अजून ज्ञान-आधारात नाही. मी टीमसाठी नोंद केली आहे."
++  products_heading: { en: "Documents for **{product}**:", hi-Latn: "**{product}** ke documents:",
++                      hi: "**{product}** के दस्तावेज़:", mr: "**{product}** ची कागदपत्रे:" }
++  products_columns: { en: ["Document", "Required", "Accepted as"], hi-Latn: ["Document", "Zaroori", "Kya chalega"],
++                      hi: ["दस्तावेज़", "ज़रूरी", "क्या मान्य"], mr: ["कागदपत्र", "आवश्यक", "काय चालेल"] }
++  required: { en: "Required", hi-Latn: "Zaroori", hi: "ज़रूरी", mr: "आवश्यक" }
++  optional: { en: "Optional", hi-Latn: "Optional", hi: "वैकल्पिक", mr: "पर्यायी" }
++  coapp_optional: { en: "Co-applicant documents are not mandatory while the co-applicant rule is off.",
++                    hi-Latn: "Co-applicant rule band hai, isliye yeh documents abhi zaroori nahi." }
++  coapp_heading: { en: "Every co-applicant:", hi-Latn: "Har co-applicant:", hi: "हर सह-आवेदक:", mr: "प्रत्येक सह-अर्जदार:" }
++  products_note:
++    en: "Amount-based rules may add documents once the loan amount is entered."
++    hi-Latn: "Loan amount bharne ke baad amount ke rules aur documents jod sakte hain."
++    hi: "लोन राशि भरने के बाद राशि के नियम और दस्तावेज़ जोड़ सकते हैं।"
++    mr: "कर्ज रक्कम भरल्यानंतर रकमेचे नियम आणखी कागदपत्रे जोडू शकतात."
++  which_product: { en: "For which product?", hi-Latn: "Kis product ke liye?", hi: "किस प्रोडक्ट के लिए?", mr: "कोणत्या प्रॉडक्टसाठी?" }
++  source: { en: "Source: {source}", hi-Latn: "Source: {source}", hi: "स्रोत: {source}", mr: "स्रोत: {source}" }
++  # process steps: {placeholders} are filled from the live config (never typed facts)
++  move_to_cpa:
++    en: ["Fill the application form: {fields}.", "Upload the mandatory documents for the product (for {product}: {documents}).",
++         "Wait for verification; a rejected document must be uploaded again.", "{kyc_step}",
++         "When every FOS check passes ({checks}), open the case and tap Move to CPA, then Confirm."]
++    hi-Latn: ["Application form bhariye: {fields}.", "Product ke mandatory documents upload kijiye ({product} ke liye: {documents}).",
++              "Verification hone dijiye; reject hua document dobara upload karna hoga.", "{kyc_step}",
++              "Jab saare FOS checks pass hon ({checks}), case kholiye aur Move to CPA dabaiye, phir Confirm."]
++  kyc_step:
++    en: "KYC compares the form with the documents and the documents with each other; it must pass."
++    hi-Latn: "KYC form ko documents se aur documents ko aapas mein milata hai; isko pass hona chahiye."
++  verify_documents:
++    en: ["Upload the document (in the case or in this chat).", "The system identifies the document type and the party.",
++         "Verification checks run: readable, the right type, the expected fields present.",
++         "Result: verified, in review (a person checks), or rejected (upload again).",
++         "KYC then cross-checks the verified documents against the form."]
++    hi-Latn: ["Document upload kijiye (case mein ya is chat mein).", "System document ka type aur party pehchanta hai.",
++              "Verification checks chalte hain: padhne layak, sahi type, zaroori fields.",
++              "Result: verified, review (koi vyakti dekhega), ya rejected (dobara upload).",
++              "Phir KYC verified documents ko form se milata hai."]
++  what_is_cpa_tail:
++    en: "A case moves from FOS to CPA when every FOS check passes: {checks}."
++    hi-Latn: "Case FOS se CPA tab jaata hai jab saare FOS checks pass hon: {checks}."
++  sources:
++    move_to_cpa: "stage_gates.yaml (FOS gate), the product checklist, kyc_policies.yaml"
++    complete_case: "stage_gates.yaml (FOS gate), the product checklist, kyc_policies.yaml"
++    verify_documents: "the LOS document flow, knowledge/fos/verification_guidelines.md"
++    what_is_cpa: "glossary.yaml, stage_gates.yaml"
++    products: "documents.yaml (product checklist{coapp})"
++
++# DID YOU MEAN: the router's top two tools are close -> one question with both as links (owner decision 4)
++clarify:
++  min_score: 0.35            # below this the guess is too weak to offer
++  max_gap: 0.05              # top two within this -> ask instead of guessing
++  question: { en: "Do you mean:", hi-Latn: "Aapka matlab:", hi: "आपका मतलब:", mr: "तुम्हाला म्हणायचे आहे:" }
++  tool_questions:
++    case_status: { en: "What is the case status?", hi-Latn: "Case ka status kya hai?" }
++    documents_needing_action: { en: "What is pending?", hi-Latn: "Kya baaki hai?" }
++    kyc_result: { en: "What is the KYC status?", hi-Latn: "KYC status kya hai?" }
++    loan_terms: { en: "What are the loan details?", hi-Latn: "Loan details kya hai?" }
++    next_action: { en: "What should I do next?", hi-Latn: "Ab kya karna hai?" }
++    document_details: { en: "What does the document say?", hi-Latn: "Document mein kya likha hai?" }
++    list_cases: { en: "Show my cases", hi-Latn: "Mere cases dikhao" }
++    knowledge: { en: "Explain the process", hi-Latn: "Process samjhao" }
++
++# GRADUAL FALLBACK: the second miss in a row -> the 3 closest FAQ questions + the supervisor line (owner decision 4)
++fallback:
++  misses_before_help: 2
++  heading: { en: "Maybe one of these:", hi-Latn: "Shayad inmein se koi:", hi: "शायद इनमें से कोई:", mr: "कदाचित यापैकी एक:" }
++  # the contact line the owner configures (no person is contacted automatically)
++  supervisor: { en: "Talk to my supervisor: contact your branch supervisor or the FOS helpdesk.",
++                hi-Latn: "Supervisor se baat: apne branch supervisor ya FOS helpdesk se sampark kijiye.",
++                hi: "पर्यवेक्षक से बात: अपने शाखा पर्यवेक्षक या FOS हेल्पडेस्क से संपर्क करें।",
++                mr: "पर्यवेक्षकाशी बोला: तुमच्या शाखा पर्यवेक्षकाशी किंवा FOS हेल्पडेस्कशी संपर्क साधा." }
++  miss_intents: [UNKNOWN, FAQ_UNKNOWN, NOT_IN_SCOPE, OUT_OF_SCOPE, UNKNOWN_TERM]
++
++# unknown terms are logged here for the owner (term, count, last seen -- never case data)
++gaps_file: evals/knowledge_gaps.yaml
++
++# ---- GENERAL QUESTIONS WITH NO CASE (owner 2026-10-08: "outside a case bhi") ------------------------------------
++# A question SHAPED like general knowledge ("what is / how to / is X mandatory / kya hai / kaise") that points at NO
++# case is answered from the knowledge base (+ the configured facts) -- never "which case?". The coverage bank:
++# evals/general_questions.yaml (tests/integration/test_general_coverage.py).
++general_question:
++  # the message must START with one of these (regex, lower case, after punctuation is dropped) ...
++  shapes: ['^(what|whats|what s) (is|are|does|do|happens)\b', '^(define|explain|meaning of|difference between)\b',
++           '^how (to|do|does|can|many|much|long|is|are)\b', '^(can|could|should|may) \w+',
++           '\b(mandatory|zaroori|zaruri|required|compulsory|chahiye|jaruri) (hai|he|h)( kya)?$', '^kya .+ (chalega|zaroori hai|mandatory hai)$',
++           '^(is|are|does|do) .*\b(mandatory|required|needed|compulsory|accepted|allowed|valid|necessary)\b',
++           '^(which|what) (documents?|income|proof|products?)\b', '^who (approves|decides|checks|verifies)\b',
++           '^why (is|are|do|does) (a|an|the)\b', '^(tell me about|batao|samjhao)\b',
++           '\b(kya hai|kya hota hai|kya hoti hai|kya hote hai|ka matlab|kaise|kaise kare|kaise hota hai|kya kare|kya karna hai)$',
++           '\bkaun (karta|karti|deta|deti|karte) (hai|hain)$', '\b(kya|kya kya) (chalega|chalta hai|chalti hai|lagega|lagta hai)$',
++           '\b(kya )?(fark|farak|difference) (hai|kya hai)$', '\b(kitna|kitni|kitne) (hai|hota hai|hoti hai|lagta hai|lagti hai)$']
++  # ... and name NO case: these words mean "this case / this customer" (the case logic answers those)
++  case_referents: [this case, is case, iss case, the case, my case, mera case, meri case, this customer, is customer,
++                   this loan, is loan, iska, iski, iske, uska, uski, uske, inka, unka, his, her, their, this file,
++                   is applicant, this applicant, customer ka, applicant ka]
++  # questions about a case's own data even without "this": the ordinary pipeline asks which case
++  case_only: ['^(what is|whats) (pending|missing|the status|status|the stage|my status|left|baaki)\b',
++              '\b(status|pending|baaki|baki) (kya|hai|batao)', '^(loan amount|kyc status|stage|status)\b']
++  # the words a question is NOT about -- what is left must appear in the answer, or it is not shown (relevance guard)
++  filler: [what, whats, is, are, the, a, an, of, for, to, does, do, did, how, mean, means, meaning, define, explain,
++           difference, between, and, or, kya, hai, hain, hota, hoti, hote, ka, ki, ke, matlab, me, mein, can, could,
++           should, which, who, why, tell, about, batao, samjhao, loan, loans, document, documents, customer, process,
++           kaise, kare, karna, karte, with, in, on, use, used, need, needed, required, mandatory, happens, after,
++           work, works, does, get, give, stand, full, form, please, plz, any, this, that, there]
++  # HINGLISH QUESTION SHAPES -> the handbook's English, for the knowledge SEARCH only (the reply stays in the user's
++  # language; the original wording is searched first). [pattern, replacement], applied in order, lower case.
++  retrieval_rewrites:
++    - ['^(.+?) (fail|reject)(?:ed)? (?:ho gaya|ho gya|ho gayi|ho gyi|hua|hui)(?: to| toh)? (?:kya kare|kya karu|kya karein|kya karna hai|ab kya)$', 'what to do if \1 \2s']
++    - ['^(.+?) kaise (?:hota|hoti|hote|chalta|chalti|kaam karta|kaam karti) (?:hai|hain)$', 'how does \1 work']
++    - ['^(.+?) kaise (.+?)(?: kare| karu| karein| karte hai| karte hain| hota hai| hote hai| hote hain| hoga)?$', 'how to \2 \1']
++    - ['^(.+?) (?:mandatory|zaroori|zaruri|required|compulsory|jaruri) (?:hai|he|h)(?: kya)?$', 'is \1 mandatory']
++    - ['^(.+?) (?:kya hai|kya hota hai|kya hoti hai|kya hote hai|kya hote hain|ka matlab|matlab)$', 'what is \1']
++    - ['^(.+?) kaun (?:karta|karti|deta|deti|decide karta|decide karti) hai$', 'who \1']
++    - ['^(.+?) aur (.+?) (?:mein|me|main) (?:kya )?(?:fark|farak|difference)(?: hai| kya hai)?$', 'difference between \1 and \2']
++    - ['^(.+?) (?:mein|me) (?:kya|kya kya) (?:chalega|chalta hai|chalti hai)$', 'which documents are accepted as \1']
++    - ['^(?:loan )?(approve|reject|sanction|decide) kaun (?:karta|karti|karte) (?:hai|hain)$', 'who \1s the loan']
++    - ['\bloan (?:ka )?process\b', 'stages of a loan']
++  # the knowledge pipeline may phrase with the model (grounded + checked, agent._knowledge_reply)
++  allow_model: true
++
++# ---- CREDIT DECISIONS: never made in chat, said with who decides (no case needed) ---------------------------------
++decisions:
++  phrases: [will this loan get approved, will the loan get approved, will it get approved, will it be approved,
++            loan approve hoga, approve hoga kya, approval milega, chance of approval, approval chances,
++            can you approve, approve kar do, approve karo, should i reject, should i approve, reject kar du,
++            can you reject, can you sanction, sanction kar do, is this customer eligible, kya loan milega]
++  text:
++    en: "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still pending so the case is ready for them."
++    hi-Latn: "Main credit decision nahi leta. CPA ke baad credit team case check karti hai (credit, phir RCU) aur decide karti hai. Main bata sakta hoon ki kya baaki hai taaki case unke liye ready ho."
++    hi: "मैं क्रेडिट निर्णय नहीं लेता। CPA के बाद क्रेडिट टीम केस की जाँच करती है (क्रेडिट, फिर RCU) और निर्णय लेती है। मैं बता सकता हूँ कि क्या बाकी है ताकि केस उनके लिए तैयार हो।"
++    mr: "मी क्रेडिट निर्णय घेत नाही. CPA नंतर क्रेडिट टीम केस तपासते (क्रेडिट, मग RCU) आणि निर्णय घेते. केस त्यांच्यासाठी तयार व्हावी म्हणून काय बाकी आहे ते मी सांगू शकतो."
++  suggestions: { en: ["What is pending?", "Show my cases"], hi-Latn: ["Kya baaki hai?", "Mere cases dikhao"] }
++
++# ---- POLICY NUMBERS: read from the eligibility policy NOW (eligibility_policy.yaml via policy.get_policy) ----------
++# Never a typed number. A demo policy is SAID to be demo; a criterion the policy does not set is said "not set".
++policy:
++  subjects:
++    loan_amount: [maximum loan, max loan, minimum loan, min loan, loan amount limit, kitna loan, how much loan,
++                  loan limit, loan range]
++    tenure: [maximum tenure, max tenure, minimum tenure, tenure limit, tenure kitna, tenure range, kitne saal ka loan,
++             kitne mahine ka loan]
++    interest: [interest rate, rate of interest, roi, byaj, interest kitna]
++    age: [age limit, minimum age, maximum age, umar, age criteria]
++    ltv: [maximum ltv, max ltv, ltv limit, ltv kitna]
++    foir: [maximum foir, max foir, foir limit]
++    income: [minimum income, min income, minimum salary, min salary, income required, salary required,
++             which income, income is used, kitni salary]
++    employment: [salaried or self employed, self employed allowed, employment type, who can apply, self employed apply,
++                 salaried apply, can self employed, can salaried, self employed eligible, business owner apply]
++    cibil: [minimum cibil, min cibil, cibil score required, cibil cutoff, cibil cut off, required cibil,
++            credit score required, minimum credit score, kitna cibil]
++    signature: [is signature mandatory, is signature required, signature mandatory, signature required,
++                signature zaroori, signature compulsory, signature chahiye, signature needed]
++    fees: [processing fee kitni, processing fee kitna, how much is the processing fee, processing fee amount,
++           foreclosure charges, prepayment charges, charges kitne, fees kitni, how much are the charges]
++    turnaround: [how long does approval take, approval time, how many days, kitne din, turnaround time, tat]
++  texts:
++    loan_amount: "{product}: loan amount {minimum} to {maximum}."
++    tenure: "{product}: tenure {minimum} to {maximum} months."
++    interest: "{product}: {rate}% a year (the rate used for the EMI estimate)."
++    age: "{product}: age {minimum} to {maximum} years."
++    ltv: "{product}: LTV up to {maximum}% of the property value."
++    ltv_off: "{product}: LTV does not apply (no property is taken as security)."
++    foir: "{product}: FOIR up to {maximum}% (above it the case goes to a reviewer)."
++    income: "{product}: minimum monthly income {minimum}, taken from the verified {basis}."
++    employment: "{product}: {allowed}."
++    not_set: "{product}: not set in the eligibility policy."
++    demo: "These are DEMO policy values ({policy_ids}), not the company's lending policy -- the credit team confirms the real limits."
++    cibil: "No CIBIL score cut-off is configured in this system. The credit check happens at the Credit stage, after CPA; the credit team decides."
++    signature_on: "Yes. A signature is mandatory for every case created on or after {date}; a case without it is not ready for CPA."
++    signature_on_undated: "Yes. The mandatory-signature rule is on, but its start date is not configured ({problem}), so the rule cannot be applied yet."
++    signature_off: "No. The mandatory-signature rule is off, so a signature is not required to move a case to CPA."
++    fees: "No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter."
++    turnaround: "No approval time (TAT) is configured in this system. After CPA the case goes through Credit, RCU, BOPS and HOPS before disbursement; your branch can tell you the usual time."
++    unavailable: "The eligibility policy is not available right now; the credit team confirms the limits."
++  source: "eligibility_policy.yaml (via the eligibility policy provider)"
++
++# ---- CALCULATORS: exact arithmetic on the numbers typed (indicative; the eligibility check uses verified figures) --
++calculators:
++  emi_words: [emi, installment, instalment, kist, kisht]
++  foir_words: [foir]
++  ltv_words: [ltv, loan to value]
++  texts:
++    emi: "EMI for {principal} at {rate}% a year for {months} months: **{emi}** a month (total interest {interest}, total paid {total})."
++    emi_formula: "Formula: EMI = P × r × (1+r)^n ÷ ((1+r)^n − 1), r = monthly rate, n = months."
++    foir: "FOIR = {obligations} ÷ {income} × 100 = **{foir}%**."
++    foir_limit: "The configured maximum is {limit}% ({policy_id}, demo values)."
++    ltv: "LTV = {loan} ÷ {property_value} × 100 = **{ltv}%**."
++    ltv_limit: "The configured maximum for {product} is {limit}% ({policy_id}, demo values)."
++    missing: "To calculate {what} I need {needs}. Example: \"{example}\""
++    note: "Indicative only -- the system's eligibility check uses the verified figures."
++  examples:
++    emi: "EMI for 5 lakh at 12% for 3 years"
++    foir: "FOIR income 50000 emi 15000"
++    ltv: "LTV for 40 lakh loan on 60 lakh property"
++
++# ---- A GENERAL QUESTION THE KNOWLEDGE BASE CANNOT ANSWER: said plainly, logged for the owner ------------------------
++general_unknown:
++  en: "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
++  hi-Latn: "Yeh abhi knowledge base mein nahi hai, isliye main andaza nahi lagaunga. Maine sawal team ke liye note kar liya hai."
++  hi: "यह अभी ज्ञान-आधार में नहीं है, इसलिए मैं अनुमान नहीं लगाऊँगा। मैंने सवाल टीम के लिए नोट कर लिया है।"
++  mr: "हे अजून ज्ञान-आधारात नाही, म्हणून मी अंदाज लावणार नाही. मी प्रश्न टीमसाठी नोंदवला आहे."
+diff --git a/knowledge/fos/loan_terms.md b/knowledge/fos/loan_terms.md
+new file mode 100644
+index 0000000..a22243f
+--- /dev/null
++++ b/knowledge/fos/loan_terms.md
+@@ -0,0 +1,157 @@
++---
++id: fos.loan_terms
++knowledge_type: HANDBOOK
++title: Common lending terms -- what a field officer is asked
++description: Standard meanings of everyday lending terms (co-applicant, guarantor, sanction, disbursement, tenure, prepayment, NACH, CKYC, CERSAI, field checks). Company-specific charges are not configured here.
++domain: general
++language: en
++source: LOS curated knowledge (this repository) -- general lending practice; company terms are in the product policy and the sanction letter
++derived_from:
++- app/config/stage_lifecycle.yaml
++- app/config/eligibility_policy.yaml
++- app/config/documents.yaml
++related:
++- fos.fos_workflow
++- fos.eligibility_terms
++- fos.cibil
++---
++# Common lending terms
++
++These are the standard meanings used across Indian lenders. Where a term depends on the company's own terms
++(a fee amount, a charge, a lock-in), that value is **not configured in this system**: it is in the product
++policy and in the customer's sanction letter.
++
++## What is an EMI bounce?
++
++An **EMI bounce** is an EMI that could not be collected on its due date -- usually because the account did not have
++enough money, or the NACH mandate failed. A bounce usually attracts a bounce charge and can hurt the customer's
++credit record. The bounce charge amount is not configured in this system; it is in the sanction letter.
++
++## What is a co-applicant?
++
++A **co-applicant** applies for the loan together with the main applicant. A co-applicant's income can be counted
++for eligibility, and a co-applicant is equally responsible for repaying the loan. A co-applicant is usually a
++spouse or a close family member; for a property loan, every co-owner of the property is normally a co-applicant.
++In this system a co-applicant has their own documents and their own KYC.
++
++## What is a guarantor?
++
++A **guarantor** is not a borrower. A guarantor promises to repay the loan if the borrower does not. A guarantor's
++income is usually not counted for eligibility, but the guarantor's credit record is checked.
++
++## What is the difference between a co-applicant and a guarantor?
++
++A **co-applicant** borrows together with the applicant and shares the repayment from the start; their income can
++add to eligibility. A **guarantor** does not borrow and pays only if the borrower defaults; their income does not
++add to eligibility.
++
++## What is a sanction letter?
++
++A **sanction letter** is the lender's written approval of a loan. It states the approved amount, the interest
++rate, the tenure, the EMI and the conditions to be met before disbursement. It is issued after the credit
++decision, so it comes after the Credit stage in this system, never at FOS.
++
++## What is disbursement?
++
++**Disbursement** is the release of the loan money -- to the borrower, or for a home loan usually to the seller or
++builder. It happens after sanction and after the loan documents are signed. In this system DISBURSEMENT is the
++last stage: FOS, CPA, CREDIT, RCU, BOPS, HOPS, then DISBURSEMENT.
++
++## What is loan tenure?
++
++**Tenure** is the repayment period of the loan, in months or years. A longer tenure means a lower EMI but more
++interest paid in total; a shorter tenure means a higher EMI and less interest. The configured minimum and maximum
++tenure per product are in the eligibility policy (ask "maximum tenure").
++
++## What is a processing fee?
++
++A **processing fee** is a one-time charge for processing a loan application, usually a percentage of the loan
++amount and often deducted from the amount disbursed. The processing fee amount is **not configured** in this
++system; it is stated in the sanction letter.
++
++## What is prepayment or part payment?
++
++A **prepayment** (or **part payment**) is paying back part of the loan principal before it is due. It reduces the
++outstanding amount, so either the EMI or the remaining tenure comes down. Any charge for it depends on the loan's
++terms in the sanction letter; it is not configured in this system.
++
++## What is foreclosure?
++
++**Foreclosure** (or pre-closure) is repaying the whole outstanding loan early and closing it. Any foreclosure
++charge depends on the loan's terms in the sanction letter; it is not configured in this system.
++
++## What is a balance transfer?
++
++A **balance transfer** (BT) moves an existing loan from another lender to this lender, usually for a lower interest
++rate or better terms. The new lender pays off the old loan and the customer repays the new lender.
++
++## What is a top-up loan?
++
++A **top-up loan** is an extra loan given on top of an existing loan, often to a customer with a good repayment
++record or together with a balance transfer. It is repaid with or alongside the existing loan.
++
++## What is a loan against property?
++
++A **loan against property** (LAP) is a secured loan given against a residential or commercial property the
++borrower already owns; the property is the security. LAP is **not one of the products configured in this
++system** -- the configured products are Personal Loan and Home Loan.
++
++## What is NACH or e-mandate?
++
++**NACH** (National Automated Clearing House, run by NPCI) lets the lender collect each EMI automatically from the
++borrower's bank account, under a mandate the borrower signs. An **e-mandate** (e-NACH) is the same mandate given
++digitally, through net banking, a debit card or Aadhaar.
++
++## What is CKYC?
++
++**CKYC** is the Central KYC Records Registry. A person's KYC record is stored once, centrally, and given a 14-digit
++KYC Identifier; a regulated lender can use it to fetch the record instead of collecting the same documents again.
++In this system KYC is checked against the documents uploaded for the case.
++
++## What is video KYC?
++
++Video KYC (V-CIP, video-based customer identification) is KYC done over a live, consent-based video call with
++the lender's official, where the customer shows the original documents. It is a way to complete KYC without a
++branch visit. In this system KYC compares the application form with the uploaded documents.
++
++## What is CERSAI?
++
++**CERSAI** (Central Registry of Securitisation Asset Reconstruction and Security Interest of India) is the
++registry where a lender records its charge on a property given as security, so the same property cannot be
++pledged to two lenders without it showing. It also holds the Central KYC records.
++
++## What is a field investigation?
++
++A **field investigation** (FI) is a visit by the lender or its agency to the customer's residence or office to
++confirm the address and that the customer lives or works there.
++
++## What is a personal discussion?
++
++A **personal discussion** (PD) is an interview of the customer by the lender to understand their income, business
++or job, existing loans and the purpose of the loan.
++
++## What is legal verification?
++
++**Legal verification** is a lawyer's check of a property's title documents, to confirm the seller or owner has a
++clear title and that the property can be taken as security.
++
++## What is technical valuation?
++
++**Technical valuation** is an inspection of the property by an engineer or valuer, who confirms its condition and
++estimates its market value. The value is used for the LTV (loan to value).
++
++## What is Form 16?
++
++**Form 16** is the certificate an employer gives each employee every year, showing the salary paid and the tax
++(TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or an ITR.
++
++## What is net salary?
++
++**Net salary** (net pay) is the take-home pay after deductions such as tax and provident fund; **gross salary** is
++the pay before deductions. This system's eligibility uses the verified **net pay**, not the gross salary.
++
++## What is the credit stage?
++
++The **Credit** stage comes right after CPA. The credit team assesses the customer's repayment capacity, credit
++bureau record and the product policy, and decides on the loan. After Credit comes RCU, then BOPS, HOPS and
++disbursement. Credit decisions are never made at FOS or in this chat.
+diff --git a/knowledge/fos/officer_howto.md b/knowledge/fos/officer_howto.md
+new file mode 100644
+index 0000000..970aebd
+--- /dev/null
++++ b/knowledge/fos/officer_howto.md
+@@ -0,0 +1,65 @@
++---
++id: fos.officer_howto
++knowledge_type: HANDBOOK
++title: What to do when -- a field officer's quick answers
++description: Who approves a loan, the stages of the loan, fixing a rejected document, a failed KYC, and the bank statement period.
++domain: general
++language: en
++source: LOS curated knowledge (this repository)
++derived_from:
++- app/config/stage_lifecycle.yaml
++- app/config/applicant_agent.yaml
++- app/config/documents.yaml
++related:
++- fos.fos_workflow
++- fos.document_statuses
++- fos.cpa_readiness
++---
++# What to do when
++
++## Who approves or decides on the loan?
++
++The **credit team** approves or rejects a loan, at the **Credit** stage after CPA. The field officer (FOS) and
++this chat never approve, reject or sanction a loan; FOS makes the case complete and moves it to CPA.
++
++## What are the stages of a loan?
++
++Every case moves through these stages, in this order: **FOS** (details and documents collected) → **CPA** →
++**Credit** (the credit decision) → **RCU** (risk check) → **BOPS** → **HOPS** → **Disbursement** (the money is
++released).
++
++## How do I fix a rejected document?
++
++Open the case and upload a **correct, clear** copy of the same document again. The new upload replaces the
++rejected one for that slot; it is verified again, and the case moves forward once it passes. The reason the
++document was rejected is shown in the case, so fix that first (wrong document type, unreadable, cropped, details
++not matching the form).
++
++## What to do if KYC fails?
++
++A failed KYC means the documents do not match the application form, or do not match each other. Open the case to
++see which detail did not match, then ask the customer to upload correct documents that match the application form.
++KYC runs again on the new documents. A case with a failed KYC is not ready for CPA.
++
++## How many months of bank statement are needed?
++
++The checklist asks for a **bank statement**; the number of months is **not configured** in this system. The
++product policy of the credit team decides the period -- check it before collecting the statement.
++
++## How does KYC work?
++
++KYC is checked for every party (the applicant and each co-applicant) in two ways: **A** -- the application form
++against the documents (name, date of birth, PAN, address match what was declared), and **B** -- the documents
++against each other (the same person on every document). The result is pass, review (a person checks) or failed.
++KYC runs once the identity documents are uploaded; a failed KYC must be fixed before the case can move to CPA.
++
++## How do I add a co-applicant?
++
++Open the case and upload the co-applicant's documents, choosing **Co-applicant** as the party when asked. The
++co-applicant's documents and KYC are checked separately from the applicant's.
++
++## What happens after CPA?
++
++At CPA the completed file is processed further and handed on. Next the **Credit** stage assesses the case and makes
++the credit decision, then **RCU** checks the file for risk, then **BOPS** and **HOPS**, and finally the loan is
++**disbursed**. FOS does not take part in these later stages.
+diff --git a/evals/general_questions.yaml b/evals/general_questions.yaml
+new file mode 100644
+index 0000000..3158dba
+--- /dev/null
++++ b/evals/general_questions.yaml
+@@ -0,0 +1,148 @@
++# GENERAL QUESTIONS a loan field officer (FOS) asks -- the coverage bank (2026-10-08).
++# Built from research (lender / RBI KYC / LAP-process pages) + this LOS's own config. Every question here must be
++# answered WITH NO CASE OPEN: never "Which case is this about?", never "I don't know" for something the system knows.
++#
++#   expect: answer        -- a real answer (glossary / knowledge / config / calculator)
++#           not_configured -- a company number that is not in config: say so + who decides (never a guessed number)
++#           decline       -- a credit decision the bot must not make: say who decides
++#           unknown       -- deliberately not in the knowledge base (said plainly, logged)
++#           case          -- needs a case: "which case?" is the RIGHT answer
++#
++# tests/integration/test_general_coverage.py runs every question and reports the coverage per category.
++
++categories:
++  terms:
++    - { q: "what is FOIR", expect: answer }
++    - { q: "FOIR kya hai", expect: answer }
++    - { q: "what is LTV", expect: answer }
++    - { q: "LTV ka matlab", expect: answer }
++    - { q: "what is EMI", expect: answer }
++    - { q: "what is CIBIL score", expect: answer }
++    - { q: "cibil score kya hota hai", expect: answer }
++    - { q: "what is KYC", expect: answer }
++    - { q: "what is OVD", expect: unknown }   # owner 2026-10-07: OVD left out of the glossary on purpose
++    - { q: "what is CKYC", expect: answer, must: ["registry"] }
++    - { q: "what is video KYC", expect: answer, must: ["video call"] }
++    - { q: "what is NACH", expect: answer, must: ["mandate"] }
++    - { q: "what is e-mandate", expect: answer, must: ["mandate"] }
++    - { q: "what is a co-applicant", expect: answer, must: ["together"] }
++    - { q: "what is a guarantor", expect: answer, must: ["not a borrower"] }
++    - { q: "difference between co-applicant and guarantor", expect: answer, must: ["guarantor", "co-applicant"] }
++    - { q: "what is sanction letter", expect: answer, must: ["approval"] }
++    - { q: "what is disbursement", expect: answer, must: ["release"] }
++    - { q: "what is tenure", expect: answer, must: ["repayment period"] }
++    - { q: "what is processing fee", expect: answer, must: ["one-time"] }
++    - { q: "what is foreclosure", expect: answer, must: ["early"] }
++    - { q: "what is prepayment", expect: answer, must: ["principal"] }
++    - { q: "what is part payment", expect: answer, must: ["principal"] }
++    - { q: "what is balance transfer", expect: answer, must: ["another lender"] }
++    - { q: "what is top up loan", expect: answer, must: ["top-up"] }
++    - { q: "what is loan against property", expect: answer, must: ["property"] }
++    - { q: "what is RCU", expect: answer }
++    - { q: "what is field investigation", expect: answer, must: ["visit"] }
++    - { q: "what is personal discussion", expect: answer, must: ["interview"] }
++    - { q: "what is legal verification", expect: answer, must: ["title"] }
++    - { q: "what is technical valuation", expect: answer, must: ["value"] }
++    - { q: "what is CERSAI", expect: answer, must: ["registry"] }
++    - { q: "what is ITR", expect: answer }
++    - { q: "what is form 16", expect: answer, must: ["employer"] }
++    - { q: "what is net salary", expect: answer, must: ["take-home"] }
++    - { q: "what is BOPS", expect: answer }
++    - { q: "what is HOPS", expect: answer }
++    - { q: "what is FOS", expect: answer }
++    - { q: "what is CPA", expect: answer }
++    - { q: "what is credit stage", expect: answer, must: ["credit team"] }
++
++  calculators:
++    - { q: "EMI for 5 lakh at 12% for 3 years", expect: answer, must: ["16,607"] }
++    - { q: "5 lakh ka emi 12 percent 36 months", expect: answer, must: ["16,607"] }
++    - { q: "calculate FOIR income 50000 emi 15000", expect: answer, must: ["30.0%"] }
++    - { q: "LTV for 40 lakh loan on 60 lakh property", expect: answer, must: ["66.7%"] }
++
++  eligibility_policy:
++    - { q: "what is the maximum FOIR", expect: answer, must: ["50%", "DEMO"] }
++    - { q: "minimum income required", expect: answer, must: ["25,000"] }
++    - { q: "minimum salary for personal loan", expect: answer }
++    - { q: "which income is used for eligibility", expect: answer }
++    - { q: "minimum cibil score required", expect: not_configured }
++    - { q: "maximum loan amount for personal loan", expect: answer, must: ["10,00,000", "DEMO"] }          # configured (demo values, said so)
++    - { q: "what is the interest rate", expect: answer, must: ["14%", "DEMO"] }          # configured (demo values, said so)
++    - { q: "maximum tenure for home loan", expect: answer, must: ["360"] }          # configured (demo values, said so)
++    - { q: "age limit for loan", expect: not_configured }
++    - { q: "maximum LTV for home loan", expect: answer, must: ["80%"] }          # configured (demo values, said so)
++
++  documents:
++    - { q: "documents required for personal loan", expect: answer }
++    - { q: "home loan ke liye kya documents chahiye", expect: answer }
++    - { q: "which documents are accepted as address proof", expect: answer, must: ["Passport"] }
++    - { q: "is aadhaar mandatory", expect: answer }
++    - { q: "can I use electricity bill as address proof", expect: answer, must: ["not accepted"] }
++    - { q: "how many months bank statement is needed", expect: not_configured }   # the period is not in config: said so
++    - { q: "documents for co-applicant", expect: answer, must: ["|"] }
++    - { q: "is signature mandatory", expect: answer, must: ["signature"] }
++    - { q: "what does document rejected mean", expect: answer }
++    - { q: "what does in review mean", expect: answer, must: ["person"] }
++    - { q: "why is a document rejected", expect: answer }
++    - { q: "can I upload a photo of the document", expect: answer }
++
++  process:
++    - { q: "how to create a new case", expect: answer, must: ["Create New Case", "1."] }
++    - { q: "how do i upload documents", expect: answer, must: ["Upload"] }
++    - { q: "how to move case to CPA", expect: answer, must: ["Move to CPA"] }
++    - { q: "what happens after CPA", expect: answer, must: ["Credit", "RCU"] }
++    - { q: "what are the stages of a loan", expect: answer, must: ["RCU", "Disbursement"] }
++    - { q: "loan process kya hai", expect: answer, must: ["RCU"] }
++    - { q: "how does KYC work", expect: answer, must: ["application form", "each other"] }
++    - { q: "KYC fail ho gaya to kya kare", expect: answer, must: ["upload"] }
++    - { q: "how to add a co-applicant", expect: answer, must: ["party"] }
++    - { q: "who approves the loan", expect: answer, must: ["credit team"] }
++    - { q: "how long does approval take", expect: not_configured }
++    - { q: "how to fix a rejected document", expect: answer, must: ["upload"] }
++    - { q: "process to verify documents", expect: answer, must: ["1."] }
++
++  app_help:
++    - { q: "what can you help with", expect: answer }
++    - { q: "how do i download the case list", expect: answer }
++    - { q: "how do i import cases from excel", expect: answer }
++    - { q: "what is my role", expect: answer }
++    - { q: "show my cases", expect: answer }
++    - { q: "pending cases dikhao", expect: answer }
++
++  decisions:
++    - { q: "will this loan get approved", expect: decline }
++    - { q: "can you approve the loan", expect: decline }
++    - { q: "should I reject this customer", expect: decline }
++
++  hinglish:                    # held-out wordings (added AFTER the rules were tuned): measures generalisation
++    - { q: "PAN kaise upload kare", expect: answer, must: ["Upload"] }
++    - { q: "documents kaise verify hote hai", expect: answer, must: ["1."] }
++    - { q: "co-applicant kya hota hai", expect: answer, must: ["together"] }
++    - { q: "sanction letter kya hai", expect: answer, must: ["approval"] }
++    - { q: "loan approve kaun karta hai", expect: answer, must: ["credit team"] }
++    - { q: "10 lakh ka emi 10% 5 saal", expect: answer, must: ["21,247"] }
++    - { q: "tenure kya hota hai", expect: answer, must: ["repayment period"] }
++    - { q: "address proof mein kya chalega", expect: answer, must: ["Passport"] }
++    - { q: "document reject ho gaya to kya kare", expect: answer, must: ["upload"] }
++    - { q: "naya case kaise banaye", expect: answer, must: ["Create New Case"] }
++    - { q: "guarantor aur co-applicant mein kya fark hai", expect: answer, must: ["guarantor"] }
++    - { q: "processing fee kitni hai", expect: not_configured }
++
++  held_out_2:                  # written 2026-10-08 BEFORE running, after round 1 was tuned: the honest score
++    - { q: "what is RCU stage", expect: answer, must: ["risk"] }
++    - { q: "minimum loan amount for home loan", expect: answer, must: ["5,00,000"] }
++    - { q: "EMI 20 lakh 9% 20 years", expect: answer, must: ["17,99"] }
++    - { q: "can self employed apply", expect: answer, must: ["self"] }
++    - { q: "pan card mandatory hai kya", expect: answer, must: ["PAN"] }
++    - { q: "what is the difference between net and gross salary", expect: answer, must: ["gross"] }
++    - { q: "kyc kaise hota hai", expect: answer, must: ["application form"] }
++    - { q: "who decides the loan", expect: answer, must: ["credit team"] }
++    - { q: "foreclosure charges kitne hai", expect: not_configured }
++    - { q: "what is a deviation", expect: answer, must: ["deviation"] }
++    - { q: "is rent agreement accepted as address proof", expect: answer, must: ["not accepted"] }
++    - { q: "what is EMI bounce", expect: answer, must: ["bounce"] }
++    - { q: "loan kitne din mein milega", expect: not_configured }
++
++  case_questions:              # these DO need a case: asking which one is right
++    - { q: "kyc status", expect: case }
++    - { q: "what is pending", expect: case }
++    - { q: "loan amount kitna hai", expect: case }
+diff --git a/tests/integration/test_general_layer.py b/tests/integration/test_general_layer.py
+new file mode 100644
+index 0000000..d660710
+--- /dev/null
++++ b/tests/integration/test_general_layer.py
+@@ -0,0 +1,119 @@
++"""
++THE GENERAL LAYER (capabilities/general.py, app/config/conversation_general.yaml) on BOTH endpoints.
++
++  - questions that need no case never meet "which case?" (help, ok, role, stage, definitions, process, products)
++  - the remembered chat context is reloaded BEFORE the layer: "ok" while a question is pending answers it,
++    it is never small talk (/fos/copilot and /copilot/query)
++  - the unknown-acronym rule: FNR / FTNR are logged gaps, ordinary words are never called unknown
++  - the login stage is a signed, display-only claim: it never overrides a standard claim
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from tests.integration.master_env import make_case, prod  # noqa: F401
++from tests.integration.test_reupload_supersedes import FOS_SCOPES, _store, client  # noqa: F401
++
++FOS, UNIVERSAL = "/api/v1/fos/copilot", "/api/v1/copilot/query"
++SMALL_TALK = "Anything else?"
++
++
++def fos(c, message, chat="gl"):
++    r = c.post(FOS, json={"action": "CUSTOM_QUERY", "message": message, "reply_language": "en", "chat_id": chat})
++    assert r.status_code == 200, r.text
++    return r.json()["markdown"]
++
++
++def universal(c, message, chat="gl-u"):
++    r = c.post(UNIVERSAL, json={"message": message, "reply_language": "en", "chat_id": chat})
++    assert r.status_code == 200, r.text
++    return r.json()["markdown"]
++
++
++@pytest.fixture
++def gaps(tmp_path, monkeypatch):
++    """Unknown terms go to a temp file, never the repo's evals/knowledge_gaps.yaml."""
++    from app.agents.applicant.copilot.capabilities import general
++
++    data = dict(general.cfg())
++    monkeypatch.setattr(general, "cfg", lambda: {**data, "gaps_file": str(tmp_path / "gaps.yaml")})
++    return tmp_path / "gaps.yaml"
++
++
++def test_no_case_questions_never_ask_which_case(client, prod, gaps):
++    for name in ("Rahul Sharma", "Priya Verma"):
++        make_case(client, name)
++    for message in ("what can you help with?", "what is CPA", "how to move cpa", "process to verify documents",
++                    "mandatory documents for Home loan", "what is my role", "what is my stage", "FNR meaning",
++                    "WHAT IS NAME", "why you are not answering me"):
++        md = fos(client, message)
++        assert "Which case" not in md and "I don't know" not in md, (message, md)
++    assert "| PAN" in fos(client, "mandatory documents for Home loan")      # the checklist table, from config
++    assert "FOS requirements" not in fos(client, "what is CPA")             # the real checks, never the catch-all
++
++
++def test_ok_is_small_talk_only_with_nothing_pending(client, prod, gaps):
++    make_case(client, "Rahul Sharma")
++    assert SMALL_TALK in fos(client, "ok", chat="ack-idle")
++
++
++@pytest.mark.parametrize("ask", ["mera cases kya hai", "kyc status"])
++def test_fos_ok_answers_the_pending_question(client, prod, gaps, ask):
++    for name in ("Rahul Sharma", "Priya Verma"):
++        make_case(client, name)
++    fos(client, ask, chat="ack-fos")
++    assert SMALL_TALK not in fos(client, "ok", chat="ack-fos")
++
++
++def test_universal_reloads_context_before_the_general_layer(client, prod, gaps):
++    for name in ("Rahul Sharma", "Priya Verma"):
++        make_case(client, name)
++    first = universal(client, "kyc status", chat="ack-u")
++    assert "Which case" in first, first
++    assert SMALL_TALK not in universal(client, "ok", chat="ack-u")
++    # and with nothing pending, the same endpoint does answer small talk
++    assert SMALL_TALK in universal(client, "ok", chat="ack-u-idle")
++
++
++def test_unknown_acronym_rule(client, prod, gaps):
++    import yaml
++
++    assert "not in the knowledge base yet" in fos(client, "FNR meaning")
++    assert "not in the knowledge base yet" in fos(client, "ftnr meaning")
++    for ordinary in ("what is loan", "what is pending", "status kya hai"):
++        assert "not in the knowledge base yet" not in fos(client, ordinary), ordinary
++    assert set(yaml.safe_load(gaps.read_text(encoding="utf-8"))["terms"]) == {"FNR", "FTNR"}
++
++
++@pytest.mark.parametrize("phrase", ["what are my cases", "mera cases kya hai", "show all my cases"])
++def test_multi_word_list_phrases(client, prod, phrase):
++    for name in ("Rahul Sharma", "Priya Verma"):
++        make_case(client, name)
++    assert "Showing 1-2 of 2" in fos(client, phrase, chat=f"list-{phrase}")
++
++
++def test_login_stage_is_a_display_only_claim(make_token, prod):
++    from fastapi.testclient import TestClient
++
++    import main
++
++    c = TestClient(main.app)
++    c.headers.update({"Authorization": f"Bearer {make_token(scopes=FOS_SCOPES, stage='FOS')}"})
++    assert "You signed in for the FOS" in fos(c, "what is my stage", chat="stage")
++
++
++def test_dev_idp_extra_claims_never_override(monkeypatch):
++    import jwt
++
++    from app.security import dev_idp
++
++    token = dev_idp.issue_access_token(subject="officer-a", issuer="iss", audience="aud",
++                                       extra_claims={"stage": "FOS", "sub": "someone-else", "scope": "admin",
++                                                     "roles": ["admin"], "role": "admin"})
++    claims = jwt.decode(token, options={"verify_signature": False})
++    assert claims["sub"] == "officer-a" and claims["stage"] == "FOS"
++    assert "scope" not in claims and "roles" not in claims and claims["role"] == "fos"
++    blank = jwt.decode(dev_idp.issue_access_token(subject="o", issuer="i", audience="a", extra_claims={"stage": ""}),
++                       options={"verify_signature": False})
++    assert "stage" not in blank
+diff --git a/tests/integration/test_general_coverage.py b/tests/integration/test_general_coverage.py
+new file mode 100644
+index 0000000..50ebba9
+--- /dev/null
++++ b/tests/integration/test_general_coverage.py
+@@ -0,0 +1,85 @@
++"""
++GENERAL QUESTION COVERAGE (evals/general_questions.yaml): every question a field officer asks with NO case open.
++
++The reply is classified from its markdown: "case" (asked which case), "unknown" (said it does not know), "decline"
++(a decision the bot does not make), "not_configured" (a company number the config does not hold), else "answer".
++The report is written to runs/general_coverage.md; the test fails on any question whose class differs from its
++`expect` (not_configured and decline also accept each other: both say who decides, neither guesses).
++"""
++
++from __future__ import annotations
++
++import re
++from pathlib import Path
++
++import pytest
++import yaml
++
++from tests.integration.master_env import make_case, prod  # noqa: F401
++from tests.integration.test_reupload_supersedes import _store, client  # noqa: F401
++
++ROOT = Path(__file__).resolve().parents[2]
++BANK = yaml.safe_load((ROOT / "evals" / "general_questions.yaml").read_text(encoding="utf-8"))["categories"]
++
++CLASSES = [
++    ("case", re.compile(r"Which case is this about|Open a case first|which case", re.I)),
++    ("unknown", re.compile(r"I don't know|I do not know|not in the knowledge base|isn't in the knowledge base|don't have (?:that|this) "
++                           r"information|couldn't find|could not find|no answer", re.I)),
++    ("not_configured", re.compile(r"^- [^\n]*not set in the eligibility|^No [^.\n]+ is configured", re.I | re.M)),
++    ("clarify", re.compile(r"^Do you mean|Whose name do you mean|For which product", re.I | re.M)),
++    ("decline", re.compile(r"I don't make credit decisions|credit team decides|is decided by|I can't (?:approve|reject|decide)|"
++                           r"cannot (?:approve|reject|decide)|not something I decide|a person must", re.I)),
++]
++SAME = {("not_configured", "decline"), ("decline", "not_configured")}
++
++
++def classify(md: str) -> str:
++    for name, pattern in CLASSES:
++        if pattern.search(md):
++            return name
++    return "answer"
++
++
++@pytest.fixture
++def gaps(tmp_path, monkeypatch):
++    from app.agents.applicant.copilot.capabilities import general
++
++    data = dict(general.cfg())
++    monkeypatch.setattr(general, "cfg", lambda: {**data, "gaps_file": str(tmp_path / "gaps.yaml")})
++
++
++def test_general_question_coverage(client, prod, gaps):
++    for name in ("Rahul Sharma", "Priya Verma"):
++        make_case(client, name)
++    rows, wrong, full = [], [], []
++    for category, items in BANK.items():
++        for n, item in enumerate(items):
++            from app.agents.applicant.copilot.capabilities import safety
++
++            safety.reset()                     # the rate limit is not what this bank measures
++            r = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": item["q"],
++                                                          "reply_language": "en", "chat_id": f"cov-{category}-{n}"})
++            md = r.json().get("markdown", r.text) if r.status_code == 200 else f"HTTP {r.status_code}"
++            got = classify(md) if r.status_code == 200 else "error"
++            # the golden check: an "answer" must carry the item's key words, else it answered something else
++            missing = [w for w in item.get("must") or [] if w.lower() not in md.lower()]
++            if got == "answer" and missing:
++                got = f"wrong_content (missing {', '.join(missing)})"
++            ok = got == item["expect"] or (got, item["expect"]) in SAME
++            first = " ".join(ln for ln in md.split("\n") if ln.strip() and not ln.startswith("|"))[:170]
++            rows.append((category, item["q"], item["expect"], got, ok, first))
++            full.append(f"### {item['q']}  ({category}, expect {item['expect']}, got {got})\n\n{md}\n")
++            if not ok:
++                wrong.append(f"{category}: {item['q']!r} expected {item['expect']}, got {got}: {first}")
++    total, good = len(rows), sum(1 for r in rows if r[4])
++    lines = [f"# General question coverage: {good}/{total}", "", "| category | ok | question | expect | got | reply |",
++             "|---|---|---|---|---|---|"]
++    for cat in BANK:
++        mine = [r for r in rows if r[0] == cat]
++        lines.insert(2 + list(BANK).index(cat), f"- {cat}: {sum(1 for r in mine if r[4])}/{len(mine)}")
++    lines += [f"| {c} | {'✅' if ok else '❌'} | {q} | {e} | {g} | {f.replace('|', '/')} |" for c, q, e, g, ok, f in rows]
++    out = ROOT / "runs" / "general_coverage.md"
++    out.parent.mkdir(exist_ok=True)
++    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
++    (out.parent / "general_coverage_replies.md").write_text("\n".join(full), encoding="utf-8")
++    assert not wrong, f"{len(wrong)}/{total} wrong (runs/general_coverage.md):\n" + "\n".join(wrong)

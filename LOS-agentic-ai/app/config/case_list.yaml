@@ -35,15 +35,25 @@ other_people: [other officers, other officer, all officers, all the officers, ot
 phrases:
   # "top 5", "pehle 3", "first 10": the first N in the default order
   first_n: [top, pehle, pehla, first, shuru ke]
-  # "last 3", "latest 3", "recent cases": the newest N
-  last_n: [last, latest, recent, naye, naya, nayi, newest, haal ke]
+  # "last 3", "latest 3", "recent cases", "pichle 3": the newest N ("last case" in the singular = the newest ONE)
+  last_n: [last, latest, recent, naye, naya, nayi, newest, haal ke, pichle, pichhle, pichla, pichhla, akhri, aakhri,
+           aakhiri, most recent]
+  # the case noun, singular / plural: "last case" = one case; "2 cases" = a count (2026-10-08)
+  # a count beside the case noun is a list only with one of these (or in a message of 3 words or fewer)
+  list_verbs: [show, list, display, give, only, sirf, dikhao, dikha, dikhado, dikhana, de, do, view, see]
+  # words a SHORT count message may carry besides the number and the noun ("my 3 cases", "mere 2 case")
+  list_filler: [my, mere, meri, mera, me, mujhe, the, please, plz, pls, all, sabse, latest, recent, pending, kyc]
+  case_nouns:
+    singular: [case, file, application, केस]
+    plural: [cases, files, applications, केसेस]
   # "sabse purane", "oldest"
   oldest: [sabse purane, sabse purana, oldest, purane, purana, old cases]
   longest_in_stage: [sabse zyada atke, longest in stage, sabse lambe]
   # "aur dikhao", "next", "agle 5"
   next: [aur dikhao, next, agle, agla, aage, more, show more, aur]
   filter:
-    kyc_issue: [kyc wale, kyc wala, kyc issue, kyc fail, kyc problem, kyc atka, kyc pending wale]
+    kyc_issue: [kyc wale, kyc wala, kyc issue, kyc fail, kyc problem, kyc atka, kyc pending wale, kyc cases, kyc case,
+                kyc failed cases, kyc issue cases]
     ready_for_cpa: [ready wale, ready wala, cpa ready, ready for cpa, taiyar wale, ready cases]
     stuck: [atke hue, atka hua, atke, stuck, over target, late wale, der wale]
     documents_pending: [pending docs wale, docs pending, documents pending, document pending wale, docs baaki,

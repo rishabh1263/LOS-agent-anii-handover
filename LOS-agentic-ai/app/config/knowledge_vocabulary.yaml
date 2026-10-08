@@ -57,3 +57,15 @@ concepts:
     handbook: [name, names]
   - asks: [alag, different, differs, differ, mismatch, "अलग"]
     handbook: [differ, mismatch, tolerates]
+  # 2026-10-08 general questions outside a case (evals/general_questions.yaml): how officers ask in Hinglish
+  - asks: [fail ho gaya, fail ho gya, fail hua, fail hui, failed ho gaya, kyc fail]
+    handbook: [failed, fails]
+  - asks: [kya kare, kya karu, kya karein, kya karna hai, what to do, what should i do, how to fix, fix, sahi kare,
+           theek kare, "क्या करें"]
+    handbook: [fix, next step]
+  - asks: [approves, approve karta, approve karti, kaun approve, who decides, decides, decision, sanction karta]
+    handbook: [approves, credit team]
+  - asks: [loan process, process kya hai, loan ka process, steps of loan, loan journey, stages of a loan, stages of loan]
+    handbook: [stages, lifecycle]
+  - asks: [kitne mahine, how many months, months of, kitne months]
+    handbook: [months, period]

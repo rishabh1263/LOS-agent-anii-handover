@@ -1,0 +1,290 @@
+# THE GENERAL LAYER (owner decisions 2026-10-08) -- read by app/agents/applicant/copilot/capabilities/general.py.
+# Runs BEFORE any case logic: help / ok / frustration, role and stage (from the login), definitions and full forms
+# (glossary.yaml, then the knowledge base), process steps BUILT FROM the stage gates / checklists / verification
+# config, the product checklist, "whose name?", unknown terms (logged for the owner). Only a real case question
+# reaches "which case?". Nothing here is invented: every fact comes from config, the knowledge base or the login.
+
+enabled: true
+
+phrases:
+  help: [what can you help with, what can you do, how can you help, what do you do, help me, kya kar sakte ho,
+         kya madad kar sakte ho, tum kya kar sakte ho, aap kya kar sakte ho, क्या मदद कर सकते हो]
+  ack: ["ok", "okay", "ok thanks", "thanks", "thank you", "got it", "hmm", "accha", "acha", "theek hai", "thik hai",
+        "fine", "cool", "ठीक है", "धन्यवाद"]
+  frustrated: [why you are not answering, why are you not answering, why you not answering, not answering me,
+               you are not helping, not helpful, useless bot, bekar, kuch samajh nahi aa raha, jawab nahi de raha,
+               wrong answer, galat jawab, samjha nahi, you don't understand, you dont understand]
+  role: [what is my role, my role, mera role, meri role, who am i, which role, my designation]
+  login_stage: [what is my stage, my stage, mera stage, which stage am i, my login stage, mera login stage]
+  name: [what is name, what is the name, name kya hai, naam kya hai, whats the name, what's the name, name batao]
+  product_documents: [mandatory documents, required documents, documents required, documents needed, which documents,
+                      kaunse documents, documents for, document list, checklist for, kya documents chahiye,
+                      documents chahiye]
+  co_applicant: [co-applicant, co applicant, coapplicant, co-applicants, co applicants]
+  # a question about ONE named document is not a request for the product checklist
+  one_document: [address proof, id proof, identity proof, income proof, bank statement, salary slip, signature, aadhaar,
+                 aadhar, pan, passport, voter, driving licence, driving license, photo, form 16, itr, accepted as]
+  # a definition / full form: "what is X", "X meaning", "X full form", "X kya hai", "X ka matlab"
+  definition: ["^(?:what is|what's|whats|what does|define)\\s+(?:a |an |the )?(?P<term>[A-Za-z][A-Za-z0-9-]{1,14})(?:\\s+(?:stage|step|desk|check))?(?:\\s+mean| stand for)?\\s*\\??$",
+               "^(?P<term>[A-Za-z][A-Za-z0-9-]{1,14})\\s+(?:meaning|full form|ka matlab|matlab|kya hai|kya hota hai|means)\\s*\\??$"]
+
+# PROCESS ANSWERS: numbered steps whose FACTS are filled from the live config at answer time
+processes:
+  move_to_cpa:
+    phrases: [how to move cpa, how to move to cpa, how do i move to cpa, move to cpa process, how to send to cpa,
+              cpa kaise bheje, cpa mein kaise bheje, how to move the case to cpa, steps to move to cpa,
+              how to move case to cpa, move case to cpa, case cpa mein kaise bheje, case ko cpa kaise bheje]
+  complete_case:
+    phrases: [steps to complete the case, how to complete the case, how to complete a case, case complete kaise kare,
+              steps to complete case, process to complete the case, what are the steps]
+  verify_documents:
+    phrases: [process to verify documents, how are documents verified, how to verify documents, verification process,
+              document verification process, verify kaise hota hai, documents kaise verify hote hai]
+  what_is_cpa:
+    phrases: [what is cpa, cpa kya hai, cpa meaning, what does cpa mean, what is cpa stage]
+
+texts:
+  help:
+    en: "I can help with your cases, documents, KYC and moving a case to CPA, and answer questions about the process."
+    hi-Latn: "Main aapke cases, documents, KYC aur case ko CPA bhejne mein madad kar sakta hoon, aur process ke sawalon ka jawab de sakta hoon."
+    hi: "मैं आपके केस, दस्तावेज़, KYC और केस को CPA भेजने में मदद कर सकता हूँ, और प्रक्रिया के सवालों के जवाब दे सकता हूँ।"
+    mr: "मी तुमच्या केस, कागदपत्रे, KYC आणि केस CPA कडे पाठवण्यात मदत करू शकतो, आणि प्रक्रियेच्या प्रश्नांची उत्तरे देऊ शकतो."
+  ack:
+    en: ["Okay.", "Sure."]
+    hi-Latn: ["Theek hai.", "Zaroor."]
+    hi: ["ठीक है।"]
+    mr: ["ठीक आहे."]
+  ack_next: { en: "Anything else?", hi-Latn: "Aur kuch?", hi: "और कुछ?", mr: "आणखी काही?" }
+  frustrated:
+    en: "Sorry about that. Here is what I can do for you right now:"
+    hi-Latn: "Maaf kijiye. Abhi main yeh kar sakta hoon:"
+    hi: "माफ़ कीजिए। अभी मैं यह कर सकता हूँ:"
+    mr: "माफ करा. आत्ता मी हे करू शकतो:"
+  role: { en: "You are signed in as **{user}**, role **{role}**.", hi-Latn: "Aap **{user}** ke roop mein signed in hain, role **{role}**.",
+          hi: "आप **{user}** के रूप में साइन इन हैं, भूमिका **{role}**।", mr: "तुम्ही **{user}** म्हणून साइन इन आहात, भूमिका **{role}**." }
+  login_stage: { en: "You signed in for the **{stage}** stage.", hi-Latn: "Aapne **{stage}** stage ke liye sign in kiya hai.",
+                 hi: "आपने **{stage}** चरण के लिए साइन इन किया है।", mr: "तुम्ही **{stage}** टप्प्यासाठी साइन इन केले आहे." }
+  no_login_stage: { en: "Your login does not carry a stage.", hi-Latn: "Aapke login mein stage nahi hai.",
+                    hi: "आपके लॉगिन में चरण नहीं है।", mr: "तुमच्या लॉगिनमध्ये टप्पा नाही." }
+  case_stage: { en: "The open case {case_id} is at **{stage}**.", hi-Latn: "Khula case {case_id} **{stage}** par hai.",
+                hi: "खुला केस {case_id} **{stage}** पर है।", mr: "उघडी केस {case_id} **{stage}** वर आहे." }
+  name_question: { en: "Whose name do you mean?", hi-Latn: "Kiska naam?", hi: "किसका नाम?", mr: "कोणाचे नाव?" }
+  name_options:
+    en: ["The applicant's name", "The co-applicant's name", "My login name"]
+    hi-Latn: ["Applicant ka naam", "Co-applicant ka naam", "Mera login naam"]
+    hi: ["आवेदक का नाम", "सह-आवेदक का नाम", "मेरा लॉगिन नाम"]
+    mr: ["अर्जदाराचे नाव", "सह-अर्जदाराचे नाव", "माझे लॉगिन नाव"]
+  login_name: { en: "Your login name is **{user}**.", hi-Latn: "Aapka login naam **{user}** hai.",
+                hi: "आपका लॉगिन नाम **{user}** है।", mr: "तुमचे लॉगिन नाव **{user}** आहे." }
+  unknown_term:
+    en: "**{term}** is not in the knowledge base yet. I've noted it for the team."
+    hi-Latn: "**{term}** abhi knowledge base mein nahi hai. Maine team ke liye note kar liya hai."
+    hi: "**{term}** अभी ज्ञान-आधार में नहीं है। मैंने टीम के लिए नोट कर लिया है।"
+    mr: "**{term}** अजून ज्ञान-आधारात नाही. मी टीमसाठी नोंद केली आहे."
+  products_heading: { en: "Documents for **{product}**:", hi-Latn: "**{product}** ke documents:",
+                      hi: "**{product}** के दस्तावेज़:", mr: "**{product}** ची कागदपत्रे:" }
+  products_columns: { en: ["Document", "Required", "Accepted as"], hi-Latn: ["Document", "Zaroori", "Kya chalega"],
+                      hi: ["दस्तावेज़", "ज़रूरी", "क्या मान्य"], mr: ["कागदपत्र", "आवश्यक", "काय चालेल"] }
+  required: { en: "Required", hi-Latn: "Zaroori", hi: "ज़रूरी", mr: "आवश्यक" }
+  optional: { en: "Optional", hi-Latn: "Optional", hi: "वैकल्पिक", mr: "पर्यायी" }
+  coapp_optional: { en: "Co-applicant documents are not mandatory while the co-applicant rule is off.",
+                    hi-Latn: "Co-applicant rule band hai, isliye yeh documents abhi zaroori nahi." }
+  coapp_heading: { en: "Every co-applicant:", hi-Latn: "Har co-applicant:", hi: "हर सह-आवेदक:", mr: "प्रत्येक सह-अर्जदार:" }
+  products_note:
+    en: "Amount-based rules may add documents once the loan amount is entered."
+    hi-Latn: "Loan amount bharne ke baad amount ke rules aur documents jod sakte hain."
+    hi: "लोन राशि भरने के बाद राशि के नियम और दस्तावेज़ जोड़ सकते हैं।"
+    mr: "कर्ज रक्कम भरल्यानंतर रकमेचे नियम आणखी कागदपत्रे जोडू शकतात."
+  which_product: { en: "For which product?", hi-Latn: "Kis product ke liye?", hi: "किस प्रोडक्ट के लिए?", mr: "कोणत्या प्रॉडक्टसाठी?" }
+  source: { en: "Source: {source}", hi-Latn: "Source: {source}", hi: "स्रोत: {source}", mr: "स्रोत: {source}" }
+  # process steps: {placeholders} are filled from the live config (never typed facts)
+  move_to_cpa:
+    en: ["Fill the application form: {fields}.", "Upload the mandatory documents for the product (for {product}: {documents}).",
+         "Wait for verification; a rejected document must be uploaded again.", "{kyc_step}",
+         "When every FOS check passes ({checks}), open the case and tap Move to CPA, then Confirm."]
+    hi-Latn: ["Application form bhariye: {fields}.", "Product ke mandatory documents upload kijiye ({product} ke liye: {documents}).",
+              "Verification hone dijiye; reject hua document dobara upload karna hoga.", "{kyc_step}",
+              "Jab saare FOS checks pass hon ({checks}), case kholiye aur Move to CPA dabaiye, phir Confirm."]
+  kyc_step:
+    en: "KYC compares the form with the documents and the documents with each other; it must pass."
+    hi-Latn: "KYC form ko documents se aur documents ko aapas mein milata hai; isko pass hona chahiye."
+  verify_documents:
+    en: ["Upload the document (in the case or in this chat).", "The system identifies the document type and the party.",
+         "Verification checks run: readable, the right type, the expected fields present.",
+         "Result: verified, in review (a person checks), or rejected (upload again).",
+         "KYC then cross-checks the verified documents against the form."]
+    hi-Latn: ["Document upload kijiye (case mein ya is chat mein).", "System document ka type aur party pehchanta hai.",
+              "Verification checks chalte hain: padhne layak, sahi type, zaroori fields.",
+              "Result: verified, review (koi vyakti dekhega), ya rejected (dobara upload).",
+              "Phir KYC verified documents ko form se milata hai."]
+  what_is_cpa_tail:
+    en: "A case moves from FOS to CPA when every FOS check passes: {checks}."
+    hi-Latn: "Case FOS se CPA tab jaata hai jab saare FOS checks pass hon: {checks}."
+  glossary_source: { en: "the glossary", hi-Latn: "glossary", hi: "शब्दावली", mr: "शब्दसूची" }
+  coapp_source: { en: "the co-applicant checklist", hi-Latn: "co-applicant checklist" }
+  # what a reply names as its source: plain names, never a file name (guardrails FILE_PATH_LEAK)
+  sources:
+    move_to_cpa: "the FOS stage gate, the product checklist, the KYC policy"
+    complete_case: "the FOS stage gate, the product checklist, the KYC policy"
+    verify_documents: "the LOS document flow, the verification guidelines"
+    what_is_cpa: "the glossary, the FOS stage gate"
+    products: "the product checklist{coapp}"
+
+# DID YOU MEAN: the router's top two tools are close -> one question with both as links (owner decision 4)
+clarify:
+  min_score: 0.35            # below this the guess is too weak to offer
+  max_gap: 0.05              # top two within this -> ask instead of guessing
+  question: { en: "Do you mean:", hi-Latn: "Aapka matlab:", hi: "आपका मतलब:", mr: "तुम्हाला म्हणायचे आहे:" }
+  tool_questions:
+    case_status: { en: "What is the case status?", hi-Latn: "Case ka status kya hai?" }
+    documents_needing_action: { en: "What is pending?", hi-Latn: "Kya baaki hai?" }
+    kyc_result: { en: "What is the KYC status?", hi-Latn: "KYC status kya hai?" }
+    loan_terms: { en: "What are the loan details?", hi-Latn: "Loan details kya hai?" }
+    next_action: { en: "What should I do next?", hi-Latn: "Ab kya karna hai?" }
+    document_details: { en: "What does the document say?", hi-Latn: "Document mein kya likha hai?" }
+    list_cases: { en: "Show my cases", hi-Latn: "Mere cases dikhao" }
+    knowledge: { en: "Explain the process", hi-Latn: "Process samjhao" }
+
+# GRADUAL FALLBACK: the second miss in a row -> the 3 closest FAQ questions + the supervisor line (owner decision 4)
+fallback:
+  misses_before_help: 2
+  heading: { en: "Maybe one of these:", hi-Latn: "Shayad inmein se koi:", hi: "शायद इनमें से कोई:", mr: "कदाचित यापैकी एक:" }
+  # the contact line the owner configures (no person is contacted automatically)
+  supervisor: { en: "Talk to my supervisor: contact your branch supervisor or the FOS helpdesk.",
+                hi-Latn: "Supervisor se baat: apne branch supervisor ya FOS helpdesk se sampark kijiye.",
+                hi: "पर्यवेक्षक से बात: अपने शाखा पर्यवेक्षक या FOS हेल्पडेस्क से संपर्क करें।",
+                mr: "पर्यवेक्षकाशी बोला: तुमच्या शाखा पर्यवेक्षकाशी किंवा FOS हेल्पडेस्कशी संपर्क साधा." }
+  miss_intents: [UNKNOWN, FAQ_UNKNOWN, NOT_IN_SCOPE, OUT_OF_SCOPE, UNKNOWN_TERM]
+
+# unknown terms are logged here for the owner (term, count, last seen -- never case data)
+gaps_file: evals/knowledge_gaps.yaml
+
+# ---- GENERAL QUESTIONS WITH NO CASE (owner 2026-10-08: "outside a case bhi") ------------------------------------
+# A question SHAPED like general knowledge ("what is / how to / is X mandatory / kya hai / kaise") that points at NO
+# case is answered from the knowledge base (+ the configured facts) -- never "which case?". The coverage bank:
+# evals/general_questions.yaml (tests/integration/test_general_coverage.py).
+general_question:
+  # the message must START with one of these (regex, lower case, after punctuation is dropped) ...
+  shapes: ['^(what|whats|what s) (is|are|does|do|happens)\b', '^(define|explain|meaning of|difference between)\b',
+           '^how (to|do|does|can|many|much|long|is|are)\b', '^(can|could|should|may) \w+',
+           '\b(mandatory|zaroori|zaruri|required|compulsory|chahiye|jaruri) (hai|he|h)( kya)?$', '^kya .+ (chalega|zaroori hai|mandatory hai)$',
+           '^(is|are|does|do) .*\b(mandatory|required|needed|compulsory|accepted|allowed|valid|necessary)\b',
+           '^(which|what) (documents?|income|proof|products?)\b', '^who (approves|decides|checks|verifies)\b',
+           '^why (is|are|do|does) (a|an|the)\b', '^(tell me about|batao|samjhao)\b',
+           '\b(kya hai|kya hota hai|kya hoti hai|kya hote hai|ka matlab|kaise|kaise kare|kaise hota hai|kya kare|kya karna hai)$',
+           '\bkaun (karta|karti|deta|deti|karte) (hai|hain)$', '\b(kya|kya kya) (chalega|chalta hai|chalti hai|lagega|lagta hai)$',
+           '\b(kya )?(fark|farak|difference) (hai|kya hai)$', '\b(kitna|kitni|kitne) (hai|hota hai|hoti hai|lagta hai|lagti hai)$']
+  # ... and name NO case: these words mean "this case / this customer" (the case logic answers those)
+  case_referents: [this case, is case, iss case, the case, my case, mera case, meri case, this customer, is customer,
+                   this loan, is loan, iska, iski, iske, uska, uski, uske, inka, unka, his, her, their, this file,
+                   is applicant, this applicant, customer ka, applicant ka]
+  # questions about a case's own data even without "this": the ordinary pipeline asks which case
+  case_only: ['^(what is|whats) (pending|missing|the status|status|the stage|my status|left|baaki)\b',
+              '\b(status|pending|baaki|baki) (kya|hai|batao)', '^(loan amount|kyc status|stage|status)\b',
+              '\b(my|mera|meri|mere) (\w+ )?(status|eligibility|documents?|docs|kyc|loan|application|pending|emi)\b',
+              '\b(docs|documents?) (are|is) (pending|missing|baaki|rejected|uploaded)\b',
+              '^(what|which|show|list|kaunse|konse)\b.*\b(pending|missing|rejected) (docs|documents?)\b']
+  # the words a question is NOT about -- what is left must appear in the answer, or it is not shown (relevance guard)
+  filler: [what, whats, is, are, the, a, an, of, for, to, does, do, did, how, mean, means, meaning, define, explain,
+           difference, between, and, or, kya, hai, hain, hota, hoti, hote, ka, ki, ke, matlab, me, mein, can, could,
+           should, which, who, why, tell, about, batao, samjhao, loan, loans, document, documents, customer, process,
+           kaise, kare, karna, karte, with, in, on, use, used, need, needed, required, mandatory, happens, after,
+           work, works, does, get, give, stand, full, form, please, plz, any, this, that, there]
+  # HINGLISH QUESTION SHAPES -> the handbook's English, for the knowledge SEARCH only (the reply stays in the user's
+  # language; the original wording is searched first). [pattern, replacement], applied in order, lower case.
+  retrieval_rewrites:
+    - ['^(.+?) (fail|reject)(?:ed)? (?:ho gaya|ho gya|ho gayi|ho gyi|hua|hui)(?: to| toh)? (?:kya kare|kya karu|kya karein|kya karna hai|ab kya)$', 'what to do if \1 \2s']
+    - ['^(.+?) kaise (?:hota|hoti|hote|chalta|chalti|kaam karta|kaam karti) (?:hai|hain)$', 'how does \1 work']
+    - ['^(.+?) kaise (.+?)(?: kare| karu| karein| karte hai| karte hain| hota hai| hote hai| hote hain| hoga)?$', 'how to \2 \1']
+    - ['^(.+?) (?:mandatory|zaroori|zaruri|required|compulsory|jaruri) (?:hai|he|h)(?: kya)?$', 'is \1 mandatory']
+    - ['^(.+?) (?:kya hai|kya hota hai|kya hoti hai|kya hote hai|kya hote hain|ka matlab|matlab)$', 'what is \1']
+    - ['^(.+?) kaun (?:karta|karti|deta|deti|decide karta|decide karti) hai$', 'who \1']
+    - ['^(.+?) aur (.+?) (?:mein|me|main) (?:kya )?(?:fark|farak|difference)(?: hai| kya hai)?$', 'difference between \1 and \2']
+    - ['^(.+?) (?:mein|me) (?:kya|kya kya) (?:chalega|chalta hai|chalti hai)$', 'which documents are accepted as \1']
+    - ['^(?:loan )?(approve|reject|sanction|decide) kaun (?:karta|karti|karte) (?:hai|hain)$', 'who \1s the loan']
+    - ['\bloan (?:ka )?process\b', 'stages of a loan']
+  # the knowledge pipeline may phrase with the model (grounded + checked, agent._knowledge_reply)
+  allow_model: false        # handbook text as written: no model call (fast; owner 2026-10-08 "make it faster")
+
+# ---- CREDIT DECISIONS: never made in chat, said with who decides (no case needed) ---------------------------------
+decisions:
+  phrases: [will this loan get approved, will the loan get approved, will it get approved, will it be approved,
+            loan approve hoga, approve hoga kya, approval milega, chance of approval, approval chances,
+            can you approve, approve kar do, approve karo, should i reject, should i approve, reject kar du,
+            can you reject, can you sanction, sanction kar do, is this customer eligible, kya loan milega]
+  text:
+    en: "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still pending so the case is ready for them."
+    hi-Latn: "Main credit decision nahi leta. CPA ke baad credit team case check karti hai (credit, phir RCU) aur decide karti hai. Main bata sakta hoon ki kya baaki hai taaki case unke liye ready ho."
+    hi: "मैं क्रेडिट निर्णय नहीं लेता। CPA के बाद क्रेडिट टीम केस की जाँच करती है (क्रेडिट, फिर RCU) और निर्णय लेती है। मैं बता सकता हूँ कि क्या बाकी है ताकि केस उनके लिए तैयार हो।"
+    mr: "मी क्रेडिट निर्णय घेत नाही. CPA नंतर क्रेडिट टीम केस तपासते (क्रेडिट, मग RCU) आणि निर्णय घेते. केस त्यांच्यासाठी तयार व्हावी म्हणून काय बाकी आहे ते मी सांगू शकतो."
+  suggestions: { en: ["What is pending?", "Show my cases"], hi-Latn: ["Kya baaki hai?", "Mere cases dikhao"] }
+
+# ---- POLICY NUMBERS: read from the eligibility policy NOW (eligibility_policy.yaml via policy.get_policy) ----------
+# Never a typed number. A demo policy is SAID to be demo; a criterion the policy does not set is said "not set".
+policy:
+  subjects:
+    loan_amount: [maximum loan, max loan, minimum loan, min loan, loan amount limit, kitna loan, how much loan,
+                  loan limit, loan range]
+    tenure: [maximum tenure, max tenure, minimum tenure, tenure limit, tenure kitna, tenure range, kitne saal ka loan,
+             kitne mahine ka loan]
+    interest: [interest rate, rate of interest, roi, byaj, interest kitna]
+    age: [age limit, minimum age, maximum age, umar, age criteria]
+    ltv: [maximum ltv, max ltv, ltv limit, ltv kitna]
+    foir: [maximum foir, max foir, foir limit]
+    income: [minimum income, min income, minimum salary, min salary, income required, salary required,
+             which income, income is used, kitni salary]
+    employment: [salaried or self employed, self employed allowed, employment type, who can apply, self employed apply,
+                 salaried apply, can self employed, can salaried, self employed eligible, business owner apply]
+    cibil: [minimum cibil, min cibil, cibil score required, cibil cutoff, cibil cut off, required cibil,
+            credit score required, minimum credit score, kitna cibil]
+    signature: [is signature mandatory, is signature required, signature mandatory, signature required,
+                signature zaroori, signature compulsory, signature chahiye, signature needed]
+    fees: [processing fee kitni, processing fee kitna, how much is the processing fee, processing fee amount,
+           foreclosure charges, prepayment charges, charges kitne, fees kitni, how much are the charges]
+    turnaround: [how long does approval take, approval time, how many days, kitne din, turnaround time, tat]
+  texts:
+    loan_amount: "{product}: loan amount {minimum} to {maximum}."
+    tenure: "{product}: tenure {minimum} to {maximum} months."
+    interest: "{product}: {rate}% a year (the rate used for the EMI estimate)."
+    age: "{product}: age {minimum} to {maximum} years."
+    ltv: "{product}: LTV up to {maximum}% of the property value."
+    ltv_off: "{product}: LTV does not apply (no property is taken as security)."
+    foir: "{product}: FOIR up to {maximum}% (above it the case goes to a reviewer)."
+    income: "{product}: minimum monthly income {minimum}, taken from the verified {basis}."
+    employment: "{product}: {allowed}."
+    not_set: "{product}: not set in the eligibility policy."
+    demo: "These are DEMO policy values ({policy_ids}), not the company's lending policy -- the credit team confirms the real limits."
+    cibil: "No CIBIL score cut-off is configured in this system. The credit check happens at the Credit stage, after CPA; the credit team decides."
+    signature_on: "Yes. A signature is mandatory for every case created on or after {date}; a case without it is not ready for CPA."
+    signature_on_undated: "Yes. The mandatory-signature rule is on, but its start date is not configured ({problem}), so the rule cannot be applied yet."
+    signature_off: "No. The mandatory-signature rule is off, so a signature is not required to move a case to CPA."
+    fees: "No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter."
+    turnaround: "No approval time (TAT) is configured in this system. After CPA the case goes through Credit, RCU, BOPS and HOPS before disbursement; your branch can tell you the usual time."
+    unavailable: "The eligibility policy is not available right now; the credit team confirms the limits."
+  source: "the eligibility policy"
+
+# ---- CALCULATORS: exact arithmetic on the numbers typed (indicative; the eligibility check uses verified figures) --
+calculators:
+  emi_words: [emi, installment, instalment, kist, kisht]
+  foir_words: [foir]
+  ltv_words: [ltv, loan to value]
+  texts:
+    emi: "EMI for {principal} at {rate}% a year for {months} months: **{emi}** a month (total interest {interest}, total paid {total})."
+    emi_formula: "Formula: EMI = P × r × (1+r)^n ÷ ((1+r)^n − 1), r = monthly rate, n = months."
+    foir: "FOIR = {obligations} ÷ {income} × 100 = **{foir}%**."
+    foir_limit: "The configured maximum is {limit}% ({policy_id}, demo values)."
+    ltv: "LTV = {loan} ÷ {property_value} × 100 = **{ltv}%**."
+    ltv_limit: "The configured maximum for {product} is {limit}% ({policy_id}, demo values)."
+    missing: "To calculate {what} I need {needs}. Example: \"{example}\""
+    note: "Indicative only -- the system's eligibility check uses the verified figures."
+  examples:
+    emi: "EMI for 5 lakh at 12% for 3 years"
+    foir: "FOIR income 50000 emi 15000"
+    ltv: "LTV for 40 lakh loan on 60 lakh property"
+
+# ---- A GENERAL QUESTION THE KNOWLEDGE BASE CANNOT ANSWER: said plainly, logged for the owner ------------------------
+general_unknown:
+  en: "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  hi-Latn: "Yeh abhi knowledge base mein nahi hai, isliye main andaza nahi lagaunga. Maine sawal team ke liye note kar liya hai."
+  hi: "यह अभी ज्ञान-आधार में नहीं है, इसलिए मैं अनुमान नहीं लगाऊँगा। मैंने सवाल टीम के लिए नोट कर लिया है।"
+  mr: "हे अजून ज्ञान-आधारात नाही, म्हणून मी अंदाज लावणार नाही. मी प्रश्न टीमसाठी नोंदवला आहे."

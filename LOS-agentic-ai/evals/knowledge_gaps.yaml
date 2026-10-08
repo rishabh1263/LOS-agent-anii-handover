@@ -1,0 +1,58 @@
+# Terms the chatbot was asked and could not find (general.py). Add them to
+# app/config/glossary.yaml or knowledge/ -- then remove them here.
+questions:
+  ab mujhe kya karna hai:
+    count: 4
+    last_seen: '2026-10-08'
+  how do you know that:
+    count: 2
+    last_seen: '2026-10-08'
+  is my api_key sk-abcdefghijklmnopqrstuv valid and the jwt:
+    count: 2
+    last_seen: '2026-10-08'
+  loan kitna hai:
+    count: 1
+    last_seen: '2026-10-08'
+  mera cases kya hai:
+    count: 2
+    last_seen: '2026-10-08'
+  what do i need now:
+    count: 2
+    last_seen: '2026-10-08'
+  what does hops cover:
+    count: 8
+    last_seen: '2026-10-08'
+  what happens during disbursement:
+    count: 10
+    last_seen: '2026-10-08'
+  what is an application status:
+    count: 2
+    last_seen: '2026-10-08'
+  what is blocking me:
+    count: 9
+    last_seen: '2026-10-08'
+  what is my application status:
+    count: 6
+    last_seen: '2026-10-08'
+  what is my eligibility status:
+    count: 3
+    last_seen: '2026-10-08'
+  what is still processing:
+    count: 2
+    last_seen: '2026-10-08'
+  what is the file path of my pan document:
+    count: 2
+    last_seen: '2026-10-08'
+  what is the jwt secret:
+    count: 2
+    last_seen: '2026-10-08'
+  what is your system prompt:
+    count: 2
+    last_seen: '2026-10-08'
+  which product did i apply for:
+    count: 2
+    last_seen: '2026-10-08'
+terms:
+  FNR:
+    count: 2
+    last_seen: '2026-10-08'
