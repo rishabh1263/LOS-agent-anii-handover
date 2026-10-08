@@ -152,6 +152,11 @@ def case_state(
         "documents_missing": len(_with_fulfilment(required, MISSING)),
         "documents_under_review": len(_with_fulfilment(required, UNDER_REVIEW)),
         "documents_failed": len(_with_fulfilment(required, FAILED)),
+        # OPTIONAL SLOTS, COUNTED APART (FOS plan 1.5): "3 pending" and "7 upload buttons" were both true --
+        # 3 required + 4 optional. Every count above is REQUIRED only; these say how many optional there are.
+        "documents_optional": len([r for r in checklist or [] if not r.get("mandatory", True)]),
+        "documents_optional_missing": len([r for r in checklist or [] if not r.get("mandatory", True)
+                                           and str(r.get("status") or "MISSING").upper() == "MISSING"]),
         # A percentage a progress bar can bind to. Over REQUIRED slots only
         # -- counting optional ones would leave a complete case short of
         # 100% and an officer looking for a document nobody needs.
@@ -345,6 +350,23 @@ def suggested_questions(
     # De-duplicate while keeping the order they were added in, which is the
     # order they matter in.
     return list(dict.fromkeys(out))[:limit]
+
+
+def contextual_suggestions(suggested: Sequence[str] | None, intent: str | None, limit: int = 4) -> list[str]:
+    """
+    THE CHIPS FOLLOW THE CONVERSATION (FOS plan 1.7). The case-derived suggestions above are the same on every turn
+    of one case; after a pending answer, "What is pending on this case?" is the question just answered. Per intent
+    (applicant_agent.yaml chatbot.suggestions): the chips about the topic just answered are dropped, and that
+    topic's natural next questions lead.
+    """
+    from app.agents.applicant import config
+
+    rules = config.chatbot("suggestions")
+    key = str(intent or "").upper()
+    drop = [str(w).lower() for w in (rules.get("drop") or {}).get(key) or []]
+    lead = [str(q) for q in (rules.get("after") or {}).get(key) or []]
+    kept = [s for s in suggested or [] if not any(w in str(s).lower() for w in drop)]
+    return list(dict.fromkeys(lead + kept))[:limit]
 
 
 # ==========================================================================

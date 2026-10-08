@@ -188,6 +188,21 @@ concepts:
     - उसके
     - त्याचे
     - तिचे
+  # "co-applicant hai kya?" -- does a person exist on the case (answered from their profile)
+  EXISTS:
+    - hai kya
+    - h kya
+    - hai ki nahi
+    - koi hai
+    - is there
+    - is there any
+    - do i have
+    - do we have
+    - exists
+    - added
+    - add hai
+    - है क्या
+    - आहे का
   PROCESS_TERM:                     # things a knowledge question asks ABOUT
     - kyc
     - verification
@@ -294,6 +309,12 @@ concepts:
     - upload ho gaya
     - upload ho gaye
     - upload ho gayi
+    - upload hue
+    - upload hua
+    - upload hui
+    - upload kiye
+    - upload kiya
+    - upload kiye gaye
     - de diya
     - de diye
     - de di
@@ -517,6 +538,22 @@ concepts:
     - aage badh
     - aage badhe
     - aage badhna
+    - kab jayega
+    - kab jaega
+    - kab jaayega
+    - kab jayegi
+    - kab move hoga
+    - kab tak jayega
+    - aage jayega
+    - jayega kab
+    - when jayega                   # the normalised form of "kab jayega" ("CPA mein kab jayega" -> "cpa in when jayega")
+    - when jaega
+    - when jaayega
+    - when will it go
+    - when will it move
+    - when will it reach
+    - when will the case go
+    - when will the case move
     - taiyar
     - तैयार
     - तयार

@@ -1,0 +1,56 @@
+{
+  "summary": {
+    "cases": 1,
+    "covered_by_tests": 0,
+    "passed": 0,
+    "accuracy": 0.0,
+    "turns": 3,
+    "wrong_answer_rate": 66.7,
+    "wrong_data_rate": 0.0,
+    "clarify_rate": 0.0,
+    "latency_ms": {
+      "p50": 116.8,
+      "p95": 1652.7
+    }
+  },
+  "results": [
+    {
+      "id": "s1_x_knowledge_more",
+      "passed": false,
+      "turns": [
+        {
+          "q": "What documents are accepted as address proof?",
+          "intent": "FOS_KNOWLEDGE",
+          "ms": 1652.7,
+          "problems": [],
+          "clarify": false,
+          "answer": "CASE-7867B6514D24\n- Driving Licence, Passport or Voter ID can satisfy the ADDRESS_PROOF requirement.\n\n**Next step:** Check your **status** or **pending documents**?"
+        },
+        {
+          "q": "Tell me more.",
+          "intent": "CASE_LIST",
+          "ms": 54.5,
+          "problems": [
+            "WRONG_ANSWER:intent CASE_LIST != FOS_KNOWLEDGE"
+          ],
+          "clarify": false,
+          "answer": "**Your cases** -- 1 total \u00b7 1 pending\n\n\n**Next step:** Kis case mein jaana hai?"
+        },
+        {
+          "q": "what about voter ID?",
+          "intent": "DOCUMENT_VERIFICATION",
+          "ms": 116.8,
+          "problems": [
+            "WRONG_ANSWER:intent DOCUMENT_VERIFICATION != FOS_KNOWLEDGE"
+          ],
+          "clarify": false,
+          "answer": "CASE-7867B6514D24\n- No Voter ID document has been uploaded for this case."
+        }
+      ],
+      "problems": [
+        "WRONG_ANSWER:intent CASE_LIST != FOS_KNOWLEDGE",
+        "WRONG_ANSWER:intent DOCUMENT_VERIFICATION != FOS_KNOWLEDGE"
+      ]
+    }
+  ]
+}

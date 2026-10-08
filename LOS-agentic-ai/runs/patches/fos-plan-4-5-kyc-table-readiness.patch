@@ -1,0 +1,1276 @@
+﻿diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py
+index 9c660e8..84c5951 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py
+@@ -1409,6 +1409,12 @@ def classify(message: str) -> Classification:
+     if _WHAT_ABOUT_DOC.match(text) and _document_type(text):
+         return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
+                               document_type=_document_type(text), matched_on="what_about_document")
++    # A DEFINITION TAIL ("... CPA mein kyun hai aur KYC review ka matlab kya hai?") is split BEFORE this stage
++    # rule too -- it took the whole message on its first half (the same check as below, moved ahead of it)
++    if _CASE_STAGE.search(text) and re.search(r"\b(means?|meaning|matlab|arth)\b", text, re.IGNORECASE):
++        early = _mixed_with_knowledge_tail(text)
++        if early is not None:
++            return early
+     if _CASE_STAGE.search(text):
+         return Classification(Intent.APPLICATION_STAGE, confidence="high", matched_on="case_stage")
+ 
+@@ -1802,6 +1808,26 @@ FRAME_FAMILY = frozenset({
+ })
+ 
+ 
++def _asks_readiness_for_next_stage(message: str, normalised: str) -> bool:
++    """
++    The next stage named + a need / pending / blocking cue, and not a definition (applicant_agent.yaml
++    chatbot.readiness_report.question: next_stages, cues). Read on the message as typed and as normalised.
++    """
++    from app.agents.applicant import config
++
++    rule = (config.chatbot("readiness_report").get("question") or {})
++    stages = [str(s).lower() for s in rule.get("next_stages") or []]
++    cues = [str(c).lower() for c in rule.get("cues") or []]
++    if not stages or not cues:
++        return False
++    for said in (str(message or ""), str(normalised or "")):
++        words = " " + " ".join(re.findall(r"[\wऀ-ॿ]+", said.lower())) + " "
++        if any(f" {s} " in words for s in stages) and any(f" {c} " in words for c in cues) \
++                and not asks_for_a_definition(said):
++            return True
++    return False
++
++
+ def understand(message: str, *, has_case: bool = False) -> Classification:
+     """
+     What the message means.
+@@ -1824,6 +1850,11 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
+ 
+     normalised = normalize.normalise(message)
+     text = normalised.text or (message or "").strip()
++    if has_case and _asks_readiness_for_next_stage(message, text):
++        # "CPA ke liye kya chahiye", "what is blocking CPA", "CPA ke liye kya baaki hai" (FOS plan section 5):
++        # what this case still needs to move on -- the readiness report, never a generic stage guide
++        return Classification(Intent.READINESS, confidence="high", matched_on="readiness_for_next_stage",
++                              understanding="RULES")
+     classification = classify(text)
+     classification.understanding = "RULES"
+ 
+diff --git a/LOS-agentic-ai/app/agents/kyc/config.py b/LOS-agentic-ai/app/agents/kyc/config.py
+index 2df71ce..47e794a 100644
+--- a/LOS-agentic-ai/app/agents/kyc/config.py
++++ b/LOS-agentic-ai/app/agents/kyc/config.py
+@@ -101,6 +101,17 @@ def check_cpa_gate(name: str) -> bool:
+     return bool(section(name).get("cpa_gate", False))
+ 
+ 
++def source_keys(key: str, default: tuple[str, ...]) -> tuple[str, ...]:
++    """
++    FOS plan section 4: which documents feed KYC and which extracted keys carry each value (`sources:` in the
++    policy). A list in config replaces the default; absent -> the code default, unchanged.
++    """
++    raw = section("sources").get(key)
++    if isinstance(raw, list) and raw:
++        return tuple(str(v) for v in raw)
++    return default
++
++
+ def threshold(name: str, key: str, default: float) -> float:
+     raw = section(name).get(key, default)
+     try:
+diff --git a/LOS-agentic-ai/app/agents/los/mapping.py b/LOS-agentic-ai/app/agents/los/mapping.py
+index 0c43fc8..e41ca7e 100644
+--- a/LOS-agentic-ai/app/agents/los/mapping.py
++++ b/LOS-agentic-ai/app/agents/los/mapping.py
+@@ -220,8 +220,13 @@ def to_kyc_source(
+     that did not clear the verification gate. A document whose fields were
+     never released must not reach KYC, or the gate would be worth nothing.
+     """
++    from app.agents.kyc import config as _kyc_types
++
+     document = response.get("document") or {}
+     document_type = _TYPES.get(str(document.get("type") or "").upper())
++    if document_type is not None and document_type.value not in _kyc_types.source_keys(
++            "document_types", tuple(t.value for t in _TYPES.values())):
++        document_type = None                     # a type the policy's `sources.document_types` leaves out
+ 
+     if document_type is None:
+         return None
+@@ -234,15 +239,18 @@ def to_kyc_source(
+     if not isinstance(fields, dict) or not fields:
+         return None
+ 
++    # WHICH KEYS CARRY EACH VALUE: kyc_policies.yaml `sources:` (FOS plan section 4), these tuples as the default
++    from app.agents.kyc import config as _kyc_config
++
+     try:
+         return SourceDocument(
+             source_id=source_id,
+             document_type=document_type,
+-            name=_first(fields, _NAME_FIELDS),
+-            father_name=(_first(fields, _FATHER_NAME_FIELDS)
++            name=_first(fields, _kyc_config.source_keys("name_fields", _NAME_FIELDS)),
++            father_name=(_first(fields, _kyc_config.source_keys("father_name_fields", _FATHER_NAME_FIELDS))
+                          or _relation_father_name(fields)),
+             date_of_birth=fields.get("date_of_birth"),
+-            pan=_first(fields, _PAN_FIELDS),
++            pan=_first(fields, _kyc_config.source_keys("pan_fields", _PAN_FIELDS)),
+             address=address_input(fields),
+             income=_income(fields),
+             field_quality=_quality(response),
+diff --git a/LOS-agentic-ai/app/agents/los/profile_match.py b/LOS-agentic-ai/app/agents/los/profile_match.py
+index 458e539..fe91f9a 100644
+--- a/LOS-agentic-ai/app/agents/los/profile_match.py
++++ b/LOS-agentic-ai/app/agents/los/profile_match.py
+@@ -428,7 +428,13 @@ def released_fields(documents: list[dict[str, Any]]) -> dict[str, list[Evidence]
+ def _evidence_for(
+     field: KycField, released: dict[str, list[Evidence]],
+ ) -> Evidence | None:
+-    for name in _DOCUMENT_FIELDS.get(field, ()):
++    from app.agents.kyc import config as _kyc_config
++
++    keys = _DOCUMENT_FIELDS.get(field, ())
++    if field is KycField.NAME:
++        # the same keys cross-document KYC reads (kyc_policies.yaml sources.name_fields; FOS plan section 4)
++        keys = _kyc_config.source_keys("name_fields", keys)
++    for name in keys:
+         candidates = released.get(name)
+         if candidates:
+             return candidates[0]
+diff --git a/LOS-agentic-ai/app/api/routes/copilot_api.py b/LOS-agentic-ai/app/api/routes/copilot_api.py
+index edf47e3..749fd76 100644
+--- a/LOS-agentic-ai/app/api/routes/copilot_api.py
++++ b/LOS-agentic-ai/app/api/routes/copilot_api.py
+@@ -125,6 +125,10 @@ class CopilotQueryRequest(BaseModel):
+                      "English answer is returned and `language.localized` is "
+                      "false. The business truth never depends on it."),
+         examples=["en"])
++    reply_language: str | None = Field(
++        None, max_length=16, examples=["en"],
++        description=("The frontend's selected language (FOS plan section 2) -- the same as `language`. Either one "
++                     "LOCKS every text of the reply to that language, whatever the question was typed in."))
+     channel: str | None = Field(
+         None, max_length=32,
+         description=("The channel the question came from: web, mobile, "
+@@ -1486,6 +1490,78 @@ async def query(
+     started = time.perf_counter()
+     timings: dict[str, float] = {}
+ 
++    # THE LANGUAGE LOCK (FOS plan section 2) -- the same shared lock /fos/copilot sets
++    from app.agents.applicant.copilot.answering import language_lock as _lock
++
++    _locked = _lock.set_for_request(request.reply_language, request.language)
++    if _locked:
++        request.language = _locked
++
++    # "MY CASES" (FOS plan 1.2): with the case workspace on, a message that only asks for the caller's case
++    # list ("all case ka list", "my cases") is THE CALLER'S OWN LIST -- live grants, each case re-authorized --
++    # never a bulk-data refusal and never one applicant's portfolio. The same list as /fos/copilot.
++    from app.agents.applicant.copilot.capabilities import workspace as _ws
++
++    def _published(reply: dict[str, Any], response_type: str) -> dict[str, Any]:
++        from app.agents.applicant.copilot.answering import professional as _professional
++
++        reply = dict(reply or {})
++        reply["presentation"] = {**(reply.get("presentation") or {}), **(reply.pop("workspace_view", None) or {})}
++        reply.setdefault("response_type", response_type)
++        reply["processing_ms"] = round((time.perf_counter() - started) * 1000, 1)
++        return _professional.apply(reply)
++
++    # PARITY WITH /fos/copilot (FOS plan section 1/2): the 6h safety screen, then the WHOLE case workspace --
++    # "my cases", "2 kholo", "dusre case ka details", exit / switch, the opened case -- the same shared code
++    from app.agents.applicant.copilot.capabilities import safety as _safety
++
++    if _safety.enabled():
++        from app.security.auth import get_subject as _safety_subject
++
++        screened = _safety.screen(request.message, str(_safety_subject(claims) or "anonymous"), request_id,
++                                  request.case_id)
++        if screened is not None:
++            return _published(screened, "GUARDRAIL")
++    if _ws.enabled():
++        from app.security import access as _ws_access
++
++        try:
++            ws_turn = _ws.handle("CUSTOM_QUERY", request.message, request.case_id, claims, request_id,
++                                 request.context)
++        except _ws_access.AccessDenied as exc:
++            raise _ws_access.http_denied(exc, request_id) from None
++        if ws_turn.reply is not None:
++            return _published(ws_turn.reply, str(ws_turn.reply.get("intent") or "CASE_LIST"))
++        if ws_turn.case_id:
++            request.case_id, request.applicant_id = ws_turn.case_id, str(ws_turn.applicant_id or "") or None
++
++    # NO CASE NAMED (FOS plan 1.4): "case details do" without a case_id answered "None of the application details
++    # are recorded" -- untrue, no case was chosen. The case the officer OPENED in the workspace answers it, or their
++    # only case; with several and none open, a case question is answered with "which case?" (below).
++    unresolved_case = False
++    workspace_id = (request.context or {}).get("workspace_id") if isinstance(request.context, dict) else None
++    if _ws.enabled() and request.case_id:
++        # THE OPENED CASE WINS (FOS plan 1.8): the same rule as /fos/copilot -- a case_id sent on every request
++        # never overrides the case the officer opened in the workspace
++        opened = _ws.active_case(claims, workspace_id)
++        if opened is not None and opened.case_id != request.case_id:
++            request.case_id, request.applicant_id = opened.case_id, str(opened.applicant_id)
++    if _ws.enabled() and not request.case_id and not request.applicant_id:
++        chosen = _ws.active_case(claims, workspace_id)
++        if chosen is None:
++            mine = _ws.my_cases(claims)
++            chosen = mine[0] if len(mine) == 1 else None
++            unresolved_case = len(mine) > 1
++        if chosen is not None:
++            request.case_id, request.applicant_id = chosen.case_id, str(chosen.applicant_id)
++    if _ws.enabled() and not request.case_id and not request.stage:
++        # NO CASE AT ALL: a workspace caller's process question ("KYC kya hai?") is answered for the workspace's
++        # desk (case_workspace.default_stage) -- never "the stage could not be determined"; a case's own stage
++        # always wins once a case is chosen
++        from app.agents.applicant import config as _ws_config
++
++        request.stage = (_ws_config.chatbot("case_workspace").get("default_stage") or None)
++
+     # SECURITY AND SMALL TALK FIRST (decision order: 1. what kind of request
+     # is this, 2. is the caller allowed ...). A request the input policy
+     # refuses, or a greeting, is answered by the agent before any read -- so
+@@ -1625,6 +1701,17 @@ async def query(
+                 if isinstance(envelope.get("understanding"), dict):
+                     envelope["understanding"]["compound"] = {
+                         "parts": list(parts), "intents": intents_seen}
++            if unresolved_case and envelope.get("query_type") == "CASE_FACT" \
++                    and envelope.get("intent") not in ("CASE_PORTFOLIO", "CASE_LIST"):
++                # a case question with several cases and none chosen: "which case?" + the caller's list,
++                # never an answer about no case at all (FOS plan 1.4)
++                _ws_state = _ws._state(_ws._subject(claims), None)
++                listed = _ws.list_view(claims, request_id, _ws_state)     # "2" then picks from this list
++                _ws._save(_ws_state)
++                envelope["answer"] = _ws._label("pick_case_first") + "\n\n" + str(listed.get("answer") or "")
++                envelope["intent"] = "CASE_SELECTION"
++                envelope["query_type"] = "CLARIFICATION"
++                envelope["workspace_view"] = listed.get("workspace_view")
+     except NotOwned:
+         # A REFUSAL, NOT AN ERROR, AND NOT A DISCLOSURE. Phrased
+         # identically whether the case belongs to somebody else or
+@@ -1958,8 +2045,18 @@ async def query(
+     # history, next actions, provenance, handoff summary: a full PAN, Aadhaar
+     # or account number never leaves in any field (sensitivity.py).
+     from app.security import sensitivity
++    # PROFESSIONAL FORMAT, LAST (FOS plan section 3) -- the same shared step /fos/copilot applies
++    from app.agents.applicant.copilot.answering import professional as _professional
++
++    from app.agents.applicant.copilot.answering import kyc_table as _kyc_table
++
++    published = _kyc_table.attach(published)          # the KYC table (FOS plan section 4), as on /fos/copilot
++    from app.agents.applicant.copilot.answering import readiness_report as _readiness_report
+ 
+-    return CopilotQueryResponse(**sensitivity.mask_payload(published))
++    published = _readiness_report.attach(published)   # the readiness report (FOS plan sections 5 / 7.1)
++    formatted = _professional.apply(sensitivity.mask_payload(published))
++    return CopilotQueryResponse(**{k: v for k, v in formatted.items()
++                                   if k in CopilotQueryResponse.model_fields or k not in ("answer_plain", "format")})
+ 
+ 
+ __all__ = ["router"]
+diff --git a/LOS-agentic-ai/app/api/routes/fos_api.py b/LOS-agentic-ai/app/api/routes/fos_api.py
+index fd3c411..cb67591 100644
+--- a/LOS-agentic-ai/app/api/routes/fos_api.py
++++ b/LOS-agentic-ai/app/api/routes/fos_api.py
+@@ -320,6 +320,11 @@ class CopilotRequest(BaseModel):
+             "the language; where no template covers a fact the English answer stands and "
+             "`language_contract.localized` is false."),
+     )
++    reply_language: str | None = Field(
++        None, max_length=16, examples=["en"],
++        description=("The same as `response_language` (FOS plan section 2, the frontend's name for it). Either one "
++                     "LOCKS every text of the reply -- answer, clarifications, buttons, refusals -- to that language."),
++    )
+     # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS)
+     document_id: str | None = Field(None, max_length=256, description="VIEW_DOCUMENT: the document to open.")
+     query: dict[str, Any] | None = Field(None, description="RAISE_QUERY: the (edited) draft to send.")
+@@ -788,6 +793,16 @@ async def create_case(
+             "request_id": request_id, "error": exc.code, "message": exc.message,
+         }) from exc
+ 
++    # ALL AMOUNTS ARE IN RUPEES (FOS plan 1.1): an implausible amount is refused BEFORE the applicant is
++    # created, so a bad form never leaves a half-made case behind
++    if request.application is not None:
++        from app.agents.applicant import plausibility
++
++        found = plausibility.problem(request.application.model_dump(exclude_none=True))
++        if found is not None:
++            raise HTTPException(422, detail={"request_id": request_id, "error": plausibility.CODE,
++                                             "field": found[0], "message": found[1]})
++
+     # ANOTHER CASE FOR A CUSTOMER THIS CALLER ALREADY SERVES. One applicant may
+     # hold several cases; naming an applicant the caller may WRITE opens a new
+     # case for them, and the recorded person is left exactly as captured (never
+@@ -1200,7 +1215,19 @@ async def copilot(
+             from app.agents.applicant.copilot.answering import presentation as _presentation
+ 
+             published["presentation"] = _presentation.build(published)
+-            return _sensitivity.mask_payload(published)
++            # THE KYC TABLE on a KYC answer (FOS plan section 4; shared with /copilot/query)
++            from app.agents.applicant.copilot.answering import kyc_table as _kyc_table
++
++            published = _kyc_table.attach(published)
++            # THE READINESS REPORT on a readiness answer (FOS plan sections 5 / 7.1; shared with /copilot/query)
++            from app.agents.applicant.copilot.answering import readiness_report as _readiness_report
++
++            published = _readiness_report.attach(published)
++            # PROFESSIONAL FORMAT, LAST (FOS plan section 3; shared with /copilot/query): no emojis anywhere,
++            # one "Next step:" line, a plain-text answer
++            from app.agents.applicant.copilot.answering import professional as _professional
++
++            return _professional.apply(_sensitivity.mask_payload(published))
+         return published
+     except HTTPException:
+         raise
+@@ -1344,6 +1371,13 @@ async def _copilot_json(
+ 
+     action = payload.action
+ 
++    # THE LANGUAGE LOCK (FOS plan section 2): the selected language, for every text this turn writes
++    from app.agents.applicant.copilot.answering import language_lock as _lock
++
++    locked = _lock.set_for_request(payload.reply_language, payload.response_language)
++    if locked:
++        payload.response_language = locked
++
+     if action is FosAction.UPLOAD_DOCUMENT:
+         raise HTTPException(415, detail={
+             "request_id": request_id, "error": "UPLOAD_REQUIRES_MULTIPART",
+@@ -2017,10 +2051,19 @@ async def _copilot_upload(
+             "message": (f"{declared_action} is not valid for a multipart "
+             "request. Only UPLOAD_DOCUMENT is."),
+         })
++    if (not applicant_id or not case_id):
++        # INSIDE AN OPENED CASE (6-MVP workspace): an upload without ids goes to the case the officer
++        # opened -- ownership is still checked below (write), exactly as for explicit ids
++        from app.agents.applicant.copilot.capabilities import workspace as _ws
++
++        opened = _ws.active_case(claims, str(form.get("workspace_id") or "").strip() or None) \
++            if _ws.enabled() else None
++        if opened is not None and (not case_id or case_id == opened.case_id):
++            case_id, applicant_id = opened.case_id, applicant_id or str(opened.applicant_id)
+     if not applicant_id or not case_id:
+         raise HTTPException(422, detail={
+             "request_id": request_id, "error": "INVALID_REQUEST",
+-            "message": "applicant_id and case_id are required for an upload.",
++            "message": "applicant_id and case_id are required for an upload (or open a case first).",
+         })
+     if not uploads:
+         raise HTTPException(422, detail={
+@@ -2703,6 +2746,10 @@ def _frontend_contract(result: dict[str, Any],
+     suggested = result.get("suggested_questions")
+     if suggested:
+         block["suggested_questions"] = list(suggested)
++    else:
++        # the case-derived chips, turned to follow THIS turn (FOS plan 1.7)
++        block["suggested_questions"] = frontend.contextual_suggestions(block.get("suggested_questions"),
++                                                                       result.get("intent"))
+     return block
+ 
+ 
+@@ -2710,7 +2757,7 @@ def _raise_from(request_id: str, envelope) -> None:
+     error = envelope.error
+     code = error.code if error else "FAILED"
+     raise HTTPException(
+-        404 if code == "NOT_FOUND" else 400,
++        404 if code == "NOT_FOUND" else 422 if code == "AMOUNT_IMPLAUSIBLE" else 400,
+         detail={"request_id": request_id, "error": code,
+                 "message": error.message if error else "The call failed."},
+     )
+@@ -3081,7 +3128,7 @@ def _frontend_features() -> dict[str, Any]:
+     out: dict[str, Any] = {"features": features, "endpoints": endpoints}
+     if features["case_workspace"]:
+         cfg = config.chatbot("case_workspace") or {}
+-        out["workspace"] = {"page_size": cfg.get("page_size", 10), "quick_questions": cfg.get("quick_questions") or [],
++        out["workspace"] = {"page_size": cfg.get("page_size", 10), "quick_questions": _ws.quick_questions(),
+                             "list_message": "mere cases dikhao"}
+     return out
+ 
+diff --git a/LOS-agentic-ai/app/api/routes/ops.py b/LOS-agentic-ai/app/api/routes/ops.py
+index af2e6b3..da7f2b4 100644
+--- a/LOS-agentic-ai/app/api/routes/ops.py
++++ b/LOS-agentic-ai/app/api/routes/ops.py
+@@ -146,9 +146,45 @@ async def ready(response: Response) -> dict:
+         "unsigned_policy_override": allow_unsigned_policy(),
+         "circuits": resilience.breaker.snapshot(),
+         "in_flight": resilience.bulkhead.snapshot(),
++        "build": build_marker(),
+     }
+ 
+ 
++def build_marker() -> dict:
++    """
++    WHICH BACKEND IS THIS (FOS plan 1.1): the build step (applicant_agent.yaml chatbot.build), the git
++    commit when one can be read, and every chatbot flag as it is RIGHT NOW in this process -- so a
++    frontend tester can confirm with GET /ready that they reach this server with the features on.
++    """
++    import os
++    import subprocess
++    from pathlib import Path
++
++    from app.agents.applicant import config
++
++    build = config.chatbot("build") or {}
++    on = {"1", "true", "yes", "on"}
++    from app.agents.applicant.copilot.answering import kyc_table, language_lock, professional, readiness_report
++    from app.agents.applicant.copilot.semantics import llm_router
++
++    # flags whose default is ON in config when the environment says nothing: their own enabled() decides
++    by_module = {llm_router.FLAG: llm_router.enabled, language_lock.FLAG: language_lock.enabled,
++                 professional.FLAG: professional.enabled, kyc_table.FLAG: kyc_table.enabled,
++                 readiness_report.FLAG: readiness_report.enabled}
++    flags = {name: (by_module[name]() if name in by_module
++                    else (os.getenv(name, "") or "").strip().lower() in on)
++             for name in build.get("chatbot_flags") or []}
++    commit = None
++    try:
++        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2,
++                                cwd=Path(__file__).resolve().parents[3]).stdout.strip() or None
++    except Exception:  # noqa: BLE001 - no git on the host: the step still says which build
++        commit = None
++    return {"phase": build.get("phase"), "step": build.get("step"), "commit": commit,
++            "uncommitted_changes_possible": True, "chatbot_flags": flags,
++            "chatbot_flags_on": sum(flags.values()), "chatbot_flags_total": len(flags)}
++
++
+ @router.get("/metrics", summary="Prometheus metrics")
+ async def prometheus_metrics() -> Response:
+     """Agent, orchestration and Copilot aggregate metrics in one scrape."""
+diff --git a/LOS-agentic-ai/app/config/applicant_agent.yaml b/LOS-agentic-ai/app/config/applicant_agent.yaml
+index 83f850c..d2f3efe 100644
+--- a/LOS-agentic-ai/app/config/applicant_agent.yaml
++++ b/LOS-agentic-ai/app/config/applicant_agent.yaml
+@@ -875,6 +875,140 @@ chatbot:
+       new_case: "👉 Tap **New case** to open the case form."
+       view: "📄 **{document}** -- the link works for {minutes} minutes."
+ 
++  # FOS plan SECTIONS 5 + 7.1 -- READINESS, ASK ANYTHING (answering/readiness_report.py): every requirement the
++  # FOS gate evaluates, grouped, PASS / PENDING / FAILED / REVIEW with reason and fix; READY is the live gate's
++  # verdict only. Env COPILOT_READINESS_REPORT overrides `enabled`.
++  readiness_report:
++    enabled: true
++    # failing items, what unblocks the case FASTEST first: a re-upload the officer can do now, then a missing
++    # upload, then details to record, then KYC, then what only a reviewer can clear
++    unblock_order: [DOCUMENT_FAILED, DOCUMENT_PENDING, FIELD_PENDING, KYC_FAILED, KYC_PENDING, KYC_REVIEW,
++                    DOCUMENT_REVIEW, GATE]
++    # a question about what THIS case needs to reach the next stage ("CPA ke liye kya chahiye") -> the report.
++    # The next stage named + one cue (whole words, as typed or normalised); a definition ("CPA kya hai") never.
++    question:
++      next_stages: [cpa]
++      cues: [chahiye, chaiye, needed, need, needs, required, require, baaki, baki, pending, blocking, block, blocked,
++             rok, roka, atka, atki, missing, remaining, left, kab, when, ready]
++
++  # FOS plan SECTION 4 -- THE KYC TABLE on every KYC answer (answering/kyc_table.py): per party, check | document |
++  # on document | on application | result | reason, from recorded findings, masked; the likely odd one out.
++  # Env COPILOT_KYC_TABLE overrides `enabled`. Labels may be {language: text} maps.
++  kyc_table:
++    enabled: true
++
++  # FOS plan SECTION 3 -- PROFESSIONAL FORMAT (answering/professional.py), applied last on BOTH endpoints.
++  # emojis: false = no pictograph in any reply field (production default); the closing hint becomes one
++  # "Next step:" line; answer_plain always present. Env COPILOT_PROFESSIONAL_FORMAT overrides `enabled`.
++  professional_format:
++    enabled: true
++    emojis: false
++    next_step_label: "Next step:"
++
++  # FOS plan SECTION 2 -- LANGUAGE LOCK (answering/language_lock.py). The frontend's selected language
++  # (reply_language / response_language / language) is authoritative for EVERY text of the reply. Env
++  # COPILOT_LANGUAGE_LOCK overrides `enabled`. Labels anywhere in this file may be {en: ..., hi-Latn: ...} maps.
++  language_lock:
++    enabled: true
++    supported: [en, hi, hi-Latn, mr, mr-Latn]
++    aliases: { english: en, en-in: en, en-us: en, en-gb: en, hindi: hi, hi-in: hi, hinglish: hi-Latn,
++               hi_latn: hi-Latn, marathi: mr, mr-in: mr }
++
++  # FOS plan 1.7: SUGGESTION CHIPS FOLLOW THE TURN. After an answer, chips naming the topic just answered are
++  # dropped (`drop`: substrings, lower case) and that topic's next questions lead (`after`).
++  suggestions:
++    drop:
++      DOCUMENTS_PENDING: [pending]
++      DOCUMENTS_MISSING: [pending]
++      PENDING_ITEMS: [pending]
++      READINESS: [ready to hand over, pending on this case]
++      APPLICATION_STATUS: [status]
++      KYC_RESULT: [kyc]
++      DOCUMENTS_UPLOADED: [uploaded]
++    after:
++      DOCUMENTS_PENDING: ["Is this case ready for CPA?", "What should I do next?"]
++      DOCUMENTS_MISSING: ["Is this case ready for CPA?", "What should I do next?"]
++      PENDING_ITEMS: ["Is this case ready for CPA?", "What is the KYC status?"]
++      READINESS: ["What should I do next?", "What is the KYC status?"]
++      APPLICATION_STATUS: ["What is pending on this case?", "What should I do next?"]
++      KYC_RESULT: ["Which documents does KYC compare?", "What is pending on this case?"]
++      DOCUMENTS_UPLOADED: ["Are these documents verified?", "What is pending on this case?"]
++      DOCUMENT_VERIFICATION: ["What is pending on this case?", "What is the KYC status?"]
++      APPLICANT_PROFILE: ["What is pending on this case?", "What is the KYC status?"]
++      NEXT_ACTION: ["Is this case ready for CPA?", "What is the KYC status?"]
++
++  # FOS plan 1.6: words of the officer's work. A garbled message holding one gets ONE clarifying question
++  # (the general offer), never "That's outside what I can help with here".
++  domain_words:
++    words: [list, lists, details, detail, record, records, file, files, customer, customers, query, queries,
++            upload, verify, verification, pending, baaki, status, signature, photo, form, amount, salary, income,
++            timeline, readiness, handoff]
++
++  # FOS plan 1.6: a document named right before a case word ("mere Aadhar case ka details kaise dekhun") is
++  # ambiguous -- one question with both readings as options.
++  ambiguity:
++    document_before_case:
++      case_nouns: [case, file, application, केस]
++      question: "Do you mean the {doc} details, or this case's details?"
++      options: ["Show the {doc} details", "Show this case's details"]
++
++  # FOS plan 1.4: a message that is ONLY a request for details ("details batao") -> everything recorded on the
++  # case (applicant + application). Whole message only; "PAN details" etc. keep their own meaning.
++  bare_details:
++    phrases: [details, detail, details batao, detail batao, details do, detail do, details dikhao,
++              details dikha do, details bata do, details please, sab details, saari details, poori details,
++              full details, all details, show details, give details, jaankari do, jankari do, details chahiye,
++              विवरण दो, डिटेल्स बताओ,
++              # the normalised forms the pipeline also reads ("details batao" -> "tell me details")
++              tell me details, tell me the details, give me details, give me the details, show me details,
++              show me the details, details give, details show, details tell]
++
++  # FOS plan 1.5: ONE count of documents -- `case_state` (app/agents/applicant/frontend.py: required counts +
++  # documents_optional / documents_optional_missing); every upload button says required or optional.
++  document_counts:
++    labels:
++      upload_required: "Upload {label}"
++      upload_optional: "Upload {label} (optional)"
++
++  # BUILD MARKER on GET /ready (FOS plan 1.1): which backend a frontend is talking to. Update `step` with
++  # each delivered step; the flags are reported as they are in the running process.
++  build:
++    phase: "Phase 3"
++    step: "FOS E2E plan, section 1"
++    chatbot_flags: [COPILOT_CASE_WORKSPACE, COPILOT_CASE_ACTIONS, COPILOT_RESPONSE_STYLE, COPILOT_TERMS_KNOWLEDGE,
++                    COPILOT_SESSION_MEMORY, COPILOT_VERIFY_DIAGNOSE, COPILOT_DOCUMENT_ACTIONS,
++                    COPILOT_PARTY_RECOGNITION, LOS_COAPP_IDENTITY, COPILOT_GUARDRAIL_HARDENING, COPILOT_STREAMING,
++                    COPILOT_LLM_ROUTER, COPILOT_EMPHASIS, COPILOT_LOCALIZED_KYC_REASONS, COPILOT_SINGLE_CASE_RESOLVE,
++                    COPILOT_LANGUAGE_LOCK, COPILOT_PROFESSIONAL_FORMAT, COPILOT_KYC_TABLE,
++                    COPILOT_READINESS_REPORT]
++
++  # PLAUSIBLE AMOUNTS (FOS plan 1.1; trigger was demo data, kept as production protection).
++  # ALL AMOUNTS ARE IN RUPEES, NOT LAKHS. Intake (create / update, app/agents/applicant/plausibility.py)
++  # refuses a figure below its minimum or written with a unit word -> 422 AMOUNT_IMPLAUSIBLE. A stored
++  # figure below its minimum is never shown in chat -- the label / sentence is said instead.
++  plausibility:
++    label: "Amount needs verification"
++    sentence: "The recorded {field} needs verification; the figure on the case does not look right."
++    minimum:
++      loan_amount: 10000
++      property_value: 100000
++      declared_monthly_income: 1000
++    field_labels: { loan_amount: "Loan amount", property_value: "Property value",
++                    declared_monthly_income: "Monthly income" }
++    examples: { loan_amount: 500000, property_value: 8000000, declared_monthly_income: 65000 }
++    unit_words: [lakh, lakhs, lac, lacs, l, cr, crore, crores, k, thousand, hazaar, hazar]
++    reject_message: "{label} looks too small; enter the full amount in rupees, e.g. {example}."
++    unit_message: "{label}: enter the full amount in rupees (not lakhs / crores), e.g. {example}."
++
++  # DOCUMENTS THAT NEED ACTION (COPILOT_DOCUMENT_ACTIONS; answering/document_actions.py).
++  # User, 2026-10-07: "kuch bhi pure process me review hai yaa fail hai toh aana chahaiye" --
++  # a REVIEW document is offered for upload again with its reason (was: "under review, no action"),
++  # and a party's KYC REVIEW / FAIL verdict is always a line of its own (was: only with field detail).
++  # false / false = the previous behaviour.
++  document_actions:
++    review_needs_reupload: true
++    kyc_status_line: true
++
+   # 6f VERIFY / UPLOAD DIAGNOSE (COPILOT_VERIFY_DIAGNOSE, default off; CHATBOT_SPEC section 4).
+   # "verify karna hai" / "kya upload karu" never asks "which document?": the case is diagnosed
+   # (step 4's document action view: ❌ fix first -> ⏳ pending -> ℹ️ under review, every party).
+@@ -893,7 +1027,7 @@ chatbot:
+   # Glossary + abbreviation rule: app/config/glossary.yaml.
+   response_style:
+     status_emoji: { READY_FOR_CPA: "✅", NOT_READY: "⏳", VERIFIED: "✅", REJECTED: "❌", REVIEW: "⏳",
+-                    MISMATCH: "⚠️", BLOCKED: "⚠️" }
++                    MISMATCH: "⚠️", BLOCKED: "⚠️", PASS: "✅", FAIL: "❌" }
+     # "all my cases" summary, point-wise: one block per case, latest first (capabilities/portfolio.py pointwise)
+     portfolio:
+       head: "📂 **{total} cases**"
+@@ -937,7 +1071,12 @@ chatbot:
+       DOCUMENTS_PENDING: "Upload these to move the case to **CPA**."
+       DOCUMENTS_MISSING: "Upload these to move the case to **CPA**."
+       PENDING_ITEMS: "Clear these to move the case to **CPA**."
+-      KYC_RESULT: "Upload the correct document to fix the mismatch."
++      # per recorded KYC state: a PASS gets no "fix" step; NOT_RECORDED / PENDING says what runs it
++      KYC_RESULT:
++        default: "Upload the correct document to fix the mismatch."
++        PASS: ""
++        NOT_RECORDED: "KYC runs once the identity documents are uploaded."
++        PENDING: "KYC runs once the identity documents are uploaded."
+       FOS_KNOWLEDGE: "Check your **status** or **pending documents**?"
+       OUT_OF_SCOPE: "Check your **status** or **pending documents**?"
+ 
+@@ -966,6 +1105,23 @@ chatbot:
+       case_word: [case, ka case, wala case, file, application]
+       # small words dropped before a name / ordinal is read ("2 wala case open karo" -> "2")
+       filler: [ka, ki, ke, wala, wali, ji, karo, kar, please, plz, the, number]
++      # FOS plan 1.3: a question about ANOTHER of the caller's cases ("dusre case ka details do"): one other case
++      # -> switched to and answered there; several -> "which one?". Alone ("dusra case") it is the switch above.
++      other_case: [dusre case, doosre case, dusra case, doosra case, dusri case, doosri case, other case,
++                   another case, the other case, mere dusre case, dusre wale case, doosre wale case, दूसरे केस,
++                   दूसरा केस, दुसऱ्या केस]
++    # the desk a workspace caller with NO case chosen is answered for (process / knowledge questions on the
++    # universal /copilot/query); a chosen case's own recorded stage always wins
++    default_stage: FOS
++    # FOS plan 1.2: any wording that ONLY asks for the case list -- a case noun + a cue + nothing but these words
++    # ("all case ka list", "sab case dikhao", "mere kitne case hai"); a topic word (status, KYC, PAN) is never one.
++    # The `list` phrases above are matched first; this only adds wordings that ask for nothing else.
++    list_rule:
++      case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
++      cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, my, मेरे, सारे, सब]
++      allowed: [ka, ki, ke, of, a, the, me, mujhe, show, give, do, dikhao, dikha, batao, bata, hai, h, hain, how,
++                please, plz, pls, kya, wale, wala, kaun, kaunse, konse, which, are, i, have, bhai, yaar, open,
++                dekhna, dekhne, chahiye, दिखाओ, बताओ, है, हैं, का, के, की]
+     labels:
+       header: "📂 **Your cases**"
+       total: "{n} total"
+@@ -982,8 +1138,11 @@ chatbot:
+       row_docs: "⏳ {n} docs pending"
+       row_ready: "✅ Ready for CPA"
+       row_other: "⏳ In progress"
+-      ask: "👉 Kis case mein jaana hai?"
+-      more: "👉 \"aur dikhao\" for more"
++      # {language: text} maps follow the locked reply language (FOS plan section 2); unlocked -> the en wording
++      ask: { default: hi-Latn, en: "👉 Which case do you want to open?", hi-Latn: "👉 Kis case mein jaana hai?",
++             hi: "👉 कौन सा केस खोलना है?", mr: "👉 कोणती केस उघडायची आहे?" }
++      more: { default: hi-Latn, en: "👉 Say \"show more\" for more", hi-Latn: "👉 \"aur dikhao\" for more",
++              hi: "👉 और देखने के लिए \"और दिखाओ\" कहें", mr: "👉 आणखी पाहण्यासाठी \"आणखी दाखवा\" म्हणा" }
+       none: "ℹ️ You have no cases you can open."
+       opened: "🔓 **{case_id} ({name})** opened."
+       snapshot_stage: "📍 Stage: **{stage}**"
+@@ -993,11 +1152,28 @@ chatbot:
+       in_case: "📍 {case_id}"
+       closed: "🔒 **{case_id}** closed."
+       which: "Which one did you mean?"
+-      not_found: "I couldn't find that case among yours. 👉 Say \"mere cases\" to see the list."
+-      other_case: "👉 Is case mein jaana hai? ({case_id})"
+-      no_case: "👉 Pehle ek case kholiye -- \"mere cases\" boliye."
+-    quick_questions: ["Kya baaki hai?", "Kyu atka hai?", "Co-applicant", "Summary"]
+-    suggested_question: "Kya baaki hai?"
++      not_found: { en: "I couldn't find that case among yours. 👉 Say \"my cases\" to see the list.",
++                   hi-Latn: "Yeh case aapke cases mein nahi mila. 👉 List ke liye \"mere cases\" boliye.",
++                   hi: "यह केस आपके केसों में नहीं मिला। 👉 सूची के लिए \"मेरे केस\" कहें।",
++                   mr: "ही केस तुमच्या केसमध्ये सापडली नाही. 👉 यादीसाठी \"माझ्या केस\" म्हणा." }
++      no_other_case: { en: "You have only this one case.", hi-Latn: "Aapka sirf yahi ek case hai.",
++                       hi: "आपका केवल यही एक केस है।", mr: "तुमची फक्त हीच एक केस आहे." }
++      pick_case_first: { en: "Which case is this about? Open one of your cases first.",
++                         hi-Latn: "Yeh kis case ke baare mein hai? Pehle apna ek case kholiye.",
++                         hi: "यह किस केस के बारे में है? पहले अपना एक केस खोलिए।",
++                         mr: "हे कोणत्या केसबद्दल आहे? आधी तुमची एक केस उघडा." }
++      other_case: { default: hi-Latn, en: "👉 Open this case? ({case_id})", hi-Latn: "👉 Is case mein jaana hai? ({case_id})",
++                    hi: "👉 इस केस में जाना है? ({case_id})", mr: "👉 ही केस उघडायची? ({case_id})" }
++      no_case: { default: hi-Latn, en: "👉 Open a case first -- say \"my cases\".",
++                 hi-Latn: "👉 Pehle ek case kholiye -- \"mere cases\" boliye.",
++                 hi: "👉 पहले एक केस खोलिए -- \"मेरे केस\" कहें।", mr: "👉 आधी एक केस उघडा -- \"माझ्या केस\" म्हणा." }
++    quick_questions:
++      default: hi-Latn
++      en: ["What is pending?", "Why is it stuck?", "Co-applicant", "Summary"]
++      hi-Latn: ["Kya baaki hai?", "Kyu atka hai?", "Co-applicant", "Summary"]
++      hi: ["क्या बाकी है?", "क्यों अटका है?", "सह-आवेदक", "सारांश"]
++      mr: ["काय बाकी आहे?", "का अडकले आहे?", "सह-अर्जदार", "सारांश"]
++    suggested_question: { default: hi-Latn, en: "What is pending?", hi-Latn: "Kya baaki hai?", hi: "क्या बाकी है?", mr: "काय बाकी आहे?" }
+ 
+   # MODEL ROUTING (model_routing.py): which turns the language model may
+   # phrase (MODEL), which are worded deterministically (FAST) and which it
+diff --git a/LOS-agentic-ai/app/config/kyc_policies.yaml b/LOS-agentic-ai/app/config/kyc_policies.yaml
+index 53b4023..99e60a6 100644
+--- a/LOS-agentic-ai/app/config/kyc_policies.yaml
++++ b/LOS-agentic-ai/app/config/kyc_policies.yaml
+@@ -55,6 +55,20 @@
+ policy_version: "1.0.0"
+ signed_off: false
+ 
++# ---------------------------------------------------------------------------
++# SOURCES (FOS plan section 4) -- which documents feed KYC, and which extracted keys carry each value.
++# Read by app/agents/los/mapping.py (cross-document KYC) and profile_match.py (application vs documents).
++# Compared today (2026-10-08): PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT (identity) and SALARY_SLIP,
++# BANK_STATEMENT, ITR (financial -- the financial agent hands the holder / employee name over as `name`).
++# NOT compared: AADHAAR -- no Aadhaar extractor exists, so no value ever reaches KYC (open item). A type listed
++# here that the KYC agent does not know is ignored, never invented.
++# ---------------------------------------------------------------------------
++sources:
++  document_types: [PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT, SALARY_SLIP, BANK_STATEMENT, ITR]
++  name_fields: [name, employee_name, account_holder, holder_name]
++  father_name_fields: [father_name, guardian_name]
++  pan_fields: [pan_number, pan]
++
+ # ---------------------------------------------------------------------------
+ # NAME
+ # ---------------------------------------------------------------------------
+diff --git a/LOS-agentic-ai/evals/copilot/harness.py b/LOS-agentic-ai/evals/copilot/harness.py
+index f0fa85a..b5f693b 100644
+--- a/LOS-agentic-ai/evals/copilot/harness.py
++++ b/LOS-agentic-ai/evals/copilot/harness.py
+@@ -71,7 +71,9 @@ PHASE3_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESPO
+                 "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_LOCALIZED_KYC_REASONS",
+                 "COPILOT_SINGLE_CASE_RESOLVE", "COPILOT_EMPHASIS", "COPILOT_STREAMING", "COPILOT_SESSION_MEMORY",
+                 "LOS_COAPP_IDENTITY", "COPILOT_PARTY_RECOGNITION", "COPILOT_GUARDRAIL_HARDENING",
+-                "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY")
++                "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY",
++                 "COPILOT_LANGUAGE_LOCK", "COPILOT_PROFESSIONAL_FORMAT", "COPILOT_KYC_TABLE",
++                 "COPILOT_READINESS_REPORT")
+ 
+ 
+ def _environment(live: bool, workdir: str) -> None:
+diff --git a/LOS-agentic-ai/tests/conftest.py b/LOS-agentic-ai/tests/conftest.py
+index c7ce346..7cce132 100644
+--- a/LOS-agentic-ai/tests/conftest.py
++++ b/LOS-agentic-ai/tests/conftest.py
+@@ -199,7 +199,9 @@ _PHASE3_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESP
+                  "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_LOCALIZED_KYC_REASONS",
+                  "COPILOT_SINGLE_CASE_RESOLVE", "COPILOT_EMPHASIS", "COPILOT_STREAMING", "COPILOT_SESSION_MEMORY",
+                  "LOS_COAPP_IDENTITY", "COPILOT_PARTY_RECOGNITION", "COPILOT_GUARDRAIL_HARDENING",
+-                 "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY")
++                 "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY",
++                 "COPILOT_LANGUAGE_LOCK", "COPILOT_PROFESSIONAL_FORMAT", "COPILOT_KYC_TABLE",
++                 "COPILOT_READINESS_REPORT")
+ 
+ 
+ @pytest.fixture(autouse=True)
+diff --git a/LOS-agentic-ai/tests/integration/test_frontend_contract.py b/LOS-agentic-ai/tests/integration/test_frontend_contract.py
+index 3b3630b..bd3516b 100644
+--- a/LOS-agentic-ai/tests/integration/test_frontend_contract.py
++++ b/LOS-agentic-ai/tests/integration/test_frontend_contract.py
+@@ -19,6 +19,9 @@ from tests.integration.test_reupload_supersedes import _store, client  # noqa: F
+ OUT = Path(__file__).resolve().parents[2] / "docs" / "frontend" / "examples"
+ DEMO_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESPONSE_STYLE", "COPILOT_VERIFY_DIAGNOSE",
+               "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_STREAMING", "COPILOT_GUARDRAIL_HARDENING")
++#: the production format (FOS plan 2-3), on for the flows that write docs/frontend/examples -- not part of `demo`,
++#: which the section tests share and which assert the emoji style
++PRODUCTION_FORMAT = ("COPILOT_LANGUAGE_LOCK", "COPILOT_PROFESSIONAL_FORMAT")
+ 
+ 
+ @pytest.fixture
+@@ -61,7 +64,9 @@ def make_case(client, name):
+     return r.json()["applicant_id"], r.json()["case_id"]
+ 
+ 
+-def test_the_frontend_flows(client, demo, _store):
++def test_the_frontend_flows(client, demo, _store, monkeypatch):
++    for flag in PRODUCTION_FORMAT:
++        monkeypatch.setenv(flag, "true")
+     a1, c1 = make_case(client, "Rahul Sharma")
+     make_case(client, "Priya Verma")
+     _store.save_document(Document(document_id=f"{c1}:{a1}:pan1", case_id=c1, applicant_id=a1, document_type="PAN",
+@@ -73,9 +78,9 @@ def test_the_frontend_flows(client, demo, _store):
+     s, listed = call(client, "01_case_list", action="CUSTOM_QUERY", message="mere cases dikhao")
+     assert s == 200 and listed["presentation"]["case_list"][0]["action"]["type"] == "open_case"
+     s, opened = call(client, "02_open_case", action="OPEN_CASE", case_id=c1)
+-    assert opened["presentation"]["workspace"]["header"] == f"📍 {c1}"
++    assert opened["presentation"]["workspace"]["header"] == c1          # "📍" removed by the professional format
+     s, inside = call(client, "03_inside_case_question", action="CUSTOM_QUERY", message="kya baaki hai?")
+-    assert inside["answer"].startswith(f"📍 {c1}")
++    assert inside["answer"].startswith(c1)
+     s, diag = call(client, "04_verify_diagnose", action="CUSTOM_QUERY", message="verify karna hai")
+     assert diag.get("document_actions")
+     s, draft = call(client, "05_raise_query_draft", action="CUSTOM_QUERY", message="query raise karo")
+@@ -88,7 +93,7 @@ def test_the_frontend_flows(client, demo, _store):
+     s, tracked = call(client, "08_list_queries", action="LIST_QUERIES")
+     assert tracked["queries"]
+     s, glossary = call(client, "09_glossary", action="CUSTOM_QUERY", message="KYC kya hai?")
+-    assert glossary["answer"].startswith("ℹ️ **KYC (Know Your Customer)**")
++    assert glossary["answer"].startswith("**KYC (Know Your Customer)**")
+     s, new = call(client, "10_new_case", action="NEW_CASE")
+     assert new["actions"][0]["type"] == "OPEN_UI_NEW_CASE"
+     s, closed = call(client, "11_exit_case", action="EXIT_CASE")
+diff --git a/app/agents/applicant/copilot/answering/kyc_table.py b/app/agents/applicant/copilot/answering/kyc_table.py
+new file mode 100644
+index 0000000..40ee329
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/kyc_table.py
+@@ -0,0 +1,264 @@
++"""
++THE KYC TABLE (FOS plan section 4; flag COPILOT_KYC_TABLE, config chatbot.kyc_table.enabled -- ON in dev).
++
++Per party, one row per (check, document):
++
++    check | document | value on document | value on application | result | reason
++
++FROM RECORDED FINDINGS ONLY. The KYC finding names, per check, the documents compared and -- for a failed check --
++what each said; the document's own value otherwise comes from its EXTRACTION finding (what the verification gate
++released). The application's value is the applicant record (the co-applicant's declared profile for them). The
++result of a row is the EXISTING profile-match comparator for that check (app/agents/los/profile_match.py, which
++delegates to name_match / the date and PAN normalisers / the address comparator) -- no new matcher. Every value is
++masked per the disclosure policy (app/security/sensitivity.py) before it is shown.
++
++THE ODD ONE OUT. When, for one check, every document but one agrees and the one differs, that document is named
++as the likely odd one out with the fix (upload a correct one) -- said as "likely", never as a verdict.
++"""
++
++from __future__ import annotations
++
++import os
++from typing import Any
++
++FLAG = "COPILOT_KYC_TABLE"
++_ON = {"1", "true", "yes", "on"}
++
++#: KYC check -> (applicant-record attribute, co-applicant profile key, extraction keys, sensitivity field name)
++_CHECKS: dict[str, tuple[str | None, str | None, tuple[str, ...], str]] = {
++    "NAME": ("full_name", "name", ("name", "employee_name", "account_holder", "holder_name"), "full_name"),
++    "DATE_OF_BIRTH": ("date_of_birth", "dob", ("date_of_birth",), "date_of_birth"),
++    "PAN_NUMBER": (None, "pan", ("pan_number", "pan"), "pan_number"),
++    "FATHER_NAME": (None, "father_name", ("father_name", "guardian_name", "relation_name"), "father_name"),
++    "ADDRESS": ("address", "address", ("address",), "address"),
++}
++_ALIAS = {"DOB": "DATE_OF_BIRTH", "PAN": "PAN_NUMBER"}
++
++
++def _cfg() -> dict[str, Any]:
++    from app.agents.applicant import config
++
++    return config.chatbot("kyc_table")
++
++
++def enabled() -> bool:
++    value = os.getenv(FLAG)
++    if value is not None and value.strip():
++        return value.strip().lower() in _ON
++    return bool(_cfg().get("enabled", False))
++
++
++def _label(key: str, **values: Any) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    defaults = {"heading": "KYC check -- {party}", "check": "Check", "document": "Document",
++                "on_document": "On document", "on_application": "On application", "result": "Result",
++                "reason": "Reason", "matches": "Matches the application", "partial": "Close to the application",
++                "differs": "Differs from the application", "not_on_application": "Not on the application",
++                "not_read": "Not read from this document", "odd_one_out": "Likely odd one out: the {document} "
++                "({check}) -- the other documents agree. Fix: upload a correct {document}.",
++                "none": "No KYC check has been recorded for this case yet."}
++    value = (_cfg().get("labels") or {}).get(key, defaults.get(key, key))
++    return language_lock.pick(value).format(**values)
++
++
++def _readable(value: Any) -> str:
++    from app.agents.applicant.copilot.answering.answer import _readable as readable
++
++    return readable(value)
++
++
++def _shown(sensitivity_field: str, value: Any) -> str | None:
++    """The value as it may be shown (masked per policy), or None when withheld / absent."""
++    from app.security import sensitivity
++
++    if value in (None, ""):
++        return None
++    if isinstance(value, dict):
++        value = value.get("full") or value.get("raw") or ", ".join(str(v) for v in value.values() if v)
++    disclosure = sensitivity.disclosure(sensitivity_field)
++    if disclosure == "withhold":
++        return None
++    text = sensitivity.mask(str(value)) if disclosure == "masked" else str(value)
++    return sensitivity.mask_identifiers(text) if sensitivity_field in ("address", "full_name") else text
++
++
++def _compare(check: str, declared: Any, document_value: Any, document_type: str = "") -> str | None:
++    """PASS / PARTIAL / FAIL by the existing profile-match comparator for this check, or None."""
++    if declared in (None, "") or document_value in (None, ""):
++        return None
++    from app.agents.kyc.schemas import KycField
++    from app.agents.los import profile_match
++
++    try:
++        field = KycField(check)
++        compare = profile_match._COMPARATORS.get(field)
++        if compare is None:
++            return None
++        evidence = profile_match.Evidence(value=document_value, source_id="kyc-table",
++                                          document_type=document_type or "UNKNOWN",
++                                          fields={"address": document_value} if check == "ADDRESS" else {})
++        status, _score, _method = compare(str(declared), evidence)
++        return str(getattr(status, "value", status)).upper()
++    except Exception:  # noqa: BLE001 - a value the comparator cannot read is reported as not compared
++        return None
++
++
++def _extracted(repository: Any, case_id: str) -> dict[tuple[str | None, str], dict[str, Any]]:
++    """(party_id, DOCUMENT_TYPE) -> the fields the verification gate released for that document."""
++    types = {d.document_id: str(d.document_type).upper() for d in repository.list_documents(case_id) or []}
++    out: dict[tuple[str | None, str], dict[str, Any]] = {}
++    try:
++        findings = repository.get_current_findings(case_id, kind="EXTRACTION") or []
++    except Exception:  # noqa: BLE001
++        findings = []
++    for f in findings:
++        payload = getattr(f, "payload", None) or {}
++        fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else payload
++        kind = types.get(getattr(f, "document_id", None))
++        if kind and isinstance(fields, dict):
++            out[(getattr(f, "party_id", None), kind)] = fields
++    return out
++
++
++def _declared(repository: Any, case_id: str, party_id: str | None, role: str) -> dict[str, Any]:
++    """The application's values for this party: the applicant record, or the co-applicant's declared profile."""
++    application = repository.get_application(case_id)
++    if role == "CO_APPLICANT":
++        try:
++            from app.agents.los import co_applicants
++
++            for row in co_applicants.list_for_case(case_id, repository):
++                if party_id in (row.get("co_applicant_id"), row.get("applicant_id"), None):
++                    return {spec[1]: row.get(spec[1]) for spec in _CHECKS.values() if spec[1]}
++        except Exception:  # noqa: BLE001 - no co-applicant table: nothing declared to compare
++            return {}
++        return {}
++    applicant = repository.get_applicant(getattr(application, "applicant_id", None)) if application else None
++    return {spec[0]: getattr(applicant, spec[0], None) for spec in _CHECKS.values() if spec[0] and applicant}
++
++
++def build(case_id: str, repository: Any = None, *, party: str | None = None) -> dict[str, Any]:
++    """{"parties": [{party_role, rows, odd_one_out, status}]} for one case, from its recorded findings."""
++    from app.store import get_repository
++
++    repository = repository or get_repository()
++    documents = repository.list_documents(case_id) or []
++    role_of = {getattr(d, "party_id", None): str(getattr(getattr(d, "party_role", None), "value",
++                                                         getattr(d, "party_role", None)) or "PRIMARY_APPLICANT")
++               for d in documents}
++    extracted = _extracted(repository, case_id)
++    try:
++        findings = repository.get_current_findings(case_id, kind="KYC") or []
++    except Exception:  # noqa: BLE001
++        findings = []
++    parties = []
++    for finding in findings:
++        party_id = getattr(finding, "party_id", None)
++        role = role_of.get(party_id) or "PRIMARY_APPLICANT"
++        if role not in ("PRIMARY_APPLICANT", "CO_APPLICANT"):
++            role = "PRIMARY_APPLICANT"
++        if party and role != party:
++            continue
++        declared = _declared(repository, case_id, party_id, role)
++        rows: list[dict[str, Any]] = []
++        for field in (getattr(finding, "payload", None) or {}).get("fields") or []:
++            check = _ALIAS.get(str(field.get("field") or "").upper(), str(field.get("field") or "").upper())
++            if check not in _CHECKS:
++                continue
++            app_key, co_key, keys, sens = _CHECKS[check]
++            if check == "NAME":
++                from app.agents.kyc import config as _kyc_config
++
++                keys = _kyc_config.source_keys("name_fields", keys)      # the keys KYC itself reads
++            declared_value = declared.get(co_key if role == "CO_APPLICANT" else app_key) if (app_key or co_key) else None
++            for source in field.get("sources") or []:
++                kind = str(source.get("document_type") or "").upper()
++                value = source.get("value")
++                if value in (None, ""):
++                    found = extracted.get((party_id, kind)) or extracted.get((None, kind)) or {}
++                    value = next((found.get(k) for k in keys if found.get(k) not in (None, "")), None)
++                result = _compare(check, declared_value, value, kind)
++                reason = (_label("not_read") if value in (None, "")
++                          else _label("not_on_application") if declared_value in (None, "")
++                          else {"PASS": _label("matches"), "PARTIAL": _label("partial")}.get(result or "",
++                                                                                           _label("differs")))
++                rows.append({"check": check, "check_label": _readable(check), "document_type": kind,
++                             "document_label": _readable(kind),
++                             "value_on_document": _shown(sens, value), "value_on_application": _shown(sens, declared_value),
++                             "result": result or str(field.get("status") or "NOT_COMPARED").upper(),
++                             "reason": reason, "_raw": value})
++        parties.append({"party_role": role, "party_label": "Co-applicant" if role == "CO_APPLICANT" else "Applicant",
++                        "status": str(getattr(finding, "status", "") or "").upper(),
++                        "rows": rows, "odd_one_out": _odd_one_out(rows)})
++    for p in parties:
++        for r in p["rows"]:
++            r.pop("_raw", None)
++    return {"parties": parties}
++
++
++def _same(check: str, a: Any, b: Any) -> bool:
++    if check in ("NAME", "FATHER_NAME"):
++        return _compare("NAME", a, b) == "PASS"
++    norm = lambda v: " ".join(str(v).upper().split())  # noqa: E731
++    return norm(a) == norm(b)
++
++
++def _odd_one_out(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
++    """Per check: the one document that differs while all the others (at least two) agree."""
++    out = []
++    for check in {r["check"] for r in rows}:
++        values = [r for r in rows if r["check"] == check and r.get("_raw") not in (None, "")]
++        if len(values) < 3:
++            continue
++        for candidate in values:
++            others = [r for r in values if r is not candidate]
++            if all(_same(check, others[0]["_raw"], o["_raw"]) for o in others[1:]) \
++                    and not _same(check, candidate["_raw"], others[0]["_raw"]):
++                out.append({"check": check, "check_label": candidate["check_label"],
++                            "document_type": candidate["document_type"], "document_label": candidate["document_label"],
++                            "fix": {"action": "UPLOAD_DOCUMENT", "document_type": candidate["document_type"]}})
++                break
++    return out
++
++
++def render(table: dict[str, Any]) -> str:
++    """The table as text: a heading per party, one markdown table, the odd one out under it."""
++    lines: list[str] = []
++    for party in table.get("parties") or []:
++        if not party["rows"]:
++            continue
++        lines += ["", f"**{_label('heading', party=party['party_label'])}**",
++                  f"| {_label('check')} | {_label('document')} | {_label('on_document')} | "
++                  f"{_label('on_application')} | {_label('result')} | {_label('reason')} |",
++                  "|---|---|---|---|---|---|"]
++        for r in party["rows"]:
++            lines.append(f"| {r['check_label']} | {r['document_label']} | {r['value_on_document'] or '--'} | "
++                         f"{r['value_on_application'] or '--'} | {r['result']} | {r['reason']} |")
++        for odd in party.get("odd_one_out") or []:
++            lines.append(_label("odd_one_out", document=odd["document_label"], check=odd["check_label"].lower()))
++    return "\n".join(lines).strip() or _label("none")
++
++
++def attach(published: dict[str, Any]) -> dict[str, Any]:
++    """A KYC answer gets the table: in `kyc_table` (+ presentation) and under the answer text. Shared by both routes."""
++    if not isinstance(published, dict) or not enabled() or str(published.get("intent") or "") != "KYC_RESULT":
++        return published
++    case_id = published.get("case_id")
++    if not case_id:
++        return published
++    party = str(published.get("subject_party") or "").upper() or None
++    table = build(case_id, party=party if party in ("PRIMARY_APPLICANT", "CO_APPLICANT") else None)
++    if not any(p["rows"] for p in table["parties"]):
++        return published
++    published["kyc_table"] = table
++    if isinstance(published.get("presentation"), dict):
++        published["presentation"]["kyc_table"] = table
++    text = render(table)
++    for key in ("answer", "answer_markdown"):
++        if isinstance(published.get(key), str) and text not in published[key]:
++            published[key] = published[key].rstrip() + "\n\n" + text
++    return published
++
++
++__all__ = ["FLAG", "attach", "build", "enabled", "render"]
+diff --git a/app/agents/applicant/copilot/answering/readiness_report.py b/app/agents/applicant/copilot/answering/readiness_report.py
+new file mode 100644
+index 0000000..27c7367
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/readiness_report.py
+@@ -0,0 +1,222 @@
++"""
++FOS -> CPA READINESS, ASK ANYTHING (FOS plan sections 5 and 7.1; flag COPILOT_READINESS_REPORT, config
++chatbot.readiness_report.enabled -- ON in dev).
++
++Every requirement and its state, grouped, from the SAME sources the gate reads -- never a fixed list:
++
++    Application details      workflow.readiness blocking items (applicant / application information)
++    Applicant documents      the product checklist (workflow.build_checklist), mandatory slots
++    Co-applicant documents   workflow.party_checklists -- only while LOS_COAPP_MANDATORY_DOCS makes them required
++    Signature                workflow.signature_items -- only where the signature rule applies
++    KYC                      kyc_gate.evaluate: every party, every `cpa_gate` check of kyc_policies.yaml; counted
++                             only while LOS_FOS_CPA_KYC_RULE is on (the gate's own `when_flag`), else advisory
++
++Each item: PASS / PENDING / FAILED / REVIEW, with the reason and the fix. READY is the live gate's verdict
++(stage_gate.evaluate_live) and nothing else: the report can never say ready while the gate would block. A gate
++blocker the groups did not name is listed under "Other". Failing items are ordered by what unblocks the case
++fastest (config `unblock_order`). The chatbot never moves a stage: a ready case says a person must confirm it.
++"""
++
++from __future__ import annotations
++
++import os
++from typing import Any
++
++FLAG = "COPILOT_READINESS_REPORT"
++_ON = {"1", "true", "yes", "on"}
++PASS, PENDING, FAILED, REVIEW = "PASS", "PENDING", "FAILED", "REVIEW"
++
++
++def _cfg() -> dict[str, Any]:
++    from app.agents.applicant import config
++
++    return config.chatbot("readiness_report")
++
++
++def enabled() -> bool:
++    value = os.getenv(FLAG)
++    if value is not None and value.strip():
++        return value.strip().lower() in _ON
++    return bool(_cfg().get("enabled", False))
++
++
++def _label(key: str, **values: Any) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    defaults = {
++        "heading_ready": "Case is ready for CPA. A person must confirm the move.",
++        "heading_not_ready": "CPA readiness: {passed} of {total} checks passed.",
++        "group_application": "Application details", "group_applicant_documents": "Applicant documents",
++        "group_co_applicant_documents": "Co-applicant documents", "group_signature": "Signature",
++        "group_kyc": "KYC", "group_other": "Other gate conditions",
++        "kyc_advisory": "(advisory -- not required for CPA while the KYC rule is off)",
++        "fields_ok": "All required details recorded", "passed_line": "Passed: {items}.",
++        "fix_upload": "Upload the {label}", "fix_reupload": "Upload a correct {label}",
++        "fix_wait": "Wait for the reviewer's decision on the {label}", "fix_field": "Record the {label}",
++        "fix_kyc": "Upload a correct document so the {label} matches", "fix_kyc_run": "Upload the identity documents so KYC can run",
++        "next_step": "{fix}.",
++    }
++    value = (_cfg().get("labels") or {}).get(key, defaults.get(key, key))
++    return language_lock.pick(value).format(**values)
++
++
++def _readable(value: Any) -> str:
++    from app.agents.applicant.copilot.answering.answer import _readable as readable
++
++    return readable(value)
++
++
++def _doc_item(row: dict[str, Any], party: str) -> dict[str, Any]:
++    label = _readable(row.get("slot"))
++    state = str(row.get("status") or "MISSING").upper()
++    status = {"VERIFIED": PASS, "REJECTED": FAILED, "REVIEW": REVIEW}.get(state, PENDING)
++    reason = {"MISSING": "not uploaded yet", "UPLOADED": "uploaded, being verified",
++              "PROCESSING": "being verified", "REJECTED": "rejected at verification",
++              "REVIEW": "under review", "VERIFIED": "verified"}.get(state, state.lower())
++    fix = {PENDING: _label("fix_upload", label=label) if state == "MISSING" else None,
++           FAILED: _label("fix_reupload", label=label), REVIEW: _label("fix_wait", label=label)}.get(status)
++    return {"id": f"DOC:{party}:{row.get('slot')}", "label": label, "status": status, "reason": reason, "fix": fix,
++            "kind": "DOCUMENT_" + status}
++
++
++def build(case_id: str, repository: Any = None) -> dict[str, Any]:
++    """The grouped readiness report for one case, agreeing with the live FOS gate."""
++    from app.agents.applicant import workflow
++    from app.agents.los import kyc_gate, stage_gate
++    from app.store import get_repository
++
++    repository = repository or get_repository()
++    application = repository.get_application(case_id)
++    if application is None:
++        return {"case_id": case_id, "groups": [], "ready": False, "passed": 0, "total": 0}
++    applicant = repository.get_applicant(application.applicant_id)
++    documents = repository.list_documents(case_id) or []
++    readiness = workflow.readiness(applicant, application, documents)
++    blocking = readiness.get("blocking_items") or []
++    groups: list[dict[str, Any]] = []
++
++    # application details
++    info = [b for b in blocking if str(b.get("type")) in ("APPLICANT_INFORMATION", "APPLICATION_INFORMATION",
++                                                           "APPLICANT", "APPLICATION")]
++    items = [{"id": f"FIELD:{b.get('code')}:{b.get('field') or b.get('detail')}",
++              "label": _readable(b.get("field") or b.get("code")), "status": PENDING,
++              "reason": str(b.get("detail") or ""), "fix": _label("fix_field", label=_readable(b.get("field") or "detail")),
++              "kind": "FIELD_PENDING"} for b in info] or [
++        {"id": "FIELD:ALL", "label": _label("fields_ok"), "status": PASS, "reason": "", "fix": None, "kind": "PASS"}]
++    groups.append({"group": "APPLICATION", "label": _label("group_application"), "items": items, "counted": True})
++
++    # applicant documents (the product checklist, mandatory slots)
++    primary = [d for d in documents if str(getattr(getattr(d, "party_role", None), "value",
++                                                   getattr(d, "party_role", None)) or "PRIMARY_APPLICANT")
++               in ("PRIMARY_APPLICANT", "None")]
++    try:
++        checklist = workflow.build_checklist(application, primary)
++    except Exception:  # noqa: BLE001 - no policy for the product: the gate reports it, nothing is invented
++        checklist = []
++    groups.append({"group": "APPLICANT_DOCUMENTS", "label": _label("group_applicant_documents"), "counted": True,
++                   "items": [_doc_item(r, "PRIMARY") for r in checklist if r.get("mandatory", True)]})
++
++    # co-applicant documents, only while the policy makes them required
++    if workflow.coapp_mandatory_enabled():
++        for party in workflow.party_checklists(application, documents):
++            if party.get("party_role") == "CO_APPLICANT":
++                groups.append({"group": "CO_APPLICANT_DOCUMENTS", "label": _label("group_co_applicant_documents"),
++                               "counted": True,
++                               "items": [_doc_item(r, "CO") for r in party.get("checklist") or []
++                                         if r.get("mandatory", True)]})
++
++    # signature, where the rule applies
++    if workflow.signature_rule_applies(application)[0]:
++        sig = []
++        for s in workflow.signature_items(application, documents):
++            code = str(s.get("code") or "")
++            status = {"DOCUMENT_MISSING": PENDING, "SIGNATURE_REJECTED": FAILED, "SIGNATURE_NOT_CHECKED": FAILED,
++                      "SIGNATURE_UNDER_REVIEW": REVIEW}.get(code, PENDING)
++            sig.append({"id": f"SIG:{s.get('party_role')}:{code}", "label": _readable("SIGNATURE"), "status": status,
++                        "reason": str(s.get("detail") or ""), "kind": "DOCUMENT_" + status,
++                        "fix": _label("fix_upload" if status == PENDING else "fix_reupload", label="signature")})
++        groups.append({"group": "SIGNATURE", "label": _label("group_signature"), "items": sig or [
++            {"id": "SIG:OK", "label": _readable("SIGNATURE"), "status": PASS, "reason": "", "fix": None,
++             "kind": "PASS"}], "counted": True})
++
++    # KYC, every party, every cpa_gate check -- counted only while the gate counts it
++    try:
++        kyc = kyc_gate.evaluate(case_id, repository)
++    except Exception:  # noqa: BLE001 - unreadable KYC: the gate fails closed on its own
++        kyc = {"parties": []}
++    kyc_items = []
++    for party in kyc.get("parties") or []:
++        whose = "Co-applicant" if party.get("party_role") == "CO_APPLICANT" else "Applicant"
++        for c in party.get("checks") or []:
++            state = str(c.get("status") or "").upper()
++            status = {"PASS": PASS, "REVIEW": REVIEW, "BLOCKED": FAILED, "FAIL": FAILED}.get(state, PENDING)
++            label = f"{whose}: {c.get('label') or c.get('check')}"
++            kyc_items.append({"id": f"KYC:{party.get('party_role')}:{c.get('check')}", "label": label,
++                              "status": status, "reason": str(c.get("reason") or ""), "kind": "KYC_" + status,
++                              "fix": None if status == PASS else (_label("fix_kyc_run") if status == PENDING
++                                                                  else _label("fix_kyc", label=str(c.get("label") or "")))})
++    if kyc_items:
++        groups.append({"group": "KYC", "label": _label("group_kyc"), "items": kyc_items, "counted": kyc_gate.enabled(),
++                       "note": None if kyc_gate.enabled() else _label("kyc_advisory")})
++
++    # THE VERDICT IS THE GATE'S
++    gate = stage_gate.public(stage_gate.evaluate_live(case_id, "FOS"))
++    ready = str(gate.get("status") or "").upper() == "PASS"
++    counted = [i for g in groups if g["counted"] for i in g["items"]]
++    if not ready and all(i["status"] == PASS for i in counted):
++        groups.append({"group": "OTHER", "label": _label("group_other"), "counted": True, "items": [
++            {"id": f"GATE:{b.get('id')}", "label": str(b.get("label") or b.get("id")), "status": FAILED,
++             "reason": str(b.get("reason_code") or b.get("status") or ""), "fix": None, "kind": "GATE"}
++            for b in gate.get("blockers") or []]})
++        counted = [i for g in groups if g["counted"] for i in g["items"]]
++    order = [str(k) for k in _cfg().get("unblock_order") or []]
++    rank = {k: n for n, k in enumerate(order)}
++    todo = sorted([i for i in counted if i["status"] != PASS], key=lambda i: rank.get(i["kind"], len(order)))
++    return {"case_id": case_id, "ready": ready, "gate": gate, "groups": groups,
++            "passed": sum(1 for i in counted if i["status"] == PASS), "total": len(counted),
++            "unblock_order": [i["id"] for i in todo], "next_fix": next((i["fix"] for i in todo if i.get("fix")), None)}
++
++
++def render(report: dict[str, Any]) -> str:
++    """Answer first, then the failing items per group (fastest unblock first), passed items in one line."""
++    if report.get("ready"):
++        return _label("heading_ready")
++    lines = [_label("heading_not_ready", passed=report.get("passed", 0), total=report.get("total", 0))]
++    order = {i: n for n, i in enumerate(report.get("unblock_order") or [])}
++    for g in report.get("groups") or []:
++        failing = sorted([i for i in g["items"] if i["status"] != PASS], key=lambda i: order.get(i["id"], 999))
++        passed = [i["label"] for i in g["items"] if i["status"] == PASS]
++        if not failing and not g.get("note"):
++            continue
++        lines += ["", f"**{g['label']}**" + (f" {g['note']}" if g.get("note") else "")]
++        for i in failing:
++            fix = f" Fix: {i['fix']}." if i.get("fix") else ""
++            lines.append(f"- {i['label']}: **{i['status']}** -- {i['reason']}.{fix}".replace(" -- .", "."))
++        if passed:
++            lines.append(_label("passed_line", items=", ".join(passed)))
++    if report.get("next_fix"):
++        lines += ["", "👉 " + _label("next_step", fix=report["next_fix"])]
++    return "\n".join(lines)
++
++
++def attach(published: dict[str, Any]) -> dict[str, Any]:
++    """A readiness answer becomes the grouped report (answer + `readiness_report`). Shared by both routes."""
++    if not isinstance(published, dict) or not enabled() or str(published.get("intent") or "") != "READINESS":
++        return published
++    case_id = published.get("case_id")
++    if not case_id:
++        return published
++    report = build(case_id)
++    if not report.get("groups"):
++        return published
++    published["readiness_report"] = report
++    if isinstance(published.get("presentation"), dict):
++        published["presentation"]["readiness_report"] = report
++        published["presentation"]["progress"] = {"passed": report["passed"], "total": report["total"],
++                                                 "ready": report["ready"]}
++    published["answer"] = render(report)
++    published.pop("answer_markdown", None)
++    return published
++
++
++__all__ = ["FLAG", "attach", "build", "enabled", "render"]

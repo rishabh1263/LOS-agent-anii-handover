@@ -228,13 +228,22 @@ class Repository(ABC):
     def delete_chat_turns(self, *, subject_hash: str | None = None, expired_before: str | None = None) -> int:
         return 0
 
-    def list_granted_cases(self, subject: str, *, limit: int = 500) -> list[Application]:
+    def list_granted_cases(self, subject: str, *, limit: int = 500, offset: int = 0, order: str = "updated_at",
+                           descending: bool = True, product: str | None = None, created_from: str | None = None,
+                           created_to: str | None = None) -> list[Application]:
         """
         Every application `subject` may open through a live (non-revoked) grant:
         a CASE grant, or an APPLICANT grant (that applicant's cases). Newest first.
         6-MVP "my cases"; a READ, no schema change. Default: none.
+        MASTER SPEC section 3: one page (limit / offset), ordered and filtered in the query.
         """
         return []
+
+    def count_granted_cases(self, subject: str, *, product: str | None = None, created_from: str | None = None,
+                            created_to: str | None = None) -> int:
+        """MASTER SPEC section 3: the separate cheap count beside a page. Default: none."""
+        return len(self.list_granted_cases(subject, limit=100000, product=product, created_from=created_from,
+                                           created_to=created_to))
 
 
     # -- case memory -------------------------------------------------------

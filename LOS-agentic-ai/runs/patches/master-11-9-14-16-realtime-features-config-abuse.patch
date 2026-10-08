@@ -1,0 +1,2909 @@
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+index 6575e10..04618fb 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+@@ -38,8 +38,24 @@ def _cfg() -> dict[str, Any]:
+     return config.chatbot("case_workspace") or {}
+ 
+ 
++def _pick(value: Any) -> Any:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    return language_lock.pick(value)
++
++
++def quick_questions() -> list[str]:
++    """The quick-question buttons, in the locked reply language (a plain list is used as is)."""
++    value = _cfg().get("quick_questions") or []
++    picked = _pick(value) if isinstance(value, dict) else value
++    return [str(q) for q in (picked if isinstance(picked, list) else [picked])]
++
++
+ def _label(key: str, **values: Any) -> str:
+-    return str((_cfg().get("labels") or {}).get(key, key)).format(**values)
++    # a label may be one string or a {language: text} map -- the locked reply language picks (FOS plan section 2)
++    from app.agents.applicant.copilot.answering import language_lock
++
++    return language_lock.pick((_cfg().get("labels") or {}).get(key, key)).format(**values)
+ 
+ 
+ def _norm(text: str) -> str:
+@@ -49,7 +65,58 @@ def _norm(text: str) -> str:
+ def _says(kind: str, text: str) -> bool:
+     """Whether the text contains one of the configured phrases of this kind (whole words)."""
+     said = f" {_norm(text)} "
+-    return any(f" {_norm(p)} " in said for p in (_cfg().get("phrases") or {}).get(kind, []))
++    matched = [p for p in (_cfg().get("phrases") or {}).get(kind, []) if f" {_norm(p)} " in said]
++    if kind != "list":
++        return bool(matched)
++    if matched:
++        # "mere case ka details" names a TOPIC beyond the list (FOS plan 1.4): it is a question about the case,
++        # never the list -- a list phrase counts only when every other word is a list word
++        rest = said
++        for phrase in sorted(matched, key=len, reverse=True):
++            rest = rest.replace(f" {_norm(phrase)} ", " ")
++        return set(rest.split()) <= _list_words()
++    return _only_asks_for_the_list(text)
++
++
++def _list_words() -> set[str]:
++    rule = _cfg().get("list_rule") or {}
++    return {_norm(w) for key in ("case_nouns", "cues", "allowed") for w in rule.get(key) or []} \
++        | {w for p in (_cfg().get("phrases") or {}).get("list", []) for w in _norm(p).split()}
++
++
++def _asks_more_than_the_switch(text: str) -> bool:
++    """Whether a message naming "the other case" also asks something (any word beyond those phrases / fillers)."""
++    phrases = _cfg().get("phrases") or {}
++    plain = f" {_norm(text)} "
++    for phrase in sorted(phrases.get("other_case") or [], key=len, reverse=True):
++        plain = plain.replace(f" {_norm(phrase)} ", " ")
++    rest = [w for w in plain.split() if w not in _noise() and w not in {"mere", "mera", "my", "the", "of"}]
++    return bool(rest)
++
++
++def _asks_beyond_the_id(text: str) -> bool:
++    """
++    "CASE-852C ka PAN status" asks something; "APP-B597 ke cases" / "CASE-852C kholo" only name it. The ids,
++    the open / case / list / filler words (config phrases) and the list words are taken out; anything left is
++    a question about that case.
++    """
++    plain = _norm(text)
++    for pattern in _ID.values():
++        plain = pattern.sub(" ", plain)
++    return bool([w for w in plain.split() if w not in _noise() and w not in _list_words()])
++
++
++def _only_asks_for_the_list(text: str) -> bool:
++    """
++    FOS plan 1.2: "all case ka list", "sab case dikhao", "mere kitne case hai", "give a list of case" -- a case
++    noun, a list cue, and NOTHING ELSE but list words (applicant_agent.yaml case_workspace.list_rule). "case ka
++    status dikhao" is not a list: "status" is not a list word.
++    """
++    rule = _cfg().get("list_rule") or {}
++    words = _norm(text).split()
++    nouns = {_norm(w) for w in rule.get("case_nouns") or []}
++    cues = {_norm(w) for w in rule.get("cues") or []}
++    return bool(words) and bool(nouns & set(words)) and bool(cues & set(words)) and set(words) <= _list_words()
+ 
+ 
+ # --------------------------------------------------------------------------
+@@ -107,6 +174,21 @@ def authorize(claims: dict[str, Any], case_id: str) -> None:
+     access.authorize_conversation(_subject(claims), access.get_scopes(claims), case_id=case_id)
+ 
+ 
++def active_case(claims: dict[str, Any], workspace_id: str | None = None) -> Any:
++    """The application the caller has open in this workspace (re-authorized now), else None."""
++    from app.security import access
++    from app.store import get_repository
++
++    case_id = _state(_subject(claims), workspace_id).active_case_id
++    if not case_id:
++        return None
++    try:
++        authorize(claims, case_id)
++    except access.AccessDenied:
++        return None
++    return get_repository().get_application(case_id)
++
++
+ def _stage(case_id: str) -> str | None:
+     from app.agents.los import stages
+ 
+@@ -140,6 +222,21 @@ def _name(applicant_id: str, *, short: bool) -> str:
+     return full
+ 
+ 
++def _over_target(case_id: str) -> str | None:
++    """'⏰ 5d in FOS (target 3)' when the case is past its stage's turnaround target (timeline.py), else None."""
++    try:
++        from app.agents.applicant.copilot.capabilities import timeline
++
++        if not timeline.enabled():
++            return None
++        t = timeline.build(case_id)
++        if not t.get("over_target"):
++            return None
++        return _label("row_over_target", days=t["days_in_stage"], stage=t["stage"], target=t["target_days"])
++    except Exception:  # noqa: BLE001 - a row is a summary; the case itself has the detail
++        return None
++
++
+ def _row_status(application: Any) -> tuple[str, str]:
+     """(label, kind) -- a KYC issue first, then documents pending, else ready."""
+     from app.agents.applicant import workflow
+@@ -221,6 +318,9 @@ def list_view(claims: dict[str, Any], request_id: str, state, *, page: int = 0)
+         status, kind = _row_status(application)
+         stage = _stage(application.case_id) or "--"
+         name = _name(application.applicant_id, short=True)
++        over = _over_target(application.case_id)
++        if over:
++            status = f"{status} · {over}"                  # FOS plan 7.3: past the stage's turnaround target
+         if not groups or groups[-1]["applicant_id"] != application.applicant_id:
+             n = per_applicant[str(application.applicant_id)]
+             count = _label("group_one") if n == 1 else _label("group_many", n=n)
+@@ -245,6 +345,42 @@ def list_view(claims: dict[str, Any], request_id: str, state, *, page: int = 0)
+         suggested_questions=[f"{r['number']}" for r in rows][:3])
+ 
+ 
++def paged_view(claims: dict[str, Any], request_id: str, state, query=None) -> dict[str, Any]:
++    """
++    MASTER SPEC section 3 (COPILOT_CASE_LIST_PAGING): ONE page of the caller's own cases -- filtered, sorted,
++    "Showing x-y of N", the options as links. The query is remembered for "aur dikhao".
++    """
++    from app.agents.applicant.copilot.answering import contract, language_lock
++    from app.agents.applicant.copilot.capabilities import case_list
++
++    query = query or case_list.ListQuery()
++    page = case_list.run(claims, query)
++    lang = language_lock.current() or "en"
++    state.list_query = page.query.as_dict()
++    state.list_offset = page.page * page.size
++    state.listed_case_ids = [r["case_id"] for r in page.rows]
++    answer = case_list.render(page, lang, seed=state.turn_id or 0)
++    rows = [{**r, "action": {"type": "open_case", "case_id": r["case_id"]},
++             "link": contract.link("open_case", lang, id=r["case_id"])} for r in page.rows]
++    return _base(request_id, "CASE_LIST", answer, workspace_view={
++        "case_list": rows, "counts": {"total": page.all_total, **page.counts}, "matching": page.total,
++        "page": page.page, "page_size": page.size, "has_more": page.has_more, "query": page.query.as_dict()})
++
++
++def _list(claims: dict[str, Any], request_id: str, state, text: str = "", *, more: bool = False) -> dict[str, Any]:
++    """The list: paged (section 3) when on, else the earlier grouped list."""
++    from app.agents.applicant.copilot.capabilities import case_list
++
++    if not case_list.enabled():
++        return list_view(claims, request_id, state)
++    if more:
++        query = case_list.understand(text, state.list_query or {}) or case_list.ListQuery.from_dict(state.list_query)
++        if query.page == case_list.ListQuery.from_dict(state.list_query).page and state.list_query:
++            query.page += 1
++        return paged_view(claims, request_id, state, query)
++    return paged_view(claims, request_id, state, case_list.understand(text) if text else None)
++
++
+ def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
+     state.active_case_id = application.case_id
+     # 6c: the cases opened this session, oldest first ("pehle wala case" goes back one)
+@@ -255,13 +391,49 @@ def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
+     lines = [_label("opened", case_id=application.case_id, name=name),
+              _label("snapshot_stage", stage=_stage(application.case_id) or "--"),
+              _label("snapshot_blocker", blocker=blocker) if blocker else _label("snapshot_clear"),
+-             "", _label("suggest", question=_cfg().get("suggested_question", "Kya baaki hai?"))]
+-    return _base(request_id, "CASE_OPENED", "\n".join(lines), case_id=application.case_id,
+-                 applicant_id=application.applicant_id, workspace_view={"workspace": workspace_block(application.case_id)})
++             "", _label("suggest", question=_pick(_cfg().get("suggested_question", "Kya baaki hai?")))]
++    from app.agents.applicant.copilot.capabilities import timeline as _timeline
++
++    late = _timeline.turnaround_line(application.case_id)
++    if late:
++        lines.insert(3, f"⏰ {late}")                       # FOS plan 7.3: past target, with the main blocker
++    from app.agents.applicant.copilot.answering import contract as _contract
++
++    if _contract.enabled():
++        # MASTER SPEC section 11: what changed since this chat last looked at the case
++        from app.agents.applicant.copilot.answering import language_lock, realtime
++
++        try:
++            since = realtime.since_last(state.subject_key, state.conversation_id, application.case_id,
++                                        language_lock.current() or "en")
++        except Exception:  # noqa: BLE001 - a convenience line never fails the open
++            since = None
++        if since:
++            lines.insert(1, since)
++    from app.agents.applicant.copilot.capabilities import faq as _faq
++
++    if _faq.enabled():
++        # MASTER SPEC section 7: the FAQ for this case's state, under the review (officer_tools) -- it replaces
++        # the single "Try:" hint, which it covers
++        from app.agents.applicant.copilot.answering import language_lock
++
++        lang = language_lock.current() or "en"
++        shown = _faq.render(_faq.items(application.case_id, lang, int(_faq.cfg().get("max_items_on_open", 4))),
++                            lang, "on_open")
++        if shown:
++            hint = _label("suggest", question="").split('"')[0]
++            lines = [ln for ln in lines if not (hint and ln.startswith(hint))]
++    else:
++        shown = ""
++    reply = _base(request_id, "CASE_OPENED", "\n".join(lines), case_id=application.case_id,
++                  applicant_id=application.applicant_id, workspace_view={"workspace": workspace_block(application.case_id)})
++    if shown:
++        reply["faq_block"] = shown              # placed after the answer (and the review) by the reply contract
++    return reply
+ 
+ 
+ def workspace_block(case_id: str) -> dict[str, Any]:
+-    quick = list(_cfg().get("quick_questions") or [])
++    quick = quick_questions()
+     return {"case_id": case_id, "header": _label("in_case", case_id=case_id),
+             "buttons": [{"type": "exit_case", "label": "🔒 Exit"}, {"type": "switch_case", "label": "🔁 Switch case"}]
+             + [{"type": "ask", "label": q, "message": q} for q in quick]}
+@@ -275,6 +447,21 @@ def workspace_block(case_id: str) -> dict[str, Any]:
+ class Selection:
+     application: Any = None
+     candidates: list[Any] = field(default_factory=list)
++    #: which kind of id / name the text named ("case", "applicant", "co_applicant", "name"): picks the neutral
++    #: not-found line (MASTER SPEC section 2 -- never confirming that it exists outside the caller's scope)
++    named: str | None = None
++
++
++def _co_applicant_cases(token: str, cases: list[Any]) -> list[Any]:
++    """The caller's cases this co-applicant id is on (the co_applicants record, then the legacy column)."""
++    try:
++        from app.agents.los import co_applicants
++
++        on = {c.upper() for c in co_applicants.cases_for(token)}
++    except Exception:  # noqa: BLE001 - no record: only the legacy column below
++        on = set()
++    return [a for a in cases if a.case_id.upper() in on
++            or str(getattr(a, "co_applicant_id", "") or "").upper().startswith(token)]
+ 
+ 
+ def select(text: str, claims: dict[str, Any], state) -> Selection:
+@@ -288,6 +475,10 @@ def select(text: str, claims: dict[str, Any], state) -> Selection:
+         # the ordinal reader sees only "2" / "doosra"
+         # (not the switch words: "doosra" in "doosra case" IS the ordinal)
+         bare = " ".join(w for w in _norm(text).split() if w not in _noise(("open", "case_word", "filler"))) or text
++        offset = int(getattr(state, "list_offset", 0) or 0)
++        number = re.fullmatch(r"\s*(\d{1,3})\s*", bare)
++        if offset and number and offset < int(number.group(1)) <= offset + len(listed):
++            return Selection(listed[int(number.group(1)) - offset - 1])      # row "7" on the second page
+         for candidate in (text, bare):
+             index = conv._ordinal(candidate, len(listed))
+             if index is not None and 0 <= index < len(listed):
+@@ -302,9 +493,25 @@ def select(text: str, claims: dict[str, Any], state) -> Selection:
+         elif kind == "applicant":
+             hits = [a for a in cases if str(a.applicant_id).upper().startswith(token)]
+         else:
+-            hits = [a for a in cases if str(getattr(a, "co_applicant_id", "") or "").upper().startswith(token)]
+-        return Selection(hits[0]) if len(hits) == 1 else Selection(candidates=hits)
+-    return _by_name(text, cases)
++            hits = _co_applicant_cases(token, cases)
++        return Selection(hits[0], named=kind) if len(hits) == 1 else Selection(candidates=hits, named=kind)
++    if _says("this_applicant", text) and state.active_case_id:
++        # "is applicant ke case dikhao": every case of the OPEN case's applicant, within scope
++        current = by_case.get(state.active_case_id.upper())
++        if current is not None:
++            hits = [a for a in cases if a.applicant_id == current.applicant_id]
++            return Selection(hits[0], named="applicant") if len(hits) == 1 else Selection(candidates=hits,
++                                                                                          named="applicant")
++    found = _by_name(text, cases)
++    found.named = "name"
++    return found
++
++
++def not_found_view(request_id: str, named: str | None) -> dict[str, Any]:
++    """The same neutral line for unknown and not-yours (labels.not_found_<kind>, else not_found)."""
++    labels = _cfg().get("labels") or {}
++    key = f"not_found_{named}" if named and f"not_found_{named}" in labels else "not_found"
++    return _base(request_id, "CASE_SELECTION", _label(key))
+ 
+ 
+ def _noise(kinds: tuple[str, ...] = ("open", "case_word", "list", "switch", "filler")) -> set[str]:
+@@ -365,6 +572,10 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+     workspace_id = (context or {}).get("workspace_id") if isinstance(context, dict) else None
+     state = _state(subject, workspace_id)
+     text = message or ""
++    if action == "CUSTOM_QUERY" and case_id and state.active_case_id and case_id != state.active_case_id:
++        # THE OPENED CASE WINS (FOS plan 1.8): a frontend that sends the same case_id on every request (the one
++        # from login) never overrides the case the officer opened here; the stale id is ignored, never read
++        case_id = None
+ 
+     def done(reply: dict[str, Any]) -> Turn:
+         reply["context"] = {**(reply.get("context") or {}), "workspace_id": workspace_id or "default"}
+@@ -376,18 +587,78 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+ 
+     if action == "EXIT_CASE" or (action == "CUSTOM_QUERY" and state.active_case_id and _says("exit", text)):
+         closed, state.active_case_id = state.active_case_id, None
+-        reply = list_view(claims, request_id, state)
++        reply = _list(claims, request_id, state)
+         if closed:
+             reply["answer"] = _label("closed", case_id=closed) + "\n\n" + reply["answer"]
+         return done(reply)
+-    if action == "LIST_CASES" or (action == "CUSTOM_QUERY" and (_says("list", text) or _says("switch", text))):
++    if action == "CUSTOM_QUERY" and _says("other_case", text) and _asks_more_than_the_switch(text):
++        # "dusre case ka details do" (FOS plan 1.3): the question is about ANOTHER of the caller's cases --
++        # one other case: switch to it and answer there; several: ask which (never the open case's answer)
++        others = [a for a in my_cases(claims) if a.case_id != state.active_case_id]
++        if len(others) == 1:
++            state.active_case_id = others[0].case_id
++            history = [c for c in (state.case_history or []) if c != others[0].case_id]
++            state.case_history = (history + [others[0].case_id])[-10:]
++            _save(state)
++            return Turn(case_id=others[0].case_id, applicant_id=others[0].applicant_id, in_case=others[0].case_id)
++        if others:
++            return done(which_view(others, request_id, state))
++        return done(_base(request_id, "CASE_SELECTION", _label("no_other_case")))
++    from app.agents.applicant.copilot.capabilities import case_list as _case_list
++    from app.agents.applicant.copilot.capabilities import faq as _faq
++
++    from app.agents.applicant.copilot.answering import contract as _contract
++    from app.agents.applicant.copilot.answering import realtime as _realtime
++
++    if action == "CUSTOM_QUERY" and _contract.enabled() and not state.active_case_id and _realtime.is_greeting(text):
++        # MASTER SPEC section 11: a short greeting with what needs attention, then the FAQ (section 7)
++        from app.agents.applicant.copilot.answering import language_lock
++
++        lang = language_lock.current() or "en"
++        reply = _base(request_id, "GREETING", _realtime.greeting(claims, lang, seed=state.turn_id or 0),
++                      query_type="CONVERSATION")
++        if _faq.enabled():
++            shown = _faq.render(_faq.items(None, lang, int(_faq.cfg().get("max_items_on_greeting", 4))), lang).split("\n")
++            reply["faq_block"] = "\n".join(shown[1:])
++        return done(reply)
++    if action == "CUSTOM_QUERY" and _faq.enabled() and _faq.asks_for_faq(text):
++        # MASTER SPEC section 7: "help" / "kya pooch sakta hoon" -- the FAQ for this state (the open case or none)
++        from app.agents.applicant.copilot.answering import language_lock
++
++        lang = language_lock.current() or "en"
++        shown = _faq.render(_faq.items(state.active_case_id, lang, int(_faq.cfg().get("max_items", 8))), lang,
++                            seed=state.turn_id or 0).split("\n")
++        head = [_label("in_case", case_id=state.active_case_id)] if state.active_case_id else []
++        # the heading is the answer; the links travel apart (faq_block) so no rewrite step touches their labels
++        reply = _base(request_id, "FAQ", "\n".join(head + shown[:1]), case_id=state.active_case_id,
++                      query_type="CONVERSATION")
++        reply["faq_block"] = "\n".join(shown[1:])
++        return done(reply)
++
++    # MASTER SPEC section 3: "top 5", "last 3", "sabse purane", "KYC wale" -- a list query (config phrases).
++    # With a case open it must also name cases ("KYC wale cases"): "KYC wale" alone is about that case.
++    asked_list = None
++    if action == "CUSTOM_QUERY" and _case_list.enabled() and not any(p.search(text) for p in _ID.values()):
++        wanted = _case_list.understand(text)
++        nouns = {_norm(w) for w in (_cfg().get("list_rule") or {}).get("case_nouns") or []}
++        if wanted is not None and (not state.active_case_id or nouns & set(_norm(text).split())):
++            asked_list = wanted
++    if action == "LIST_CASES" or asked_list is not None or (
++            action == "CUSTOM_QUERY" and (_says("list", text) or _says("switch", text))):
+         # the list (or a switch) closes the open case first: never two cases at once
+         closed, state.active_case_id = state.active_case_id, None
+-        reply = list_view(claims, request_id, state)
++        reply = paged_view(claims, request_id, state, asked_list) if _case_list.enabled() \
++            else list_view(claims, request_id, state)
+         if closed:
+             reply["answer"] = _label("closed", case_id=closed) + "\n\n" + reply["answer"]
+         return done(reply)
+-    if action == "CUSTOM_QUERY" and state.listed_case_ids and _says("more", text) and len(_norm(text).split()) <= 3:
++    if action == "CUSTOM_QUERY" and _case_list.enabled() and state.list_query and not state.active_case_id \
++            and (_says("more", text) or _case_list._has(text, (_case_list.cfg().get("phrases") or {}).get("next")))\
++            and len(_norm(text).split()) <= 3:
++        return done(_list(claims, request_id, state, text, more=True))
++    # "aur dikhao" pages the LIST only while no case is open: inside a case, "tell me more" is about the last answer
++    if action == "CUSTOM_QUERY" and state.listed_case_ids and not state.active_case_id \
++            and _says("more", text) and len(_norm(text).split()) <= 3:
+         ids = [a.case_id for a in my_cases(claims)]
+         first = state.listed_case_ids[0]
+         size = int(_cfg().get("page_size", 10))
+@@ -412,11 +683,11 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+     if action == "CUSTOM_QUERY" and not case_id:
+         names_a_case = any(p.search(text) for p in _ID.values())
+         picking = bool(state.listed_case_ids) and len(_norm(text).split()) <= 4
+-        if names_a_case or _says("open", text) or picking:
++        if names_a_case or _says("open", text) or picking or (state.active_case_id and _says("this_applicant", text)):
+             chosen = select(text, claims, state)
+             if chosen.application is not None:
+                 if state.active_case_id and chosen.application.case_id != state.active_case_id \
+-                        and not _says("open", text) and names_a_case and len(_norm(text).split()) > 2:
++                        and not _says("open", text) and names_a_case and _asks_beyond_the_id(text):
+                     # a question about ANOTHER case while inside one: answered, never switched silently
+                     _save(state)
+                     return Turn(case_id=chosen.application.case_id, applicant_id=chosen.application.applicant_id,
+@@ -425,7 +696,7 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+             if chosen.candidates:
+                 return done(which_view(chosen.candidates, request_id, state))
+             if names_a_case or _says("open", text):
+-                return done(_base(request_id, "CASE_SELECTION", _label("not_found")))
++                return done(not_found_view(request_id, chosen.named))
+     if not case_id and state.active_case_id:
+         from app.store import get_repository
+ 
+diff --git a/LOS-agentic-ai/app/api/routes/copilot_api.py b/LOS-agentic-ai/app/api/routes/copilot_api.py
+index edf47e3..bf1db3f 100644
+--- a/LOS-agentic-ai/app/api/routes/copilot_api.py
++++ b/LOS-agentic-ai/app/api/routes/copilot_api.py
+@@ -125,6 +125,13 @@ class CopilotQueryRequest(BaseModel):
+                      "English answer is returned and `language.localized` is "
+                      "false. The business truth never depends on it."),
+         examples=["en"])
++    reply_language: str | None = Field(
++        None, max_length=16, examples=["en"],
++        description=("The frontend's selected language (FOS plan section 2) -- the same as `language`. Either one "
++                     "LOCKS every text of the reply to that language, whatever the question was typed in."))
++    chat_id: str | None = Field(
++        None, max_length=128, description="The chat this message belongs to (the server remembers its context).")
++    new_chat: bool = Field(False, description="Start this chat fresh: nothing remembered from before.")
+     channel: str | None = Field(
+         None, max_length=32,
+         description=("The channel the question came from: web, mobile, "
+@@ -1473,6 +1480,41 @@ def _evidence(envelope: dict[str, Any], context) -> dict[str, Any]:
+ async def query(
+     request: CopilotQueryRequest,
+     claims: dict[str, Any] = Depends(require_jwt),
++):
++    """
++    MASTER SPEC section 8: the answer below, published as {request_id, markdown, tts} (COPILOT_MD_TTS_CONTRACT).
++    The context the reply no longer carries is remembered server-side per (user, chat_id).
++    """
++    from app.agents.applicant.copilot.answering import contract as _contract
++    from app.agents.applicant.copilot.capabilities import abuse_guard as _abuse_guard
++    from app.security.auth import get_subject as _chat_subject
++
++    subject = str(_chat_subject(claims) or "anonymous")
++    # THE ABUSE RULE, FIRST (MASTER SPEC sections 16 / 19): the same shared decision as /fos/copilot -- the
++    # message is never answered, nothing is read or remembered
++    screened = _abuse_guard.screen(request.message or "", subject,
++                                   f"cp_{uuid.uuid4().hex}", request.case_id,
++                                   lang=request.reply_language or request.language)
++    if screened is not None:
++        return _contract.publish(screened) if _contract.enabled() else screened
++    if not _contract.enabled():
++        return await _query(request, claims)
++    chat_id = request.chat_id or request.conversation_id
++    if request.new_chat:
++        _contract.forget(subject, chat_id)
++    elif request.context is None:
++        request.context = _contract.recall(subject, chat_id)
++    reply = await _query(request, claims)
++    if hasattr(reply, "model_dump"):
++        reply = reply.model_dump()
++    if isinstance(reply, dict) and isinstance(reply.get("context"), dict):
++        _contract.remember(subject, chat_id, reply["context"])
++    return _contract.publish(reply)
++
++
++async def _query(
++    request: CopilotQueryRequest,
++    claims: dict[str, Any],
+ ):
+     """
+     Delegates to the one agent.
+@@ -1486,6 +1528,78 @@ async def query(
+     started = time.perf_counter()
+     timings: dict[str, float] = {}
+ 
++    # THE LANGUAGE LOCK (FOS plan section 2) -- the same shared lock /fos/copilot sets
++    from app.agents.applicant.copilot.answering import language_lock as _lock
++
++    _locked = _lock.set_for_request(request.reply_language, request.language)
++    if _locked:
++        request.language = _locked
++
++    # "MY CASES" (FOS plan 1.2): with the case workspace on, a message that only asks for the caller's case
++    # list ("all case ka list", "my cases") is THE CALLER'S OWN LIST -- live grants, each case re-authorized --
++    # never a bulk-data refusal and never one applicant's portfolio. The same list as /fos/copilot.
++    from app.agents.applicant.copilot.capabilities import workspace as _ws
++
++    def _published(reply: dict[str, Any], response_type: str) -> dict[str, Any]:
++        from app.agents.applicant.copilot.answering import professional as _professional
++
++        reply = dict(reply or {})
++        reply["presentation"] = {**(reply.get("presentation") or {}), **(reply.pop("workspace_view", None) or {})}
++        reply.setdefault("response_type", response_type)
++        reply["processing_ms"] = round((time.perf_counter() - started) * 1000, 1)
++        return _professional.apply(reply)
++
++    # PARITY WITH /fos/copilot (FOS plan section 1/2): the 6h safety screen, then the WHOLE case workspace --
++    # "my cases", "2 kholo", "dusre case ka details", exit / switch, the opened case -- the same shared code
++    from app.agents.applicant.copilot.capabilities import safety as _safety
++
++    if _safety.enabled():
++        from app.security.auth import get_subject as _safety_subject
++
++        screened = _safety.screen(request.message, str(_safety_subject(claims) or "anonymous"), request_id,
++                                  request.case_id)
++        if screened is not None:
++            return _published(screened, "GUARDRAIL")
++    if _ws.enabled():
++        from app.security import access as _ws_access
++
++        try:
++            ws_turn = _ws.handle("CUSTOM_QUERY", request.message, request.case_id, claims, request_id,
++                                 request.context)
++        except _ws_access.AccessDenied as exc:
++            raise _ws_access.http_denied(exc, request_id) from None
++        if ws_turn.reply is not None:
++            return _published(ws_turn.reply, str(ws_turn.reply.get("intent") or "CASE_LIST"))
++        if ws_turn.case_id:
++            request.case_id, request.applicant_id = ws_turn.case_id, str(ws_turn.applicant_id or "") or None
++
++    # NO CASE NAMED (FOS plan 1.4): "case details do" without a case_id answered "None of the application details
++    # are recorded" -- untrue, no case was chosen. The case the officer OPENED in the workspace answers it, or their
++    # only case; with several and none open, a case question is answered with "which case?" (below).
++    unresolved_case = False
++    workspace_id = (request.context or {}).get("workspace_id") if isinstance(request.context, dict) else None
++    if _ws.enabled() and request.case_id:
++        # THE OPENED CASE WINS (FOS plan 1.8): the same rule as /fos/copilot -- a case_id sent on every request
++        # never overrides the case the officer opened in the workspace
++        opened = _ws.active_case(claims, workspace_id)
++        if opened is not None and opened.case_id != request.case_id:
++            request.case_id, request.applicant_id = opened.case_id, str(opened.applicant_id)
++    if _ws.enabled() and not request.case_id and not request.applicant_id:
++        chosen = _ws.active_case(claims, workspace_id)
++        if chosen is None:
++            mine = _ws.my_cases(claims)
++            chosen = mine[0] if len(mine) == 1 else None
++            unresolved_case = len(mine) > 1
++        if chosen is not None:
++            request.case_id, request.applicant_id = chosen.case_id, str(chosen.applicant_id)
++    if _ws.enabled() and not request.case_id and not request.stage:
++        # NO CASE AT ALL: a workspace caller's process question ("KYC kya hai?") is answered for the workspace's
++        # desk (case_workspace.default_stage) -- never "the stage could not be determined"; a case's own stage
++        # always wins once a case is chosen
++        from app.agents.applicant import config as _ws_config
++
++        request.stage = (_ws_config.chatbot("case_workspace").get("default_stage") or None)
++
+     # SECURITY AND SMALL TALK FIRST (decision order: 1. what kind of request
+     # is this, 2. is the caller allowed ...). A request the input policy
+     # refuses, or a greeting, is answered by the agent before any read -- so
+@@ -1625,6 +1739,17 @@ async def query(
+                 if isinstance(envelope.get("understanding"), dict):
+                     envelope["understanding"]["compound"] = {
+                         "parts": list(parts), "intents": intents_seen}
++            if unresolved_case and envelope.get("query_type") == "CASE_FACT" \
++                    and envelope.get("intent") not in ("CASE_PORTFOLIO", "CASE_LIST"):
++                # a case question with several cases and none chosen: "which case?" + the caller's list,
++                # never an answer about no case at all (FOS plan 1.4)
++                _ws_state = _ws._state(_ws._subject(claims), None)
++                listed = _ws.list_view(claims, request_id, _ws_state)     # "2" then picks from this list
++                _ws._save(_ws_state)
++                envelope["answer"] = _ws._label("pick_case_first") + "\n\n" + str(listed.get("answer") or "")
++                envelope["intent"] = "CASE_SELECTION"
++                envelope["query_type"] = "CLARIFICATION"
++                envelope["workspace_view"] = listed.get("workspace_view")
+     except NotOwned:
+         # A REFUSAL, NOT AN ERROR, AND NOT A DISCLOSURE. Phrased
+         # identically whether the case belongs to somebody else or
+@@ -1958,8 +2083,30 @@ async def query(
+     # history, next actions, provenance, handoff summary: a full PAN, Aadhaar
+     # or account number never leaves in any field (sensitivity.py).
+     from app.security import sensitivity
++    # PROFESSIONAL FORMAT, LAST (FOS plan section 3) -- the same shared step /fos/copilot applies
++    from app.agents.applicant.copilot.answering import professional as _professional
++
++    from app.agents.applicant.copilot.answering import kyc_table as _kyc_table
++
++    published = _kyc_table.attach(published)          # the KYC table (FOS plan section 4), as on /fos/copilot
++    from app.agents.applicant.copilot.answering import readiness_report as _readiness_report
++
++    published = _readiness_report.attach(published)   # the readiness report (FOS plan sections 5 / 7.1)
++    from app.agents.applicant.copilot.answering import counts as _counts
++
++    published = _counts.attach(published, request.message)   # count questions, from the store (FOS plan 6.6)
++    from app.agents.applicant.copilot.capabilities import timeline as _timeline
++
++    published = _timeline.attach(published, request.message)  # time questions (FOS plan 7.3)
++    from app.agents.applicant.copilot.answering import handoff_note as _handoff_note
++
++    published = _handoff_note.attach(published, request.message, claims)   # the CPA handoff note (FOS plan 7.1)
++    from app.agents.applicant.copilot.answering import officer_tools as _officer_tools
+ 
+-    return CopilotQueryResponse(**sensitivity.mask_payload(published))
++    published = _officer_tools.attach(published, request.message)          # officer tools (FOS plan 9b)
++    formatted = _professional.apply(sensitivity.mask_payload(published))
++    return CopilotQueryResponse(**{k: v for k, v in formatted.items()
++                                   if k in CopilotQueryResponse.model_fields or k not in ("answer_plain", "format")})
+ 
+ 
+ __all__ = ["router"]
+diff --git a/LOS-agentic-ai/app/api/routes/fos_api.py b/LOS-agentic-ai/app/api/routes/fos_api.py
+index fd3c411..dfab353 100644
+--- a/LOS-agentic-ai/app/api/routes/fos_api.py
++++ b/LOS-agentic-ai/app/api/routes/fos_api.py
+@@ -320,6 +320,11 @@ class CopilotRequest(BaseModel):
+             "the language; where no template covers a fact the English answer stands and "
+             "`language_contract.localized` is false."),
+     )
++    reply_language: str | None = Field(
++        None, max_length=16, examples=["en"],
++        description=("The same as `response_language` (FOS plan section 2, the frontend's name for it). Either one "
++                     "LOCKS every text of the reply -- answer, clarifications, buttons, refusals -- to that language."),
++    )
+     # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS)
+     document_id: str | None = Field(None, max_length=256, description="VIEW_DOCUMENT: the document to open.")
+     query: dict[str, Any] | None = Field(None, description="RAISE_QUERY: the (edited) draft to send.")
+@@ -332,6 +337,14 @@ class CopilotRequest(BaseModel):
+             "allowed only when the caller may open the case it is on; otherwise the same 403 as any "
+             "case the caller does not own."),
+     )
++    # MASTER SPEC section 8: the reply is {request_id, markdown, tts}; these drive it
++    action_link: str | None = Field(
++        None, max_length=600, examples=["action:open_case?id=CASE-852C"],
++        description=("A link from the reply's markdown, posted back as is (`action:...` or `ask:...`). Mapped by the "
++                     "server's action registry to the request it stands for; scope is re-checked like any request."))
++    chat_id: str | None = Field(
++        None, max_length=128, description="The chat this message belongs to (the server remembers its context).")
++    new_chat: bool = Field(False, description="Start this chat fresh: nothing remembered from before.")
+     context: dict[str, Any] | None = Field(
+         None,
+         description=(
+@@ -788,6 +801,16 @@ async def create_case(
+             "request_id": request_id, "error": exc.code, "message": exc.message,
+         }) from exc
+ 
++    # ALL AMOUNTS ARE IN RUPEES (FOS plan 1.1): an implausible amount is refused BEFORE the applicant is
++    # created, so a bad form never leaves a half-made case behind
++    if request.application is not None:
++        from app.agents.applicant import plausibility
++
++        found = plausibility.problem(request.application.model_dump(exclude_none=True))
++        if found is not None:
++            raise HTTPException(422, detail={"request_id": request_id, "error": plausibility.CODE,
++                                             "field": found[0], "message": found[1]})
++
+     # ANOTHER CASE FOR A CUSTOMER THIS CALLER ALREADY SERVES. One applicant may
+     # hold several cases; naming an applicant the caller may WRITE opens a new
+     # case for them, and the recorded person is left exactly as captured (never
+@@ -1098,8 +1121,19 @@ async def copilot(
+     request: Request,
+     claims: dict[str, Any] = Depends(require_jwt),
+ ):
+-    request_id = f"fos_{uuid.uuid4().hex}"
++    request_id = getattr(request.state, "request_id", None) or f"fos_{uuid.uuid4().hex}"
+     content_type = (request.headers.get("content-type") or "").lower()
++    # MASTER SPEC section 11: the same Idempotency-Key from the same caller returns the stored reply, never a rerun
++    from app.agents.applicant.copilot.answering import contract as _contract_rt
++    from app.agents.applicant.copilot.answering import realtime as _realtime
++    from app.security.auth import get_subject as _rt_subject
++
++    _idem = (request.headers.get("idempotency-key") or "").strip()[:128] or None
++    if _idem and _contract_rt.enabled():
++        _again = _realtime.idempotent(str(_rt_subject(claims) or "anonymous"), _idem)
++        if _again is not None:
++            return _again
++    request.state.idempotency_key = _idem
+ 
+     try:
+         # Both form encodings reach the upload handler. A caller who posts
+@@ -1118,6 +1152,13 @@ async def copilot(
+                                    and _jev_config.trigger_enabled("document_processed") else "DISABLED"),
+                     "semantic_decisions": [], "semantic_actions": [],
+                     "poll": f"/api/v1/jev/cases/{uploaded.get('case_id')}/decisions"}
++                # MASTER SPEC sections 8 / 9: the upload's answer (smart upload included) is a chat reply too;
++                # the case is watched, so its verification result is pushed by /copilot/updates
++                from app.security.auth import get_subject as _up_subject
++
++                request.state.chat_key = (str(_up_subject(claims) or "anonymous"),
++                                          request.query_params.get("chat_id"))
++                return _published_reply(request, uploaded)
+             return uploaded
+         # THE SAME PUBLISHING RULE AS THE UNIVERSAL COPILOT: no full PAN,
+         # Aadhaar or account number anywhere in the published response --
+@@ -1126,6 +1167,8 @@ async def copilot(
+         from app.security import sensitivity as _sensitivity
+ 
+         published = await _copilot_json(request, claims, request_id)
++        if isinstance(published, dict) and published.get("atomic"):
++            return _published_reply(request, published)         # a blocked message: the warning, untouched
+         if isinstance(published, dict):
+             # THE TYPED DECISIONS, as recorded -- read, never re-evaluated here.
+             # The case was authorized by the action that produced `published`.
+@@ -1200,8 +1243,37 @@ async def copilot(
+             from app.agents.applicant.copilot.answering import presentation as _presentation
+ 
+             published["presentation"] = _presentation.build(published)
+-            return _sensitivity.mask_payload(published)
+-        return published
++            # THE KYC TABLE on a KYC answer (FOS plan section 4; shared with /copilot/query)
++            from app.agents.applicant.copilot.answering import kyc_table as _kyc_table
++
++            published = _kyc_table.attach(published)
++            # THE READINESS REPORT on a readiness answer (FOS plan sections 5 / 7.1; shared with /copilot/query)
++            from app.agents.applicant.copilot.answering import readiness_report as _readiness_report
++
++            published = _readiness_report.attach(published)
++            # COUNT QUESTIONS, counted from the store (FOS plan 6.6; shared with /copilot/query)
++            from app.agents.applicant.copilot.answering import counts as _counts
++
++            published = _counts.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
++            # TIME QUESTIONS: the dated timeline, days in stage, "kal wala" (FOS plan 7.3; shared)
++            from app.agents.applicant.copilot.capabilities import timeline as _timeline
++
++            published = _timeline.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
++            # THE CPA HANDOFF NOTE, only for a ready case (FOS plan 7.1; shared with /copilot/query)
++            from app.agents.applicant.copilot.answering import handoff_note as _handoff_note
++
++            published = _handoff_note.attach(published, str(getattr(request.state, "copilot_message", "") or ""),
++                                             claims)
++            # OFFICER TOOLS: what-if, review on open, status tables, customer message, visit checklist (FOS plan 9b)
++            from app.agents.applicant.copilot.answering import officer_tools as _officer_tools
++
++            published = _officer_tools.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
++            # PROFESSIONAL FORMAT, LAST (FOS plan section 3; shared with /copilot/query): no emojis anywhere,
++            # one "Next step:" line, a plain-text answer
++            from app.agents.applicant.copilot.answering import professional as _professional
++
++            return _published_reply(request, _professional.apply(_sensitivity.mask_payload(published)))
++        return _published_reply(request, published)
+     except HTTPException:
+         raise
+     except AgentError as exc:
+@@ -1210,12 +1282,41 @@ async def copilot(
+         }) from exc
+     except Exception as exc:
+         logger.exception("FOS copilot failed request_id=%s", request_id)
++        from app.api.errors import classify as _classify
++
++        status_code, code, message = _classify(exc)       # DB down -> 503, a timeout -> 504 (FOS plan 9.4)
++        if status_code != 500:
++            raise HTTPException(status_code, detail={"request_id": request_id, "error": code,
++                                                     "message": message}) from exc
+         raise HTTPException(500, detail={
+             "request_id": request_id, "error": "COPILOT_FAILED",
+             "message": "The request could not be completed.",
+         }) from exc
+ 
+ 
++def _published_reply(request: Request, reply: Any) -> Any:
++    """MASTER SPEC section 8: remember the chat's context server-side, then publish {request_id, markdown, tts}."""
++    from app.agents.applicant.copilot.answering import contract as _contract
++
++    if not _contract.enabled() or not isinstance(reply, dict):
++        return reply
++    key = getattr(request.state, "chat_key", None)
++    if key and isinstance(reply.get("context"), dict):
++        _contract.remember(key[0], key[1], reply["context"])
++    published = _contract.publish(reply)
++    from app.agents.applicant.copilot.answering import realtime as _realtime
++
++    if key:
++        # section 11: kept for replay (reconnect) and the Idempotency-Key; the case is watched for pushed updates
++        _realtime.keep(key[0], published, getattr(request.state, "idempotency_key", None))
++        if reply.get("case_id"):
++            try:
++                _realtime.watch(key[0], key[1], str(reply["case_id"]))
++            except Exception:  # noqa: BLE001 - watching is a convenience; the answer stands
++                pass
++    return published
++
++
+ def _resolve_co_applicant(payload: "CopilotRequest", claims: dict[str, Any], request_id: str,
+                           case_id: str | None, message: str, action: "FosAction"):
+     """
+@@ -1342,8 +1443,37 @@ async def _copilot_json(
+             "message": f"The request body could not be read: {type(exc).__name__}.",
+         }) from exc
+ 
++    # MASTER SPEC section 8: an action link posted back becomes the request it stands for (one registry,
++    # app/config/copilot_reply.yaml); every check below runs on it exactly as on a typed request
++    from app.agents.applicant.copilot.answering import contract as _contract
++    from app.security.auth import get_subject as _chat_subject
++
++    if payload.action_link:
++        mapped = _contract.request_for(payload.action_link)
++        if mapped is None:
++            raise HTTPException(422, detail={"request_id": request_id, "error": "INVALID_ACTION_LINK",
++                                             "message": "This link is not a server action."})
++        payload = CopilotRequest.model_validate({**payload.model_dump(exclude={"action_link"}), **mapped})
++    _subject_key = str(_chat_subject(claims) or "anonymous")
++    request.state.chat_key = (_subject_key, payload.chat_id)
++    if _contract.enabled():
++        from app.agents.applicant.copilot.answering import realtime as _realtime
++
++        _realtime.start(_subject_key, payload.chat_id, request_id)    # a newer message cancels an older stream
++    if payload.new_chat:
++        _contract.forget(_subject_key, payload.chat_id)
++    elif payload.context is None and _contract.enabled():
++        payload.context = _contract.recall(_subject_key, payload.chat_id)   # the context the reply no longer carries
++
+     action = payload.action
+ 
++    # THE LANGUAGE LOCK (FOS plan section 2): the selected language, for every text this turn writes
++    from app.agents.applicant.copilot.answering import language_lock as _lock
++
++    locked = _lock.set_for_request(payload.reply_language, payload.response_language)
++    if locked:
++        payload.response_language = locked
++
+     if action is FosAction.UPLOAD_DOCUMENT:
+         raise HTTPException(415, detail={
+             "request_id": request_id, "error": "UPLOAD_REQUIRES_MULTIPART",
+@@ -1360,6 +1490,18 @@ async def _copilot_json(
+             })
+     else:
+         message = _ACTION_PHRASE[action]
++    request.state.copilot_message = message if action is FosAction.CUSTOM_QUERY else ""   # post-steps read it
++
++    # THE ABUSE RULE, FIRST (MASTER SPEC sections 16 / 19; capabilities/abuse_guard.py): a message with foul
++    # language is never answered in any part -- no case read, no tool, no model, no pending intent stored
++    from app.agents.applicant.copilot.capabilities import abuse_guard as _abuse_guard
++
++    if action is FosAction.CUSTOM_QUERY:
++        screened = _abuse_guard.screen(message, _subject_key, request_id, payload.case_id,
++                                       lang=payload.response_language)
++        if screened is not None:
++            request.state.chat_key = None                  # nothing of this turn is remembered or replayed
++            return screened
+ 
+     # 6h GUARDRAIL HARDENING (COPILOT_GUARDRAIL_HARDENING): rate limit, self-harm care, threats,
+     # social engineering, abuse cooldown -- BEFORE anything is read
+@@ -2017,10 +2159,19 @@ async def _copilot_upload(
+             "message": (f"{declared_action} is not valid for a multipart "
+             "request. Only UPLOAD_DOCUMENT is."),
+         })
++    if (not applicant_id or not case_id):
++        # INSIDE AN OPENED CASE (6-MVP workspace): an upload without ids goes to the case the officer
++        # opened -- ownership is still checked below (write), exactly as for explicit ids
++        from app.agents.applicant.copilot.capabilities import workspace as _ws
++
++        opened = _ws.active_case(claims, str(form.get("workspace_id") or "").strip() or None) \
++            if _ws.enabled() else None
++        if opened is not None and (not case_id or case_id == opened.case_id):
++            case_id, applicant_id = opened.case_id, applicant_id or str(opened.applicant_id)
+     if not applicant_id or not case_id:
+         raise HTTPException(422, detail={
+             "request_id": request_id, "error": "INVALID_REQUEST",
+-            "message": "applicant_id and case_id are required for an upload.",
++            "message": "applicant_id and case_id are required for an upload (or open a case first).",
+         })
+     if not uploads:
+         raise HTTPException(422, detail={
+@@ -2185,6 +2336,10 @@ async def _copilot_upload(
+             "document_type": document.get("type"),
+             "expected_type": document.get("expected_type"),
+             "verification": document.get("verification"),
++            # THE NAME THE DOCUMENT CARRIES (released fields only) -- whose document it looks like (FOS plan 7.2)
++            "name_on_document": next((((document.get("extraction") or {}).get("fields") or {}).get(k)
++                                      for k in ("name", "employee_name", "account_holder", "holder_name")
++                                      if ((document.get("extraction") or {}).get("fields") or {}).get(k)), None),
+             "status": document.get("status"),
+             "reason_codes": document.get("reason_codes") or [],
+             # The gate's decision, restated. Extraction is released only
+@@ -2372,6 +2527,17 @@ async def _copilot_upload(
+     if stage_sentence:
+         answer = f"{answer} {stage_sentence}"
+ 
++    # SMART UPLOAD (FOS plan 7.2): what each file looks like, whose, where it was filed -- or ONE question
++    from app.agents.applicant.copilot.capabilities import smart_upload as _smart
++
++    smart_question, smart_actions = None, []
++    if _smart.enabled():
++        smart_lines, smart_question, smart_actions = _smart.describe(case_id, outcomes,
++                                                                     filed_as_co=bool(upload_co_id))
++        lead = [smart_question["question"]] if smart_question else []
++        if lead or smart_lines:
++            answer = "\n".join(lead + smart_lines + [answer])
++
+     return _blank(
+         request_id,
+         applicant_id=applicant_id,
+@@ -2379,6 +2545,8 @@ async def _copilot_upload(
+         action=FosAction.UPLOAD_DOCUMENT.value,
+         intent="UPLOAD_DOCUMENT",
+         answer=answer,
++        clarification_required=smart_question,
++        actions=smart_actions,
+         response_type="UPLOAD_VALIDATION" if rejected else "UPLOAD_RESULT",
+         applicant=result.get("applicant"),
+         application=result.get("application"),
+@@ -2703,6 +2871,10 @@ def _frontend_contract(result: dict[str, Any],
+     suggested = result.get("suggested_questions")
+     if suggested:
+         block["suggested_questions"] = list(suggested)
++    else:
++        # the case-derived chips, turned to follow THIS turn (FOS plan 1.7)
++        block["suggested_questions"] = frontend.contextual_suggestions(block.get("suggested_questions"),
++                                                                       result.get("intent"))
+     return block
+ 
+ 
+@@ -2710,7 +2882,7 @@ def _raise_from(request_id: str, envelope) -> None:
+     error = envelope.error
+     code = error.code if error else "FAILED"
+     raise HTTPException(
+-        404 if code == "NOT_FOUND" else 400,
++        404 if code == "NOT_FOUND" else 422 if code == "AMOUNT_IMPLAUSIBLE" else 400,
+         detail={"request_id": request_id, "error": code,
+                 "message": error.message if error else "The call failed."},
+     )
+@@ -2772,12 +2944,161 @@ async def copilot_stream(request: Request, claims: dict[str, Any] = Depends(requ
+         body = await request.json()
+     except Exception:  # noqa: BLE001 - the copilot reports an unreadable body itself
+         body = {}
+-    status_text = _streaming.first_status(str((body or {}).get("message") or ""), str((body or {}).get("action") or ""))
++    from app.agents.applicant.copilot.answering import contract as _contract
++    from app.agents.applicant.copilot.answering import language_lock as _lock
++    from app.agents.applicant.copilot.answering import realtime as _realtime
++    from app.agents.applicant.copilot.capabilities import abuse_guard as _abuse_guard
++    from app.security.auth import get_subject as _stream_subject
++
++    body = body if isinstance(body, dict) else {}
++    # a blocked message (section 19): no status event, the warning sent whole -- copilot() itself decides the reply
++    blocked = bool(_abuse_guard.blocked(str(body.get("message") or "")))
++    if _contract.enabled():
++        # MASTER SPEC section 11: typing at once, one generic status if slow, the markdown in deltas, `final`
++        request.state.request_id = f"fos_{uuid.uuid4().hex}"
++        lang = _lock.normalise(body.get("reply_language") or body.get("response_language")) or "en"
++        return StreamingResponse(
++            _realtime.events(lambda: copilot(request, claims), subject=str(_stream_subject(claims) or "anonymous"),
++                             chat_id=body.get("chat_id"), request_id=request.state.request_id, lang=lang,
++                             atomic=blocked),
++            media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
++    status_text = "" if blocked else _streaming.first_status(str(body.get("message") or ""),
++                                                             str(body.get("action") or ""))
+     return StreamingResponse(_streaming.events(lambda: copilot(request, claims), status_text),
+                              media_type="text/event-stream",
+                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+ 
+ 
++class _ChatRef(BaseModel):
++    chat_id: str | None = Field(None, max_length=128)
++
++
++@router.post("/copilot/stop", summary="Stop the reply streaming in this chat (MASTER SPEC section 11)")
++async def copilot_stop(body: _ChatRef, claims: dict[str, Any] = Depends(require_jwt)):
++    from app.agents.applicant.copilot.answering import realtime as _realtime
++    from app.security.auth import get_subject
++
++    _realtime.stop(str(get_subject(claims) or "anonymous"), body.chat_id)
++    return {"stopped": True}
++
++
++@router.get("/copilot/replay/{request_id}",
++            summary="The final reply of a request, for a reconnecting client (MASTER SPEC section 11)",
++            responses={404: {"description": "Unknown, expired, or not the caller's."}})
++async def copilot_replay(request_id: str, claims: dict[str, Any] = Depends(require_jwt)):
++    from app.agents.applicant.copilot.answering import realtime as _realtime
++    from app.security.auth import get_subject
++
++    found = _realtime.replay(str(get_subject(claims) or "anonymous"), request_id)
++    if found is None:
++        raise HTTPException(404, detail={"error": "NOT_FOUND", "message": "No reply to replay."})
++    return found
++
++
++@router.get("/copilot/updates",
++            summary="Pushed follow-ups: what changed on the cases this chat looked at (MASTER SPEC section 11)")
++async def copilot_updates(chat_id: str | None = None, wait: float = 0, reply_language: str | None = None,
++                          claims: dict[str, Any] = Depends(require_jwt)):
++    """
++    Long-poll: returns at once when something changed (a document verified / rejected since the chat last saw the
++    case), else waits up to `wait` seconds (capped by config). Only the caller's own watched cases; every message is
++    {request_id, markdown, tts}, replayable.
++    """
++    import asyncio
++
++    from app.agents.applicant.copilot.answering import contract as _contract
++    from app.agents.applicant.copilot.answering import language_lock as _lock
++    from app.agents.applicant.copilot.answering import realtime as _realtime
++    from app.security.auth import get_subject
++
++    subject = str(get_subject(claims) or "anonymous")
++    lang = _lock.normalise(reply_language) or "en"
++    rt = _contract.cfg().get("realtime") or {}
++    deadline = time.monotonic() + max(0.0, min(float(wait or 0), float(rt.get("updates_wait_seconds", 20))))
++    while True:
++        messages = await asyncio.to_thread(_realtime.updates, subject, chat_id, lang)
++        if messages or time.monotonic() >= deadline:
++            return {"messages": messages}
++        await asyncio.sleep(float(rt.get("updates_poll_seconds", 1.0)))
++
++
++@router.get(
++    "/cases",
++    summary="The caller's own cases, paginated, for the full-list panel (MASTER SPEC section 3)",
++    responses={200: {"description": "One page of rows, the matching total and the counts by status."}},
++)
++async def list_cases(filter: str | None = None, search: str | None = None, sort: str | None = None,
++                     page: int = 0, size: int | None = None, stage: str | None = None, product: str | None = None,
++                     created_from: str | None = None, created_to: str | None = None,
++                     claims: dict[str, Any] = Depends(require_jwt)):
++    """
++    The SAME query as the chat list -- only the caller's cases (live grants, each row re-checked by the ownership
++    rule), filtered / searched / sorted / paged on the server; size capped (case_list.yaml max_page_size).
++    Clicking a row: post {"action": "OPEN_CASE", "case_id": ...} (or the row's `link`) to /fos/copilot.
++    """
++    from app.agents.applicant.copilot.answering import contract as _contract
++    from app.agents.applicant.copilot.capabilities import case_list as _case_list
++
++    filters = _case_list.cfg().get("filters") or {}
++    sorts = _case_list.cfg().get("sorts") or {}
++    if filter and filter not in filters:
++        raise HTTPException(422, detail={"error": "UNKNOWN_FILTER", "message": f"filter must be one of {sorted(filters)}"})
++    if sort and sort not in sorts:
++        raise HTTPException(422, detail={"error": "UNKNOWN_SORT", "message": f"sort must be one of {sorted(sorts)}"})
++    result = _case_list.run(claims, _case_list.ListQuery(
++        filter=filter, search=(search or "").strip()[:80] or None, sort=sort, page=max(0, page), size=size,
++        stage=stage, product=product, created_from=created_from, created_to=created_to))
++    rows = [{k: v for k, v in r.items() if k not in ("created_at", "updated_at")}
++            | {"link": _contract.link("open_case", id=r["case_id"])} for r in result.rows]
++    return {"rows": rows, "total": result.total, "all_total": result.all_total, "counts": result.counts,
++            "page": result.page, "size": result.size, "has_more": result.has_more,
++            "filters": sorted(filters), "sorts": sorted(sorts)}
++
++
++@router.get(
++    "/handoff-note",
++    summary="The CPA handoff note of a ready case, as md / html / pdf (FOS plan 7.1)",
++    responses={200: {"description": "The note."}, 403: {"description": "Not the caller's case."},
++               409: {"description": "The case is not ready for CPA."}},
++)
++async def handoff_note_file(case_id: str, format: str = "pdf", claims: dict[str, Any] = Depends(require_jwt)):
++    """Only the caller's own case (the ordinary ownership check), only when ready, every download audited."""
++    from fastapi.responses import Response
++
++    from app.agents.applicant import audit
++    from app.agents.applicant.copilot.answering import handoff_note
++    from app.agents.applicant.copilot.capabilities import workspace as _ws
++    from app.security import access as _acc
++    from app.security.auth import get_subject
++
++    request_id = f"fos_{uuid.uuid4().hex}"
++    if not handoff_note.enabled():
++        raise HTTPException(404, detail={"request_id": request_id, "error": "HANDOFF_NOTE_DISABLED",
++                                         "message": "The handoff note is off."})
++    try:
++        _ws.authorize(claims, case_id)
++    except _acc.AccessDenied as exc:
++        raise _acc.http_denied(exc, request_id) from None
++    officer = str(get_subject(claims) or "")
++    note = handoff_note.build(case_id, officer)
++    if not note["ready"]:
++        audit.record(request_id=request_id, subject=officer, applicant_id=None, case_id=case_id,
++                     intent="HANDOFF_NOTE_DOWNLOAD", tools=[], status="REFUSED_NOT_READY")
++        raise HTTPException(409, detail={"request_id": request_id, "error": "NOT_READY_FOR_CPA",
++                                         "message": "A handoff note is made once the case is ready for CPA."})
++    kind = str(format or "pdf").lower()
++    audit.record(request_id=request_id, subject=officer, applicant_id=None, case_id=case_id,
++                 intent="HANDOFF_NOTE_DOWNLOAD", tools=["handoff.note"], status="OK", detail=kind)
++    name = f"handoff-note-{case_id}"
++    if kind == "md":
++        return Response(note["markdown"], media_type="text/markdown",
++                        headers={"Content-Disposition": f'attachment; filename="{name}.md"'})
++    if kind == "html":
++        return Response(handoff_note.to_html(note["markdown"]), media_type="text/html")
++    return Response(handoff_note.to_pdf(note["markdown"]), media_type="application/pdf",
++                    headers={"Content-Disposition": f'attachment; filename="{name}.pdf"'})
++
++
+ @router.get(
+     "/documents/view",
+     summary="Open a document through a short-lived signed link (6i VIEW_DOCUMENT)",
+@@ -3073,7 +3394,19 @@ def _frontend_features() -> dict[str, Any]:
+         "co_applicant_identity": _co.enabled(), "llm_router": _lr.enabled(),
+         "emphasis": (os.getenv("COPILOT_EMPHASIS", "false") or "false").strip().lower() in {"1", "true", "yes", "on"},
+     }
++    # FOS E2E plan sections 2-7: each feature's own switch, as the running server sees it
++    from app.agents.applicant.copilot.answering import (counts as _cnt, handoff_note as _hn, kyc_table as _kt,
++                                                        language_lock as _ll, professional as _pf,
++                                                        readiness_report as _rr)
++    from app.agents.applicant.copilot.capabilities import (smart_upload as _su, snapshot_qa as _sq,
++                                                           timeline as _tl)
++
++    features.update({"language_lock": _ll.enabled(), "professional_format": _pf.enabled(), "kyc_table": _kt.enabled(),
++                     "readiness_report": _rr.enabled(), "snapshot_qa": _sq.enabled(), "count_answers": _cnt.enabled(),
++                     "handoff_note": _hn.enabled(), "smart_upload": _su.enabled(), "case_timeline": _tl.enabled()})
+     endpoints = {"copilot": "/api/v1/fos/copilot", "actions": "/api/v1/fos/actions", "config": "/api/v1/fos/config"}
++    if features["handoff_note"]:
++        endpoints["handoff_note"] = "/api/v1/fos/handoff-note?case_id={case_id}&format=pdf"
+     if features["streaming"]:
+         endpoints["stream"] = "/api/v1/fos/copilot/stream"
+     if features["case_actions"]:
+@@ -3081,7 +3414,7 @@ def _frontend_features() -> dict[str, Any]:
+     out: dict[str, Any] = {"features": features, "endpoints": endpoints}
+     if features["case_workspace"]:
+         cfg = config.chatbot("case_workspace") or {}
+-        out["workspace"] = {"page_size": cfg.get("page_size", 10), "quick_questions": cfg.get("quick_questions") or [],
++        out["workspace"] = {"page_size": cfg.get("page_size", 10), "quick_questions": _ws.quick_questions(),
+                             "list_message": "mere cases dikhao"}
+     return out
+ 
+diff --git a/LOS-agentic-ai/tests/conftest.py b/LOS-agentic-ai/tests/conftest.py
+index c7ce346..b83e0cc 100644
+--- a/LOS-agentic-ai/tests/conftest.py
++++ b/LOS-agentic-ai/tests/conftest.py
+@@ -199,7 +199,16 @@ _PHASE3_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESP
+                  "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_LOCALIZED_KYC_REASONS",
+                  "COPILOT_SINGLE_CASE_RESOLVE", "COPILOT_EMPHASIS", "COPILOT_STREAMING", "COPILOT_SESSION_MEMORY",
+                  "LOS_COAPP_IDENTITY", "COPILOT_PARTY_RECOGNITION", "COPILOT_GUARDRAIL_HARDENING",
+-                 "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY")
++                 "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY",
++                 "COPILOT_LANGUAGE_LOCK", "COPILOT_PROFESSIONAL_FORMAT", "COPILOT_KYC_TABLE",
++                 "COPILOT_READINESS_REPORT", "COPILOT_SNAPSHOT_QA",
++                 "COPILOT_COUNT_ANSWERS", "COPILOT_HANDOFF_NOTE",
++                 "COPILOT_SMART_UPLOAD", "COPILOT_CASE_TIMELINE",
++                 "COPILOT_WHAT_IF", "COPILOT_AUTOPILOT_REVIEW", "COPILOT_STATUS_TABLES", "COPILOT_CUSTOMER_MESSAGE", "COPILOT_VISIT_CHECKLIST",
++                 # MASTER SPEC: the markdown + tts reply contract (config default ON; the older tests read the
++                 # full envelope), the old login self-grant (default off)
++                 "COPILOT_MD_TTS_CONTRACT", "LOS_LOGIN_SELF_GRANT_LEGACY", "COPILOT_CASE_LIST_PAGING", "COPILOT_FAQ",
++                 "COPILOT_ABUSE_GUARD")
+ 
+ 
+ @pytest.fixture(autouse=True)
+diff --git a/app/agents/applicant/copilot/capabilities/abuse_guard.py b/app/agents/applicant/copilot/capabilities/abuse_guard.py
+new file mode 100644
+index 0000000..8b495ed
+--- /dev/null
++++ b/app/agents/applicant/copilot/capabilities/abuse_guard.py
+@@ -0,0 +1,271 @@
++"""
++THE ABUSE RULE (MASTER SPEC sections 16 and 19; config app/config/abuse_lexicon.yaml, flag COPILOT_ABUSE_GUARD).
++
++ONE shared module, ONE lexicon, every path:
++
++    detect(text)      the flagged words (normalised: NFKC, leetspeak, spaced / dotted letters, repeated letters,
++                      masked forms like f***), whole tokens, allow-list first
++    blocked(text)     a hit of a blocking severity: the message is NEVER answered, in any part
++    screen(...)       the finished reply for a blocked message (warning + the words bold and masked + rephrase),
++                      tts the warning only; repeated abuse -> cooldown. Audit gets the masked word and severity only
++    mask_text(text)   the same text with every flagged word masked -- for drafts, summaries, notes, exports, history
++                      and logs (nothing ever carries the raw word)
++
++Nothing here reads a case, calls a tool or a model.
++"""
++
++from __future__ import annotations
++
++import os
++import re
++import threading
++import time
++import unicodedata
++from collections import defaultdict, deque
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++import yaml
++
++FLAG = "COPILOT_ABUSE_GUARD"
++_PATH = Path(__file__).resolve().parents[4] / "config" / "abuse_lexicon.yaml"
++_CFG: dict[str, Any] = {"mtime": None, "data": {}}
++_LOCK = threading.RLock()                 # screen() reads the config while it holds the lock
++_SEEN: dict[str, deque] = defaultdict(deque)
++_COOLDOWN: dict[str, float] = {}
++_TOKEN = re.compile(r"[\wऀ-ॿ*#@$!]+", re.UNICODE)
++
++
++def cfg() -> dict[str, Any]:
++    try:
++        mtime = _PATH.stat().st_mtime
++    except OSError:
++        return {}
++    with _LOCK:
++        if _CFG["mtime"] != mtime:
++            _CFG["data"] = yaml.safe_load(_PATH.read_text(encoding="utf-8")) or {}
++            _CFG["mtime"] = mtime
++        return _CFG["data"]
++
++
++def enabled() -> bool:
++    value = os.getenv(FLAG)
++    if value is not None and value.strip():
++        return value.strip().lower() in {"1", "true", "yes", "on"}
++    return bool(cfg().get("enabled", False))
++
++
++def reset() -> None:
++    with _LOCK:
++        _SEEN.clear()
++        _COOLDOWN.clear()
++
++
++@dataclass(frozen=True)
++class Hit:
++    word: str            # the lexicon entry matched (never shown)
++    shown: str           # the masked form (what may be displayed)
++    severity: str
++    start: int           # span in the ORIGINAL text (for masking)
++    end: int
++
++
++# --------------------------------------------------------------------------
++# normalising and matching
++# --------------------------------------------------------------------------
++
++def _squeeze(token: str) -> str:
++    return re.sub(r"(.)\1{2,}", r"\1", token)                      # "fuuuuck" -> "fuck"
++
++
++def _leet(token: str) -> str:
++    table = cfg().get("leet") or {}
++    return "".join(str(table.get(ch, ch)) for ch in token)
++
++
++def _lexicon() -> list[tuple[str, set[str], tuple[str, ...]]]:
++    out = []
++    for severity, spec in (cfg().get("lexicon") or {}).items():
++        words = {unicodedata.normalize("NFKC", str(w)).lower() for w in spec.get("words") or []}
++        stems = tuple(unicodedata.normalize("NFKC", str(s)).lower() for s in spec.get("stems") or [])
++        out.append((str(severity), words, stems))
++    return out
++
++
++def _match(token: str) -> tuple[str, str] | None:
++    """(severity, lexicon entry) for one normalised token, else None."""
++    allow = {str(a).lower() for a in cfg().get("allow") or []}
++    if not token or token in allow:
++        return None
++    candidates = {token, _squeeze(token), _leet(token), _squeeze(_leet(token)),
++                  re.sub(r"(.)\1+", r"\1", _leet(token))}
++    for severity, words, stems in _lexicon():
++        for c in candidates:
++            if c in allow:
++                return None
++            if c in words:
++                return severity, c
++            stem = next((s for s in stems if c.startswith(s)), None)
++            if stem:
++                return severity, stem
++    if re.fullmatch(r"[^\W\d_]{1,3}[*#@$!]{2,}[^\W\d_]*", token):
++        # a MASKED form ("f***", "m*****d"): the visible letters must fit a strong / mild entry of that length
++        head, tail = re.match(r"([^\W\d_]+)[*#@$!]+([^\W\d_]*)", token).groups()
++        for severity, words, _stems in _lexicon():
++            if any(w.startswith(head) and w.endswith(tail) and len(w) == len(token) for w in words) \
++                    or any(w.startswith(head) and len(w) >= len(token) - 1 and not tail for w in words if len(head) >= 1
++                           and token.count("*") >= 2 and len(w) == len(token)):
++                return severity, head + "*" * (len(token) - len(head))
++    return None
++
++
++def _joined_spans(text: str) -> list[tuple[str, int, int]]:
++    """Single letters split by spaces / dots / dashes ("f u c k", "m.a.d.a.r.c.h.o.d") joined into one token."""
++    out = []
++    for m in re.finditer(r"(?<!\w)(?:[^\W\d_][\s.\-_]{1,2}){2,}[^\W\d_](?!\w)", text):
++        out.append((re.sub(r"[\s.\-_]", "", m.group(0)).lower(), m.start(), m.end()))
++    return out
++
++
++def mask(word: str) -> str:
++    style = str(cfg().get("display") or "first_last")
++    if style == "hidden" or len(word) <= 2:
++        return "*" * max(3, len(word))
++    if style == "masked":
++        return word[0] + "*" * (len(word) - 1)
++    return word[0] + "*" * (len(word) - 2) + word[-1]
++
++
++def detect(text: str) -> list[Hit]:
++    """Every flagged word in the text, in order (each span once)."""
++    if not text or not enabled():
++        return []
++    original = str(text)
++    plain = unicodedata.normalize("NFKC", original).lower()
++    hits: list[Hit] = []
++    taken: list[tuple[int, int]] = []
++    for joined, start, end in _joined_spans(plain):
++        found = _match(joined)
++        if found:
++            hits.append(Hit(found[1], mask(original[start:end].replace(" ", "").replace(".", "")), found[0], start, end))
++            taken.append((start, end))
++    for m in _TOKEN.finditer(plain):
++        if any(s <= m.start() < e for s, e in taken):
++            continue
++        found = _match(m.group(0))
++        if found:
++            hits.append(Hit(found[1], mask(original[m.start():m.end()]), found[0], m.start(), m.end()))
++    return sorted(hits, key=lambda h: h.start)
++
++
++def blocked(text: str) -> list[Hit]:
++    severities = {str(s) for s in cfg().get("block_severities") or ["mild", "strong"]}
++    return [h for h in detect(text) if h.severity in severities]
++
++
++def mask_text(text: Any, *, spoken: bool = False) -> Any:
++    """
++    The text with every flagged word masked (any severity). `spoken`: the word is left out instead -- a masked
++    form read aloud would spell it. Non-strings are returned as they are.
++    """
++    if not isinstance(text, str) or not text:
++        return text
++    hits = detect(text)
++    for h in sorted(hits, key=lambda h: -h.start):
++        text = text[:h.start] + ("" if spoken else h.shown) + text[h.end:]
++    return re.sub(r"[ \t]{2,}", " ", text) if spoken and hits else text
++
++
++def mask_payload(value: Any) -> Any:
++    """Every string inside a reply / record masked (drafts, summaries, notes, exports, history)."""
++    if isinstance(value, str):
++        return mask_text(value)
++    if isinstance(value, dict):
++        return {k: mask_payload(v) for k, v in value.items()}
++    if isinstance(value, list):
++        return [mask_payload(v) for v in value]
++    return value
++
++
++# --------------------------------------------------------------------------
++# the reply
++# --------------------------------------------------------------------------
++
++def _say(key: str, lang: str, seed: int = 0, **values: Any) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    value = (cfg().get("reply") or {}).get(key) or ""
++    picked = language_lock.pick(value, lang) if isinstance(value, dict) else value
++    if isinstance(picked, list):
++        picked = picked[seed % len(picked)] if picked else ""
++    return str(picked).format(**values)
++
++
++def _language(text: str, lang: str | None) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    picked = language_lock.normalise(lang) if lang else None
++    if picked:
++        return picked
++    if re.search(r"[ऀ-ॿ]", text or ""):
++        return "hi"
++    return "en"
++
++
++def screen(message: str, subject: str, request_id: str, case_id: str | None = None, *, lang: str | None = None,
++           seed: int = 0, now: float | None = None) -> dict[str, Any] | None:
++    """
++    The finished reply when this message must not be answered at all, else None. Called FIRST on every path:
++    nothing of the message reaches the copilot, no case is read, nothing is stored as a pending intent.
++    """
++    if not enabled():
++        return None
++    now = now or time.time()
++    language = _language(message, lang)
++    with _LOCK:
++        until = _COOLDOWN.get(subject, 0.0)
++    if until > now:
++        text = _say("cooldown", language, seconds=int(until - now) + 1)
++        return _reply(request_id, case_id, "COOLDOWN", text, text, retry_after_seconds=int(until - now) + 1)
++    hits = blocked(message)
++    if not hits:
++        return None
++    from app.agents.applicant import audit
++
++    severity = max((h.severity for h in hits), key=lambda s: ["mild", "strong", "threat"].index(s)
++                   if s in ("mild", "strong", "threat") else 0)
++    with _LOCK:
++        seen = _SEEN[subject]
++        while seen and now - seen[0] > float(cfg().get("window_seconds", 600)):
++            seen.popleft()
++        seen.append(now)
++        count = len(seen)
++        cooled = count >= int(cfg().get("cooldown_after", 3))
++        if cooled:
++            _COOLDOWN[subject] = now + float(cfg().get("cooldown_seconds", 60))
++            seen.clear()
++    # the event, never the raw text: the masked word(s), the severity, the count
++    audit.record(request_id=request_id, subject=subject, applicant_id=None, case_id=case_id, intent="ABUSE",
++                 tools=[], status="BLOCKED", detail=f"severity={severity} count={count} words="
++                 + ",".join(dict.fromkeys(h.shown for h in hits)))
++    words = ", ".join(f"**{w}**" for w in dict.fromkeys(h.shown for h in hits))
++    markdown = _say("markdown", language, seed, words=words)
++    spoken = _say("tts", language, seed)
++    if cooled:
++        seconds = int(cfg().get("cooldown_seconds", 60))
++        cool = _say("cooldown", language, seconds=seconds)
++        return _reply(request_id, case_id, "COOLDOWN", markdown + "\n\n" + cool, spoken + " " + cool,
++                      retry_after_seconds=seconds)
++    return _reply(request_id, case_id, "ABUSIVE", markdown, spoken)
++
++
++def _reply(request_id: str, case_id: str | None, intent: str, markdown: str, spoken: str, **extra: Any) -> dict:
++    return {"request_id": request_id, "case_id": None, "intent": intent, "answer": markdown, "tts_override": spoken,
++            "atomic": True, "category": "CONVERSATION", "query_type": "CLARIFICATION", "response_source": "SAFETY",
++            "documents": [], "actions": [], "errors": [], "tools_invoked": [], "suggested_questions": [],
++            "guardrail": {"stage": "input", "action": "BLOCKED", "category": "ABUSE"}, **extra}
++
++
++__all__ = ["FLAG", "Hit", "blocked", "cfg", "detect", "enabled", "mask", "mask_payload", "mask_text", "reset",
++           "screen"]
+diff --git a/app/config/abuse_lexicon.yaml b/app/config/abuse_lexicon.yaml
+new file mode 100644
+index 0000000..0e29645
+--- /dev/null
++++ b/app/config/abuse_lexicon.yaml
+@@ -0,0 +1,68 @@
++# ABUSIVE / FOUL LANGUAGE (MASTER SPEC sections 16 and 19) -- ONE lexicon, read by ONE shared module
++# (app/agents/applicant/copilot/capabilities/abuse_guard.py) on every path: typed chat on both endpoints, voice text,
++# quick-button / FAQ / action text, drafts the officer edits, form fields and file names sent through chat, import
++# text, and every generated output (drafts, summaries, handoff notes, exports) before it is shown, spoken, downloaded
++# or stored.
++#
++# Matching: the text is normalised first (lower case, Unicode NFKC, leetspeak, spaced / dotted letters joined,
++# repeated letters squeezed, masked forms like f***); then WHOLE TOKENS are matched -- `words` exactly, `stems` as a
++# token prefix. `allow` wins over both (names, places, ordinary words that contain a stem).
++# Frustration words ("useless", "bakwas", "pagal") are NOT here: they are not foul language and keep their own
++# handling (semantic_concepts.yaml ABUSE, the conversation layer).
++
++enabled: true
++# a message with a hit of one of these severities is never answered (no case data, no tool, no model call)
++block_severities: [mild, strong]
++
++# how a flagged word is shown in the warning (and anywhere it must be shown): masked (m*******d), first_last
++# (m*******d -- first and last letter kept), hidden (***)
++display: first_last
++
++lexicon:
++  strong:
++    words: [fuck, fucking, fucker, fucked, motherfucker, fck, fuk, cunt, bitch, bastard, asshole, whore, slut, dickhead,
++            madarchod, maderchod, madarchot, behenchod, bahenchod, bhenchod, bhanchod, chutiya, chutiye, chutia,
++            chootiya, gandu, gaandu, bhosdike, bhosadike, bhosdi, bhosda, randi, lavde, lawde, lauda, lund, lode,
++            harami, haramkhor, mc, bc, bsdk, bkl, mkc, tmkc,
++            zavadya, jhavadya, bhadwa, bhadwe, bhadvya, aighalya, aaighalya, ghalya,
++            मादरचोद, बहनचोद, बहनचो, भेनचोद, चूतिया, चुतिया, गांडू, भोसड़ीके, भोसडीके, रंडी, हरामी, लौड़ा, लंड,
++            झवाड्या, भडवा, भडव्या, आयघाल्या, रांड]
++    stems: [fuck, motherf, madarch, maderch, behench, bahench, bhench, bhosd, chutiy, haramkh, लौड़, झवाड]
++  mild:
++    words: [shit, bullshit, dick, idiot, idiots, moron, retard, scum, kamina, kamine, kaminey, kutta, kutte, kutti,
++            ullu, gadha, gadhe, nalayak, jhatu, jhaat, tatti, कमीना, कमीने, कुत्ता, कुत्ते, उल्लू, गधा, नालायक,
++            मूर्ख, गाढव, मूर्खा]
++    stems: []
++
++# ordinary words a stem or a leetspeak reading must never flag (names, places, words)
++allow: [scunthorpe, cocktail, bcom, mca, mcom, bca, assam, assistant, passport, class, classic, pass, shitake,
++        dickens, lundy, randhir, randhawa, harmony, kuttappan, gaandiv]
++
++# leetspeak and look-alike characters (read before matching)
++leet: { "@": a, "4": a, "3": e, "1": i, "!": i, "0": o, "$": s, "5": s, "7": t, "+": t, "8": b, "|": i, "(": c }
++
++# the reply: warning + the flagged word(s) in bold, masked + the request to rephrase. 2-4 variants per language.
++reply:
++  markdown:
++    en: ["Please don't use foul language: {words}. Please rephrase your question respectfully, and I'll help.",
++         "Please don't use foul language ({words}). Ask again respectfully and I'll help right away."]
++    hi-Latn: ["Kripya gaali-galoch na karein: {words}. Apna sawal izzat se dobara poochhiye, main madad karunga.",
++              "Gaali mat dijiye ({words}). Sawal theek se poochhiye, main turant madad karunga."]
++    hi: ["कृपया अपशब्दों का प्रयोग न करें: {words}। अपना सवाल सम्मान से दोबारा पूछें, मैं मदद करूँगा।"]
++    mr: ["कृपया अपशब्द वापरू नका: {words}. तुमचा प्रश्न आदराने पुन्हा विचारा, मी मदत करेन."]
++  # spoken: the warning only -- never the word, never spelled
++  tts:
++    en: ["Please don't use foul language. Please rephrase your question respectfully, and I'll help."]
++    hi-Latn: ["Kripya gaali-galoch na karein. Apna sawal izzat se dobara poochhiye."]
++    hi: ["कृपया अपशब्दों का प्रयोग न करें। अपना सवाल सम्मान से दोबारा पूछें।"]
++    mr: ["कृपया अपशब्द वापरू नका. तुमचा प्रश्न आदराने पुन्हा विचारा."]
++  cooldown:
++    en: "Let's take a short break -- you can ask again in {seconds} seconds."
++    hi-Latn: "Thoda ruk jaate hain -- {seconds} second baad dobara poochhiye."
++    hi: "थोड़ा रुकते हैं -- {seconds} सेकंड बाद दोबारा पूछें।"
++    mr: "थोडा विराम घेऊया -- {seconds} सेकंदांनी पुन्हा विचारा."
++
++# repeated abuse: this many flagged messages inside the window -> a cooldown of `cooldown_seconds`
++cooldown_after: 3
++window_seconds: 600
++cooldown_seconds: 60
+diff --git a/app/agents/applicant/copilot/answering/contract.py b/app/agents/applicant/copilot/answering/contract.py
+new file mode 100644
+index 0000000..eb087e8
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/contract.py
+@@ -0,0 +1,543 @@
++"""
++THE REPLY CONTRACT (MASTER SPEC section 8; flag COPILOT_MD_TTS_CONTRACT, config app/config/copilot_reply.yaml).
++
++Every chat reply of BOTH endpoints (and the stream's final event) is exactly
++
++    {"request_id": "...", "markdown": "...", "tts": "..."}
++
++THE SHAPE IS CODE, never configurable (section 14). The words, link labels, limits and spoken forms are config.
++
++MARKDOWN is what the screen shows: the answer as the pipeline already wrote it (fact-checked, masked, in the
++locked language), in the professional format (no emojis, one "Next step:" line), with every interactive item as
++a link -- [Label](action:<name>?k=v) from ONE registry (`action_links`), or [Question](ask:<text>). Each item once.
++
++TTS is what the voice reads, made FROM that markdown only (so its facts are a subset of the screen's): the direct
++answer, the lists summarised by status, the next step; at most `tts.max_sentences`; no markdown, links, tables or
++symbols; ids shortened ("case ending 38A9"), amounts and dates spoken.
++
++NOTHING IS ADDED THAT THE PIPELINE DID NOT SAY: this layer only re-renders the reply it is given.
++"""
++
++from __future__ import annotations
++
++import logging
++import os
++import re
++import threading
++import time
++from pathlib import Path
++from typing import Any
++from urllib.parse import parse_qsl, quote, unquote
++
++import yaml
++
++FLAG = "COPILOT_MD_TTS_CONTRACT"
++_ON = {"1", "true", "yes", "on"}
++_PATH = Path(__file__).resolve().parents[4] / "config" / "copilot_reply.yaml"
++_CACHE: dict[str, Any] = {"mtime": None, "data": {}}
++_LOCK = threading.Lock()
++_log = logging.getLogger(__name__)
++
++#: a link the frontend turns into a button: [label](action:name?x=y) / [label](ask:text)
++LINK = re.compile(r"\[([^\]]+)\]\(((?:action|ask):[^)\s]*)\)")
++_ID = re.compile(r"\b(COAPP|CASE|APP)-([0-9A-Z]{4,})\b", re.I)
++_AMOUNT = re.compile(r"(?:₹|\bRs\.?|\bINR)\s?(\d[\d,]*(?:\.\d+)?)", re.I)
++_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})(?:[T ][\d:.]+(?:Z|[+-]\d\d:?\d\d)?)?\b")
++_STATUS = re.compile(r"\*\*([A-Z_]{3,})\*\*")
++
++
++# --------------------------------------------------------------------------
++# config
++# --------------------------------------------------------------------------
++
++def cfg() -> dict[str, Any]:
++    """copilot_reply.yaml, re-read when the file changes (a config edit is followed without a restart)."""
++    try:
++        mtime = _PATH.stat().st_mtime
++    except OSError:
++        return {}
++    with _LOCK:
++        if _CACHE["mtime"] != mtime:
++            _CACHE["data"] = yaml.safe_load(_PATH.read_text(encoding="utf-8")) or {}
++            _CACHE["mtime"] = mtime
++        return _CACHE["data"]
++
++
++def enabled() -> bool:
++    value = os.getenv(FLAG)
++    if value is not None and value.strip():
++        return value.strip().lower() in _ON
++    return bool(cfg().get("enabled", False))
++
++
++def _language(reply: dict[str, Any] | None = None) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    locked = language_lock.current()
++    if locked:
++        return locked
++    contract = (reply or {}).get("language_contract") if isinstance(reply, dict) else None
++    if isinstance(contract, dict) and contract.get("response_language"):
++        return str(contract["response_language"])
++    return "en"
++
++
++def _pick(value: Any, lang: str) -> Any:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    if isinstance(value, dict) and not any(k in value for k in ("en", "hi", "hi-Latn", "mr", "default")):
++        return value
++    return language_lock.pick(value, lang) if isinstance(value, dict) else value
++
++
++# --------------------------------------------------------------------------
++# action links -- one registry
++# --------------------------------------------------------------------------
++
++def registry() -> dict[str, dict[str, Any]]:
++    return cfg().get("action_links") or {}
++
++
++def _encode(text: str) -> str:
++    return quote(str(text), safe="?=&,:'-_.~!*/@")
++
++
++def link(name: str, lang: str = "en", label: str | None = None, **params: Any) -> str:
++    """[Label](action:name?k=v) for a REGISTERED action; an unknown name is a programming error."""
++    spec = registry().get(name)
++    if spec is None:
++        raise KeyError(f"action link '{name}' is not in copilot_reply.yaml action_links")
++    wanted = [p for p in spec.get("params") or [] if params.get(p) not in (None, "")]
++    query = "&".join(f"{p}={_encode(params[p])}" for p in wanted)
++    if label is None:
++        label = str(_pick(spec.get("labels") or name, lang)).format(**{k: v for k, v in params.items()})
++    return f"[{label}](action:{name}{'?' + query if query else ''})"
++
++
++def ask(question: str) -> str:
++    """[Question](ask:Question) -- the frontend sends the text as the next message."""
++    text = " ".join(str(question).split())
++    return f"[{text}](ask:{_encode(text)})"
++
++
++def parse(href: str) -> tuple[str, str, dict[str, str]]:
++    """('action'|'ask', name-or-text, params) of a link target."""
++    scheme, _, rest = str(href or "").partition(":")
++    if scheme == "ask":
++        return "ask", unquote(rest), {}
++    name, _, query = rest.partition("?")
++    return scheme, name, {k: v for k, v in parse_qsl(query)}
++
++
++def request_for(href: str) -> dict[str, Any] | None:
++    """
++    The request body an action link stands for (registry `request`, parameters filled), or None when it is not a
++    server action (unknown, client-only). The caller still goes through the ordinary route -- scope is re-checked
++    there on every action, never here.
++    """
++    scheme, name, params = parse(href)
++    if scheme == "ask":
++        return {"action": "CUSTOM_QUERY", "message": name}
++    spec = registry().get(name)
++    if scheme != "action" or not spec:
++        return None
++    body = spec.get("request") or {}
++    if body.get("client_only") or body.get("method"):
++        return None
++    if any(p not in params for p in spec.get("params") or []):
++        return None
++    return {k: (str(v).format(**params) if isinstance(v, str) else v) for k, v in body.items()}
++
++
++# --------------------------------------------------------------------------
++# markdown
++# --------------------------------------------------------------------------
++
++def _clean(text: str) -> str:
++    """The professional format: no pictographs, bullets for icon rows, one "Next step:" line, no raw codes."""
++    from app.agents.applicant.copilot.answering import professional
++
++    return _labels(professional.strip_emojis(professional._bulleted(professional._next_step(str(text or "")))))
++
++
++_CODE = re.compile(r"\b[A-Z]{2,}(?:_[A-Z]{2,})+\b")
++
++
++def _labels(text: str) -> str:
++    """A configured document code ("ADDRESS_PROOF") is shown as its label ("Address Proof") -- never a raw code."""
++    from app.agents.applicant import config
++    from app.agents.applicant.copilot.answering.answer import _readable
++
++    known = {str(t).upper() for t in config.document_types() or []}
++    for product in config.products() or []:
++        for item in config.checklist_for(product) or []:
++            known |= {str(item.get(k)).upper() for k in ("slot", "document_type", "code") if item.get(k)}
++    return _CODE.sub(lambda m: _readable(m.group(0)) if m.group(0) in known else m.group(0), text)
++
++
++def _rows(reply: dict[str, Any]) -> list[dict[str, Any]]:
++    for holder in (reply.get("presentation"), reply.get("workspace_view")):
++        if isinstance(holder, dict) and isinstance(holder.get("case_list"), list):
++            return [r for r in holder["case_list"] if isinstance(r, dict) and r.get("case_id")]
++    return []
++
++
++def _workspace(reply: dict[str, Any]) -> dict[str, Any] | None:
++    for holder in (reply.get("presentation"), reply.get("workspace_view")):
++        if isinstance(holder, dict) and isinstance(holder.get("workspace"), dict):
++            return holder["workspace"]
++    return None
++
++
++def _link_options(text: str, options: list[str]) -> str:
++    """"1. Option" lines of a clarification become "1. [Option](ask:Option)" (each option once)."""
++    lines = text.split("\n")
++    done: set[str] = set()
++    for i, line in enumerate(lines):
++        m = re.match(r"^(\s*\d+\.\s+)(.+?)\s*$", line)
++        if m and m.group(2) in options and m.group(2) not in done:
++            lines[i] = m.group(1) + ask(m.group(2))
++            done.add(m.group(2))
++    rest = [o for o in options if o not in done]
++    if rest:
++        lines += [f"{n}. {ask(o)}" for n, o in enumerate(rest, len(done) + 1)]
++    return "\n".join(lines)
++
++
++def _action_links(reply: dict[str, Any], lang: str) -> list[str]:
++    out: list[str] = []
++    for a in reply.get("actions") or []:
++        if not isinstance(a, dict):
++            continue
++        kind = str(a.get("type") or "").upper()
++        if kind == "OPEN_URL" and a.get("document_id"):
++            out.append(link("view_document", lang, id=a["document_id"], doc_label=a.get("label") or ""))
++        elif kind == "RAISE_QUERY":
++            ref = (a.get("query") or {}).get("draft_id") or (a.get("query") or {}).get("ref") or "draft"
++            out.append(link("raise_query", lang, ref=ref))
++        elif kind == "MARK_QUERY_SENT" and a.get("query_id"):
++            out.append(link("mark_query_sent", lang, id=a["query_id"]))
++        elif kind == "COPY_TEXT":
++            out.append(link("copy", lang, ref="draft-1"))
++        elif kind == "OPEN_UI_NEW_CASE":
++            out.append(link("new_case", lang))
++    da = reply.get("document_actions") if isinstance(reply.get("document_actions"), dict) else {}
++    party_of = {"PRIMARY_APPLICANT": "applicant", "APPLICANT": "applicant", "CO_APPLICANT": "co_applicant"}
++    for row in (da.get("reupload") or []) + (da.get("pending") or []):
++        if isinstance(row, dict) and (row.get("document_type") or row.get("slot")):
++            doc = row.get("document_type") or row.get("slot")
++            out.append(link("upload", lang, doc=doc, party=party_of.get(str(row.get("party") or "").upper(),
++                                                                           "applicant"),
++                            doc_label=row.get("label") or doc))
++    for row in da.get("under_review") or []:
++        if isinstance(row, dict) and row.get("document_id"):
++            out.append(link("view_document", lang, id=row["document_id"], doc_label=row.get("label") or ""))
++    note = reply.get("handoff_note") if isinstance(reply.get("handoff_note"), dict) else None
++    if note and reply.get("case_id") and (note.get("ready") or reply.get("intent") == "HANDOFF_NOTE"):
++        # the note is attached only for a ready case (handoff_note.attach); its download is the registry link
++        out.append(link("handoff_note", lang, case=reply["case_id"]))
++    if reply.get("intent") == "CASE_LIST" and (reply.get("presentation") or reply.get("workspace_view") or {}) \
++            .get("has_more"):
++        out.append(link("list_more", lang))
++    if _workspace(reply):
++        out += [link("exit_case", lang), link("switch_case", lang)]
++    return out
++
++
++def _case_table(rows: list[dict[str, Any]], lang: str) -> list[str]:
++    head = _pick((cfg().get("markdown") or {}).get("case_table_headers")
++                 or {"en": ["#", "Case", "Applicant", "Stage", "Status", ""]}, lang)
++    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
++    for r in rows:
++        who = " ".join(x for x in (str(r.get("applicant_name") or ""),
++                                   f"({r['applicant_id']})" if r.get("applicant_id") else "") if x)
++        cells = [str(r.get("number") or ""), str(r["case_id"]), who,
++                 str(r.get("stage") or ""), _clean(str(r.get("status_label") or "")).strip(),
++                 link("open_case", lang, id=r["case_id"])]
++        lines.append("| " + " | ".join(c.replace("|", "/") for c in cells) + " |")
++    return lines
++
++
++def markdown(reply: dict[str, Any]) -> str:
++    return _render(reply)[0]
++
++
++def _render(reply: dict[str, Any]) -> tuple[str, str]:
++    """(the whole markdown, the answer body alone -- what the voice reads from)."""
++    lang = _language(reply)
++    from app.agents.applicant.copilot.answering import professional
++
++    answer, marked = str(reply.get("answer") or ""), str(reply.get("answer_markdown") or "")
++    # the bold version only when it says the same as the answer (a later step may have extended the answer)
++    same = marked and " ".join(professional.plain(_clean(marked)).split()) == " ".join(
++        professional.plain(_clean(answer)).split())
++    text = marked if same else answer or marked
++    if reply.get("markdown") and not text:
++        text = str(reply["markdown"])
++    text = _clean(text)
++    clar = reply.get("clarification_required") if isinstance(reply.get("clarification_required"), dict) else None
++    # only a clarification the answer still asks (a later step may have replaced the answer)
++    options = [str(o) for o in (clar or {}).get("options") or []
++               if str(clar.get("question") or "").strip() and str(clar.get("question")).strip() in text]
++    rows = _rows(reply)
++    if rows and not options and "](action:open_case" not in text:
++        # the list's row lines -- and the applicant group lines, whose ids the table shows -- become ONE table
++        # with an Open link per row
++        ids = {r["case_id"] for r in rows} | {str(r.get("applicant_id")) for r in rows if r.get("applicant_id")}
++        kept = [ln for ln in text.split("\n") if not any(i in ln for i in ids)]
++        head, tail = kept[:1], [ln for ln in kept[1:] if ln.strip()]
++        text = "\n".join(head + [""] + _case_table(rows, lang) + ([""] + tail if tail else []))
++    if options:
++        text = _link_options(text, options)
++    body = dedupe(text)
++    blocks = [text.rstrip()]
++    faq_block = str(reply.get("faq_block") or "").strip()
++    if faq_block:
++        blocks.append(_clean(faq_block))         # the FAQ for this state (section 7), after the answer / review
++    links = [ln for ln in _action_links(reply, lang) if ln not in text]
++    if links:
++        label = str(_pick((cfg().get("markdown") or {}).get("actions_label") or "", lang) or "")
++        blocks.append(((label + "\n") if label else "") + " · ".join(dict.fromkeys(links)))
++    if not options and not faq_block:
++        limit = int((cfg().get("markdown") or {}).get("max_suggestions", 3))
++        asked = [q for q in reply.get("suggested_questions") or [] if isinstance(q, str) and q.strip()]
++        ws = _workspace(reply)
++        if ws:
++            asked += [b.get("message") for b in ws.get("buttons") or [] if isinstance(b, dict)
++                      and b.get("type") == "ask" and b.get("message")]
++        said = text.lower()
++        asked = [q for q in dict.fromkeys(_clean(q).strip() for q in asked) if q and q.lower() not in said
++                 and not re.fullmatch(r"\d+", q)][:limit]
++        if asked:
++            label = str(_pick((cfg().get("markdown") or {}).get("suggestions_label") or "", lang) or "")
++            blocks.append(((label + "\n") if label else "") + "\n".join(f"- {ask(q)}" for q in asked))
++    return dedupe("\n\n".join(b for b in blocks if b.strip())), body
++
++
++def dedupe(text: str) -> str:
++    """No sentence said twice: a repeated non-empty line (case-, space- and marker-insensitive) is dropped."""
++    seen: set[str] = set()
++    out: list[str] = []
++    for line in str(text or "").split("\n"):
++        key = re.sub(r"[\s*_>#-]+", " ", line).strip().lower()
++        if key and not key.startswith("|") and key in seen:
++            continue
++        if key:
++            seen.add(key)
++        out.append(line)
++    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
++
++
++# --------------------------------------------------------------------------
++# tts
++# --------------------------------------------------------------------------
++
++def _tts_cfg() -> dict[str, Any]:
++    return cfg().get("tts") or {}
++
++
++def _spell(n: int, lang: str) -> str:
++    words = ((_tts_cfg().get("number_words") or {}).get(lang) or {})
++    ones, tens = words.get("ones") or [], words.get("tens") or []
++    if not ones or n < 0 or n >= 100:
++        return str(n)
++    if n < len(ones):
++        return str(ones[n])
++    t, o = divmod(n, 10)
++    return str(tens[t]) + (f"-{ones[o]}" if o else "")
++
++
++def _say_amount(raw: str, lang: str) -> str:
++    rule = (_tts_cfg().get("amounts") or {}).get(lang) or (_tts_cfg().get("amounts") or {}).get("en") or {}
++    try:
++        value = float(raw.replace(",", ""))
++    except ValueError:
++        return raw
++    spell = bool(rule.get("spell"))
++    parts: list[str] = []
++    rest = int(round(value))
++    for size, word in rule.get("scales") or []:
++        count, rest = divmod(rest, int(size))
++        if count:
++            parts.append(f"{_spell(count, lang) if spell else count} {word}")
++    if rest or not parts:
++        parts.append(_spell(rest, lang) if spell else str(rest))
++    return " ".join(parts) + f" {rule.get('rupees', '')}".rstrip()
++
++
++def _say_id(m: re.Match, lang: str) -> str:
++    words = (_tts_cfg().get("id_words") or {}).get(m.group(1).upper()) or m.group(1)
++    tail = int(_tts_cfg().get("id_tail", 4))
++    return f"{_pick(words, lang)} {m.group(2)[-tail:].upper()}"
++
++
++def _say_date(m: re.Match, lang: str) -> str:
++    months = (_tts_cfg().get("months") or {}).get(lang) or (_tts_cfg().get("months") or {}).get("en") or []
++    year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
++    if not (1 <= month <= 12) or len(months) < 12:
++        return m.group(0)
++    return str(_tts_cfg().get("date_format", "{day} {month} {year}")).format(day=day, month=months[month - 1],
++                                                                           year=year)
++
++
++def speakable(text: str, lang: str) -> str:
++    """One line as plain spoken words: no markdown, links, ids by character, raw amounts / dates / symbols."""
++    s = LINK.sub("", str(text or ""))
++    s = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", s)
++    s = _DATE.sub(lambda m: _say_date(m, lang), s)
++    s = _AMOUNT.sub(lambda m: _say_amount(m.group(1), lang), s)
++    s = _ID.sub(lambda m: _say_id(m, lang), s)
++    for symbol, word in (((_tts_cfg().get("symbols") or {}).get(lang)) or {}).items():
++        s = s.replace(symbol, word)
++    s = re.sub(r"\s+--\s+", ", ", s)
++    s = re.sub(r"[*_`#>|~^\\{}\[\]<>=+@$]", " ", s)
++    s = re.sub(r"(?<=\w)-(?=\w)", "-", s)
++    s = re.sub(r"\s-\s|^\s*-\s*", " ", s)
++    s = re.sub(r"\s+([,.;:!?।])", r"\1", " ".join(s.split()))
++    return s.strip(" ,;")
++
++
++def _sentence(text: str) -> str:
++    text = text.strip()
++    return text if not text or text[-1] in ".!?।" else text + "."
++
++
++def _join(items: list[str], lang: str) -> str:
++    word = _pick(_tts_cfg().get("and_word") or "and", lang)
++    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + f" {word} " + items[-1]
++
++
++def tts(md: str, lang: str | None = None) -> str:
++    """The spoken version of the markdown: answer line, list summaries by status, next step (max sentences)."""
++    lang = lang or _language()
++    cfg_t = _tts_cfg()
++    limit = int(cfg_t.get("max_sentences", 3))
++    first, next_step, heading = None, None, ""
++    groups: dict[tuple[str, str], list[str]] = {}
++    loose: list[str] = []                              # bullets with no status word: spoken as they are
++    known = {str(k).upper() for k in (cfg_t.get("status_words") or {})}
++    from app.agents.applicant.copilot.answering import professional
++
++    step_label = str((professional._cfg() or {}).get("next_step_label") or "Next step:").rstrip(":").lower()
++    for raw in str(md or "").split("\n"):
++        line = raw.strip()
++        if not line or line.startswith("|") or not LINK.sub("", line).strip(" -·:"):
++            continue
++        plain = re.sub(r"\*\*|__", "", line)
++        if plain.lower().startswith(step_label):
++            next_step = next_step or line
++            continue
++        if _ID.fullmatch(plain.strip()):
++            continue                                   # the active-case line: the screen shows it, never read
++        if line.startswith(("-", "•")) or re.match(r"^\d+\.\s", line):
++            status = next((m.upper() for m in re.findall(r"\*\*([^*]+)\*\*", line) if m.upper() in known), None)
++            parts = re.split(r":|\s--\s", re.sub(r"^(?:[-•]|\d+\.)\s*", "", plain), maxsplit=1)
++            name = parts[0].strip().rstrip(".")
++            # a "name: STATUS" row only (a sentence that merely contains a status word is spoken as it is)
++            status = status if len(parts) == 2 and status and status.lower() not in name.lower() else None
++            if status and name:
++                groups.setdefault((heading, status), []).append(speakable(name, lang))
++            elif not status:
++                loose.append(re.sub(r"^(?:[-•]|\d+\.)\s*", "", line))
++            continue
++        if line.startswith(">"):
++            continue                                   # a quoted draft: on screen to copy, not read aloud
++        if first is not None and (re.fullmatch(r"\*\*[^*]+\*\*.*", line) or plain.endswith(":")):
++            heading = speakable(re.sub(r"\(.*?\)", "", plain), lang).rstrip(":")    # a section: groups apart
++            continue
++        if first is None:
++            first = line
++    sentences = [_sentence(speakable(first, lang).rstrip(":"))] if first else []
++    if not groups:
++        # an answer made of plain points ("- PAN is verified."): the points are the answer
++        sentences += [_sentence(speakable(x, lang).rstrip(":")) for x in loose[:limit]]
++    sentences = [re.sub(r"([.!?।])\1+$", r"\1", s) for s in sentences]
++    words = cfg_t.get("status_words") or {}
++    template = _pick(cfg_t.get("list_summary") or "{status}: {items}.", lang)
++    for n, ((section, status), items) in enumerate(groups.items()):
++        label = _pick(words.get(status), lang) if words.get(status) else status.title()
++        if n and section:
++            label = f"{section}, {label.lower()}"          # a later section names itself
++        sentences.append(str(template).format(status=label, items=_join(list(dict.fromkeys(items)), lang)))
++    if next_step:
++        spoken = _sentence(speakable(next_step, lang))
++        sentences = sentences[:max(limit - 1, 1)] + [spoken]
++    return " ".join(s for s in sentences[:limit] if s.strip(" .")).strip()
++
++
++# --------------------------------------------------------------------------
++# the published reply
++# --------------------------------------------------------------------------
++
++def publish(reply: Any, request_id: str | None = None) -> Any:
++    """{request_id, markdown, tts} when the contract is on, else the reply unchanged."""
++    if not enabled():
++        return reply
++    if hasattr(reply, "model_dump"):
++        reply = reply.model_dump()
++    if not isinstance(reply, dict):
++        return reply
++    if reply.get("atomic") and reply.get("tts_override"):
++        # a blocked message (abuse_guard, section 16): the warning exactly as written; the voice says the warning
++        # only, from its own template -- never the word, never spelled
++        return {"request_id": str(reply.get("request_id") or request_id or ""),
++                "markdown": str(reply.get("answer") or ""), "tts": str(reply["tts_override"])}
++    followed = reply.get("followed_up")
++    if isinstance(followed, dict) and followed.get("interpreted_as"):
++        # MASTER SPEC section 4: the follow-up as typed and as rewritten (the reply no longer carries it), masked
++        from app.agents.applicant.copilot.capabilities import abuse_guard
++        from app.security import sensitivity
++
++        _log.info("follow-up request_id=%s original=%r rewritten=%r reason=%s", reply.get("request_id"),
++                  abuse_guard.mask_text(sensitivity.mask_identifiers(str(followed.get("original_message") or ""))),
++                  abuse_guard.mask_text(sensitivity.mask_identifiers(str(followed.get("interpreted_as") or ""))),
++                  followed.get("reason"))
++    from app.agents.applicant.copilot.capabilities import abuse_guard
++
++    md, body = _render(reply)
++    # generated text (drafts, summaries, notes, quoted messages) never carries a flagged word, on screen or spoken
++    md, body = abuse_guard.mask_text(md), abuse_guard.mask_text(body, spoken=True)
++    return {"request_id": str(reply.get("request_id") or request_id or ""), "markdown": md,
++            "tts": tts(body, _language(reply))}
++
++
++# --------------------------------------------------------------------------
++# chat memory: the context the reply no longer carries
++# --------------------------------------------------------------------------
++
++_MEMORY: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
++
++
++def _chat_key(subject: str, chat_id: str | None) -> tuple[str, str]:
++    return str(subject or "anonymous"), str(chat_id or "default")
++
++
++def remember(subject: str, chat_id: str | None, context: Any) -> None:
++    if not isinstance(context, dict) or not context:
++        return
++    mem = cfg().get("memory") or {}
++    with _LOCK:
++        if len(_MEMORY) >= int(mem.get("max_chats", 5000)):
++            for key, _ in sorted(_MEMORY.items(), key=lambda kv: kv[1][0])[: max(1, len(_MEMORY) // 10)]:
++                _MEMORY.pop(key, None)
++        _MEMORY[_chat_key(subject, chat_id)] = (time.time() + float(mem.get("ttl_seconds", 1800)), dict(context))
++
++
++def recall(subject: str, chat_id: str | None) -> dict[str, Any] | None:
++    with _LOCK:
++        found = _MEMORY.get(_chat_key(subject, chat_id))
++        if not found:
++            return None
++        if found[0] < time.time():
++            _MEMORY.pop(_chat_key(subject, chat_id), None)
++            return None
++        return dict(found[1])
++
++
++def forget(subject: str, chat_id: str | None) -> None:
++    with _LOCK:
++        _MEMORY.pop(_chat_key(subject, chat_id), None)
++
++
++__all__ = ["FLAG", "LINK", "ask", "cfg", "dedupe", "enabled", "forget", "link", "markdown", "parse", "publish",
++           "recall", "registry", "remember", "request_for", "speakable", "tts"]
+diff --git a/app/agents/applicant/copilot/answering/realtime.py b/app/agents/applicant/copilot/answering/realtime.py
+new file mode 100644
+index 0000000..7d0f1e4
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/realtime.py
+@@ -0,0 +1,284 @@
++"""
++REAL-TIME CONVERSATION (MASTER SPEC section 11; config app/config/copilot_reply.yaml `realtime`, `changes`,
++`greeting`). Rides on the reply contract (COPILOT_MD_TTS_CONTRACT).
++
++    STREAM      `typing` at once -> ONE generic `status` only when slow -> `delta` chunks of the markdown (answer
++                line, points, tables / links) -> `final` {request_id, markdown, tts}. `cancelled` when a newer
++                message (or stop) for the same chat supersedes it.
++    REPLAY      the final reply of a request, by request_id, for its own subject (reconnect).
++    IDEMPOTENT  the same Idempotency-Key from the same subject within the window returns the stored reply.
++    CHANGES     what changed on a case since this chat last looked (document statuses, from the store) -- said on
++                open ("Since your last check: PAN verified.") and pushed by GET /copilot/updates for watched cases.
++    GREETING    "hi" on a new chat: what needs attention across the caller's cases (the case-list counts).
++
++In-process state (one worker; the open item says so). Nothing here changes data.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import json
++import threading
++import time
++from typing import Any, AsyncIterator, Awaitable, Callable
++
++_LOCK = threading.Lock()
++_ACTIVE: dict[tuple[str, str], str] = {}                          # (subject, chat) -> the newest request_id
++_REPLAY: dict[str, tuple[float, str, dict[str, Any]]] = {}        # request_id -> (expiry, subject, reply)
++_IDEMPOTENT: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
++_SEEN: dict[tuple[str, str, str], dict[str, str]] = {}            # (subject, chat, case) -> doc type -> status
++
++
++def _cfg() -> dict[str, Any]:
++    from app.agents.applicant.copilot.answering import contract
++
++    return contract.cfg()
++
++
++def _rt() -> dict[str, Any]:
++    return _cfg().get("realtime") or {}
++
++
++def _say(value: Any, lang: str, seed: int = 0, **values: Any) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    picked = language_lock.pick(value, lang) if isinstance(value, dict) else value
++    if isinstance(picked, list):
++        picked = picked[seed % len(picked)] if picked else ""
++    return str(picked or "").format(**values)
++
++
++# --------------------------------------------------------------------------
++# cancel / replay / idempotency
++# --------------------------------------------------------------------------
++
++def start(subject: str, chat_id: str | None, request_id: str) -> None:
++    """This request is now the chat's current one: an older reply still streaming is cancelled."""
++    with _LOCK:
++        _ACTIVE[(subject, chat_id or "default")] = request_id
++
++
++def stop(subject: str, chat_id: str | None) -> None:
++    with _LOCK:
++        _ACTIVE[(subject, chat_id or "default")] = "stopped"
++
++
++def current(subject: str, chat_id: str | None, request_id: str) -> bool:
++    with _LOCK:
++        return _ACTIVE.get((subject, chat_id or "default"), request_id) == request_id
++
++
++def keep(subject: str, reply: dict[str, Any], idempotency_key: str | None = None) -> None:
++    now = time.time()
++    with _LOCK:
++        for rid in [r for r, v in _REPLAY.items() if v[0] < now]:
++            _REPLAY.pop(rid, None)
++        if reply.get("request_id"):
++            _REPLAY[str(reply["request_id"])] = (now + float(_rt().get("replay_ttl_seconds", 600)), subject, reply)
++        if idempotency_key:
++            _IDEMPOTENT[(subject, idempotency_key)] = (now + float(_rt().get("idempotency_ttl_seconds", 600)), reply)
++
++
++def replay(subject: str, request_id: str) -> dict[str, Any] | None:
++    with _LOCK:
++        found = _REPLAY.get(request_id)
++    if not found or found[0] < time.time() or found[1] != subject:
++        return None                                    # unknown, expired, or another subject's: the same None
++    return found[2]
++
++
++def idempotent(subject: str, key: str | None) -> dict[str, Any] | None:
++    if not key:
++        return None
++    with _LOCK:
++        found = _IDEMPOTENT.get((subject, key))
++    return found[1] if found and found[0] >= time.time() else None
++
++
++# --------------------------------------------------------------------------
++# the stream
++# --------------------------------------------------------------------------
++
++def _event(name: str, data: dict[str, Any]) -> str:
++    return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
++
++
++def chunks(markdown: str) -> list[str]:
++    """The markdown in reading order: the answer line, then each point / paragraph, then a table whole."""
++    out: list[str] = []
++    table: list[str] = []
++    for line in str(markdown or "").split("\n"):
++        if line.startswith("|"):
++            table.append(line)
++            continue
++        if table:
++            out.append("\n".join(table) + "\n")
++            table = []
++        out.append(line + "\n")
++    if table:
++        out.append("\n".join(table) + "\n")
++    if out:
++        out[-1] = out[-1].rstrip("\n")
++    return out
++
++
++async def events(answer: Callable[[], Awaitable[Any]], *, subject: str, chat_id: str | None, request_id: str,
++                 lang: str, atomic: bool = False) -> AsyncIterator[str]:
++    """`atomic`: a blocked message (abuse_guard) -- no status event, the warning as ONE delta, never word by word."""
++    from app.agents.applicant.copilot.answering import streaming
++
++    started = time.perf_counter()
++    ms = lambda: round((time.perf_counter() - started) * 1000, 1)  # noqa: E731
++    start(subject, chat_id, request_id)
++    if _rt().get("typing_event", True):
++        yield _event("typing", {"request_id": request_id, "ms": ms()})
++    task = asyncio.ensure_future(answer())
++    status_after = float(_rt().get("status_after_ms", 700)) / 1000.0
++    said_status = False
++    while True:
++        done, _ = await asyncio.wait({task}, timeout=0.1)
++        if done:
++            break
++        if not current(subject, chat_id, request_id):
++            task.cancel()
++            yield _event("cancelled", {"request_id": request_id, "ms": ms()})
++            return
++        if not atomic and not said_status and (time.perf_counter() - started) >= status_after:
++            said_status = True                          # one GENERIC line: it names nothing that is being read
++            yield _event("status", {"request_id": request_id, "text": _say(_rt().get("status_text"), lang),
++                                    "ms": ms()})
++    try:
++        result = task.result()
++    except Exception as exc:  # noqa: BLE001 - an HTTP refusal becomes an error event, never a dropped stream
++        yield _event("error", {"request_id": request_id, "status": getattr(exc, "status_code", 500),
++                               "detail": getattr(exc, "detail", None) or {"error": type(exc).__name__}})
++        return
++    if not isinstance(result, dict) or "markdown" not in result:
++        # the old envelope (contract off): the earlier `answer` event
++        async for line in streaming.events(lambda: _done(result), ""):
++            if not line.startswith("event: status"):
++                yield line
++        return
++    pause = float(_rt().get("delta_pause_ms", 15)) / 1000.0
++    first_text_ms = None
++    for piece in ([result["markdown"]] if atomic else chunks(result["markdown"])):
++        if not current(subject, chat_id, request_id):
++            yield _event("cancelled", {"request_id": request_id, "ms": ms()})
++            return
++        first_text_ms = first_text_ms if first_text_ms is not None else ms()
++        yield _event("delta", {"request_id": request_id, "markdown": piece})
++        if pause:
++            await asyncio.sleep(pause)
++    streaming.logger.info("copilot_stream request_id=%s first_text_ms=%s total_ms=%s", request_id, first_text_ms, ms())
++    yield _event("final", {**result, "latency": {"first_text_ms": first_text_ms, "total_ms": ms()}})
++
++
++async def _done(value: Any) -> Any:
++    return value
++
++
++# --------------------------------------------------------------------------
++# changes since the last look
++# --------------------------------------------------------------------------
++
++def snapshot(case_id: str) -> dict[str, str]:
++    """Document type -> status, now (superseded rows left out)."""
++    from app.store import get_repository
++
++    out: dict[str, str] = {}
++    for d in get_repository().list_documents(case_id) or []:
++        status = str(getattr(getattr(d, "status", ""), "value", getattr(d, "status", ""))).upper()
++        if status != "SUPERSEDED":
++            out[str(d.document_type).upper()] = status
++    return out
++
++
++def _diff(before: dict[str, str], after: dict[str, str], lang: str) -> list[str]:
++    from app.agents.applicant.copilot.answering.answer import _readable
++
++    words = (_cfg().get("changes") or {}).get("status_words") or {}
++    out = []
++    for doc, status in after.items():
++        if before.get(doc) != status and status in words:
++            out.append(f"{_readable(doc)} {_say(words[status], lang)}")
++    return out
++
++
++def since_last(subject: str, chat_id: str | None, case_id: str, lang: str) -> str | None:
++    """The line said on open when something changed since this chat last looked at the case (then remembered)."""
++    key = (subject, chat_id or "default", case_id)
++    now = snapshot(case_id)
++    with _LOCK:
++        before = _SEEN.get(key)
++        _SEEN[key] = now
++    if before is None:
++        return None
++    changed = _diff(before, now, lang)
++    if not changed:
++        return None
++    return _say((_cfg().get("changes") or {}).get("since_last"), lang, changes=", ".join(changed))
++
++
++def watch(subject: str, chat_id: str | None, case_id: str) -> None:
++    """Remember what this chat has seen on the case (an answer about it was just given)."""
++    with _LOCK:
++        _SEEN[(subject, chat_id or "default", case_id)] = snapshot(case_id)
++
++
++def updates(subject: str, chat_id: str | None, lang: str) -> list[dict[str, Any]]:
++    """A pushed message per watched case of this chat whose documents changed since it was last seen."""
++    import uuid
++
++    messages = []
++    with _LOCK:
++        watched = [(k, v) for k, v in _SEEN.items() if k[0] == subject and k[1] == (chat_id or "default")]
++    for (s, c, case_id), before in watched:
++        now = snapshot(case_id)
++        changed = _diff(before, now, lang)
++        if not changed:
++            continue
++        with _LOCK:
++            _SEEN[(s, c, case_id)] = now
++        from app.agents.applicant.copilot.answering import contract
++
++        md = _say((_cfg().get("changes") or {}).get("update"), lang, case_id=case_id, changes=", ".join(changed))
++        reply = {"request_id": f"upd_{uuid.uuid4().hex}", "markdown": md, "tts": contract.tts(md, lang)}
++        keep(subject, reply)
++        messages.append(reply)
++    return messages
++
++
++# --------------------------------------------------------------------------
++# greeting
++# --------------------------------------------------------------------------
++
++def is_greeting(text: str) -> bool:
++    import re
++
++    words = re.sub(r"[^\w\sऀ-ॿ]", " ", str(text or "").lower()).split()
++    phrases = {" ".join(str(p).lower().split()) for p in (_cfg().get("greeting") or {}).get("phrases") or []}
++    joined = " ".join(words)
++    return bool(words) and len(words) <= 3 and (joined in phrases or all(w in phrases or w in {"ji", "sir", "bhai"}
++                                                                          for w in words))
++
++
++def greeting(claims: dict[str, Any], lang: str, seed: int = 0) -> str:
++    """Short: hello + what needs attention across the caller's cases (the case list's own counts)."""
++    from app.agents.applicant.copilot.capabilities import case_list
++
++    g = _cfg().get("greeting") or {}
++    page = case_list.run(claims, case_list.ListQuery(size=1))
++    if page.all_total == 0:
++        attention = _say(g.get("no_cases"), lang)
++    else:
++        need = {k: v for k, v in page.counts.items() if k in ("KYC", "DOCS")}
++        if sum(need.values()):
++            parts = ", ".join(case_list._name_of("part", k, lang, n=v) for k, v in need.items() if v)
++            attention = _say(g.get("attention"), lang, n=sum(need.values()), total=page.all_total, parts=parts)
++        else:
++            attention = _say(g.get("all_clear"), lang, total=page.all_total)
++    return _say(g.get("text"), lang, seed, attention=attention)
++
++
++__all__ = ["chunks", "events", "greeting", "idempotent", "is_greeting", "keep", "replay", "since_last", "snapshot",
++           "start", "stop", "updates", "watch"]
+diff --git a/tests/integration/master_env.py b/tests/integration/master_env.py
+new file mode 100644
+index 0000000..3c35fc4
+--- /dev/null
++++ b/tests/integration/master_env.py
+@@ -0,0 +1,49 @@
++"""
++The DEV FLAG SET for the master-spec tests: every chatbot flag ON (as in .env), the owner-gated ones OFF.
++Import the `prod` fixture plus `client` / `_store` from test_reupload_supersedes.
++"""
++
++from __future__ import annotations
++
++import os
++
++import pytest
++
++from tests.conftest import _PHASE3_FLAGS
++
++#: kept OFF until the owner decides (MEMORY: phase3-flags-always-on) + the one-release legacy grant
++OFF = {"LOS_STAGE_GATE_IN_SERVICE", "LOS_FOS_CPA_KYC_RULE", "LOS_SIGNATURE_MANDATORY", "LOS_COAPP_MANDATORY_DOCS",
++       "LOS_LOGIN_SELF_GRANT_LEGACY"}
++ON = tuple(f for f in _PHASE3_FLAGS if f not in OFF)
++
++
++@pytest.fixture
++def prod(monkeypatch):
++    for flag in ON:
++        monkeypatch.setenv(flag, "true")
++    from app.agents.applicant.copilot.capabilities import abuse_guard, case_list, safety
++
++    safety.reset()
++    abuse_guard.reset()
++    case_list.clear_cache()
++
++
++def say(client, message, *, lang="en", **extra):
++    """One chat turn on /fos/copilot under the reply contract: the markdown."""
++    r = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": message,
++                                                 "reply_language": lang, **extra})
++    assert r.status_code == 200, r.text
++    body = r.json()
++    assert set(body) == {"request_id", "markdown", "tts"}, body
++    if os.getenv("DUMP_CONTRACT"):
++        print(f"\n>>> {message}\n{body['markdown']}\n--- tts: {body['tts']}")
++    return body["markdown"]
++
++
++def make_case(client, name, **application):
++    r = client.post("/api/v1/fos/applicants", json={
++        "applicant": {"full_name": name, "mobile": "9876543210", "date_of_birth": "1990-04-12",
++                      "address": "12 MG Road, Pune"},
++        "application": {"product": "PERSONAL_LOAN", "loan_amount": 500000, **application}})
++    assert r.status_code < 300, r.text
++    return r.json()["applicant_id"], r.json()["case_id"]
+diff --git a/tests/integration/test_master_9_features.py b/tests/integration/test_master_9_features.py
+new file mode 100644
+index 0000000..d3081f1
+--- /dev/null
++++ b/tests/integration/test_master_9_features.py
+@@ -0,0 +1,71 @@
++"""
++MASTER SPEC section 9 -- every feature speaks through markdown + tts only: review on open, fix-it path and
++what-if, the upload answer, timeline, customer message, visit checklist, handoff note (link when ready), checks
++passed X of Y. Every dev flag on.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from app.store.models import Document, DocumentStatus
++from tests.integration.master_env import make_case, prod, say  # noqa: F401
++from tests.integration.test_master_8_contract import check
++from tests.integration.test_reupload_supersedes import _store, client  # noqa: F401
++
++
++@pytest.fixture
++def opened(client, prod, _store):
++    a, c = make_case(client, "Rahul Sharma")
++    _store.save_document(Document(document_id=f"{c}:{a}:pan", case_id=c, applicant_id=a, party_id=a,
++                                  document_type="PAN", status=DocumentStatus.VERIFIED))
++    say(client, f"{c} kholo")
++    return a, c
++
++
++def ask(client, message):
++    r = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": message, "reply_language": "en"})
++    assert r.status_code == 200, r.text
++    check(r.json())
++    return r.json()["markdown"]
++
++
++@pytest.mark.parametrize("message,expect", [
++    ("CPA ke liye kya chahiye?", "checks passed"),
++    ("agar bank statement upload karu toh ready ho jayega?", "Not yet"),
++    ("case ka timeline", "FOS"),
++    ("visit pe kya le jaun", "- [ ] "),
++    ("customer ko bata do kya lana hai", "\n> "),
++    ("handoff note banao", "ready for CPA"),
++])
++def test_each_feature_is_markdown_and_tts(client, opened, message, expect):
++    assert expect in ask(client, message)
++
++
++def test_a_ready_case_offers_the_handoff_note_download(client, opened, monkeypatch):
++    from app.agents.applicant.copilot.answering import handoff_note
++
++    _, c = opened
++    real = handoff_note.build
++    monkeypatch.setattr(handoff_note, "build", lambda case_id, officer: {**real(case_id, officer), "ready": True,
++                                                                        "markdown": "# Handoff",
++                                                                        "generated_at": "2026-10-08T10:00:00"})
++    md = ask(client, "handoff note banao")
++    assert f"(action:handoff_note?case={c})" in md, md
++
++
++def test_the_upload_answer_is_markdown_and_tts(client, opened, monkeypatch):
++    from app.api.routes import fos_api
++
++    a, c = opened
++
++    async def fake_upload(request, claims, request_id):
++        return {"request_id": request_id, "case_id": c, "intent": "UPLOAD_DOCUMENT",
++                "answer": "📄 PAN received -- name on document: RAHUL SHARMA. Verification is running.\n"
++                          "👉 Upload the Bank Statement next."}
++
++    monkeypatch.setattr(fos_api, "_copilot_upload", fake_upload)
++    r = client.post("/api/v1/fos/copilot", data={"action": "UPLOAD_DOCUMENT"}, files={"file": ("p.jpg", b"x")})
++    assert r.status_code == 200, r.text
++    check(r.json())
++    assert r.json()["markdown"].startswith("PAN received") and "Next step" in r.json()["tts"]
+diff --git a/tests/integration/test_master_11_realtime.py b/tests/integration/test_master_11_realtime.py
+new file mode 100644
+index 0000000..6148ec9
+--- /dev/null
++++ b/tests/integration/test_master_11_realtime.py
+@@ -0,0 +1,111 @@
++"""
++MASTER SPEC section 11 -- the real-time feel: typing first, one generic status only when slow, the markdown in
++deltas (answer line first), `final` = {request_id, markdown, tts}; a newer message cancels; replay by request_id
++(own subject only); an Idempotency-Key never reruns; changes since the last look on open and as pushed updates;
++a short greeting with what needs attention.
++"""
++
++from __future__ import annotations
++
++import json
++import time
++
++from app.store.models import Document, DocumentStatus
++from tests.integration.master_env import make_case, prod, say  # noqa: F401
++from tests.integration.test_reupload_supersedes import FOS_SCOPES, _store, client  # noqa: F401
++
++STREAM = "/api/v1/fos/copilot/stream"
++
++
++def _events(client, **body):
++    started = time.perf_counter()
++    seen = []
++    with client.stream("POST", STREAM, json={"action": "CUSTOM_QUERY", "reply_language": "en", **body}) as r:
++        buf = ""
++        for text in r.iter_text():
++            buf += text
++            while "\n\n" in buf:
++                block, buf = buf.split("\n\n", 1)
++                name = block.split("\n", 1)[0].removeprefix("event: ")
++                data = json.loads(block.split("data: ", 1)[1])
++                seen.append((name, data, round((time.perf_counter() - started) * 1000)))
++    return seen
++
++
++def test_typing_first_then_deltas_then_final(client, prod):
++    make_case(client, "Rahul Sharma")
++    _events(client, message="my cases")                                      # warm (imports, first request)
++    seen = _events(client, message="my cases")
++    names = [n for n, _, _ in seen]
++    assert names[0] == "typing" and seen[0][2] < 300
++    assert names[-1] == "final" and "delta" in names
++    final = seen[-1][1]
++    assert set(final) - {"latency"} == {"request_id", "markdown", "tts"}
++    streamed = "".join(d["markdown"] for n, d, _ in seen if n == "delta")
++    assert streamed == final["markdown"]                                       # the deltas ARE the markdown
++    first_delta = next(d["markdown"] for n, d, _ in seen if n == "delta")
++    assert first_delta.strip() == final["markdown"].split("\n")[0].strip()      # the answer line first
++    assert all(n != "status" or "Working" in d["text"] or "moment" in d["text"] or "Checking" in d["text"]
++               for n, d, _ in seen)                                             # generic, if any
++
++
++def test_a_newer_message_cancels_the_running_stream(client, prod, monkeypatch):
++    from app.agents.applicant.copilot.answering import realtime
++
++    make_case(client, "Rahul Sharma")
++    real_start = realtime.start
++
++    def supersede(subject, chat_id, request_id):
++        real_start(subject, chat_id, request_id)
++        real_start(subject, chat_id, "a-newer-request")                       # a new message arrives meanwhile
++
++    monkeypatch.setattr(realtime, "start", supersede)
++    names = [n for n, _, _ in _events(client, message="my cases", chat_id="c1")]
++    assert names[-1] == "cancelled" and "final" not in names
++
++
++def test_replay_by_request_id_is_own_subject_only(client, prod, make_token):
++    make_case(client, "Rahul Sharma")
++    first = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": "my cases"}).json()
++    again = client.get(f"/api/v1/fos/copilot/replay/{first['request_id']}")
++    assert again.status_code == 200 and again.json() == first
++    from fastapi.testclient import TestClient
++
++    import main
++
++    other = TestClient(main.app)
++    other.headers.update({"Authorization": f"Bearer {make_token(subject='other-officer', scopes=FOS_SCOPES)}"})
++    assert other.get(f"/api/v1/fos/copilot/replay/{first['request_id']}").status_code == 404
++
++
++def test_an_idempotency_key_never_reruns(client, prod):
++    make_case(client, "Rahul Sharma")
++    headers = {"Idempotency-Key": "msg-42"}
++    one = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": "my cases"}, headers=headers)
++    two = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": "my cases"}, headers=headers)
++    assert one.json()["request_id"] == two.json()["request_id"]
++
++
++def test_changes_since_the_last_look_on_open_and_pushed(client, prod, _store):
++    a, c = make_case(client, "Rahul Sharma")
++    doc = Document(document_id=f"{c}:{a}:pan", case_id=c, applicant_id=a, party_id=a, document_type="PAN",
++                   status=DocumentStatus.PROCESSING)
++    _store.save_document(doc)
++    say(client, f"{c} kholo", chat_id="c1")
++    _store.save_document(Document(document_id=f"{c}:{a}:pan", case_id=c, applicant_id=a, party_id=a,
++                                  document_type="PAN", status=DocumentStatus.VERIFIED))
++    pushed = client.get("/api/v1/fos/copilot/updates", params={"chat_id": "c1"}).json()["messages"]
++    assert pushed and f"Update on {c}: PAN verified." in pushed[0]["markdown"], pushed
++    assert client.get("/api/v1/fos/copilot/updates", params={"chat_id": "c1"}).json()["messages"] == []
++    _store.save_document(Document(document_id=f"{c}:{a}:pan", case_id=c, applicant_id=a, party_id=a,
++                                  document_type="PAN", status=DocumentStatus.REJECTED))
++    say(client, "bahar aao", chat_id="c1")
++    reopened = say(client, f"{c} kholo", chat_id="c1")
++    line = next(ln for ln in reopened.split("\n") if ln.startswith("Since your last check:"))
++    assert "PAN" in line and line.endswith("rejected."), reopened
++
++
++def test_hi_on_a_new_chat_is_a_short_greeting_with_what_needs_attention(client, prod):
++    make_case(client, "Rahul Sharma")
++    md = say(client, "hi")
++    assert md.startswith(("Hello.", "Good to see you.")) and "need action" in md and "(ask:" in md, md
+diff --git a/tests/integration/test_master_14_nothing_hardcoded.py b/tests/integration/test_master_14_nothing_hardcoded.py
+new file mode 100644
+index 0000000..fd130be
+--- /dev/null
++++ b/tests/integration/test_master_14_nothing_hardcoded.py
+@@ -0,0 +1,161 @@
++"""
++MASTER SPEC section 14 -- proof that the words are config.
++
++1. A SCAN of the copilot code for user-facing sentences in string literals (docstrings, logs, raised errors,
++   regexes and SQL excluded). The master-spec modules must have NONE; the older modules may keep only the
++   sentences recorded in the baseline (a ratchet: nothing new anywhere -- the baseline only shrinks).
++   Re-record after moving sentences to config:  WRITE_HARDCODED_BASELINE=1 pytest this file
++2. CONFIG CHANGES CHANGE BEHAVIOUR with no code change: page size 7, a new FAQ item, a new synonym, the tts
++   sentence limit, a new action-link label, a reply wording.
++"""
++
++from __future__ import annotations
++
++import ast
++import json
++import os
++import re
++from pathlib import Path
++
++import pytest
++
++ROOT = Path(__file__).resolve().parents[2]
++SCANNED = [ROOT / "app/agents/applicant/copilot", ROOT / "app/api/routes/fos_api.py",
++           ROOT / "app/api/routes/copilot_api.py"]
++#: built for the master spec: no hardcoded sentence at all
++STRICT = {"app/agents/applicant/copilot/answering/contract.py", "app/agents/applicant/copilot/answering/realtime.py",
++          "app/agents/applicant/copilot/capabilities/case_list.py", "app/agents/applicant/copilot/capabilities/faq.py",
++          "app/agents/applicant/copilot/answering/kyc_table.py",
++          "app/agents/applicant/copilot/answering/readiness_report.py"}
++BASELINE = ROOT / "tests/data/hardcoded_sentences_baseline.json"
++_LOG_CALLS = {"debug", "info", "warning", "error", "exception", "critical", "log", "warn"}
++
++
++def _is_sentence(text: str) -> bool:
++    s = text.strip()
++    if len(s.split()) < 4 or not re.search(r"[A-Za-zऀ-ॿ]{3,}", s):
++        return False
++    if re.search(r"\\[sdwbS]|\(\?|\[\^|\|\w+\||^\^|\$$", s):                  # a regex
++        return False
++    if re.match(r"(?i)\s*(select|insert|update|delete|create|alter|with)\s", s):     # SQL
++        return False
++    if re.fullmatch(r"[\w\s./:{}\-]+", s) and not re.search(r"[.?!:]\s*$", s) and s[:1].islower():
++        return False                                                               # a phrase list entry / key
++    return bool(re.search(r"[.?!।]\s*$", s) or (s[:1].isupper() and " " in s))
++
++
++def _sentences(path: Path) -> list[str]:
++    tree = ast.parse(path.read_text(encoding="utf-8"))
++    skip: set[int] = set()
++    for node in ast.walk(tree):
++        # docstrings
++        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.body \
++                and isinstance(node.body[0], ast.Expr) and isinstance(getattr(node.body[0], "value", None), ast.Constant):
++            skip.add(id(node.body[0].value))
++        # logs, raised errors, warnings, asserts: developer text (the allow-list of the spec)
++        if isinstance(node, ast.Call):
++            func = node.func
++            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
++            if name in _LOG_CALLS or name.endswith(("Error", "Exception", "Denied")) or name == "HTTPException":
++                for sub in ast.walk(node):
++                    skip.add(id(sub))
++        if isinstance(node, (ast.Raise, ast.Assert)):
++            for sub in ast.walk(node):
++                skip.add(id(sub))
++        # field(description=...) / Field(...) docs for the OpenAPI
++        if isinstance(node, ast.keyword) and node.arg in ("description", "summary", "detail", "message", "examples"):
++            for sub in ast.walk(node.value):
++                skip.add(id(sub))
++    found = []
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skip \
++                and _is_sentence(node.value):
++            found.append(" ".join(node.value.split())[:160])
++    return found
++
++
++def _scan() -> dict[str, list[str]]:
++    out: dict[str, list[str]] = {}
++    for base in SCANNED:
++        for path in ([base] if base.is_file() else sorted(base.rglob("*.py"))):
++            rel = path.relative_to(ROOT).as_posix()
++            found = _sentences(path)
++            if found:
++                out[rel] = sorted(set(found))
++    return out
++
++
++def test_no_new_hardcoded_sentences():
++    found = _scan()
++    if os.getenv("WRITE_HARDCODED_BASELINE") == "1":
++        BASELINE.parent.mkdir(parents=True, exist_ok=True)
++        BASELINE.write_text(json.dumps({k: v for k, v in found.items() if k not in STRICT}, indent=1,
++                                       ensure_ascii=False), encoding="utf-8")
++    strict = {k: v for k, v in found.items() if k in STRICT}
++    assert not strict, f"master-spec modules must take their words from config: {strict}"
++    baseline = json.loads(BASELINE.read_text(encoding="utf-8")) if BASELINE.exists() else {}
++    new = {k: sorted(set(v) - set(baseline.get(k, []))) for k, v in found.items() if k not in STRICT}
++    new = {k: v for k, v in new.items() if v}
++    assert not new, f"new hardcoded user-facing sentences (move them to config): {json.dumps(new, indent=1)}"
++
++
++def test_the_baseline_is_reported():
++    """The legacy count the final report states (an open item: it should only go down)."""
++    baseline = json.loads(BASELINE.read_text(encoding="utf-8")) if BASELINE.exists() else {}
++    assert sum(len(v) for v in baseline.values()) < 5000
++
++
++# ---- config changes change behaviour ------------------------------------------------------------------------------
++from tests.integration.master_env import make_case, prod, say  # noqa: E402,F401
++from tests.integration.test_reupload_supersedes import _store, client  # noqa: E402,F401
++
++
++def test_page_size_7(client, prod, monkeypatch):
++    from app.agents.applicant.copilot.capabilities import case_list
++
++    for i in range(9):
++        make_case(client, f"Person{i} Kumar")
++    monkeypatch.setitem(case_list.cfg(), "page_size", 7)
++    md = say(client, "my cases")
++    assert md.count("(action:open_case?id=") == 7 and "Showing 1-7 of 9" in md
++
++
++def test_a_new_synonym_for_a_list_filter(client, prod, monkeypatch):
++    from app.agents.applicant.copilot.capabilities import case_list
++
++    make_case(client, "Rahul Sharma")
++    phrases = dict(case_list.cfg()["phrases"])
++    phrases["filter"] = {**phrases["filter"], "kyc_issue": list(phrases["filter"]["kyc_issue"]) + ["kyc gadbad wale"]}
++    monkeypatch.setitem(case_list.cfg(), "phrases", phrases)
++    md = say(client, "kyc gadbad wale")
++    assert "match (" in md and "issue)" in md, md                          # read as the KYC-issue filter
++
++
++def test_the_tts_sentence_limit(client, prod, monkeypatch):
++    from app.agents.applicant.copilot.answering import contract
++
++    make_case(client, "Rahul Sharma")
++    monkeypatch.setitem(contract.cfg()["tts"], "max_sentences", 1)
++    r = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": "my cases",
++                                                 "reply_language": "en"}).json()
++    assert len(re.findall(r"[.!?](?:\s|$)", r["tts"])) == 1, r["tts"]
++
++
++def test_an_action_link_label(client, prod, monkeypatch):
++    from app.agents.applicant.copilot.answering import contract
++
++    _, c = make_case(client, "Rahul Sharma")
++    links = dict(contract.cfg()["action_links"])
++    links["open_case"] = {**links["open_case"], "labels": {"en": "Kholo ji"}}
++    monkeypatch.setitem(contract.cfg(), "action_links", links)
++    assert f"[Kholo ji](action:open_case?id={c})" in say(client, "my cases")
++
++
++def test_a_reply_wording(client, prod, monkeypatch):
++    from app.agents.applicant import config
++
++    make_case(client, "Rahul Sharma")
++    labels = dict(config.chatbot("case_workspace")["labels"])
++    labels["not_found_applicant"] = {"en": "No such applicant among your cases."}
++    monkeypatch.setitem(config.chatbot("case_workspace"), "labels", labels)
++    assert say(client, "APP-FFFFFFFFFFFF ke cases") == "No such applicant among your cases."
+diff --git a/tests/integration/test_master_16_abuse.py b/tests/integration/test_master_16_abuse.py
+new file mode 100644
+index 0000000..da9197a
+--- /dev/null
++++ b/tests/integration/test_master_16_abuse.py
+@@ -0,0 +1,164 @@
++"""
++MASTER SPEC sections 16 and 19 -- the abuse rule, ONE shared module (capabilities/abuse_guard.py) on every path:
++a message with foul language is never answered in any part (no case read, no tool, no model); the warning shows the
++word bold and masked; tts says the warning only; the stream sends it whole with no status; repeated abuse cools
++down; logs / audit / generated text carry the masked form only; clean look-alikes are never flagged.
++"""
++
++from __future__ import annotations
++
++import json
++
++import pytest
++
++from app.agents.applicant.copilot.answering import contract
++from app.agents.applicant.copilot.capabilities import abuse_guard
++from tests.integration.master_env import make_case, prod, say  # noqa: F401
++from tests.integration.test_reupload_supersedes import _store, client  # noqa: F401
++
++FOS, UNIVERSAL, STREAM = "/api/v1/fos/copilot", "/api/v1/copilot/query", "/api/v1/fos/copilot/stream"
++RAW = ("madarchod", "chutiya", "fuck", "मादरचोद", "झवाड्या", "bitch")
++
++
++@pytest.fixture
++def guard(monkeypatch):
++    monkeypatch.setenv("COPILOT_ABUSE_GUARD", "true")
++    abuse_guard.reset()
++    yield
++    abuse_guard.reset()
++
++
++def _no_raw(*texts: str) -> None:
++    for text in texts:
++        low = text.lower()
++        assert not any(w in low for w in RAW), text
++
++
++# ---- unit: detection -----------------------------------------------------------------------------------------
++@pytest.mark.parametrize("text", [
++    "madarchod what is my kyc status", "MADARCHOD", "M A D A R C H O D", "m.a.d.a.r.c.h.o.d", "fuuuuck this",
++    "b!tch", "ch00tiya", "f***", "f u c k off", "Bhenchod bata", "मादरचोद KYC बताओ", "तू झवाड्या आहे", "kamina hai tu",
++])
++def test_variants_are_detected(guard, text):
++    assert abuse_guard.blocked(text), text
++
++
++@pytest.mark.parametrize("text", [
++    "what is my kyc status", "Scunthorpe passport class", "Randhir from Assam, bcom graduate",
++    "Dickens Road address proof", "assistant manager salary slip", "mere pending cases dikhao", "pagal ho gaya hai system",
++])
++def test_clean_look_alikes_are_not_flagged(guard, text):
++    assert not abuse_guard.detect(text), text
++
++
++def test_masked_bold_in_markdown_and_never_in_tts(guard, monkeypatch):
++    monkeypatch.setenv("COPILOT_MD_TTS_CONTRACT", "true")
++    reply = abuse_guard.screen("madarchod what is my kyc status", "u1", "r1")
++    published = contract.publish(reply)
++    assert set(published) == {"request_id", "markdown", "tts"}
++    assert "**m*******d**" in published["markdown"] and "foul language" in published["markdown"]
++    assert "*" not in published["tts"] and "foul language" in published["tts"]
++    _no_raw(published["markdown"], published["tts"])
++    assert "kyc" not in published["markdown"].lower() and "kyc" not in published["tts"].lower()
++
++
++def test_language_follows_the_selection_and_the_script(guard):
++    assert "Kripya" in abuse_guard.screen("chutiya", "u1", "r1", lang="hinglish")["answer"]
++    assert "कृपया" in abuse_guard.screen("मादरचोद", "u2", "r2")["answer"]
++    assert "वापरू" in abuse_guard.screen("झवाड्या", "u3", "r3", lang="mr")["answer"]
++
++
++def test_generated_text_is_masked_and_tts_drops_the_word(guard):
++    assert abuse_guard.mask_text("Customer said madarchod twice") == "Customer said m*******d twice"
++    assert abuse_guard.mask_text("Customer said madarchod twice", spoken=True) == "Customer said twice"
++    assert abuse_guard.mask_payload({"a": ["chutiya"], "n": 3}) == {"a": ["c*****a"], "n": 3}
++
++
++def test_cooldown_after_repeated_abuse(guard):
++    cfg = abuse_guard.cfg()
++    replies = [abuse_guard.screen("chutiya", "u9", f"r{i}", now=1000.0 + i)
++               for i in range(int(cfg["cooldown_after"]))]
++    assert replies[-1]["intent"] == "COOLDOWN"
++    clean = abuse_guard.screen("what is my kyc status", "u9", "rx", now=1010.0)
++    assert clean is not None and clean["intent"] == "COOLDOWN"            # even a clean message waits
++    assert abuse_guard.screen("what is my kyc status", "u9", "ry",
++                              now=1010.0 + float(cfg["cooldown_seconds"]) + 1) is None
++
++
++def test_flag_off_means_nothing_is_screened(monkeypatch):
++    monkeypatch.setenv("COPILOT_ABUSE_GUARD", "false")
++    assert abuse_guard.screen("madarchod", "u1", "r1") is None and not abuse_guard.detect("madarchod")
++
++
++# ---- every path: both endpoints, the stream, audit -----------------------------------------------------------
++def _trap_reads(monkeypatch, store):
++    def boom(*_a, **_k):
++        raise AssertionError("a blocked message must not read the case")
++
++    for name in ("get_application", "list_documents", "get_applicant"):
++        monkeypatch.setattr(type(store), name, boom)
++
++
++def test_fos_copilot_blocks_before_any_read(client, prod, guard, _store, monkeypatch):
++    _, case_id = make_case(client, "Rahul Sharma")
++    audits = []
++    from app.agents.applicant import audit
++
++    monkeypatch.setattr(audit, "record", lambda **kw: audits.append(kw))
++    _trap_reads(monkeypatch, _store)
++    r = client.post(FOS, json={"action": "CUSTOM_QUERY", "message": "madarchod what is my kyc status",
++                               "case_id": case_id, "reply_language": "en"})
++    assert r.status_code == 200, r.text
++    body = r.json()
++    assert set(body) == {"request_id", "markdown", "tts"}
++    assert "**m*******d**" in body["markdown"] and "kyc" not in body["markdown"].lower()
++    _no_raw(body["markdown"], body["tts"])
++    abuse = [a for a in audits if a.get("intent") == "ABUSE"]
++    assert abuse and abuse[0]["tools"] == [] and "madarchod" not in abuse[0]["detail"]
++
++
++def test_universal_endpoint_gives_the_same_outcome(client, prod, guard, _store, monkeypatch):
++    _, case_id = make_case(client, "Rahul Sharma")
++    fos = client.post(FOS, json={"action": "CUSTOM_QUERY", "message": "chutiya PAN status?",
++                                 "case_id": case_id, "reply_language": "en"}).json()
++    _trap_reads(monkeypatch, _store)
++    uni = client.post(UNIVERSAL, json={"message": "chutiya PAN status?", "case_id": case_id,
++                                       "reply_language": "en"})
++    assert uni.status_code == 200, uni.text
++    uni = uni.json()
++    assert set(uni) == {"request_id", "markdown", "tts"}
++    assert "**c*****a**" in fos["markdown"] and "**c*****a**" in uni["markdown"]
++    assert "PAN" not in uni["markdown"] and "PAN" not in uni["tts"]
++    _no_raw(fos["markdown"], fos["tts"], uni["markdown"], uni["tts"])
++
++
++def test_stream_sends_the_warning_whole_with_no_status(client, prod, guard):
++    seen = []
++    with client.stream("POST", STREAM, json={"action": "CUSTOM_QUERY", "message": "fuck you, my cases?",
++                                             "reply_language": "en"}) as r:
++        buf = ""
++        for text in r.iter_text():
++            buf += text
++            while "\n\n" in buf:
++                block, buf = buf.split("\n\n", 1)
++                seen.append((block.split("\n", 1)[0].removeprefix("event: "),
++                             json.loads(block.split("data: ", 1)[1])))
++    names = [n for n, _ in seen]
++    assert "status" not in names and names.count("delta") == 1 and names[-1] == "final"
++    final = seen[-1][1]
++    assert "foul language" in final["markdown"] and "**f**k**" in final["markdown"]
++    _no_raw(final["markdown"], final["tts"])
++
++
++def test_a_blocked_turn_is_not_remembered(client, prod, guard, monkeypatch):
++    from app.agents.applicant.copilot.answering import realtime
++
++    make_case(client, "Rahul Sharma")
++    say(client, "my cases", chat_id="c16")
++    stored = []
++    monkeypatch.setattr(contract, "remember", lambda *a, **k: stored.append(a))
++    monkeypatch.setattr(realtime, "keep", lambda *a, **k: stored.append(a))
++    r = client.post(FOS, json={"action": "CUSTOM_QUERY", "message": "bhenchod 2", "chat_id": "c16",
++                               "reply_language": "en"})
++    assert r.status_code == 200 and "foul language" in r.json()["markdown"]
++    assert stored == []                                  # no pending intent, no context, no replay of the turn

@@ -6,7 +6,7 @@
     "request_id": "<request_id>",
     "case_id": null,
     "intent": "NEW_CASE",
-    "answer": "👉 Tap **New case** to open the case form.",
+    "answer": "**Next step:** Tap **New case** to open the case form.",
     "category": "CASE_ONLY",
     "query_type": "ACTION_REQUEST",
     "response_source": "STRUCTURED",
@@ -24,14 +24,8 @@
       "applied": true,
       "expanded": []
     },
-    "emphasis": [],
-    "answer_plain": "👉 Tap New case to open the case form.",
-    "answer_markdown": "👉 Tap New case to open the case form.",
     "presentation": {
-      "emphasis": [],
-      "answer_markdown": "👉 Tap New case to open the case form.",
-      "answer_plain": "👉 Tap New case to open the case form.",
-      "message": "👉 Tap **New case** to open the case form.",
+      "message": "Tap **New case** to open the case form.",
       "intent": "NEW_CASE",
       "response_type": "ANSWER",
       "response_depth": "NORMAL",
@@ -44,7 +38,7 @@
         "status": "NO_VOICE_FOR_LANGUAGE",
         "language": null,
         "voice": null,
-        "text": "👉 Tap **New case** to open the case form.",
+        "text": "Tap **New case** to open the case form.",
         "endpoint": null,
         "format": "wav"
       },
@@ -66,6 +60,11 @@
         "language": null,
         "response_source": "STRUCTURED"
       }
+    },
+    "answer_plain": "Next step: Tap New case to open the case form.",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
     }
   }
 }

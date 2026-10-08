@@ -1,0 +1,2680 @@
+﻿diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+index 6575e10..a687189 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+@@ -38,8 +38,24 @@ def _cfg() -> dict[str, Any]:
+     return config.chatbot("case_workspace") or {}
+ 
+ 
++def _pick(value: Any) -> Any:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    return language_lock.pick(value)
++
++
++def quick_questions() -> list[str]:
++    """The quick-question buttons, in the locked reply language (a plain list is used as is)."""
++    value = _cfg().get("quick_questions") or []
++    picked = _pick(value) if isinstance(value, dict) else value
++    return [str(q) for q in (picked if isinstance(picked, list) else [picked])]
++
++
+ def _label(key: str, **values: Any) -> str:
+-    return str((_cfg().get("labels") or {}).get(key, key)).format(**values)
++    # a label may be one string or a {language: text} map -- the locked reply language picks (FOS plan section 2)
++    from app.agents.applicant.copilot.answering import language_lock
++
++    return language_lock.pick((_cfg().get("labels") or {}).get(key, key)).format(**values)
+ 
+ 
+ def _norm(text: str) -> str:
+@@ -49,7 +65,58 @@ def _norm(text: str) -> str:
+ def _says(kind: str, text: str) -> bool:
+     """Whether the text contains one of the configured phrases of this kind (whole words)."""
+     said = f" {_norm(text)} "
+-    return any(f" {_norm(p)} " in said for p in (_cfg().get("phrases") or {}).get(kind, []))
++    matched = [p for p in (_cfg().get("phrases") or {}).get(kind, []) if f" {_norm(p)} " in said]
++    if kind != "list":
++        return bool(matched)
++    if matched:
++        # "mere case ka details" names a TOPIC beyond the list (FOS plan 1.4): it is a question about the case,
++        # never the list -- a list phrase counts only when every other word is a list word
++        rest = said
++        for phrase in sorted(matched, key=len, reverse=True):
++            rest = rest.replace(f" {_norm(phrase)} ", " ")
++        return set(rest.split()) <= _list_words()
++    return _only_asks_for_the_list(text)
++
++
++def _list_words() -> set[str]:
++    rule = _cfg().get("list_rule") or {}
++    return {_norm(w) for key in ("case_nouns", "cues", "allowed") for w in rule.get(key) or []} \
++        | {w for p in (_cfg().get("phrases") or {}).get("list", []) for w in _norm(p).split()}
++
++
++def _asks_more_than_the_switch(text: str) -> bool:
++    """Whether a message naming "the other case" also asks something (any word beyond those phrases / fillers)."""
++    phrases = _cfg().get("phrases") or {}
++    plain = f" {_norm(text)} "
++    for phrase in sorted(phrases.get("other_case") or [], key=len, reverse=True):
++        plain = plain.replace(f" {_norm(phrase)} ", " ")
++    rest = [w for w in plain.split() if w not in _noise() and w not in {"mere", "mera", "my", "the", "of"}]
++    return bool(rest)
++
++
++def _asks_beyond_the_id(text: str) -> bool:
++    """
++    "CASE-852C ka PAN status" asks something; "APP-B597 ke cases" / "CASE-852C kholo" only name it. The ids,
++    the open / case / list / filler words (config phrases) and the list words are taken out; anything left is
++    a question about that case.
++    """
++    plain = _norm(text)
++    for pattern in _ID.values():
++        plain = pattern.sub(" ", plain)
++    return bool([w for w in plain.split() if w not in _noise() and w not in _list_words()])
++
++
++def _only_asks_for_the_list(text: str) -> bool:
++    """
++    FOS plan 1.2: "all case ka list", "sab case dikhao", "mere kitne case hai", "give a list of case" -- a case
++    noun, a list cue, and NOTHING ELSE but list words (applicant_agent.yaml case_workspace.list_rule). "case ka
++    status dikhao" is not a list: "status" is not a list word.
++    """
++    rule = _cfg().get("list_rule") or {}
++    words = _norm(text).split()
++    nouns = {_norm(w) for w in rule.get("case_nouns") or []}
++    cues = {_norm(w) for w in rule.get("cues") or []}
++    return bool(words) and bool(nouns & set(words)) and bool(cues & set(words)) and set(words) <= _list_words()
+ 
+ 
+ # --------------------------------------------------------------------------
+@@ -107,6 +174,21 @@ def authorize(claims: dict[str, Any], case_id: str) -> None:
+     access.authorize_conversation(_subject(claims), access.get_scopes(claims), case_id=case_id)
+ 
+ 
++def active_case(claims: dict[str, Any], workspace_id: str | None = None) -> Any:
++    """The application the caller has open in this workspace (re-authorized now), else None."""
++    from app.security import access
++    from app.store import get_repository
++
++    case_id = _state(_subject(claims), workspace_id).active_case_id
++    if not case_id:
++        return None
++    try:
++        authorize(claims, case_id)
++    except access.AccessDenied:
++        return None
++    return get_repository().get_application(case_id)
++
++
+ def _stage(case_id: str) -> str | None:
+     from app.agents.los import stages
+ 
+@@ -140,6 +222,21 @@ def _name(applicant_id: str, *, short: bool) -> str:
+     return full
+ 
+ 
++def _over_target(case_id: str) -> str | None:
++    """'⏰ 5d in FOS (target 3)' when the case is past its stage's turnaround target (timeline.py), else None."""
++    try:
++        from app.agents.applicant.copilot.capabilities import timeline
++
++        if not timeline.enabled():
++            return None
++        t = timeline.build(case_id)
++        if not t.get("over_target"):
++            return None
++        return _label("row_over_target", days=t["days_in_stage"], stage=t["stage"], target=t["target_days"])
++    except Exception:  # noqa: BLE001 - a row is a summary; the case itself has the detail
++        return None
++
++
+ def _row_status(application: Any) -> tuple[str, str]:
+     """(label, kind) -- a KYC issue first, then documents pending, else ready."""
+     from app.agents.applicant import workflow
+@@ -221,6 +318,9 @@ def list_view(claims: dict[str, Any], request_id: str, state, *, page: int = 0)
+         status, kind = _row_status(application)
+         stage = _stage(application.case_id) or "--"
+         name = _name(application.applicant_id, short=True)
++        over = _over_target(application.case_id)
++        if over:
++            status = f"{status} · {over}"                  # FOS plan 7.3: past the stage's turnaround target
+         if not groups or groups[-1]["applicant_id"] != application.applicant_id:
+             n = per_applicant[str(application.applicant_id)]
+             count = _label("group_one") if n == 1 else _label("group_many", n=n)
+@@ -245,6 +345,42 @@ def list_view(claims: dict[str, Any], request_id: str, state, *, page: int = 0)
+         suggested_questions=[f"{r['number']}" for r in rows][:3])
+ 
+ 
++def paged_view(claims: dict[str, Any], request_id: str, state, query=None) -> dict[str, Any]:
++    """
++    MASTER SPEC section 3 (COPILOT_CASE_LIST_PAGING): ONE page of the caller's own cases -- filtered, sorted,
++    "Showing x-y of N", the options as links. The query is remembered for "aur dikhao".
++    """
++    from app.agents.applicant.copilot.answering import contract, language_lock
++    from app.agents.applicant.copilot.capabilities import case_list
++
++    query = query or case_list.ListQuery()
++    page = case_list.run(claims, query)
++    lang = language_lock.current() or "en"
++    state.list_query = page.query.as_dict()
++    state.list_offset = page.page * page.size
++    state.listed_case_ids = [r["case_id"] for r in page.rows]
++    answer = case_list.render(page, lang, seed=state.turn_id or 0)
++    rows = [{**r, "action": {"type": "open_case", "case_id": r["case_id"]},
++             "link": contract.link("open_case", lang, id=r["case_id"])} for r in page.rows]
++    return _base(request_id, "CASE_LIST", answer, workspace_view={
++        "case_list": rows, "counts": {"total": page.all_total, **page.counts}, "matching": page.total,
++        "page": page.page, "page_size": page.size, "has_more": page.has_more, "query": page.query.as_dict()})
++
++
++def _list(claims: dict[str, Any], request_id: str, state, text: str = "", *, more: bool = False) -> dict[str, Any]:
++    """The list: paged (section 3) when on, else the earlier grouped list."""
++    from app.agents.applicant.copilot.capabilities import case_list
++
++    if not case_list.enabled():
++        return list_view(claims, request_id, state)
++    if more:
++        query = case_list.understand(text, state.list_query or {}) or case_list.ListQuery.from_dict(state.list_query)
++        if query.page == case_list.ListQuery.from_dict(state.list_query).page and state.list_query:
++            query.page += 1
++        return paged_view(claims, request_id, state, query)
++    return paged_view(claims, request_id, state, case_list.understand(text) if text else None)
++
++
+ def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
+     state.active_case_id = application.case_id
+     # 6c: the cases opened this session, oldest first ("pehle wala case" goes back one)
+@@ -255,13 +391,36 @@ def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
+     lines = [_label("opened", case_id=application.case_id, name=name),
+              _label("snapshot_stage", stage=_stage(application.case_id) or "--"),
+              _label("snapshot_blocker", blocker=blocker) if blocker else _label("snapshot_clear"),
+-             "", _label("suggest", question=_cfg().get("suggested_question", "Kya baaki hai?"))]
+-    return _base(request_id, "CASE_OPENED", "\n".join(lines), case_id=application.case_id,
+-                 applicant_id=application.applicant_id, workspace_view={"workspace": workspace_block(application.case_id)})
++             "", _label("suggest", question=_pick(_cfg().get("suggested_question", "Kya baaki hai?")))]
++    from app.agents.applicant.copilot.capabilities import timeline as _timeline
++
++    late = _timeline.turnaround_line(application.case_id)
++    if late:
++        lines.insert(3, f"⏰ {late}")                       # FOS plan 7.3: past target, with the main blocker
++    from app.agents.applicant.copilot.capabilities import faq as _faq
++
++    if _faq.enabled():
++        # MASTER SPEC section 7: the FAQ for this case's state, under the review (officer_tools) -- it replaces
++        # the single "Try:" hint, which it covers
++        from app.agents.applicant.copilot.answering import language_lock
++
++        lang = language_lock.current() or "en"
++        shown = _faq.render(_faq.items(application.case_id, lang, int(_faq.cfg().get("max_items_on_open", 4))),
++                            lang, "on_open")
++        if shown:
++            hint = _label("suggest", question="").split('"')[0]
++            lines = [ln for ln in lines if not (hint and ln.startswith(hint))]
++    else:
++        shown = ""
++    reply = _base(request_id, "CASE_OPENED", "\n".join(lines), case_id=application.case_id,
++                  applicant_id=application.applicant_id, workspace_view={"workspace": workspace_block(application.case_id)})
++    if shown:
++        reply["faq_block"] = shown              # placed after the answer (and the review) by the reply contract
++    return reply
+ 
+ 
+ def workspace_block(case_id: str) -> dict[str, Any]:
+-    quick = list(_cfg().get("quick_questions") or [])
++    quick = quick_questions()
+     return {"case_id": case_id, "header": _label("in_case", case_id=case_id),
+             "buttons": [{"type": "exit_case", "label": "🔒 Exit"}, {"type": "switch_case", "label": "🔁 Switch case"}]
+             + [{"type": "ask", "label": q, "message": q} for q in quick]}
+@@ -275,6 +434,21 @@ def workspace_block(case_id: str) -> dict[str, Any]:
+ class Selection:
+     application: Any = None
+     candidates: list[Any] = field(default_factory=list)
++    #: which kind of id / name the text named ("case", "applicant", "co_applicant", "name"): picks the neutral
++    #: not-found line (MASTER SPEC section 2 -- never confirming that it exists outside the caller's scope)
++    named: str | None = None
++
++
++def _co_applicant_cases(token: str, cases: list[Any]) -> list[Any]:
++    """The caller's cases this co-applicant id is on (the co_applicants record, then the legacy column)."""
++    try:
++        from app.agents.los import co_applicants
++
++        on = {c.upper() for c in co_applicants.cases_for(token)}
++    except Exception:  # noqa: BLE001 - no record: only the legacy column below
++        on = set()
++    return [a for a in cases if a.case_id.upper() in on
++            or str(getattr(a, "co_applicant_id", "") or "").upper().startswith(token)]
+ 
+ 
+ def select(text: str, claims: dict[str, Any], state) -> Selection:
+@@ -288,6 +462,10 @@ def select(text: str, claims: dict[str, Any], state) -> Selection:
+         # the ordinal reader sees only "2" / "doosra"
+         # (not the switch words: "doosra" in "doosra case" IS the ordinal)
+         bare = " ".join(w for w in _norm(text).split() if w not in _noise(("open", "case_word", "filler"))) or text
++        offset = int(getattr(state, "list_offset", 0) or 0)
++        number = re.fullmatch(r"\s*(\d{1,3})\s*", bare)
++        if offset and number and offset < int(number.group(1)) <= offset + len(listed):
++            return Selection(listed[int(number.group(1)) - offset - 1])      # row "7" on the second page
+         for candidate in (text, bare):
+             index = conv._ordinal(candidate, len(listed))
+             if index is not None and 0 <= index < len(listed):
+@@ -302,9 +480,25 @@ def select(text: str, claims: dict[str, Any], state) -> Selection:
+         elif kind == "applicant":
+             hits = [a for a in cases if str(a.applicant_id).upper().startswith(token)]
+         else:
+-            hits = [a for a in cases if str(getattr(a, "co_applicant_id", "") or "").upper().startswith(token)]
+-        return Selection(hits[0]) if len(hits) == 1 else Selection(candidates=hits)
+-    return _by_name(text, cases)
++            hits = _co_applicant_cases(token, cases)
++        return Selection(hits[0], named=kind) if len(hits) == 1 else Selection(candidates=hits, named=kind)
++    if _says("this_applicant", text) and state.active_case_id:
++        # "is applicant ke case dikhao": every case of the OPEN case's applicant, within scope
++        current = by_case.get(state.active_case_id.upper())
++        if current is not None:
++            hits = [a for a in cases if a.applicant_id == current.applicant_id]
++            return Selection(hits[0], named="applicant") if len(hits) == 1 else Selection(candidates=hits,
++                                                                                          named="applicant")
++    found = _by_name(text, cases)
++    found.named = "name"
++    return found
++
++
++def not_found_view(request_id: str, named: str | None) -> dict[str, Any]:
++    """The same neutral line for unknown and not-yours (labels.not_found_<kind>, else not_found)."""
++    labels = _cfg().get("labels") or {}
++    key = f"not_found_{named}" if named and f"not_found_{named}" in labels else "not_found"
++    return _base(request_id, "CASE_SELECTION", _label(key))
+ 
+ 
+ def _noise(kinds: tuple[str, ...] = ("open", "case_word", "list", "switch", "filler")) -> set[str]:
+@@ -365,6 +559,10 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+     workspace_id = (context or {}).get("workspace_id") if isinstance(context, dict) else None
+     state = _state(subject, workspace_id)
+     text = message or ""
++    if action == "CUSTOM_QUERY" and case_id and state.active_case_id and case_id != state.active_case_id:
++        # THE OPENED CASE WINS (FOS plan 1.8): a frontend that sends the same case_id on every request (the one
++        # from login) never overrides the case the officer opened here; the stale id is ignored, never read
++        case_id = None
+ 
+     def done(reply: dict[str, Any]) -> Turn:
+         reply["context"] = {**(reply.get("context") or {}), "workspace_id": workspace_id or "default"}
+@@ -376,18 +574,64 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+ 
+     if action == "EXIT_CASE" or (action == "CUSTOM_QUERY" and state.active_case_id and _says("exit", text)):
+         closed, state.active_case_id = state.active_case_id, None
+-        reply = list_view(claims, request_id, state)
++        reply = _list(claims, request_id, state)
+         if closed:
+             reply["answer"] = _label("closed", case_id=closed) + "\n\n" + reply["answer"]
+         return done(reply)
+-    if action == "LIST_CASES" or (action == "CUSTOM_QUERY" and (_says("list", text) or _says("switch", text))):
++    if action == "CUSTOM_QUERY" and _says("other_case", text) and _asks_more_than_the_switch(text):
++        # "dusre case ka details do" (FOS plan 1.3): the question is about ANOTHER of the caller's cases --
++        # one other case: switch to it and answer there; several: ask which (never the open case's answer)
++        others = [a for a in my_cases(claims) if a.case_id != state.active_case_id]
++        if len(others) == 1:
++            state.active_case_id = others[0].case_id
++            history = [c for c in (state.case_history or []) if c != others[0].case_id]
++            state.case_history = (history + [others[0].case_id])[-10:]
++            _save(state)
++            return Turn(case_id=others[0].case_id, applicant_id=others[0].applicant_id, in_case=others[0].case_id)
++        if others:
++            return done(which_view(others, request_id, state))
++        return done(_base(request_id, "CASE_SELECTION", _label("no_other_case")))
++    from app.agents.applicant.copilot.capabilities import case_list as _case_list
++    from app.agents.applicant.copilot.capabilities import faq as _faq
++
++    if action == "CUSTOM_QUERY" and _faq.enabled() and _faq.asks_for_faq(text):
++        # MASTER SPEC section 7: "help" / "kya pooch sakta hoon" -- the FAQ for this state (the open case or none)
++        from app.agents.applicant.copilot.answering import language_lock
++
++        lang = language_lock.current() or "en"
++        shown = _faq.render(_faq.items(state.active_case_id, lang, int(_faq.cfg().get("max_items", 8))), lang,
++                            seed=state.turn_id or 0).split("\n")
++        head = [_label("in_case", case_id=state.active_case_id)] if state.active_case_id else []
++        # the heading is the answer; the links travel apart (faq_block) so no rewrite step touches their labels
++        reply = _base(request_id, "FAQ", "\n".join(head + shown[:1]), case_id=state.active_case_id,
++                      query_type="CONVERSATION")
++        reply["faq_block"] = "\n".join(shown[1:])
++        return done(reply)
++
++    # MASTER SPEC section 3: "top 5", "last 3", "sabse purane", "KYC wale" -- a list query (config phrases).
++    # With a case open it must also name cases ("KYC wale cases"): "KYC wale" alone is about that case.
++    asked_list = None
++    if action == "CUSTOM_QUERY" and _case_list.enabled() and not any(p.search(text) for p in _ID.values()):
++        wanted = _case_list.understand(text)
++        nouns = {_norm(w) for w in (_cfg().get("list_rule") or {}).get("case_nouns") or []}
++        if wanted is not None and (not state.active_case_id or nouns & set(_norm(text).split())):
++            asked_list = wanted
++    if action == "LIST_CASES" or asked_list is not None or (
++            action == "CUSTOM_QUERY" and (_says("list", text) or _says("switch", text))):
+         # the list (or a switch) closes the open case first: never two cases at once
+         closed, state.active_case_id = state.active_case_id, None
+-        reply = list_view(claims, request_id, state)
++        reply = paged_view(claims, request_id, state, asked_list) if _case_list.enabled() \
++            else list_view(claims, request_id, state)
+         if closed:
+             reply["answer"] = _label("closed", case_id=closed) + "\n\n" + reply["answer"]
+         return done(reply)
+-    if action == "CUSTOM_QUERY" and state.listed_case_ids and _says("more", text) and len(_norm(text).split()) <= 3:
++    if action == "CUSTOM_QUERY" and _case_list.enabled() and state.list_query and not state.active_case_id \
++            and (_says("more", text) or _case_list._has(text, (_case_list.cfg().get("phrases") or {}).get("next")))\
++            and len(_norm(text).split()) <= 3:
++        return done(_list(claims, request_id, state, text, more=True))
++    # "aur dikhao" pages the LIST only while no case is open: inside a case, "tell me more" is about the last answer
++    if action == "CUSTOM_QUERY" and state.listed_case_ids and not state.active_case_id \
++            and _says("more", text) and len(_norm(text).split()) <= 3:
+         ids = [a.case_id for a in my_cases(claims)]
+         first = state.listed_case_ids[0]
+         size = int(_cfg().get("page_size", 10))
+@@ -412,11 +656,11 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+     if action == "CUSTOM_QUERY" and not case_id:
+         names_a_case = any(p.search(text) for p in _ID.values())
+         picking = bool(state.listed_case_ids) and len(_norm(text).split()) <= 4
+-        if names_a_case or _says("open", text) or picking:
++        if names_a_case or _says("open", text) or picking or (state.active_case_id and _says("this_applicant", text)):
+             chosen = select(text, claims, state)
+             if chosen.application is not None:
+                 if state.active_case_id and chosen.application.case_id != state.active_case_id \
+-                        and not _says("open", text) and names_a_case and len(_norm(text).split()) > 2:
++                        and not _says("open", text) and names_a_case and _asks_beyond_the_id(text):
+                     # a question about ANOTHER case while inside one: answered, never switched silently
+                     _save(state)
+                     return Turn(case_id=chosen.application.case_id, applicant_id=chosen.application.applicant_id,
+@@ -425,7 +669,7 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+             if chosen.candidates:
+                 return done(which_view(chosen.candidates, request_id, state))
+             if names_a_case or _says("open", text):
+-                return done(_base(request_id, "CASE_SELECTION", _label("not_found")))
++                return done(not_found_view(request_id, chosen.named))
+     if not case_id and state.active_case_id:
+         from app.store import get_repository
+ 
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py
+index 9c660e8..f0a23e9 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py
+@@ -64,6 +64,9 @@ class Intent(str, Enum):
+ 
+     # -- composite
+     FULL_SUMMARY = "FULL_SUMMARY"
++    # THE LONG TAIL (FOS plan 6.4): a case question no intent fits, answered by the model ONLY from the case's
++    # masked fact sheet and fact-checked against it (capabilities/snapshot_qa.py)
++    CASE_SNAPSHOT = "CASE_SNAPSHOT"
+ 
+     # -- writes
+     CREATE_APPLICANT = "CREATE_APPLICANT"
+@@ -1409,6 +1412,12 @@ def classify(message: str) -> Classification:
+     if _WHAT_ABOUT_DOC.match(text) and _document_type(text):
+         return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
+                               document_type=_document_type(text), matched_on="what_about_document")
++    # A DEFINITION TAIL ("... CPA mein kyun hai aur KYC review ka matlab kya hai?") is split BEFORE this stage
++    # rule too -- it took the whole message on its first half (the same check as below, moved ahead of it)
++    if _CASE_STAGE.search(text) and re.search(r"\b(means?|meaning|matlab|arth)\b", text, re.IGNORECASE):
++        early = _mixed_with_knowledge_tail(text)
++        if early is not None:
++            return early
+     if _CASE_STAGE.search(text):
+         return Classification(Intent.APPLICATION_STAGE, confidence="high", matched_on="case_stage")
+ 
+@@ -1634,6 +1643,28 @@ def _part_as_question(part: str) -> str:
+     return f"what is {part}?"
+ 
+ 
++def _share_predicate(pieces: list[str]) -> list[str]:
++    """
++    MASTER SPEC section 5 (multi-question): "PAN aur bank statement ka status batao" -- the leading bare nouns
++    share the LAST part's predicate ("ka status batao"): "PAN ka status batao", "bank statement ka status
++    batao". The linker words are config (chatbot.compound.shared_predicate_linkers).
++    """
++    from app.agents.applicant import config
++
++    linkers = [str(w).lower() for w in (config.chatbot("compound") or {}).get("shared_predicate_linkers") or []]
++    if len(pieces) < 2 or not linkers:
++        return pieces
++    last = pieces[-1].split()
++    at = next((i for i, w in enumerate(last) if w.lower() in linkers and 0 < i < len(last) - 0), None)
++    if at is None:
++        return pieces
++    predicate = " ".join(last[at:])
++    bare = [p for p in pieces[:-1] if len(p.split()) <= 3 and not _QUESTION_CUE.search(p)]
++    if len(bare) != len(pieces) - 1:
++        return pieces
++    return [f"{p} {predicate}" for p in pieces[:-1]] + [pieces[-1]]
++
++
+ def compound_parts(message: str) -> list[str] | None:
+     """
+     "What is my loan amount, what stage am I in, and what is pending?" -> its
+@@ -1664,6 +1695,7 @@ def compound_parts(message: str) -> list[str] | None:
+     from app.agents.applicant.copilot.semantics import short_query as _short
+ 
+     pieces = [p.strip(" ,;?.!") for p in _JOIN.split(text)]
++    pieces = _share_predicate([p for p in pieces if p])
+     pieces = [p for p in pieces
+               if p and (len(p.split()) >= 2 or _short.short_head(p) is not None
+                         or _profile.detect(f"what is my {p}") is not None)]
+@@ -1718,7 +1750,8 @@ def compound_parts(message: str) -> list[str] | None:
+         # my application" is a preamble, not a question).
+         if getattr(part, "understanding", None) == "EXAMPLES":
+             return None
+-        seen.append((part.intent, _subjects.mentioned(question)))
++        # two DOCUMENTS asked the same way ("PAN aur bank statement ka status") are two questions
++        seen.append((part.intent, _subjects.mentioned(question), getattr(part, "document_type", None)))
+     if len(set(seen)) < 2:
+         return None
+     return questions
+@@ -1802,6 +1835,29 @@ FRAME_FAMILY = frozenset({
+ })
+ 
+ 
++def _asks_readiness_for_next_stage(message: str, normalised: str) -> bool:
++    """
++    The next stage named + a need / pending / blocking cue, and not a definition (applicant_agent.yaml
++    chatbot.readiness_report.question: next_stages, cues). Read on the message as typed and as normalised.
++    """
++    from app.agents.applicant import config
++
++    rule = (config.chatbot("readiness_report").get("question") or {})
++    stages = [str(s).lower() for s in rule.get("next_stages") or []]
++    cues = [str(c).lower() for c in rule.get("cues") or []]
++    excluded = [str(w).lower() for w in rule.get("not_with") or []]
++    if not stages or not cues:
++        return False
++    for said in (str(message or ""), str(normalised or "")):
++        words = " " + " ".join(re.findall(r"[\wऀ-ॿ]+", said.lower())) + " "
++        if any(f" {w} " in words for w in excluded):
++            return False                      # "which DOCUMENTS do I need for CPA" is the checklist question
++        if any(f" {s} " in words for s in stages) and any(f" {c} " in words for c in cues) \
++                and not asks_for_a_definition(said):
++            return True
++    return False
++
++
+ def understand(message: str, *, has_case: bool = False) -> Classification:
+     """
+     What the message means.
+@@ -1824,6 +1880,11 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
+ 
+     normalised = normalize.normalise(message)
+     text = normalised.text or (message or "").strip()
++    if has_case and _asks_readiness_for_next_stage(message, text):
++        # "CPA ke liye kya chahiye", "what is blocking CPA", "CPA ke liye kya baaki hai" (FOS plan section 5):
++        # what this case still needs to move on -- the readiness report, never a generic stage guide
++        return Classification(Intent.READINESS, confidence="high", matched_on="readiness_for_next_stage",
++                              understanding="RULES")
+     classification = classify(text)
+     classification.understanding = "RULES"
+ 
+diff --git a/LOS-agentic-ai/app/config/applicant_agent.yaml b/LOS-agentic-ai/app/config/applicant_agent.yaml
+index 83f850c..d01bd69 100644
+--- a/LOS-agentic-ai/app/config/applicant_agent.yaml
++++ b/LOS-agentic-ai/app/config/applicant_agent.yaml
+@@ -642,6 +642,11 @@ chatbot:
+       ka: ""
+       ki: ""
+       ke: ""
++      # "KYC wala detail" -> "KYC detail" (FOS plan 5 follow-up)
++      wala: ""
++      waala: ""
++      wali: ""
++      wale: ""
+     vocabulary:
+       - application
+       - stage
+@@ -875,6 +880,372 @@ chatbot:
+       new_case: "👉 Tap **New case** to open the case form."
+       view: "📄 **{document}** -- the link works for {minutes} minutes."
+ 
++  # FOS plan 6.7 -- MISUNDERSTANDING RECOVERY: "ye nahi poocha" -> one question back with options (whole phrase)
++  misunderstood:
++    phrases: [ye nahi poocha, yeh nahi poocha, ye nahi pucha, yeh nahi pucha, maine ye nahi poocha, galat samjha,
++              galat samjhe, aap galat samjhe, not what i asked, thats not what i asked, that's not what i asked,
++              you misunderstood, wrong answer, galat jawab, ये नहीं पूछा, गलत समझा]
++    question: { en: "Sorry, I got that wrong. What did you want to know about this case?",
++                hi-Latn: "Maaf kijiye, main galat samjha. Is case ke baare mein kya jaanna tha?",
++                default: en }
++    options:
++      - { en: "What is pending?", hi-Latn: "Kya baaki hai?", default: en }
++      - { en: "Is it ready for CPA?", hi-Latn: "CPA ke liye ready hai?", default: en }
++      - { en: "KYC status", hi-Latn: "KYC ka status", default: en }
++
++  # FOS plan 6.6 -- COUNT QUESTIONS (answering/counts.py): "kitne documents verified hain" -> the number, counted
++  # from the store. Env COPILOT_COUNT_ANSWERS.
++  counts:
++    enabled: true
++    cues: [kitne, kitni, kitna, how many, count, number of, total]
++    nouns: [document, documents, doc, docs, papers, kagaz, files, दस्तावेज़]
++    statuses:
++      VERIFIED: [verified, verify, pass, passed, approved, sahi]
++      REJECTED: [rejected, reject, fail, failed, galat]
++      PENDING: [pending, baaki, baki, missing, review, processing]
++    groups:
++      VERIFIED: [VERIFIED]
++      REJECTED: [REJECTED]
++      PENDING: [UPLOADED, PROCESSING, REVIEW]
++    labels:
++      VERIFIED: { one: "1 document is verified: {names}.", many: "{n} documents are verified: {names}.",
++                  none: "No document is verified yet." }
++      REJECTED: { one: "1 document was rejected: {names}.", many: "{n} documents were rejected: {names}.",
++                  none: "No document was rejected." }
++      PENDING: { one: "1 document is still being checked: {names}.", many: "{n} documents are still being checked: {names}.",
++                 none: "No uploaded document is waiting for a check." }
++      ALL: { one: "1 document is on the case: {names}.", many: "{n} documents are on the case: {names}.",
++             none: "No document is on the case yet." }
++
++  # FOS plan 9b -- OFFICER TOOLS (answering/officer_tools.py), each its own flag (env COPILOT_WHAT_IF,
++  # COPILOT_AUTOPILOT_REVIEW, COPILOT_STATUS_TABLES, COPILOT_CUSTOMER_MESSAGE, COPILOT_VISIT_CHECKLIST)
++  officer_tools:
++    what_if:
++      enabled: true
++      phrases: [agar, if i upload, if we upload, what if, toh ready, to ready, ready ho jayega, ready ho jaega,
++                will it be ready, would it be ready]
++      # a document fills a slot: PAN -> its own; a DL / passport / voter ID -> ADDRESS_PROOF
++      slot_of: { DRIVING_LICENCE: [ADDRESS_PROOF], PASSPORT: [ADDRESS_PROOF], VOTER_ID: [ADDRESS_PROOF] }
++      labels:
++        "yes": { en: "Yes -- with a verified {document}, every FOS check would pass. A person still confirms the move to CPA.",
++                 hi-Latn: "Haan -- verified {document} ke saath saare FOS checks pass ho jayenge. CPA move ek vyakti confirm karega.",
++                 default: en }
++        "no": { en: "Not yet -- after a verified {document}, {n} more to clear:",
++                hi-Latn: "Abhi nahi -- verified {document} ke baad bhi {n} cheezein baaki:", default: en }
++        not_needed: { en: "The {document} is not what is holding this case.",
++                      hi-Latn: "{document} is case ko nahi rok raha.", default: en }
++    review:
++      enabled: true
++      max_items: 4
++      labels:
++        heading: { en: "Review: {passed} of {total} checks passed.", hi-Latn: "Review: {total} mein se {passed} checks pass.",
++                   default: en }
++        more: { en: "... and {n} more (ask \"CPA ke liye kya chahiye\").", default: en }
++        clear: { en: "Review: every check passes.", hi-Latn: "Review: saare checks pass.", default: en }
++    tables:
++      enabled: true
++    customer_message:
++      enabled: true
++      phrases: [customer ko bata do, customer ko batao, customer ko message, message to customer, tell the customer,
++                customer ke liye message, customer ko bhejne ke liye, draft for the customer,
++                message to the customer, draft a message, ग्राहक के लिए संदेश, ग्राहकासाठी संदेश]
++      labels:
++        intro: { en: "A message for the customer (not sent -- copy or edit it):", hi-Latn: "Customer ke liye message (bheja nahi gaya -- copy ya edit karein):", default: en }
++        greeting: { en: "Hello, for your loan application please share:", hi-Latn: "Namaste, aapke loan application ke liye kripya dein:",
++                    hi: "नमस्ते, आपके लोन आवेदन के लिए कृपया ये दें:", default: en }
++        bring: { en: "{items}.", default: en }
++        redo: { en: "Please send a clear, correct copy of: {items}.", hi-Latn: "Kripya inki saaf, sahi copy bhejein: {items}.",
++                hi: "कृपया इनकी साफ़, सही कॉपी भेजें: {items}।", default: en }
++        closing: { en: "Thank you.", hi-Latn: "Dhanyavaad.", hi: "धन्यवाद।", default: en }
++        nothing: { en: "Nothing is needed from the customer right now.", hi-Latn: "Abhi customer se kuch nahi chahiye.", default: en }
++        copy: { en: "Copy", default: en }
++        edit: { en: "Edit", default: en }
++    visit:
++      enabled: true
++      phrases: [visit pe kya le jaun, visit par kya le jaun, visit checklist, what to take on the visit, visit ke liye,
++                kya le jaun, kya leke jaun]
++      labels:
++        heading: { en: "Visit checklist", hi-Latn: "Visit checklist", default: en }
++        collect: { en: "Collect the {document}", hi-Latn: "{document} lena hai", default: en }
++        redo: { en: "Collect a clear, correct {document}", hi-Latn: "Saaf, sahi {document} lena hai", default: en }
++        footer: { en: "Originals to be seen; copies to be uploaded.", default: en }
++        nothing: { en: "Nothing to collect on this case right now.", hi-Latn: "Is case pe abhi kuch lena nahi hai.", default: en }
++
++  # FOS plan 7.3 -- CASE TIMELINE AND TURNAROUND (capabilities/timeline.py). Env COPILOT_CASE_TIMELINE.
++  timeline:
++    enabled: true
++    targets_days: { FOS: 3, CPA: 2, CREDIT: 5 }       # turnaround target per stage (calendar days)
++    phrases:
++      timeline: [timeline, case ka timeline, kab kya hua, history of the case, case history dikhao, what happened when]
++      days: [kitne din se, kitne din ho gaye, how many days, how long, kab se atka, since when, days in fos]
++      created: [case kab bana, kab bana tha, kab create hua, when was the case created, created on, case kab khula]
++      day_cues: [verify, verified, upload, uploaded, wala, waala, document, documents, dala]
++    relative_days: { kal: -1, yesterday: -1, aaj: 0, today: 0, parso: -2 }
++    day_words: { "-1": "yesterday", "0": "today", "-2": "two days ago" }
++
++  # FOS plan 7.2 -- SMART UPLOAD (capabilities/smart_upload.py): per file what it looks like, whose (name on the
++  # document vs the parties, existing name matcher) and where it was filed; one question when unsure.
++  smart_upload:
++    enabled: true
++    match_threshold: 0.85
++    party_margin: 0.15                    # the other party must fit this much better before asking
++    ask_slots: [PAN, ADDRESS_PROOF, BANK_STATEMENT, SALARY_SLIP, ITR]
++
++  # FOS plan 7.1 -- THE CPA HANDOFF NOTE (answering/handoff_note.py): only for a case that passes the live FOS gate;
++  # chat + GET /api/v1/fos/handoff-note (md / html / pdf); audited. Env COPILOT_HANDOFF_NOTE.
++  handoff_note:
++    enabled: true
++    phrases: [handoff note, hand off note, handover note, cpa note, cpa handoff, note for cpa, handoff note banao,
++              handoff note do, cpa ke liye note, handoff summary, cpa handoff note]
++
++  # FOS plan SECTION 6.4-6.6 -- CASE SNAPSHOT QA + FACT CHECK (capabilities/snapshot_qa.py): inside a case, a
++  # question no intent fits is answered by the model ONLY from the masked fact sheet; every number / date / ID /
++  # status / document name must be on the sheet or the answer is discarded. Env COPILOT_SNAPSHOT_QA.
++  snapshot_qa:
++    enabled: true
++    timeout_seconds: 3.0
++    num_predict: 120
++    min_free_ram_gb: 1.5
++    max_fields_per_document: 14
++    # words that, when said, must be on the fact sheet too (statuses, document names)
++    checked_words: [verified, rejected, review, pending, uploaded, missing, pass, fail, ready, pan, aadhaar, passport,
++                    licence, voter, salary, itr, statement, signature]
++    # 11d ANSWERABILITY: what is not captured at FOS, and where it comes from
++    answerability:
++      - { words: [tenure, emi, interest, rate], say: "Tenure, rate and EMI are set at the Credit stage, not captured at FOS." }
++      - { words: [cibil, credit score, score], say: "The credit score is checked at the Credit stage, not at FOS." }
++      - { words: [sanction, approved, approval, disburse, disbursement], say: "Sanction and disbursement happen after CPA and Credit; FOS does not record them." }
++    labels:
++      not_recorded: "This is not recorded on the case."
++
++  # FOS plan SECTIONS 5 + 7.1 -- READINESS, ASK ANYTHING (answering/readiness_report.py): every requirement the
++  # FOS gate evaluates, grouped, PASS / PENDING / FAILED / REVIEW with reason and fix; READY is the live gate's
++  # verdict only. Env COPILOT_READINESS_REPORT overrides `enabled`.
++  readiness_report:
++    enabled: true
++    # failing items, what unblocks the case FASTEST first: a re-upload the officer can do now, then a missing
++    # upload, then details to record, then KYC, then what only a reviewer can clear
++    unblock_order: [DOCUMENT_FAILED, DOCUMENT_PENDING, FIELD_PENDING, KYC_FAILED, KYC_PENDING, KYC_REVIEW,
++                    DOCUMENT_REVIEW, GATE]
++    # every wording (MASTER SPEC sections 6 and 14); {language: text} maps follow the language lock
++    labels:
++      heading_ready: { en: "Ready for CPA. A person must confirm the move.",
++                       hi-Latn: "CPA ke liye ready. Move ek vyakti confirm karega.",
++                       hi: "CPA के लिए तैयार। आगे बढ़ाने की पुष्टि एक व्यक्ति करेगा।",
++                       mr: "CPA साठी तयार. पुढे नेण्याची पुष्टी एक व्यक्ती करेल." }
++      heading_not_ready: { en: "CPA readiness: {passed} of {total} checks passed.",
++                           hi-Latn: "CPA readiness: {total} mein se {passed} checks pass.",
++                           hi: "CPA तैयारी: {total} में से {passed} जाँच पास।",
++                           mr: "CPA तयारी: {total} पैकी {passed} तपासण्या पास." }
++      group_application: "Application details"
++      group_applicant_documents: "Applicant documents"
++      group_co_applicant_documents: "Co-applicant documents"
++      group_signature: "Signature"
++      group_kyc: "KYC"
++      group_other: "Other gate conditions"
++      kyc_advisory: "(advisory -- not required for CPA while the KYC rule is off)"
++      fields_ok: "All required details recorded"
++      passed_line: "Passed: {items}."
++      fix_upload: "Upload the {label}"
++      fix_reupload: "Upload a correct {label}"
++      fix_wait: "Wait for the reviewer's decision on the {label}"
++      fix_field: "Record the {label}"
++      fix_kyc: "Upload a correct document so the {label} matches"
++      fix_kyc_run: "Upload the identity documents so KYC can run"
++      next_step: "{fix}."
++      # a document's state, said in a row
++      state_missing: "not uploaded yet"
++      state_uploaded: "uploaded, being verified"
++      state_processing: "being verified"
++      state_rejected: "rejected at verification"
++      state_review: "under review"
++      state_verified: "verified"
++    # a question about what THIS case needs to reach the next stage ("CPA ke liye kya chahiye") -> the report.
++    # The next stage named + one cue (whole words, as typed or normalised); a definition ("CPA kya hai") never.
++    question:
++      next_stages: [cpa]
++      cues: [chahiye, chaiye, needed, need, needs, required, require, baaki, baki, pending, blocking, block, blocked,
++             rok, roka, atka, atki, missing, remaining, left, kab, when, ready]
++      # a question that names documents is the checklist question, not readiness
++      not_with: [document, documents, doc, docs, kagaz, kagzat, papers, दस्तावेज़]
++
++  # FOS plan SECTION 4 -- THE KYC TABLE on every KYC answer (answering/kyc_table.py): per party, check | document |
++  # on document | on application | result | reason, from recorded findings, masked; the likely odd one out.
++  # Env COPILOT_KYC_TABLE overrides `enabled`. Labels may be {language: text} maps.
++  kyc_table:
++    enabled: true
++    # MASTER SPEC section 6: a party's KYC is complete only with one of these statuses
++    passed_statuses: [PASS, PASSED, VERIFIED]
++    labels:
++      heading: { en: "KYC -- {party}", hi-Latn: "KYC -- {party}", hi: "KYC -- {party}", mr: "KYC -- {party}" }
++      a_title: { en: "A. Application form vs documents", hi-Latn: "A. Application form vs documents",
++                 hi: "A. आवेदन फ़ॉर्म बनाम दस्तावेज़", mr: "A. अर्ज फॉर्म विरुद्ध कागदपत्रे" }
++      b_title: { en: "B. Documents vs each other", hi-Latn: "B. Documents aapas mein",
++                 hi: "B. दस्तावेज़ आपस में", mr: "B. कागदपत्रे एकमेकांशी" }
++      field: { en: "Field", hi-Latn: "Field", hi: "फ़ील्ड", mr: "फील्ड" }
++      form_value: { en: "Form value", hi-Latn: "Form value", hi: "फ़ॉर्म मान", mr: "फॉर्म मूल्य" }
++      document: { en: "Document", hi-Latn: "Document", hi: "दस्तावेज़", mr: "कागदपत्र" }
++      document_value: { en: "Document value", hi-Latn: "Document value", hi: "दस्तावेज़ मान", mr: "कागदपत्र मूल्य" }
++      document_1: { en: "Document 1", hi-Latn: "Document 1", hi: "दस्तावेज़ 1", mr: "कागदपत्र 1" }
++      document_2: { en: "Document 2", hi-Latn: "Document 2", hi: "दस्तावेज़ 2", mr: "कागदपत्र 2" }
++      value: { en: "Value", hi-Latn: "Value", hi: "मान", mr: "मूल्य" }
++      result: { en: "Result", hi-Latn: "Result", hi: "परिणाम", mr: "निकाल" }
++      match: { en: "Match", hi-Latn: "Match", hi: "मेल", mr: "जुळते" }
++      partial_short: { en: "Close", hi-Latn: "Kareeb", hi: "लगभग", mr: "जवळपास" }
++      differs_b: { en: "Differs", hi-Latn: "Alag", hi: "अलग", mr: "वेगळे" }
++      matches: { en: "Matches the application", hi-Latn: "Application se match", hi: "आवेदन से मेल",
++                 mr: "अर्जाशी जुळते" }
++      partial: { en: "Close to the application", hi-Latn: "Application ke kareeb", hi: "आवेदन के लगभग",
++                 mr: "अर्जाच्या जवळपास" }
++      differs: { en: "Differs from the application", hi-Latn: "Application se alag", hi: "आवेदन से अलग",
++                 mr: "अर्जापेक्षा वेगळे" }
++      not_on_application: { en: "Not on the application", hi-Latn: "Application par nahi", hi: "आवेदन पर नहीं",
++                            mr: "अर्जावर नाही" }
++      not_read: { en: "Not read from this document", hi-Latn: "Is document se padha nahi gaya",
++                  hi: "इस दस्तावेज़ से पढ़ा नहीं गया", mr: "या कागदपत्रातून वाचले नाही" }
++      odd_one_out: { en: "Likely odd one out: the {document} ({check}) -- the other documents agree. Upload a correct {document}.",
++                     hi-Latn: "Shayad galat: {document} ({check}) -- baaki documents match karte hain. Sahi {document} upload karein.",
++                     hi: "संभवतः गलत: {document} ({check}) -- बाकी दस्तावेज़ मेल खाते हैं। सही {document} अपलोड करें।",
++                     mr: "बहुधा चुकीचे: {document} ({check}) -- बाकी कागदपत्रे जुळतात. योग्य {document} अपलोड करा." }
++      none: { en: "No KYC check has been recorded for this case yet.",
++              hi-Latn: "Is case ka KYC check abhi record nahi hua hai.",
++              hi: "इस केस का KYC चेक अभी दर्ज नहीं हुआ है।", mr: "या केसचा KYC चेक अजून नोंदवलेला नाही." }
++      # the verdict when KYC failed / is in review (2-3 variants of the headline are not used: it is a fixed line)
++      not_ready: { en: "Not ready for CPA. KYC is not complete.", hi-Latn: "CPA ke liye ready nahi. KYC poora nahi hua.",
++                   hi: "CPA के लिए तैयार नहीं। KYC पूरा नहीं हुआ।", mr: "CPA साठी तयार नाही. KYC पूर्ण झालेले नाही." }
++      reason_a: { en: "- {party}: {check} on the {document} -- {reason}.",
++                  hi-Latn: "- {party}: {document} par {check} -- {reason}.",
++                  hi: "- {party}: {document} पर {check} -- {reason}।", mr: "- {party}: {document} वर {check} -- {reason}." }
++      reason_b: { en: "- {party}: {check} differs between the {first} and the {second}.",
++                  hi-Latn: "- {party}: {first} aur {second} mein {check} alag hai.",
++                  hi: "- {party}: {first} और {second} में {check} अलग है।",
++                  mr: "- {party}: {first} आणि {second} मध्ये {check} वेगळे आहे." }
++      next_step: { en: "**Next step:** Ask the customer to upload correct documents that match the application form ({documents}).",
++                   hi-Latn: "**Next step:** Customer se application form se match karne wale sahi documents upload karwayein ({documents}).",
++                   hi: "**Next step:** ग्राहक से आवेदन फ़ॉर्म से मेल खाने वाले सही दस्तावेज़ अपलोड करवाएँ ({documents})।",
++                   mr: "**Next step:** ग्राहकाकडून अर्ज फॉर्मशी जुळणारी योग्य कागदपत्रे अपलोड करून घ्या ({documents})." }
++      next_step_generic: { en: "**Next step:** Ask the customer to upload correct documents that match the application form.",
++                           hi-Latn: "**Next step:** Customer se application form se match karne wale sahi documents upload karwayein.",
++                           hi: "**Next step:** ग्राहक से आवेदन फ़ॉर्म से मेल खाने वाले सही दस्तावेज़ अपलोड करवाएँ।",
++                           mr: "**Next step:** ग्राहकाकडून अर्ज फॉर्मशी जुळणारी योग्य कागदपत्रे अपलोड करून घ्या." }
++      draft_message: { en: "Draft a message to the customer", hi-Latn: "Customer ke liye message banao",
++                       hi: "ग्राहक के लिए संदेश बनाओ", mr: "ग्राहकासाठी संदेश तयार करा" }
++
++  # FOS plan SECTION 3 -- PROFESSIONAL FORMAT (answering/professional.py), applied last on BOTH endpoints.
++  # emojis: false = no pictograph in any reply field (production default); the closing hint becomes one
++  # "Next step:" line; answer_plain always present. Env COPILOT_PROFESSIONAL_FORMAT overrides `enabled`.
++  professional_format:
++    enabled: true
++    emojis: false
++    next_step_label: "Next step:"
++
++  # FOS plan SECTION 2 -- LANGUAGE LOCK (answering/language_lock.py). The frontend's selected language
++  # (reply_language / response_language / language) is authoritative for EVERY text of the reply. Env
++  # COPILOT_LANGUAGE_LOCK overrides `enabled`. Labels anywhere in this file may be {en: ..., hi-Latn: ...} maps.
++  language_lock:
++    enabled: true
++    supported: [en, hi, hi-Latn, mr, mr-Latn]
++    aliases: { english: en, en-in: en, en-us: en, en-gb: en, hindi: hi, hi-in: hi, hinglish: hi-Latn,
++               hi_latn: hi-Latn, marathi: mr, mr-in: mr }
++
++  # FOS plan 1.7: SUGGESTION CHIPS FOLLOW THE TURN. After an answer, chips naming the topic just answered are
++  # dropped (`drop`: substrings, lower case) and that topic's next questions lead (`after`).
++  suggestions:
++    drop:
++      DOCUMENTS_PENDING: [pending]
++      DOCUMENTS_MISSING: [pending]
++      PENDING_ITEMS: [pending]
++      READINESS: [ready to hand over, pending on this case]
++      APPLICATION_STATUS: [status]
++      KYC_RESULT: [kyc]
++      DOCUMENTS_UPLOADED: [uploaded]
++    after:
++      DOCUMENTS_PENDING: ["Is this case ready for CPA?", "What should I do next?"]
++      DOCUMENTS_MISSING: ["Is this case ready for CPA?", "What should I do next?"]
++      PENDING_ITEMS: ["Is this case ready for CPA?", "What is the KYC status?"]
++      READINESS: ["What should I do next?", "What is the KYC status?"]
++      APPLICATION_STATUS: ["What is pending on this case?", "What should I do next?"]
++      KYC_RESULT: ["Which documents does KYC compare?", "What is pending on this case?"]
++      DOCUMENTS_UPLOADED: ["Are these documents verified?", "What is pending on this case?"]
++      DOCUMENT_VERIFICATION: ["What is pending on this case?", "What is the KYC status?"]
++      APPLICANT_PROFILE: ["What is pending on this case?", "What is the KYC status?"]
++      NEXT_ACTION: ["Is this case ready for CPA?", "What is the KYC status?"]
++
++  # FOS plan 1.6: words of the officer's work. A garbled message holding one gets ONE clarifying question
++  # (the general offer), never "That's outside what I can help with here".
++  domain_words:
++    words: [list, lists, details, detail, record, records, file, files, customer, customers, query, queries,
++            upload, verify, verification, pending, baaki, status, signature, photo, form, amount, salary, income,
++            timeline, readiness, handoff]
++
++  # FOS plan 1.6: a document named right before a case word ("mere Aadhar case ka details kaise dekhun") is
++  # ambiguous -- one question with both readings as options.
++  ambiguity:
++    document_before_case:
++      case_nouns: [case, file, application, केस]
++      question: "Do you mean the {doc} details, or this case's details?"
++      options: ["Show the {doc} details", "Show this case's details"]
++
++  # FOS plan 1.4: a message that is ONLY a request for details ("details batao") -> everything recorded on the
++  # case (applicant + application). Whole message only; "PAN details" etc. keep their own meaning.
++  bare_details:
++    phrases: [details, detail, details batao, detail batao, details do, detail do, details dikhao,
++              details dikha do, details bata do, details please, sab details, saari details, poori details,
++              full details, all details, show details, give details, jaankari do, jankari do, details chahiye,
++              विवरण दो, डिटेल्स बताओ,
++              # the normalised forms the pipeline also reads ("details batao" -> "tell me details")
++              tell me details, tell me the details, give me details, give me the details, show me details,
++              show me the details, details give, details show, details tell]
++
++  # FOS plan 1.5: ONE count of documents -- `case_state` (app/agents/applicant/frontend.py: required counts +
++  # documents_optional / documents_optional_missing); every upload button says required or optional.
++  document_counts:
++    labels:
++      upload_required: "Upload {label}"
++      upload_optional: "Upload {label} (optional)"
++
++  # BUILD MARKER on GET /ready (FOS plan 1.1): which backend a frontend is talking to. Update `step` with
++  # each delivered step; the flags are reported as they are in the running process.
++  build:
++    phase: "Phase 3"
++    step: "FOS E2E plan, section 1"
++    chatbot_flags: [COPILOT_CASE_WORKSPACE, COPILOT_CASE_ACTIONS, COPILOT_RESPONSE_STYLE, COPILOT_TERMS_KNOWLEDGE,
++                    COPILOT_SESSION_MEMORY, COPILOT_VERIFY_DIAGNOSE, COPILOT_DOCUMENT_ACTIONS,
++                    COPILOT_PARTY_RECOGNITION, LOS_COAPP_IDENTITY, COPILOT_GUARDRAIL_HARDENING, COPILOT_STREAMING,
++                    COPILOT_LLM_ROUTER, COPILOT_EMPHASIS, COPILOT_LOCALIZED_KYC_REASONS, COPILOT_SINGLE_CASE_RESOLVE,
++                    COPILOT_LANGUAGE_LOCK, COPILOT_PROFESSIONAL_FORMAT, COPILOT_KYC_TABLE,
++                    COPILOT_READINESS_REPORT, COPILOT_SNAPSHOT_QA, COPILOT_COUNT_ANSWERS,
++                    COPILOT_HANDOFF_NOTE, COPILOT_SMART_UPLOAD, COPILOT_CASE_TIMELINE,
++                    COPILOT_WHAT_IF, COPILOT_AUTOPILOT_REVIEW, COPILOT_STATUS_TABLES, COPILOT_CUSTOMER_MESSAGE,
++                    COPILOT_VISIT_CHECKLIST]
++
++  # PLAUSIBLE AMOUNTS (FOS plan 1.1; trigger was demo data, kept as production protection).
++  # ALL AMOUNTS ARE IN RUPEES, NOT LAKHS. Intake (create / update, app/agents/applicant/plausibility.py)
++  # refuses a figure below its minimum or written with a unit word -> 422 AMOUNT_IMPLAUSIBLE. A stored
++  # figure below its minimum is never shown in chat -- the label / sentence is said instead.
++  plausibility:
++    label: "Amount needs verification"
++    sentence: "The recorded {field} needs verification; the figure on the case does not look right."
++    minimum:
++      loan_amount: 10000
++      property_value: 100000
++      declared_monthly_income: 1000
++    field_labels: { loan_amount: "Loan amount", property_value: "Property value",
++                    declared_monthly_income: "Monthly income" }
++    examples: { loan_amount: 500000, property_value: 8000000, declared_monthly_income: 65000 }
++    unit_words: [lakh, lakhs, lac, lacs, l, cr, crore, crores, k, thousand, hazaar, hazar]
++    reject_message: "{label} looks too small; enter the full amount in rupees, e.g. {example}."
++    unit_message: "{label}: enter the full amount in rupees (not lakhs / crores), e.g. {example}."
++
++  # DOCUMENTS THAT NEED ACTION (COPILOT_DOCUMENT_ACTIONS; answering/document_actions.py).
++  # User, 2026-10-07: "kuch bhi pure process me review hai yaa fail hai toh aana chahaiye" --
++  # a REVIEW document is offered for upload again with its reason (was: "under review, no action"),
++  # and a party's KYC REVIEW / FAIL verdict is always a line of its own (was: only with field detail).
++  # false / false = the previous behaviour.
++  document_actions:
++    review_needs_reupload: true
++    kyc_status_line: true
++
+   # 6f VERIFY / UPLOAD DIAGNOSE (COPILOT_VERIFY_DIAGNOSE, default off; CHATBOT_SPEC section 4).
+   # "verify karna hai" / "kya upload karu" never asks "which document?": the case is diagnosed
+   # (step 4's document action view: ❌ fix first -> ⏳ pending -> ℹ️ under review, every party).
+@@ -893,7 +1264,7 @@ chatbot:
+   # Glossary + abbreviation rule: app/config/glossary.yaml.
+   response_style:
+     status_emoji: { READY_FOR_CPA: "✅", NOT_READY: "⏳", VERIFIED: "✅", REJECTED: "❌", REVIEW: "⏳",
+-                    MISMATCH: "⚠️", BLOCKED: "⚠️" }
++                    MISMATCH: "⚠️", BLOCKED: "⚠️", PASS: "✅", FAIL: "❌" }
+     # "all my cases" summary, point-wise: one block per case, latest first (capabilities/portfolio.py pointwise)
+     portfolio:
+       head: "📂 **{total} cases**"
+@@ -937,7 +1308,12 @@ chatbot:
+       DOCUMENTS_PENDING: "Upload these to move the case to **CPA**."
+       DOCUMENTS_MISSING: "Upload these to move the case to **CPA**."
+       PENDING_ITEMS: "Clear these to move the case to **CPA**."
+-      KYC_RESULT: "Upload the correct document to fix the mismatch."
++      # per recorded KYC state: a PASS gets no "fix" step; NOT_RECORDED / PENDING says what runs it
++      KYC_RESULT:
++        default: "Upload the correct document to fix the mismatch."
++        PASS: ""
++        NOT_RECORDED: "KYC runs once the identity documents are uploaded."
++        PENDING: "KYC runs once the identity documents are uploaded."
+       FOS_KNOWLEDGE: "Check your **status** or **pending documents**?"
+       OUT_OF_SCOPE: "Check your **status** or **pending documents**?"
+ 
+@@ -964,8 +1340,29 @@ chatbot:
+       switch: [dusra case, doosra case, another case, case badlo, switch case, other case]
+       previous: [pehle wala case, pichla case, previous case, last case, wapas pehle wala, pehle wale case]
+       case_word: [case, ka case, wala case, file, application]
++      # MASTER SPEC section 2: "is applicant ke case dikhao" -- every case of the OPEN case's applicant (in scope)
++      this_applicant: [is applicant ke case, is applicant ke cases, iss applicant ke case, iss applicant ke cases,
++                       is customer ke case, is customer ke cases, this applicant's cases, this applicant cases,
++                       cases of this applicant, इस आवेदक के केस, या अर्जदाराच्या केस]
+       # small words dropped before a name / ordinal is read ("2 wala case open karo" -> "2")
+       filler: [ka, ki, ke, wala, wali, ji, karo, kar, please, plz, the, number]
++      # FOS plan 1.3: a question about ANOTHER of the caller's cases ("dusre case ka details do"): one other case
++      # -> switched to and answered there; several -> "which one?". Alone ("dusra case") it is the switch above.
++      other_case: [dusre case, doosre case, dusra case, doosra case, dusri case, doosri case, other case,
++                   another case, the other case, mere dusre case, dusre wale case, doosre wale case, दूसरे केस,
++                   दूसरा केस, दुसऱ्या केस]
++    # the desk a workspace caller with NO case chosen is answered for (process / knowledge questions on the
++    # universal /copilot/query); a chosen case's own recorded stage always wins
++    default_stage: FOS
++    # FOS plan 1.2: any wording that ONLY asks for the case list -- a case noun + a cue + nothing but these words
++    # ("all case ka list", "sab case dikhao", "mere kitne case hai"); a topic word (status, KYC, PAN) is never one.
++    # The `list` phrases above are matched first; this only adds wordings that ask for nothing else.
++    list_rule:
++      case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
++      cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, my, मेरे, सारे, सब]
++      allowed: [ka, ki, ke, of, a, the, me, mujhe, show, give, do, dikhao, dikha, batao, bata, hai, h, hain, how,
++                please, plz, pls, kya, wale, wala, kaun, kaunse, konse, which, are, i, have, bhai, yaar, open,
++                dekhna, dekhne, chahiye, दिखाओ, बताओ, है, हैं, का, के, की]
+     labels:
+       header: "📂 **Your cases**"
+       total: "{n} total"
+@@ -982,8 +1379,12 @@ chatbot:
+       row_docs: "⏳ {n} docs pending"
+       row_ready: "✅ Ready for CPA"
+       row_other: "⏳ In progress"
+-      ask: "👉 Kis case mein jaana hai?"
+-      more: "👉 \"aur dikhao\" for more"
++      row_over_target: "⏰ {days}d in {stage} (target {target})"
++      # {language: text} maps follow the locked reply language (FOS plan section 2); unlocked -> the en wording
++      ask: { default: hi-Latn, en: "👉 Which case do you want to open?", hi-Latn: "👉 Kis case mein jaana hai?",
++             hi: "👉 कौन सा केस खोलना है?", mr: "👉 कोणती केस उघडायची आहे?" }
++      more: { default: hi-Latn, en: "👉 Say \"show more\" for more", hi-Latn: "👉 \"aur dikhao\" for more",
++              hi: "👉 और देखने के लिए \"और दिखाओ\" कहें", mr: "👉 आणखी पाहण्यासाठी \"आणखी दाखवा\" म्हणा" }
+       none: "ℹ️ You have no cases you can open."
+       opened: "🔓 **{case_id} ({name})** opened."
+       snapshot_stage: "📍 Stage: **{stage}**"
+@@ -993,16 +1394,52 @@ chatbot:
+       in_case: "📍 {case_id}"
+       closed: "🔒 **{case_id}** closed."
+       which: "Which one did you mean?"
+-      not_found: "I couldn't find that case among yours. 👉 Say \"mere cases\" to see the list."
+-      other_case: "👉 Is case mein jaana hai? ({case_id})"
+-      no_case: "👉 Pehle ek case kholiye -- \"mere cases\" boliye."
+-    quick_questions: ["Kya baaki hai?", "Kyu atka hai?", "Co-applicant", "Summary"]
+-    suggested_question: "Kya baaki hai?"
++      not_found: { en: "I couldn't find that case among yours. 👉 Say \"my cases\" to see the list.",
++                   hi-Latn: "Yeh case aapke cases mein nahi mila. 👉 List ke liye \"mere cases\" boliye.",
++                   hi: "यह केस आपके केसों में नहीं मिला। 👉 सूची के लिए \"मेरे केस\" कहें।",
++                   mr: "ही केस तुमच्या केसमध्ये सापडली नाही. 👉 यादीसाठी \"माझ्या केस\" म्हणा." }
++      # MASTER SPEC section 2: an id / name typed in chat that is unknown OR not the caller's -- one neutral line,
++      # never confirming that it exists
++      not_found_applicant: { en: "I can't find that applicant in your cases.",
++                             hi-Latn: "Yeh applicant aapke cases mein nahi mila.",
++                             hi: "यह आवेदक आपके केसों में नहीं मिला।", mr: "हा अर्जदार तुमच्या केसमध्ये सापडला नाही." }
++      not_found_name: { en: "I can't find that applicant in your cases.",
++                        hi-Latn: "Yeh applicant aapke cases mein nahi mila.",
++                        hi: "यह आवेदक आपके केसों में नहीं मिला।", mr: "हा अर्जदार तुमच्या केसमध्ये सापडला नाही." }
++      not_found_co_applicant: { en: "I can't find that co-applicant in your cases.",
++                                hi-Latn: "Yeh co-applicant aapke cases mein nahi mila.",
++                                hi: "यह सह-आवेदक आपके केसों में नहीं मिला।", mr: "हा सह-अर्जदार तुमच्या केसमध्ये सापडला नाही." }
++      not_found_case: { en: "I can't find that case in your cases.",
++                        hi-Latn: "Yeh case aapke cases mein nahi mila.",
++                        hi: "यह केस आपके केसों में नहीं मिला।", mr: "ही केस तुमच्या केसमध्ये सापडली नाही." }
++      no_other_case: { en: "You have only this one case.", hi-Latn: "Aapka sirf yahi ek case hai.",
++                       hi: "आपका केवल यही एक केस है।", mr: "तुमची फक्त हीच एक केस आहे." }
++      pick_case_first: { en: "Which case is this about? Open one of your cases first.",
++                         hi-Latn: "Yeh kis case ke baare mein hai? Pehle apna ek case kholiye.",
++                         hi: "यह किस केस के बारे में है? पहले अपना एक केस खोलिए।",
++                         mr: "हे कोणत्या केसबद्दल आहे? आधी तुमची एक केस उघडा." }
++      other_case: { default: hi-Latn, en: "👉 Open this case? ({case_id})", hi-Latn: "👉 Is case mein jaana hai? ({case_id})",
++                    hi: "👉 इस केस में जाना है? ({case_id})", mr: "👉 ही केस उघडायची? ({case_id})" }
++      no_case: { default: hi-Latn, en: "👉 Open a case first -- say \"my cases\".",
++                 hi-Latn: "👉 Pehle ek case kholiye -- \"mere cases\" boliye.",
++                 hi: "👉 पहले एक केस खोलिए -- \"मेरे केस\" कहें।", mr: "👉 आधी एक केस उघडा -- \"माझ्या केस\" म्हणा." }
++    quick_questions:
++      default: hi-Latn
++      en: ["What is pending?", "Why is it stuck?", "Co-applicant", "Summary"]
++      hi-Latn: ["Kya baaki hai?", "Kyu atka hai?", "Co-applicant", "Summary"]
++      hi: ["क्या बाकी है?", "क्यों अटका है?", "सह-आवेदक", "सारांश"]
++      mr: ["काय बाकी आहे?", "का अडकले आहे?", "सह-अर्जदार", "सारांश"]
++    suggested_question: { default: hi-Latn, en: "What is pending?", hi-Latn: "Kya baaki hai?", hi: "क्या बाकी है?", mr: "काय बाकी आहे?" }
+ 
+   # MODEL ROUTING (model_routing.py): which turns the language model may
+   # phrase (MODEL), which are worded deterministically (FAST) and which it
+   # never touches (NEVER: refusals, quoted records, verdicts). Lists ADD to
+   # the code defaults; a name in `never` wins over `model`.
++  # MASTER SPEC section 5 -- multi-question: "PAN aur bank statement ka status batao" = two questions; the
++  # bare nouns share the last part's predicate from the first of these words on
++  compound:
++    shared_predicate_linkers: [ka, ki, ke, kaa, kya, का, की, के, चा, ची, चे]
++
+   model_routing:
+     enabled: true
+     model: []
+diff --git a/LOS-agentic-ai/tests/conftest.py b/LOS-agentic-ai/tests/conftest.py
+index c7ce346..8ce1ad8 100644
+--- a/LOS-agentic-ai/tests/conftest.py
++++ b/LOS-agentic-ai/tests/conftest.py
+@@ -199,7 +199,15 @@ _PHASE3_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESP
+                  "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_LOCALIZED_KYC_REASONS",
+                  "COPILOT_SINGLE_CASE_RESOLVE", "COPILOT_EMPHASIS", "COPILOT_STREAMING", "COPILOT_SESSION_MEMORY",
+                  "LOS_COAPP_IDENTITY", "COPILOT_PARTY_RECOGNITION", "COPILOT_GUARDRAIL_HARDENING",
+-                 "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY")
++                 "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY",
++                 "COPILOT_LANGUAGE_LOCK", "COPILOT_PROFESSIONAL_FORMAT", "COPILOT_KYC_TABLE",
++                 "COPILOT_READINESS_REPORT", "COPILOT_SNAPSHOT_QA",
++                 "COPILOT_COUNT_ANSWERS", "COPILOT_HANDOFF_NOTE",
++                 "COPILOT_SMART_UPLOAD", "COPILOT_CASE_TIMELINE",
++                 "COPILOT_WHAT_IF", "COPILOT_AUTOPILOT_REVIEW", "COPILOT_STATUS_TABLES", "COPILOT_CUSTOMER_MESSAGE", "COPILOT_VISIT_CHECKLIST",
++                 # MASTER SPEC: the markdown + tts reply contract (config default ON; the older tests read the
++                 # full envelope), the old login self-grant (default off)
++                 "COPILOT_MD_TTS_CONTRACT", "LOS_LOGIN_SELF_GRANT_LEGACY", "COPILOT_CASE_LIST_PAGING", "COPILOT_FAQ")
+ 
+ 
+ @pytest.fixture(autouse=True)
+diff --git a/app/agents/applicant/copilot/answering/contract.py b/app/agents/applicant/copilot/answering/contract.py
+new file mode 100644
+index 0000000..2311024
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/contract.py
+@@ -0,0 +1,531 @@
++"""
++THE REPLY CONTRACT (MASTER SPEC section 8; flag COPILOT_MD_TTS_CONTRACT, config app/config/copilot_reply.yaml).
++
++Every chat reply of BOTH endpoints (and the stream's final event) is exactly
++
++    {"request_id": "...", "markdown": "...", "tts": "..."}
++
++THE SHAPE IS CODE, never configurable (section 14). The words, link labels, limits and spoken forms are config.
++
++MARKDOWN is what the screen shows: the answer as the pipeline already wrote it (fact-checked, masked, in the
++locked language), in the professional format (no emojis, one "Next step:" line), with every interactive item as
++a link -- [Label](action:<name>?k=v) from ONE registry (`action_links`), or [Question](ask:<text>). Each item once.
++
++TTS is what the voice reads, made FROM that markdown only (so its facts are a subset of the screen's): the direct
++answer, the lists summarised by status, the next step; at most `tts.max_sentences`; no markdown, links, tables or
++symbols; ids shortened ("case ending 38A9"), amounts and dates spoken.
++
++NOTHING IS ADDED THAT THE PIPELINE DID NOT SAY: this layer only re-renders the reply it is given.
++"""
++
++from __future__ import annotations
++
++import logging
++import os
++import re
++import threading
++import time
++from pathlib import Path
++from typing import Any
++from urllib.parse import parse_qsl, quote, unquote
++
++import yaml
++
++FLAG = "COPILOT_MD_TTS_CONTRACT"
++_ON = {"1", "true", "yes", "on"}
++_PATH = Path(__file__).resolve().parents[4] / "config" / "copilot_reply.yaml"
++_CACHE: dict[str, Any] = {"mtime": None, "data": {}}
++_LOCK = threading.Lock()
++_log = logging.getLogger(__name__)
++
++#: a link the frontend turns into a button: [label](action:name?x=y) / [label](ask:text)
++LINK = re.compile(r"\[([^\]]+)\]\(((?:action|ask):[^)\s]*)\)")
++_ID = re.compile(r"\b(COAPP|CASE|APP)-([0-9A-Z]{4,})\b", re.I)
++_AMOUNT = re.compile(r"(?:₹|\bRs\.?|\bINR)\s?(\d[\d,]*(?:\.\d+)?)", re.I)
++_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})(?:[T ][\d:.]+(?:Z|[+-]\d\d:?\d\d)?)?\b")
++_STATUS = re.compile(r"\*\*([A-Z_]{3,})\*\*")
++
++
++# --------------------------------------------------------------------------
++# config
++# --------------------------------------------------------------------------
++
++def cfg() -> dict[str, Any]:
++    """copilot_reply.yaml, re-read when the file changes (a config edit is followed without a restart)."""
++    try:
++        mtime = _PATH.stat().st_mtime
++    except OSError:
++        return {}
++    with _LOCK:
++        if _CACHE["mtime"] != mtime:
++            _CACHE["data"] = yaml.safe_load(_PATH.read_text(encoding="utf-8")) or {}
++            _CACHE["mtime"] = mtime
++        return _CACHE["data"]
++
++
++def enabled() -> bool:
++    value = os.getenv(FLAG)
++    if value is not None and value.strip():
++        return value.strip().lower() in _ON
++    return bool(cfg().get("enabled", False))
++
++
++def _language(reply: dict[str, Any] | None = None) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    locked = language_lock.current()
++    if locked:
++        return locked
++    contract = (reply or {}).get("language_contract") if isinstance(reply, dict) else None
++    if isinstance(contract, dict) and contract.get("response_language"):
++        return str(contract["response_language"])
++    return "en"
++
++
++def _pick(value: Any, lang: str) -> Any:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    if isinstance(value, dict) and not any(k in value for k in ("en", "hi", "hi-Latn", "mr", "default")):
++        return value
++    return language_lock.pick(value, lang) if isinstance(value, dict) else value
++
++
++# --------------------------------------------------------------------------
++# action links -- one registry
++# --------------------------------------------------------------------------
++
++def registry() -> dict[str, dict[str, Any]]:
++    return cfg().get("action_links") or {}
++
++
++def _encode(text: str) -> str:
++    return quote(str(text), safe="?=&,:'-_.~!*/@")
++
++
++def link(name: str, lang: str = "en", label: str | None = None, **params: Any) -> str:
++    """[Label](action:name?k=v) for a REGISTERED action; an unknown name is a programming error."""
++    spec = registry().get(name)
++    if spec is None:
++        raise KeyError(f"action link '{name}' is not in copilot_reply.yaml action_links")
++    wanted = [p for p in spec.get("params") or [] if params.get(p) not in (None, "")]
++    query = "&".join(f"{p}={_encode(params[p])}" for p in wanted)
++    if label is None:
++        label = str(_pick(spec.get("labels") or name, lang)).format(**{k: v for k, v in params.items()})
++    return f"[{label}](action:{name}{'?' + query if query else ''})"
++
++
++def ask(question: str) -> str:
++    """[Question](ask:Question) -- the frontend sends the text as the next message."""
++    text = " ".join(str(question).split())
++    return f"[{text}](ask:{_encode(text)})"
++
++
++def parse(href: str) -> tuple[str, str, dict[str, str]]:
++    """('action'|'ask', name-or-text, params) of a link target."""
++    scheme, _, rest = str(href or "").partition(":")
++    if scheme == "ask":
++        return "ask", unquote(rest), {}
++    name, _, query = rest.partition("?")
++    return scheme, name, {k: v for k, v in parse_qsl(query)}
++
++
++def request_for(href: str) -> dict[str, Any] | None:
++    """
++    The request body an action link stands for (registry `request`, parameters filled), or None when it is not a
++    server action (unknown, client-only). The caller still goes through the ordinary route -- scope is re-checked
++    there on every action, never here.
++    """
++    scheme, name, params = parse(href)
++    if scheme == "ask":
++        return {"action": "CUSTOM_QUERY", "message": name}
++    spec = registry().get(name)
++    if scheme != "action" or not spec:
++        return None
++    body = spec.get("request") or {}
++    if body.get("client_only") or body.get("method"):
++        return None
++    if any(p not in params for p in spec.get("params") or []):
++        return None
++    return {k: (str(v).format(**params) if isinstance(v, str) else v) for k, v in body.items()}
++
++
++# --------------------------------------------------------------------------
++# markdown
++# --------------------------------------------------------------------------
++
++def _clean(text: str) -> str:
++    """The professional format: no pictographs, bullets for icon rows, one "Next step:" line, no raw codes."""
++    from app.agents.applicant.copilot.answering import professional
++
++    return _labels(professional.strip_emojis(professional._bulleted(professional._next_step(str(text or "")))))
++
++
++_CODE = re.compile(r"\b[A-Z]{2,}(?:_[A-Z]{2,})+\b")
++
++
++def _labels(text: str) -> str:
++    """A configured document code ("ADDRESS_PROOF") is shown as its label ("Address Proof") -- never a raw code."""
++    from app.agents.applicant import config
++    from app.agents.applicant.copilot.answering.answer import _readable
++
++    known = {str(t).upper() for t in config.document_types() or []}
++    for product in config.products() or []:
++        for item in config.checklist_for(product) or []:
++            known |= {str(item.get(k)).upper() for k in ("slot", "document_type", "code") if item.get(k)}
++    return _CODE.sub(lambda m: _readable(m.group(0)) if m.group(0) in known else m.group(0), text)
++
++
++def _rows(reply: dict[str, Any]) -> list[dict[str, Any]]:
++    for holder in (reply.get("presentation"), reply.get("workspace_view")):
++        if isinstance(holder, dict) and isinstance(holder.get("case_list"), list):
++            return [r for r in holder["case_list"] if isinstance(r, dict) and r.get("case_id")]
++    return []
++
++
++def _workspace(reply: dict[str, Any]) -> dict[str, Any] | None:
++    for holder in (reply.get("presentation"), reply.get("workspace_view")):
++        if isinstance(holder, dict) and isinstance(holder.get("workspace"), dict):
++            return holder["workspace"]
++    return None
++
++
++def _link_options(text: str, options: list[str]) -> str:
++    """"1. Option" lines of a clarification become "1. [Option](ask:Option)" (each option once)."""
++    lines = text.split("\n")
++    done: set[str] = set()
++    for i, line in enumerate(lines):
++        m = re.match(r"^(\s*\d+\.\s+)(.+?)\s*$", line)
++        if m and m.group(2) in options and m.group(2) not in done:
++            lines[i] = m.group(1) + ask(m.group(2))
++            done.add(m.group(2))
++    rest = [o for o in options if o not in done]
++    if rest:
++        lines += [f"{n}. {ask(o)}" for n, o in enumerate(rest, len(done) + 1)]
++    return "\n".join(lines)
++
++
++def _action_links(reply: dict[str, Any], lang: str) -> list[str]:
++    out: list[str] = []
++    for a in reply.get("actions") or []:
++        if not isinstance(a, dict):
++            continue
++        kind = str(a.get("type") or "").upper()
++        if kind == "OPEN_URL" and a.get("document_id"):
++            out.append(link("view_document", lang, id=a["document_id"], doc_label=a.get("label") or ""))
++        elif kind == "RAISE_QUERY":
++            ref = (a.get("query") or {}).get("draft_id") or (a.get("query") or {}).get("ref") or "draft"
++            out.append(link("raise_query", lang, ref=ref))
++        elif kind == "MARK_QUERY_SENT" and a.get("query_id"):
++            out.append(link("mark_query_sent", lang, id=a["query_id"]))
++        elif kind == "COPY_TEXT":
++            out.append(link("copy", lang, ref="draft-1"))
++        elif kind == "OPEN_UI_NEW_CASE":
++            out.append(link("new_case", lang))
++    da = reply.get("document_actions") if isinstance(reply.get("document_actions"), dict) else {}
++    party_of = {"PRIMARY_APPLICANT": "applicant", "APPLICANT": "applicant", "CO_APPLICANT": "co_applicant"}
++    for row in (da.get("reupload") or []) + (da.get("pending") or []):
++        if isinstance(row, dict) and (row.get("document_type") or row.get("slot")):
++            doc = row.get("document_type") or row.get("slot")
++            out.append(link("upload", lang, doc=doc, party=party_of.get(str(row.get("party") or "").upper(),
++                                                                           "applicant"),
++                            doc_label=row.get("label") or doc))
++    for row in da.get("under_review") or []:
++        if isinstance(row, dict) and row.get("document_id"):
++            out.append(link("view_document", lang, id=row["document_id"], doc_label=row.get("label") or ""))
++    note = reply.get("handoff_note") if isinstance(reply.get("handoff_note"), dict) else None
++    if note and note.get("ready") and reply.get("case_id"):
++        out.append(link("handoff_note", lang, case=reply["case_id"]))
++    if reply.get("intent") == "CASE_LIST" and (reply.get("presentation") or reply.get("workspace_view") or {}) \
++            .get("has_more"):
++        out.append(link("list_more", lang))
++    if _workspace(reply):
++        out += [link("exit_case", lang), link("switch_case", lang)]
++    return out
++
++
++def _case_table(rows: list[dict[str, Any]], lang: str) -> list[str]:
++    head = _pick((cfg().get("markdown") or {}).get("case_table_headers")
++                 or {"en": ["#", "Case", "Applicant", "Stage", "Status", ""]}, lang)
++    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
++    for r in rows:
++        who = " ".join(x for x in (str(r.get("applicant_name") or ""),
++                                   f"({r['applicant_id']})" if r.get("applicant_id") else "") if x)
++        cells = [str(r.get("number") or ""), str(r["case_id"]), who,
++                 str(r.get("stage") or ""), _clean(str(r.get("status_label") or "")).strip(),
++                 link("open_case", lang, id=r["case_id"])]
++        lines.append("| " + " | ".join(c.replace("|", "/") for c in cells) + " |")
++    return lines
++
++
++def markdown(reply: dict[str, Any]) -> str:
++    return _render(reply)[0]
++
++
++def _render(reply: dict[str, Any]) -> tuple[str, str]:
++    """(the whole markdown, the answer body alone -- what the voice reads from)."""
++    lang = _language(reply)
++    from app.agents.applicant.copilot.answering import professional
++
++    answer, marked = str(reply.get("answer") or ""), str(reply.get("answer_markdown") or "")
++    # the bold version only when it says the same as the answer (a later step may have extended the answer)
++    same = marked and " ".join(professional.plain(_clean(marked)).split()) == " ".join(
++        professional.plain(_clean(answer)).split())
++    text = marked if same else answer or marked
++    if reply.get("markdown") and not text:
++        text = str(reply["markdown"])
++    text = _clean(text)
++    clar = reply.get("clarification_required") if isinstance(reply.get("clarification_required"), dict) else None
++    # only a clarification the answer still asks (a later step may have replaced the answer)
++    options = [str(o) for o in (clar or {}).get("options") or []
++               if str(clar.get("question") or "").strip() and str(clar.get("question")).strip() in text]
++    rows = _rows(reply)
++    if rows and not options and "](action:open_case" not in text:
++        # the list's row lines -- and the applicant group lines, whose ids the table shows -- become ONE table
++        # with an Open link per row
++        ids = {r["case_id"] for r in rows} | {str(r.get("applicant_id")) for r in rows if r.get("applicant_id")}
++        kept = [ln for ln in text.split("\n") if not any(i in ln for i in ids)]
++        head, tail = kept[:1], [ln for ln in kept[1:] if ln.strip()]
++        text = "\n".join(head + [""] + _case_table(rows, lang) + ([""] + tail if tail else []))
++    if options:
++        text = _link_options(text, options)
++    body = dedupe(text)
++    blocks = [text.rstrip()]
++    faq_block = str(reply.get("faq_block") or "").strip()
++    if faq_block:
++        blocks.append(_clean(faq_block))         # the FAQ for this state (section 7), after the answer / review
++    links = [ln for ln in _action_links(reply, lang) if ln not in text]
++    if links:
++        label = str(_pick((cfg().get("markdown") or {}).get("actions_label") or "", lang) or "")
++        blocks.append(((label + "\n") if label else "") + " · ".join(dict.fromkeys(links)))
++    if not options and not faq_block:
++        limit = int((cfg().get("markdown") or {}).get("max_suggestions", 3))
++        asked = [q for q in reply.get("suggested_questions") or [] if isinstance(q, str) and q.strip()]
++        ws = _workspace(reply)
++        if ws:
++            asked += [b.get("message") for b in ws.get("buttons") or [] if isinstance(b, dict)
++                      and b.get("type") == "ask" and b.get("message")]
++        said = text.lower()
++        asked = [q for q in dict.fromkeys(_clean(q).strip() for q in asked) if q and q.lower() not in said
++                 and not re.fullmatch(r"\d+", q)][:limit]
++        if asked:
++            label = str(_pick((cfg().get("markdown") or {}).get("suggestions_label") or "", lang) or "")
++            blocks.append(((label + "\n") if label else "") + "\n".join(f"- {ask(q)}" for q in asked))
++    return dedupe("\n\n".join(b for b in blocks if b.strip())), body
++
++
++def dedupe(text: str) -> str:
++    """No sentence said twice: a repeated non-empty line (case-, space- and marker-insensitive) is dropped."""
++    seen: set[str] = set()
++    out: list[str] = []
++    for line in str(text or "").split("\n"):
++        key = re.sub(r"[\s*_>#-]+", " ", line).strip().lower()
++        if key and not key.startswith("|") and key in seen:
++            continue
++        if key:
++            seen.add(key)
++        out.append(line)
++    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
++
++
++# --------------------------------------------------------------------------
++# tts
++# --------------------------------------------------------------------------
++
++def _tts_cfg() -> dict[str, Any]:
++    return cfg().get("tts") or {}
++
++
++def _spell(n: int, lang: str) -> str:
++    words = ((_tts_cfg().get("number_words") or {}).get(lang) or {})
++    ones, tens = words.get("ones") or [], words.get("tens") or []
++    if not ones or n < 0 or n >= 100:
++        return str(n)
++    if n < len(ones):
++        return str(ones[n])
++    t, o = divmod(n, 10)
++    return str(tens[t]) + (f"-{ones[o]}" if o else "")
++
++
++def _say_amount(raw: str, lang: str) -> str:
++    rule = (_tts_cfg().get("amounts") or {}).get(lang) or (_tts_cfg().get("amounts") or {}).get("en") or {}
++    try:
++        value = float(raw.replace(",", ""))
++    except ValueError:
++        return raw
++    spell = bool(rule.get("spell"))
++    parts: list[str] = []
++    rest = int(round(value))
++    for size, word in rule.get("scales") or []:
++        count, rest = divmod(rest, int(size))
++        if count:
++            parts.append(f"{_spell(count, lang) if spell else count} {word}")
++    if rest or not parts:
++        parts.append(_spell(rest, lang) if spell else str(rest))
++    return " ".join(parts) + f" {rule.get('rupees', '')}".rstrip()
++
++
++def _say_id(m: re.Match, lang: str) -> str:
++    words = (_tts_cfg().get("id_words") or {}).get(m.group(1).upper()) or m.group(1)
++    tail = int(_tts_cfg().get("id_tail", 4))
++    return f"{_pick(words, lang)} {m.group(2)[-tail:].upper()}"
++
++
++def _say_date(m: re.Match, lang: str) -> str:
++    months = (_tts_cfg().get("months") or {}).get(lang) or (_tts_cfg().get("months") or {}).get("en") or []
++    year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
++    if not (1 <= month <= 12) or len(months) < 12:
++        return m.group(0)
++    return str(_tts_cfg().get("date_format", "{day} {month} {year}")).format(day=day, month=months[month - 1],
++                                                                           year=year)
++
++
++def speakable(text: str, lang: str) -> str:
++    """One line as plain spoken words: no markdown, links, ids by character, raw amounts / dates / symbols."""
++    s = LINK.sub("", str(text or ""))
++    s = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", s)
++    s = _DATE.sub(lambda m: _say_date(m, lang), s)
++    s = _AMOUNT.sub(lambda m: _say_amount(m.group(1), lang), s)
++    s = _ID.sub(lambda m: _say_id(m, lang), s)
++    for symbol, word in (((_tts_cfg().get("symbols") or {}).get(lang)) or {}).items():
++        s = s.replace(symbol, word)
++    s = re.sub(r"\s+--\s+", ", ", s)
++    s = re.sub(r"[*_`#>|~^\\{}\[\]<>=+@$]", " ", s)
++    s = re.sub(r"(?<=\w)-(?=\w)", "-", s)
++    s = re.sub(r"\s-\s|^\s*-\s*", " ", s)
++    s = re.sub(r"\s+([,.;:!?।])", r"\1", " ".join(s.split()))
++    return s.strip(" ,;")
++
++
++def _sentence(text: str) -> str:
++    text = text.strip()
++    return text if not text or text[-1] in ".!?।" else text + "."
++
++
++def _join(items: list[str], lang: str) -> str:
++    word = _pick(_tts_cfg().get("and_word") or "and", lang)
++    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + f" {word} " + items[-1]
++
++
++def tts(md: str, lang: str | None = None) -> str:
++    """The spoken version of the markdown: answer line, list summaries by status, next step (max sentences)."""
++    lang = lang or _language()
++    cfg_t = _tts_cfg()
++    limit = int(cfg_t.get("max_sentences", 3))
++    first, next_step, heading = None, None, ""
++    groups: dict[tuple[str, str], list[str]] = {}
++    loose: list[str] = []                              # bullets with no status word: spoken as they are
++    known = {str(k).upper() for k in (cfg_t.get("status_words") or {})}
++    from app.agents.applicant.copilot.answering import professional
++
++    step_label = str((professional._cfg() or {}).get("next_step_label") or "Next step:").rstrip(":").lower()
++    for raw in str(md or "").split("\n"):
++        line = raw.strip()
++        if not line or line.startswith("|") or not LINK.sub("", line).strip(" -·:"):
++            continue
++        plain = re.sub(r"\*\*|__", "", line)
++        if plain.lower().startswith(step_label):
++            next_step = next_step or line
++            continue
++        if _ID.fullmatch(plain.strip()):
++            continue                                   # the active-case line: the screen shows it, never read
++        if line.startswith(("-", "•")) or re.match(r"^\d+\.\s", line):
++            status = next((m.upper() for m in re.findall(r"\*\*([^*]+)\*\*", line) if m.upper() in known), None)
++            parts = re.split(r":|\s--\s", re.sub(r"^(?:[-•]|\d+\.)\s*", "", plain), maxsplit=1)
++            name = parts[0].strip().rstrip(".")
++            # a "name: STATUS" row only (a sentence that merely contains a status word is spoken as it is)
++            status = status if len(parts) == 2 and status and status.lower() not in name.lower() else None
++            if status and name:
++                groups.setdefault((heading, status), []).append(speakable(name, lang))
++            elif not status:
++                loose.append(re.sub(r"^(?:[-•]|\d+\.)\s*", "", line))
++            continue
++        if line.startswith(">"):
++            continue                                   # a quoted draft: on screen to copy, not read aloud
++        if first is not None and (re.fullmatch(r"\*\*[^*]+\*\*.*", line) or plain.endswith(":")):
++            heading = speakable(re.sub(r"\(.*?\)", "", plain), lang).rstrip(":")    # a section: groups apart
++            continue
++        if first is None:
++            first = line
++    sentences = [_sentence(speakable(first, lang).rstrip(":"))] if first else []
++    if not groups:
++        # an answer made of plain points ("- PAN is verified."): the points are the answer
++        sentences += [_sentence(speakable(x, lang).rstrip(":")) for x in loose[:limit]]
++    sentences = [re.sub(r"([.!?।])\1+$", r"\1", s) for s in sentences]
++    words = cfg_t.get("status_words") or {}
++    template = _pick(cfg_t.get("list_summary") or "{status}: {items}.", lang)
++    for n, ((section, status), items) in enumerate(groups.items()):
++        label = _pick(words.get(status), lang) if words.get(status) else status.title()
++        if n and section:
++            label = f"{section}, {label.lower()}"          # a later section names itself
++        sentences.append(str(template).format(status=label, items=_join(list(dict.fromkeys(items)), lang)))
++    if next_step:
++        spoken = _sentence(speakable(next_step, lang))
++        sentences = sentences[:max(limit - 1, 1)] + [spoken]
++    return " ".join(s for s in sentences[:limit] if s.strip(" .")).strip()
++
++
++# --------------------------------------------------------------------------
++# the published reply
++# --------------------------------------------------------------------------
++
++def publish(reply: Any, request_id: str | None = None) -> Any:
++    """{request_id, markdown, tts} when the contract is on, else the reply unchanged."""
++    if not enabled():
++        return reply
++    if hasattr(reply, "model_dump"):
++        reply = reply.model_dump()
++    if not isinstance(reply, dict):
++        return reply
++    followed = reply.get("followed_up")
++    if isinstance(followed, dict) and followed.get("interpreted_as"):
++        # MASTER SPEC section 4: the follow-up as typed and as rewritten (the reply no longer carries it), masked
++        from app.security import sensitivity
++
++        _log.info("follow-up request_id=%s original=%r rewritten=%r reason=%s", reply.get("request_id"),
++                  sensitivity.mask_identifiers(str(followed.get("original_message") or "")),
++                  sensitivity.mask_identifiers(str(followed.get("interpreted_as") or "")), followed.get("reason"))
++    md, body = _render(reply)
++    return {"request_id": str(reply.get("request_id") or request_id or ""), "markdown": md,
++            "tts": tts(body, _language(reply))}
++
++
++# --------------------------------------------------------------------------
++# chat memory: the context the reply no longer carries
++# --------------------------------------------------------------------------
++
++_MEMORY: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
++
++
++def _chat_key(subject: str, chat_id: str | None) -> tuple[str, str]:
++    return str(subject or "anonymous"), str(chat_id or "default")
++
++
++def remember(subject: str, chat_id: str | None, context: Any) -> None:
++    if not isinstance(context, dict) or not context:
++        return
++    mem = cfg().get("memory") or {}
++    with _LOCK:
++        if len(_MEMORY) >= int(mem.get("max_chats", 5000)):
++            for key, _ in sorted(_MEMORY.items(), key=lambda kv: kv[1][0])[: max(1, len(_MEMORY) // 10)]:
++                _MEMORY.pop(key, None)
++        _MEMORY[_chat_key(subject, chat_id)] = (time.time() + float(mem.get("ttl_seconds", 1800)), dict(context))
++
++
++def recall(subject: str, chat_id: str | None) -> dict[str, Any] | None:
++    with _LOCK:
++        found = _MEMORY.get(_chat_key(subject, chat_id))
++        if not found:
++            return None
++        if found[0] < time.time():
++            _MEMORY.pop(_chat_key(subject, chat_id), None)
++            return None
++        return dict(found[1])
++
++
++def forget(subject: str, chat_id: str | None) -> None:
++    with _LOCK:
++        _MEMORY.pop(_chat_key(subject, chat_id), None)
++
++
++__all__ = ["FLAG", "LINK", "ask", "cfg", "dedupe", "enabled", "forget", "link", "markdown", "parse", "publish",
++           "recall", "registry", "remember", "request_for", "speakable", "tts"]
+diff --git a/app/agents/applicant/copilot/capabilities/case_list.py b/app/agents/applicant/copilot/capabilities/case_list.py
+new file mode 100644
+index 0000000..ab310d5
+--- /dev/null
++++ b/app/agents/applicant/copilot/capabilities/case_list.py
+@@ -0,0 +1,402 @@
++"""
++THE CASE LIST AT SCALE (MASTER SPEC section 3; config app/config/case_list.yaml).
++
++ONE QUERY for the chat ("my cases", "top 5", "KYC wale", "aur dikhao") and for the full-list panel
++(GET /api/v1/fos/cases): the caller's OWN cases (live grants, every row re-checked by the ownership rule),
++filtered, searched, sorted and paged on the server. A chat reply never shows more than one page.
++
++COST. A plain order (newest / oldest) is a SQL page plus a separate count: only the page's rows get a status.
++A status filter or the default "needs action first" needs every case's status: computed once and cached per
++user for `cache_ttl_seconds` (30 s), so paging through 200 cases computes them once.
++"""
++
++from __future__ import annotations
++
++import difflib
++import re
++import threading
++import time
++from dataclasses import asdict, dataclass, field
++from pathlib import Path
++from typing import Any
++
++import yaml
++
++_PATH = Path(__file__).resolve().parents[4] / "config" / "case_list.yaml"
++_CFG: dict[str, Any] = {"mtime": None, "data": {}}
++_ROWS: dict[str, tuple[float, dict[str, dict[str, Any]]]] = {}
++_LOCK = threading.Lock()
++
++
++def cfg() -> dict[str, Any]:
++    try:
++        mtime = _PATH.stat().st_mtime
++    except OSError:
++        return {}
++    with _LOCK:
++        if _CFG["mtime"] != mtime:
++            _CFG["data"] = yaml.safe_load(_PATH.read_text(encoding="utf-8")) or {}
++            _CFG["mtime"] = mtime
++        return _CFG["data"]
++
++
++FLAG = "COPILOT_CASE_LIST_PAGING"
++
++
++def enabled() -> bool:
++    import os
++
++    value = os.getenv(FLAG)
++    if value is not None and value.strip():
++        return value.strip().lower() in {"1", "true", "yes", "on"}
++    return bool(cfg().get("enabled", False))
++
++
++def clear_cache() -> None:
++    with _LOCK:
++        _ROWS.clear()
++
++
++# --------------------------------------------------------------------------
++# the query
++# --------------------------------------------------------------------------
++
++@dataclass
++class ListQuery:
++    filter: str | None = None            # a key of case_list.yaml `filters`
++    search: str | None = None            # applicant name (fuzzy), case / applicant / co-applicant id
++    sort: str | None = None              # a key of `sorts` (None = default_sort)
++    page: int = 0
++    size: int | None = None              # None = page_size
++    stage: str | None = None
++    product: str | None = None
++    created_from: str | None = None      # ISO date
++    created_to: str | None = None
++
++    def as_dict(self) -> dict[str, Any]:
++        return {k: v for k, v in asdict(self).items() if v not in (None, "")}
++
++    @classmethod
++    def from_dict(cls, data: dict[str, Any] | None) -> "ListQuery":
++        return cls(**{k: v for k, v in (data or {}).items() if k in cls.__dataclass_fields__})
++
++
++@dataclass
++class ListPage:
++    rows: list[dict[str, Any]] = field(default_factory=list)
++    total: int = 0                       # cases matching the query
++    all_total: int = 0                   # every case of the caller
++    counts: dict[str, int] = field(default_factory=dict)    # by status kind, over all cases (when computed)
++    page: int = 0
++    size: int = 5
++    has_more: bool = False
++    query: ListQuery = field(default_factory=ListQuery)
++
++
++def _size(query: ListQuery) -> int:
++    c = cfg()
++    wanted = int(query.size or c.get("page_size", 5))
++    return max(1, min(wanted, int(c.get("max_page_size", 20))))
++
++
++def _subject(claims: dict[str, Any]) -> str:
++    from app.security.auth import get_subject
++
++    return str(get_subject(claims) or "")
++
++
++def _owned(claims: dict[str, Any], applications: list[Any]) -> list[Any]:
++    """Every row re-checked by the ownership rule (a revoked grant, a moved case -- never listed)."""
++    from app.agents.applicant.copilot.capabilities import workspace
++    from app.security import access
++
++    out = []
++    for application in applications:
++        try:
++            workspace.authorize(claims, application.case_id)
++        except access.AccessDenied:
++            continue
++        out.append(application)
++    return out
++
++
++def _row(application: Any) -> dict[str, Any]:
++    """One row, exactly as the case itself reports it (the same status words as the workspace list)."""
++    from app.agents.applicant.copilot.capabilities import workspace
++
++    status, kind = workspace._row_status(application)
++    if kind != "KYC":
++        # a recorded KYC failure / review is a KYC issue even while the FOS->CPA KYC rule is off (the gate then
++        # does not block on it, but the officer still has to fix it) -- the same rule as the KYC A / B verdict
++        from app.agents.applicant.copilot.capabilities import faq
++
++        if faq._kyc_open(application.case_id):
++            status, kind = workspace._label("row_kyc"), "KYC"
++    days, over = None, False
++    try:
++        from app.agents.applicant.copilot.capabilities import timeline
++
++        t = timeline.build(application.case_id)
++        days, over = t.get("days_in_stage"), bool(t.get("over_target"))
++    except Exception:  # noqa: BLE001 - a row is a summary; the case itself has the detail
++        pass
++    return {"case_id": application.case_id, "applicant_id": application.applicant_id,
++            "applicant_name": workspace._name(application.applicant_id, short=True),
++            "stage": workspace._stage(application.case_id) or "--", "status_label": status, "status_kind": kind,
++            "product": getattr(application, "product", None), "days_in_stage": days, "over_target": over,
++            "created_at": str(getattr(application, "created_at", "") or ""),
++            "updated_at": str(getattr(application, "updated_at", "") or "")}
++
++
++def _rows_for(subject: str, applications: list[Any]) -> dict[str, dict[str, Any]]:
++    """The rows of these cases, from the per-user cache when fresh (case_list.yaml cache_ttl_seconds)."""
++    ttl = float(cfg().get("cache_ttl_seconds", 30))
++    now = time.time()
++    with _LOCK:
++        cached = _ROWS.get(subject)
++        rows = dict(cached[1]) if cached and cached[0] > now else {}
++    missing = [a for a in applications if a.case_id not in rows]
++    for application in missing:
++        rows[application.case_id] = _row(application)
++    if missing:
++        with _LOCK:
++            _ROWS[subject] = (now + ttl, rows)
++    return {a.case_id: rows[a.case_id] for a in applications}
++
++
++def _matches_search(row: dict[str, Any], term: str, co_cases: set[str]) -> bool:
++    from app.agents.applicant.copilot.capabilities import workspace
++
++    t = term.strip().upper()
++    if not t:
++        return True
++    if row["case_id"].upper().startswith(t) or str(row["applicant_id"]).upper().startswith(t):
++        return True
++    if row["case_id"].upper() in co_cases:
++        return True
++    name = workspace._name(row["applicant_id"], short=False).lower().split()
++    words = [w for w in t.lower().split() if len(w) >= 3]
++    threshold = float((workspace._cfg() or {}).get("name_match_threshold", 0.84))
++    return bool(words) and all(max((difflib.SequenceMatcher(None, w, n).ratio() for n in name), default=0) >= threshold
++                               for w in words)
++
++
++def _sort_key(sort: str):
++    spec = (cfg().get("sorts") or {}).get(sort) or {}
++    if spec.get("order"):
++        rank = {k: i for i, k in enumerate(spec["order"])}
++        return lambda r: (rank.get(r["status_kind"], len(rank)), _neg_time(r["updated_at"]))
++    by, desc = spec.get("by", "updated_at"), bool(spec.get("desc", True))
++    if by == "days_in_stage":
++        return lambda r: -(r.get("days_in_stage") or 0) if desc else (r.get("days_in_stage") or 0)
++    return lambda r: _neg_time(r.get(by) or "") if desc else str(r.get(by) or "")
++
++
++def _neg_time(value: str) -> tuple:
++    # newest first without parsing: invert every character of the ISO string
++    return tuple(-ord(ch) for ch in str(value))
++
++
++def run(claims: dict[str, Any], query: ListQuery) -> ListPage:
++    from app.store import get_repository
++
++    repository = get_repository()
++    subject = _subject(claims)
++    size, c = _size(query), cfg()
++    sort = query.sort if query.sort in (c.get("sorts") or {}) else c.get("default_sort", "needs_action")
++    spec = (c.get("sorts") or {}).get(sort) or {}
++    computed = bool(query.filter or query.search or query.stage or spec.get("order")
++                    or spec.get("by") == "days_in_stage")
++    page_no = max(0, int(query.page or 0))
++    if not computed and hasattr(repository, "count_granted_cases"):
++        # THE CHEAP PATH: a SQL page + a separate count; statuses only for the page's rows
++        total = int(repository.count_granted_cases(subject, product=query.product, created_from=query.created_from,
++                                                   created_to=query.created_to))
++        apps = _owned(claims, repository.list_granted_cases(
++            subject, limit=size, offset=page_no * size, order=spec.get("by", "updated_at"),
++            descending=bool(spec.get("desc", True)), product=query.product,
++            created_from=query.created_from, created_to=query.created_to))
++        rows = list(_rows_for(subject, apps).values())
++        return ListPage(rows=_number(rows, page_no, size), total=total, all_total=total, page=page_no, size=size,
++                        has_more=(page_no + 1) * size < total, query=query)
++    apps = _owned(claims, repository.list_granted_cases(subject, limit=int(c.get("scan_limit", 2000))))
++    rows_by_case = _rows_for(subject, apps)
++    every = list(rows_by_case.values())
++    counts: dict[str, int] = {}
++    for r in every:
++        counts[r["status_kind"]] = counts.get(r["status_kind"], 0) + 1
++    chosen = every
++    if query.filter:
++        rule = (c.get("filters") or {}).get(query.filter) or {}
++        if rule.get("kinds"):
++            chosen = [r for r in chosen if r["status_kind"] in rule["kinds"]]
++        if rule.get("over_target"):
++            chosen = [r for r in chosen if r.get("over_target")]
++    if query.stage:
++        chosen = [r for r in chosen if str(r["stage"]).upper() == str(query.stage).upper()]
++    if query.product:
++        chosen = [r for r in chosen if str(r.get("product") or "").upper() == str(query.product).upper()]
++    if query.created_from:
++        chosen = [r for r in chosen if r["created_at"][:10] >= query.created_from[:10]]
++    if query.created_to:
++        chosen = [r for r in chosen if r["created_at"][:10] <= query.created_to[:10]]
++    if query.search:
++        co_cases: set[str] = set()
++        if re.match(r"(?i)^COAPP-", query.search.strip()):
++            try:
++                from app.agents.los import co_applicants
++
++                co_cases = {x.upper() for x in co_applicants.cases_for(query.search.strip().upper())}
++            except Exception:  # noqa: BLE001
++                co_cases = set()
++        words = [w for w in query.search.lower().split() if len(w) >= 3]
++        from app.agents.applicant.copilot.capabilities import workspace as _ws
++
++        exact = [r for r in chosen if words and set(words) <= set(_ws._name(r["applicant_id"], short=False)
++                                                                 .lower().split())]
++        # an exact name wins; fuzzy (typos) only when nothing matches exactly
++        chosen = exact or [r for r in chosen if _matches_search(r, query.search, co_cases)]
++    chosen = sorted(chosen, key=_sort_key(sort))
++    window = chosen[page_no * size:(page_no + 1) * size]
++    return ListPage(rows=_number(window, page_no, size), total=len(chosen), all_total=len(every), counts=counts,
++                    page=page_no, size=size, has_more=(page_no + 1) * size < len(chosen), query=query)
++
++
++def _number(rows: list[dict[str, Any]], page: int, size: int) -> list[dict[str, Any]]:
++    return [{**r, "number": i} for i, r in enumerate(rows, page * size + 1)]
++
++
++# --------------------------------------------------------------------------
++# natural language -> the query
++# --------------------------------------------------------------------------
++
++def _norm(text: str) -> str:
++    return " " + re.sub(r"\s+", " ", re.sub(r"[^\w\sऀ-ॿ-]", " ", str(text or "").lower())).strip() + " "
++
++
++def _has(text: str, phrases: list[str]) -> str | None:
++    said = _norm(text)
++    for p in sorted(phrases or [], key=len, reverse=True):
++        if _norm(p) in said:
++            return p
++    return None
++
++
++def _number_in(text: str) -> int | None:
++    found = re.search(r"\b(\d{1,2})\b", text)
++    if found:
++        return int(found.group(1))
++    words = (cfg().get("phrases") or {}).get("numbers") or {}
++    for w in _norm(text).split():
++        if w in words:
++            return int(words[w])
++    return None
++
++
++def understand(text: str, previous: dict[str, Any] | None = None) -> ListQuery | None:
++    """
++    The list query a message asks for, or None when it asks for no list. `previous` is the last list's query
++    (state): "aur dikhao" pages it; a new filter / order starts a fresh first page.
++    """
++    p = cfg().get("phrases") or {}
++    query = ListQuery()
++    asked = False
++    n = _number_in(text)
++    for key, phrases in (p.get("filter") or {}).items():
++        if _has(text, phrases):
++            query.filter, asked = key, True
++            break
++    if _has(text, p.get("oldest")):
++        query.sort, asked = "oldest", True
++    elif _has(text, p.get("longest_in_stage")):
++        query.sort, asked = "longest_in_stage", True
++    elif _has(text, p.get("last_n")):
++        query.sort, asked = "recent", True
++        query.size = n
++    elif _has(text, p.get("first_n")) and n:
++        query.size, asked = n, True
++    if n and asked and not query.size:
++        query.size = n
++    if not asked and previous is not None and _has(text, p.get("next")):
++        prev = ListQuery.from_dict(previous)
++        prev.page += 1
++        if n:
++            prev.size = n
++        return prev
++    return query if asked else None
++
++
++# --------------------------------------------------------------------------
++# the chat reply (markdown table + links)
++# --------------------------------------------------------------------------
++
++def _say(key: str, lang: str, seed: int = 0, **values: Any) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    value = (cfg().get("labels") or {}).get(key, key)
++    picked = language_lock.pick(value, lang) if isinstance(value, dict) else value
++    if isinstance(picked, list):
++        picked = picked[seed % len(picked)] if picked else ""
++    return str(picked).format(**values)
++
++
++def _name_of(group: str, key: str, lang: str, **values: Any) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    value = ((cfg().get("labels") or {}).get(group) or {}).get(key, key)
++    return str(language_lock.pick(value, lang) if isinstance(value, dict) else value).format(**values)
++
++
++def render(page: ListPage, lang: str, seed: int = 0) -> str:
++    """Summary line, ONE page as a table with Open links, "Showing x-y of N", the options as links."""
++    from app.agents.applicant.copilot.answering import contract
++
++    q = page.query
++    filter_name = None
++    if q.filter:
++        filter_name = _name_of("filter_names", q.filter, lang)
++    elif q.search:
++        filter_name = _name_of("filter_names", "search", lang, q=q.search)
++    if page.all_total == 0:
++        return _say("none", lang, seed)
++    if page.total == 0:
++        return _say("none_match", lang, seed, filter=filter_name or "")
++    if filter_name:
++        lines = [_say("filtered", lang, seed, n=page.total, filter=filter_name)]
++    elif page.counts:
++        order = ((cfg().get("sorts") or {}).get("needs_action") or {}).get("order") or list(page.counts)
++        parts = [_name_of("part", k, lang, n=page.counts[k]) for k in order if page.counts.get(k)]
++        lines = [_say("summary", lang, seed, total=page.all_total, parts=", ".join(parts))]
++    else:
++        lines = [_say("summary", lang, seed, total=page.all_total, parts=_name_of("sorted", q.sort or "recent", lang))]
++    head = contract.cfg().get("markdown", {}).get("case_table_headers") or {}
++    from app.agents.applicant.copilot.answering import language_lock
++
++    cols = language_lock.pick(head, lang) if isinstance(head, dict) else head
++    cols = cols or ["#", "Case", "Applicant", "Stage", "Status", ""]
++    table = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
++    from app.agents.applicant.copilot.answering import professional
++
++    for r in page.rows:
++        status = professional.strip_emojis(str(r["status_label"])).strip()
++        if r.get("over_target") and r.get("days_in_stage") is not None:
++            status += f" ({r['days_in_stage']}d)"
++        cells = [str(r["number"]), r["case_id"], f"{r['applicant_name']} ({r['applicant_id']})", str(r["stage"]),
++                 status, contract.link("open_case", lang, id=r["case_id"])]
++        table.append("| " + " | ".join(str(x).replace("|", "/") for x in cells) + " |")
++    first = page.page * page.size + 1
++    sort_name = _name_of("sorted", q.sort or cfg().get("default_sort", "needs_action"), lang)
++    lines += ["", *table, "", _say("showing", lang, seed, first=first, last=first + len(page.rows) - 1,
++                                   total=page.total, sort=sort_name)]
++    options = [o for o in (language_lock.pick((cfg().get("labels") or {}).get("options") or {}, lang) or [])]
++    links = []
++    if page.has_more:
++        links.append(contract.link("list_more", lang))
++    else:
++        lines.append(_say("end", lang, seed))
++    links += [contract.ask(o) for o in options[1:]]
++    lines += ["", _say("follow_up", lang, seed), " · ".join(links)]
++    return "\n".join(lines)
++
++
++__all__ = ["ListPage", "ListQuery", "cfg", "clear_cache", "render", "run", "understand"]
+diff --git a/app/agents/applicant/copilot/capabilities/faq.py b/app/agents/applicant/copilot/capabilities/faq.py
+new file mode 100644
+index 0000000..cd45bd0
+--- /dev/null
++++ b/app/agents/applicant/copilot/capabilities/faq.py
+@@ -0,0 +1,149 @@
++"""
++THE FAQ (MASTER SPEC section 7; config app/config/faq.yaml, flag COPILOT_FAQ).
++
++Context-aware: the catalogue's items whose conditions hold for THIS conversation (no case / a case open, a
++co-applicant, KYC failed, documents pending, ready, stuck), ordered by priority with the boosts that apply now,
++rendered as a short categorised list of ask: links (the reply contract, section 8). Facts come from the case
++itself (the same row status as the case list), never from the message.
++"""
++
++from __future__ import annotations
++
++import os
++import re
++import threading
++from pathlib import Path
++from typing import Any
++
++import yaml
++
++FLAG = "COPILOT_FAQ"
++_PATH = Path(__file__).resolve().parents[4] / "config" / "faq.yaml"
++_CFG: dict[str, Any] = {"mtime": None, "data": {}}
++_LOCK = threading.Lock()
++
++
++def cfg() -> dict[str, Any]:
++    try:
++        mtime = _PATH.stat().st_mtime
++    except OSError:
++        return {}
++    with _LOCK:
++        if _CFG["mtime"] != mtime:
++            _CFG["data"] = yaml.safe_load(_PATH.read_text(encoding="utf-8")) or {}
++            _CFG["mtime"] = mtime
++        return _CFG["data"]
++
++
++def enabled() -> bool:
++    value = os.getenv(FLAG)
++    if value is not None and value.strip():
++        return value.strip().lower() in {"1", "true", "yes", "on"}
++    return bool(cfg().get("enabled", False))
++
++
++def _norm(text: str) -> str:
++    return " " + re.sub(r"\s+", " ", re.sub(r"[^\w\sऀ-ॿ'-]", " ", str(text or "").lower())).strip() + " "
++
++
++def asks_for_faq(text: str) -> bool:
++    """Only the FAQ words (and fillers): "help", "kya pooch sakta hoon" -- never "help me upload the PAN"."""
++    said = _norm(text)
++    for phrase in sorted(cfg().get("ask_phrases") or [], key=len, reverse=True):
++        if _norm(phrase) in said:
++            said = said.replace(_norm(phrase), " ")
++    rest = [w for w in said.split() if w not in {"please", "plz", "me", "mujhe", "bhai", "batao", "show", "the", "a"}]
++    return said.strip() != _norm(text).strip() and not rest
++
++
++def facts(case_id: str | None) -> set[str]:
++    """The conditions that hold now (faq.yaml `when` / `boost` names)."""
++    if not case_id:
++        return {"no_case"}
++    held = {"case_open"}
++    try:
++        from app.agents.applicant.copilot.capabilities import case_list
++        from app.store import get_repository
++
++        application = get_repository().get_application(case_id)
++        if application is not None:
++            row = case_list._row(application)
++            kind = row.get("status_kind")
++            held |= {"kyc_failed"} if kind == "KYC" or _kyc_open(case_id) else set()
++            held |= {"documents_pending"} if kind == "DOCS" else set()
++            held |= {"ready"} if kind == "READY" else {"not_ready"}
++            held |= {"stuck"} if row.get("over_target") else set()
++            if getattr(application, "co_applicant_id", None):
++                held.add("has_co_applicant")
++            else:
++                try:
++                    from app.agents.los import co_applicants
++
++                    if co_applicants.list_for_case(case_id):
++                        held.add("has_co_applicant")
++                except Exception:  # noqa: BLE001 - no co-applicant table: none
++                    pass
++    except Exception:  # noqa: BLE001 - facts unknown: only the always-true conditions
++        held.add("not_ready")
++    return held
++
++
++def _kyc_open(case_id: str) -> bool:
++    """A party whose recorded KYC is failed / in review (the same rule as the KYC A / B verdict)."""
++    try:
++        from app.agents.applicant.copilot.answering import kyc_table
++
++        return any(p["rows"] or p["status"] for p in kyc_table.build(case_id)["parties"]
++                   if not kyc_table._passed(p["status"]))
++    except Exception:  # noqa: BLE001
++        return False
++
++
++def items(case_id: str | None, lang: str, limit: int | None = None) -> list[dict[str, Any]]:
++    """The items that apply now, highest priority first: {id, category, question, send}."""
++    from app.agents.applicant.copilot.answering import language_lock
++
++    held = facts(case_id)
++    boost = int(cfg().get("boost_by", 50))
++    chosen = []
++    for item in cfg().get("items") or []:
++        if not set(item.get("when") or []) <= held:
++            continue
++        score = int(item.get("priority", 0)) + (boost if set(item.get("boost") or []) & held else 0)
++        question = language_lock.pick(item.get("q") or item.get("id"), lang)
++        send = language_lock.pick(item["send"], lang) if item.get("send") else question
++        chosen.append((score, {"id": item.get("id"), "category": item.get("category") or "general",
++                               "question": str(question), "send": str(send)}))
++    chosen.sort(key=lambda s: -s[0])
++    out = [c for _, c in chosen]
++    return out[:limit] if limit else out
++
++
++def render(found: list[dict[str, Any]], lang: str, heading_key: str = "heading", seed: int = 0) -> str:
++    """A short categorised list: "**Documents:** [Q](ask:...) · [Q](ask:...)" -- categories in catalogue order."""
++    from app.agents.applicant.copilot.answering import contract, language_lock
++
++    if not found:
++        return ""
++    heading = (cfg().get("labels") or {}).get(heading_key) or ""
++    heading = language_lock.pick(heading, lang) if isinstance(heading, dict) else heading
++    if isinstance(heading, list):
++        heading = heading[seed % len(heading)] if heading else ""
++    names = cfg().get("categories") or {}
++    lines = [str(heading)] if heading else []
++    for category in names:
++        group = [f for f in found if f["category"] == category]
++        if group:
++            label = language_lock.pick(names[category], lang)
++            links = " · ".join(_link(f, contract) for f in group)
++            lines.append(f"- **{label}:** {links}")
++    return "\n".join(lines)
++
++
++def _link(item: dict[str, Any], contract) -> str:
++    """[Question](ask:<what it sends>) -- the label is the question, the message is `send`."""
++    target = contract.ask(item["send"]).split("](", 1)[1]
++    return f"[{item['question']}]({target}"
++
++
++__all__ = ["FLAG", "asks_for_faq", "cfg", "enabled", "facts", "items", "render"]
+diff --git a/app/config/faq.yaml b/app/config/faq.yaml
+new file mode 100644
+index 0000000..6f132b6
+--- /dev/null
++++ b/app/config/faq.yaml
+@@ -0,0 +1,145 @@
++# THE FAQ CATALOGUE (MASTER SPEC section 7) -- read by app/agents/applicant/copilot/capabilities/faq.py.
++#
++# Shown on a new chat (greeting), on case open, and on "help / FAQ / kya pooch sakta hoon": a short categorised
++# list of ask: links, built from the conversation state -- what does not apply is hidden, what matters now first.
++# Every item is a golden case: its `send` (or its question) must be answered correctly in that state.
++#
++# conditions (`when`, all must hold; `boost`, any adds `boost_by` to the priority):
++#   no_case, case_open, has_co_applicant, kyc_failed, documents_pending, ready, not_ready, stuck
++
++enabled: true
++max_items: 8            # on "help"
++max_items_on_open: 4    # under the review when a case opens
++max_items_on_greeting: 4
++boost_by: 50
++
++# the words that ask for the FAQ (whole words / phrases, after the normaliser)
++ask_phrases: [help, faq, faqs, madad, kya pooch sakta hoon, kya puch sakta hu, kya pooch sakta hu, kya puchu,
++              what can i ask, what can you do, kya kar sakte ho, options, menu, मदद, क्या पूछ सकता हूँ, मदत]
++
++labels:
++  heading:
++    en: ["You can ask me:", "Here is what I can help with:"]
++    hi-Latn: ["Aap mujhse pooch sakte hain:", "Main in cheezon mein madad kar sakta hoon:"]
++    hi: ["आप मुझसे पूछ सकते हैं:"]
++    mr: ["तुम्ही मला विचारू शकता:"]
++  on_open: { en: "Common questions for this case:", hi-Latn: "Is case ke liye aam sawal:",
++             hi: "इस केस के लिए आम सवाल:", mr: "या केससाठी सामान्य प्रश्न:" }
++
++categories:
++  my_cases: { en: "My cases", hi-Latn: "Mere cases", hi: "मेरे केस", mr: "माझ्या केस" }
++  case: { en: "This case", hi-Latn: "Yeh case", hi: "यह केस", mr: "ही केस" }
++  documents: { en: "Documents", hi-Latn: "Documents", hi: "दस्तावेज़", mr: "कागदपत्रे" }
++  kyc: { en: "KYC", hi-Latn: "KYC", hi: "KYC", mr: "KYC" }
++  co_applicant: { en: "Co-applicant", hi-Latn: "Co-applicant", hi: "सह-आवेदक", mr: "सह-अर्जदार" }
++  cpa: { en: "Moving to CPA", hi-Latn: "CPA ki taraf", hi: "CPA की ओर", mr: "CPA कडे" }
++  general: { en: "General", hi-Latn: "General", hi: "सामान्य", mr: "सामान्य" }
++
++items:
++  # ---- my cases (no case open) ----
++  - id: my_cases
++    category: my_cases
++    q: { en: "Show my cases", hi-Latn: "Mere cases dikhao", hi: "मेरे केस दिखाओ", mr: "माझ्या केस दाखवा" }
++    when: [no_case]
++    priority: 90
++  - id: kyc_cases
++    category: my_cases
++    q: { en: "Which cases have a KYC issue?", hi-Latn: "KYC wale cases dikhao", hi: "KYC वाले केस दिखाओ",
++         mr: "KYC वाल्या केस दाखवा" }
++    send: { en: "KYC wale cases", hi-Latn: "KYC wale cases", hi: "KYC wale cases", mr: "KYC wale cases" }
++    when: [no_case]
++    priority: 70
++  - id: ready_cases
++    category: my_cases
++    q: { en: "Which cases are ready for CPA?", hi-Latn: "Ready wale cases dikhao", hi: "तैयार केस दिखाओ",
++         mr: "तयार केस दाखवा" }
++    send: { en: "ready wale cases", hi-Latn: "ready wale cases", hi: "ready wale cases", mr: "ready wale cases" }
++    when: [no_case]
++    priority: 60
++  - id: oldest_cases
++    category: my_cases
++    q: { en: "Show my oldest cases", hi-Latn: "Sabse purane cases", hi: "सबसे पुराने केस", mr: "सर्वात जुन्या केस" }
++    send: { en: "sabse purane cases", hi-Latn: "sabse purane cases", hi: "sabse purane cases", mr: "sabse purane cases" }
++    when: [no_case]
++    priority: 40
++  # ---- this case ----
++  - id: pending
++    category: case
++    q: { en: "What is pending?", hi-Latn: "Kya baaki hai?", hi: "क्या बाकी है?", mr: "काय बाकी आहे?" }
++    when: [case_open]
++    priority: 90
++    boost: [documents_pending]
++  - id: why_stuck
++    category: case
++    q: { en: "Why is it stuck?", hi-Latn: "Kyu atka hai?", hi: "क्यों अटका है?", mr: "का अडकले आहे?" }
++    when: [case_open, not_ready]
++    priority: 70
++    boost: [stuck]
++  - id: timeline
++    category: case
++    q: { en: "How long has it been in this stage?", hi-Latn: "Is stage mein kitne din se hai?",
++         hi: "इस चरण में कितने दिन से है?", mr: "या टप्प्यात किती दिवस आहे?" }
++    send: { en: "case ka timeline", hi-Latn: "case ka timeline", hi: "case ka timeline", mr: "case ka timeline" }
++    when: [case_open]
++    priority: 30
++    boost: [stuck]
++  # ---- documents ----
++  - id: docs_pending
++    category: documents
++    q: { en: "Which documents are pending?", hi-Latn: "Kaunse documents pending hain?",
++         hi: "कौन से दस्तावेज़ बाकी हैं?", mr: "कोणती कागदपत्रे बाकी आहेत?" }
++    when: [case_open, documents_pending]
++    priority: 80
++  - id: address_proof
++    category: documents
++    q: { en: "What counts as address proof?", hi-Latn: "Address proof mein kya chalega?",
++         hi: "पते के प्रमाण में क्या चलेगा?", mr: "पत्त्याच्या पुराव्यात काय चालेल?" }
++    send: { en: "What can be used as address proof?", hi-Latn: "address proof mein kya chalega",
++            hi: "address proof mein kya chalega", mr: "address proof mein kya chalega" }
++    when: [case_open, documents_pending]
++    priority: 40
++  # ---- KYC ----
++  - id: kyc_status
++    category: kyc
++    q: { en: "What is the KYC status?", hi-Latn: "KYC ka status kya hai?", hi: "KYC की स्थिति क्या है?",
++         mr: "KYC ची स्थिती काय आहे?" }
++    when: [case_open]
++    priority: 60
++    boost: [kyc_failed]
++  - id: customer_message
++    category: kyc
++    q: { en: "Draft a message to the customer", hi-Latn: "Customer ke liye message banao",
++         hi: "ग्राहक के लिए संदेश बनाओ", mr: "ग्राहकासाठी संदेश तयार करा" }
++    when: [case_open, not_ready]
++    priority: 30
++    boost: [kyc_failed]
++  # ---- co-applicant ----
++  - id: coapp_docs
++    category: co_applicant
++    q: { en: "What is pending for the co-applicant?", hi-Latn: "Co-applicant ke docs kya baaki hain?",
++         hi: "सह-आवेदक के क्या दस्तावेज़ बाकी हैं?", mr: "सह-अर्जदाराची कोणती कागदपत्रे बाकी आहेत?" }
++    when: [case_open, has_co_applicant]
++    priority: 50
++  # ---- moving to CPA ----
++  - id: cpa_needs
++    category: cpa
++    q: { en: "What is needed for CPA?", hi-Latn: "CPA ke liye kya chahiye?", hi: "CPA के लिए क्या चाहिए?",
++         mr: "CPA साठी काय हवे?" }
++    when: [case_open, not_ready]
++    priority: 75
++  - id: handoff
++    category: cpa
++    q: { en: "Make the CPA handoff note", hi-Latn: "Handoff note banao", hi: "हैंडऑफ़ नोट बनाओ", mr: "हँडऑफ नोट तयार करा" }
++    send: { en: "handoff note banao", hi-Latn: "handoff note banao", hi: "handoff note banao", mr: "handoff note banao" }
++    when: [case_open, ready]
++    priority: 95
++  # ---- general ----
++  - id: what_is_cpa
++    category: general
++    q: { en: "What is CPA?", hi-Latn: "CPA kya hai?", hi: "CPA क्या है?", mr: "CPA म्हणजे काय?" }
++    priority: 10
++  - id: what_is_kyc
++    category: general
++    q: { en: "What does KYC mean?", hi-Latn: "KYC ka matlab kya hai?", hi: "KYC का मतलब क्या है?",
++         mr: "KYC म्हणजे काय?" }
++    priority: 10
+diff --git a/tests/integration/master_env.py b/tests/integration/master_env.py
+new file mode 100644
+index 0000000..9be8f4d
+--- /dev/null
++++ b/tests/integration/master_env.py
+@@ -0,0 +1,48 @@
++"""
++The DEV FLAG SET for the master-spec tests: every chatbot flag ON (as in .env), the owner-gated ones OFF.
++Import the `prod` fixture plus `client` / `_store` from test_reupload_supersedes.
++"""
++
++from __future__ import annotations
++
++import os
++
++import pytest
++
++from tests.conftest import _PHASE3_FLAGS
++
++#: kept OFF until the owner decides (MEMORY: phase3-flags-always-on) + the one-release legacy grant
++OFF = {"LOS_STAGE_GATE_IN_SERVICE", "LOS_FOS_CPA_KYC_RULE", "LOS_SIGNATURE_MANDATORY", "LOS_COAPP_MANDATORY_DOCS",
++       "LOS_LOGIN_SELF_GRANT_LEGACY"}
++ON = tuple(f for f in _PHASE3_FLAGS if f not in OFF)
++
++
++@pytest.fixture
++def prod(monkeypatch):
++    for flag in ON:
++        monkeypatch.setenv(flag, "true")
++    from app.agents.applicant.copilot.capabilities import case_list, safety
++
++    safety.reset()
++    case_list.clear_cache()
++
++
++def say(client, message, *, lang="en", **extra):
++    """One chat turn on /fos/copilot under the reply contract: the markdown."""
++    r = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": message,
++                                                 "reply_language": lang, **extra})
++    assert r.status_code == 200, r.text
++    body = r.json()
++    assert set(body) == {"request_id", "markdown", "tts"}, body
++    if os.getenv("DUMP_CONTRACT"):
++        print(f"\n>>> {message}\n{body['markdown']}\n--- tts: {body['tts']}")
++    return body["markdown"]
++
++
++def make_case(client, name, **application):
++    r = client.post("/api/v1/fos/applicants", json={
++        "applicant": {"full_name": name, "mobile": "9876543210", "date_of_birth": "1990-04-12",
++                      "address": "12 MG Road, Pune"},
++        "application": {"product": "PERSONAL_LOAN", "loan_amount": 500000, **application}})
++    assert r.status_code < 300, r.text
++    return r.json()["applicant_id"], r.json()["case_id"]
+diff --git a/tests/integration/test_master_4_followups.py b/tests/integration/test_master_4_followups.py
+new file mode 100644
+index 0000000..4e6f24d
+--- /dev/null
++++ b/tests/integration/test_master_4_followups.py
+@@ -0,0 +1,84 @@
++"""
++MASTER SPEC section 4 -- the case workspace and follow-ups, with every dev flag on and the markdown + tts reply:
++open by number / id / name, the case line first, review on open, the other case, pronoun / bare follow-ups
++rewritten from state, yes/no to the pending question, a correction, a new chat starting fresh.
++"""
++
++from __future__ import annotations
++
++import logging
++
++from app.store.models import Document, DocumentStatus
++from tests.integration.master_env import make_case, prod, say  # noqa: F401
++from tests.integration.test_reupload_supersedes import _store, client  # noqa: F401
++
++
++def _seed(_store, a, c):
++    _store.save_document(Document(document_id=f"{c}:{a}:pan", case_id=c, applicant_id=a, party_id=a,
++                                  document_type="PAN", status=DocumentStatus.VERIFIED))
++    _store.save_document(Document(document_id=f"{c}:{a}:dl", case_id=c, applicant_id=a, party_id=a,
++                                  document_type="DRIVING_LICENCE", status=DocumentStatus.REJECTED,
++                                  reason_codes=["DOCUMENT_UNREADABLE"]))
++
++
++def test_open_by_number_then_every_answer_starts_with_the_case_line(client, prod, _store):
++    a, c = make_case(client, "Rahul Sharma")
++    _seed(_store, a, c)
++    say(client, "my cases")
++    opened = say(client, "1")
++    assert c in opened.split("\n")[0] and "Review" in opened, opened          # review on open
++    answer = say(client, "kya baaki hai?")
++    assert answer.split("\n")[0].strip() == c, answer
++
++
++def test_open_by_name_and_same_name_asks(client, prod):
++    make_case(client, "Rahul Sharma")
++    make_case(client, "Rahul Verma")
++    md = say(client, "Rahul ka case kholo")
++    assert "Which one" in md and md.count("](ask:") >= 2
++
++
++def test_bare_follow_ups_use_the_state(client, prod, _store, caplog):
++    a, c = make_case(client, "Rahul Sharma")
++    _seed(_store, a, c)
++    say(client, f"{c} kholo")
++    first = say(client, "driving licence ka status kya hai?")
++    assert "reject" in first.lower(), first
++    with caplog.at_level(logging.INFO, logger="app.agents.applicant.copilot.answering.contract"):
++        why = say(client, "kyu?")
++    assert "unreadable" in why.lower() or "read" in why.lower(), why
++    assert any("follow-up" in r.message and "original=" in r.message for r in caplog.records)
++
++
++def test_aur_switches_the_document_keeping_the_question(client, prod, _store):
++    a, c = make_case(client, "Rahul Sharma")
++    _seed(_store, a, c)
++    say(client, f"{c} kholo")
++    say(client, "PAN ka status?")
++    md = say(client, "aur driving licence?")
++    assert "driving licence" in md.lower() and "reject" in md.lower(), md
++
++
++def test_another_case_while_one_is_open_is_answered_then_offers_the_switch(client, prod):
++    _, c1 = make_case(client, "Rahul Sharma")
++    _, c2 = make_case(client, "Priya Verma")
++    say(client, f"{c1} kholo")
++    md = say(client, f"{c2} ka stage kya hai")
++    assert c2 in md and "action:open_case" not in md.split("\n")[0]
++
++
++def test_exit_and_switch(client, prod):
++    _, c1 = make_case(client, "Rahul Sharma")
++    make_case(client, "Priya Verma")
++    say(client, f"{c1} kholo")
++    md = say(client, "bahar aao")
++    assert "closed" in md.lower() and "action:open_case" in md
++
++
++def test_a_new_chat_starts_fresh(client, prod, _store):
++    a, c = make_case(client, "Rahul Sharma")
++    _seed(_store, a, c)
++    say(client, f"{c} kholo", chat_id="chat-1")
++    say(client, "PAN ka status?", chat_id="chat-1")
++    fresh = say(client, "kyu?", chat_id="chat-2", new_chat=True)
++    assert "unreadable" not in fresh.lower()
+diff --git a/tests/integration/test_master_5_coverage.py b/tests/integration/test_master_5_coverage.py
+new file mode 100644
+index 0000000..03ad83f
+--- /dev/null
++++ b/tests/integration/test_master_5_coverage.py
+@@ -0,0 +1,54 @@
++"""
++MASTER SPEC section 5 -- ask anything inside an open case, every dev flag on: case fields, people, stage and CPA,
++time, counts, document contents, why, process knowledge, multi-question, glossary both ways, out of scope.
++Every reply is checked against the facts on record (never a number / id the case does not have).
++"""
++
++from __future__ import annotations
++
++import re
++
++import pytest
++
++from app.store.models import Document, DocumentStatus
++from tests.integration.master_env import make_case, prod, say  # noqa: F401
++from tests.integration.test_reupload_supersedes import _store, client  # noqa: F401
++
++
++@pytest.fixture
++def opened(client, prod, _store):
++    a, c = make_case(client, "Rahul Sharma")
++    _store.save_document(Document(document_id=f"{c}:{a}:pan", case_id=c, applicant_id=a, party_id=a,
++                                  document_type="PAN", status=DocumentStatus.VERIFIED))
++    _store.save_document(Document(document_id=f"{c}:{a}:dl", case_id=c, applicant_id=a, party_id=a,
++                                  document_type="DRIVING_LICENCE", status=DocumentStatus.REJECTED,
++                                  reason_codes=["DOCUMENT_UNREADABLE"]))
++    say(client, f"{c} kholo")
++    return a, c
++
++
++CASES = [
++    # (message, words the answer must contain -- any one of each tuple)
++    ("loan amount kitna hai?", [("500000", "5,00,000", "5 lakh")]),
++    ("applicant ka naam kya hai", [("Rahul Sharma",)]),
++    ("case kis stage pe hai", [("FOS",)]),
++    ("CPA ke liye ready hai?", [("CPA",), ("not", "Not", "checks passed")]),
++    ("kitne documents verified hain", [("1",)]),
++    ("driving licence kyu reject hua", [("unreadable", "read", "clear")]),
++    ("case kab bana", [("day", "today", "2026", "created", "din")]),
++    ("PAN aur bank statement ka status batao", [("PAN",), ("Bank Statement", "bank statement")]),
++    ("FOIR ka matlab kya hai", [("Fixed Obligation", "obligation", "FOIR")]),
++    ("address proof mein kya chalega", [("address", "Address")]),
++    ("aaj mausam kaisa hai", [("case", "loan", "help", "can")]),
++]
++
++
++@pytest.mark.parametrize("message,needs", CASES, ids=[m for m, _ in CASES])
++def test_coverage(client, opened, message, needs):
++    _, c = opened
++    md = say(client, message)
++    for alternatives in needs:
++        assert any(w in md for w in alternatives), (message, md)
++    ids = set(re.findall(r"\b(?:CASE|APP)-[0-9A-F]{12}\b", md))
++    assert ids <= set(opened), (message, ids)                          # no id the case does not have
++    assert "Not ready for CPA" not in md or "KYC" in md or "checks" in md
+diff --git a/tests/integration/test_master_6_kyc_ab.py b/tests/integration/test_master_6_kyc_ab.py
+new file mode 100644
+index 0000000..c21f41f
+--- /dev/null
++++ b/tests/integration/test_master_6_kyc_ab.py
+@@ -0,0 +1,78 @@
++"""
++MASTER SPEC section 6 -- KYC as two separate checks per party (A: application form vs documents, B: documents vs
++each other), the plain verdict when KYC is not complete, the next step naming the exact documents, the customer
++message offer; CPA readiness "X of Y checks passed" equal to the gate; a ready case says a person confirms.
++Every dev flag on, the markdown + tts reply.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from app.store.models import CaseFinding, Document, DocumentStatus, FindingKind
++from tests.integration.master_env import make_case, prod, say  # noqa: F401
++from tests.integration.test_reupload_supersedes import _store, client  # noqa: F401
++
++
++@pytest.fixture
++def kyc_failed(client, prod, _store):
++    a, c = make_case(client, "Rahul Sharma")
++    for kind, name in (("PAN", "RAHUL SHARMA"), ("DRIVING_LICENCE", "RAHUL SHARMA"), ("BANK_STATEMENT", "ROHIT VERMA")):
++        doc_id = f"{c}:{a}:{kind.lower()}"
++        _store.save_document(Document(document_id=doc_id, case_id=c, applicant_id=a, party_id=a, document_type=kind,
++                                      status=DocumentStatus.VERIFIED, verification_status="PASS"))
++        _store.save_finding(CaseFinding(finding_id=f"x-{kind}", case_id=c, party_id=a, document_id=doc_id,
++                                        source_id=f"{kind.lower()}.jpg", finding_kind=FindingKind.EXTRACTION,
++                                        status="PASS", payload={"fields": {"name": name}}, content_hash=f"x-{kind}"))
++    _store.save_finding(CaseFinding(
++        finding_id="k", case_id=c, party_id=a, finding_kind=FindingKind.KYC, status="FAIL",
++        reason_codes=["NAME_MISMATCH"], content_hash="k",
++        payload={"fields": [{"field": "NAME", "status": "FAIL", "sources": [
++            {"document_type": "PAN", "value": "RAHUL SHARMA"}, {"document_type": "DRIVING_LICENCE", "value": "RAHUL SHARMA"},
++            {"document_type": "BANK_STATEMENT", "value": "ROHIT VERMA"}]}]}))
++    say(client, f"{c} kholo")
++    return a, c
++
++
++def test_kyc_failed_says_it_plainly_with_a_then_b_and_the_documents(client, kyc_failed):
++    md = say(client, "KYC ka status kya hai?")
++    lines = md.split("\n")
++    assert lines[1] == "Not ready for CPA. KYC is not complete.", md
++    a_title, b_title = md.index("A. Application form vs documents"), md.index("B. Documents vs each other")
++    assert a_title < b_title
++    assert "| Field | Form value | Document | Document value | Result |" in md
++    assert "| Field | Document 1 | Value | Document 2 | Value | Result |" in md
++    reasons = md[:a_title]
++    assert reasons.index("on the Bank Statement") < reasons.index("differs between")       # A reasons, then B
++    assert "**Next step:** Ask the customer to upload correct documents that match the application form " \
++           "(Applicant: Bank Statement)." in md
++    assert "Likely odd one out: the Bank Statement" in md
++    assert "(ask:Draft%20a%20message%20to%20the%20customer)" in md
++
++
++def test_the_draft_link_makes_the_customer_message(client, kyc_failed):
++    say(client, "KYC ka status kya hai?")
++    md = say(client, "Draft a message to the customer")
++    assert "\n> " in md and "(action:copy?ref=draft-1)" in md, md
++
++
++def test_the_voice_says_the_verdict_and_the_next_step(client, kyc_failed):
++    r = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": "KYC ka status kya hai?",
++                                                 "reply_language": "en"}).json()
++    assert r["tts"].startswith("Not ready for CPA. KYC is not complete.") and "Next step" in r["tts"], r["tts"]
++
++
++def test_kyc_in_hindi_keeps_the_lock(client, kyc_failed):
++    md = say(client, "KYC ka status kya hai?", lang="hi")
++    assert "CPA के लिए तैयार नहीं। KYC पूरा नहीं हुआ।" in md
++
++
++def test_readiness_counts_equal_the_gate(client, prod, _store):
++    from app.agents.applicant.copilot.answering import readiness_report
++
++    _, c = make_case(client, "Rahul Sharma")
++    say(client, f"{c} kholo")
++    md = say(client, "CPA ke liye kya chahiye?")
++    report = readiness_report.build(c)
++    assert f"CPA readiness: {report['passed']} of {report['total']} checks passed." in md
++    assert report["ready"] is False
+diff --git a/tests/integration/test_master_7_faq.py b/tests/integration/test_master_7_faq.py
+new file mode 100644
+index 0000000..dcce22c
+--- /dev/null
++++ b/tests/integration/test_master_7_faq.py
+@@ -0,0 +1,90 @@
++"""
++MASTER SPEC section 7 -- the FAQ from config: shown on "help", on case open; context-aware (hidden when it does not
++apply, boosted when it matters now); rendered as ask: links inside the markdown; EVERY item answered correctly in
++the state it is shown in (golden).
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from app.agents.applicant.copilot.capabilities import faq
++from app.store.models import CaseFinding, Document, DocumentStatus, FindingKind
++from tests.integration.master_env import make_case, prod, say  # noqa: F401
++from tests.integration.test_reupload_supersedes import _store, client  # noqa: F401
++
++REFUSED_OR_LOST = {"UNKNOWN", "GUARDRAIL_BLOCKED", "OUT_OF_SCOPE"}
++
++
++def _kyc_fail(_store, a, c):
++    _store.save_finding(CaseFinding(finding_id="k", case_id=c, party_id=a, finding_kind=FindingKind.KYC, status="FAIL",
++                                    reason_codes=["NAME_MISMATCH"], content_hash="k",
++                                    payload={"fields": [{"field": "NAME", "status": "FAIL", "sources": []}]}))
++    _store.save_document(Document(document_id=f"{c}:{a}:pan", case_id=c, applicant_id=a, party_id=a,
++                                  document_type="PAN", status=DocumentStatus.VERIFIED))
++
++
++def test_help_without_a_case_shows_the_my_cases_questions(client, prod):
++    make_case(client, "Rahul Sharma")
++    md = say(client, "help")
++    assert "**My cases:**" in md and "(ask:" in md and "**Documents:**" not in md, md
++
++
++def test_help_inside_a_case_is_about_that_case(client, prod):
++    _, c = make_case(client, "Rahul Sharma")
++    say(client, f"{c} kholo")
++    md = say(client, "kya pooch sakta hoon")
++    assert md.split("\n")[0] == c and "**This case:**" in md and "**My cases:**" not in md, md
++
++
++def test_help_me_upload_is_not_the_faq(client, prod):
++    _, c = make_case(client, "Rahul Sharma")
++    say(client, f"{c} kholo")
++    assert "**This case:**" not in say(client, "help me upload the PAN")
++
++
++def test_the_faq_shows_on_open_after_the_review(client, prod):
++    _, c = make_case(client, "Rahul Sharma")
++    md = say(client, f"{c} kholo")
++    assert "Common questions for this case:" in md
++    if "Review:" in md:
++        assert md.index("Review:") < md.index("Common questions for this case:")
++
++
++def test_kyc_failed_boosts_the_kyc_questions(client, prod, _store):
++    a, c = make_case(client, "Rahul Sharma")
++    _kyc_fail(_store, a, c)
++    shown = [i["id"] for i in faq.items(c, "en", 4)]
++    assert "kyc_status" in shown[:2], shown
++    assert "coapp_docs" not in [i["id"] for i in faq.items(c, "en")]          # no co-applicant: hidden
++
++
++def test_a_new_faq_item_in_config_appears_without_code(client, prod, monkeypatch):
++    _, c = make_case(client, "Rahul Sharma")
++    item = {"id": "x_new", "category": "general", "q": {"en": "Who is my branch manager?"}, "priority": 999}
++    monkeypatch.setitem(faq.cfg(), "items", list(faq.cfg()["items"]) + [item])
++    assert "Who is my branch manager?" in say(client, "help")
++
++
++@pytest.mark.parametrize("state", ["no_case", "open", "kyc_failed"])
++def test_every_shown_faq_item_is_answered(client, prod, _store, monkeypatch, state):
++    """Golden: each item shown in this state, sent as its link sends it, gets a real answer (never lost / refused)."""
++    a, c = make_case(client, "Rahul Sharma")
++    if state == "kyc_failed":
++        _kyc_fail(_store, a, c)
++    case_id = None if state == "no_case" else c
++    shown = faq.items(case_id, "en")
++    assert shown
++    monkeypatch.setenv("COPILOT_MD_TTS_CONTRACT", "false")            # read the intent of each answer
++    for item in shown:
++        if case_id:
++            client.post("/api/v1/fos/copilot", json={"action": "OPEN_CASE", "case_id": c})
++        else:
++            client.post("/api/v1/fos/copilot", json={"action": "EXIT_CASE"})
++        r = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": item["send"],
++                                                     "reply_language": "en"})
++        assert r.status_code == 200, (item, r.text)
++        body = r.json()
++        assert body.get("intent") not in REFUSED_OR_LOST, (item["id"], body.get("intent"), body.get("answer"))
++        assert not body.get("clarification_required") or body.get("intent") == "CASE_SELECTION", \
++            (item["id"], body.get("answer"))

@@ -64,6 +64,9 @@ class Intent(str, Enum):
 
     # -- composite
     FULL_SUMMARY = "FULL_SUMMARY"
+    # THE LONG TAIL (FOS plan 6.4): a case question no intent fits, answered by the model ONLY from the case's
+    # masked fact sheet and fact-checked against it (capabilities/snapshot_qa.py)
+    CASE_SNAPSHOT = "CASE_SNAPSHOT"
 
     # -- writes
     CREATE_APPLICANT = "CREATE_APPLICANT"
@@ -920,7 +923,9 @@ _PATTERNS: list[tuple[str, Intent]] = [
      r"\b(next\s+stage|forward|ahead|further|cpa)\b",
      Intent.READINESS),
     (r"\bcan\s+i\s+(submit|send|hand)\b", Intent.READINESS),
-    (r"\b(send|move|hand)\s+(this\s+)?(to\s+)?cpa\b", Intent.READINESS),
+    # a REQUEST to send / move it to CPA -- never "when did it move to CPA" (the recorded stage history)
+    (r"^(?!.*\b(when|kab|did|was|has\s+it|moved)\b).*?\b(send|move|hand)\s+(this\s+)?(to\s+)?cpa\b",
+     Intent.READINESS),
 
     # completeness
     (r"\bis\s+(everything|it|this|the\s+application)\s+complete\b", Intent.COMPLETENESS),
@@ -1409,6 +1414,12 @@ def classify(message: str) -> Classification:
     if _WHAT_ABOUT_DOC.match(text) and _document_type(text):
         return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
                               document_type=_document_type(text), matched_on="what_about_document")
+    # A DEFINITION TAIL ("... CPA mein kyun hai aur KYC review ka matlab kya hai?") is split BEFORE this stage
+    # rule too -- it took the whole message on its first half (the same check as below, moved ahead of it)
+    if _CASE_STAGE.search(text) and re.search(r"\b(means?|meaning|matlab|arth)\b", text, re.IGNORECASE):
+        early = _mixed_with_knowledge_tail(text)
+        if early is not None:
+            return early
     if _CASE_STAGE.search(text):
         return Classification(Intent.APPLICATION_STAGE, confidence="high", matched_on="case_stage")
 
@@ -1634,6 +1645,28 @@ def _part_as_question(part: str) -> str:
     return f"what is {part}?"
 
 
+def _share_predicate(pieces: list[str]) -> list[str]:
+    """
+    MASTER SPEC section 5 (multi-question): "PAN aur bank statement ka status batao" -- the leading bare nouns
+    share the LAST part's predicate ("ka status batao"): "PAN ka status batao", "bank statement ka status
+    batao". The linker words are config (chatbot.compound.shared_predicate_linkers).
+    """
+    from app.agents.applicant import config
+
+    linkers = [str(w).lower() for w in (config.chatbot("compound") or {}).get("shared_predicate_linkers") or []]
+    if len(pieces) < 2 or not linkers:
+        return pieces
+    last = pieces[-1].split()
+    at = next((i for i, w in enumerate(last) if w.lower() in linkers and 0 < i < len(last) - 0), None)
+    if at is None:
+        return pieces
+    predicate = " ".join(last[at:])
+    bare = [p for p in pieces[:-1] if len(p.split()) <= 3 and not _QUESTION_CUE.search(p)]
+    if len(bare) != len(pieces) - 1:
+        return pieces
+    return [f"{p} {predicate}" for p in pieces[:-1]] + [pieces[-1]]
+
+
 def compound_parts(message: str) -> list[str] | None:
     """
     "What is my loan amount, what stage am I in, and what is pending?" -> its
@@ -1664,6 +1697,7 @@ def compound_parts(message: str) -> list[str] | None:
     from app.agents.applicant.copilot.semantics import short_query as _short
 
     pieces = [p.strip(" ,;?.!") for p in _JOIN.split(text)]
+    pieces = _share_predicate([p for p in pieces if p])
     pieces = [p for p in pieces
               if p and (len(p.split()) >= 2 or _short.short_head(p) is not None
                         or _profile.detect(f"what is my {p}") is not None)]
@@ -1718,7 +1752,8 @@ def compound_parts(message: str) -> list[str] | None:
         # my application" is a preamble, not a question).
         if getattr(part, "understanding", None) == "EXAMPLES":
             return None
-        seen.append((part.intent, _subjects.mentioned(question)))
+        # two DOCUMENTS asked the same way ("PAN aur bank statement ka status") are two questions
+        seen.append((part.intent, _subjects.mentioned(question), getattr(part, "document_type", None)))
     if len(set(seen)) < 2:
         return None
     return questions
@@ -1802,6 +1837,29 @@ FRAME_FAMILY = frozenset({
 })
 
 
+def _asks_readiness_for_next_stage(message: str, normalised: str) -> bool:
+    """
+    The next stage named + a need / pending / blocking cue, and not a definition (applicant_agent.yaml
+    chatbot.readiness_report.question: next_stages, cues). Read on the message as typed and as normalised.
+    """
+    from app.agents.applicant import config
+
+    rule = (config.chatbot("readiness_report").get("question") or {})
+    stages = [str(s).lower() for s in rule.get("next_stages") or []]
+    cues = [str(c).lower() for c in rule.get("cues") or []]
+    excluded = [str(w).lower() for w in rule.get("not_with") or []]
+    if not stages or not cues:
+        return False
+    for said in (str(message or ""), str(normalised or "")):
+        words = " " + " ".join(re.findall(r"[\wऀ-ॿ]+", said.lower())) + " "
+        if any(f" {w} " in words for w in excluded):
+            return False                      # "which DOCUMENTS do I need for CPA" is the checklist question
+        if any(f" {s} " in words for s in stages) and any(f" {c} " in words for c in cues) \
+                and not asks_for_a_definition(said):
+            return True
+    return False
+
+
 def understand(message: str, *, has_case: bool = False) -> Classification:
     """
     What the message means.
@@ -1824,6 +1882,11 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
 
     normalised = normalize.normalise(message)
     text = normalised.text or (message or "").strip()
+    if has_case and _asks_readiness_for_next_stage(message, text):
+        # "CPA ke liye kya chahiye", "what is blocking CPA", "CPA ke liye kya baaki hai" (FOS plan section 5):
+        # what this case still needs to move on -- the readiness report, never a generic stage guide
+        return Classification(Intent.READINESS, confidence="high", matched_on="readiness_for_next_stage",
+                              understanding="RULES")
     classification = classify(text)
     classification.understanding = "RULES"
 

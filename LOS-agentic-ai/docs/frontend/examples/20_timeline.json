@@ -1,0 +1,399 @@
+{
+  "request": {
+    "action": "CUSTOM_QUERY",
+    "message": "case ka timeline",
+    "reply_language": "en"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "applicant_id": "APP-F2D29DB3305E",
+    "case_id": "CASE-DA842B2E38A9",
+    "action": "CUSTOM_QUERY",
+    "intent": "CASE_TIMELINE",
+    "answer": "CASE-DA842B2E38A9\n**Case timeline -- CASE-DA842B2E38A9**\n- 08 Oct 2026, 02:32 -- Case created\n- 08 Oct 2026, 02:32 -- PAN uploaded (verified)\n\n0 day(s) in FOS. Within the FOS target of 3 day(s).",
+    "application": {
+      "case_id": "CASE-DA842B2E38A9",
+      "applicant_id": "APP-F2D29DB3305E",
+      "co_applicant_id": null,
+      "status": "APPLICATION_CREATED",
+      "product": "PERSONAL_LOAN",
+      "loan_amount": "500000.0",
+      "employment_type": null,
+      "declared_monthly_obligations": null,
+      "declared_monthly_income": null,
+      "property_value": null,
+      "tenure_months": null,
+      "interest_rate_pct": null,
+      "missing_fields": [],
+      "created_at": "<timestamp>",
+      "updated_at": "<timestamp>"
+    },
+    "stage": "APPLICATION_CREATED",
+    "query_type": "CASE_FACT",
+    "case_state": {
+      "case_id": "CASE-DA842B2E38A9",
+      "product": "PERSONAL_LOAN",
+      "stage": "APPLICATION_CREATED",
+      "readiness": "NOT_READY",
+      "documents_collected": 0,
+      "documents_required": 0,
+      "documents_satisfied": 0,
+      "documents_missing": 0,
+      "documents_under_review": 0,
+      "documents_failed": 0,
+      "documents_optional": 0,
+      "documents_optional_missing": 0,
+      "collection_progress": 0,
+      "applicant_fields_missing": []
+    },
+    "suggested_questions": [
+      "What is pending on this case?"
+    ],
+    "available_actions": [
+      {
+        "action": "UPLOAD_DOCUMENT",
+        "label": "Upload a document",
+        "enabled": true
+      },
+      {
+        "action": "GET_DOCUMENT_CHECKLIST",
+        "label": "What is still needed",
+        "enabled": true
+      },
+      {
+        "action": "GET_VERIFICATION_STATUS",
+        "label": "Document verification status",
+        "enabled": true
+      },
+      {
+        "action": "MARK_FOR_REUPLOAD",
+        "label": "Ask for a document again",
+        "enabled": false,
+        "invoke": {
+          "action": "CUSTOM_QUERY",
+          "message_template": "Mark the {slot} for re-upload."
+        },
+        "disabled_reason": "No document is in a state that needs collecting again."
+      },
+      {
+        "action": "CHECK_CPA_READINESS",
+        "label": "Check readiness for handoff",
+        "enabled": true
+      },
+      {
+        "action": "GET_CASE_360",
+        "label": "Full case view",
+        "enabled": true
+      }
+    ],
+    "document_highlights": [],
+    "clarification_required": null,
+    "followed_up": null,
+    "context": {
+      "conversation_id": "5dc274f71d1e497baf78037e6070d676",
+      "case_id": "CASE-DA842B2E38A9",
+      "last_query_type": "CASE_FACT",
+      "last_intent": "CASE_HISTORY",
+      "last_slot": null,
+      "last_documents": [],
+      "last_document": null,
+      "last_field": null,
+      "last_aspect": null,
+      "last_subject": null,
+      "last_task": "UNKNOWN",
+      "last_object": "APPLICATION",
+      "last_stage": "FOS",
+      "last_source": "STRUCTURED",
+      "last_language": "hi-Latn"
+    },
+    "understanding": {
+      "frame": {
+        "task": "UNKNOWN",
+        "object": "APPLICATION",
+        "qualifiers": [],
+        "referents": {},
+        "party": "SELF",
+        "stage": null,
+        "scope": "CURRENT_CASE",
+        "confidence": "low",
+        "language": "hi-Latn",
+        "document_type": null,
+        "source": "PARSER",
+        "concepts": [
+          "APPLICATION"
+        ]
+      },
+      "decided_by": "RULES",
+      "referents": {},
+      "short_query": null,
+      "llm": {
+        "consulted": false,
+        "status": "NOT_NEEDED"
+      },
+      "parse_ms": 0.48,
+      "case_stage": "FOS",
+      "conversation": {
+        "conversation_id": "5dc274f71d1e497baf78037e6070d676",
+        "turn_id": 1,
+        "outcome": "NEW_TOPIC",
+        "note": null,
+        "pending_before": null,
+        "turn_type": "NEW_REQUEST",
+        "pending_after": null,
+        "state": {
+          "conversation_id": "5dc274f71d1e497baf78037e6070d676",
+          "turn_id": 1,
+          "current_topic": "APPLICATION",
+          "active_party": "SELF",
+          "active_stage": "FOS",
+          "language": "hi-Latn",
+          "pending_clarification": null,
+          "last_intent": "CASE_HISTORY",
+          "last_document": null,
+          "last_documents": []
+        }
+      },
+      "response_plan": "ANSWER_EXPLANATION",
+      "natural_composition": {
+        "plan": "ANSWER_EXPLANATION",
+        "enabled": false,
+        "attempted": false,
+        "accepted": false,
+        "reason": "FLAG_OFF",
+        "ms": 0.0
+      }
+    },
+    "observability": {
+      "correlation_id": "<request_id>",
+      "surface": "fos",
+      "conversation_id": "5dc274f71d1e497baf78037e6070d676",
+      "turn_id": 1,
+      "turn_type": "NEW_REQUEST",
+      "outcome": "NEW_TOPIC",
+      "scope": "fos",
+      "capability": "CASE_HISTORY",
+      "intent": "CASE_HISTORY",
+      "category": "CASE_ONLY",
+      "query_type": "CASE_FACT",
+      "decided_by": "RULES",
+      "language": "hi-Latn",
+      "model_route": null,
+      "model_used": null,
+      "model_attempted": 0,
+      "model_calls": 0,
+      "model_ledger": {
+        "calls": 0,
+        "ok": 0,
+        "timeouts": 0,
+        "errors": 0,
+        "used": 0,
+        "ms": 0,
+        "detail": []
+      },
+      "model_fallbacks": 0,
+      "tools": [
+        "application.get"
+      ],
+      "tool_calls": 1,
+      "source": "STRUCTURED",
+      "clarification": false,
+      "clarification_reason": null,
+      "guardrail": null,
+      "fidelity": null,
+      "status": "OK",
+      "error": null,
+      "latency": {
+        "security_ms": 0.63,
+        "conversation_ms": 8.27,
+        "routing_ms": 1.67,
+        "summary_ms": 0.02,
+        "language_ms": 0.07,
+        "total_ms": 15.61,
+        "semantic_ms": 0.48
+      }
+    },
+    "category": "CASE_ONLY",
+    "actions": [],
+    "response_source": "STRUCTURED",
+    "processing_ms": 5.78,
+    "errors": [],
+    "summary": "The application is at application created.",
+    "status": {
+      "stage": "APPLICATION_CREATED",
+      "application_status": "APPLICATION_CREATED"
+    },
+    "processing_queue": [],
+    "grounded": false,
+    "response_type": "CASE_STATUS",
+    "subject": {
+      "party": "PRIMARY_APPLICANT"
+    },
+    "language": "hi-Latn",
+    "processing": null,
+    "portfolio": null,
+    "scope": "CASE",
+    "language_contract": {
+      "language": "hi-Latn",
+      "script": "Latin",
+      "input_mode": "ROMANIZED",
+      "semantic_rewrite": true,
+      "confidence": 0.65,
+      "response_language": "en",
+      "review_status": "SEED_UNREVIEWED",
+      "provider": "lexicon",
+      "provider_fallback": false,
+      "reply_language": "en",
+      "localized": true,
+      "selected_by": "FRONTEND"
+    },
+    "pending_work": null,
+    "gate": null,
+    "semantic_decisions": null,
+    "presentation": {
+      "workspace": {
+        "case_id": "CASE-DA842B2E38A9",
+        "header": "CASE-DA842B2E38A9",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "What is pending?",
+            "message": "What is pending?"
+          },
+          {
+            "type": "ask",
+            "label": "Why is it stuck?",
+            "message": "Why is it stuck?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      },
+      "message": "CASE-DA842B2E38A9 No findings have been recorded for this case yet, so there is nothing on file explaining its current state.",
+      "intent": "CASE_HISTORY",
+      "response_type": "SUMMARY",
+      "response_depth": "NORMAL",
+      "language": "en",
+      "status": "INFO",
+      "next_step": "What is still needed",
+      "next_action": {
+        "type": "GET_DOCUMENT_CHECKLIST",
+        "document_type": null,
+        "label": "What is still needed"
+      },
+      "audio": {
+        "enabled": false,
+        "status": "DEGRADED",
+        "language": "en",
+        "voice": "Zira",
+        "text": "CASE-DA842B2E38A9. No findings have been recorded for this case yet, so there is nothing on file explaining its current state.",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": "CASE-DA842B2E38A9",
+        "applicant_id": "APP-F2D29DB3305E",
+        "stage": "APPLICATION_CREATED"
+      },
+      "sections": [],
+      "documents": [],
+      "document_groups": [],
+      "actions": [
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "next_actions": [
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": "en",
+        "response_source": "STRUCTURED"
+      }
+    },
+    "workspace_view": {
+      "workspace": {
+        "case_id": "CASE-DA842B2E38A9",
+        "header": "CASE-DA842B2E38A9",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "What is pending?",
+            "message": "What is pending?"
+          },
+          {
+            "type": "ask",
+            "label": "Why is it stuck?",
+            "message": "Why is it stuck?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      }
+    },
+    "response_style": {
+      "applied": true,
+      "expanded": []
+    },
+    "answer_plain": "CASE-DA842B2E38A9\nCase timeline -- CASE-DA842B2E38A9\n- 08 Oct 2026, 02:32 -- Case created\n- 08 Oct 2026, 02:32 -- PAN uploaded (verified)\n\n0 day(s) in FOS. Within the FOS target of 3 day(s).",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
+    }
+  }
+}

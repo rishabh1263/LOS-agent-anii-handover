@@ -1,0 +1,68 @@
+# ABUSIVE / FOUL LANGUAGE (MASTER SPEC sections 16 and 19) -- ONE lexicon, read by ONE shared module
+# (app/agents/applicant/copilot/capabilities/abuse_guard.py) on every path: typed chat on both endpoints, voice text,
+# quick-button / FAQ / action text, drafts the officer edits, form fields and file names sent through chat, import
+# text, and every generated output (drafts, summaries, handoff notes, exports) before it is shown, spoken, downloaded
+# or stored.
+#
+# Matching: the text is normalised first (lower case, Unicode NFKC, leetspeak, spaced / dotted letters joined,
+# repeated letters squeezed, masked forms like f***); then WHOLE TOKENS are matched -- `words` exactly, `stems` as a
+# token prefix. `allow` wins over both (names, places, ordinary words that contain a stem).
+# Frustration words ("useless", "bakwas", "pagal") are NOT here: they are not foul language and keep their own
+# handling (semantic_concepts.yaml ABUSE, the conversation layer).
+
+enabled: true
+# a message with a hit of one of these severities is never answered (no case data, no tool, no model call)
+block_severities: [mild, strong]
+
+# how a flagged word is shown in the warning (and anywhere it must be shown): masked (m*******d), first_last
+# (m*******d -- first and last letter kept), hidden (***)
+display: first_last
+
+lexicon:
+  strong:
+    words: [fuck, fucking, fucker, fucked, motherfucker, fck, fuk, cunt, bitch, bastard, asshole, whore, slut, dickhead,
+            madarchod, maderchod, madarchot, behenchod, bahenchod, bhenchod, bhanchod, chutiya, chutiye, chutia,
+            chootiya, gandu, gaandu, bhosdike, bhosadike, bhosdi, bhosda, randi, lavde, lawde, lauda, lund, lode,
+            harami, haramkhor, mc, bc, bsdk, bkl, mkc, tmkc,
+            zavadya, jhavadya, bhadwa, bhadwe, bhadvya, aighalya, aaighalya, ghalya,
+            मादरचोद, बहनचोद, बहनचो, भेनचोद, चूतिया, चुतिया, गांडू, भोसड़ीके, भोसडीके, रंडी, हरामी, लौड़ा, लंड,
+            झवाड्या, भडवा, भडव्या, आयघाल्या, रांड]
+    stems: [fuck, motherf, madarch, maderch, behench, bahench, bhench, bhosd, chutiy, haramkh, लौड़, झवाड]
+  mild:
+    words: [shit, bullshit, dick, idiot, idiots, moron, retard, scum, kamina, kamine, kaminey, kutta, kutte, kutti,
+            ullu, gadha, gadhe, nalayak, jhatu, jhaat, tatti, कमीना, कमीने, कुत्ता, कुत्ते, उल्लू, गधा, नालायक,
+            मूर्ख, गाढव, मूर्खा]
+    stems: []
+
+# ordinary words a stem or a leetspeak reading must never flag (names, places, words)
+allow: [scunthorpe, cocktail, bcom, mca, mcom, bca, assam, assistant, passport, class, classic, pass, shitake,
+        dickens, lundy, randhir, randhawa, harmony, kuttappan, gaandiv]
+
+# leetspeak and look-alike characters (read before matching)
+leet: { "@": a, "4": a, "3": e, "1": i, "!": i, "0": o, "$": s, "5": s, "7": t, "+": t, "8": b, "|": i, "(": c }
+
+# the reply: warning + the flagged word(s) in bold, masked + the request to rephrase. 2-4 variants per language.
+reply:
+  markdown:
+    en: ["Please don't use foul language: {words}. Please rephrase your question respectfully, and I'll help.",
+         "Please don't use foul language ({words}). Ask again respectfully and I'll help right away."]
+    hi-Latn: ["Kripya gaali-galoch na karein: {words}. Apna sawal izzat se dobara poochhiye, main madad karunga.",
+              "Gaali mat dijiye ({words}). Sawal theek se poochhiye, main turant madad karunga."]
+    hi: ["कृपया अपशब्दों का प्रयोग न करें: {words}। अपना सवाल सम्मान से दोबारा पूछें, मैं मदद करूँगा।"]
+    mr: ["कृपया अपशब्द वापरू नका: {words}. तुमचा प्रश्न आदराने पुन्हा विचारा, मी मदत करेन."]
+  # spoken: the warning only -- never the word, never spelled
+  tts:
+    en: ["Please don't use foul language. Please rephrase your question respectfully, and I'll help."]
+    hi-Latn: ["Kripya gaali-galoch na karein. Apna sawal izzat se dobara poochhiye."]
+    hi: ["कृपया अपशब्दों का प्रयोग न करें। अपना सवाल सम्मान से दोबारा पूछें।"]
+    mr: ["कृपया अपशब्द वापरू नका. तुमचा प्रश्न आदराने पुन्हा विचारा."]
+  cooldown:
+    en: "Let's take a short break -- you can ask again in {seconds} seconds."
+    hi-Latn: "Thoda ruk jaate hain -- {seconds} second baad dobara poochhiye."
+    hi: "थोड़ा रुकते हैं -- {seconds} सेकंड बाद दोबारा पूछें।"
+    mr: "थोडा विराम घेऊया -- {seconds} सेकंदांनी पुन्हा विचारा."
+
+# repeated abuse: this many flagged messages inside the window -> a cooldown of `cooldown_seconds`
+cooldown_after: 3
+window_seconds: 600
+cooldown_seconds: 60

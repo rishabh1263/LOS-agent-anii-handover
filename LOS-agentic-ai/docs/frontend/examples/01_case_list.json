@@ -6,7 +6,7 @@
   "response": {
     "request_id": "<request_id>",
     "intent": "CASE_LIST",
-    "answer": "📂 **Your cases** -- 2 total · ⏳ 2 pending\n\n1. **CASE-F7AD07E53966** (Priya V.) · 📍 **FOS (Field Officer Sales)** · ⏳ 3 docs pending\n2. **CASE-AB355D618BF7** (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
+    "answer": "**Your cases** -- 2 total · 2 pending\n\n- **APP-5FE004716702** -- Priya V. (1 case)\n   1. **CASE-C0EE5A27D5B0** · **FOS (Field Officer Sales)** · 3 docs pending\n\n- **APP-AEAFB9EC3769** -- Rahul S. (1 case)\n   2. **CASE-E658D45C16BD** · FOS · 3 docs pending\n\n**Next step:** Kis case mein jaana hai?",
     "category": "CASE_ONLY",
     "query_type": "CASE_FACT",
     "response_source": "STRUCTURED",
@@ -24,31 +24,49 @@
       "case_list": [
         {
           "number": 1,
-          "case_id": "CASE-F7AD07E53966",
-          "applicant_id": "APP-592D56C9BB98",
+          "case_id": "CASE-C0EE5A27D5B0",
+          "applicant_id": "APP-5FE004716702",
           "applicant_name": "Priya V.",
           "stage": "FOS",
-          "status_label": "⏳ 3 docs pending",
+          "status_label": "3 docs pending",
           "status_kind": "DOCS",
-          "emoji": "⏳",
+          "emoji": "",
           "action": {
             "type": "open_case",
-            "case_id": "CASE-F7AD07E53966"
+            "case_id": "CASE-C0EE5A27D5B0"
           }
         },
         {
           "number": 2,
-          "case_id": "CASE-AB355D618BF7",
-          "applicant_id": "APP-B597637EF37D",
+          "case_id": "CASE-E658D45C16BD",
+          "applicant_id": "APP-AEAFB9EC3769",
           "applicant_name": "Rahul S.",
           "stage": "FOS",
-          "status_label": "⏳ 3 docs pending",
+          "status_label": "3 docs pending",
           "status_kind": "DOCS",
-          "emoji": "⏳",
+          "emoji": "",
           "action": {
             "type": "open_case",
-            "case_id": "CASE-AB355D618BF7"
+            "case_id": "CASE-E658D45C16BD"
           }
+        }
+      ],
+      "applicant_groups": [
+        {
+          "applicant_id": "APP-5FE004716702",
+          "applicant_name": "Priya V.",
+          "case_count": 1,
+          "case_ids": [
+            "CASE-C0EE5A27D5B0"
+          ]
+        },
+        {
+          "applicant_id": "APP-AEAFB9EC3769",
+          "applicant_name": "Rahul S.",
+          "case_count": 1,
+          "case_ids": [
+            "CASE-E658D45C16BD"
+          ]
         }
       ],
       "counts": {
@@ -67,44 +85,53 @@
         "FOS"
       ]
     },
-    "emphasis": [
-      {
-        "text": "pending",
-        "start": 30,
-        "end": 37
-      }
-    ],
-    "answer_plain": "📂 Your cases -- 2 total · ⏳ 2 pending\n\n1. CASE-F7AD07E53966 (Priya V.) · 📍 FOS (Field Officer Sales) · ⏳ 3 docs pending\n2. CASE-AB355D618BF7 (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
-    "answer_markdown": "📂 Your cases -- 2 total · ⏳ 2 **pending**\n\n1. CASE-F7AD07E53966 (Priya V.) · 📍 FOS (Field Officer Sales) · ⏳ 3 docs pending\n2. CASE-AB355D618BF7 (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
     "presentation": {
       "case_list": [
         {
           "number": 1,
-          "case_id": "CASE-F7AD07E53966",
-          "applicant_id": "APP-592D56C9BB98",
+          "case_id": "CASE-C0EE5A27D5B0",
+          "applicant_id": "APP-5FE004716702",
           "applicant_name": "Priya V.",
           "stage": "FOS",
-          "status_label": "⏳ 3 docs pending",
+          "status_label": "3 docs pending",
           "status_kind": "DOCS",
-          "emoji": "⏳",
+          "emoji": "",
           "action": {
             "type": "open_case",
-            "case_id": "CASE-F7AD07E53966"
+            "case_id": "CASE-C0EE5A27D5B0"
           }
         },
         {
           "number": 2,
-          "case_id": "CASE-AB355D618BF7",
-          "applicant_id": "APP-B597637EF37D",
+          "case_id": "CASE-E658D45C16BD",
+          "applicant_id": "APP-AEAFB9EC3769",
           "applicant_name": "Rahul S.",
           "stage": "FOS",
-          "status_label": "⏳ 3 docs pending",
+          "status_label": "3 docs pending",
           "status_kind": "DOCS",
-          "emoji": "⏳",
+          "emoji": "",
           "action": {
             "type": "open_case",
-            "case_id": "CASE-AB355D618BF7"
+            "case_id": "CASE-E658D45C16BD"
           }
+        }
+      ],
+      "applicant_groups": [
+        {
+          "applicant_id": "APP-5FE004716702",
+          "applicant_name": "Priya V.",
+          "case_count": 1,
+          "case_ids": [
+            "CASE-C0EE5A27D5B0"
+          ]
+        },
+        {
+          "applicant_id": "APP-AEAFB9EC3769",
+          "applicant_name": "Rahul S.",
+          "case_count": 1,
+          "case_ids": [
+            "CASE-E658D45C16BD"
+          ]
         }
       ],
       "counts": {
@@ -113,16 +140,7 @@
       },
       "page": 0,
       "has_more": false,
-      "emphasis": [
-        {
-          "text": "pending",
-          "start": 30,
-          "end": 37
-        }
-      ],
-      "answer_markdown": "📂 Your cases -- 2 total · ⏳ 2 **pending**\n\n1. CASE-F7AD07E53966 (Priya V.) · 📍 FOS (Field Officer Sales) · ⏳ 3 docs pending\n2. CASE-AB355D618BF7 (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
-      "answer_plain": "📂 Your cases -- 2 total · ⏳ 2 pending\n\n1. CASE-F7AD07E53966 (Priya V.) · 📍 FOS (Field Officer Sales) · ⏳ 3 docs pending\n2. CASE-AB355D618BF7 (Rahul S.) · 📍 FOS · ⏳ 3 docs pending\n\n👉 Kis case mein jaana hai?",
-      "message": "📂 **Your cases** -- 2 total · ⏳ 2 pending 1. **CASE-F7AD07E53966** (Priya V.) · 📍 **FOS (Field Officer Sales)** · ⏳ 3 docs pending 2. **CASE-AB355D618BF7** (Rahul S.) · 📍 FOS · ⏳ 3 docs pending 👉 Kis case mein jaana hai?",
+      "message": "**Your cases** -- 2 total · 2 pending **APP-5FE004716702** -- Priya V. (1 case) 1. **CASE-C0EE5A27D5B0** · **FOS (Field Officer Sales)** · 3 docs pending **APP-AEAFB9EC3769** -- Rahul S. (1 case) 2. **CASE-E658D45C16BD** · FOS · 3 docs pending Kis case mein jaana hai?",
       "intent": "CASE_LIST",
       "response_type": "ANSWER",
       "response_depth": "NORMAL",
@@ -135,7 +153,7 @@
         "status": "NO_VOICE_FOR_LANGUAGE",
         "language": null,
         "voice": null,
-        "text": "📂 **Your cases**, 2 total ·  2 pending. 1. **CASE-F7AD07E53966** (Priya V.) · 📍 **FOS (Field Officer Sales)** ·  3 docs pending. 2. **CASE-AB355D618BF7** (Rahul S.) · 📍 FOS ·  3 docs pending. 👉 Kis case mein jaana hai?",
+        "text": "**Your cases**, 2 total · 2 pending. **APP-5FE004716702**, Priya V. (1 case). 1. **CASE-C0EE5A27D5B0** · **FOS (Field Officer Sales)** · 3 docs pending. **APP-AEAFB9EC3769**, Rahul S. (1 case). 2. **CASE-E658D45C16BD** · FOS · 3 docs pending. Kis case mein jaana hai?",
         "endpoint": null,
         "format": "wav"
       },
@@ -157,6 +175,11 @@
         "language": null,
         "response_source": "STRUCTURED"
       }
+    },
+    "answer_plain": "Your cases -- 2 total · 2 pending\n\n- APP-5FE004716702 -- Priya V. (1 case)\n   1. CASE-C0EE5A27D5B0 · FOS (Field Officer Sales) · 3 docs pending\n\n- APP-AEAFB9EC3769 -- Rahul S. (1 case)\n   2. CASE-E658D45C16BD · FOS · 3 docs pending\n\nNext step: Kis case mein jaana hai?",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
     }
   }
 }

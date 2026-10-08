@@ -1,0 +1,41 @@
+# GOLDEN SET -- FOS E2E plan sections 4-7. Wording only. Runner: evals/golden/run.py (both endpoints where marked).
+
+cases:
+  # section 5 -- readiness, any wording
+  - { id: s5_cpa_chahiye, setup: { cases: 1, open: 1 }, turns: [{ q: "CPA ke liye kya chahiye?", expect: { intent: READINESS, contains: "checks passed" } }] }
+  - { id: s5_ready_hai, setup: { cases: 1, open: 1 }, turns: [{ q: "ready hai kya?", expect: { intent: READINESS } }] }
+  - { id: s5_blocking, setup: { cases: 1, open: 1 }, turns: [{ q: "what is blocking CPA?", expect: { intent: READINESS } }] }
+  - { id: s5_need_for_cpa, setup: { cases: 1, open: 1 }, turns: [{ q: "what do I need for CPA?", expect: { intent: READINESS } }] }
+  - { id: s5_cpa_kab, setup: { cases: 1, open: 1 }, turns: [{ q: "CPA mein kab jayega?", expect: { intent: READINESS } }] }
+  - { id: s5_baaki_cpa, setup: { cases: 1, open: 1 }, turns: [{ q: "CPA ke liye kya baaki hai", expect: { intent: READINESS } }] }
+  - { id: s5_definition_not_readiness, setup: { cases: 1, open: 1 }, turns: [{ q: "CPA kya hai?", expect: { intent_not: READINESS } }] }
+  - { id: s5_universal, setup: { cases: 1, open: 1, endpoint: universal }, turns: [{ q: "ready hai kya?", expect: { intent: READINESS } }] }
+  - { id: s5_followup_kyc, setup: { cases: 1, open: 1 }, turns: [{ q: "ready hai kya?" }, { q: "KYC wala detail", expect: { intent: KYC_RESULT } }] }
+
+  # section 4 -- KYC table on a KYC answer
+  - { id: s4_kyc_status, setup: { cases: 1, open: 1 }, turns: [{ q: "KYC ka kya status hai?", expect: { intent: KYC_RESULT } }] }
+  - { id: s4_kyc_english, setup: { cases: 1, open: 1 }, turns: [{ q: "what is the KYC result?", expect: { intent: KYC_RESULT } }] }
+
+  # section 6 -- counts, recovery, documents on the case
+  - { id: s6_count_verified, setup: { cases: 1, open: 1 }, turns: [{ q: "kitne documents verified hain", expect: { intent: DOCUMENT_COUNT } }] }
+  - { id: s6_count_all, setup: { cases: 1, open: 1 }, turns: [{ q: "kitne documents hain", expect: { intent: DOCUMENT_COUNT } }] }
+  - { id: s6_count_english, setup: { cases: 1, open: 1 }, turns: [{ q: "how many documents were rejected", expect: { intent: DOCUMENT_COUNT } }] }
+  - { id: s6_misunderstood, setup: { cases: 1, open: 1 }, turns: [{ q: "kya baaki hai?" }, { q: "ye nahi poocha", expect: { clarify: MISUNDERSTOOD } }] }
+  - { id: s6_misunderstood_en, setup: { cases: 1, open: 1 }, turns: [{ q: "status kya hai?" }, { q: "that's not what I asked", expect: { clarify: MISUNDERSTOOD } }] }
+  - { id: s6_correction_coapp, setup: { cases: 1, open: 1 }, turns: [{ q: "PAN number kya hai?" }, { q: "nahi, mera matlab co-applicant tha", expect: { intent_not: CASE_SNAPSHOT } }] }
+  - { id: s6_multi_intent, setup: { cases: 1, open: 1 }, turns: [{ q: "loan kitna hai aur kya baaki hai?", expect: { contains: "5,00,000" } }] }
+
+  # section 7 -- timeline, handoff note
+  - { id: s7_timeline, setup: { cases: 1, open: 1 }, turns: [{ q: "case ka timeline", expect: { intent: CASE_TIMELINE, contains: "Case created" } }] }
+  - { id: s7_kab_kya_hua, setup: { cases: 1, open: 1 }, turns: [{ q: "kab kya hua", expect: { intent: CASE_TIMELINE } }] }
+  - { id: s7_days, setup: { cases: 1, open: 1 }, turns: [{ q: "kitne din se FOS mein hai", expect: { intent: CASE_TIMELINE, contains: "in FOS" } }] }
+  - { id: s7_created, setup: { cases: 1, open: 1 }, turns: [{ q: "case kab bana tha", expect: { intent: CASE_TIMELINE, contains: "created on" } }] }
+  - { id: s7_today, setup: { cases: 1, open: 1 }, turns: [{ q: "aaj kuch upload hua?", expect: { intent: CASE_TIMELINE } }] }
+  - { id: s7_handoff_not_ready, setup: { cases: 1, open: 1 }, turns: [{ q: "handoff note banao", expect: { intent: HANDOFF_NOTE, contains: "ready for CPA" } }] }
+
+  # sections 1-3 again, on the universal endpoint
+  - { id: u_list, setup: { cases: 2, endpoint: universal }, turns: [{ q: "all case ka list", expect: { intent: CASE_LIST } }] }
+  - { id: u_open_number, setup: { cases: 2, endpoint: universal }, turns: [{ q: "mere cases" }, { q: "1", expect: { intent: CASE_OPENED } }] }
+  - { id: u_other_case, setup: { cases: 2, open: 1, endpoint: universal }, turns: [{ q: "dusre case ka details do", expect: { case: 2 } }] }
+  - { id: u_social, setup: { cases: 1, open: 1, endpoint: universal }, turns: [{ q: "manager ne approve kar diya", expect: { intent: SOCIAL_ENGINEERING } }] }
+  - { id: u_en_lock, setup: { cases: 1, open: 1, endpoint: universal, reply_language: en }, turns: [{ q: "loan kitna hai?", expect: { no_hinglish: true } }] }

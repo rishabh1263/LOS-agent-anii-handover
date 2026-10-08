@@ -1,0 +1,248 @@
+# THE REPLY CONTRACT (MASTER SPEC sections 8 and 14) -- read by app/agents/applicant/copilot/answering/contract.py.
+#
+# Every chat reply (POST /api/v1/fos/copilot, its /stream, POST /api/v1/copilot/query) is
+#
+#     { "request_id": "...", "markdown": "...", "tts": "..." }
+#
+# The SHAPE is code (never configurable); the words, links, limits and spoken forms below are config.
+# Flag COPILOT_MD_TTS_CONTRACT (env) overrides `enabled`. false = the old full envelope, kept for ONE release
+# only, for a frontend that still reads `answer` / `presentation`.
+
+enabled: true
+
+# ---- markdown -------------------------------------------------------------------------------------------------
+markdown:
+  # the suggestions shown as [question](ask:question) links under an answer
+  max_suggestions: 3
+  # the label of the link block under the answer, per language (empty = no label line)
+  suggestions_label: { en: "You can ask:", hi-Latn: "Aap pooch sakte hain:", hi: "आप पूछ सकते हैं:",
+                       mr: "तुम्ही विचारू शकता:" }
+  actions_label: { en: "", hi-Latn: "", hi: "", mr: "" }
+  # a clarification's options: a numbered list of ask: links
+  numbered_options: true
+  # the case-list table (the last column holds the Open link)
+  case_table_headers: { en: ["#", "Case", "Applicant", "Stage", "Status", ""],
+                        hi-Latn: ["#", "Case", "Applicant", "Stage", "Status", ""],
+                        hi: ["#", "केस", "आवेदक", "चरण", "स्थिति", ""],
+                        mr: ["#", "केस", "अर्जदार", "टप्पा", "स्थिती", ""] }
+  # the download buttons' format names (product_flow.yaml case_links.downloads)
+  format_names:
+    xlsx: { en: "Excel", hi-Latn: "Excel", hi: "Excel", mr: "Excel" }
+    docx: { en: "Doc", hi-Latn: "Doc", hi: "Doc", mr: "Doc" }
+    pdf: { en: "PDF", hi-Latn: "PDF", hi: "PDF", mr: "PDF" }
+
+# ---- action links: ONE registry (the frontend turns these into buttons) ---------------------------------------
+# A link is [Label](action:<name>?<param>=<value>&...) or [Question](ask:<text>).
+# `request` is what the frontend posts back -- or it simply posts {"action_link": "<the href>"} to the same
+# endpoint and the server maps it with this registry. The server re-checks scope on EVERY action (`scope`).
+# `labels` are per language; {doc}, {case} ... are filled from the parameters.
+action_links:
+  open_case:
+    params: [id]
+    request: { action: OPEN_CASE, case_id: "{id}" }
+    scope: the case must be one of the caller's own (ownership check)
+    labels: { en: "Open", hi-Latn: "Kholo", hi: "खोलें", mr: "उघडा" }
+  list_cases:
+    params: []
+    request: { action: LIST_CASES }
+    scope: the caller's own cases only
+    labels: { en: "My cases", hi-Latn: "Mere cases", hi: "मेरे केस", mr: "माझ्या केस" }
+  list_more:
+    params: []
+    request: { action: CUSTOM_QUERY, message: more }
+    scope: the next page of the same filtered list of the caller's own cases
+    labels: { en: "Show more", hi-Latn: "Aur dikhao", hi: "और दिखाओ", mr: "आणखी दाखवा" }
+  exit_case:
+    params: []
+    request: { action: EXIT_CASE }
+    scope: none (closes the open case)
+    labels: { en: "Exit case", hi-Latn: "Case se bahar", hi: "केस से बाहर", mr: "केसमधून बाहेर" }
+  switch_case:
+    params: []
+    request: { action: LIST_CASES }
+    scope: the caller's own cases only
+    labels: { en: "Switch case", hi-Latn: "Case badlo", hi: "केस बदलें", mr: "केस बदला" }
+  upload:
+    params: [doc, party]
+    request: { action: UPLOAD_DOCUMENT, document_type: "{doc}", party: "{party}", multipart: true }
+    scope: the open case; the upload route re-checks ownership
+    labels: { en: "Upload {doc_label}", hi-Latn: "{doc_label} upload karo", hi: "{doc_label} अपलोड करें",
+              mr: "{doc_label} अपलोड करा" }
+  view_document:
+    params: [id]
+    request: { action: VIEW_DOCUMENT, document_id: "{id}" }
+    scope: a document of the caller's own case; the signed link is per subject and short-lived
+    labels: { en: "View {doc_label}", hi-Latn: "{doc_label} dekho", hi: "{doc_label} देखें", mr: "{doc_label} पहा" }
+  raise_query:
+    params: [ref]
+    request: { action: RAISE_QUERY, confirm: true, query_ref: "{ref}" }
+    scope: the open case; nothing is sent without this explicit click
+    labels: { en: "Send query", hi-Latn: "Query bhejo", hi: "क्वेरी भेजें", mr: "क्वेरी पाठवा" }
+  mark_query_sent:
+    params: [id]
+    request: { action: MARK_QUERY_SENT, query_id: "{id}" }
+    scope: a query on the caller's own case
+    labels: { en: "Mark as sent", hi-Latn: "Bhej diya", hi: "भेज दिया", mr: "पाठवले" }
+  copy:
+    params: [ref]
+    # ref "draft-1" = the 1st quoted block (> ...) of THIS message; the frontend copies its text
+    request: { client_only: true }
+    scope: none (copies text already on the screen; nothing is ever sent)
+    labels: { en: "Copy message", hi-Latn: "Message copy karo", hi: "संदेश कॉपी करें", mr: "संदेश कॉपी करा" }
+  handoff_note:
+    params: [case]
+    request: { method: GET, url: "/api/v1/fos/handoff-note?case_id={case}&format=pdf" }
+    scope: the caller's own case, only when ready for CPA (409 otherwise)
+    labels: { en: "Download handoff note", hi-Latn: "Handoff note download karo", hi: "हैंडऑफ़ नोट डाउनलोड करें",
+              mr: "हँडऑफ नोट डाउनलोड करा" }
+  new_case:
+    params: []
+    request: { client_only: true, opens: new_case_form }
+    scope: create rights (the create route checks)
+    labels: { en: "Create New Case", hi-Latn: "Create New Case", hi: "Create New Case", mr: "Create New Case" }
+  # MASTER SPEC section 15.2 / 15.3: downloads of one case or of a filtered list, and "Show in UI"
+  download:
+    params: [format, case]
+    request: { method: GET, url: "/api/v1/fos/exports?case_id={case}&format={format}" }
+    scope: the caller's own case; the route returns a short-lived signed link; every download audited
+    labels: { en: "Download {fmt_label}", hi-Latn: "{fmt_label} download karo", hi: "{fmt_label} डाउनलोड करें",
+              mr: "{fmt_label} डाउनलोड करा" }
+  download_list:
+    params: [format, q]
+    # q = the list's filters as "key:value,key:value" (group, status, filter, search, sort, stage) or "all"
+    request: { method: GET, url: "/api/v1/fos/exports?format={format}&q={q}" }
+    scope: only the caller's own cases (the same list query); capped at exports.max_rows
+    labels: { en: "Download {fmt_label}", hi-Latn: "{fmt_label} download karo", hi: "{fmt_label} डाउनलोड करें",
+              mr: "{fmt_label} डाउनलोड करा" }
+  show_in_ui:
+    params: [case]
+    request: { client_only: true, opens: case_form }
+    scope: the main screen opens the same case's form (its own routes re-check ownership)
+    labels: { en: "Show in UI", hi-Latn: "UI mein dikhao", hi: "UI में दिखाएँ", mr: "UI मध्ये दाखवा" }
+  show_list_in_ui:
+    params: [q]
+    request: { client_only: true, opens: home_table }
+    scope: the home table with the same filters (GET /api/v1/fos/cases, the caller's own cases)
+    labels: { en: "Show in UI", hi-Latn: "UI mein dikhao", hi: "UI में दिखाएँ", mr: "UI मध्ये दाखवा" }
+  confirm_write:
+    params: [ref]
+    request: { action: CUSTOM_QUERY, message: "confirm {ref}" }
+    scope: the write proposed in this chat (case draft / field edit / import); nothing is written before this click
+    labels: { en: "Confirm", hi-Latn: "Confirm", hi: "Confirm", mr: "Confirm" }
+  cancel_write:
+    params: [ref]
+    request: { action: CUSTOM_QUERY, message: "cancel {ref}" }
+    scope: drops the proposed write; nothing is written
+    labels: { en: "Cancel", hi-Latn: "Cancel", hi: "Cancel", mr: "Cancel" }
+
+# ---- tts: what the voice reads ----------------------------------------------------------------------------------
+tts:
+  max_sentences: 3
+  # ids are never read character by character: the last `id_tail` characters, with a spoken prefix
+  id_tail: 4
+  id_words:
+    CASE: { en: "case ending", hi-Latn: "case ending", hi: "केस जिसका अंत", mr: "केस शेवट" }
+    APP: { en: "applicant ending", hi-Latn: "applicant ending", hi: "आवेदक जिसका अंत", mr: "अर्जदार शेवट" }
+    COAPP: { en: "co-applicant ending", hi-Latn: "co-applicant ending", hi: "सह-आवेदक जिसका अंत",
+             mr: "सह-अर्जदार शेवट" }
+  # list summary: "Pending: Address Proof and Bank Statement."
+  and_word: { en: "and", hi-Latn: "aur", hi: "और", mr: "आणि" }
+  list_summary: { en: "{status}: {items}.", hi-Latn: "{status}: {items}.", hi: "{status}: {items}।",
+                  mr: "{status}: {items}." }
+  # status words a bullet carries in bold, spoken as the group name
+  status_words:
+    PENDING: { en: "Pending", hi-Latn: "Baaki", hi: "बाकी", mr: "बाकी" }
+    REJECTED: { en: "Rejected", hi-Latn: "Reject hue", hi: "अस्वीकृत", mr: "नाकारले" }
+    FAILED: { en: "Failed", hi-Latn: "Fail hue", hi: "विफल", mr: "अयशस्वी" }
+    REVIEW: { en: "In review", hi-Latn: "Review mein", hi: "समीक्षा में", mr: "पुनरावलोकनात" }
+    MISMATCH: { en: "Not matching", hi-Latn: "Match nahi", hi: "मेल नहीं", mr: "जुळत नाही" }
+    PASS: { en: "Passed", hi-Latn: "Pass", hi: "पास", mr: "पास" }
+    VERIFIED: { en: "Verified", hi-Latn: "Verified", hi: "सत्यापित", mr: "सत्यापित" }
+  # amounts: "₹5,00,000" / "Rs 500000" -> "five lakh rupees"; spell = words for 0-99 (else digits, which the
+  # browser voice of that language reads naturally)
+  amounts:
+    en: { spell: true, rupees: "rupees", scales: [[10000000, crore], [100000, lakh], [1000, thousand], [100, hundred]] }
+    hi-Latn: { spell: false, rupees: "rupaye", scales: [[10000000, crore], [100000, lakh], [1000, hazaar]] }
+    hi: { spell: false, rupees: "रुपये", scales: [[10000000, करोड़], [100000, लाख], [1000, हज़ार]] }
+    mr: { spell: false, rupees: "रुपये", scales: [[10000000, कोटी], [100000, लाख], [1000, हजार]] }
+  number_words:
+    en:
+      ones: [zero, one, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, thirteen, fourteen,
+             fifteen, sixteen, seventeen, eighteen, nineteen]
+      tens: ["", "", twenty, thirty, forty, fifty, sixty, seventy, eighty, ninety]
+      point: point
+  # dates: 2026-10-08 -> "8 October 2026"
+  months:
+    en: [January, February, March, April, May, June, July, August, September, October, November, December]
+    hi-Latn: [January, February, March, April, May, June, July, August, September, October, November, December]
+    hi: [जनवरी, फ़रवरी, मार्च, अप्रैल, मई, जून, जुलाई, अगस्त, सितंबर, अक्टूबर, नवंबर, दिसंबर]
+    mr: [जानेवारी, फेब्रुवारी, मार्च, एप्रिल, मे, जून, जुलै, ऑगस्ट, सप्टेंबर, ऑक्टोबर, नोव्हेंबर, डिसेंबर]
+  date_format: "{day} {month} {year}"
+  # symbols spoken as words (anything else that is not a letter, digit or sentence mark is dropped)
+  symbols:
+    en: { "·": ",", "%": " percent", "&": " and ", "/": " or ", "→": " to " }
+    hi-Latn: { "·": ",", "%": " percent", "&": " aur ", "/": " ya ", "→": " se " }
+    hi: { "·": ",", "%": " प्रतिशत", "&": " और ", "/": " या ", "→": " से " }
+    mr: { "·": ",", "%": " टक्के", "&": " आणि ", "/": " किंवा ", "→": " ते " }
+
+# ---- chat memory: follow-ups without a client-echoed context ---------------------------------------------------
+# The reply no longer carries `context`; the server remembers it per (user, chat_id). The frontend sends a new
+# `chat_id` (or new_chat: true) for a fresh chat. In-process (one worker); TTL in seconds.
+memory:
+  ttl_seconds: 1800
+  max_chats: 5000
+
+# ---- real-time conversation (MASTER SPEC section 11) -------------------------------------------------------------
+realtime:
+  # the stream: `typing` at once; ONE generic status only when the answer is slow (never says what is read);
+  # the markdown in `delta` chunks (answer line, points, tables / links); `final` {request_id, markdown, tts}
+  typing_event: true
+  status_after_ms: 700
+  status_text:
+    en: ["Working on it...", "One moment...", "Checking..."]
+    hi-Latn: ["Dekh raha hoon...", "Ek second...", "Check kar raha hoon..."]
+    hi: ["देख रहा हूँ...", "एक क्षण..."]
+    mr: ["पाहतो आहे...", "एक क्षण..."]
+  delta_pause_ms: 15
+  # replay a final reply by request_id (reconnect), and the Idempotency-Key window
+  replay_ttl_seconds: 600
+  idempotency_ttl_seconds: 600
+  # GET /copilot/updates: how long one poll may wait for a change on a watched case
+  updates_wait_seconds: 20
+  updates_poll_seconds: 1.0
+  # latency budgets (reported by /ready and the perf check; never enforced by cutting an answer short)
+  budgets_ms: { typing: 300, first_text_fast: 1000, first_text_router: 1500, total_p95: 3000 }
+
+# ---- what changed since the officer last looked (section 11: "notices changes since the last check") ---------
+changes:
+  since_last: { en: "Since your last check: {changes}.", hi-Latn: "Pichhli baar ke baad: {changes}.",
+                hi: "पिछली बार के बाद: {changes}।", mr: "मागच्या वेळेनंतर: {changes}." }
+  update: { en: "Update on {case_id}: {changes}.", hi-Latn: "{case_id} par update: {changes}.",
+            hi: "{case_id} पर अपडेट: {changes}।", mr: "{case_id} वर अपडेट: {changes}." }
+  status_words:
+    VERIFIED: { en: "verified", hi-Latn: "verify ho gaya", hi: "सत्यापित", mr: "सत्यापित" }
+    REJECTED: { en: "rejected", hi-Latn: "reject hua", hi: "अस्वीकृत", mr: "नाकारले" }
+    REVIEW: { en: "in review", hi-Latn: "review mein", hi: "समीक्षा में", mr: "पुनरावलोकनात" }
+    UPLOADED: { en: "uploaded", hi-Latn: "upload hua", hi: "अपलोड हुआ", mr: "अपलोड झाले" }
+    PROCESSING: { en: "being verified", hi-Latn: "verify ho raha hai", hi: "सत्यापन जारी", mr: "पडताळणी सुरू" }
+    SUPERSEDED: { en: "replaced", hi-Latn: "badla gaya", hi: "बदला गया", mr: "बदलले" }
+
+# ---- greeting on a new chat (section 11: short, with what needs attention) ---------------------------------------
+greeting:
+  phrases: [hi, hello, hey, namaste, namaskar, good morning, good afternoon, good evening, gm, hii, helo, नमस्ते,
+            नमस्कार]
+  text:
+    en: ["Hello. {attention}", "Good to see you. {attention}"]
+    hi-Latn: ["Namaste. {attention}", "Hello ji. {attention}"]
+    hi: ["नमस्ते। {attention}"]
+    mr: ["नमस्कार. {attention}"]
+  attention: { en: "{n} of your {total} cases need action ({parts}).",
+               hi-Latn: "Aapke {total} cases mein se {n} par kaam baaki hai ({parts}).",
+               hi: "आपके {total} केसों में से {n} पर काम बाकी है ({parts})।",
+               mr: "तुमच्या {total} केसपैकी {n} वर काम बाकी आहे ({parts})." }
+  all_clear: { en: "None of your {total} cases needs action right now.",
+               hi-Latn: "Abhi aapke {total} cases mein se kisi par kaam baaki nahi hai.",
+               hi: "अभी आपके {total} केसों में से किसी पर काम बाकी नहीं है।",
+               mr: "सध्या तुमच्या {total} केसपैकी कोणत्याही केसवर काम बाकी नाही." }
+  no_cases: { en: "You have no cases yet.", hi-Latn: "Abhi aapke paas koi case nahi hai.",
+              hi: "अभी आपके पास कोई केस नहीं है।", mr: "तुमच्याकडे अजून कोणतीही केस नाही." }

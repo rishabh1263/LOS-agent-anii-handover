@@ -123,7 +123,8 @@ def test_a_larger_loan_can_require_more_than_a_smaller_one(client):
 
 
 def test_the_base_documents_survive_every_amount(client):
-    for amount in (0, 100000, 5000000, 100000000):
+    # the lowest PLAUSIBLE amount (chatbot.plausibility.minimum; 0 is refused at intake since FOS plan 1.1)
+    for amount in (10000, 100000, 5000000, 100000000):
         present = rows(open_case(client, loan_amount=amount))
         assert present["PAN"]["mandatory"] is True
         assert present["ADDRESS_PROOF"]["mandatory"] is True
@@ -161,7 +162,7 @@ def test_no_loan_amount_still_returns_the_base_requirements(client):
 
 def test_an_uncaptured_amount_does_not_silently_pick_a_band(client):
     none_given = open_case(client)
-    lowest = open_case(client, loan_amount=0)
+    lowest = open_case(client, loan_amount=10000)     # the lowest plausible amount (0 is refused at intake)
 
     assert (none_given["policy"]["applied_rules"]
             != lowest["policy"]["applied_rules"])

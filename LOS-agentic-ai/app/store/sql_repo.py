@@ -727,19 +727,48 @@ class SqlRepository(Repository):
         self._write(f"DELETE FROM chat_turns WHERE {where}", args)
         return int((n or {"n": 0})["n"] if isinstance(n, dict) or hasattr(n, "keys") else (n[0] if n else 0))
 
-    def list_granted_cases(self, subject: str, *, limit: int = 500) -> list[Application]:
-        """A subject's openable applications, through live CASE or APPLICANT grants (6-MVP)."""
+    def _granted_where(self, subject: str, product: str | None, created_from: str | None,
+                       created_to: str | None) -> tuple[str, list[Any]]:
+        revoked = " AND g.revoked_at IS NULL" if self.grants_revocable() else ""
+        sql = ("FROM applications a WHERE EXISTS (SELECT 1 FROM access_grants g WHERE g.subject = ?"
+               + revoked + " AND ((g.resource_type = 'CASE' AND g.resource_id = a.case_id) OR "
+               "(g.resource_type = 'APPLICANT' AND g.resource_id = a.applicant_id)))")
+        args: list[Any] = [str(subject)]
+        if product:
+            sql += " AND upper(a.product) = ?"
+            args.append(str(product).upper())
+        if created_from:
+            sql += " AND a.created_at >= ?"
+            args.append(str(created_from))
+        if created_to:
+            sql += " AND a.created_at < ?"
+            args.append(str(created_to)[:10] + "T99")      # the whole end day (ISO strings sort)
+        return sql, args
+
+    def list_granted_cases(self, subject: str, *, limit: int = 500, offset: int = 0, order: str = "updated_at",
+                           descending: bool = True, product: str | None = None, created_from: str | None = None,
+                           created_to: str | None = None) -> list[Application]:
+        """A subject's openable applications, through live CASE or APPLICANT grants (6-MVP); one page (section 3)."""
         if not subject:
             return []
-        revoked = " AND g.revoked_at IS NULL" if self.grants_revocable() else ""
+        column = {"updated_at": "a.updated_at", "created_at": "a.created_at"}.get(order, "a.updated_at")
+        where, args = self._granted_where(subject, product, created_from, created_to)
         rows = self._all(
-            "SELECT a.* FROM applications a WHERE EXISTS (SELECT 1 FROM access_grants g WHERE g.subject = ?"
-            + revoked + " AND ((g.resource_type = 'CASE' AND g.resource_id = a.case_id) OR "
-            "(g.resource_type = 'APPLICANT' AND g.resource_id = a.applicant_id))) "
-            "ORDER BY a.updated_at DESC LIMIT ?",
-            (str(subject), int(limit)),
+            f"SELECT a.* {where} ORDER BY {column} {'DESC' if descending else 'ASC'}, a.case_id LIMIT ? OFFSET ?",
+            tuple(args + [int(limit), max(0, int(offset))]),
         )
         return [self._application(r) for r in rows]
+
+    def count_granted_cases(self, subject: str, *, product: str | None = None, created_from: str | None = None,
+                            created_to: str | None = None) -> int:
+        """The separate cheap count beside a page (MASTER SPEC section 3)."""
+        if not subject:
+            return 0
+        where, args = self._granted_where(subject, product, created_from, created_to)
+        row = self._one(f"SELECT count(*) AS n {where}", tuple(args))
+        if row is None:
+            return 0
+        return int(row["n"] if hasattr(row, "keys") else row[0])
 
     def grants_revocable(self) -> bool:
         """Whether access_grants has revoked_at (0004 applied). Cached; reset by reset_schema_cache()."""

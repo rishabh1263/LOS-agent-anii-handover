@@ -1,0 +1,248 @@
+# THE FAQ CATALOGUE (MASTER SPEC section 7) -- read by app/agents/applicant/copilot/capabilities/faq.py.
+#
+# Shown on a new chat (greeting), on case open, and on "help / FAQ / kya pooch sakta hoon": a short categorised
+# list of ask: links, built from the conversation state -- what does not apply is hidden, what matters now first.
+# Every item is a golden case: its `send` (or its question) must be answered correctly in that state.
+#
+# conditions (`when`, all must hold; `boost`, any adds `boost_by` to the priority):
+#   no_case, case_open, has_co_applicant, kyc_failed, documents_pending, ready, not_ready, stuck
+
+enabled: true
+max_items: 8            # on "help"
+max_items_on_open: 4    # under the review when a case opens
+max_items_on_greeting: 4
+boost_by: 50
+
+# the words that ask for the FAQ (whole words / phrases, after the normaliser)
+ask_phrases: [help, faq, faqs, madad, kya pooch sakta hoon, kya puch sakta hu, kya pooch sakta hu, kya puchu,
+              what can i ask, what can you do, kya kar sakte ho, options, menu, मदद, क्या पूछ सकता हूँ, मदत]
+
+labels:
+  heading:
+    en: ["You can ask me:", "Here is what I can help with:"]
+    hi-Latn: ["Aap mujhse pooch sakte hain:", "Main in cheezon mein madad kar sakta hoon:"]
+    hi: ["आप मुझसे पूछ सकते हैं:"]
+    mr: ["तुम्ही मला विचारू शकता:"]
+  on_open: { en: "Common questions for this case:", hi-Latn: "Is case ke liye aam sawal:",
+             hi: "इस केस के लिए आम सवाल:", mr: "या केससाठी सामान्य प्रश्न:" }
+
+categories:
+  my_cases: { en: "My cases", hi-Latn: "Mere cases", hi: "मेरे केस", mr: "माझ्या केस" }
+  case: { en: "This case", hi-Latn: "Yeh case", hi: "यह केस", mr: "ही केस" }
+  documents: { en: "Documents", hi-Latn: "Documents", hi: "दस्तावेज़", mr: "कागदपत्रे" }
+  kyc: { en: "KYC", hi-Latn: "KYC", hi: "KYC", mr: "KYC" }
+  co_applicant: { en: "Co-applicant", hi-Latn: "Co-applicant", hi: "सह-आवेदक", mr: "सह-अर्जदार" }
+  cpa: { en: "Moving to CPA", hi-Latn: "CPA ki taraf", hi: "CPA की ओर", mr: "CPA कडे" }
+  general: { en: "General", hi-Latn: "General", hi: "सामान्य", mr: "सामान्य" }
+
+items:
+  # ---- my cases (no case open) ----
+  - id: my_cases
+    category: my_cases
+    q: { en: "Show my cases", hi-Latn: "Mere cases dikhao", hi: "मेरे केस दिखाओ", mr: "माझ्या केस दाखवा" }
+    when: [no_case]
+    priority: 90
+  - id: kyc_cases
+    category: my_cases
+    q: { en: "Which cases have a KYC issue?", hi-Latn: "KYC wale cases dikhao", hi: "KYC वाले केस दिखाओ",
+         mr: "KYC वाल्या केस दाखवा" }
+    send: { en: "KYC wale cases", hi-Latn: "KYC wale cases", hi: "KYC wale cases", mr: "KYC wale cases" }
+    when: [no_case]
+    priority: 70
+  - id: ready_cases
+    category: my_cases
+    q: { en: "Which cases are ready for CPA?", hi-Latn: "Ready wale cases dikhao", hi: "तैयार केस दिखाओ",
+         mr: "तयार केस दाखवा" }
+    send: { en: "ready wale cases", hi-Latn: "ready wale cases", hi: "ready wale cases", mr: "ready wale cases" }
+    when: [no_case]
+    priority: 60
+  - id: oldest_cases
+    category: my_cases
+    q: { en: "Show my oldest cases", hi-Latn: "Sabse purane cases", hi: "सबसे पुराने केस", mr: "सर्वात जुन्या केस" }
+    send: { en: "sabse purane cases", hi-Latn: "sabse purane cases", hi: "sabse purane cases", mr: "sabse purane cases" }
+    when: [no_case]
+    priority: 40
+  # ---- this case ----
+  - id: pending
+    category: case
+    q: { en: "What is pending?", hi-Latn: "Kya baaki hai?", hi: "क्या बाकी है?", mr: "काय बाकी आहे?" }
+    when: [case_open]
+    priority: 90
+    boost: [documents_pending]
+  - id: why_stuck
+    category: case
+    q: { en: "Why is it stuck?", hi-Latn: "Kyu atka hai?", hi: "क्यों अटका है?", mr: "का अडकले आहे?" }
+    when: [case_open, not_ready]
+    priority: 70
+    boost: [stuck]
+  - id: timeline
+    category: case
+    q: { en: "How long has it been in this stage?", hi-Latn: "Is stage mein kitne din se hai?",
+         hi: "इस चरण में कितने दिन से है?", mr: "या टप्प्यात किती दिवस आहे?" }
+    send: { en: "case ka timeline", hi-Latn: "case ka timeline", hi: "case ka timeline", mr: "case ka timeline" }
+    when: [case_open]
+    priority: 30
+    boost: [stuck]
+  # ---- documents ----
+  - id: docs_pending
+    category: documents
+    q: { en: "Which documents are pending?", hi-Latn: "Kaunse documents pending hain?",
+         hi: "कौन से दस्तावेज़ बाकी हैं?", mr: "कोणती कागदपत्रे बाकी आहेत?" }
+    when: [case_open, documents_pending]
+    priority: 80
+  - id: address_proof
+    category: documents
+    q: { en: "What counts as address proof?", hi-Latn: "Address proof mein kya chalega?",
+         hi: "पते के प्रमाण में क्या चलेगा?", mr: "पत्त्याच्या पुराव्यात काय चालेल?" }
+    send: { en: "What can be used as address proof?", hi-Latn: "address proof mein kya chalega",
+            hi: "address proof mein kya chalega", mr: "address proof mein kya chalega" }
+    when: [case_open, documents_pending]
+    priority: 40
+  # ---- KYC ----
+  - id: kyc_status
+    category: kyc
+    q: { en: "What is the KYC status?", hi-Latn: "KYC ka status kya hai?", hi: "KYC की स्थिति क्या है?",
+         mr: "KYC ची स्थिती काय आहे?" }
+    when: [case_open]
+    priority: 60
+    boost: [kyc_failed]
+  - id: customer_message
+    category: kyc
+    q: { en: "Draft a message to the customer", hi-Latn: "Customer ke liye message banao",
+         hi: "ग्राहक के लिए संदेश बनाओ", mr: "ग्राहकासाठी संदेश तयार करा" }
+    when: [case_open, not_ready]
+    priority: 30
+    boost: [kyc_failed]
+  # ---- co-applicant ----
+  - id: coapp_docs
+    category: co_applicant
+    q: { en: "What is pending for the co-applicant?", hi-Latn: "Co-applicant ke docs kya baaki hain?",
+         hi: "सह-आवेदक के क्या दस्तावेज़ बाकी हैं?", mr: "सह-अर्जदाराची कोणती कागदपत्रे बाकी आहेत?" }
+    when: [case_open, has_co_applicant]
+    priority: 50
+  # ---- moving to CPA ----
+  - id: cpa_needs
+    category: cpa
+    q: { en: "What is needed for CPA?", hi-Latn: "CPA ke liye kya chahiye?", hi: "CPA के लिए क्या चाहिए?",
+         mr: "CPA साठी काय हवे?" }
+    when: [case_open, not_ready]
+    priority: 75
+  - id: handoff
+    category: cpa
+    q: { en: "Make the CPA handoff note", hi-Latn: "Handoff note banao", hi: "हैंडऑफ़ नोट बनाओ", mr: "हँडऑफ नोट तयार करा" }
+    send: { en: "handoff note banao", hi-Latn: "handoff note banao", hi: "handoff note banao", mr: "handoff note banao" }
+    when: [case_open, ready]
+    priority: 95
+  # ---- general ----
+  - id: what_is_cpa
+    category: general
+    q: { en: "What is CPA?", hi-Latn: "CPA kya hai?", hi: "CPA क्या है?", mr: "CPA म्हणजे काय?" }
+    priority: 10
+  - id: what_is_kyc
+    category: general
+    q: { en: "What does KYC mean?", hi-Latn: "KYC ka matlab kya hai?", hi: "KYC का मतलब क्या है?",
+         mr: "KYC म्हणजे काय?" }
+    priority: 10
+
+# ---- ANSWERS to "how to" / "what is" questions (MASTER SPEC 15.2 step 2) ----------------------------------------
+# Matched as whole phrases (after the normaliser), longest first. A "how to" answer is numbered steps; every answer
+# names its source. A question that looks like an FAQ but matches nothing here (and is not about the officer's
+# cases) gets `unknown` -- never a guess.
+answers:
+  - id: how_upload
+    match: [how do i upload, how to upload, how can i upload, upload kaise, document upload kaise, upload kaise kare,
+            upload kaise karein, upload karna hai kaise, kaise upload, अपलोड कैसे, कैसे अपलोड, कसे अपलोड, अपलोड कसे]
+    steps:
+      en: ["Open the case (tap Open in My cases, or type its number).", "Tap Upload next to the document that is
+            pending, or attach the file in this chat.", "Choose the party (applicant or co-applicant) if asked.",
+           "Wait for the check -- I will tell you here if the document is verified or needs a re-upload."]
+      hi-Latn: ["Case kholiye (My cases mein Open dabaiye, ya uska number likhiye).", "Pending document ke saamne
+                 Upload dabaiye, ya file isi chat mein attach kijiye.", "Poocha jaaye to party chuniye (applicant
+                 ya co-applicant).", "Check hone dijiye -- document verify hua ya dobara upload chahiye, main yahin
+                 bataunga."]
+      hi: ["केस खोलें (My cases में Open दबाएँ या उसका नंबर लिखें)।", "बाकी दस्तावेज़ के सामने Upload दबाएँ, या फ़ाइल
+            इसी चैट में जोड़ें।", "पूछे जाने पर पक्ष चुनें (आवेदक या सह-आवेदक)।", "जाँच होने दें -- दस्तावेज़ सत्यापित हुआ या
+            फिर से अपलोड चाहिए, मैं यहीं बताऊँगा।"]
+      mr: ["केस उघडा (My cases मध्ये Open दाबा किंवा तिचा क्रमांक लिहा).", "बाकी कागदपत्राच्या समोर Upload दाबा, किंवा
+            फाईल याच चॅटमध्ये जोडा.", "विचारल्यास पक्ष निवडा (अर्जदार किंवा सह-अर्जदार).", "तपासणी होऊ द्या -- कागदपत्र
+            सत्यापित झाले की पुन्हा अपलोड हवे, मी इथेच सांगेन."]
+    source: { en: "FOS guide: Uploading documents", hi-Latn: "FOS guide: Documents upload karna",
+              hi: "FOS गाइड: दस्तावेज़ अपलोड करना", mr: "FOS मार्गदर्शक: कागदपत्रे अपलोड करणे" }
+  - id: how_create
+    match: [how do i create a case, how to create a case, how to create new case, how to make a new case,
+            naya case kaise banaye, case kaise banaye, case kaise banate hain, नया केस कैसे बनाएँ, नवीन केस कशी तयार करावी]
+    steps:
+      en: ["Tap Create New Case (top of the home screen, or the button below this chat).", "Fill in the applicant's
+            details and the loan details -- the same form everywhere.", "Check the summary and tap Confirm.",
+           "Upload the documents the case asks for."]
+      hi-Latn: ["Create New Case dabaiye (home screen ke upar, ya is chat ke neeche wala button).", "Applicant aur
+                 loan ki details bhariye -- form har jagah ek jaisa hai.", "Summary check karke Confirm dabaiye.",
+                "Case jo documents maange, woh upload kijiye."]
+      hi: ["Create New Case दबाएँ (होम स्क्रीन के ऊपर, या इस चैट के नीचे वाला बटन)।", "आवेदक और लोन की जानकारी भरें --
+            फ़ॉर्म हर जगह एक जैसा है।", "सारांश जाँचकर Confirm दबाएँ।", "केस जो दस्तावेज़ माँगे, वे अपलोड करें।"]
+      mr: ["Create New Case दाबा (होम स्क्रीनच्या वर, किंवा या चॅटखालील बटण).", "अर्जदार आणि कर्जाची माहिती भरा --
+            फॉर्म सगळीकडे सारखाच आहे.", "सारांश तपासून Confirm दाबा.", "केसने मागितलेली कागदपत्रे अपलोड करा."]
+    source: { en: "FOS guide: Creating a case", hi-Latn: "FOS guide: Case banana", hi: "FOS गाइड: केस बनाना",
+              mr: "FOS मार्गदर्शक: केस तयार करणे" }
+  - id: how_download
+    match: [how do i download, how to download, how to export, download kaise, excel kaise milega, pdf kaise milega,
+            डाउनलोड कैसे, डाउनलोड कसे]
+    steps:
+      en: ["Ask about a case or a list (for example: My pending cases).", "Tap Download Excel, Download Doc or
+            Download PDF under the answer.", "The file opens with your login; the link works for a few minutes."]
+      hi-Latn: ["Kisi case ya list ke baare mein poochhiye (jaise: My pending cases).", "Jawab ke neeche Download
+                 Excel, Download Doc ya Download PDF dabaiye.", "File aapke login se khulti hai; link kuch minute chalta
+                 hai."]
+      hi: ["किसी केस या सूची के बारे में पूछें (जैसे: My pending cases)।", "जवाब के नीचे Download Excel, Doc या PDF
+            दबाएँ।", "फ़ाइल आपके लॉगिन से खुलती है; लिंक कुछ मिनट चलता है।"]
+      mr: ["एखाद्या केस किंवा यादीबद्दल विचारा (उदा. My pending cases).", "उत्तराखाली Download Excel, Doc किंवा PDF
+            दाबा.", "फाईल तुमच्या लॉगिनने उघडते; लिंक काही मिनिटे चालते."]
+    source: { en: "FOS guide: Downloads", hi-Latn: "FOS guide: Downloads", hi: "FOS गाइड: डाउनलोड",
+              mr: "FOS मार्गदर्शक: डाउनलोड" }
+  - id: how_import
+    match: [how do i import, how to import, import kaise, excel import kaise, excel se case kaise, इम्पोर्ट कैसे]
+    steps:
+      en: ["Prepare an Excel (.xlsx) with columns like Applicant name, Mobile, Date of birth, Address, Product, Loan
+            amount.", "Upload it with Import on the home screen.", "Read the row-by-row check -- nothing is saved
+            yet.", "Tap Confirm to create the cases from the valid rows."]
+      hi-Latn: ["Excel (.xlsx) banaiye jismein Applicant name, Mobile, Date of birth, Address, Product, Loan amount
+                 jaise columns hon.", "Home screen par Import se upload kijiye.", "Har row ka check padhiye -- abhi
+                 kuch save nahi hua.", "Sahi rows se case banane ke liye Confirm dabaiye."]
+      hi: ["Excel (.xlsx) बनाएँ जिसमें Applicant name, Mobile, Date of birth, Address, Product, Loan amount जैसे कॉलम
+            हों।", "होम स्क्रीन पर Import से अपलोड करें।", "हर पंक्ति की जाँच पढ़ें -- अभी कुछ सेव नहीं हुआ।", "सही
+            पंक्तियों से केस बनाने के लिए Confirm दबाएँ।"]
+      mr: ["Applicant name, Mobile, Date of birth, Address, Product, Loan amount असे कॉलम असलेली Excel (.xlsx) तयार
+            करा.", "होम स्क्रीनवरील Import ने अपलोड करा.", "प्रत्येक ओळीची तपासणी वाचा -- अजून काहीही सेव्ह झालेले नाही.",
+           "बरोबर ओळींमधून केस तयार करण्यासाठी Confirm दाबा."]
+    source: { en: "FOS guide: Importing cases", hi-Latn: "FOS guide: Cases import karna", hi: "FOS गाइड: केस इम्पोर्ट",
+              mr: "FOS मार्गदर्शक: केस इम्पोर्ट" }
+  - id: what_kyc
+    match: [what is kyc, kyc kya hai, kyc kya hota hai, kyc ka matlab, केवाईसी क्या है, kyc म्हणजे काय]
+    steps:
+      en: ["KYC (Know Your Customer) checks that the customer is who they say they are.", "It compares the
+            application form with the documents (name, date of birth, father's name, address) and the documents with
+            each other.", "A case can move to CPA only after KYC is complete."]
+      hi-Latn: ["KYC (Know Your Customer) check karta hai ki customer wahi hai jo woh batata hai.", "Application form
+                 ko documents se milata hai (naam, janm tithi, pita ka naam, address) aur documents ko aapas mein.",
+                "KYC poora hone ke baad hi case CPA ja sakta hai."]
+      hi: ["KYC (Know Your Customer) जाँचता है कि ग्राहक वही है जो वह बताता है।", "यह आवेदन फ़ॉर्म को दस्तावेज़ों से
+            मिलाता है (नाम, जन्म तिथि, पिता का नाम, पता) और दस्तावेज़ों को आपस में।", "KYC पूरा होने के बाद ही केस CPA
+            जा सकता है।"]
+      mr: ["KYC (Know Your Customer) ग्राहक तोच आहे का हे तपासते.", "अर्जाचा फॉर्म कागदपत्रांशी जुळवते (नाव,
+            जन्मतारीख, वडिलांचे नाव, पत्ता) आणि कागदपत्रे एकमेकांशी.", "KYC पूर्ण झाल्यावरच केस CPA कडे जाऊ शकते."]
+    source: { en: "Glossary: KYC", hi-Latn: "Glossary: KYC", hi: "शब्दकोश: KYC", mr: "शब्दकोश: KYC" }
+
+answer_labels:
+  source: { en: "Source: {source}", hi-Latn: "Source: {source}", hi: "स्रोत: {source}", mr: "स्रोत: {source}" }
+
+# a question that LOOKS like an FAQ (these cues) but matched no answer and no case data
+unknown:
+  cues: [how do i, how to, how can i, what is, what are, what does, kaise, kya hai, kya hota hai, kya hote hain,
+         ka matlab, kaise kare, कैसे, क्या है, क्या होता है, कसे, काय आहे, म्हणजे काय]
+  text:
+    en: ["I don't know that yet. You can ask about your cases, documents, KYC or moving to CPA.",
+         "I don't have an answer for that yet. I can help with your cases, documents, KYC and CPA."]
+    hi-Latn: ["Yeh mujhe abhi nahi pata. Aap apne cases, documents, KYC ya CPA ke baare mein pooch sakte hain.",
+              "Iska jawab abhi mere paas nahi hai. Main cases, documents, KYC aur CPA mein madad kar sakta hoon."]
+    hi: ["यह मुझे अभी नहीं पता। आप अपने केस, दस्तावेज़, KYC या CPA के बारे में पूछ सकते हैं।"]
+    mr: ["हे मला अजून माहीत नाही. तुम्ही तुमच्या केस, कागदपत्रे, KYC किंवा CPA बद्दल विचारू शकता."]

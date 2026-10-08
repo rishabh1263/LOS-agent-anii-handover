@@ -509,7 +509,11 @@ class PostgresRepository(sql_repo.SqlRepository):
 
     def health(self) -> dict[str, Any]:
         try:
-            row = self._connect().execute("SELECT max(version) AS v FROM schema_migrations").fetchone()
-            return {"backend": "postgres", "available": True, "schema_version": row["v"] if row else None}
+            rows = self._connect().execute("SELECT version FROM schema_migrations").fetchall()
+            applied = sorted(str(r["version"]) for r in rows)
+            # FOS plan 9.10: which GATED migrations this database has not had (applied only by the gated process)
+            pending = [m[0] for m in GATED_MIGRATIONS if m[0] not in applied]
+            return {"backend": "postgres", "available": True, "schema_version": applied[-1] if applied else None,
+                    "migrations_applied": applied, "gated_migrations_pending": pending}
         except Exception as exc:  # noqa: BLE001
             return {"backend": "postgres", "available": False, "error": type(exc).__name__}

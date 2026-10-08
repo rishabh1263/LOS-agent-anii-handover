@@ -428,7 +428,13 @@ def released_fields(documents: list[dict[str, Any]]) -> dict[str, list[Evidence]
 def _evidence_for(
     field: KycField, released: dict[str, list[Evidence]],
 ) -> Evidence | None:
-    for name in _DOCUMENT_FIELDS.get(field, ()):
+    from app.agents.kyc import config as _kyc_config
+
+    keys = _DOCUMENT_FIELDS.get(field, ())
+    if field is KycField.NAME:
+        # the same keys cross-document KYC reads (kyc_policies.yaml sources.name_fields; FOS plan section 4)
+        keys = _kyc_config.source_keys("name_fields", keys)
+    for name in keys:
         candidates = released.get(name)
         if candidates:
             return candidates[0]

@@ -40,7 +40,10 @@ def _cfg() -> dict[str, Any]:
 
 
 def _label(key: str, **values: Any) -> str:
-    return str((_cfg().get("labels") or {}).get(key, key)).format(**values)
+    # one string or a {language: text} map -- the locked reply language picks (FOS plan section 2)
+    from app.agents.applicant.copilot.answering import language_lock
+
+    return language_lock.pick((_cfg().get("labels") or {}).get(key, key)).format(**values)
 
 
 def asks(kind: str, message: str) -> bool:

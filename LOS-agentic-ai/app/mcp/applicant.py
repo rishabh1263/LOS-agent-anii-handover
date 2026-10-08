@@ -592,6 +592,17 @@ async def applicant_update(
     return await _envelope("applicant.update", run)
 
 
+def _plausible(**amounts: Any) -> None:
+    """ALL AMOUNTS ARE IN RUPEES (FOS plan 1.1): an implausible one is refused before anything is written."""
+    from app.agents.applicant import plausibility
+    from app.mcp.errors import ToolError, ToolStatus
+
+    found = plausibility.problem(amounts)
+    if found is not None:
+        field, message = found
+        raise ToolError(ToolStatus.INVALID_INPUT, plausibility.CODE, message, field=field)
+
+
 async def application_create(
     applicant_id: str,
     product: str | None = None,
@@ -616,6 +627,8 @@ async def application_create(
         from app.store.models import Application
 
         aid = _require(applicant_id, "applicant_id")
+        _plausible(loan_amount=loan_amount, property_value=property_value,
+                   declared_monthly_income=declared_monthly_income)
         repo = _repo()
         if request_cache.read(repo, "get_applicant", aid) is None:
             raise NotFound(
@@ -660,6 +673,8 @@ async def application_update(
 
     async def run() -> dict[str, Any]:
         cid = _require(case_id, "case_id")
+        _plausible(loan_amount=loan_amount, property_value=property_value,
+                   declared_monthly_income=declared_monthly_income)
         repo = _repo()
         record = request_cache.read(repo, "get_application", cid)
         if record is None:

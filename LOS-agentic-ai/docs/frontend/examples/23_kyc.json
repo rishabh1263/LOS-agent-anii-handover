@@ -1,0 +1,424 @@
+{
+  "request": {
+    "action": "CUSTOM_QUERY",
+    "message": "KYC ka kya status hai?",
+    "reply_language": "en"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "applicant_id": "APP-F2D29DB3305E",
+    "case_id": "CASE-DA842B2E38A9",
+    "action": "CUSTOM_QUERY",
+    "intent": "KYC_RESULT",
+    "answer": "CASE-DA842B2E38A9\n- **KYC (Know Your Customer)** information is not yet available for this case: no KYC check has been recorded.\n\n**Next step:** KYC runs once the identity documents are uploaded.",
+    "application": null,
+    "stage": null,
+    "query_type": "CASE_FACT",
+    "case_state": {
+      "case_id": "CASE-DA842B2E38A9",
+      "product": null,
+      "stage": "APPLICATION_CREATED",
+      "readiness": "NOT_READY",
+      "documents_collected": 0,
+      "documents_required": 0,
+      "documents_satisfied": 0,
+      "documents_missing": 0,
+      "documents_under_review": 0,
+      "documents_failed": 0,
+      "documents_optional": 0,
+      "documents_optional_missing": 0,
+      "collection_progress": 0,
+      "applicant_fields_missing": []
+    },
+    "suggested_questions": [
+      "Which documents does KYC compare?",
+      "What is pending on this case?"
+    ],
+    "available_actions": [
+      {
+        "action": "UPLOAD_DOCUMENT",
+        "label": "Upload a document",
+        "enabled": true
+      },
+      {
+        "action": "GET_DOCUMENT_CHECKLIST",
+        "label": "What is still needed",
+        "enabled": true
+      },
+      {
+        "action": "GET_VERIFICATION_STATUS",
+        "label": "Document verification status",
+        "enabled": true
+      },
+      {
+        "action": "MARK_FOR_REUPLOAD",
+        "label": "Ask for a document again",
+        "enabled": false,
+        "invoke": {
+          "action": "CUSTOM_QUERY",
+          "message_template": "Mark the {slot} for re-upload."
+        },
+        "disabled_reason": "No document is in a state that needs collecting again."
+      },
+      {
+        "action": "CHECK_CPA_READINESS",
+        "label": "Check readiness for handoff",
+        "enabled": true
+      },
+      {
+        "action": "GET_CASE_360",
+        "label": "Full case view",
+        "enabled": true
+      }
+    ],
+    "document_highlights": [],
+    "clarification_required": null,
+    "followed_up": null,
+    "context": {
+      "conversation_id": "94dee6a7588e42ddb4ae3cc5447f24bd",
+      "case_id": "CASE-DA842B2E38A9",
+      "last_query_type": "CASE_FACT",
+      "last_intent": "KYC_RESULT",
+      "last_slot": null,
+      "last_documents": [],
+      "last_document": null,
+      "last_field": "KYC_RESULT",
+      "last_aspect": "KYC",
+      "last_subject": null,
+      "last_task": "STATUS",
+      "last_object": "APPLICATION",
+      "last_stage": "FOS",
+      "last_source": "STRUCTURED",
+      "last_language": "hi-Latn"
+    },
+    "understanding": {
+      "frame": {
+        "task": "STATUS",
+        "object": "APPLICATION",
+        "qualifiers": [],
+        "referents": {},
+        "party": "SELF",
+        "stage": null,
+        "scope": "CURRENT_CASE",
+        "confidence": "high",
+        "language": "hi-Latn",
+        "document_type": null,
+        "source": "PARSER",
+        "concepts": [
+          "PROCESS_TERM",
+          "STATUS"
+        ]
+      },
+      "decided_by": "RULES",
+      "referents": {},
+      "short_query": null,
+      "llm": {
+        "consulted": false,
+        "status": "NOT_NEEDED"
+      },
+      "parse_ms": 0.12,
+      "case_stage": "FOS",
+      "conversation": {
+        "conversation_id": "94dee6a7588e42ddb4ae3cc5447f24bd",
+        "turn_id": 1,
+        "outcome": "NEW_TOPIC",
+        "note": null,
+        "pending_before": null,
+        "turn_type": "NEW_REQUEST",
+        "pending_after": null,
+        "state": {
+          "conversation_id": "94dee6a7588e42ddb4ae3cc5447f24bd",
+          "turn_id": 1,
+          "current_topic": "APPLICATION",
+          "active_party": "SELF",
+          "active_stage": "FOS",
+          "language": "hi-Latn",
+          "pending_clarification": null,
+          "last_intent": "KYC_RESULT",
+          "last_document": null,
+          "last_documents": []
+        }
+      },
+      "requested": {
+        "capability": "KYC_RESULT",
+        "field": "KYC_RESULT",
+        "aspect": "KYC",
+        "party": "SELF"
+      },
+      "answer_evidence": [
+        {
+          "field": "KYC_RESULT",
+          "state": "NOT_AVAILABLE",
+          "source": "case_findings:KYC"
+        }
+      ],
+      "response_plan": "ANSWER_ONLY",
+      "natural_composition": {
+        "plan": "ANSWER_ONLY",
+        "enabled": false,
+        "attempted": false,
+        "accepted": false,
+        "reason": "FLAG_OFF",
+        "ms": 0.0
+      }
+    },
+    "observability": {
+      "correlation_id": "<request_id>",
+      "surface": "fos",
+      "conversation_id": "94dee6a7588e42ddb4ae3cc5447f24bd",
+      "turn_id": 1,
+      "turn_type": "NEW_REQUEST",
+      "outcome": "NEW_TOPIC",
+      "scope": "fos",
+      "capability": "KYC_RESULT",
+      "intent": "KYC_RESULT",
+      "category": "CASE_ONLY",
+      "query_type": "CASE_FACT",
+      "decided_by": "RULES",
+      "language": "hi-Latn",
+      "model_route": null,
+      "model_used": null,
+      "model_attempted": 0,
+      "model_calls": 0,
+      "model_ledger": {
+        "calls": 0,
+        "ok": 0,
+        "timeouts": 0,
+        "errors": 0,
+        "used": 0,
+        "ms": 0,
+        "detail": []
+      },
+      "model_fallbacks": 0,
+      "tools": [],
+      "tool_calls": 0,
+      "source": "STRUCTURED",
+      "clarification": false,
+      "clarification_reason": null,
+      "guardrail": null,
+      "fidelity": null,
+      "status": "OK",
+      "error": null,
+      "latency": {
+        "security_ms": 0.62,
+        "conversation_ms": 4.85,
+        "routing_ms": 1.26,
+        "summary_ms": 0.02,
+        "language_ms": 0.11,
+        "total_ms": 11.62,
+        "semantic_ms": 0.12
+      }
+    },
+    "kyc": {
+      "parties": [
+        {
+          "party_role": "PRIMARY_APPLICANT",
+          "status": "NOT_RECORDED",
+          "state": "PENDING",
+          "score": null,
+          "score_recorded": false,
+          "checks": [],
+          "passed": [],
+          "review": [],
+          "failed": [],
+          "reason_codes": [],
+          "reason": null,
+          "next_action": null
+        }
+      ]
+    },
+    "category": "CASE_ONLY",
+    "actions": [],
+    "response_source": "STRUCTURED",
+    "processing_ms": 4.99,
+    "errors": [],
+    "summary": "The application is open.",
+    "status": null,
+    "processing_queue": [],
+    "grounded": false,
+    "response_type": "KYC_RESULT",
+    "subject": {
+      "party": "PRIMARY_APPLICANT"
+    },
+    "language": "hi-Latn",
+    "processing": null,
+    "portfolio": null,
+    "scope": "CASE",
+    "language_contract": {
+      "language": "hi-Latn",
+      "script": "Latin",
+      "input_mode": "ROMANIZED",
+      "semantic_rewrite": true,
+      "confidence": 0.85,
+      "response_language": "en",
+      "review_status": "SEED_UNREVIEWED",
+      "provider": "lexicon",
+      "provider_fallback": false,
+      "reply_language": "en",
+      "localized": true,
+      "selected_by": "FRONTEND"
+    },
+    "pending_work": null,
+    "gate": null,
+    "semantic_decisions": null,
+    "presentation": {
+      "workspace": {
+        "case_id": "CASE-DA842B2E38A9",
+        "header": "CASE-DA842B2E38A9",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "What is pending?",
+            "message": "What is pending?"
+          },
+          {
+            "type": "ask",
+            "label": "Why is it stuck?",
+            "message": "Why is it stuck?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      },
+      "message": "CASE-DA842B2E38A9 KYC runs once the identity documents are uploaded.",
+      "intent": "KYC_RESULT",
+      "response_type": "RESULT",
+      "response_depth": "BRIEF",
+      "language": "en",
+      "status": "INFO",
+      "next_step": "What is still needed",
+      "next_action": {
+        "type": "GET_DOCUMENT_CHECKLIST",
+        "document_type": null,
+        "label": "What is still needed"
+      },
+      "audio": {
+        "enabled": false,
+        "status": "DEGRADED",
+        "language": "en",
+        "voice": "Zira",
+        "text": "CASE-DA842B2E38A9. **KYC (Know Your Customer)** information is not yet available for this case: no KYC check has been recorded. KYC runs once the identity documents are uploaded.",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": "CASE-DA842B2E38A9",
+        "applicant_id": "APP-F2D29DB3305E",
+        "stage": null
+      },
+      "sections": [
+        {
+          "title": null,
+          "items": [
+            {
+              "icon": "",
+              "label": "**KYC (Know Your Customer)** information is not yet available for this case: no KYC check has been recorded.",
+              "status": null
+            }
+          ]
+        }
+      ],
+      "documents": [],
+      "document_groups": [],
+      "actions": [
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "next_actions": [
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": "en",
+        "response_source": "STRUCTURED"
+      }
+    },
+    "workspace_view": {
+      "workspace": {
+        "case_id": "CASE-DA842B2E38A9",
+        "header": "CASE-DA842B2E38A9",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "What is pending?",
+            "message": "What is pending?"
+          },
+          {
+            "type": "ask",
+            "label": "Why is it stuck?",
+            "message": "Why is it stuck?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      }
+    },
+    "response_style": {
+      "applied": true,
+      "expanded": [
+        "KYC"
+      ]
+    },
+    "answer_plain": "CASE-DA842B2E38A9\n- KYC (Know Your Customer) information is not yet available for this case: no KYC check has been recorded.\n\nNext step: KYC runs once the identity documents are uploaded.",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
+    }
+  }
+}

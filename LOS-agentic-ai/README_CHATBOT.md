@@ -32,8 +32,31 @@ noted. Turn them on in this order, one at a time, watching the chatbot and `/rea
 | 15 | `COPILOT_VERIFY_DIAGNOSE` | off | 6f: "verify karna hai" -> diagnose every party (fix -> pending -> review). |
 | 16 | `COPILOT_PARTY_RECOGNITION` | off | 6g: a name that fits two people -> one question (needs `LOS_COAPP_IDENTITY`). |
 | 17 | `COPILOT_CASE_ACTIONS` | off | 6i: view document, raise / track queries, new case button (contract below). |
+| 18 | `COPILOT_GUARDRAIL_HARDENING` | off | 6h: rate limit, self-harm care, threats, social engineering, abuse cooldown -- both endpoints. |
+| 19 | `COPILOT_STREAMING` | off | 7: `/fos/copilot/stream` (SSE). |
 
-Planned (behind its own flag, default OFF): guardrail hardening (6h).
+### FOS E2E production plan (docs/FOS_E2E_PRODUCTION_PLAN.md) -- config default ON in dev, env overrides
+
+| # | Flag | Dev | **Production value** | Effect |
+|---|---|---|---|---|
+| 20 | `COPILOT_LANGUAGE_LOCK` | on | **on** | The selected `reply_language` decides every text of the reply (section 2). |
+| 21 | `COPILOT_PROFESSIONAL_FORMAT` | on | **on** (`emojis: false`) | No emojis, bullets, one "Next step:" line, `answer_plain` (section 3). |
+| 22 | `COPILOT_KYC_TABLE` | on | **on** | KYC table per party + likely odd one out (section 4). |
+| 23 | `COPILOT_READINESS_REPORT` | on | **on** | Grouped readiness from the gate config; READY = the live gate (sections 5, 7.1). |
+| 24 | `COPILOT_SNAPSHOT_QA` | on | **on** (needs Ollama; off = clarification only) | Long-tail case questions from the masked fact sheet, fact-checked (6.4/6.5). |
+| 25 | `COPILOT_COUNT_ANSWERS` | on | **on** | "kitne documents verified" counted from the store (6.6). |
+| 26 | `COPILOT_HANDOFF_NOTE` | on | **on** | CPA handoff note for a ready case, md / html / pdf, audited (7.1). |
+| 27 | `COPILOT_SMART_UPLOAD` | on | **on** | Upload without a type: what / whose / where, one question when unsure (7.2). |
+| 28 | `COPILOT_CASE_TIMELINE` | on | **on** | Timeline, days in stage vs `timeline.targets_days`, past-target flag (7.3). |
+
+**Recommended production set** (everything the FOS chat needs): flags 1-5, 11-28 on (11 and 16 only after migration
+0004); 6 (`LOS_DEMO_SEED_PROD_GUARD`) on; `COPILOT_LLM_ROUTER` on; **7, 8, 9, 10 stay OFF until the owner decides**
+(stage gate in service, co-app mandatory docs, signature mandatory, FOS -> CPA KYC rule). `/ready` -> `build.chatbot_flags`
+shows what a running server has.
+
+Tests: `tests/conftest.py` and `evals/copilot/harness.py` pin every Phase 3 / plan flag to "false" (a test turns on
+its own); the golden runner `evals/golden/run.py` turns the plan flags on. Quality gate before a commit:
+`python -m evals.golden.gate` (baseline `evals/golden/baseline.json`).
 
 Tests: `tests/conftest.py` pins `LOS_STAGE_GATE_IN_SERVICE` and `LOS_FOS_CPA_KYC_RULE` to false unless a test
 opts in, because `main.py` loads `.env` at import.

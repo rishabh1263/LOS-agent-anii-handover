@@ -1,0 +1,28 @@
+{
+  "golden": {
+    "cases": 59,
+    "covered_by_tests": 4,
+    "passed": 59,
+    "accuracy": 100.0,
+    "turns": 77,
+    "wrong_answer_rate": 0.0,
+    "wrong_data_rate": 0.0,
+    "clarify_rate": 11.7,
+    "latency_ms": {
+      "p50": 310.4,
+      "p95": 908.2
+    }
+  },
+  "evals": {
+    "test_copilot_assistant_evals.py": "PASS (166s) 1 passed, 1 warning in 163.75s (0:02:43)",
+    "test_copilot_conversation_evals.py": "PASS (109s) 1 passed, 1 warning in 107.45s (0:01:47)",
+    "test_copilot_evals.py": "PASS (48s) 2 passed, 1 warning in 46.71s",
+    "test_copilot_family_evals.py": "PASS (28s) 1 passed, 1 warning in 25.83s",
+    "test_copilot_party_kyc_evals.py": "PASS (52s) 1 passed, 1 warning in 49.49s",
+    "test_copilot_quality_evals.py": "PASS (11s) 1 passed, 1 warning in 9.83s",
+    "test_copilot_security_evals.py": "PASS (12s) 1 passed, 1 warning in 10.63s",
+    "test_copilot_semantic_evals.py": "PASS (45s) 1 passed, 1 warning in 43.59s",
+    "test_copilot_variant_evals.py": "PASS (31s) 1 passed, 1 warning in 29.24s"
+  },
+  "recorded": "2026-10-08 11:01"
+}

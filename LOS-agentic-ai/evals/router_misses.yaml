@@ -24,3 +24,9 @@ misses:
   - { text: "uska kya baaki hai?", tool: documents_needing_action, args: { party: CO_APPLICANT }, state: KYC_RESULT, source: fast lane (party not carried), added: 2026-10-07 }
   - { text: "CIBIL kya hota hai?", tool: knowledge, args: { topic: CIBIL }, source: fast lane (normalised form not a definition), added: 2026-10-07 }
   - { text: "And what about passport?", tool: knowledge, state: FOS_KNOWLEDGE, source: "fast lane (address in address proof read as a field; families rag_followup)", added: 2026-10-07 }
+  # e2e "ask anything" pass (2026-10-07): wrong in the FAST LANE -- fixed in rules/config, recorded here
+  - { text: "kyu atka hai?", tool: case_status, source: fast lane (read as "why" of the last answer), added: 2026-10-07 }
+  # (no router tool for this; fixed in the fast lane) text: "kaunse documents upload hue?"
+  - { text: "CPA mein kab jayega?", tool: case_status, source: fast lane (normalised "kab jayega" unknown), added: 2026-10-07 }
+  # (no router tool for this; fixed in the fast lane) text: "co-applicant hai kya?"
+  # (no router tool for this; fixed in the fast lane) text: "is there a co-applicant?"

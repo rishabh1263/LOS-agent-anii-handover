@@ -3,126 +3,385 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FOS Copilot reference widget</title>
+<title>FOS Copilot</title>
+<!-- REFERENCE WIDGET (MASTER SPEC section 10). Renders the reply contract of docs/frontend/FRONTEND_API.md:
+     every reply is {request_id, markdown, tts}; interactive items are links inside the markdown
+     ([Label](action:name?k=v) / [Question](ask:text)). No library: a small, escaping markdown renderer. -->
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --muted:#677084; --line:#dde1e8; --accent:#1f6feb; }
-  * { box-sizing:border-box } body { margin:0; font:15px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--ink) }
-  header { padding:12px 16px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:8px; flex-wrap:wrap }
-  header input { flex:1 1 200px; padding:6px 8px; border:1px solid var(--line); border-radius:6px }
-  #log { padding:16px; max-width:820px; margin:0 auto 140px }
-  .msg { margin:10px 0; padding:10px 12px; border-radius:10px; background:var(--card); border:1px solid var(--line); white-space:pre-wrap }
-  .me { background:#e8f0fe; border-color:#c6d8fc; margin-left:20% }
-  .status { color:var(--muted); font-style:italic }
-  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:8px; margin-top:8px }
-  .card { padding:10px; border:1px solid var(--line); border-radius:8px; background:#fff; cursor:pointer }
-  .card:hover { border-color:var(--accent) } .card b { display:block }
-  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px }
-  button, .chip { padding:6px 10px; border-radius:16px; border:1px solid var(--line); background:#fff; cursor:pointer }
-  .ws { position:sticky; top:0; background:#fffbe6; border:1px solid #f0d878; padding:8px 12px; border-radius:8px; margin-bottom:8px }
-  footer { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--line); padding:10px 16px }
-  footer form { display:flex; gap:8px; max-width:820px; margin:0 auto } footer input { flex:1; padding:10px; border-radius:8px; border:1px solid var(--line) }
+  :root {
+    --bg:#f5f6f8; --panel:#ffffff; --ink:#18202c; --muted:#66707f; --line:#e2e5ea; --accent:#1f5fd6; --accent-ink:#fff;
+    --me:#e9f0fd; --me-line:#c9d8f7; --chip:#f0f3f8; --warn:#9a3b00; --code:#f3f4f6; --shadow:0 1px 2px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg:#0f141b; --panel:#161d26; --ink:#e7ebf0; --muted:#98a2b3; --line:#283240; --accent:#6ea0ff; --accent-ink:#0b1220;
+    --me:#1b2a44; --me-line:#2b4370; --chip:#1e2733; --warn:#ffb27a; --code:#1e2733; --shadow:none; } }
+  :root[data-theme="dark"] {
+    --bg:#0f141b; --panel:#161d26; --ink:#e7ebf0; --muted:#98a2b3; --line:#283240; --accent:#6ea0ff; --accent-ink:#0b1220;
+    --me:#1b2a44; --me-line:#2b4370; --chip:#1e2733; --warn:#ffb27a; --code:#1e2733; --shadow:none; }
+  * { box-sizing:border-box }
+  html, body { height:100% }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  button, input, select { font:inherit; color:inherit }
+  .hidden { display:none !important }
+
+  /* login */
+  #login { min-height:100%; display:grid; place-items:center; padding:16px }
+  #login form { width:100%; max-width:360px; background:var(--panel); border:1px solid var(--line); border-radius:12px;
+                padding:24px; box-shadow:var(--shadow); display:grid; gap:12px }
+  #login h1 { margin:0 0 4px; font-size:20px }
+  #login label { display:grid; gap:4px; font-size:13px; color:var(--muted) }
+  #login input { padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg) }
+  .primary { background:var(--accent); color:var(--accent-ink); border:0; border-radius:8px; padding:10px 14px; cursor:pointer }
+  .error { color:var(--warn); font-size:13px; min-height:1em }
+
+  /* app */
+  #app { height:100%; display:grid; grid-template-rows:auto 1fr auto }
+  header { display:flex; gap:8px; align-items:center; padding:8px 16px; background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap }
+  header .title { font-weight:600; margin-right:auto }
+  .ghost { background:transparent; border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer }
+  .ghost[aria-pressed="true"] { background:var(--chip); border-color:var(--accent) }
+  select.ghost { padding:6px 8px }
+  main { display:grid; grid-template-columns:1fr; overflow:hidden }
+  main.with-panel { grid-template-columns:minmax(0,1fr) 380px }
+  #log { overflow-y:auto; padding:16px; scroll-behavior:smooth }
+  #log .inner { max-width:820px; margin:0 auto }
+  .msg { margin:12px 0; display:flex; flex-direction:column }
+  .bubble { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px 14px; box-shadow:var(--shadow); overflow-x:auto }
+  .me { align-items:flex-end } .me .bubble { background:var(--me); border-color:var(--me-line); max-width:85% }
+  .meta { font-size:12px; color:var(--muted); margin-top:4px; display:flex; gap:8px; align-items:center }
+  .meta button { background:none; border:0; color:var(--muted); cursor:pointer; padding:0 2px }
+  .typing { display:inline-flex; gap:4px } .typing i { width:6px; height:6px; border-radius:50%; background:var(--muted); animation:b 1s infinite }
+  .typing i:nth-child(2){animation-delay:.15s} .typing i:nth-child(3){animation-delay:.3s}
+  @keyframes b { 0%,80%,100%{opacity:.3} 40%{opacity:1} }
+  .status { color:var(--muted); font-size:13px; font-style:italic }
+
+  /* quick buttons */
+.quick { display:flex; gap:6px; flex-wrap:wrap; padding:0 0 8px }
+/* markdown */
+  .md p { margin:6px 0 } .md ul, .md ol { margin:6px 0; padding-left:22px } .md li { margin:2px 0 }
+  .md table { border-collapse:collapse; margin:8px 0; font-size:14px; width:100% }
+  .md th, .md td { border:1px solid var(--line); padding:5px 8px; text-align:left; vertical-align:top }
+  .md th { background:var(--chip); font-weight:600 }
+  .md blockquote { margin:8px 0; padding:8px 12px; border-left:3px solid var(--accent); background:var(--code); border-radius:4px }
+  .md h1,.md h2,.md h3 { font-size:16px; margin:10px 0 4px }
+  .md .task { list-style:none; margin-left:-18px }
+  .chip { display:inline-block; margin:2px 4px 2px 0; padding:4px 10px; border-radius:999px; border:1px solid var(--line);
+          background:var(--chip); color:var(--ink); cursor:pointer; font-size:13px; line-height:1.4; text-decoration:none }
+  .chip:hover { border-color:var(--accent) }
+  .chip.action { border-color:var(--accent); color:var(--accent) }
+
+  /* composer */
+  footer { background:var(--panel); border-top:1px solid var(--line); padding:10px 16px }
+  footer form { display:flex; gap:8px; max-width:820px; margin:0 auto }
+  footer input[type=text] { flex:1; min-width:0; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--bg) }
+
+  /* full-list panel */
+  #panel { border-left:1px solid var(--line); background:var(--panel); display:grid; grid-template-rows:auto auto 1fr auto; min-height:0 }
+  #panel .bar { display:flex; gap:6px; padding:10px; border-bottom:1px solid var(--line); flex-wrap:wrap }
+  #panel input, #panel select { padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg) }
+  #panel input { flex:1; min-width:120px }
+  #rows { overflow-y:auto }
+  .row { padding:10px 12px; border-bottom:1px solid var(--line); cursor:pointer }
+  .row:hover { background:var(--chip) } .row b { display:block } .row small { color:var(--muted) }
+  #panel .foot { padding:8px 12px; font-size:12px; color:var(--muted); border-top:1px solid var(--line) }
+  @media (max-width:820px) { main.with-panel { grid-template-columns:1fr } #panel { position:fixed; inset:56px 0 0 0; z-index:5 } }
 </style>
 </head>
 <body>
-<!-- REFERENCE ONLY: shows how to render the contract in docs/frontend/FRONTEND_API.md. Not production UI. -->
-<header>
-  <input id="base" placeholder="API base, e.g. http://127.0.0.1:8010" value="http://127.0.0.1:8010">
-  <input id="token" placeholder="JWT (Bearer token)">
-  <input id="applicant" placeholder="applicant_id (optional in the workspace)">
-  <label><input type="checkbox" id="stream"> stream</label>
-  <button onclick="send({action:'LIST_CASES'}, 'My cases')">📂 My cases</button>
-</header>
-<div id="log"><div id="ws"></div></div>
-<footer><form onsubmit="event.preventDefault(); const t=q.value.trim(); if(t){ send({action:'CUSTOM_QUERY', message:t}, t); q.value=''; }">
-  <input id="q" placeholder="Ask… (e.g. mere cases dikhao)"><button>Send</button></form></footer>
+
+<section id="login">
+  <form id="loginForm">
+    <h1>FOS Copilot</h1>
+    <label>API base <input id="base" value="http://127.0.0.1:8010" autocomplete="off"></label>
+    <label>Username <input id="user" autocomplete="username" required></label>
+    <label>Password <input id="pass" type="password" autocomplete="current-password" required></label>
+    <label>Stage <select id="stage"><option>FOS</option><option>CPA</option><option>CREDIT</option><option>RCU</option>
+      <option>BOPS</option><option>HOPS</option><option>DISBURSEMENT</option></select></label>
+    <button class="primary">Sign in</button>
+    <div class="error" id="loginError"></div>
+  </form>
+</section>
+
+<section id="app" class="hidden">
+  <header>
+    <span class="title">FOS Copilot</span>
+    <select id="lang" class="ghost" title="Reply language">
+      <option value="en">English</option><option value="hi-Latn">Hinglish</option><option value="hi">हिंदी</option><option value="mr">मराठी</option>
+    </select>
+    <button class="ghost" id="autoRead" aria-pressed="false" title="Read replies aloud">🔈 Auto-read</button>
+    <button class="ghost" id="listBtn" title="All my cases">☰ All cases</button>
+    <button class="ghost" id="newChat" title="Start a new chat">＋ New chat</button>
+    <button class="ghost" id="theme" title="Light / dark">◐</button>
+  </header>
+  <main id="main">
+    <div id="log"><div class="inner" id="inner"></div></div>
+    <aside id="panel" class="hidden">
+      <div class="bar">
+        <input id="search" placeholder="Search name, case or applicant ID">
+        <select id="filter"><option value="">All</option></select>
+        <select id="sort"></select>
+      </div>
+      <div class="bar" style="padding-top:0;border:0"><small id="count"></small></div>
+      <div id="rows"></div>
+      <div class="foot">Click a case to open it in the chat.</div>
+    </aside>
+  </main>
+  <footer>
+    <div id="quick" class="quick"></div>
+    <form id="composer">
+      <input type="text" id="q" placeholder="Ask anything… (e.g. kya baaki hai?)" autocomplete="off">
+      <button type="button" class="ghost" id="mic" title="Speak" aria-label="Speak your question">🎤</button>
+      <button type="button" class="ghost hidden" id="stop" title="Stop">■ Stop</button>
+      <button class="primary" id="send">Send</button>
+    </form>
+  </footer>
+</section>
+
 <script>
-let context = null, caseId = null;
+"use strict";
 const $ = (id) => document.getElementById(id);
-const md = (s) => (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-function bubble(html, cls='msg') { const d=document.createElement('div'); d.className=cls; d.innerHTML=html; $('log').appendChild(d); window.scrollTo(0, document.body.scrollHeight); return d; }
-function headers() { return {'Content-Type':'application/json', 'Authorization':'Bearer ' + $('token').value.trim()}; }
+const S = { base:"", token:"", chatId:"", fresh:true, last:null, controller:null, autoRead:false, panelPage:0, panelBusy:false };
+const VOICE = { "en":"en-IN", "hi-Latn":"hi-IN", "hi":"hi-IN", "mr":"mr-IN" };
+const newId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+const headers = (json = true) => Object.assign({ "Authorization": "Bearer " + S.token }, json ? { "Content-Type": "application/json" } : {});
+const time = () => new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
 
-async function send(extra, shown) {
-  if (shown) bubble(md(shown), 'msg me');
-  const body = {action:'CUSTOM_QUERY', ...extra, context};
-  if ($('applicant').value.trim()) body.applicant_id = $('applicant').value.trim();
-  // inside a case nothing else is needed: the server's workspace supplies case_id / applicant_id
-  if ($('stream').checked) return stream(body);
-  const r = await fetch($('base').value + '/api/v1/fos/copilot', {method:'POST', headers:headers(), body:JSON.stringify(body)});
-  const data = await r.json();
-  if (!r.ok) return bubble('⚠️ ' + md((data.detail && data.detail.message) || r.status));
-  render(data);
+// ---------------------------------------------------------------- login (username / password / stage; no applicant ID)
+$("loginForm").onsubmit = async (e) => {
+  e.preventDefault(); $("loginError").textContent = "";
+  S.base = $("base").value.replace(/\/$/, "");
+  try {
+    const r = await fetch(S.base + "/api/v1/auth/login", { method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ username:$("user").value, password:$("pass").value, stage:$("stage").value }) });
+    const data = await r.json();
+    if (!r.ok) throw new Error((data.detail && (data.detail.message || data.detail)) || r.status);
+    S.token = data.access_token;                       // kept in memory only
+    $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+    startChat();
+  } catch (err) { $("loginError").textContent = "Sign-in failed: " + err.message; }
+};
+
+function startChat() {
+  S.chatId = newId(); S.fresh = true; $("inner").innerHTML = "";
+  ask("hi", { quiet:true });                            // the greeting: the case summary + notifications + FAQ
+  pollUpdates(); loadQuick();
+}
+// ---------------------------------------------------------------- quick buttons, always shown (config on the server)
+async function loadQuick() {
+  const r = await fetch(`${S.base}/api/v1/fos/quick-actions?lang=${$("lang").value}`, { headers:headers(false) });
+  if (!r.ok) return;
+  $("quick").innerHTML = "";
+  for (const b of (await r.json()).buttons || []) {
+    const el = document.createElement("button"); el.type = "button"; el.className = "chip"; el.textContent = b.label;
+    el.onclick = () => ask(b.send); $("quick").appendChild(el);
+  }
+}
+$("newChat").onclick = startChat;
+$("theme").onclick = () => { const d = document.documentElement;
+  d.dataset.theme = (d.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark" ? "light" : "dark"; };
+$("autoRead").onclick = (e) => { S.autoRead = !S.autoRead; e.currentTarget.setAttribute("aria-pressed", S.autoRead);
+  if (!S.autoRead) speechSynthesis.cancel(); };
+
+// ---------------------------------------------------------------- markdown (escaped first; links become chips)
+const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+function inline(s) {
+  s = esc(s);
+  s = s.replace(/\[([^\]]+)\]\(((?:action|ask):[^)\s]*)\)/g, (_, label, href) =>
+    `<button class="chip${href.startsWith("action:") ? " action" : ""}" data-href="${href}">${label}</button>`);
+  s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/(^|\W)\*(?!\s)(.+?)\*(?=\W|$)/g, "$1<em>$2</em>");
+  return s;
+}
+function markdown(md) {
+  const lines = String(md || "").split("\n"), out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^\s*\|/.test(line)) {                                     // table
+      const rows = []; while (i < lines.length && /^\s*\|/.test(lines[i])) rows.push(lines[i++]);
+      const cells = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      const body = rows.filter((r) => !/^\s*\|(\s*:?-+:?\s*\|)+\s*$/.test(r));
+      out.push("<table><thead><tr>" + cells(body[0]).map((c) => `<th>${inline(c)}</th>`).join("") + "</tr></thead><tbody>"
+        + body.slice(1).map((r) => "<tr>" + cells(r).map((c) => `<td>${inline(c)}</td>`).join("") + "</tr>").join("") + "</tbody></table>");
+      continue;
+    }
+    if (/^\s*>\s?/.test(line)) {                                   // quote (a draft to copy)
+      const q = []; while (i < lines.length && /^\s*>\s?/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, ""));
+      out.push(`<blockquote>${q.map(inline).join("<br>")}</blockquote>`); continue;
+    }
+    if (/^\s*([-*]|\d+\.)\s+/.test(line)) {                        // list
+      const ordered = /^\s*\d+\./.test(line), items = [];
+      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*([-*]|\d+\.)\s+/, ""));
+      out.push(`<${ordered ? "ol" : "ul"}>` + items.map((t) => /^\[[ xX]\]\s/.test(t)
+        ? `<li class="task"><label><input type="checkbox"${/^\[[xX]\]/.test(t) ? " checked" : ""}> ${inline(t.slice(4))}</label></li>`
+        : `<li>${inline(t)}</li>`).join("") + `</${ordered ? "ol" : "ul"}>`);
+      continue;
+    }
+    if (/^#{1,3}\s/.test(line)) { out.push(`<h3>${inline(line.replace(/^#+\s/, ""))}</h3>`); i++; continue; }
+    if (!line.trim()) { i++; continue; }
+    const para = []; while (i < lines.length && lines[i].trim() && !/^\s*(\||>|[-*]\s|\d+\.\s|#)/.test(lines[i])) para.push(lines[i++]);
+    out.push(`<p>${para.map(inline).join("<br>")}</p>`);
+  }
+  return out.join("");
 }
 
-async function stream(body) {
-  const status = bubble('…', 'msg status');
-  const r = await fetch($('base').value + '/api/v1/fos/copilot/stream', {method:'POST', headers:headers(), body:JSON.stringify(body)});
-  const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '';
-  for (;;) {
-    const {value, done} = await reader.read(); if (done) break;
-    buf += dec.decode(value, {stream:true});
-    let i; while ((i = buf.indexOf('\n\n')) >= 0) {
-      const block = buf.slice(0, i); buf = buf.slice(i + 2);
-      const ev = (block.match(/^event: (.*)$/m) || [])[1], data = JSON.parse((block.match(/^data: (.*)$/m) || [,'{}'])[1]);
-      if (ev === 'status') status.textContent = data.text;
-      if (ev === 'answer') { status.remove(); render(data); }
-      if (ev === 'error') { status.remove(); bubble('⚠️ ' + md((data.detail && data.detail.message) || data.status)); }
+// ---------------------------------------------------------------- messages
+function bubble(cls) {
+  const wrap = document.createElement("div"); wrap.className = "msg " + cls;
+  const b = document.createElement("div"); b.className = "bubble md";
+  const meta = document.createElement("div"); meta.className = "meta"; meta.textContent = time();
+  wrap.append(b, meta); $("inner").appendChild(wrap); $("log").scrollTop = $("log").scrollHeight;
+  return { wrap, b, meta };
+}
+function mine(text) { const m = bubble("me"); m.b.textContent = text; }
+function render(m, reply) {
+  m.b.innerHTML = markdown(reply.markdown); m.reply = reply;
+  m.meta.textContent = time() + " ";
+  const speak = document.createElement("button"); speak.textContent = "🔈"; speak.title = "Read aloud";
+  speak.onclick = () => say(reply.tts); m.meta.appendChild(speak);
+  if (S.last) { const retry = document.createElement("button"); retry.textContent = "↻"; retry.title = "Retry";
+    const again = S.last; retry.onclick = () => ask(again.text, again.opts); m.meta.appendChild(retry); }
+  m.b.querySelectorAll("[data-href]").forEach((el) => el.onclick = () => follow(el.dataset.href, m));
+  if (S.autoRead) say(reply.tts);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+function say(text) {
+  if (!("speechSynthesis" in window) || !text) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text); u.lang = VOICE[$("lang").value] || "en-IN";
+  const v = speechSynthesis.getVoices().find((x) => x.lang === u.lang); if (v) u.voice = v;
+  speechSynthesis.speak(u);
+}
+
+// ---------------------------------------------------------------- links: ask: sends the text; action: per the registry
+async function follow(href, m) {
+  if (href.startsWith("ask:")) return ask(decodeURIComponent(href.slice(4)));
+  const [name, query] = href.slice(7).split("?"), p = Object.fromEntries(new URLSearchParams(query || ""));
+  if (name === "copy") {                                           // draft-N = the Nth quote of THIS message
+    const n = parseInt((p.ref || "draft-1").split("-")[1] || "1", 10), q = m.b.querySelectorAll("blockquote")[n - 1];
+    if (q) await navigator.clipboard.writeText(q.innerText); return;
+  }
+  if (name === "handoff_note") {
+    const r = await fetch(`${S.base}/api/v1/fos/handoff-note?case_id=${encodeURIComponent(p.case)}&format=pdf`, { headers: headers(false) });
+    if (!r.ok) return ask("handoff note banao"); window.open(URL.createObjectURL(await r.blob())); return;
+  }
+  if (name === "upload") return upload(p.doc, p.party);
+  if (name === "new_case") return alert("Open your Create New Case form here.");
+  if (name === "show_in_ui") return alert(`Open case ${p.case} on the main screen (GET /api/v1/fos/cases/${p.case}/form).`);
+  if (name === "show_list_in_ui") return alert(`Open the home table with filters: ${p.q}`);
+  if (name === "download" || name === "download_list") {         // a short-lived link, opened with the same login
+    const q = name === "download" ? `case_id=${encodeURIComponent(p.case)}` : `q=${encodeURIComponent(p.q || "all")}`;
+    const r = await fetch(`${S.base}/api/v1/fos/exports?format=${p.format}&${q}&lang=${$("lang").value}`, { headers:headers(false) });
+    const data = await r.json(); if (!r.ok) return alert((data.detail && data.detail.message) || r.status);
+    const f = await fetch(S.base + data.url, { headers:headers(false) });
+    window.open(URL.createObjectURL(await f.blob())); return;
+  }
+  return ask(null, { body:{ action_link: href }, label: m && m.b.querySelector(`[data-href="${CSS.escape(href)}"]`)?.textContent });
+}
+function upload(doc, party) {
+  const input = document.createElement("input"); input.type = "file"; input.accept = "image/*,application/pdf";
+  input.onchange = async () => {
+    const form = new FormData(); form.append("action", "UPLOAD_DOCUMENT"); form.append("document_type", doc || "");
+    if (party) form.append("party", party); form.append("file", input.files[0]);
+    mine(`Upload ${doc}`); const m = bubble(""); m.b.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+    const r = await fetch(`${S.base}/api/v1/fos/copilot?chat_id=${encodeURIComponent(S.chatId)}`, { method:"POST", headers:headers(false), body:form });
+    const data = await r.json(); r.ok ? render(m, data) : (m.b.textContent = "⚠ " + ((data.detail && data.detail.message) || r.status));
+  };
+  input.click();
+}
+
+// ---------------------------------------------------------------- asking: streamed (typing, status, live text, stop)
+async function ask(text, opts = {}) {
+  if (S.controller) S.controller.abort();                          // a new message cancels the old reply
+  const body = Object.assign({ action:"CUSTOM_QUERY", message:text, reply_language:$("lang").value, chat_id:S.chatId }, opts.body || {});
+  if (S.fresh) { body.new_chat = true; S.fresh = false; }
+  if (!opts.quiet) mine(opts.label || text || "…");
+  S.last = { text, opts };
+  const m = bubble(""); m.b.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+  S.controller = new AbortController(); $("stop").classList.remove("hidden");
+  let live = "";
+  try {
+    const r = await fetch(S.base + "/api/v1/fos/copilot/stream", { method:"POST", headers:Object.assign(headers(), { "Idempotency-Key": newId() }),
+      body:JSON.stringify(body), signal:S.controller.signal });
+    if (r.status === 404) return plain(body, m);                    // streaming off: the plain endpoint
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream:true });
+      let k; while ((k = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, k); buf = buf.slice(k + 2);
+        const ev = (block.match(/^event: (.*)$/m) || [])[1], data = JSON.parse((block.match(/^data: (.*)$/m) || [, "{}"])[1]);
+        if (ev === "status") m.b.innerHTML = `<span class="status">${esc(data.text)}</span>`;
+        if (ev === "delta") { live += data.markdown; m.b.innerHTML = markdown(live); }
+        if (ev === "final") render(m, data);
+        if (ev === "cancelled") m.b.innerHTML = '<span class="status">Stopped.</span>';
+        if (ev === "error") m.b.textContent = "⚠ " + ((data.detail && data.detail.message) || data.status);
+      }
     }
+  } catch (err) {
+    if (err.name === "AbortError") { m.b.innerHTML = live ? markdown(live) : '<span class="status">Stopped.</span>'; }
+    else m.b.textContent = "⚠ " + err.message;
+  } finally { S.controller = null; $("stop").classList.add("hidden"); }
+}
+async function plain(body, m) {
+  const r = await fetch(S.base + "/api/v1/fos/copilot", { method:"POST", headers:headers(), body:JSON.stringify(body) });
+  const data = await r.json(); r.ok ? render(m, data) : (m.b.textContent = "⚠ " + ((data.detail && data.detail.message) || r.status));
+}
+$("stop").onclick = () => { fetch(S.base + "/api/v1/fos/copilot/stop", { method:"POST", headers:headers(), body:JSON.stringify({ chat_id:S.chatId }) });
+  if (S.controller) S.controller.abort(); };
+$("composer").onsubmit = (e) => { e.preventDefault(); const t = $("q").value.trim(); if (t) { $("q").value = ""; ask(t); } };
+
+// ---------------------------------------------------------------- pushed follow-ups (verification finished, ...)
+async function pollUpdates() {
+  const chat = S.chatId;
+  while (S.token && chat === S.chatId) {
+    try {
+      const r = await fetch(`${S.base}/api/v1/fos/copilot/updates?chat_id=${encodeURIComponent(chat)}&wait=20&reply_language=${$("lang").value}`, { headers:headers(false) });
+      if (!r.ok) { await new Promise((res) => setTimeout(res, 5000)); continue; }
+      for (const msg of (await r.json()).messages || []) render(bubble(""), msg);
+    } catch { await new Promise((res) => setTimeout(res, 5000)); }
   }
 }
 
-function chip(label, onClick) { const b=document.createElement('button'); b.className='chip'; b.textContent=label; b.onclick=onClick; return b; }
-
-function render(data) {
-  context = data.context || context;
-  const box = bubble(md(data.answer_markdown || data.answer));
-  const p = data.presentation || {};
-  // case list -> clickable cards (OPEN_CASE)
-  if (Array.isArray(p.case_list) && p.case_list.length) {
-    const grid = document.createElement('div'); grid.className = 'cards';
-    for (const row of p.case_list) {
-      const c = document.createElement('div'); c.className = 'card';
-      c.innerHTML = `<b>${row.number ? row.number + '. ' : ''}${row.case_id}</b>${row.applicant_name || ''}<br>📍 ${row.stage || ''} · ${row.status_label || ''}`;
-      c.onclick = () => send({action:'OPEN_CASE', case_id: row.action.case_id}, 'Open ' + row.case_id);
-      grid.appendChild(c);
+// ---------------------------------------------------------------- full-list panel (paginated endpoint, same scope)
+$("listBtn").onclick = () => { const open = $("panel").classList.toggle("hidden"); $("main").classList.toggle("with-panel", !open);
+  if (!open) loadPanel(true); };
+let searchTimer; $("search").oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadPanel(true), 250); };
+$("filter").onchange = $("sort").onchange = () => loadPanel(true);
+$("rows").onscroll = () => { const el = $("rows"); if (el.scrollTop + el.clientHeight > el.scrollHeight - 80) loadPanel(false); };
+async function loadPanel(reset) {
+  if (S.panelBusy || (!reset && S.panelDone)) return; S.panelBusy = true;
+  if (reset) { S.panelPage = 0; S.panelDone = false; $("rows").innerHTML = ""; }
+  const q = new URLSearchParams({ page:S.panelPage, size:20 });
+  if ($("search").value.trim()) q.set("search", $("search").value.trim());
+  if ($("filter").value) q.set("filter", $("filter").value); if ($("sort").value) q.set("sort", $("sort").value);
+  try {
+    const r = await fetch(`${S.base}/api/v1/fos/cases?${q}`, { headers:headers(false) }), data = await r.json();
+    if ($("filter").options.length === 1) { data.filters.forEach((f) => $("filter").add(new Option(f.replace(/_/g, " "), f)));
+      data.sorts.forEach((s) => $("sort").add(new Option(s.replace(/_/g, " "), s))); }
+    $("count").textContent = `${data.total} case${data.total === 1 ? "" : "s"}`;
+    for (const row of data.rows) {
+      const el = document.createElement("div"); el.className = "row";
+      el.innerHTML = `<b>${esc(row.case_id)}</b>${esc(row.applicant_name || "")} <small>(${esc(row.app_id)})</small><br><small>${esc(row.stage)} · ${esc(row.status_text)} (${esc(row.group_label)}) · ${esc(row.status_label)} · ${esc(row.created_date)}</small>`;
+      el.onclick = () => { follow(`action:open_case?id=${row.case_id}`); if (innerWidth <= 820) $("listBtn").click(); };
+      $("rows").appendChild(el);
     }
-    box.appendChild(grid);
-  }
-  // inside a case: header + buttons
-  if (p.workspace) {
-    caseId = p.workspace.case_id;
-    const ws = $('ws'); ws.className = 'ws'; ws.innerHTML = `<b>${p.workspace.header}</b> `;
-    for (const b of p.workspace.buttons) ws.appendChild(chip(b.label, () =>
-      b.type === 'exit_case' ? send({action:'EXIT_CASE'}, 'Exit') :
-      b.type === 'switch_case' ? send({action:'LIST_CASES'}, 'Switch case') : send({action:'CUSTOM_QUERY', message:b.message}, b.message)));
-  } else if (['CASE_LIST'].includes(data.intent)) { caseId = null; $('ws').className = ''; $('ws').innerHTML = ''; }
-  // clarifying options / suggestions -> chips
-  const options = (data.clarification_required && data.clarification_required.options) || data.suggested_questions || [];
-  if (options.length) { const row = document.createElement('div'); row.className = 'chips';
-    options.forEach((o) => row.appendChild(chip(o, () => send({action:'CUSTOM_QUERY', message:o}, o)))); box.appendChild(row); }
-  // action buttons
-  const acts = data.actions || [];
-  if (acts.length) { const row = document.createElement('div'); row.className = 'chips';
-    for (const a of acts) {
-      if (a.type === 'OPEN_URL') row.appendChild(chip('👁️ View', async () => {
-        const r = await fetch($('base').value + a.url, {headers:headers()});
-        if (!r.ok) return bubble('⚠️ link expired'); window.open(URL.createObjectURL(await r.blob())); }));
-      if (a.type === 'RAISE_QUERY') row.appendChild(chip(a.label, () => {
-        const query = {...a.query}; if (a.editable) { const t = prompt('Edit the query', query.text); if (!t) return; query.text = t; }
-        send({action:'RAISE_QUERY', confirm:true, query}, 'Send query'); }));
-      if (a.type === 'MARK_QUERY_SENT') { row.appendChild(chip('📋 Copy', () => navigator.clipboard.writeText(a.copy_text || '')));
-        row.appendChild(chip('✅ Mark as sent', () => send({action:'MARK_QUERY_SENT', query_id:a.query_id}, 'Marked as sent'))); }
-      if (a.type === 'OPEN_UI_NEW_CASE') row.appendChild(chip('➕ New case', () => alert('Open your new-case form here.')));
-    }
-    box.appendChild(row); }
-  // documents that need action -> a view button per document
-  const da = data.document_actions;
-  if (da) { const row = document.createElement('div'); row.className = 'chips';
-    for (const r of [...(da.reupload || []), ...(da.under_review || [])]) if (r.document_id)
-      row.appendChild(chip('👁️ ' + r.label, () => send({action:'VIEW_DOCUMENT', document_id:r.document_id}, 'View ' + r.label)));
-    if (row.children.length) box.appendChild(row); }
-  if (data.retry_after_seconds) { $('q').disabled = true; setTimeout(() => $('q').disabled = false, data.retry_after_seconds * 1000); }
+    S.panelPage += 1; S.panelDone = !data.has_more;
+  } finally { S.panelBusy = false; }
 }
+
+// ---------------------------------------------------------------- voice input (browser speech recognition)
+(function setupMic() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition, mic = $("mic");
+  if (!Recognition) { mic.classList.add("hidden"); return; }
+  let listening = null;
+  mic.onclick = () => {
+    if (listening) { listening.stop(); return; }
+    const r = new Recognition(); r.lang = VOICE[$("lang").value] || "en-IN"; r.interimResults = true;
+    r.onresult = (e) => { $("q").value = Array.from(e.results).map((x) => x[0].transcript).join(" "); };
+    r.onend = r.onerror = () => { mic.textContent = "🎤"; listening = null; $("q").focus(); };
+    listening = r; mic.textContent = "⏺"; r.start();
+  };
+})();
 </script>
 </body>
 </html>

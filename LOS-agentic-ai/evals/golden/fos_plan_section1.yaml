@@ -1,0 +1,68 @@
+# GOLDEN SET -- FOS E2E plan, section 1 (bugs from the real frontend transcript). No case data: wording only.
+# Fields: id, turns [{q, expect: {intent | intent_not | contains | not_contains | case}}], setup, language, note.
+# The scorer (STEP 10a / plan section 9.7) runs these against the fake-model stack; until it exists, the same
+# expectations are asserted by the tests named in `covered_by`.
+
+cases:
+  # 1.1 implausible amounts (trigger: demo data "loan amount: Rs 5")
+  - id: s1_1_amount_flagged         # intake refuses "5" (1.1), so only a stored legacy value can show it: unit-tested
+    unit: { said: "loan_amount=5", expect: "needs verification" }
+    covered_by: tests/integration/test_fos_plan_1_1_amounts.py
+  - id: s1_1_intake_refused
+    setup: { create_with: { loan_amount: "5 lakh" } }
+    expect_http: { status: 422, error: AMOUNT_IMPLAUSIBLE }
+    covered_by: tests/integration/test_fos_plan_1_1_amounts.py
+
+  # 1.2 my cases -- the caller's own list, on both endpoints, never a refusal
+  - { id: s1_2_all_case_ka_list, setup: { cases: 2, open: 0 }, turns: [{ q: "all case ka list", expect: { intent: CASE_LIST } }], language: hinglish }
+  - { id: s1_2_give_a_list_of_case, turns: [{ q: "give a list of case", expect: { intent: CASE_LIST } }], language: en }
+  - { id: s1_2_my_cases, turns: [{ q: "my cases", expect: { intent: CASE_LIST } }], language: en }
+  - { id: s1_2_mere_saare_cases, turns: [{ q: "mere saare cases", expect: { intent: CASE_LIST } }], language: hinglish }
+  - { id: s1_2_sab_case_dikhao, turns: [{ q: "sab case dikhao", expect: { intent: CASE_LIST } }], language: hinglish }
+  - { id: s1_2_mere_kitne_case, turns: [{ q: "mere kitne case hai", expect: { intent: CASE_LIST } }], language: hinglish }
+  - { id: s1_2_not_list_status, turns: [{ q: "case ka status dikhao", expect: { intent_not: CASE_LIST } }] }
+  - { id: s1_2_other_customers, turns: [{ q: "show me other customers' cases", expect: { intent: GUARDRAIL_BLOCKED } }] }
+
+  # 1.3 the other case
+  - id: s1_3_one_other_case
+    setup: { cases: 2, open: 1 }
+    turns: [{ q: "dusre case ka details do", expect: { case: 2 } }]
+    covered_by: tests/integration/test_fos_plan_1_2_case_list.py
+  - id: s1_3_several_other_cases
+    setup: { cases: 3, open: 1 }
+    turns: [{ q: "mere dusre case ka detail", expect: { intent: CASE_SELECTION } }]
+    covered_by: tests/integration/test_fos_plan_1_2_case_list.py
+
+  # found on the way (ask anything inside a case)
+  - { id: s1_x_kyu_atka, turns: [{ q: "KYC ka kya status hai?" }, { q: "kyu atka hai?", expect: { intent_not: KYC_RESULT } }] }
+  - { id: s1_x_upload_hue, turns: [{ q: "kaunse documents upload hue?", expect: { intent: DOCUMENTS_UPLOADED } }] }
+  - { id: s1_x_cpa_kab, turns: [{ q: "CPA mein kab jayega?", expect: { intent: READINESS } }] }
+  - { id: s1_x_coapp_exists, turns: [{ q: "co-applicant hai kya?", expect: { intent: APPLICANT_PROFILE } }] }
+
+  # 1.4 the same details question never flips to "None ... recorded"
+  - { id: s1_4_details_no_ids_open_case, setup: { cases: 2, open: 1, endpoint: universal },
+      turns: [{ q: "case details do", expect: { not_contains: "None of the" } }, { q: "case details do", expect: { not_contains: "None of the" } }] }
+  - { id: s1_4_details_no_case_chosen, setup: { cases: 2, open: 0, endpoint: universal },
+      turns: [{ q: "application details", expect: { intent: CASE_SELECTION } }] }
+  - { id: s1_4_mere_case_ka_details, setup: { cases: 2, open: 1 }, turns: [{ q: "mere case ka details", expect: { intent: APPLICANT_PROFILE } }] }
+  - { id: s1_4_details_batao, setup: { cases: 1, open: 1 }, turns: [{ q: "details batao", expect: { intent: APPLICANT_PROFILE } }] }
+
+  # 1.5 one count: required vs optional
+  - { id: s1_5_counts, setup: { cases: 1 }, expect_fields: { case_state: [documents_required, documents_optional, documents_optional_missing] },
+      covered_by: tests/integration/test_fos_plan_1_5_counts.py }
+
+  # 1.6 one clarifying question
+  - { id: s1_6_doc_before_case, turns: [{ q: "mere Aadhar case ka details kaise dekhun", expect: { contains: "or this case's details?" } }] }
+  - { id: s1_6_garbled_list, turns: [{ q: "list of kaise sajao", expect: { not_contains: "outside what I can help" } }] }
+
+  # 1.7 chips follow the turn
+  - { id: s1_7_chips, turns: [{ q: "kya baaki hai?", expect: { chips_not_contain: "pending" } }], covered_by: tests/integration/test_fos_plan_1_7_chips.py }
+
+  # 1.8 the opened case wins over a stale case_id
+  - { id: s1_8_stale_case_id, setup: { cases: 2, open: 2, send_case_id: 1 },
+      turns: [{ q: "case details do", expect: { case: 2 } }], covered_by: tests/integration/test_fos_plan_1_8_case_id.py }
+
+  # family evals fixed on the way (were failing before this section)
+  - { id: s1_x_mixed_definition_tail, turns: [{ q: "mera application CPA mein kyun hai aur KYC review ka matlab kya hai?", expect: { intent: MIXED } }] }
+  - { id: s1_x_kyun_fail_hua, covered_by: "tests/integration/test_copilot_family_evals.py (verify_followups: needs a rejected PAN on the case)" }
+  - { id: s1_x_knowledge_more, turns: [{ q: "What documents are accepted as address proof?" }, { q: "Tell me more.", expect: { intent: FOS_KNOWLEDGE } }, { q: "what about voter ID?", expect: { intent: FOS_KNOWLEDGE } }] }

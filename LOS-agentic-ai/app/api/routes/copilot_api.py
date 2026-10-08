@@ -125,6 +125,13 @@ class CopilotQueryRequest(BaseModel):
                      "English answer is returned and `language.localized` is "
                      "false. The business truth never depends on it."),
         examples=["en"])
+    reply_language: str | None = Field(
+        None, max_length=16, examples=["en"],
+        description=("The frontend's selected language (FOS plan section 2) -- the same as `language`. Either one "
+                     "LOCKS every text of the reply to that language, whatever the question was typed in."))
+    chat_id: str | None = Field(
+        None, max_length=128, description="The chat this message belongs to (the server remembers its context).")
+    new_chat: bool = Field(False, description="Start this chat fresh: nothing remembered from before.")
     channel: str | None = Field(
         None, max_length=32,
         description=("The channel the question came from: web, mobile, "
@@ -1475,6 +1482,60 @@ async def query(
     claims: dict[str, Any] = Depends(require_jwt),
 ):
     """
+    MASTER SPEC section 8: the answer below, published as {request_id, markdown, tts} (COPILOT_MD_TTS_CONTRACT).
+    The context the reply no longer carries is remembered server-side per (user, chat_id).
+    """
+    from app.agents.applicant.copilot.answering import contract as _contract
+    from app.agents.applicant.copilot.capabilities import abuse_guard as _abuse_guard
+    from app.security.auth import get_subject as _chat_subject
+
+    subject = str(_chat_subject(claims) or "anonymous")
+    # THE ABUSE RULE, FIRST (MASTER SPEC sections 16 / 19): the same shared decision as /fos/copilot -- the
+    # message is never answered, nothing is read or remembered
+    # (rate limit, self-harm, threats, social engineering: safety.screen runs at the top of _query -- once)
+    screened = _abuse_guard.screen(request.message or "", subject, f"cp_{uuid.uuid4().hex}", request.case_id,
+                                   lang=request.reply_language or request.language)
+    if screened is not None:
+        return _contract.publish(screened) if _contract.enabled() else screened
+    if request.case_id and not request.applicant_id:
+        # MASTER SPEC section 2: no applicant id is ever needed. A case the caller HOLDS supplies its own applicant
+        # (read from the case, after the ownership check); one they do not hold is refused below exactly as before.
+        from app.security import access as _own
+        from app.store import get_repository as _own_repo
+
+        try:
+            _own.authorize(subject, _own.get_scopes(claims), case_id=request.case_id)
+            _owned_case = _own_repo().get_application(request.case_id)
+            if _owned_case is not None:
+                request.applicant_id = _owned_case.applicant_id
+        except _own.AccessDenied:
+            pass
+    if not _contract.enabled():
+        return await _query(request, claims)
+    chat_id = request.chat_id or request.conversation_id
+    if request.new_chat:
+        _contract.forget(subject, chat_id)
+    elif request.context is None:
+        request.context = _contract.recall(subject, chat_id)
+    reply = await _query(request, claims)
+    if hasattr(reply, "model_dump"):
+        reply = reply.model_dump()
+    from app.agents.applicant.copilot.capabilities import faq as _faq_unknown
+
+    reply = _faq_unknown.apply_unknown(reply, request.message or "")       # the same rules as /fos/copilot
+    from app.agents.applicant.copilot.capabilities import product_flow as _stage_note
+
+    reply = _stage_note.stage_move_note(reply, request.message or "")
+    if isinstance(reply, dict) and isinstance(reply.get("context"), dict):
+        _contract.remember(subject, chat_id, reply["context"])
+    return _contract.publish(reply)
+
+
+async def _query(
+    request: CopilotQueryRequest,
+    claims: dict[str, Any],
+):
+    """
     Delegates to the one agent.
 
     Authorisation is NOT performed here and must not be: the agent runs
@@ -1485,6 +1546,78 @@ async def query(
     request_id = f"cp_{uuid.uuid4().hex}"
     started = time.perf_counter()
     timings: dict[str, float] = {}
+
+    # THE LANGUAGE LOCK (FOS plan section 2) -- the same shared lock /fos/copilot sets
+    from app.agents.applicant.copilot.answering import language_lock as _lock
+
+    _locked = _lock.set_for_request(request.reply_language, request.language)
+    if _locked:
+        request.language = _locked
+
+    # "MY CASES" (FOS plan 1.2): with the case workspace on, a message that only asks for the caller's case
+    # list ("all case ka list", "my cases") is THE CALLER'S OWN LIST -- live grants, each case re-authorized --
+    # never a bulk-data refusal and never one applicant's portfolio. The same list as /fos/copilot.
+    from app.agents.applicant.copilot.capabilities import workspace as _ws
+
+    def _published(reply: dict[str, Any], response_type: str) -> dict[str, Any]:
+        from app.agents.applicant.copilot.answering import professional as _professional
+
+        reply = dict(reply or {})
+        reply["presentation"] = {**(reply.get("presentation") or {}), **(reply.pop("workspace_view", None) or {})}
+        reply.setdefault("response_type", response_type)
+        reply["processing_ms"] = round((time.perf_counter() - started) * 1000, 1)
+        return _professional.apply(reply)
+
+    # PARITY WITH /fos/copilot (FOS plan section 1/2): the 6h safety screen, then the WHOLE case workspace --
+    # "my cases", "2 kholo", "dusre case ka details", exit / switch, the opened case -- the same shared code
+    from app.agents.applicant.copilot.capabilities import safety as _safety
+
+    if _safety.enabled():
+        from app.security.auth import get_subject as _safety_subject
+
+        screened = _safety.screen(request.message, str(_safety_subject(claims) or "anonymous"), request_id,
+                                  request.case_id)
+        if screened is not None:
+            return _published(screened, "GUARDRAIL")
+    if _ws.enabled():
+        from app.security import access as _ws_access
+
+        try:
+            ws_turn = _ws.handle("CUSTOM_QUERY", request.message, request.case_id, claims, request_id,
+                                 request.context)
+        except _ws_access.AccessDenied as exc:
+            raise _ws_access.http_denied(exc, request_id) from None
+        if ws_turn.reply is not None:
+            return _published(ws_turn.reply, str(ws_turn.reply.get("intent") or "CASE_LIST"))
+        if ws_turn.case_id:
+            request.case_id, request.applicant_id = ws_turn.case_id, str(ws_turn.applicant_id or "") or None
+
+    # NO CASE NAMED (FOS plan 1.4): "case details do" without a case_id answered "None of the application details
+    # are recorded" -- untrue, no case was chosen. The case the officer OPENED in the workspace answers it, or their
+    # only case; with several and none open, a case question is answered with "which case?" (below).
+    unresolved_case = False
+    workspace_id = (request.context or {}).get("workspace_id") if isinstance(request.context, dict) else None
+    if _ws.enabled() and request.case_id:
+        # THE OPENED CASE WINS (FOS plan 1.8): the same rule as /fos/copilot -- a case_id sent on every request
+        # never overrides the case the officer opened in the workspace
+        opened = _ws.active_case(claims, workspace_id)
+        if opened is not None and opened.case_id != request.case_id:
+            request.case_id, request.applicant_id = opened.case_id, str(opened.applicant_id)
+    if _ws.enabled() and not request.case_id and not request.applicant_id:
+        chosen = _ws.active_case(claims, workspace_id)
+        if chosen is None:
+            mine = _ws.my_cases(claims)
+            chosen = mine[0] if len(mine) == 1 else None
+            unresolved_case = len(mine) > 1
+        if chosen is not None:
+            request.case_id, request.applicant_id = chosen.case_id, str(chosen.applicant_id)
+    if _ws.enabled() and not request.case_id and not request.stage:
+        # NO CASE AT ALL: a workspace caller's process question ("KYC kya hai?") is answered for the workspace's
+        # desk (case_workspace.default_stage) -- never "the stage could not be determined"; a case's own stage
+        # always wins once a case is chosen
+        from app.agents.applicant import config as _ws_config
+
+        request.stage = (_ws_config.chatbot("case_workspace").get("default_stage") or None)
 
     # SECURITY AND SMALL TALK FIRST (decision order: 1. what kind of request
     # is this, 2. is the caller allowed ...). A request the input policy
@@ -1625,6 +1758,17 @@ async def query(
                 if isinstance(envelope.get("understanding"), dict):
                     envelope["understanding"]["compound"] = {
                         "parts": list(parts), "intents": intents_seen}
+            if unresolved_case and envelope.get("query_type") == "CASE_FACT" \
+                    and envelope.get("intent") not in ("CASE_PORTFOLIO", "CASE_LIST"):
+                # a case question with several cases and none chosen: "which case?" + the caller's list,
+                # never an answer about no case at all (FOS plan 1.4)
+                _ws_state = _ws._state(_ws._subject(claims), None)
+                listed = _ws.list_view(claims, request_id, _ws_state)     # "2" then picks from this list
+                _ws._save(_ws_state)
+                envelope["answer"] = _ws._label("pick_case_first") + "\n\n" + str(listed.get("answer") or "")
+                envelope["intent"] = "CASE_SELECTION"
+                envelope["query_type"] = "CLARIFICATION"
+                envelope["workspace_view"] = listed.get("workspace_view")
     except NotOwned:
         # A REFUSAL, NOT AN ERROR, AND NOT A DISCLOSURE. Phrased
         # identically whether the case belongs to somebody else or
@@ -1958,8 +2102,30 @@ async def query(
     # history, next actions, provenance, handoff summary: a full PAN, Aadhaar
     # or account number never leaves in any field (sensitivity.py).
     from app.security import sensitivity
+    # PROFESSIONAL FORMAT, LAST (FOS plan section 3) -- the same shared step /fos/copilot applies
+    from app.agents.applicant.copilot.answering import professional as _professional
 
-    return CopilotQueryResponse(**sensitivity.mask_payload(published))
+    from app.agents.applicant.copilot.answering import kyc_table as _kyc_table
+
+    published = _kyc_table.attach(published)          # the KYC table (FOS plan section 4), as on /fos/copilot
+    from app.agents.applicant.copilot.answering import readiness_report as _readiness_report
+
+    published = _readiness_report.attach(published)   # the readiness report (FOS plan sections 5 / 7.1)
+    from app.agents.applicant.copilot.answering import counts as _counts
+
+    published = _counts.attach(published, request.message)   # count questions, from the store (FOS plan 6.6)
+    from app.agents.applicant.copilot.capabilities import timeline as _timeline
+
+    published = _timeline.attach(published, request.message)  # time questions (FOS plan 7.3)
+    from app.agents.applicant.copilot.answering import handoff_note as _handoff_note
+
+    published = _handoff_note.attach(published, request.message, claims)   # the CPA handoff note (FOS plan 7.1)
+    from app.agents.applicant.copilot.answering import officer_tools as _officer_tools
+
+    published = _officer_tools.attach(published, request.message)          # officer tools (FOS plan 9b)
+    formatted = _professional.apply(sensitivity.mask_payload(published))
+    return CopilotQueryResponse(**{k: v for k, v in formatted.items()
+                                   if k in CopilotQueryResponse.model_fields or k not in ("answer_plain", "format")})
 
 
 __all__ = ["router"]

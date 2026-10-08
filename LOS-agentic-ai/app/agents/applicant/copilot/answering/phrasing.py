@@ -36,7 +36,11 @@ PRESENTED: contextvars.ContextVar[str | None] = contextvars.ContextVar("copilot_
 
 def _as_reply(language: str | None) -> str | None:
     """The language a question in `language` is answered in: Roman Marathi
-    ("mr-Latn") is answered with the Marathi wording (languages.yaml reply_as)."""
+    ("mr-Latn") is answered with the Marathi wording (languages.yaml reply_as).
+    THE SELECTED LANGUAGE WINS over the typed one (FOS plan section 2, the language lock)."""
+    from app.agents.applicant.copilot.answering import language_lock
+
+    language = language_lock.current() or language
     if not language:
         return language
     from app.agents.applicant import language as _languages

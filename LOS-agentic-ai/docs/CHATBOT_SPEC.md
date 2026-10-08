@@ -3,6 +3,15 @@
 > Saved word for word from the user's instructions (received 2026-10-07, in three messages).
 > **COMPLETE:** sections 1–6.
 
+> **AMENDED 2026-10-08 by FOS plan section 3 (docs/FOS_E2E_PRODUCTION_PLAN.md) -- PROFESSIONAL FORMAT.**
+> The emoji map below is now OPTIONAL and **OFF in production** (`applicant_agent.yaml` -> `chatbot.professional_format`:
+> `enabled: true`, `emojis: false`; env `COPILOT_PROFESSIONAL_FORMAT`). With it on, every reply on BOTH endpoints:
+> one direct first line; points as `- ` bullets (a row that led with an emoji becomes a bullet); bold only key words;
+> the closing hint as one `**Next step:** ...` line; no pictograph in any field or button; `answer_plain` always
+> present without `**`. Facts are never changed. With `emojis: true` (or the flag off) the style below applies as
+> written. Snapshot: tests/integration/test_fos_plan_3_professional_format.py; examples: docs/frontend/examples/.
+> Language: the selected `reply_language` decides the language of every text (FOS plan section 2).
+
 === 1. RESPONSE STYLE GUIDE ===
 Goal: clean, scannable, professional. Never a wall of text.
 - First line: short direct answer with a status emoji.

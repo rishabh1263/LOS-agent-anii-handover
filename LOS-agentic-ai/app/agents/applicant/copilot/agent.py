@@ -821,6 +821,21 @@ async def answer_question(
     # A FIELD NAME TYPED AS AN IDENTIFIER ("what is loan_amount?") is the same
     # words; an upper-case code (READY_FOR_CPA) is left exactly as written.
     message = re.sub(r"\b([a-z]+(?:_[a-z]+)+)\b", lambda m: m.group(1).replace("_", " "), message)
+    # "ye nahi poocha" / "that's not what I asked" (FOS plan 6.7): the last answer missed -- one question
+    # back with what this desk answers, never a "not recorded" about the words themselves
+    _recovery = config.chatbot("misunderstood")
+    _said = " " + " ".join(re.findall(r"[\wऀ-ॿ']+", str(message or "").lower())) + " "
+    if any(f" {' '.join(str(p).lower().split())} " in _said for p in _recovery.get("phrases") or []):
+        from app.agents.applicant.copilot.answering import language_lock as _rlock
+
+        _options = [_rlock.pick(o) for o in _recovery.get("options") or []]
+        _question = _rlock.pick(_recovery.get("question") or "Sorry, I got that wrong. What did you want to know?")
+        return envelope(intent=Intent.UNKNOWN.value, category=routing.QueryCategory.UNSUPPORTED.value,
+                        query_type=QueryType.CLARIFICATION.value, answer=_question,
+                        clarification_required={"reason": "MISUNDERSTOOD", "question": _question,
+                                                "options": _options},
+                        suggested_questions=_options, followed_up=None)
+
 
     # QUERIES ("query raise kar do", "which queries are open?"): the live
     # subject of the query, offered as the SAME structured RAISE_QUERY action
@@ -1227,6 +1242,25 @@ async def answer_question(
         "case_stage": getattr(getattr(stage_context, "stage", None), "value", None),
     }
 
+    if not referent_clarification and intent is not Intent.UNKNOWN:
+        # "mere Aadhar case ka details" (FOS plan 1.6): a document named RIGHT BEFORE a case word -- the
+        # document's details, or the case's? One question, never "No Aadhaar recorded" (config: ambiguity)
+        from app.agents.applicant.copilot.semantics import intents as _amb_intents
+
+        _amb = config.chatbot("ambiguity").get("document_before_case") or {}
+        _nouns = [str(n).lower() for n in _amb.get("case_nouns") or []]
+        _words = re.findall(r"[\wऀ-ॿ]+", str(message or "").lower())
+        for _i, _w in enumerate(_words[1:], 1):
+            _doc = _amb_intents._document_type(_words[_i - 1]) if _w in _nouns else None
+            if _doc:
+                from app.agents.applicant.copilot.answering import structured as _astructured
+
+                _dl = _astructured._readable_type(_doc)
+                referent_clarification = str(_amb.get("question") or "Do you mean the {doc} details, "
+                                             "or this case's details?").format(doc=_dl)
+                referent_options = [str(o).format(doc=_dl) for o in _amb.get("options")
+                                    or ["Show the {doc} details", "Show this case's details"]]
+                break
     if referent_clarification and intent is not Intent.UNKNOWN:
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
@@ -1392,6 +1426,26 @@ async def answer_question(
                             followed_up=resolution.public(),
                             response_source=source,
                             knowledge=_public_knowledge(detail))
+
+        # THE LONG TAIL OF A CASE QUESTION (FOS plan 6.4 / 6.5): inside a case, a question no intent fits is
+        # answered by the model ONLY from the case's masked fact sheet, fact-checked -- or "not recorded".
+        # Ownership first, exactly as every case read.
+        from app.agents.applicant.copilot.capabilities import snapshot_qa as _snapshot_qa
+
+        if case_id and not bare and _snapshot_qa.enabled() and not referent_clarification:
+            _authorize_capability(caller, applicant_id=applicant_id, case_id=case_id,
+                                  request_id=request_id, message=message)
+            snapshot = await _snapshot_qa.answer(case_id, message)
+            if snapshot is not None:
+                audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
+                             case_id=case_id, intent=Intent.CASE_SNAPSHOT.value, tools=["case.snapshot"],
+                             status=snapshot["status"], message=message)
+                return envelope(intent=Intent.CASE_SNAPSHOT.value, answer=snapshot["answer"],
+                                query_type=QueryType.CASE_FACT.value,
+                                response_source="SNAPSHOT_QA" if snapshot["status"] == "ANSWERED" else "STRUCTURED",
+                                followed_up=resolution.public(),
+                                snapshot={"status": snapshot["status"], "keys": snapshot.get("keys") or [],
+                                          "ms": snapshot.get("ms")})
 
         audit.record(request_id=request_id, subject=caller.subject,
                      applicant_id=applicant_id, case_id=case_id,
@@ -2342,8 +2396,8 @@ async def _answer_for_subject(
                                        classification.document_type)
         if _OWN_WORDS.search(message):
             answer = subjects._to_caller(subject, answer)
-        if classification.matched_on == "document_rejected":
-            # WHY IT WAS REJECTED: the recorded reason on that document, per
+        if classification.matched_on in ("document_rejected", "document_why"):
+            # WHY IT WAS REJECTED ("why was the PAN rejected?" is document_why): the recorded reason on that document, per
             # party -- never guessed; said plainly when none was recorded.
             memory = case_memory_facts.case_memory(case_id)
             reasons = []
@@ -3013,7 +3067,7 @@ def _classify_typed(message: str, *, has_case: bool) -> tuple[Classification, An
         if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
             # A PERSON'S DETAILS OR KYC, asked of the co-applicant: the
             # party's own record answers it (subjects.party_question).
-            asked_of_party = subjects.party_question(said, classification)
+            asked_of_party = subjects.party_question(said, classification, original=message)
             if asked_of_party is not None:
                 classification = asked_of_party
         if named_subject:

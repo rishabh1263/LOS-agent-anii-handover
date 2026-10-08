@@ -705,7 +705,7 @@ def carried(message: str, last_subject: str | None) -> "Kind | None":
     return Kind.CO if any(c == "THIRD_PERSON" for _, c in _sf.concepts_in(message)) else None
 
 
-def party_question(message: str, classification: Any) -> Any | None:
+def party_question(message: str, classification: Any, *, original: str | None = None) -> Any | None:
     """
     A question NAMING the co-applicant (or both) that asks for a person's
     details or KYC, read as that -- APPLICANT_PROFILE / KYC_RESULT, with the
@@ -755,7 +755,11 @@ def party_question(message: str, classification: Any) -> Any | None:
         # for the application as a whole).
         return _intents.Classification(Intent.DOCUMENTS_UPLOADED, matched_on="party_documents",
                                        frame=getattr(classification, "frame", None))
-    if _PROFILE_ASK.search(text) and not _DOCUMENT_NOUN.search(text):
+    # "co-applicant hai kya?" / "is there a co-applicant?" -- does the person exist on the case: their
+    # profile answers it (or says none is recorded). EXISTS phrases in semantic_concepts.yaml.
+    # (read on the message AS TYPED too: normalisation turns "hai kya" into "what is ... is")
+    exists = any(concept == "EXISTS" for said in (text, str(original or "")) for _, concept in _sf.concepts_in(said))
+    if (exists or _PROFILE_ASK.search(text)) and not _DOCUMENT_NOUN.search(text):
         field_ = ("full_name" if re.search(r"^\s*(who|kaun)\b|\bwho\s+is\b|\bkaun\s+(hai|h)\b",
                                            text, _I) else _profile.ALL_APPLICANT)
         return _intents.Classification(Intent.APPLICANT_PROFILE, matched_on="party_profile",

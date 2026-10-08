@@ -301,8 +301,12 @@ def test_there_is_exactly_one_universal_copilot_endpoint():
 
     assert "/api/v1/copilot/query" in paths
     # /fos/copilot/stream (Phase 3 step 7) is the SAME FOS endpoint delivered as Server-Sent Events -- the same
-    # handler and pipeline (fos_api.copilot_stream calls copilot()), not a second copilot
-    assert sorted(paths) == ["/api/v1/copilot/query", "/api/v1/fos/copilot", "/api/v1/fos/copilot/stream"]
+    # handler and pipeline (fos_api.copilot_stream calls copilot()), not a second copilot. MASTER SPEC section 11
+    # adds its delivery controls (stop, replay a final reply, pushed updates) -- none of them answers a question.
+    answering = [p for p in paths if not p.endswith(("/stop", "/updates")) and "/replay/" not in p]
+    assert sorted(answering) == ["/api/v1/copilot/query", "/api/v1/fos/copilot", "/api/v1/fos/copilot/stream"]
+    assert sorted(set(paths) - set(answering)) == ["/api/v1/fos/copilot/replay/{request_id}",
+                                                   "/api/v1/fos/copilot/stop", "/api/v1/fos/copilot/updates"]
 
 
 def test_every_stage_reaches_the_same_endpoint(client, repo):

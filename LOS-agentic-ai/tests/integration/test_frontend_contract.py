@@ -19,6 +19,9 @@ from tests.integration.test_reupload_supersedes import _store, client  # noqa: F
 OUT = Path(__file__).resolve().parents[2] / "docs" / "frontend" / "examples"
 DEMO_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESPONSE_STYLE", "COPILOT_VERIFY_DIAGNOSE",
               "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_STREAMING", "COPILOT_GUARDRAIL_HARDENING")
+#: the production format (FOS plan 2-3), on for the flows that write docs/frontend/examples -- not part of `demo`,
+#: which the section tests share and which assert the emoji style
+PRODUCTION_FORMAT = ("COPILOT_LANGUAGE_LOCK", "COPILOT_PROFESSIONAL_FORMAT")
 
 
 @pytest.fixture
@@ -61,7 +64,9 @@ def make_case(client, name):
     return r.json()["applicant_id"], r.json()["case_id"]
 
 
-def test_the_frontend_flows(client, demo, _store):
+def test_the_frontend_flows(client, demo, _store, monkeypatch):
+    for flag in PRODUCTION_FORMAT:
+        monkeypatch.setenv(flag, "true")
     a1, c1 = make_case(client, "Rahul Sharma")
     make_case(client, "Priya Verma")
     _store.save_document(Document(document_id=f"{c1}:{a1}:pan1", case_id=c1, applicant_id=a1, document_type="PAN",
@@ -73,9 +78,9 @@ def test_the_frontend_flows(client, demo, _store):
     s, listed = call(client, "01_case_list", action="CUSTOM_QUERY", message="mere cases dikhao")
     assert s == 200 and listed["presentation"]["case_list"][0]["action"]["type"] == "open_case"
     s, opened = call(client, "02_open_case", action="OPEN_CASE", case_id=c1)
-    assert opened["presentation"]["workspace"]["header"] == f"📍 {c1}"
+    assert opened["presentation"]["workspace"]["header"] == c1          # "📍" removed by the professional format
     s, inside = call(client, "03_inside_case_question", action="CUSTOM_QUERY", message="kya baaki hai?")
-    assert inside["answer"].startswith(f"📍 {c1}")
+    assert inside["answer"].startswith(c1)
     s, diag = call(client, "04_verify_diagnose", action="CUSTOM_QUERY", message="verify karna hai")
     assert diag.get("document_actions")
     s, draft = call(client, "05_raise_query_draft", action="CUSTOM_QUERY", message="query raise karo")
@@ -88,7 +93,7 @@ def test_the_frontend_flows(client, demo, _store):
     s, tracked = call(client, "08_list_queries", action="LIST_QUERIES")
     assert tracked["queries"]
     s, glossary = call(client, "09_glossary", action="CUSTOM_QUERY", message="KYC kya hai?")
-    assert glossary["answer"].startswith("ℹ️ **KYC (Know Your Customer)**")
+    assert glossary["answer"].startswith("**KYC (Know Your Customer)**")
     s, new = call(client, "10_new_case", action="NEW_CASE")
     assert new["actions"][0]["type"] == "OPEN_UI_NEW_CASE"
     s, closed = call(client, "11_exit_case", action="EXIT_CASE")
@@ -102,6 +107,36 @@ def test_the_frontend_flows(client, demo, _store):
     if os.getenv("WRITE_FRONTEND_EXAMPLES") == "1":
         text = re.sub(r'"(fos|cp)_[0-9a-f]{32}"', '"<request_id>"', r.text)
         (OUT / "14_stream.txt").write_text(text[:4000], encoding="utf-8")
+
+
+#: the FOS E2E plan features (sections 4-7), on for the examples they write
+PLAN_FEATURES = ("COPILOT_KYC_TABLE", "COPILOT_READINESS_REPORT", "COPILOT_COUNT_ANSWERS", "COPILOT_CASE_TIMELINE",
+                 "COPILOT_HANDOFF_NOTE", "COPILOT_SMART_UPLOAD", "COPILOT_SNAPSHOT_QA")
+
+
+def test_the_fos_plan_flows(client, demo, _store, monkeypatch):
+    """Examples 18-23 (FOS plan 4-7), in the production format and with English selected."""
+    for flag in PRODUCTION_FORMAT + PLAN_FEATURES:
+        monkeypatch.setenv(flag, "true")
+    a1, c1 = make_case(client, "Rahul Sharma")
+    _store.save_document(Document(document_id=f"{c1}:{a1}:pan1", case_id=c1, applicant_id=a1, document_type="PAN",
+                                  status=DocumentStatus.VERIFIED))
+    call(client, "_open", action="OPEN_CASE", case_id=c1)
+    s, ready = call(client, "18_readiness", action="CUSTOM_QUERY", message="CPA ke liye kya chahiye?",
+                    reply_language="en")
+    assert ready["intent"] == "READINESS" and ready["presentation"]["progress"]["ready"] is False
+    s, count = call(client, "19_count", action="CUSTOM_QUERY", message="kitne documents verified hain",
+                    reply_language="en")
+    assert count["intent"] == "DOCUMENT_COUNT"
+    s, timeline = call(client, "20_timeline", action="CUSTOM_QUERY", message="case ka timeline", reply_language="en")
+    assert timeline["intent"] == "CASE_TIMELINE"
+    s, note = call(client, "21_handoff_not_ready", action="CUSTOM_QUERY", message="handoff note banao",
+                   reply_language="en")
+    assert note["intent"] == "HANDOFF_NOTE" and "ready for CPA" in note["answer"]
+    s, lost = call(client, "22_misunderstood", action="CUSTOM_QUERY", message="ye nahi poocha", reply_language="en")
+    assert lost["clarification_required"]["reason"] == "MISUNDERSTOOD"
+    s, kyc = call(client, "23_kyc", action="CUSTOM_QUERY", message="KYC ka kya status hai?", reply_language="en")
+    assert kyc["intent"] == "KYC_RESULT"
 
 
 # ---- what the frontend builds its UI from: /fos/actions and /fos/config -------------------------

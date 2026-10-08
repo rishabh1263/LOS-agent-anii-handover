@@ -1,0 +1,490 @@
+{
+  "request": {
+    "action": "CUSTOM_QUERY",
+    "message": "kitne documents verified hain",
+    "reply_language": "en"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "applicant_id": "APP-F2D29DB3305E",
+    "case_id": "CASE-DA842B2E38A9",
+    "action": "CUSTOM_QUERY",
+    "intent": "DOCUMENT_COUNT",
+    "answer": "CASE-DA842B2E38A9\n1 document is verified: PAN.",
+    "documents": [
+      {
+        "document_id": "CASE-DA842B2E38A9:APP-F2D29DB3305E:pan1",
+        "source_id": null,
+        "document_type": "PAN",
+        "status": "VERIFIED",
+        "verification_status": null,
+        "reason_codes": [],
+        "has_extracted_fields": false,
+        "party_id": "APP-F2D29DB3305E",
+        "party_role": "PRIMARY_APPLICANT",
+        "uploaded_at": "<timestamp>",
+        "updated_at": "<timestamp>",
+        "verification_score": null,
+        "verification_confidence": null
+      }
+    ],
+    "query_type": "DOCUMENT_STATUS",
+    "case_state": {
+      "case_id": "CASE-DA842B2E38A9",
+      "product": "PERSONAL_LOAN",
+      "stage": "APPLICATION_CREATED",
+      "readiness": "NOT_READY",
+      "documents_collected": 1,
+      "documents_required": 3,
+      "documents_satisfied": 1,
+      "documents_missing": 2,
+      "documents_under_review": 0,
+      "documents_failed": 0,
+      "documents_optional": 1,
+      "documents_optional_missing": 1,
+      "collection_progress": 33,
+      "applicant_fields_missing": []
+    },
+    "suggested_questions": [
+      "What is pending on this case?",
+      "What is the KYC status?",
+      "What can be used as address proof?",
+      "Why is address proof required for this application?"
+    ],
+    "available_actions": [
+      {
+        "action": "UPLOAD_DOCUMENT",
+        "label": "Upload a document",
+        "enabled": true
+      },
+      {
+        "action": "GET_DOCUMENT_CHECKLIST",
+        "label": "What is still needed",
+        "enabled": true
+      },
+      {
+        "action": "GET_VERIFICATION_STATUS",
+        "label": "Document verification status",
+        "enabled": true
+      },
+      {
+        "action": "MARK_FOR_REUPLOAD",
+        "label": "Ask for a document again",
+        "enabled": false,
+        "invoke": {
+          "action": "CUSTOM_QUERY",
+          "message_template": "Mark the {slot} for re-upload."
+        },
+        "disabled_reason": "No document is in a state that needs collecting again."
+      },
+      {
+        "action": "CHECK_CPA_READINESS",
+        "label": "Check readiness for handoff",
+        "enabled": true
+      },
+      {
+        "action": "GET_CASE_360",
+        "label": "Full case view",
+        "enabled": true
+      }
+    ],
+    "document_highlights": [
+      {
+        "document_id": "CASE-DA842B2E38A9:APP-F2D29DB3305E:pan1",
+        "document_type": "PAN",
+        "status": "VERIFIED",
+        "severity": "OK",
+        "headline": "Verified",
+        "primary_reason_code": null,
+        "reason_codes": [],
+        "needs_attention": false
+      }
+    ],
+    "clarification_required": null,
+    "followed_up": null,
+    "context": {
+      "conversation_id": "987f06bc09e04c10961ef6dd09156d35",
+      "case_id": "CASE-DA842B2E38A9",
+      "last_query_type": "DOCUMENT_STATUS",
+      "last_intent": "DOCUMENT_VERIFICATION",
+      "last_slot": "ADDRESS_PROOF",
+      "last_documents": [
+        "ADDRESS_PROOF",
+        "BANK_STATEMENT",
+        "PAN"
+      ],
+      "last_document": null,
+      "last_field": null,
+      "last_aspect": "VERIFICATION",
+      "last_subject": null,
+      "last_task": "CHECK_VERIFICATION",
+      "last_object": "DOCUMENTS",
+      "last_stage": "FOS",
+      "last_source": "STRUCTURED",
+      "last_language": "hi-Latn"
+    },
+    "understanding": {
+      "frame": {
+        "task": "CHECK_VERIFICATION",
+        "object": "DOCUMENTS",
+        "qualifiers": [],
+        "referents": {},
+        "party": "SELF",
+        "stage": null,
+        "scope": "CURRENT_CASE",
+        "confidence": "high",
+        "language": "hi-Latn",
+        "document_type": null,
+        "source": "PARSER",
+        "concepts": [
+          "DOCUMENTS",
+          "VERIFICATION"
+        ]
+      },
+      "decided_by": "FRAME",
+      "referents": {},
+      "short_query": null,
+      "llm": {
+        "consulted": false,
+        "status": "NOT_NEEDED"
+      },
+      "parse_ms": 0.38,
+      "case_stage": "FOS",
+      "model_routing": {
+        "route": "FAST",
+        "reason": "model unreachable",
+        "phrased_by_model": false
+      },
+      "conversation": {
+        "conversation_id": "987f06bc09e04c10961ef6dd09156d35",
+        "turn_id": 1,
+        "outcome": "NEW_TOPIC",
+        "note": null,
+        "pending_before": null,
+        "turn_type": "NEW_REQUEST",
+        "pending_after": null,
+        "state": {
+          "conversation_id": "987f06bc09e04c10961ef6dd09156d35",
+          "turn_id": 1,
+          "current_topic": "DOCUMENTS",
+          "active_party": "SELF",
+          "active_stage": "FOS",
+          "language": "hi-Latn",
+          "pending_clarification": null,
+          "last_intent": "DOCUMENT_VERIFICATION",
+          "last_document": null,
+          "last_documents": []
+        }
+      },
+      "requested": {
+        "capability": "DOCUMENT_VERIFICATION",
+        "field": null,
+        "aspect": "VERIFICATION",
+        "party": "SELF"
+      },
+      "response_plan": "ANSWER_ONLY",
+      "natural_composition": {
+        "plan": "ANSWER_ONLY",
+        "enabled": false,
+        "attempted": false,
+        "accepted": false,
+        "reason": "FLAG_OFF",
+        "ms": 0.0
+      }
+    },
+    "observability": {
+      "correlation_id": "<request_id>",
+      "surface": "fos",
+      "conversation_id": "987f06bc09e04c10961ef6dd09156d35",
+      "turn_id": 1,
+      "turn_type": "NEW_REQUEST",
+      "outcome": "NEW_TOPIC",
+      "scope": "fos",
+      "capability": "DOCUMENT_VERIFICATION",
+      "intent": "DOCUMENT_VERIFICATION",
+      "category": "CASE_ONLY",
+      "query_type": "DOCUMENT_STATUS",
+      "decided_by": "FRAME",
+      "language": "hi-Latn",
+      "model_route": "FAST",
+      "model_used": null,
+      "model_attempted": 0,
+      "model_calls": 0,
+      "model_ledger": {
+        "calls": 0,
+        "ok": 0,
+        "timeouts": 0,
+        "errors": 0,
+        "used": 0,
+        "ms": 0,
+        "detail": []
+      },
+      "model_fallbacks": 0,
+      "tools": [
+        "documents.get",
+        "documents.checklist"
+      ],
+      "tool_calls": 2,
+      "source": "STRUCTURED",
+      "clarification": false,
+      "clarification_reason": null,
+      "guardrail": null,
+      "fidelity": null,
+      "status": "OK",
+      "error": null,
+      "latency": {
+        "security_ms": 0.59,
+        "conversation_ms": 5.78,
+        "routing_ms": 1.92,
+        "summary_ms": 0.04,
+        "language_ms": 0.2,
+        "total_ms": 14.79,
+        "semantic_ms": 0.38
+      }
+    },
+    "verification": {
+      "documents": [
+        {
+          "document_id": "CASE-DA842B2E38A9:APP-F2D29DB3305E:pan1",
+          "document_type": "PAN",
+          "label": "PAN",
+          "party_role": "PRIMARY_APPLICANT",
+          "status": "VERIFIED",
+          "verification": null,
+          "verdict": "PASS",
+          "score": null,
+          "confidence": null,
+          "score_recorded": false,
+          "reason_codes": [],
+          "reason_code": null,
+          "reason": null,
+          "next_action": null,
+          "source": "RECORDED",
+          "actions": [
+            {
+              "action": "VERIFY_DOCUMENT",
+              "document_id": "CASE-DA842B2E38A9:APP-F2D29DB3305E:pan1",
+              "enabled": false,
+              "disabled_reason": "Already verified -- result shown."
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "PASS": 1
+      },
+      "needs_attention": []
+    },
+    "category": "CASE_ONLY",
+    "actions": [],
+    "response_source": "STRUCTURED",
+    "processing_ms": 6.82,
+    "errors": [],
+    "summary": "The application is open with PAN verified.",
+    "status": null,
+    "processing_queue": [],
+    "grounded": true,
+    "response_type": "DOCUMENT_STATUS",
+    "subject": {
+      "party": "PRIMARY_APPLICANT"
+    },
+    "language": "hi-Latn",
+    "processing": null,
+    "portfolio": null,
+    "scope": "CASE",
+    "language_contract": {
+      "language": "hi-Latn",
+      "script": "Latin",
+      "input_mode": "ROMANIZED",
+      "semantic_rewrite": true,
+      "confidence": 0.75,
+      "response_language": "en",
+      "review_status": "SEED_UNREVIEWED",
+      "provider": "lexicon",
+      "provider_fallback": false,
+      "reply_language": "en",
+      "localized": true,
+      "selected_by": "FRONTEND"
+    },
+    "pending_work": null,
+    "gate": null,
+    "semantic_decisions": null,
+    "presentation": {
+      "workspace": {
+        "case_id": "CASE-DA842B2E38A9",
+        "header": "CASE-DA842B2E38A9",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "What is pending?",
+            "message": "What is pending?"
+          },
+          {
+            "type": "ask",
+            "label": "Why is it stuck?",
+            "message": "Why is it stuck?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      },
+      "message": "CASE-DA842B2E38A9 Your **PAN (Permanent Account Number)** passed document verification. Its issuing authority has not been independently confirmed.",
+      "intent": "DOCUMENT_VERIFICATION",
+      "response_type": "STATUS",
+      "response_depth": "BRIEF",
+      "language": "en",
+      "status": "OK",
+      "next_step": "What is still needed",
+      "next_action": {
+        "type": "GET_DOCUMENT_CHECKLIST",
+        "document_type": null,
+        "label": "What is still needed"
+      },
+      "audio": {
+        "enabled": false,
+        "status": "DEGRADED",
+        "language": "en",
+        "voice": "Zira",
+        "text": "CASE-DA842B2E38A9. Your **PAN (Permanent Account Number)** passed document verification. Its issuing authority has not been independently confirmed.",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": "CASE-DA842B2E38A9",
+        "applicant_id": "APP-F2D29DB3305E",
+        "stage": null
+      },
+      "sections": [],
+      "documents": [
+        {
+          "party": "Applicant",
+          "label": "PAN",
+          "document_type": "PAN",
+          "icon": "",
+          "status": "Verified",
+          "state": "VERIFIED",
+          "reason": null,
+          "action": null,
+          "action_required": false
+        }
+      ],
+      "document_groups": [
+        {
+          "party": "Applicant",
+          "documents": [
+            {
+              "party": "Applicant",
+              "label": "PAN",
+              "document_type": "PAN",
+              "icon": "",
+              "status": "Verified",
+              "state": "VERIFIED",
+              "reason": null,
+              "action": null,
+              "action_required": false
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "next_actions": [
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": "en",
+        "response_source": "STRUCTURED"
+      }
+    },
+    "workspace_view": {
+      "workspace": {
+        "case_id": "CASE-DA842B2E38A9",
+        "header": "CASE-DA842B2E38A9",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "What is pending?",
+            "message": "What is pending?"
+          },
+          {
+            "type": "ask",
+            "label": "Why is it stuck?",
+            "message": "Why is it stuck?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      }
+    },
+    "response_style": {
+      "applied": true,
+      "expanded": [
+        "PAN"
+      ]
+    },
+    "answer_plain": "CASE-DA842B2E38A9\n1 document is verified: PAN.",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
+    }
+  }
+}

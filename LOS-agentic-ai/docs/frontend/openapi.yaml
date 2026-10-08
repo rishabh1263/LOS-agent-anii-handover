@@ -1,10 +1,798 @@
 openapi: 3.1.0
 info:
-  title: FOS Copilot API (frontend subset)
+  title: LOS Agentic AI
   description: Deterministic document extraction and risk assessment, orchestrated
     through LangGraph. Language models write summaries; they never decide.
   version: 1.0.0
 paths:
+  /api/v1/auth/login:
+    post:
+      tags:
+      - Auth
+      summary: Get an access + refresh token
+      operationId: login_api_v1_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/logout:
+    post:
+      tags:
+      - Auth
+      summary: Revoke a refresh token
+      operationId: logout_api_v1_auth_logout_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+        required: true
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/refresh:
+    post:
+      tags:
+      - Auth
+      summary: Exchange a refresh token for a new pair
+      operationId: refresh_api_v1_auth_refresh_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/copilot/query:
+    post:
+      tags:
+      - Copilot
+      summary: Ask the Universal LOS Copilot about a case
+      description: 'Natural-language questions about one case, answered from stored
+        records.
+
+
+        **Case history** — *"why is this case in review?"* — is answered from the
+        findings the LOS pipeline recorded at the time, with the reason codes it wrote
+        down. Nothing is inferred: when no findings were recorded, the answer says
+        so rather than offering a plausible explanation.
+
+
+        Requires `case_id`, and the caller must own it. Credit, risk and underwriting
+        decisions are out of scope and are never generated here — recorded ones are
+        reported as recorded.'
+      operationId: query_api_v1_copilot_query_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopilotQueryRequest'
+        required: true
+      responses:
+        '200':
+          description: The answer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotQueryResponse'
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/fos/actions:
+    get:
+      tags:
+      - FOS
+      summary: The action list, for rendering the dropdown
+      description: 'Values and labels for the copilot''s `action` field. A frontend
+        renders its dropdown from this rather than hardcoding it, so adding an action
+        does not require a frontend release.
+
+
+        *Supporting endpoint — not part of the two-endpoint integration surface.*'
+      operationId: actions_api_v1_fos_actions_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/fos/applicants:
+    post:
+      tags:
+      - FOS
+      summary: 'Open a case: create the applicant and their application'
+      description: 'One call creates the applicant, generates `applicant_id` and `case_id`,
+        creates the application, initialises the FOS stage and returns the opened
+        case -- including the document checklist the chosen product requires.
+
+
+        **Scopes:** `create_applicant` and, when an application is included, `create_application`.'
+      operationId: create_case_route_api_v1_fos_applicants_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCaseRequest'
+        required: true
+      responses:
+        '201':
+          description: The opened case.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FosResponse'
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/fos/applicants/{applicant_id}:
+    get:
+      tags:
+      - FOS
+      summary: The applicant record
+      description: Who this applicant is, as the store holds them.
+      operationId: get_applicant_api_v1_fos_applicants__applicant_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: applicant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Applicant Id
+      - name: case_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Case Id
+      responses:
+        '200':
+          description: The applicant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FosResponse'
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/applications/{case_id}:
+    get:
+      tags:
+      - FOS
+      summary: The application and where it stands
+      description: 'The application record and its FOS stage.
+
+
+        A STAGE, NOT A DECISION. `status` here is how far intake has got --
+
+        documents collected, basic verification done -- and says nothing
+
+        about whether the loan will be approved.'
+      operationId: get_application_api_v1_fos_applications__case_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: applicant_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Id
+      responses:
+        '200':
+          description: The application.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FosResponse'
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/cases:
+    get:
+      tags:
+      - FOS
+      summary: 'The home table: the caller''s own cases, searched / filtered / sorted
+        / paged on the server'
+      description: 'MASTER SPEC 3 + 15.1: the SAME query as the chat list -- only
+        the caller''s cases (live grants, each row
+
+        re-checked by the ownership rule). Columns: Case ID, App ID, Applicant name,
+        Stage, Status (Created / Review /
+
+        Disbursal, mapped from the stage in config), Created date, Action. `group`
+        = pending / done. Clicking a row:
+
+        GET /cases/{case_id}/form (the filled form) -- or post {"action": "OPEN_CASE"}
+        to /fos/copilot for the chat.'
+      operationId: list_cases_api_v1_fos_cases_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: filter
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filter
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      - name: sort
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sort
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Page
+      - name: size
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Size
+      - name: stage
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+      - name: product
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Product
+      - name: created_from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Created From
+      - name: created_to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Created To
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: group
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Group
+      - name: lang
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lang
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/cases/{case_id}/activity:
+    get:
+      tags:
+      - FOS
+      summary: Who created or changed what on a case, and when (UI and chat)
+      operationId: case_activity_api_v1_fos_cases__case_id__activity_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/cases/{case_id}/form:
+    get:
+      tags:
+      - FOS
+      summary: 'The saved form of one case (row click: continue where you stopped)'
+      operationId: case_form_values_api_v1_fos_cases__case_id__form_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: lang
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lang
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+      - FOS
+      summary: Save changed fields of a case's form (same rules as create and chat)
+      operationId: case_form_update_api_v1_fos_cases__case_id__form_put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: lang
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lang
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FormUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/chats:
+    get:
+      tags:
+      - FOS
+      summary: The caller's own past chats (masked; retention from config)
+      operationId: chat_list_api_v1_fos_chats_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/fos/chats/{chat_id}:
+    get:
+      tags:
+      - FOS
+      summary: One of the caller's own past chats, as stored (masked)
+      operationId: chat_transcript_api_v1_fos_chats__chat_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: chat_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Chat Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/checklist/{case_id}:
+    get:
+      tags:
+      - FOS
+      summary: What this product requires, and what is still missing
+      description: 'The required documents for this case, with the policy that produced
+
+        them and which rules could not be evaluated.'
+      operationId: get_checklist_api_v1_fos_checklist__case_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: applicant_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Id
+      responses:
+        '200':
+          description: The checklist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FosResponse'
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/config:
+    get:
+      tags:
+      - FOS
+      summary: Products, document types and checklists
+      description: 'What a frontend needs to build its forms: the products with a
+        configured checklist, the document taxonomy for the upload selector, and the
+        workflow states.
+
+
+        *Supporting endpoint — not part of the two-endpoint integration surface.*'
+      operationId: fos_config_api_v1_fos_config_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - HTTPBearer: []
   /api/v1/fos/copilot:
     post:
       tags:
@@ -189,6 +977,92 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - HTTPBearer: []
+  /api/v1/fos/copilot/replay/{request_id}:
+    get:
+      tags:
+      - FOS
+      summary: The final reply of a request, for a reconnecting client (MASTER SPEC
+        section 11)
+      operationId: copilot_replay_api_v1_fos_copilot_replay__request_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown, expired, or not the caller's.
+  /api/v1/fos/copilot/stop:
+    post:
+      tags:
+      - FOS
+      summary: Stop the reply streaming in this chat (MASTER SPEC section 11)
+      operationId: copilot_stop_api_v1_fos_copilot_stop_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/_ChatRef'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - HTTPBearer: []
   /api/v1/fos/copilot/stream:
     post:
       tags:
@@ -204,6 +1078,25 @@ paths:
         `error` (an HTTP status + detail). One pipeline: the answer IS the /fos/copilot
         answer.'
       operationId: copilot_stream_api_v1_fos_copilot_stream_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopilotRequest'
+            examples:
+              in_case_question:
+                summary: CUSTOM_QUERY on a case
+                value:
+                  applicant_id: APP-3D51FFAC6342
+                  case_id: CASE-7DFE2F497522
+                  action: CUSTOM_QUERY
+                  message: kaunse documents pending hain?
+              case_list:
+                summary: CUSTOM_QUERY -- my cases (case workspace on)
+                value:
+                  action: CUSTOM_QUERY
+                  message: mere cases dikhao
+        required: true
       responses:
         '200':
           description: Successful Response
@@ -234,6 +1127,184 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Streaming is off.
+      security:
+      - HTTPBearer: []
+  /api/v1/fos/copilot/updates:
+    get:
+      tags:
+      - FOS
+      summary: 'Pushed follow-ups: what changed on the cases this chat looked at (MASTER
+        SPEC section 11)'
+      description: 'Long-poll: returns at once when something changed (a document
+        verified / rejected since the chat last saw the
+
+        case), else waits up to `wait` seconds (capped by config). Only the caller''s
+        own watched cases; every message is
+
+        {request_id, markdown, tts}, replayable.'
+      operationId: copilot_updates_api_v1_fos_copilot_updates_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: chat_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Chat Id
+      - name: wait
+        in: query
+        required: false
+        schema:
+          type: number
+          default: 0
+          title: Wait
+      - name: reply_language
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reply Language
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/documents:
+    post:
+      tags:
+      - FOS
+      summary: Upload one or more documents for a case
+      description: 'Runs the existing intake pipeline: classification, then basic
+        document verification, then extraction only behind a PASS.
+
+
+        **Intake only.** Cross-document identity checks, income analysis and affordability
+        do not run here -- they belong to later stages, and this endpoint has no authority
+        over them.
+
+
+        The same handler as `POST /api/v1/fos/copilot` with `action=UPLOAD_DOCUMENT`;
+        both accept `files` and positional `document_types`.'
+      operationId: post_documents_api_v1_fos_documents_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              properties:
+                applicant_id:
+                  type: string
+                  example: APP-3D51FFAC6342
+                case_id:
+                  type: string
+                  example: CASE-7DFE2F497522
+                action:
+                  type: string
+                  enum:
+                  - UPLOAD_DOCUMENT
+                  example: UPLOAD_DOCUMENT
+                files:
+                  items:
+                    type: string
+                    format: binary
+                  type: array
+                  description: 'One or more documents. In Swagger, press **Add string
+                    item** once per document and pick a file for each.
+
+
+                    Each file is classified and verified independently and gets its
+                    own entry in `verification.documents_processed`, so one bad file
+                    never stops the rest.'
+                document_types:
+                  items:
+                    type: string
+                  type: array
+                  description: 'Optional, positional: the Nth value asserts the type
+                    of the Nth file. Omit the field entirely to let the pipeline classify
+                    everything, or leave an individual entry blank to classify just
+                    that file.
+
+
+                    Send it as repeated parts (one per file). A single comma-separated
+                    value (`PAN,DRIVING_LICENCE`) is also accepted, because some clients
+                    join array fields that way.
+
+
+                    An assertion is CHECKED, never applied: a file that is not the
+                    type claimed fails with DOCUMENT_TYPE_MISMATCH and is not silently
+                    reclassified. A checklist slot name such as ADDRESS_PROOF is accepted
+                    and resolves to the document types that satisfy it.'
+                  example:
+                  - PAN
+                  - DRIVING_LICENCE
+              type: object
+              required:
+              - applicant_id
+              - case_id
+              - action
+            encoding:
+              files:
+                style: form
+                explode: true
+              document_types:
+                contentType: text/plain
+                style: form
+                explode: true
+        required: true
+      responses:
+        '200':
+          description: What was made of the upload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FosResponse'
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
       security:
       - HTTPBearer: []
   /api/v1/fos/documents/view:
@@ -279,18 +1350,481 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /api/v1/fos/actions:
+  /api/v1/fos/documents/{case_id}:
     get:
       tags:
       - FOS
-      summary: The action list, for rendering the dropdown
-      description: 'Values and labels for the copilot''s `action` field. A frontend
-        renders its dropdown from this rather than hardcoding it, so adding an action
-        does not require a frontend release.
+      summary: The documents on this case and their verification status
+      description: 'What has been uploaded, and what basic verification made of it.
+
+
+        BASIC VERIFICATION ONLY: whether each file is readable, is the type
+
+        it was declared as, and is structurally coherent. Identity
+
+        consistency across documents, income and affordability are later
+
+        stages and are not reported here.'
+      operationId: get_documents_api_v1_fos_documents__case_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: applicant_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Id
+      responses:
+        '200':
+          description: The documents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FosResponse'
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/exports:
+    get:
+      tags:
+      - FOS
+      summary: 'A short-lived download link: one case or a filtered list, as xlsx
+        / docx / pdf'
+      description: '`case_id` = one case''s summary; else `q` = the list''s filters
+        ("group:pending,search:rahul" / "all") over the
+
+        caller''s own cases. Returns {url, expires_in}; the url is bound to the caller
+        and opened with the same JWT.'
+      operationId: export_link_api_v1_fos_exports_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: format
+        in: query
+        required: false
+        schema:
+          type: string
+          default: xlsx
+          title: Format
+      - name: case_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Case Id
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Q
+      - name: lang
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lang
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/exports/file:
+    get:
+      tags:
+      - FOS
+      summary: Download the file of a signed export link (same caller, unexpired)
+      operationId: export_file_api_v1_fos_exports_file_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/form-schema:
+    get:
+      tags:
+      - FOS
+      summary: 'The case form: fields, order, required, rules (UI and chat share it)'
+      operationId: form_schema_api_v1_fos_form_schema_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: lang
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lang
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/handoff-note:
+    get:
+      tags:
+      - FOS
+      summary: The CPA handoff note of a ready case, as md / html / pdf (FOS plan
+        7.1)
+      description: Only the caller's own case (the ordinary ownership check), only
+        when ready, every download audited.
+      operationId: handoff_note_file_api_v1_fos_handoff_note_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: case_id
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: format
+        in: query
+        required: false
+        schema:
+          type: string
+          default: pdf
+          title: Format
+      responses:
+        '200':
+          description: The note.
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not the caller's case.
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: The case is not ready for CPA.
+  /api/v1/fos/imports:
+    post:
+      tags:
+      - FOS
+      summary: 'Validate an Excel (.xlsx) of new cases: row-by-row errors, nothing
+        written'
+      operationId: import_validate_api_v1_fos_imports_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: lang
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lang
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_import_validate_api_v1_fos_imports_post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/imports/{import_id}/confirm:
+    post:
+      tags:
+      - FOS
+      summary: Create the valid rows of a validated import (after Confirm)
+      operationId: import_confirm_api_v1_fos_imports__import_id__confirm_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: import_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Import Id
+      - name: lang
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lang
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/notifications:
+    get:
+      tags:
+      - FOS
+      summary: Cases pending longer than the configured days (home screen and greeting)
+      operationId: notifications_api_v1_fos_notifications_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: lang
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lang
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/quick-actions:
+    get:
+      tags:
+      - FOS
+      summary: The always-available chat buttons (MASTER SPEC 15.2 step 5)
+      description: 'Each button: {id, label, send} -- the frontend posts `send` as
+        a CUSTOM_QUERY message.'
+      operationId: quick_actions_api_v1_fos_quick_actions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: lang
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lang
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/fos/tools:
+    get:
+      tags:
+      - FOS
+      summary: The MCP tool catalogue
+      description: 'Every tool the copilot can call, with its JSON Schema, the scope
+        required to call it, and whether it writes. Published so the boundary is reviewable
+        rather than inferred from source.
+
+
+        The scope shown is the one the permission layer enforces; a test checks the
+        two agree.
 
 
         *Supporting endpoint — not part of the two-endpoint integration surface.*'
-      operationId: actions_api_v1_fos_actions_get
+      operationId: fos_tools_api_v1_fos_tools_get
       responses:
         '200':
           description: Successful Response
@@ -320,24 +1854,25 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - HTTPBearer: []
-  /api/v1/fos/config:
-    get:
+  /api/v1/tts:
+    post:
       tags:
-      - FOS
-      summary: Products, document types and checklists
-      description: 'What a frontend needs to build its forms: the products with a
-        configured checklist, the document taxonomy for the upload selector, and the
-        workflow states.
-
-
-        *Supporting endpoint — not part of the two-endpoint integration surface.*'
-      operationId: fos_config_api_v1_fos_config_get
+      - Speech
+      summary: Speak a chat response (backend TTS, one voice per language)
+      operationId: speak_api_v1_tts_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TtsRequest'
+        required: true
       responses:
         '200':
-          description: Successful Response
+          description: Audio bytes.
           content:
             application/json:
               schema: {}
+            audio/wav: {}
         '401':
           description: No token, or a token that is expired, malformed, for another
             audience, or signed by an unknown key.
@@ -361,6 +1896,29 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - HTTPBearer: []
+  /ready:
+    get:
+      tags:
+      - Ops
+      summary: Readiness probe
+      description: 'Ready to serve traffic.
+
+
+        Returns 503 if the agent configuration or the risk policy cannot be
+
+        loaded, so an orchestrator will not route traffic to a process that would
+
+        fail every request.'
+      operationId: ready_ready_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Ready Ready Get
 components:
   schemas:
     AddressInput:
@@ -923,6 +2481,17 @@ components:
       required:
       - file
       title: Body_extract_financial_api_v1_financial_extract_post
+    Body_import_validate_api_v1_fos_imports_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          format: binary
+      type: object
+      required:
+      - file
+      title: Body_import_validate_api_v1_fos_imports_post
     Body_process_api_v1_los_process_post:
       properties:
         files:
@@ -1419,6 +2988,30 @@ components:
             business truth never depends on it.'
           examples:
           - en
+        reply_language:
+          anyOf:
+          - type: string
+            maxLength: 16
+          - type: 'null'
+          title: Reply Language
+          description: The frontend's selected language (FOS plan section 2) -- the
+            same as `language`. Either one LOCKS every text of the reply to that language,
+            whatever the question was typed in.
+          examples:
+          - en
+        chat_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Chat Id
+          description: The chat this message belongs to (the server remembers its
+            context).
+        new_chat:
+          type: boolean
+          title: New Chat
+          description: 'Start this chat fresh: nothing remembered from before.'
+          default: false
         channel:
           anyOf:
           - type: string
@@ -2495,6 +4088,21 @@ components:
       - UNSUPPORTED
       - FAILED
       title: FinancialStatus
+    FormUpdate:
+      properties:
+        changes:
+          additionalProperties: true
+          type: object
+          title: Changes
+          examples:
+          - email: rahul@example.com
+            loan_amount: 600000
+      type: object
+      required:
+      - changes
+      title: FormUpdate
+      description: The changed fields only. The frontend shows the summary and asks
+        "Confirm?" before sending this.
     FosErrorInfo:
       properties:
         code:
@@ -3858,18 +5466,26 @@ components:
           - type: string
           - type: 'null'
           title: Stage
+          description: 'The stage the user works in (MASTER SPEC 15.1): one of the
+            LOS stages. Echoed in the token response; scope stays the user''s own
+            cases.'
+          examples:
+          - FOS
         case_id:
           anyOf:
           - type: string
           - type: 'null'
           title: Case Id
-          description: Optional Case ID to load on login
+          description: No longer needed and never used for scope. Preloads case_data
+            only for a case the user already has.
+          deprecated: true
         app_id:
           anyOf:
           - type: string
           - type: 'null'
           title: App Id
-          description: Optional Applicant ID to load on login
+          description: No longer needed and never used for scope (see case_id).
+          deprecated: true
       type: object
       required:
       - username
@@ -5313,6 +6929,11 @@ components:
             type: object
           - type: 'null'
           title: Case Data
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
       type: object
       required:
       - access_token
@@ -5477,6 +7098,16 @@ components:
       - REVIEW
       - SKIPPED
       title: VerificationStatus
+    _ChatRef:
+      properties:
+        chat_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Chat Id
+      type: object
+      title: _ChatRef
     app__agents__document_agent__schemas__FieldStatus:
       type: string
       enum:
@@ -5595,6 +7226,18 @@ components:
           examples:
           - mr
           title: Response Language
+        reply_language:
+          anyOf:
+          - maxLength: 16
+            type: string
+          - type: 'null'
+          default: null
+          description: The same as `response_language` (FOS plan section 2, the frontend's
+            name for it). Either one LOCKS every text of the reply -- answer, clarifications,
+            buttons, refusals -- to that language.
+          examples:
+          - en
+          title: Reply Language
         document_id:
           anyOf:
           - maxLength: 256
@@ -5636,6 +7279,32 @@ components:
           examples:
           - COAPP-7F2A11C4D9E0
           title: Co Applicant Id
+        action_link:
+          anyOf:
+          - maxLength: 600
+            type: string
+          - type: 'null'
+          default: null
+          description: A link from the reply's markdown, posted back as is (`action:...`
+            or `ask:...`). Mapped by the server's action registry to the request it
+            stands for; scope is re-checked like any request.
+          examples:
+          - action:open_case?id=CASE-852C
+          title: Action Link
+        chat_id:
+          anyOf:
+          - maxLength: 128
+            type: string
+          - type: 'null'
+          default: null
+          description: The chat this message belongs to (the server remembers its
+            context).
+          title: Chat Id
+        new_chat:
+          default: false
+          description: 'Start this chat fresh: nothing remembered from before.'
+          title: New Chat
+          type: boolean
         context:
           anyOf:
           - additionalProperties: true
@@ -5662,3 +7331,28 @@ components:
     HTTPBearer:
       type: http
       scheme: bearer
+tags:
+- name: Verification Agent
+  description: Is this document acceptable? QUICK checks class, legibility and identifier
+    format in one OCR pass. FULL extracts and validates every field. Neither establishes
+    authenticity.
+- name: Document Agent
+  description: 'Identity documents: PAN, Driving Licence, Voter ID and Passport. OCR
+    plus deterministic extraction -- no model decides a field.'
+- name: Financial Agent
+  description: Bank statements, ITR acknowledgements and salary slips, normalised
+    into common income signals for underwriting.
+- name: Orchestration
+  description: Execute any agent by id or stage through LangGraph.
+- name: FOS
+  description: 'The field-officer integration surface. TWO endpoints: POST /api/v1/fos/applicants
+    opens a case, and POST /api/v1/fos/copilot serves every question, dropdown action
+    and document upload. One response shape for all of them. Credit, risk, KYC and
+    lending questions are routed downstream, never answered here.'
+- name: Applicant Agent
+  description: The FOS copilot. Natural-language questions about an applicant, their
+    application, documents, what is pending and whether the case is ready for CPA
+    -- answered from stored records. Credit, risk, KYC and lending decisions are routed
+    downstream, never answered here.
+- name: Ops
+  description: Liveness, readiness and metrics.

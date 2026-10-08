@@ -5,10 +5,10 @@
   },
   "response": {
     "request_id": "<request_id>",
-    "applicant_id": "APP-B597637EF37D",
-    "case_id": "CASE-AB355D618BF7",
+    "applicant_id": "APP-AEAFB9EC3769",
+    "case_id": "CASE-E658D45C16BD",
     "intent": "FOS_KNOWLEDGE",
-    "answer": "ℹ️ **KYC (Know Your Customer)**: aapki identity verify karne ki process.\n\n👉 Check your **status** or **pending documents**?",
+    "answer": "**KYC (Know Your Customer)**: aapki identity verify karne ki process.\n\n**Next step:** Check your **status** or **pending documents**?",
     "category": "KNOWLEDGE_ONLY",
     "query_type": "PROCESS_KNOWLEDGE",
     "response_source": "GLOSSARY",
@@ -23,26 +23,8 @@
       "applied": true,
       "expanded": []
     },
-    "emphasis": [
-      {
-        "text": "pending",
-        "start": 93,
-        "end": 100
-      }
-    ],
-    "answer_plain": "ℹ️ KYC (Know Your Customer): aapki identity verify karne ki process.\n\n👉 Check your status or pending documents?",
-    "answer_markdown": "ℹ️ KYC (Know Your Customer): aapki identity verify karne ki process.\n\n👉 Check your status or **pending** documents?",
     "presentation": {
-      "emphasis": [
-        {
-          "text": "pending",
-          "start": 93,
-          "end": 100
-        }
-      ],
-      "answer_markdown": "ℹ️ KYC (Know Your Customer): aapki identity verify karne ki process.\n\n👉 Check your status or **pending** documents?",
-      "answer_plain": "ℹ️ KYC (Know Your Customer): aapki identity verify karne ki process.\n\n👉 Check your status or pending documents?",
-      "message": "ℹ️ **KYC (Know Your Customer)**: aapki identity verify karne ki process. 👉 Check your **status** or **pending documents**?",
+      "message": "**KYC (Know Your Customer)**: aapki identity verify karne ki process. Check your **status** or **pending documents**?",
       "intent": "FOS_KNOWLEDGE",
       "response_type": "ANSWER",
       "response_depth": "NORMAL",
@@ -55,13 +37,13 @@
         "status": "NO_VOICE_FOR_LANGUAGE",
         "language": null,
         "voice": null,
-        "text": "ℹ️ **KYC (Know Your Customer)**: aapki identity verify karne ki process. 👉 Check your **status** or **pending documents**?",
+        "text": "**KYC (Know Your Customer)**: aapki identity verify karne ki process. Check your **status** or **pending documents**?",
         "endpoint": null,
         "format": "wav"
       },
       "case_context": {
-        "case_id": "CASE-AB355D618BF7",
-        "applicant_id": "APP-B597637EF37D",
+        "case_id": "CASE-E658D45C16BD",
+        "applicant_id": "APP-AEAFB9EC3769",
         "stage": null
       },
       "sections": [],
@@ -77,6 +59,11 @@
         "language": null,
         "response_source": "GLOSSARY"
       }
+    },
+    "answer_plain": "KYC (Know Your Customer): aapki identity verify karne ki process.\n\nNext step: Check your status or pending documents?",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
     }
   }
 }

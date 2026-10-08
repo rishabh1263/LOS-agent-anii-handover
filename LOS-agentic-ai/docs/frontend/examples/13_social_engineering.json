@@ -7,7 +7,7 @@
     "request_id": "<request_id>",
     "case_id": null,
     "intent": "SOCIAL_ENGINEERING",
-    "answer": "⚠️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is **pending**.",
+    "answer": "I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. Raise it there, or check what is **pending**.",
     "category": "CONVERSATION",
     "query_type": "CLARIFICATION",
     "response_source": "SAFETY",
@@ -25,25 +25,7 @@
       "applied": true,
       "expanded": []
     },
-    "emphasis": [
-      {
-        "text": "pending",
-        "start": 150,
-        "end": 157
-      }
-    ],
-    "answer_plain": "⚠️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is pending.",
-    "answer_markdown": "⚠️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is **pending**.",
     "presentation": {
-      "emphasis": [
-        {
-          "text": "pending",
-          "start": 150,
-          "end": 157
-        }
-      ],
-      "answer_markdown": "⚠️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is **pending**.",
-      "answer_plain": "⚠️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is pending.",
       "message": null,
       "intent": "SOCIAL_ENGINEERING",
       "response_type": "ANSWER",
@@ -57,7 +39,7 @@
         "status": "NO_VOICE_FOR_LANGUAGE",
         "language": null,
         "voice": null,
-        "text": "️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is **pending**.",
+        "text": "I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. Raise it there, or check what is **pending**.",
         "endpoint": null,
         "format": "wav"
       },
@@ -71,8 +53,8 @@
           "title": null,
           "items": [
             {
-              "icon": "⚠",
-              "label": "️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is **pending**.",
+              "icon": "",
+              "label": "I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. Raise it there, or check what is **pending**.",
               "status": null
             }
           ]
@@ -90,6 +72,11 @@
         "language": null,
         "response_source": "SAFETY"
       }
+    },
+    "answer_plain": "I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. Raise it there, or check what is pending.",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
     }
   }
 }

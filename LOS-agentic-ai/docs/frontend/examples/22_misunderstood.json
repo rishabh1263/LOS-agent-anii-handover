@@ -1,0 +1,306 @@
+{
+  "request": {
+    "action": "CUSTOM_QUERY",
+    "message": "ye nahi poocha",
+    "reply_language": "en"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "applicant_id": "APP-F2D29DB3305E",
+    "case_id": "CASE-DA842B2E38A9",
+    "action": "CUSTOM_QUERY",
+    "intent": "UNKNOWN",
+    "answer": "CASE-DA842B2E38A9\nSorry, I got that wrong. What did you want to know about this case?",
+    "query_type": "CLARIFICATION",
+    "case_state": null,
+    "suggested_questions": [
+      "What is pending?",
+      "Is it ready for CPA?",
+      "KYC status"
+    ],
+    "available_actions": [],
+    "document_highlights": [],
+    "clarification_required": {
+      "reason": "MISUNDERSTOOD",
+      "question": "Sorry, I got that wrong. What did you want to know about this case?",
+      "options": [
+        "What is pending?",
+        "Is it ready for CPA?",
+        "KYC status"
+      ]
+    },
+    "followed_up": null,
+    "context": {
+      "conversation_id": "0d2965d9876b423294216011baa2039d",
+      "case_id": "CASE-DA842B2E38A9",
+      "last_query_type": "CLARIFICATION",
+      "last_intent": "UNKNOWN",
+      "last_slot": null,
+      "last_documents": [],
+      "last_document": null,
+      "last_field": null,
+      "last_aspect": null,
+      "last_subject": null,
+      "last_task": null,
+      "last_object": null,
+      "last_stage": null,
+      "last_source": "STRUCTURED",
+      "last_language": null
+    },
+    "understanding": {
+      "conversation": {
+        "conversation_id": "0d2965d9876b423294216011baa2039d",
+        "turn_id": 1,
+        "outcome": "NEW_TOPIC",
+        "note": null,
+        "pending_before": null,
+        "turn_type": "AMBIGUOUS",
+        "pending_after": {
+          "status": "OPEN",
+          "reason": "MISUNDERSTOOD",
+          "question_type": "EITHER_OR",
+          "unresolved_field": "INTENT",
+          "kind": "CLARIFICATION",
+          "expires_in_s": 600,
+          "options": [
+            "What is pending?",
+            "Is it ready for CPA?",
+            "KYC status"
+          ],
+          "created_turn_id": 1,
+          "asked_times": 1
+        },
+        "state": {
+          "conversation_id": "0d2965d9876b423294216011baa2039d",
+          "turn_id": 1,
+          "current_topic": null,
+          "active_party": null,
+          "active_stage": null,
+          "language": null,
+          "pending_clarification": {
+            "status": "OPEN",
+            "reason": "MISUNDERSTOOD",
+            "question_type": "EITHER_OR",
+            "unresolved_field": "INTENT",
+            "kind": "CLARIFICATION",
+            "expires_in_s": 600,
+            "options": [
+              "What is pending?",
+              "Is it ready for CPA?",
+              "KYC status"
+            ],
+            "created_turn_id": 1,
+            "asked_times": 1
+          },
+          "last_intent": null,
+          "last_document": null,
+          "last_documents": []
+        }
+      },
+      "response_plan": "CLARIFICATION",
+      "natural_composition": {
+        "plan": "CLARIFICATION",
+        "enabled": false,
+        "attempted": false,
+        "accepted": false,
+        "reason": "FLAG_OFF",
+        "ms": 0.0
+      }
+    },
+    "observability": {
+      "correlation_id": "<request_id>",
+      "surface": "fos",
+      "conversation_id": "0d2965d9876b423294216011baa2039d",
+      "turn_id": 1,
+      "turn_type": "AMBIGUOUS",
+      "outcome": "NEW_TOPIC",
+      "scope": "fos",
+      "capability": null,
+      "intent": "UNKNOWN",
+      "category": "UNSUPPORTED",
+      "query_type": "CLARIFICATION",
+      "decided_by": null,
+      "language": null,
+      "model_route": null,
+      "model_used": null,
+      "model_attempted": 0,
+      "model_calls": 0,
+      "model_ledger": {
+        "calls": 0,
+        "ok": 0,
+        "timeouts": 0,
+        "errors": 0,
+        "used": 0,
+        "ms": 0,
+        "detail": []
+      },
+      "model_fallbacks": 0,
+      "tools": [],
+      "tool_calls": 0,
+      "source": "STRUCTURED",
+      "clarification": true,
+      "clarification_reason": "MISUNDERSTOOD",
+      "guardrail": null,
+      "fidelity": null,
+      "status": "OK",
+      "error": null,
+      "latency": {
+        "security_ms": 0.53,
+        "conversation_ms": 5.79,
+        "summary_ms": 0.0,
+        "language_ms": 0.09,
+        "total_ms": 10.49
+      }
+    },
+    "category": "UNSUPPORTED",
+    "actions": [],
+    "response_source": "STRUCTURED",
+    "processing_ms": 1.44,
+    "errors": [],
+    "summary": null,
+    "status": null,
+    "processing_queue": [],
+    "grounded": false,
+    "response_type": "CLARIFICATION",
+    "subject": {
+      "party": null
+    },
+    "language": null,
+    "processing": null,
+    "portfolio": null,
+    "scope": "NONE",
+    "language_contract": {
+      "language": "hi-Latn",
+      "script": "Latin",
+      "input_mode": "ROMANIZED",
+      "semantic_rewrite": true,
+      "confidence": 0.65,
+      "response_language": "en",
+      "review_status": "SEED_UNREVIEWED",
+      "provider": "lexicon",
+      "provider_fallback": false,
+      "reply_language": "en",
+      "localized": true,
+      "selected_by": "FRONTEND"
+    },
+    "pending_work": null,
+    "gate": null,
+    "semantic_decisions": null,
+    "presentation": {
+      "workspace": {
+        "case_id": "CASE-DA842B2E38A9",
+        "header": "CASE-DA842B2E38A9",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "What is pending?",
+            "message": "What is pending?"
+          },
+          {
+            "type": "ask",
+            "label": "Why is it stuck?",
+            "message": "Why is it stuck?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      },
+      "message": "CASE-DA842B2E38A9 Sorry, I got that wrong. What did you want to know about this case?",
+      "intent": "UNKNOWN",
+      "response_type": "CLARIFICATION",
+      "response_depth": "NORMAL",
+      "language": "en",
+      "status": "INFO",
+      "next_step": null,
+      "next_action": null,
+      "audio": {
+        "enabled": false,
+        "status": "DEGRADED",
+        "language": "en",
+        "voice": "Zira",
+        "text": "CASE-DA842B2E38A9. Sorry, I got that wrong. What did you want to know about this case?",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": "CASE-DA842B2E38A9",
+        "applicant_id": "APP-F2D29DB3305E",
+        "stage": null
+      },
+      "sections": [],
+      "documents": [],
+      "document_groups": [],
+      "actions": [],
+      "next_actions": [],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": "en",
+        "response_source": "STRUCTURED"
+      }
+    },
+    "workspace_view": {
+      "workspace": {
+        "case_id": "CASE-DA842B2E38A9",
+        "header": "CASE-DA842B2E38A9",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "What is pending?",
+            "message": "What is pending?"
+          },
+          {
+            "type": "ask",
+            "label": "Why is it stuck?",
+            "message": "Why is it stuck?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      }
+    },
+    "response_style": {
+      "applied": true,
+      "expanded": []
+    },
+    "answer_plain": "CASE-DA842B2E38A9\nSorry, I got that wrong. What did you want to know about this case?",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
+    }
+  }
+}

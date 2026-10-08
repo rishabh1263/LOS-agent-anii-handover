@@ -210,6 +210,13 @@ def verification_block(documents: list[dict[str, Any]], checklist: list[dict[str
             "needs_attention": [e["document_type"] for e in entries if e["verdict"] in ("REVIEW", "FAIL")]}
 
 
+def _count_label(key: str, **values: Any) -> str:
+    from app.agents.applicant import config
+
+    defaults = {"upload_required": "Upload {label}", "upload_optional": "Upload {label} (optional)"}
+    return str((config.chatbot("document_counts").get("labels") or {}).get(key, defaults.get(key, key))).format(**values)
+
+
 def checklist_row(row: dict[str, Any]) -> dict[str, Any]:
     """
     ONE CONFIGURED REQUIREMENT, renderable as it stands: its category, the
@@ -228,8 +235,13 @@ def checklist_row(row: dict[str, Any]) -> dict[str, Any]:
     row.setdefault("required", required)
     actions = []
     if status in ("MISSING", "REJECTED", ""):
+        # REQUIRED vs OPTIONAL said on the button itself (FOS plan 1.5): a UI that offers every upload must not
+        # make 4 optional slots look like 4 more pending ones
+        requirement = "REQUIRED" if required else "OPTIONAL"
+        label = str(row.get("label") or "")
         actions.append({"action": "UPLOAD_DOCUMENT", "document_type": row.get("slot"),
-                        "accepted_types": accepts, "enabled": True})
+                        "accepted_types": accepts, "enabled": True, "requirement": requirement,
+                        "label": _count_label("upload_required" if required else "upload_optional", label=label)})
     if status in ("UPLOADED", "PROCESSING") and row.get("document_id"):
         actions.append({"action": "VERIFY_DOCUMENT", "document_id": row.get("document_id"), "enabled": True})
     if status in ("VERIFIED", "REVIEW") and row.get("document_id"):

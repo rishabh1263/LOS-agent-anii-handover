@@ -42,7 +42,9 @@ def _label(application: Any) -> dict[str, Any]:
     try:
         from app.agents.applicant.copilot.facts.document_facts import _rupees
 
-        amount_text = _rupees(amount) if amount not in (None, "") else None
+        from app.agents.applicant.copilot.answering.profile import _implausible
+
+        amount_text = (_implausible("loan_amount", amount) or _rupees(amount)) if amount not in (None, "") else None
     except Exception:  # noqa: BLE001 - an unformattable amount is shown as recorded
         amount_text = str(amount) if amount else None
     product = _readable(getattr(application, "product", None)) if getattr(application, "product", None) else None
