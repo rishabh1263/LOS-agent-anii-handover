@@ -57,10 +57,10 @@ reply:
     hi: ["कृपया अपशब्दों का प्रयोग न करें। अपना सवाल सम्मान से दोबारा पूछें।"]
     mr: ["कृपया अपशब्द वापरू नका. तुमचा प्रश्न आदराने पुन्हा विचारा."]
   cooldown:
-    en: "Let's take a short break -- you can ask again in {seconds} seconds."
-    hi-Latn: "Thoda ruk jaate hain -- {seconds} second baad dobara poochhiye."
-    hi: "थोड़ा रुकते हैं -- {seconds} सेकंड बाद दोबारा पूछें।"
-    mr: "थोडा विराम घेऊया -- {seconds} सेकंदांनी पुन्हा विचारा."
+    en: "Let's take a short break, you can ask again in {seconds} seconds."
+    hi-Latn: "Thoda ruk jaate hain, {seconds} second baad dobara poochhiye."
+    hi: "थोड़ा रुकते हैं, {seconds} सेकंड बाद दोबारा पूछें।"
+    mr: "थोडा विराम घेऊया, {seconds} सेकंदांनी पुन्हा विचारा."
 
 # repeated abuse: this many flagged messages inside the window -> a cooldown of `cooldown_seconds`
 cooldown_after: 3

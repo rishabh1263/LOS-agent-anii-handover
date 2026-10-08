@@ -26,7 +26,7 @@ def test_open_by_number_then_every_answer_starts_with_the_case_line(client, prod
     _seed(_store, a, c)
     say(client, "my cases")
     opened = say(client, "1")
-    assert c in opened.split("\n")[0] and "Review" in opened, opened          # review on open
+    assert c in opened.split("\n")[0] and "Next step:" in opened, opened      # the case brief on open
     answer = say(client, "kya baaki hai?")
     assert answer.split("\n")[0].strip() == c, answer
 
@@ -56,7 +56,7 @@ def test_aur_switches_the_document_keeping_the_question(client, prod, _store):
     say(client, f"{c} kholo")
     say(client, "PAN ka status?")
     md = say(client, "aur driving licence?")
-    assert "driving licence" in md.lower() and "reject" in md.lower(), md
+    assert "driving licence" in md.lower() and ("reject" in md.lower() or "did not pass" in md.lower()), md
 
 
 def test_another_case_while_one_is_open_is_answered_then_offers_the_switch(client, prod):

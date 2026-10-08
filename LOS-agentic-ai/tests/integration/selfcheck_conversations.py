@@ -13,7 +13,7 @@ R = r"(?i)"
 LIST = [R + r"\| CASE-[0-9A-F]+ \|"]
 PARTICULAR = [R + r"particular case|details of a particular"]
 GROUP_Q = [R + r"pending or done|pending ya done"]
-OPENED = [R + r"\bopened\b|khul gaya|kholaa"]
+OPENED = [R + r"CASE-[0-9A-F]+\** · [^\n]+ · FOS|\bopened\b"]       # the case brief's first line
 WHAT_KNOW = [R + r"what do you want to know|what would you like to know|kya jaanna"]
 PENDING_DOCS = [R + r"\bPAN\b"], [R + r"address proof"], [R + r"bank statement"]
 NOT_READY = [R + r"not ready|ready nahi|abhi ready nahi|checks passed"]
@@ -39,7 +39,7 @@ CONVERSATIONS: list[tuple[str, list[tuple]]] = [
         ("my cases", [LIST, PARTICULAR], []),
         ("Yes", [GROUP_Q], []),
         ("Pending", [LIST], []),
-        ("1", [OPENED, WHAT_KNOW, *DOWNLOADS, SHOW_UI], []),
+        ("1", [OPENED, WHAT_KNOW], [R + r"action:download"]),         # A4: no downloads on open
         ("What is pending?", list(PENDING_DOCS), [],
          [[R + r"PAN"], [R + r"address proof"], [R + r"bank statement"]]),     # the voice names all three
         ("Is it ready for CPA?", [NOT_READY], [R + r"ready for cpa\. a person must"]),
@@ -71,7 +71,7 @@ CONVERSATIONS: list[tuple[str, list[tuple]]] = [
         ("stage kya hai", [STAGE_FOS], []),
     ]),
     ("07 open by id", [
-        ("open {A}", [OPENED, *DOWNLOADS, SHOW_UI], []),
+        ("open {A}", [OPENED], [R + r"action:download"]),             # A4: the brief, no downloads
         ("kyu atka hai?", [[R + r"PAN|document|pending|KYC"]], []),
     ]),
     ("08 readiness", [

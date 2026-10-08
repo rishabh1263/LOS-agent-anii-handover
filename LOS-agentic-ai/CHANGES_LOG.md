@@ -1540,3 +1540,34 @@ Patch: `runs/patches/master-15-17-12-10-product-flow-guardrails-selfcheck.patch`
   CPA -> FOS and FOS -> CPA queries; reply / resolve by query id. Every step proposal + Confirm; offers shown under
   case answers. Stage-move note now only for approve / reject / disburse / skip-a-check.
 - Tests: test_master_15b_stage_flow (7); self-check updated.
+- **No dead ends** (owner report "Application status -> Open a case first"): a case question with no case open now
+  asks "Which case is this about?" over the recent cases and answers the ORIGINAL question after the pick (one case:
+  answered directly). "view all cases" lists (view/see/display are list verbs). FIX: "status kya hai" with no case
+  was answered "I don't know that yet" (FAQ rule now skips case questions, product_flow.yaml which_case.case_words).
+- **Architecture kept**: the confirmed FOS -> CPA move runs in the route layer (`fos_api.move_case_stage`), never in
+  a copilot module (test_stage_lifecycle test_l). Full run before this fix: 2526 passed, 2 failed -> both fixed;
+  related suites after: 157 passed.
+
+## FINAL FIX + PROOF (2026-10-08)
+- **A1 contradiction** root cause: the review card counted only COUNTED groups, so an advisory item (KYC not run)
+  sat beside "every check passes". Case open is now the CASE BRIEF (`answering/case_brief.py`, product_flow.yaml
+  `case_brief`): case + name + stage / the main blocker WITH its reason ("PAN ... not uploaded, so Priya's KYC hasn't
+  run yet") / "Next step:", from the readiness report only; all-clear only when NO item of ANY group is open. Safety
+  net `contract._consistent` (copilot_reply.yaml markdown.consistency). The status answer's pending list now includes
+  the signature (status_facts.pending_documents) -- same set as the brief.
+- **A2 dead ends** removed everywhere (fos + universal): 0 cases -> "You don't have any cases yet" + Create New Case;
+  1 case -> answered; several -> "Which case is this about?" + the recent cases, and the pick answers the ORIGINAL
+  question (`workspace.ask_which_case`, `Turn.message`, `fos_api._no_case_turn`). "kyu?" with nothing recorded now
+  gives the real blocker (`case_brief.why_fallback`).
+- **A3** "view/show/list all cases", "all cases dikhao", "mere saare cases" -> the list (list_rule); evals/router_misses.yaml.
+- **A4 less is more** (product_flow.yaml `link_policy`): <= 3 extra link items per reply ("Download: Excel · Doc · PDF"
+  is one item), downloads / Show in UI / workflow offers only on a portfolio or case summary or when asked, never a
+  link from the previous reply, exit / switch never shown. Case open: 3 lines + <= 2 state-chosen links.
+- **A5** 59 config template lines lost their " -- "; command hints ("say ...") rewritten; output safety net in contract.
+- **B security**: every data / document / download route 401 without a token, 404 / 403 for another officer (live
+  HTTP); no public folder is served. FIX: `GET /api/v1/verify/` returned the server's upload path -> removed. FIX:
+  document view looked bytes up by the raw id only (OCR-queued bytes are kept under storage_key) -> both.
+- **C/D** ONE action endpoint `POST /api/v1/fos/action` (files with Content-Disposition, UI routes from
+  product_flow.yaml `ui_routes`, or the chat reply); `docs/frontend/ChatLinks.jsx` (react-markdown handler);
+  FRONTEND_GUIDE 5.2b with curl; widget uses the endpoint. Live HTTP: all 6 downloads open; every action yes.
+- Tests: tests/integration/test_final_fix.py (19).

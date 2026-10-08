@@ -358,7 +358,8 @@ def _asks_what_to_do(text: str) -> bool:
 def _pending_and_next(results: dict[str, Any]) -> str:
     """What this case still needs, from its own checklist and next action."""
     view = results.get("applicant.360") or {}
-    pending = status_facts.pending_documents(view.get("checklist"))
+    pending = status_facts.pending_documents(view.get("checklist"),
+                                             (view.get("application") or {}).get("case_id"))
     if pending:
         listed = case_memory_facts._and_list(pending)
         one = len(pending) == 1

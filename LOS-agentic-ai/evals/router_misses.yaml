@@ -30,3 +30,13 @@ misses:
   - { text: "CPA mein kab jayega?", tool: case_status, source: fast lane (normalised "kab jayega" unknown), added: 2026-10-07 }
   # (no router tool for this; fixed in the fast lane) text: "co-applicant hai kya?"
   # (no router tool for this; fixed in the fast lane) text: "is there a co-applicant?"
+  # FINAL FIX A3 (2026-10-08): "view" / "all ... dikhao" list phrasings that fell to "open a case first" -- fixed in
+  # the workspace list rule (applicant_agent.yaml case_workspace.list_rule), recorded here for the bank
+  - { text: "view all cases", tool: list_cases, source: final fix A3 (fast lane list rule), added: 2026-10-08 }
+  - { text: "view all case", tool: list_cases, source: final fix A3 (fast lane list rule), added: 2026-10-08 }
+  - { text: "show all cases", tool: list_cases, source: final fix A3, added: 2026-10-08 }
+  - { text: "list all case", tool: list_cases, source: final fix A3, added: 2026-10-08 }
+  - { text: "all cases dikhao", tool: list_cases, source: final fix A3, added: 2026-10-08 }
+  - { text: "mere saare cases", tool: list_cases, source: final fix A3, added: 2026-10-08 }
+  - { text: "Application status", tool: case_status, source: "final fix A2 (no case open, which case)", added: 2026-10-08 }
+  - { text: "status kya hai", tool: case_status, source: "final fix A2 (was FAQ unknown)", added: 2026-10-08 }

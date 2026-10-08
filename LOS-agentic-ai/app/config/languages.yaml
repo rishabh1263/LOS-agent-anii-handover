@@ -1086,9 +1086,9 @@ templates:
     mr: "या केससाठी {document} अजून अपलोड झालेले नाही."
   # a later stage asked about: "Credit comes later -- your case is at FOS ..."
   stage_later:
-    hi: "{target} बाद में आता है -- आपका केस अभी {stage} में है, पहले इसे {next} में जाना होगा।"
-    hi-Latn: "{target} baad mein aata hai -- aapka case abhi {stage} mein hai, pehle ise {next} mein jaana hoga."
-    mr: "{target} नंतर येते -- तुमचा केस सध्या {stage} मध्ये आहे, आधी तो {next} कडे जायला हवा."
+    hi: "{target} बाद में आता है, आपका केस अभी {stage} में है, पहले इसे {next} में जाना होगा।"
+    hi-Latn: "{target} baad mein aata hai, aapka case abhi {stage} mein hai, pehle ise {next} mein jaana hoga."
+    mr: "{target} नंतर येते, तुमचा केस सध्या {stage} मध्ये आहे, आधी तो {next} कडे जायला हवा."
   # the recorded mismatch, VALUES QUOTED EXACTLY ({v1}/{v2} are never translated)
   mismatch_clause:
     hi: "{doc1} पर {field} {v1} है, लेकिन {doc2} पर {v2}"
@@ -1203,9 +1203,9 @@ templates:
     hi-Latn: "{items} ka verification chal raha hai."
     mr: "{items} ची पडताळणी सुरू आहे."
   work_no_permission:
-    hi: "इस सत्र में {items} का सत्यापन मैं शुरू नहीं कर सकता -- अपलोड की अनुमति चाहिए।"
-    hi-Latn: "Is session mein {items} ka verification main shuru nahi kar sakta -- upload permission chahiye."
-    mr: "या सत्रात {items} ची पडताळणी मी सुरू करू शकत नाही -- अपलोडची परवानगी हवी."
+    hi: "इस सत्र में {items} का सत्यापन मैं शुरू नहीं कर सकता, अपलोड की अनुमति चाहिए।"
+    hi-Latn: "Is session mein {items} ka verification main shuru nahi kar sakta, upload permission chahiye."
+    mr: "या सत्रात {items} ची पडताळणी मी सुरू करू शकत नाही, अपलोडची परवानगी हवी."
   work_nothing:
     hi: "इस केस पर अभी कुछ भी बाकी नहीं है।"
     hi-Latn: "Is case par abhi kuch bhi baaki nahi hai."
@@ -1509,10 +1509,10 @@ fixed_sentences:
     hi: "इस आवेदन पर कोई सह-आवेदक नहीं है।"
     hi-Latn: "Is application par koi co-applicant nahi hai."
     mr: "या अर्जावर सह-अर्जदार नाही."
-  "There's no co-applicant on this application -- only the primary applicant is on record.":
-    hi: "इस आवेदन पर कोई सह-आवेदक नहीं है -- केवल मुख्य आवेदक दर्ज है।"
-    hi-Latn: "Is application par koi co-applicant nahi hai -- sirf primary applicant record mein hai."
-    mr: "या अर्जावर सह-अर्जदार नाही -- फक्त मुख्य अर्जदाराची नोंद आहे."
+  "There's no co-applicant on this application, only the primary applicant is on record.":
+    hi: "इस आवेदन पर कोई सह-आवेदक नहीं है, केवल मुख्य आवेदक दर्ज है।"
+    hi-Latn: "Is application par koi co-applicant nahi hai, sirf primary applicant record mein hai."
+    mr: "या अर्जावर सह-अर्जदार नाही, फक्त मुख्य अर्जदाराची नोंद आहे."
   "This application has only one applicant.":
     hi: "इस आवेदन पर केवल एक आवेदक है।"
     hi-Latn: "Is application par sirf ek applicant hai."

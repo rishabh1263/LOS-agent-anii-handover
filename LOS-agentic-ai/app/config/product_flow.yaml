@@ -88,8 +88,8 @@ portfolio_flow:
     yes_label: { en: "Yes", hi-Latn: "Haan", hi: "हाँ", mr: "हो" }
     no_label: { en: "No", hi-Latn: "Nahi", hi: "नहीं", mr: "नाही" }
     ask_group:
-      en: ["Pending or Done?", "Which ones -- Pending or Done?"]
-      hi-Latn: ["Pending ya Done?", "Kaunse -- Pending ya Done?"]
+      en: ["Pending or Done?", "Which ones. Pending or Done?"]
+      hi-Latn: ["Pending ya Done?", "Kaunse. Pending ya Done?"]
       hi: ["लंबित या पूरे?"]
       mr: ["प्रलंबित की पूर्ण?"]
     no_reply:
@@ -138,6 +138,14 @@ case_links:
   on_lists: true                     # a list answer offers the filtered list as downloads too
   # a typed download request ("excel download karo", "pdf chahiye"): the links for the open case, else for the list
   ask_words: [download, export, excel, pdf, doc file, word file, xlsx, docx, डाउनलोड, एक्सेल]
+  # a typed "show in UI": the Show in UI action for the open case (else the list)
+  show_words: [show in ui, open in ui, ui mein dikhao, ui me dikhao, ui par dikhao, screen par dikhao,
+               main screen, show on screen, ui mein kholo, यूआई में दिखाओ]
+  show_here:
+    case: { en: "Open {case_id} on the main screen:", hi-Latn: "{case_id} main screen par kholiye:",
+            hi: "{case_id} मुख्य स्क्रीन पर खोलें:", mr: "{case_id} मुख्य स्क्रीनवर उघडा:" }
+    list: { en: "Open your cases on the main screen:", hi-Latn: "Apne cases main screen par kholiye:",
+            hi: "अपने केस मुख्य स्क्रीन पर खोलें:", mr: "तुमच्या केस मुख्य स्क्रीनवर उघडा:" }
   here:
     case: { en: "Downloads for {case_id}:", hi-Latn: "{case_id} ke downloads:", hi: "{case_id} के डाउनलोड:",
             mr: "{case_id} चे डाउनलोड:" }
@@ -220,8 +228,8 @@ case_form:
     employment_type: { en: " ({choices})", hi-Latn: " ({choices})", hi: " ({choices})", mr: " ({choices})" }
     loan_amount: { en: " (full amount in rupees, e.g. 500000)", hi-Latn: " (poori rakam rupaye mein, jaise 500000)",
                    hi: " (पूरी राशि रुपये में, जैसे 500000)", mr: " (पूर्ण रक्कम रुपयांत, उदा. 500000)" }
-  optional_hint: { en: " (optional -- type skip)", hi-Latn: " (optional -- skip likhiye)", hi: " (वैकल्पिक -- skip लिखें)",
-                   mr: " (पर्यायी -- skip लिहा)" }
+  optional_hint: { en: " (optional, type skip)", hi-Latn: " (optional, skip likhiye)", hi: " (वैकल्पिक, skip लिखें)",
+                   mr: " (पर्यायी, skip लिहा)" }
   skip_words: [skip, chhodo, chodo, rehne do, na, none, -, छोड़ो, वगळा]
   cancel_words: [cancel, stop creating, band karo, rehne do case, cancel case, रद्द करो, रद्द करा]
   confirm_words: [confirm, yes confirm, haan confirm, confirm karo, create karo, theek hai banao, पुष्टि, खात्री]
@@ -334,8 +342,8 @@ import:
       hi-Latn: "{total} mein se {ok} rows sahi hain. {bad} row(s) mein galti hai."
       hi: "{total} में से {ok} पंक्तियाँ सही हैं। {bad} पंक्ति(यों) में गलती है।"
       mr: "{total} पैकी {ok} ओळी बरोबर आहेत. {bad} ओळींमध्ये चूक आहे."
-    row_error: { en: "Row {row}: {label} -- {why}", hi-Latn: "Row {row}: {label} -- {why}",
-                 hi: "पंक्ति {row}: {label} -- {why}", mr: "ओळ {row}: {label} -- {why}" }
+    row_error: { en: "Row {row}: {label}, {why}", hi-Latn: "Row {row}: {label}, {why}",
+                 hi: "पंक्ति {row}: {label}, {why}", mr: "ओळ {row}: {label}, {why}" }
     confirm_q:
       en: "Create {ok} case(s) from the valid rows? Nothing is written until you confirm."
       hi-Latn: "Sahi rows se {ok} case banayein? Confirm karne tak kuch save nahi hoga."
@@ -424,10 +432,10 @@ stage_move:
             disburse, reject this, reject kar, mark verified, kyc pass kar, kyc bypass, skip kyc, bypass kyc,
             stage update, update the stage]
   text:
-    en: "I can't approve, reject, disburse or skip a check from chat -- a person does that. Here is where it stands:"
-    hi-Latn: "Main chat se approve, reject, disburse ya koi check skip nahi kar sakta -- yeh ek vyakti karta hai. Abhi ki sthiti:"
-    hi: "मैं चैट से मंज़ूरी, अस्वीकृति, वितरण या कोई जाँच छोड़ना नहीं कर सकता -- यह एक व्यक्ति करता है। अभी की स्थिति:"
-    mr: "मी चॅटमधून मंजुरी, नकार, वितरण किंवा तपासणी वगळणे करू शकत नाही -- हे एक व्यक्ती करते. सध्याची स्थिती:"
+    en: "I can't approve, reject, disburse or skip a check from chat, a person does that. Here is where it stands:"
+    hi-Latn: "Main chat se approve, reject, disburse ya koi check skip nahi kar sakta, yeh ek vyakti karta hai. Abhi ki sthiti:"
+    hi: "मैं चैट से मंज़ूरी, अस्वीकृति, वितरण या कोई जाँच छोड़ना नहीं कर सकता, यह एक व्यक्ति करता है। अभी की स्थिति:"
+    mr: "मी चॅटमधून मंजुरी, नकार, वितरण किंवा तपासणी वगळणे करू शकत नाही, हे एक व्यक्ती करते. सध्याची स्थिती:"
 
 # ---- THE FOS <-> CPA WORKFLOW (owner, 2026-10-08) -- read by capabilities/stage_flow.py --------------------------
 # At FOS, anything wrong (KYC mismatch, rejected / missing document) -> a query to the CUSTOMER (one query listing
@@ -468,10 +476,10 @@ stage_flow:
       pending: { en: "{party}: please share the {document}.", hi-Latn: "{party}: kripya {document} dijiye.",
                  hi: "{party}: कृपया {document} दें।", mr: "{party}: कृपया {document} द्या." }
     nothing_wrong:
-      en: "Nothing is wrong on {case_id} right now -- no query is needed."
-      hi-Latn: "{case_id} mein abhi kuch galat nahi hai -- query ki zaroorat nahi."
-      hi: "{case_id} में अभी कुछ गलत नहीं है -- क्वेरी की ज़रूरत नहीं।"
-      mr: "{case_id} मध्ये सध्या काहीही चुकीचे नाही -- क्वेरीची गरज नाही."
+      en: "Nothing is wrong on {case_id} right now, no query is needed."
+      hi-Latn: "{case_id} mein abhi kuch galat nahi hai, query ki zaroorat nahi."
+      hi: "{case_id} में अभी कुछ गलत नहीं है, क्वेरी की ज़रूरत नहीं।"
+      mr: "{case_id} मध्ये सध्या काहीही चुकीचे नाही, क्वेरीची गरज नाही."
     customer_sent:
       en: "Query {query_id} recorded for the customer. Send them this message:"
       hi-Latn: "Customer ke liye query {query_id} record ho gayi. Unhe yeh message bhejiye:"
@@ -488,10 +496,10 @@ stage_flow:
       hi: "{case_id} {here} से {there} में चला गया।"
       mr: "{case_id} {here} मधून {there} मध्ये गेली."
     not_ready:
-      en: "{case_id} can't move to {there} yet -- these need to be fixed first:"
-      hi-Latn: "{case_id} abhi {there} nahi ja sakta -- pehle yeh theek karna hoga:"
-      hi: "{case_id} अभी {there} नहीं जा सकता -- पहले यह ठीक करना होगा:"
-      mr: "{case_id} अजून {there} कडे जाऊ शकत नाही -- आधी हे दुरुस्त करावे लागेल:"
+      en: "{case_id} can't move to {there} yet, these need to be fixed first:"
+      hi-Latn: "{case_id} abhi {there} nahi ja sakta, pehle yeh theek karna hoga:"
+      hi: "{case_id} अभी {there} नहीं जा सकता, पहले यह ठीक करना होगा:"
+      mr: "{case_id} अजून {there} कडे जाऊ शकत नाही, आधी हे दुरुस्त करावे लागेल:"
     move_failed:
       en: "{case_id} was not moved: {why}"
       hi-Latn: "{case_id} move nahi hua: {why}"
@@ -554,3 +562,94 @@ stage_flow:
   party_labels:
     PRIMARY_APPLICANT: { en: "Applicant", hi-Latn: "Applicant", hi: "आवेदक", mr: "अर्जदार" }
     CO_APPLICANT: { en: "Co-applicant", hi-Latn: "Co-applicant", hi: "सह-आवेदक", mr: "सह-अर्जदार" }
+
+# ---- no case open, a CASE question ("Application status", "kya pending hai") -------------------------------------
+# Never a dead end: ask which case (the officer's recent cases as Open links) and, once one is picked, answer the
+# ORIGINAL question for it. A message with any of these words is a case question (never "I don't know that yet").
+which_case:
+  case_words: [status, pending, document, documents, doc, docs, kyc, pan, aadhaar, aadhar, loan, amount, cpa, stage,
+               ready, readiness, upload, uploaded, applicant, co-applicant, coapplicant, query, queries, verify,
+               verified, verification, emi, income, salary, bank, statement, address, proof, missing, baaki, baki,
+               atka, atki, stuck, details, detail, summary, form, checklist, next, history, timeline, application,
+               case, cases, customer, mobile, dob, signature, rejected, reupload, handoff, eligibility,
+               केस, स्थिति, दस्तावेज़, लोन, कागदपत्र]
+  ask:
+    en: "Which case is this about? Pick one and I'll answer \"{question}\" for it."
+    hi-Latn: "Yeh kis case ke baare mein hai? Ek case chuniye, main uske liye \"{question}\" ka jawab dunga."
+    hi: "यह किस केस के बारे में है? एक केस चुनें, मैं उसके लिए \"{question}\" का जवाब दूँगा।"
+    mr: "हे कोणत्या केसबद्दल आहे? एक केस निवडा, मी तिच्यासाठी \"{question}\" चे उत्तर देईन."
+
+# ---- THE CASE BRIEF on open (FINAL FIX A1 / A4) -- read by answering/case_brief.py ------------------------------
+# Three lines: the case (id, name, stage) / the main status or blocker WITH its reason / "Next step:". Built from
+# the readiness report only. "All checks have passed" ONLY when no item of ANY group (counted or advisory) is
+# pending, not run, failed or in review.
+case_brief:
+  max_suggestions: 2
+  # the documents KYC reads, per party: when these are pending, KYC "has not run BECAUSE they are not uploaded"
+  kyc_documents: [PAN, AADHAAR, AADHAR, PASSPORT, VOTER_ID, DRIVING_LICENCE, ADDRESS_PROOF]
+  texts:
+    head: { en: "**{case_id}** · {name} · {stage}", hi-Latn: "**{case_id}** · {name} · {stage}",
+            hi: "**{case_id}** · {name} · {stage}", mr: "**{case_id}** · {name} · {stage}" }
+    docs_and_kyc:
+      en: "{docs} {are} not uploaded, so {who}'s KYC hasn't run yet."
+      hi-Latn: "{docs} upload nahi hue, isliye {who} ka KYC abhi nahi chala."
+      hi: "{docs} अपलोड नहीं हुए, इसलिए {who} का KYC अभी नहीं चला।"
+      mr: "{docs} अपलोड झाले नाहीत, म्हणून {who} चे KYC अजून चालले नाही."
+    docs_pending:
+      en: "Pending: {docs}."
+      hi-Latn: "Baaki: {docs}."
+      hi: "बाकी: {docs}।"
+      mr: "बाकी: {docs}."
+    kyc_not_run:
+      en: "{who}'s KYC hasn't run yet."
+      hi-Latn: "{who} ka KYC abhi nahi chala."
+      hi: "{who} का KYC अभी नहीं चला।"
+      mr: "{who} चे KYC अजून चालले नाही."
+    failed:
+      en: "{what} did not pass: {reason}."
+      hi-Latn: "{what} pass nahi hua: {reason}."
+      hi: "{what} पास नहीं हुआ: {reason}।"
+      mr: "{what} पास झाले नाही: {reason}."
+    in_review:
+      en: "{what} is in review."
+      hi-Latn: "{what} review mein hai."
+      hi: "{what} समीक्षा में है।"
+      mr: "{what} पुनरावलोकनात आहे."
+    gate_blocked:
+      en: "Not ready yet: {what}."
+      hi-Latn: "Abhi ready nahi: {what}."
+      hi: "अभी तैयार नहीं: {what}।"
+      mr: "अजून तयार नाही: {what}."
+    all_clear:
+      en: "All {stage} checks have passed."
+      hi-Latn: "Saare {stage} checks pass ho gaye."
+      hi: "सभी {stage} जाँचें पास हो गईं।"
+      mr: "सर्व {stage} तपासण्या पास झाल्या."
+    next_step: { en: "Next step: {step}", hi-Latn: "Next step: {step}", hi: "अगला कदम: {step}", mr: "पुढचे पाऊल: {step}" }
+    next_ready: { en: "Move it to {next} when you're ready.", hi-Latn: "Taiyar hone par ise {next} mein bhejiye.",
+                  hi: "तैयार होने पर इसे {next} में भेजें।", mr: "तयार झाल्यावर ती {next} कडे पाठवा." }
+    are: { en: "are", hi-Latn: "", hi: "", mr: "" }
+    is: { en: "is", hi-Latn: "", hi: "", mr: "" }
+    and: { en: "and", hi-Latn: "aur", hi: "और", mr: "आणि" }
+  # suggestion questions by state (ask: links; the first 2 that apply)
+  suggestions:
+    problems: { en: ["What is pending?", "What is the KYC status?"], hi-Latn: ["Kya baaki hai?", "KYC status kya hai?"],
+                hi: ["क्या बाकी है?", "KYC की स्थिति क्या है?"], mr: ["काय बाकी आहे?", "KYC स्थिती काय आहे?"] }
+    ready: { en: ["Is it ready for CPA?"], hi-Latn: ["Kya CPA ke liye ready hai?"], hi: ["क्या CPA के लिए तैयार है?"],
+             mr: ["CPA साठी तयार आहे का?"] }
+
+# ---- links per reply (FINAL FIX A4): less is more --------------------------------------------------------------
+link_policy:
+  max_items: 3                 # extra link items per reply; a "Download: Excel · Doc · PDF" line counts as ONE
+  # downloads / Show in UI / workflow offers only on these answers (a portfolio or a case summary) or when asked
+  case_links_on: [CASE_LIST, FULL_SUMMARY, CASE_360, CASE_SUMMARY, DOWNLOADS, CASE_CREATED]
+  never_show: [exit_case, switch_case]     # understood from text ("bahar aao", "dusra case"), never a button
+  no_repeat: true              # a link shown in the previous reply of the chat is not shown again
+  download_label: { en: "Download:", hi-Latn: "Download:", hi: "डाउनलोड:", mr: "डाउनलोड:" }
+
+# ---- the frontend's routes for the UI actions (FINAL FIX D): POST /api/v1/fos/action answers show_in_ui /
+# show_list_in_ui / new_case with {"type": "open_ui", "route": ...} built from these
+ui_routes:
+  case: "/cases/{case_id}"
+  list: "/cases?{query}"
+  new_case: "/cases/new"

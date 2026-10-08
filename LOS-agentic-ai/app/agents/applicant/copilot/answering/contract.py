@@ -158,9 +158,36 @@ def _clean(text: str) -> str:
     from app.agents.applicant.copilot.answering import professional
 
     cleaned = _labels(professional.strip_emojis(professional._bulleted(professional._next_step(str(text or "")))))
+    cleaned = _no_separators(cleaned)
     # the older widget's inline chip text ("PAN [Upload]") is not a button here: the buttons are the action links
     # (a checkbox "- [ ]" / "[x]" is content, never touched: a chip label has 2+ letters)
     return re.sub(r"[ \t]+\[(?=[^\]\n()]*[A-Za-z\u0900-\u097F]{2})[^\]\n()]{2,30}\](?!\()", "", cleaned)
+
+
+def _no_separators(text: str) -> str:
+    """
+    FINAL FIX A5: natural sentences -- " -- " becomes ". " before a capital, else ", "; command-style hints
+    ("say ...", "type ...", markdown.command_hints) are removed. Link targets are never touched.
+    """
+    for pattern in (cfg().get("markdown") or {}).get("command_hints") or []:
+        text = re.sub(pattern, "", text)
+
+    def line(text_line: str) -> str:
+        # a short label before the separator ("08 Oct 2026, 11:30 -- Case created", "PAN -- missing") becomes
+        # "label: ..."; a clause becomes its own sentence before a capital, else a comma
+        def joint(m: re.Match) -> str:
+            before, after = m.group(1), m.group(2)
+            left = text_line[:m.start(2)].rsplit(" -- ", 1)[0]
+            label = re.sub(r"^\s*(?:[-*•]|\d+\.)\s*", "", left)
+            if ": " not in label and len(label.split()) <= 6 and not label.rstrip().endswith((".", "!", "?")):
+                return before + ": " + after
+            if after.isupper() and after.isalpha():
+                return before + ("" if before in ".!?:" else ".") + " " + after
+            return before + ("" if before in ",;:" else ",") + " " + after
+
+        return re.sub(r"(\S)\s+--\s+(\S)", joint, text_line)
+
+    return "\n".join(line(ln) for ln in text.split("\n"))
 
 
 _CODE = re.compile(r"\b[A-Z]{2,}(?:_[A-Z]{2,})+\b")
@@ -242,35 +269,39 @@ def _action_links(reply: dict[str, Any], lang: str) -> list[str]:
     if reply.get("intent") == "CASE_LIST" and (reply.get("presentation") or reply.get("workspace_view") or {}) \
             .get("has_more"):
         out.append(link("list_more", lang))
-    if _workspace(reply):
-        out += [link("exit_case", lang), link("switch_case", lang)]
-    # MASTER SPEC section 15.2: a case answer offers Download Excel / Doc / PDF and Show in UI; a list answer the
-    # same for the filtered list (product_flow.yaml case_links)
+    return out
+
+
+def _policy() -> dict[str, Any]:
     from app.agents.applicant.copilot.capabilities import product_flow
 
-    view = reply.get("workspace_view") if isinstance(reply.get("workspace_view"), dict) else {}
-    if _refused(reply) or reply.get("no_case_links"):
-        return out                                 # a refusal is not about the case; a download reply IS the links
-    if reply.get("case_id"):
-        if str(reply.get("intent") or "") in _WORKFLOW_OFFER_INTENTS:
-            # the next workflow step (owner 2026-10-08): query the customer / move to CPA / query the other stage
-            from app.agents.applicant.copilot.capabilities import stage_flow
+    return product_flow.cfg().get("link_policy") or {}
 
-            out += stage_flow.offers(str(reply["case_id"]), lang)
-        out += product_flow.case_links(str(reply["case_id"]), lang)
-    elif reply.get("intent") == "CASE_LIST" and view.get("case_list"):
-        out += product_flow.case_links(None, lang, list_query=view.get("query") or {})
-    return out
+
+def _case_items(reply: dict[str, Any], lang: str) -> list[str]:
+    """
+    FINAL FIX A4: downloads + Show in UI (+ the workflow step on a case summary) -- ONLY at the end of a portfolio or
+    case-summary answer (link_policy.case_links_on), never on every reply, never on a refusal.
+    """
+    from app.agents.applicant.copilot.capabilities import product_flow
+
+    intent = str(reply.get("intent") or "")
+    if _refused(reply) or reply.get("no_case_links") or intent not in set(_policy().get("case_links_on") or []):
+        return []
+    view = reply.get("workspace_view") if isinstance(reply.get("workspace_view"), dict) else {}
+    if intent == "CASE_LIST":
+        return product_flow.case_link_items(None, lang, list_query=view.get("query") or {}) \
+            if view.get("case_list") else []
+    if not reply.get("case_id"):
+        return []
+    from app.agents.applicant.copilot.capabilities import stage_flow
+
+    return stage_flow.offers(str(reply["case_id"]), lang) + product_flow.case_link_items(str(reply["case_id"]), lang)
 
 
 _NOT_ABOUT_THE_CASE = {"GUARDRAIL_BLOCKED", "OUT_OF_SCOPE", "UNKNOWN", "ABUSIVE", "COOLDOWN", "SECURITY_EVENT",
                        "SOCIAL_ENGINEERING", "SELF_HARM_SUPPORT", "RATE_LIMITED", "FAQ_UNKNOWN", "FAQ_ANSWER",
                        "NOT_IN_SCOPE"}
-
-
-#: the answers about where a case stands: they offer the next workflow step
-_WORKFLOW_OFFER_INTENTS = {"CASE_OPENED", "READINESS", "PENDING_ITEMS", "DOCUMENTS_PENDING", "DOCUMENTS_MISSING",
-                           "NEXT_ACTION", "KYC_RESULT", "APPLICATION_STATUS", "LIST_QUERIES"}
 
 
 def _refused(reply: dict[str, Any]) -> bool:
@@ -298,8 +329,11 @@ def markdown(reply: dict[str, Any]) -> str:
     return _render(reply)[0]
 
 
-def _render(reply: dict[str, Any]) -> tuple[str, str]:
-    """(the whole markdown, the answer body alone -- what the voice reads from)."""
+def _render(reply: dict[str, Any], previous: set[str] | None = None) -> tuple[str, str]:
+    """
+    (the whole markdown, the answer body alone -- what the voice reads from). `previous`: the link targets the last
+    reply of this chat showed (link_policy.no_repeat).
+    """
     lang = _language(reply)
     from app.agents.applicant.copilot.answering import professional
 
@@ -330,12 +364,26 @@ def _render(reply: dict[str, Any]) -> tuple[str, str]:
     faq_block = str(reply.get("faq_block") or "").strip()
     if faq_block:
         blocks.append(_clean(faq_block))         # the FAQ for this state (section 7), after the answer / review
-    links = [ln for ln in _action_links(reply, lang) if ln not in text]
-    if links:
+    # FINAL FIX A4 -- less is more: ONE budget of `link_policy.max_items` extra items per reply (the answer's own
+    # links first, then downloads / Show in UI on a summary, then suggestions); exit / switch are never buttons
+    # (understood from text); a link the previous reply showed is not repeated
+    policy = _policy()
+    never = {f"(action:{n}" for n in policy.get("never_show") or []}
+    shown_before = set(previous or ()) if policy.get("no_repeat", True) else set()
+
+    def fresh(item: str) -> bool:
+        targets = re.findall(r"\]\(((?:action|ask):[^)]*)\)", item)
+        return bool(targets) and not any(n in item for n in never) and not all(t in shown_before for t in targets)
+
+    budget = int(policy.get("max_items", 3))     # the flow question's own options (faq_block) are its answers
+    items = [i for i in dict.fromkeys([ln for ln in _action_links(reply, lang) if ln not in text]
+                                      + _case_items(reply, lang)) if fresh(i)][:max(budget, 0)]
+    if items:
         label = str(_pick((cfg().get("markdown") or {}).get("actions_label") or "", lang) or "")
-        blocks.append(((label + "\n") if label else "") + " · ".join(dict.fromkeys(links)))
-    if not options and not faq_block:
-        limit = int((cfg().get("markdown") or {}).get("max_suggestions", 3))
+        blocks.append(((label + "\n") if label else "") + " · ".join(items))
+    budget -= len(items)
+    if not options and not faq_block and budget > 0:
+        limit = min(int((cfg().get("markdown") or {}).get("max_suggestions", 3)), budget)
         asked = [q for q in reply.get("suggested_questions") or [] if isinstance(q, str) and q.strip()]
         ws = _workspace(reply)
         if ws:
@@ -343,11 +391,31 @@ def _render(reply: dict[str, Any]) -> tuple[str, str]:
                       and b.get("type") == "ask" and b.get("message")]
         said = text.lower()
         asked = [q for q in dict.fromkeys(_clean(q).strip() for q in asked) if q and q.lower() not in said
-                 and not re.fullmatch(r"\d+", q)][:limit]
+                 and not re.fullmatch(r"\d+", q) and ask(q).split("](", 1)[1][:-1] not in shown_before][:limit]
         if asked:
             label = str(_pick((cfg().get("markdown") or {}).get("suggestions_label") or "", lang) or "")
             blocks.append(((label + "\n") if label else "") + "\n".join(f"- {ask(q)}" for q in asked))
-    return _tidy_links(dedupe("\n\n".join(b for b in blocks if b.strip()))), body
+    md = _tidy_links(dedupe("\n\n".join(b for b in blocks if b.strip())))
+    if reply.get("case_id") and str(reply.get("intent") or "") != "CASE_LIST":
+        md = _consistent(md, str(reply.get("request_id") or ""))
+    return md, body
+
+
+def _consistent(md: str, request_id: str) -> str:
+    """
+    FINAL FIX A1 safety net: a case reply never says "all clear" beside a pending / not-run / failed / in-review
+    item. The all-clear line is dropped and the event logged (the case brief is consistent by construction).
+    """
+    rules = (cfg().get("markdown") or {}).get("consistency") or {}
+    clear = [re.compile(p, re.I) for p in rules.get("all_clear") or []]
+    still_open = [re.compile(p, re.I) for p in rules.get("open") or []]
+    lines = md.split("\n")
+    clear_lines = [n for n, ln in enumerate(lines) if any(r.search(ln) for r in clear)]
+    others = "\n".join(ln for n, ln in enumerate(lines) if n not in clear_lines)
+    if clear_lines and any(r.search(others) for r in still_open):
+        _log.warning("consistency: dropped an all-clear line beside an open item request_id=%s", request_id)
+        return "\n".join(ln for n, ln in enumerate(lines) if n not in clear_lines)
+    return md
 
 
 def _tidy_links(text: str) -> str:
@@ -521,15 +589,24 @@ def tts(md: str, lang: str | None = None) -> str:
     if next_step:
         spoken = _sentence(speakable(next_step, lang))
         sentences = sentences[:max(limit - 1, 1)] + [spoken]
-    return " ".join(s for s in sentences[:limit] if s.strip(" .")).strip()
+    spoken = " ".join(s for s in sentences[:limit] if s.strip(" .")).strip()
+    # the cap holds on the FINAL text too: an item may carry its own full stops ("08 Oct, 11:30. Case created.")
+    parts = re.split(r"(?<=[.!?।])\s+", spoken)
+    return " ".join(parts[:limit]).strip()
 
 
 # --------------------------------------------------------------------------
 # the published reply
 # --------------------------------------------------------------------------
 
-def publish(reply: Any, request_id: str | None = None) -> Any:
-    """{request_id, markdown, tts} when the contract is on, else the reply unchanged."""
+_LAST_LINKS: dict[tuple[str, str], set[str]] = {}
+
+
+def publish(reply: Any, request_id: str | None = None, chat_key: tuple[str, str | None] | None = None) -> Any:
+    """
+    {request_id, markdown, tts} when the contract is on, else the reply unchanged. `chat_key` (subject, chat_id):
+    the links shown are remembered so the next reply does not repeat them (link_policy.no_repeat).
+    """
     if not enabled():
         return reply
     if hasattr(reply, "model_dump"):
@@ -553,7 +630,13 @@ def publish(reply: Any, request_id: str | None = None) -> Any:
                   followed.get("reason"))
     from app.agents.applicant.copilot.capabilities import abuse_guard
 
-    md, body = _render(reply)
+    key = (str(chat_key[0]), str(chat_key[1] or "default")) if chat_key else None
+    md, body = _render(reply, _LAST_LINKS.get(key) if key else None)
+    if key:
+        with _LOCK:
+            if len(_LAST_LINKS) > 5000:
+                _LAST_LINKS.clear()
+            _LAST_LINKS[key] = set(re.findall(r"\]\(((?:action|ask):[^)]*)\)", md))
     if reply.get("tts_text"):
         body = str(reply["tts_text"])          # a reply that names what the voice reads (a subset of the screen)
     # generated text (drafts, summaries, notes, quoted messages) never carries a flagged word, on screen or spoken

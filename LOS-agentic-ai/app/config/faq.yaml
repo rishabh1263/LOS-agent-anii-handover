@@ -155,7 +155,7 @@ answers:
     steps:
       en: ["Open the case (tap Open in My cases, or type its number).", "Tap Upload next to the document that is
             pending, or attach the file in this chat.", "Choose the party (applicant or co-applicant) if asked.",
-           "Wait for the check -- I will tell you here if the document is verified or needs a re-upload."]
+           "Wait for the check. I will tell you here if the document is verified or needs a re-upload."]
       hi-Latn: ["Case kholiye (My cases mein Open dabaiye, ya uska number likhiye).", "Pending document ke saamne
                  Upload dabaiye, ya file isi chat mein attach kijiye.", "Poocha jaaye to party chuniye (applicant
                  ya co-applicant).", "Check hone dijiye -- document verify hua ya dobara upload chahiye, main yahin

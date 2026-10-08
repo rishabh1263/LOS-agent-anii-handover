@@ -266,7 +266,8 @@ def configuration() -> dict[str, Any]:
             " (operation=VERIFY)"
         ),
         "supported_documents": list(SUPPORTED_DOCUMENTS),
-        "upload_root": str(upload_root()),
+        # never a server path in a response (MASTER SPEC 17.5): where uploads are staged is said, not shown
+        "upload_staging": "server-side temporary file, deleted when the request ends",
         "deterministic": True,
         "authenticity_checked": False,
         "note": (

@@ -83,8 +83,9 @@ def test_click_opens_the_case_with_a_snapshot_and_buttons(client, on):
     a, c = make_case(client, "Rahul Sharma")
     body = ws(client, action="OPEN_CASE", case_id=c)
     assert body["intent"] == "CASE_OPENED" and body["case_id"] == c
-    assert f"🔓 **{c} (Rahul Sharma)** opened." in body["answer"]                 # full name inside
-    assert "📍 Stage:" in body["answer"]
+    first = body["answer"].split("\n")[0]
+    assert c in first and "Rahul Sharma" in first and "FOS" in first             # the brief: case · full name · stage
+    assert "Next step:" in body["answer"]
     block = body["presentation"]["workspace"]
     assert block["header"] == f"📍 {c}" and {b["type"] for b in block["buttons"]} >= {"exit_case", "switch_case", "ask"}
 
@@ -161,7 +162,7 @@ def test_exit_and_switch_close_the_case(client, on):
     body = ws(client, message="bahar aao")
     assert body["answer"].startswith(f"🔒 **{c}** closed.") and body["intent"] == "CASE_LIST"
     after = ws(client, message="kya baaki hai?")
-    assert after["intent"] == "CASE_SELECTION"                          # nothing open: asked to open one
+    assert after["case_id"] == c                     # FINAL FIX A2: nothing open + ONE case -> answered for it
     ws(client, action="OPEN_CASE", case_id=c)
     assert ws(client, action="EXIT_CASE")["answer"].startswith(f"🔒 **{c}** closed.")
 

@@ -1,0 +1,2365 @@
+diff --git a/LOS-agentic-ai/app/api/routes/fos_api.py b/LOS-agentic-ai/app/api/routes/fos_api.py
+index fd64a40..bd4d056 100644
+--- a/LOS-agentic-ai/app/api/routes/fos_api.py
++++ b/LOS-agentic-ai/app/api/routes/fos_api.py
+@@ -1284,6 +1284,9 @@ async def copilot(
+ 
+             # an FAQ-style question with no answer and no data: "I don't know that yet" (15.2 step 2)
+             published = _faq_unknown.apply_unknown(published, str(getattr(request.state, "copilot_message", "") or ""))
++            from app.agents.applicant.copilot.answering import case_brief as _why
++
++            published = _why.why_fallback(published)          # "kyu?" with nothing recorded: the real blocker
+             # golden rule 4, said first: a stage move / approval asked in chat is never done here
+             from app.agents.applicant.copilot.capabilities import product_flow as _stage_note
+ 
+@@ -1311,6 +1314,59 @@ async def copilot(
+         }) from exc
+ 
+ 
++def _no_case_turn(claims: dict[str, Any], request_id: str, payload: Any, message: str) -> Any:
++    """
++    No case open and the request needs one: (case_id, applicant_id) when the officer has exactly ONE case (answered
++    for it), else the reply to send -- "Which case ...?" over the recent cases with the question kept for the pick,
++    or, with no case at all, the plain fact + Create New Case.
++    """
++    from app.agents.applicant.copilot.answering import contract as _nc_contract
++    from app.agents.applicant.copilot.answering import language_lock as _nc_lock
++    from app.agents.applicant.copilot.capabilities import workspace as _nc_ws
++
++    owned = _nc_ws.my_cases(claims)
++    if len(owned) == 1:
++        return owned[0].case_id, owned[0].applicant_id
++    if owned:
++        asked = _nc_ws.ask_which_case(claims, request_id, payload.context, message)
++        if asked is not None:
++            return asked
++    reply = _nc_ws._base(request_id, "NO_CASES", _nc_ws._label("no_case"), query_type="CONVERSATION",
++                         tools_invoked=["application.list"])
++    reply["faq_block"] = _nc_contract.link("new_case", _nc_lock.current() or "en")
++    return reply
++
++
++def move_case_stage(confirmed: dict[str, Any], request_id: str) -> dict[str, Any]:
++    """
++    Execute a stage move the officer confirmed in chat (capabilities/stage_flow.py proposed it, checked the
++    configured move permission and the case's ownership). The transition re-evaluates the gate itself: a case that
++    stopped being ready is never moved. Audited; written to the case's activity log.
++    """
++    from app.agents.applicant.copilot.answering import language_lock as _mv_lock
++    from app.agents.applicant.copilot.capabilities import case_form as _mv_form
++    from app.agents.applicant.copilot.capabilities import stage_flow as _mv_flow
++    from app.agents.los import stage_lifecycle
++
++    move = confirmed["execute_move"]
++    case_id, here, there, actor = move["case_id"], move["from"], move["to"], move["actor"]
++    lang = _mv_lock.current() or "en"
++    reply = {k: v for k, v in confirmed.items() if k != "execute_move"}
++    try:
++        stage_lifecycle.transition(case_id, there, reason=f"{here} gate passed; confirmed in chat by {actor}",
++                                   actor=actor, source="OPERATOR", expected_stage=here,
++                                   idempotency_key=f"chat-move-{move['ref']}", request_id=request_id)
++    except stage_lifecycle.StageTransitionError as exc:
++        audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
++                     tools=["los.stage"], write=True, status="REFUSED", detail=exc.code)
++        return {**reply, "intent": "STAGE_MOVE_REFUSED", "answer": _mv_flow.move_failed_text(case_id, exc.message, lang)}
++    audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
++                 tools=["los.stage"], write=True, confirmed=True, status="OK", detail=f"{here}->{there}")
++    _mv_form.activity(case_id, "STAGE_MOVED", f"{here} -> {there} by {actor} (chat)")
++    return {**reply, "intent": "STAGE_MOVED", "tools_invoked": ["los.stage"],
++            "answer": _mv_flow.moved_text(case_id, here, there, lang)}
++
++
+ def _published_reply(request: Request, reply: Any) -> Any:
+     """MASTER SPEC section 8: remember the chat's context server-side, then publish {request_id, markdown, tts}."""
+     from app.agents.applicant.copilot.answering import contract as _contract
+@@ -1320,7 +1376,7 @@ def _published_reply(request: Request, reply: Any) -> Any:
+     key = getattr(request.state, "chat_key", None)
+     if key and isinstance(reply.get("context"), dict):
+         _contract.remember(key[0], key[1], reply["context"])
+-    published = _contract.publish(reply)
++    published = _contract.publish(reply, chat_key=key)
+     from app.agents.applicant.copilot.answering import realtime as _realtime
+ 
+     if key:
+@@ -1603,6 +1659,10 @@ async def _copilot_json(
+                                                 _create_from_chat, wants_new)
+         except _form_access.AccessDenied as exc:
+             raise _form_access.http_denied(exc, request_id) from None
++        if formed is not None and formed.get("execute_move"):
++            # the officer confirmed a FOS -> CPA move in chat: made HERE, in the route layer (no copilot module
++            # reaches the transition service), through the gated transition under the user's own identity
++            return move_case_stage(formed, request_id)
+         if formed is not None:
+             return formed
+ 
+@@ -1639,28 +1699,36 @@ async def _copilot_json(
+         if ws_turn.case_id:
+             case_id = ws_turn.case_id
+             payload.applicant_id = ws_turn.applicant_id or payload.applicant_id
++        if ws_turn.message:
++            # the question asked before "which case?" -- answered now for the case just picked
++            message = ws_turn.message
++            request.state.copilot_message = message
+         if not case_id and not payload.applicant_id:
++            from app.agents.applicant.copilot.answering import language_lock as _nc_lock
+             from app.agents.applicant.copilot.capabilities import faq as _faq_none
+-
+-            if _faq_none.enabled() and action is FosAction.CUSTOM_QUERY and _faq_none.looks_like_faq(message):
+-                # 15.2 step 2: a general "how / what is" question, no case data and no FAQ answer -- never a guess
+-                from app.agents.applicant.copilot.answering import language_lock as _unk_lock
+-
+-                return _ws._base(request_id, "FAQ_UNKNOWN", _faq_none.unknown(_unk_lock.current() or "en",
+-                                                                             len(message)),
+-                                 query_type="CONVERSATION", category="KNOWLEDGE_ONLY", tools_invoked=[])
+             from app.agents.applicant.copilot.capabilities import product_flow as _oos
+ 
++            _nc_lang = _nc_lock.current() or "en"
+             if action is FosAction.CUSTOM_QUERY and _oos.out_of_scope(message):
+                 # MASTER SPEC 5: out of scope -- one polite line and the next option, nothing read
+-                from app.agents.applicant.copilot.answering import language_lock as _oos_lock
+-
+-                line, option = _oos.out_of_scope_reply(_oos_lock.current() or "en", len(message))
++                line, option = _oos.out_of_scope_reply(_nc_lang, len(message))
+                 reply = _ws._base(request_id, "NOT_IN_SCOPE", line, query_type="CONVERSATION",
+                                   category="UNSUPPORTED", tools_invoked=[])
+                 reply["faq_block"] = option
+                 return reply
+-            return _ws._base(request_id, "CASE_SELECTION", _ws._label("no_case"))
++            about_a_case = _oos.names_case_words(message)
++            if _faq_none.enabled() and action is FosAction.CUSTOM_QUERY and not about_a_case \
++                    and _faq_none.looks_like_faq(message):
++                # 15.2 step 2: a general "how / what is" question, no case data and no FAQ answer -- never a guess
++                return _ws._base(request_id, "FAQ_UNKNOWN", _faq_none.unknown(_nc_lang, len(message)),
++                                 query_type="CONVERSATION", category="KNOWLEDGE_ONLY", tools_invoked=[])
++            # A CASE QUESTION (typed or from the dropdown) WITH NO CASE OPEN -- golden rule 2, never a dead end:
++            # 0 cases -> say so + Create New Case; 1 case -> answered for it; several -> "Which case ...?" + the
++            # recent cases, and the pick answers THIS question
++            picked = _no_case_turn(claims, request_id, payload, message)
++            if isinstance(picked, dict):
++                return picked
++            case_id, payload.applicant_id = picked
+ 
+     # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS): view a document, raise / track queries, new case.
+     # Nothing is created or sent without the explicit Send (confirm=true).
+@@ -1683,8 +1751,11 @@ async def _copilot_json(
+                 if wanted is FosAction.NEW_CASE:
+                     return _ca.new_case(request_id)
+                 if not case_id:
+-                    return {"request_id": request_id, "intent": "CASE_SELECTION", "case_id": None,
+-                            "answer": "👉 Open a case first.", "errors": [], "actions": []}
++                    # "query raise karo" with no case open: which case? (the pick answers it), never a dead end
++                    picked = _no_case_turn(claims, request_id, payload, message)
++                    if isinstance(picked, dict):
++                        return picked
++                    case_id, payload.applicant_id = picked
+                 if wanted is FosAction.VIEW_DOCUMENT:
+                     return _ca.view_document(case_id, str(payload.document_id or ""), claims, request_id)
+                 if wanted is FosAction.RAISE_QUERY:
+@@ -3357,6 +3428,15 @@ async def export_file(token: str, claims: dict[str, Any] = Depends(require_jwt))
+     if spec is None:
+         raise HTTPException(403, detail={"request_id": request_id, "error": "LINK_INVALID",
+                                          "message": "This link is invalid or has expired."})
++    return _export_file_response(spec, claims, subject, request_id)
++
++
++def _export_file_response(spec: dict[str, Any], claims: dict[str, Any], subject: str, request_id: str):
++    """The file of one export spec: scope re-checked, built in memory (never written to disk), audited."""
++    from fastapi.responses import Response
++
++    from app.agents.applicant.copilot.capabilities import exports as _exports
++
+     if spec["k"] == "case":
+         _own_case(claims, spec["c"], request_id)                  # scope re-checked when opened
+         content = _exports.case_content(spec["c"], claims, spec["l"])
+@@ -3369,6 +3449,106 @@ async def export_file(token: str, claims: dict[str, Any] = Depends(require_jwt))
+                     headers={"Content-Disposition": f'attachment; filename="{content["file"]}.{spec["f"]}"'})
+ 
+ 
++class ActionRequest(BaseModel):
++    """One `action:` link from a reply, exactly as it appeared in the markdown."""
++
++    href: str = Field(..., max_length=600, examples=["action:download?format=xlsx&case=CASE-852C1A2B3C4D"])
++    chat_id: str | None = Field(None, max_length=128)
++    reply_language: str | None = Field(None, max_length=12)
++
++
++@router.post(
++    "/action",
++    summary="Run any action: link from a chat reply (FINAL FIX D) -- a file, a UI route, or the chat reply",
++)
++async def run_action(body: ActionRequest, request: Request, claims: dict[str, Any] = Depends(require_jwt)):
++    """
++    ONE endpoint for every `[Label](action:...)` the bot emits. The answer depends on the action:
++
++      download / download_list / handoff_note / view_document  -> the FILE (Content-Disposition: attachment;
++                                                                   filename=...), scope-checked and audited
++      show_in_ui / show_list_in_ui / new_case                  -> {"type": "open_ui", "route": "..."}
++      upload                                                   -> {"type": "upload", "document_type", "party"}
++      copy                                                     -> {"type": "copy", "ref"}
++      anything else (open_case, list_more, confirm_write ...)  -> {"type": "reply", request_id, markdown, tts}
++
++    401 no / bad token, 403 a link for someone else, 404 not your case (or does not exist), 409 not ready,
++    422 not an action link, 429 too many downloads.
++    """
++    from fastapi.responses import Response
++
++    from app.agents.applicant.copilot.answering import contract as _contract
++    from app.agents.applicant.copilot.capabilities import exports as _exports
++    from app.agents.applicant.copilot.capabilities import product_flow as _pf
++    from app.security.auth import get_subject
++
++    request_id = f"fos_{uuid.uuid4().hex}"
++    scheme, name, params = _contract.parse(body.href)
++    if scheme != "action" or name not in _contract.registry():
++        raise HTTPException(422, detail={"request_id": request_id, "error": "INVALID_ACTION_LINK",
++                                         "message": "This is not an action link."})
++    lang = _lang_of(body.reply_language)
++    subject = str(get_subject(claims) or "")
++    routes = _pf.cfg().get("ui_routes") or {}
++    if name in ("download", "download_list"):
++        fmt = str(params.get("format") or "").lower()
++        if fmt not in _exports.FORMATS:
++            raise HTTPException(422, detail={"request_id": request_id, "error": "UNKNOWN_FORMAT",
++                                             "message": f"format must be one of {sorted(_exports.FORMATS)}"})
++        if not _exports.allowed(subject):
++            raise HTTPException(429, detail={"request_id": request_id, "error": "RATE_LIMITED",
++                                             "message": _flow_text(("exports", "rate_limited"), lang)})
++        spec = ({"k": "case", "c": str(params.get("case") or ""), "f": fmt, "l": lang} if name == "download"
++                else {"k": "list", "q": _pf.parse_list_q(params.get("q")), "f": fmt, "l": lang})
++        return _export_file_response(spec, claims, subject, request_id)
++    if name == "handoff_note":
++        return await handoff_note_file(str(params.get("case") or ""), "pdf", claims)
++    if name == "view_document":
++        from app.agents.applicant.copilot.capabilities import case_actions as _ca
++        from app.store import get_repository
++        from app.store.documents import get_document_store
++
++        document = get_repository().get_document(str(params.get("id") or ""))
++        if document is None:
++            raise HTTPException(404, detail={"request_id": request_id, "error": "DOCUMENT_NOT_AVAILABLE",
++                                             "message": "The document is not available."})
++        _own_case(claims, document.case_id, request_id)
++        from app.store.documents import storage_key as _storage_key
++
++        store = get_document_store()
++        # the bytes are kept under the id itself or, for the OCR queue, under storage_key(id)
++        content = store.get(document.document_id) or store.get(_storage_key(document.document_id))
++        if content is None:
++            raise HTTPException(404, detail={"request_id": request_id, "error": "DOCUMENT_NOT_AVAILABLE",
++                                             "message": "The document is not available."})
++        _ca._audit(request_id, claims, document.case_id, "VIEW_DOCUMENT", "OPENED", document.document_type)
++        described = store.describe(document.document_id)
++        name_part = re.sub(r"[^A-Za-z0-9._-]", "_", str(document.document_type or "document"))[:40]
++        return Response(content=content, media_type=(described.content_type if described else None)
++                        or "application/octet-stream",
++                        headers={"Content-Disposition": f'inline; filename="{name_part}"'})
++    if name == "show_in_ui":
++        _own_case(claims, str(params.get("case") or ""), request_id)
++        return {"type": "open_ui", "route": str(routes.get("case") or "/cases/{case_id}").format(
++            case_id=params.get("case"))}
++    if name == "show_list_in_ui":
++        from urllib.parse import urlencode
++
++        query = urlencode(_pf.parse_list_q(params.get("q")))
++        return {"type": "open_ui", "route": str(routes.get("list") or "/cases?{query}").format(query=query).rstrip("?")}
++    if name == "new_case":
++        return {"type": "open_ui", "route": str(routes.get("new_case") or "/cases/new")}
++    if name == "upload":
++        return {"type": "upload", "document_type": params.get("doc"), "party": params.get("party"),
++                "post_to": "/api/v1/fos/copilot" + (f"?chat_id={body.chat_id}" if body.chat_id else "")}
++    if name == "copy":
++        return {"type": "copy", "ref": params.get("ref") or "draft-1"}
++    # every other action is a chat turn: the SAME route, the same checks, as posting {"action_link": ...}
++    request._json = {"action_link": body.href, "chat_id": body.chat_id, "reply_language": body.reply_language}
++    reply = await copilot(request, claims)
++    return {"type": "reply", **reply} if isinstance(reply, dict) else reply
++
++
+ @router.post("/imports", summary="Validate an Excel (.xlsx) of new cases: row-by-row errors, nothing written")
+ async def import_validate(file: UploadFile = File(...), lang: str | None = None,
+                           claims: dict[str, Any] = Depends(require_jwt)):
+@@ -3533,8 +3713,12 @@ async def view_document(token: str, claims: dict[str, Any] = Depends(require_jwt
+     except _acc.AccessDenied as exc:
+         raise _acc.http_denied(exc, request_id) from None
+     document = get_repository().get_document(found["document_id"])
++    from app.store.documents import storage_key as _storage_key
++
+     store = get_document_store()
+-    content = store.get(found["document_id"]) if document is not None else None
++    # the bytes are kept under the id itself or, for the OCR queue, under storage_key(id)
++    content = (store.get(found["document_id"]) or store.get(_storage_key(found["document_id"]))) \
++        if document is not None else None
+     if document is None or document.case_id != found["case_id"] or content is None:
+         raise HTTPException(404, detail={"request_id": request_id, "error": "DOCUMENT_NOT_AVAILABLE",
+                                          "message": "The document is not available."})
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/stage_flow.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/stage_flow.py
+index b532b4d..df5457f 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/stage_flow.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/stage_flow.py
+@@ -5,7 +5,7 @@ THE FOS <-> CPA WORKFLOW IN CHAT (owner decision 2026-10-08; config product_flow
+                            missing documents) -> Confirm -> recorded as a CUSTOMER query (app.agents.los.queries) and
+                            shown as the message to send. It blocks the move until the officer resolves it.
+     FOS, all clear         "Move to CPA": the live gate (stage_gate.evaluate_live) must PASS -> Confirm -> the gated
+-                           transition (stage_lifecycle.transition re-checks the gate at the move).
++                           transition, executed by the API route (the gate is re-checked at the move).
+     CPA <-> FOS            "Raise query to FOS / CPA": the text -> Confirm -> a stage query along queries.yaml
+                            routes; "reply to QRY-..." -> RESPONDED; "resolve QRY-..." -> RESOLVED.
+ 
+@@ -335,27 +335,25 @@ def _execute(write: dict[str, Any], claims: dict[str, Any], request_id: str, lan
+ 
+ 
+ def _move(write: dict[str, Any], claims: dict[str, Any], actor: str, request_id: str, lang: str) -> dict[str, Any]:
+-    from app.agents.applicant import audit
+-    from app.agents.applicant.copilot.capabilities import case_form
+-    from app.agents.los import stage_lifecycle
+-
++    """
++    The confirmed move is NOT made here: no copilot module reaches the stage-transition service (an architecture
++    rule, guarded by the stage-lifecycle tests, test_l). The reply carries `execute_move`; the API route executes it through the
++    gated transition under the user's own identity (fos_api.move_case_stage).
++    """
+     case_id, here, there = str(write["case_id"]), str(write["here"]), str(write["there"])
+     if not _move_allowed(claims):
+         return _reply(request_id, case_id, _say("no_move_rights", lang))
+-    try:
+-        stage_lifecycle.transition(case_id, there, reason=f"{here} gate passed; confirmed in chat by {actor}",
+-                                   actor=actor, source="OPERATOR", expected_stage=here,
+-                                   idempotency_key=f"chat-move-{write['ref']}", request_id=request_id)
+-    except stage_lifecycle.StageTransitionError as exc:
+-        audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
+-                     tools=["los.stage"], write=True, status="REFUSED", detail=getattr(exc, "code", ""))
+-        return _reply(request_id, case_id, _say("move_failed", lang, case_id=case_id,
+-                                                why=getattr(exc, "message", str(exc))))
+-    audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
+-                 tools=["los.stage"], write=True, confirmed=True, status="OK", detail=f"{here}->{there}")
+-    case_form.activity(case_id, "STAGE_MOVED", f"{here} -> {there} by {actor} (chat)")
+-    return _reply(request_id, case_id, _say("moved", lang, case_id=case_id, here=here, there=there),
+-                  intent="STAGE_MOVED", tools_invoked=["los.stage"])
+-
+-
+-__all__ = ["KINDS", "enabled", "gate", "offers", "problems", "propose", "step"]
++    return _reply(request_id, case_id, "", intent="STAGE_MOVE_CONFIRMED",
++                  execute_move={"case_id": case_id, "from": here, "to": there, "ref": str(write["ref"]),
++                                "actor": actor})
++
++
++def moved_text(case_id: str, here: str, there: str, lang: str) -> str:
++    return _say("moved", lang, case_id=case_id, here=here, there=there)
++
++
++def move_failed_text(case_id: str, why: str, lang: str) -> str:
++    return _say("move_failed", lang, case_id=case_id, why=why)
++
++
++__all__ = ["KINDS", "enabled", "gate", "move_failed_text", "moved_text", "offers", "problems", "propose", "step"]
+diff --git a/LOS-agentic-ai/app/api/routes/copilot_api.py b/LOS-agentic-ai/app/api/routes/copilot_api.py
+index f455795..13360c7 100644
+--- a/LOS-agentic-ai/app/api/routes/copilot_api.py
++++ b/LOS-agentic-ai/app/api/routes/copilot_api.py
+@@ -1523,12 +1523,15 @@ async def query(
+     from app.agents.applicant.copilot.capabilities import faq as _faq_unknown
+ 
+     reply = _faq_unknown.apply_unknown(reply, request.message or "")       # the same rules as /fos/copilot
++    from app.agents.applicant.copilot.answering import case_brief as _why
++
++    reply = _why.why_fallback(reply)
+     from app.agents.applicant.copilot.capabilities import product_flow as _stage_note
+ 
+     reply = _stage_note.stage_move_note(reply, request.message or "")
+     if isinstance(reply, dict) and isinstance(reply.get("context"), dict):
+         _contract.remember(subject, chat_id, reply["context"])
+-    return _contract.publish(reply)
++    return _contract.publish(reply, chat_key=(subject, chat_id))
+ 
+ 
+ async def _query(
+@@ -1591,6 +1594,8 @@ async def _query(
+             return _published(ws_turn.reply, str(ws_turn.reply.get("intent") or "CASE_LIST"))
+         if ws_turn.case_id:
+             request.case_id, request.applicant_id = ws_turn.case_id, str(ws_turn.applicant_id or "") or None
++        if ws_turn.message:
++            request.message = ws_turn.message            # the question asked before "which case?"
+ 
+     # NO CASE NAMED (FOS plan 1.4): "case details do" without a case_id answered "None of the application details
+     # are recorded" -- untrue, no case was chosen. The case the officer OPENED in the workspace answers it, or their
+@@ -1762,10 +1767,10 @@ async def _query(
+                     and envelope.get("intent") not in ("CASE_PORTFOLIO", "CASE_LIST"):
+                 # a case question with several cases and none chosen: "which case?" + the caller's list,
+                 # never an answer about no case at all (FOS plan 1.4)
+-                _ws_state = _ws._state(_ws._subject(claims), None)
+-                listed = _ws.list_view(claims, request_id, _ws_state)     # "2" then picks from this list
+-                _ws._save(_ws_state)
+-                envelope["answer"] = _ws._label("pick_case_first") + "\n\n" + str(listed.get("answer") or "")
++                # the SAME question as /fos/copilot: the recent cases, the question kept -- the pick answers it
++                listed = _ws.ask_which_case(claims, request_id, request.context, request.message) or \
++                    _ws.list_view(claims, request_id, _ws._state(_ws._subject(claims), None))
++                envelope["answer"] = str(listed.get("answer") or "")
+                 envelope["intent"] = "CASE_SELECTION"
+                 envelope["query_type"] = "CLARIFICATION"
+                 envelope["workspace_view"] = listed.get("workspace_view")
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/answering/contract.py b/LOS-agentic-ai/app/agents/applicant/copilot/answering/contract.py
+index 4fed7a2..49ff5b4 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/answering/contract.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/answering/contract.py
+@@ -158,11 +158,38 @@ def _clean(text: str) -> str:
+     from app.agents.applicant.copilot.answering import professional
+ 
+     cleaned = _labels(professional.strip_emojis(professional._bulleted(professional._next_step(str(text or "")))))
++    cleaned = _no_separators(cleaned)
+     # the older widget's inline chip text ("PAN [Upload]") is not a button here: the buttons are the action links
+     # (a checkbox "- [ ]" / "[x]" is content, never touched: a chip label has 2+ letters)
+     return re.sub(r"[ \t]+\[(?=[^\]\n()]*[A-Za-z\u0900-\u097F]{2})[^\]\n()]{2,30}\](?!\()", "", cleaned)
+ 
+ 
++def _no_separators(text: str) -> str:
++    """
++    FINAL FIX A5: natural sentences -- " -- " becomes ". " before a capital, else ", "; command-style hints
++    ("say ...", "type ...", markdown.command_hints) are removed. Link targets are never touched.
++    """
++    for pattern in (cfg().get("markdown") or {}).get("command_hints") or []:
++        text = re.sub(pattern, "", text)
++
++    def line(text_line: str) -> str:
++        # a short label before the separator ("08 Oct 2026, 11:30 -- Case created", "PAN -- missing") becomes
++        # "label: ..."; a clause becomes its own sentence before a capital, else a comma
++        def joint(m: re.Match) -> str:
++            before, after = m.group(1), m.group(2)
++            left = text_line[:m.start(2)].rsplit(" -- ", 1)[0]
++            label = re.sub(r"^\s*(?:[-*•]|\d+\.)\s*", "", left)
++            if ": " not in label and len(label.split()) <= 6 and not label.rstrip().endswith((".", "!", "?")):
++                return before + ": " + after
++            if after.isupper() and after.isalpha():
++                return before + ("" if before in ".!?:" else ".") + " " + after
++            return before + ("" if before in ",;:" else ",") + " " + after
++
++        return re.sub(r"(\S)\s+--\s+(\S)", joint, text_line)
++
++    return "\n".join(line(ln) for ln in text.split("\n"))
++
++
+ _CODE = re.compile(r"\b[A-Z]{2,}(?:_[A-Z]{2,})+\b")
+ 
+ 
+@@ -242,25 +269,34 @@ def _action_links(reply: dict[str, Any], lang: str) -> list[str]:
+     if reply.get("intent") == "CASE_LIST" and (reply.get("presentation") or reply.get("workspace_view") or {}) \
+             .get("has_more"):
+         out.append(link("list_more", lang))
+-    if _workspace(reply):
+-        out += [link("exit_case", lang), link("switch_case", lang)]
+-    # MASTER SPEC section 15.2: a case answer offers Download Excel / Doc / PDF and Show in UI; a list answer the
+-    # same for the filtered list (product_flow.yaml case_links)
++    return out
++
++
++def _policy() -> dict[str, Any]:
++    from app.agents.applicant.copilot.capabilities import product_flow
++
++    return product_flow.cfg().get("link_policy") or {}
++
++
++def _case_items(reply: dict[str, Any], lang: str) -> list[str]:
++    """
++    FINAL FIX A4: downloads + Show in UI (+ the workflow step on a case summary) -- ONLY at the end of a portfolio or
++    case-summary answer (link_policy.case_links_on), never on every reply, never on a refusal.
++    """
+     from app.agents.applicant.copilot.capabilities import product_flow
+ 
++    intent = str(reply.get("intent") or "")
++    if _refused(reply) or reply.get("no_case_links") or intent not in set(_policy().get("case_links_on") or []):
++        return []
+     view = reply.get("workspace_view") if isinstance(reply.get("workspace_view"), dict) else {}
+-    if _refused(reply) or reply.get("no_case_links"):
+-        return out                                 # a refusal is not about the case; a download reply IS the links
+-    if reply.get("case_id"):
+-        if str(reply.get("intent") or "") in _WORKFLOW_OFFER_INTENTS:
+-            # the next workflow step (owner 2026-10-08): query the customer / move to CPA / query the other stage
+-            from app.agents.applicant.copilot.capabilities import stage_flow
+-
+-            out += stage_flow.offers(str(reply["case_id"]), lang)
+-        out += product_flow.case_links(str(reply["case_id"]), lang)
+-    elif reply.get("intent") == "CASE_LIST" and view.get("case_list"):
+-        out += product_flow.case_links(None, lang, list_query=view.get("query") or {})
+-    return out
++    if intent == "CASE_LIST":
++        return product_flow.case_link_items(None, lang, list_query=view.get("query") or {}) \
++            if view.get("case_list") else []
++    if not reply.get("case_id"):
++        return []
++    from app.agents.applicant.copilot.capabilities import stage_flow
++
++    return stage_flow.offers(str(reply["case_id"]), lang) + product_flow.case_link_items(str(reply["case_id"]), lang)
+ 
+ 
+ _NOT_ABOUT_THE_CASE = {"GUARDRAIL_BLOCKED", "OUT_OF_SCOPE", "UNKNOWN", "ABUSIVE", "COOLDOWN", "SECURITY_EVENT",
+@@ -268,11 +304,6 @@ _NOT_ABOUT_THE_CASE = {"GUARDRAIL_BLOCKED", "OUT_OF_SCOPE", "UNKNOWN", "ABUSIVE"
+                        "NOT_IN_SCOPE"}
+ 
+ 
+-#: the answers about where a case stands: they offer the next workflow step
+-_WORKFLOW_OFFER_INTENTS = {"CASE_OPENED", "READINESS", "PENDING_ITEMS", "DOCUMENTS_PENDING", "DOCUMENTS_MISSING",
+-                           "NEXT_ACTION", "KYC_RESULT", "APPLICATION_STATUS", "LIST_QUERIES"}
+-
+-
+ def _refused(reply: dict[str, Any]) -> bool:
+     guard = reply.get("guardrail") if isinstance(reply.get("guardrail"), dict) else {}
+     return (str(reply.get("intent") or "").upper() in _NOT_ABOUT_THE_CASE
+@@ -298,8 +329,11 @@ def markdown(reply: dict[str, Any]) -> str:
+     return _render(reply)[0]
+ 
+ 
+-def _render(reply: dict[str, Any]) -> tuple[str, str]:
+-    """(the whole markdown, the answer body alone -- what the voice reads from)."""
++def _render(reply: dict[str, Any], previous: set[str] | None = None) -> tuple[str, str]:
++    """
++    (the whole markdown, the answer body alone -- what the voice reads from). `previous`: the link targets the last
++    reply of this chat showed (link_policy.no_repeat).
++    """
+     lang = _language(reply)
+     from app.agents.applicant.copilot.answering import professional
+ 
+@@ -330,12 +364,26 @@ def _render(reply: dict[str, Any]) -> tuple[str, str]:
+     faq_block = str(reply.get("faq_block") or "").strip()
+     if faq_block:
+         blocks.append(_clean(faq_block))         # the FAQ for this state (section 7), after the answer / review
+-    links = [ln for ln in _action_links(reply, lang) if ln not in text]
+-    if links:
++    # FINAL FIX A4 -- less is more: ONE budget of `link_policy.max_items` extra items per reply (the answer's own
++    # links first, then downloads / Show in UI on a summary, then suggestions); exit / switch are never buttons
++    # (understood from text); a link the previous reply showed is not repeated
++    policy = _policy()
++    never = {f"(action:{n}" for n in policy.get("never_show") or []}
++    shown_before = set(previous or ()) if policy.get("no_repeat", True) else set()
++
++    def fresh(item: str) -> bool:
++        targets = re.findall(r"\]\(((?:action|ask):[^)]*)\)", item)
++        return bool(targets) and not any(n in item for n in never) and not all(t in shown_before for t in targets)
++
++    budget = int(policy.get("max_items", 3))     # the flow question's own options (faq_block) are its answers
++    items = [i for i in dict.fromkeys([ln for ln in _action_links(reply, lang) if ln not in text]
++                                      + _case_items(reply, lang)) if fresh(i)][:max(budget, 0)]
++    if items:
+         label = str(_pick((cfg().get("markdown") or {}).get("actions_label") or "", lang) or "")
+-        blocks.append(((label + "\n") if label else "") + " · ".join(dict.fromkeys(links)))
+-    if not options and not faq_block:
+-        limit = int((cfg().get("markdown") or {}).get("max_suggestions", 3))
++        blocks.append(((label + "\n") if label else "") + " · ".join(items))
++    budget -= len(items)
++    if not options and not faq_block and budget > 0:
++        limit = min(int((cfg().get("markdown") or {}).get("max_suggestions", 3)), budget)
+         asked = [q for q in reply.get("suggested_questions") or [] if isinstance(q, str) and q.strip()]
+         ws = _workspace(reply)
+         if ws:
+@@ -343,11 +391,31 @@ def _render(reply: dict[str, Any]) -> tuple[str, str]:
+                       and b.get("type") == "ask" and b.get("message")]
+         said = text.lower()
+         asked = [q for q in dict.fromkeys(_clean(q).strip() for q in asked) if q and q.lower() not in said
+-                 and not re.fullmatch(r"\d+", q)][:limit]
++                 and not re.fullmatch(r"\d+", q) and ask(q).split("](", 1)[1][:-1] not in shown_before][:limit]
+         if asked:
+             label = str(_pick((cfg().get("markdown") or {}).get("suggestions_label") or "", lang) or "")
+             blocks.append(((label + "\n") if label else "") + "\n".join(f"- {ask(q)}" for q in asked))
+-    return _tidy_links(dedupe("\n\n".join(b for b in blocks if b.strip()))), body
++    md = _tidy_links(dedupe("\n\n".join(b for b in blocks if b.strip())))
++    if reply.get("case_id") and str(reply.get("intent") or "") != "CASE_LIST":
++        md = _consistent(md, str(reply.get("request_id") or ""))
++    return md, body
++
++
++def _consistent(md: str, request_id: str) -> str:
++    """
++    FINAL FIX A1 safety net: a case reply never says "all clear" beside a pending / not-run / failed / in-review
++    item. The all-clear line is dropped and the event logged (the case brief is consistent by construction).
++    """
++    rules = (cfg().get("markdown") or {}).get("consistency") or {}
++    clear = [re.compile(p, re.I) for p in rules.get("all_clear") or []]
++    still_open = [re.compile(p, re.I) for p in rules.get("open") or []]
++    lines = md.split("\n")
++    clear_lines = [n for n, ln in enumerate(lines) if any(r.search(ln) for r in clear)]
++    others = "\n".join(ln for n, ln in enumerate(lines) if n not in clear_lines)
++    if clear_lines and any(r.search(others) for r in still_open):
++        _log.warning("consistency: dropped an all-clear line beside an open item request_id=%s", request_id)
++        return "\n".join(ln for n, ln in enumerate(lines) if n not in clear_lines)
++    return md
+ 
+ 
+ def _tidy_links(text: str) -> str:
+@@ -521,15 +589,24 @@ def tts(md: str, lang: str | None = None) -> str:
+     if next_step:
+         spoken = _sentence(speakable(next_step, lang))
+         sentences = sentences[:max(limit - 1, 1)] + [spoken]
+-    return " ".join(s for s in sentences[:limit] if s.strip(" .")).strip()
++    spoken = " ".join(s for s in sentences[:limit] if s.strip(" .")).strip()
++    # the cap holds on the FINAL text too: an item may carry its own full stops ("08 Oct, 11:30. Case created.")
++    parts = re.split(r"(?<=[.!?।])\s+", spoken)
++    return " ".join(parts[:limit]).strip()
+ 
+ 
+ # --------------------------------------------------------------------------
+ # the published reply
+ # --------------------------------------------------------------------------
+ 
+-def publish(reply: Any, request_id: str | None = None) -> Any:
+-    """{request_id, markdown, tts} when the contract is on, else the reply unchanged."""
++_LAST_LINKS: dict[tuple[str, str], set[str]] = {}
++
++
++def publish(reply: Any, request_id: str | None = None, chat_key: tuple[str, str | None] | None = None) -> Any:
++    """
++    {request_id, markdown, tts} when the contract is on, else the reply unchanged. `chat_key` (subject, chat_id):
++    the links shown are remembered so the next reply does not repeat them (link_policy.no_repeat).
++    """
+     if not enabled():
+         return reply
+     if hasattr(reply, "model_dump"):
+@@ -553,7 +630,13 @@ def publish(reply: Any, request_id: str | None = None) -> Any:
+                   followed.get("reason"))
+     from app.agents.applicant.copilot.capabilities import abuse_guard
+ 
+-    md, body = _render(reply)
++    key = (str(chat_key[0]), str(chat_key[1] or "default")) if chat_key else None
++    md, body = _render(reply, _LAST_LINKS.get(key) if key else None)
++    if key:
++        with _LOCK:
++            if len(_LAST_LINKS) > 5000:
++                _LAST_LINKS.clear()
++            _LAST_LINKS[key] = set(re.findall(r"\]\(((?:action|ask):[^)]*)\)", md))
+     if reply.get("tts_text"):
+         body = str(reply["tts_text"])          # a reply that names what the voice reads (a subset of the screen)
+     # generated text (drafts, summaries, notes, quoted messages) never carries a flagged word, on screen or spoken
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_list.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_list.py
+index 15fe244..73f4618 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_list.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_list.py
+@@ -430,9 +430,13 @@ def render(page: ListPage, lang: str, seed: int = 0, closing: list[str] | None =
+         links.append(contract.link("list_more", lang))
+     else:
+         lines.append(_say("end", lang, seed))
+-    links += [contract.ask(o) for o in options[1:]]
++    if closing is None:
++        links += [contract.ask(o) for o in options[1:]]     # with the flow's question: only "Show more"
+     # a `closing` (even empty) replaces the follow-up line; its own lines are placed by the caller
+-    lines += ["", " · ".join(links)] if closing is not None else ["", _say("follow_up", lang, seed), " · ".join(links)]
++    if closing is not None:
++        lines += ["", " · ".join(links)] if links else []
++    else:
++        lines += ["", _say("follow_up", lang, seed), " · ".join(links)]
+     if closing:
+         lines += [""] + list(closing)
+     return "\n".join(lines)
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py
+index dba3966..696030b 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py
+@@ -278,6 +278,13 @@ def named_person(text: str) -> str | None:
+     return None
+ 
+ 
++def names_case_words(text: str) -> bool:
++    """A question about a case (status, pending, documents, KYC ...): product_flow.yaml which_case.case_words."""
++    words = set(_norm(text).split())
++    case_words = {w for p in (cfg().get("which_case") or {}).get("case_words") or [] for w in _norm(p).split()}
++    return bool(words & case_words)
++
++
+ def out_of_scope(text: str) -> bool:
+     """A message clearly outside the product (product_flow.yaml out_of_scope.off_topic_words; whole phrases)."""
+     return bool(_said(text, (cfg().get("out_of_scope") or {}).get("off_topic_words")))
+@@ -321,13 +328,30 @@ def asks_download(text: str) -> bool:
+     return len(words) <= 6 and bool(_said(text, (cfg().get("case_links") or {}).get("ask_words")))
+ 
+ 
++def asks_show_in_ui(text: str) -> bool:
++    """'show in UI', 'ui mein dikhao': the Show in UI action (product_flow.yaml case_links.show_words)."""
++    return len(_norm(text).split()) <= 6 and bool(_said(text, (cfg().get("case_links") or {}).get("show_words")))
++
++
++def show_in_ui_reply(case_id: str | None, list_query: dict[str, Any] | None, lang: str | None = None) -> str:
++    """The heading + the ONE Show in UI link (the open case, else the last list)."""
++    from app.agents.applicant.copilot.answering import contract
++
++    lang = lang or _lang()
++    here = (cfg().get("case_links") or {}).get("show_here") or {}
++    if case_id:
++        return say(here.get("case"), lang, case_id=case_id) + "\n" + contract.link("show_in_ui", lang, case=case_id)
++    query = ",".join(f"{k}:{v}" for k, v in (list_query or {}).items() if k in LIST_KEYS and v not in (None, ""))
++    return say(here.get("list"), lang) + "\n" + contract.link("show_list_in_ui", lang, q=query or "all")
++
++
+ def downloads_reply(case_id: str | None, list_query: dict[str, Any] | None, lang: str | None = None) -> str:
+     """The heading + the download links (the open case, else the last list / all cases)."""
+     lang = lang or _lang()
+     here = (cfg().get("case_links") or {}).get("here") or {}
+     if case_id:
+-        return say(here.get("case"), lang, case_id=case_id) + "\n" + " · ".join(case_links(case_id, lang))
+-    return say(here.get("list"), lang) + "\n" + " · ".join(case_links(None, lang, list_query=list_query or {}))
++        return say(here.get("case"), lang, case_id=case_id) + "\n" + " · ".join(case_link_items(case_id, lang))
++    return say(here.get("list"), lang) + "\n" + " · ".join(case_link_items(None, lang, list_query=list_query or {}))
+ 
+ 
+ LIST_KEYS = ("filter", "group", "status", "search", "sort", "stage")
+@@ -343,6 +367,22 @@ def parse_list_q(q: str | None) -> dict[str, str]:
+     return out
+ 
+ 
++def case_link_items(case_id: str | None, lang: str, *, list_query: dict[str, Any] | None = None) -> list[str]:
++    """
++    FINAL FIX A4: the same links as `case_links`, as ITEMS -- "Download: [Excel] · [Doc] · [PDF]" is ONE item, then
++    "[Show in UI]". The reply's link budget counts items.
++    """
++    links = case_links(case_id, lang, list_query=list_query)
++    downloads = [ln for ln in links if "(action:download" in ln]
++    rest = [ln for ln in links if ln not in downloads]
++    if not downloads:
++        return rest
++    plain = [re.sub(r"^\[[^\]]*\]", f"[{_fmt(re.search(r'format=(\w+)', ln).group(1), lang)}]", ln)
++             for ln in downloads]
++    label = say((cfg().get("link_policy") or {}).get("download_label"), lang)
++    return [(label + " " if label else "") + " · ".join(plain)] + rest
++
++
+ def _fmt(fmt: str, lang: str) -> str:
+     from app.agents.applicant.copilot.answering import contract
+ 
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+index 9ddc5ff..943ccf3 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+@@ -345,7 +345,7 @@ def list_view(claims: dict[str, Any], request_id: str, state, *, page: int = 0)
+         suggested_questions=[f"{r['number']}" for r in rows][:3])
+ 
+ 
+-def paged_view(claims: dict[str, Any], request_id: str, state, query=None) -> dict[str, Any]:
++def paged_view(claims: dict[str, Any], request_id: str, state, query=None, *, ask: str | None = None) -> dict[str, Any]:
+     """
+     MASTER SPEC section 3 (COPILOT_CASE_LIST_PAGING): ONE page of the caller's own cases -- filtered, sorted,
+     "Showing x-y of N", the options as links. The query is remembered for "aur dikhao".
+@@ -361,7 +361,7 @@ def paged_view(claims: dict[str, Any], request_id: str, state, query=None) -> di
+     state.list_offset = page.page * page.size
+     state.listed_case_ids = [r["case_id"] for r in page.rows]
+     # section 15.2: the portfolio follow-up ("Do you want to know about a particular case?") closes the list
+-    closing = product_flow.closing_for_list(state, page.query.as_dict()) if page.rows else None
++    closing = ([ask] if ask else product_flow.closing_for_list(state, page.query.as_dict())) if page.rows else None
+     # the question travels apart (faq_block), after the table: no rewrite step touches its Yes / No links
+     answer = case_list.render(page, lang, seed=state.turn_id or 0, closing=[] if closing else None)
+     rows = [{**r, "action": {"type": "open_case", "case_id": r["case_id"]},
+@@ -389,66 +389,43 @@ def _list(claims: dict[str, Any], request_id: str, state, text: str = "", *, mor
+ 
+ 
+ def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
++    """
++    FINAL FIX A1 / A4 -- less is more: the case brief (answering/case_brief.py: case + name + stage / the main status
++    or blocker with its reason / "Next step:") and at most `case_brief.max_suggestions` links chosen by state -- the
++    workflow step first (query the customer / move to CPA / query FOS), then a question. No downloads, no FAQ here.
++    """
++    from app.agents.applicant.copilot.answering import case_brief, contract, language_lock
++    from app.agents.applicant.copilot.capabilities import product_flow, stage_flow
++
+     state.active_case_id = application.case_id
+     # 6c: the cases opened this session, oldest first ("pehle wala case" goes back one)
+     history = [c for c in (state.case_history or []) if c != application.case_id]
+     state.case_history = (history + [application.case_id])[-10:]
+-    name = _name(application.applicant_id, short=False)
+-    blocker = _main_blocker(application)
+-    lines = [_label("opened", case_id=application.case_id, name=name),
+-             _label("snapshot_stage", stage=_stage(application.case_id) or "--"),
+-             _label("snapshot_blocker", blocker=blocker) if blocker else _label("snapshot_clear"),
+-             "", _label("suggest", question=_pick(_cfg().get("suggested_question", "Kya baaki hai?")))]
+-    from app.agents.applicant.copilot.capabilities import timeline as _timeline
+-
+-    late = _timeline.turnaround_line(application.case_id)
+-    if late:
+-        lines.insert(3, f"⏰ {late}")                       # FOS plan 7.3: past target, with the main blocker
+-    from app.agents.applicant.copilot.capabilities import case_form as _case_form
+-
+-    if _case_form.enabled():
+-        # MASTER SPEC 15.5: a partly filled form -- what is still missing ("loan amount 500000 karo" fills it)
+-        gaps = _case_form.missing(application.case_id)
+-        if gaps:
+-            lines.insert(3, _case_form._say("missing_fields", None,
+-                                            fields=", ".join(_case_form.label(f) for f in gaps)))
+-    from app.agents.applicant.copilot.answering import contract as _contract
+-
+-    if _contract.enabled():
+-        # MASTER SPEC section 11: what changed since this chat last looked at the case
+-        from app.agents.applicant.copilot.answering import language_lock, realtime
++    lang = language_lock.current() or "en"
++    brief = case_brief.build(application.case_id, lang)
++    lines = brief["text"].split("\n")
++    if contract.enabled():
++        # MASTER SPEC section 11: what changed since this chat last looked at the case (only when something did)
++        from app.agents.applicant.copilot.answering import realtime
+ 
+         try:
+-            since = realtime.since_last(state.subject_key, state.conversation_id, application.case_id,
+-                                        language_lock.current() or "en")
++            since = realtime.since_last(state.subject_key, state.conversation_id, application.case_id, lang)
+         except Exception:  # noqa: BLE001 - a convenience line never fails the open
+             since = None
+         if since:
+             lines.insert(1, since)
+-    from app.agents.applicant.copilot.capabilities import faq as _faq
+-
+-    if _faq.enabled():
+-        # MASTER SPEC section 7: the FAQ for this case's state, under the review (officer_tools) -- it replaces
+-        # the single "Try:" hint, which it covers
+-        from app.agents.applicant.copilot.answering import language_lock
+-
+-        lang = language_lock.current() or "en"
+-        shown = _faq.render(_faq.items(application.case_id, lang, int(_faq.cfg().get("max_items_on_open", 4))),
+-                            lang, "on_open")
+-        if shown:
+-            hint = _label("suggest", question="").split('"')[0]
+-            lines = [ln for ln in lines if not (hint and ln.startswith(hint))]
+-    else:
+-        shown = ""
+     reply = _base(request_id, "CASE_OPENED", "\n".join(lines), case_id=application.case_id,
+                   applicant_id=application.applicant_id, workspace_view={"workspace": workspace_block(application.case_id)})
+-    from app.agents.applicant.copilot.capabilities import product_flow as _product_flow
+-
+-    asked = _product_flow.after_open(state)
+-    if asked:
+-        shown = asked                            # section 15.2: picked from the flow's list -> "What do you want to know?"
+-    if shown:
+-        reply["faq_block"] = shown              # placed after the answer (and the review) by the reply contract
++    reply["brief"] = True                        # officer_tools adds no second review under it
++    reply["tts_text"] = "\n".join(lines[1:])     # the voice: the status and the next step (never the id line)
++    limit = int(case_brief._cfg().get("max_suggestions", 2))
++    links = (stage_flow.offers(application.case_id, lang) + [contract.ask(q) for q in brief["suggestions"]])[:limit]
++    asked = product_flow.after_open(state)
++    question = asked.split("\n")[0] if asked else ""   # picked from the flow's list -> "What do you want to know?"
++    block = "\n".join(x for x in [question, " · ".join(links)] if x)
++    if block:
++        reply["faq_block"] = block
++    reply["no_case_links"] = True                 # downloads / Show in UI only on a summary or when asked
+     return reply
+ 
+ 
+@@ -582,6 +559,8 @@ class Turn:
+     other_case: str | None = None
+     #: inside the open case: decorate the answer with its header and buttons
+     in_case: str | None = None
++    #: the question to answer instead of the typed text (the one asked before "which case?" was answered)
++    message: str | None = None
+ 
+ 
+ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any], request_id: str,
+@@ -604,6 +583,18 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+         return Turn(reply=reply)
+ 
+     def opened(application: Any) -> Turn:
++        flow = dict(state.flow or {})
++        question = flow.pop("after_pick", None)
++        if question:
++            # "Application status" was asked with no case open -> "which case?" -> this pick: the case opens and the
++            # ORIGINAL question is answered for it (never a second "what do you want to know?")
++            state.flow = flow
++            state.active_case_id = application.case_id
++            history = [c for c in (state.case_history or []) if c != application.case_id]
++            state.case_history = (history + [application.case_id])[-10:]
++            _save(state)
++            return Turn(case_id=application.case_id, applicant_id=application.applicant_id,
++                        in_case=application.case_id, message=str(question))
+         return done(open_view(application, request_id, state))
+ 
+     if action == "CUSTOM_QUERY":
+@@ -621,6 +612,13 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+         if flowed and flowed.get("list"):
+             state.active_case_id = None
+             return done(paged_view(claims, request_id, state, _flow_list.ListQuery(**flowed["list"])))
++        if _product_flow.asks_show_in_ui(text):
++            # FINAL FIX A: "show in UI" typed -- the action itself (the frontend opens the same case / list)
++            reply = _base(request_id, "SHOW_IN_UI", "", case_id=state.active_case_id, query_type="CONVERSATION",
++                          tools_invoked=[])
++            heading, _, links = _product_flow.show_in_ui_reply(state.active_case_id, state.list_query).partition("\n")
++            reply["answer"], reply["faq_block"], reply["no_case_links"] = heading, links, True
++            return done(reply)
+         if _product_flow.asks_download(text):
+             # 15.3: "excel download karo" -- the links for the open case (scope re-checked when opened), else
+             # for the last list; the links travel apart so no rewrite step touches them
+@@ -779,6 +777,33 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+     return Turn()
+ 
+ 
++def ask_which_case(claims: dict[str, Any], request_id: str, context: dict[str, Any] | None,
++                   question: str) -> dict[str, Any] | None:
++    """
++    No case open and a CASE question: "Which case is this about?" over the officer's recent cases (Open links);
++    the question is kept so the pick answers it. None when the officer has no case at all.
++    """
++    from app.agents.applicant.copilot.answering import language_lock
++    from app.agents.applicant.copilot.capabilities import case_list, product_flow
++
++    workspace_id = (context or {}).get("workspace_id") if isinstance(context, dict) else None
++    state = _state(_subject(claims), workspace_id)
++    lang = language_lock.current() or "en"
++    text = product_flow.say((product_flow.cfg().get("which_case") or {}).get("ask"), lang,
++                            question=" ".join(str(question).split())[:80])
++    reply = paged_view(claims, request_id, state, case_list.ListQuery(), ask=text)
++    if not (reply.get("workspace_view") or {}).get("case_list"):
++        return None
++    reply["intent"], reply["query_type"] = "CASE_SELECTION", "CLARIFICATION"
++    # the question is the first line (the direct answer to an ambiguous question is the question back)
++    reply["answer"] = text + "\n\n" + str(reply.get("answer") or "")
++    reply.pop("faq_block", None)
++    state.flow = {**{k: v for k, v in (state.flow or {}).items() if k != "portfolio"}, "after_pick": str(question)}
++    _save(state)
++    reply["context"] = {**(reply.get("context") or {}), "workspace_id": workspace_id or "default"}
++    return reply
++
++
+ def decorate(result: dict[str, Any], turn: Turn) -> dict[str, Any]:
+     """The answer inside a case: the 📍 line first, the workspace block attached."""
+     if not isinstance(result, dict):
+@@ -802,5 +827,5 @@ def in_case_header(published: dict[str, Any]) -> dict[str, Any]:
+     return published
+ 
+ 
+-__all__ = ["FLAG", "Selection", "Turn", "decorate", "enabled", "handle", "in_case_header", "list_view", "my_cases",
++__all__ = ["FLAG", "Selection", "Turn", "ask_which_case", "decorate", "enabled", "handle", "in_case_header", "list_view", "my_cases",
+            "open_view", "select", "workspace_block"]
+diff --git a/LOS-agentic-ai/app/config/applicant_agent.yaml b/LOS-agentic-ai/app/config/applicant_agent.yaml
+index 552f804..57ed9ec 100644
+--- a/LOS-agentic-ai/app/config/applicant_agent.yaml
++++ b/LOS-agentic-ai/app/config/applicant_agent.yaml
+@@ -286,13 +286,13 @@ routing:
+   LOAN_DECISION:     { route_to: DECISION_AGENT, message: "The lending decision is made downstream, after CPA.",
+                        suggestions: ["What is still pending on my case?", "Is my case ready for CPA?"] }
+   # DOMAIN-ADJACENT (scope policy): a reason, a redirect, and what to ask instead.
+-  ELIGIBILITY_AMOUNT: { route_to: CREDIT_AGENT,  message: "How much you can borrow, and when it is disbursed, are worked out by the credit team after CPA -- not at this stage.",
++  ELIGIBILITY_AMOUNT: { route_to: CREDIT_AGENT,  message: "How much you can borrow, and when it is disbursed, are worked out by the credit team after CPA, not at this stage.",
+                         suggestions: ["What loan amount did I apply for?", "What is still pending on my case?"] }
+   LOAN_TERMS:        { route_to: CREDIT_AGENT,   message: "Interest rate, EMI and fees are set when the loan is sanctioned after the credit assessment, so I can't quote or change them here. Your relationship manager can discuss terms.",
+                        suggestions: ["What is my loan amount and tenure?", "What is still pending on my case?"] }
+-  INVESTMENT_ADVICE: { route_to: NONE,           message: "I can't give investment or financial advice -- I'm set up only for your loan application.",
++  INVESTMENT_ADVICE: { route_to: NONE,           message: "I can't give investment or financial advice. I'm set up only for your loan application.",
+                        suggestions: ["What stage is my application at?", "Which documents are pending?"] }
+-  PRODUCT_ADVICE:    { route_to: NONE,           message: "I can't recommend which loan to choose -- your relationship manager can help with that. I can tell you what each product needs.",
++  PRODUCT_ADVICE:    { route_to: NONE,           message: "I can't recommend which loan to choose, your relationship manager can help with that. I can tell you what each product needs.",
+                        suggestions: ["What documents do I need for a personal loan?", "What documents do I need for a home loan?"] }
+ 
+ # -----------------------------------------------------------------------------
+@@ -835,10 +835,10 @@ chatbot:
+                            already verified by, approval mil gaya hai, direct cpa bhejo, override karo]
+     replies:
+       self_harm:
+-        en: "I'm really sorry you're feeling this way. You don't have to handle it alone -- please talk to someone you trust right now. In India you can call Tele-MANAS on 14416 (free, 24x7). If you're in danger, call 112."
+-        hi-Latn: "Mujhe bahut afsos hai ki aap aisa mehsoos kar rahe hain. Aap akele nahi hain -- abhi kisi bharosemand insaan se baat kijiye. Tele-MANAS 14416 (free, 24x7) par call kar sakte hain. Khatra ho to 112 par call kijiye."
+-        hi: "मुझे बहुत अफ़सोस है कि आप ऐसा महसूस कर रहे हैं। आप अकेले नहीं हैं -- अभी किसी भरोसेमंद व्यक्ति से बात कीजिए। टेली-मानस 14416 (मुफ़्त, 24x7) पर कॉल कर सकते हैं। ख़तरा हो तो 112 पर कॉल कीजिए।"
+-        mr: "तुम्हाला असं वाटतंय याचं खूप वाईट वाटतं. तुम्ही एकटे नाही -- आत्ता एखाद्या विश्वासू व्यक्तीशी बोला. टेली-मानस 14416 (मोफत, 24x7) वर कॉल करू शकता. धोका असल्यास 112 वर कॉल करा."
++        en: "I'm really sorry you're feeling this way. You don't have to handle it alone, please talk to someone you trust right now. In India you can call Tele-MANAS on 14416 (free, 24x7). If you're in danger, call 112."
++        hi-Latn: "Mujhe bahut afsos hai ki aap aisa mehsoos kar rahe hain. Aap akele nahi hain, abhi kisi bharosemand insaan se baat kijiye. Tele-MANAS 14416 (free, 24x7) par call kar sakte hain. Khatra ho to 112 par call kijiye."
++        hi: "मुझे बहुत अफ़सोस है कि आप ऐसा महसूस कर रहे हैं। आप अकेले नहीं हैं, अभी किसी भरोसेमंद व्यक्ति से बात कीजिए। टेली-मानस 14416 (मुफ़्त, 24x7) पर कॉल कर सकते हैं। ख़तरा हो तो 112 पर कॉल कीजिए।"
++        mr: "तुम्हाला असं वाटतंय याचं खूप वाईट वाटतं. तुम्ही एकटे नाही, आत्ता एखाद्या विश्वासू व्यक्तीशी बोला. टेली-मानस 14416 (मोफत, 24x7) वर कॉल करू शकता. धोका असल्यास 112 वर कॉल करा."
+       threat:
+         en: "I can't continue with messages that threaten harm. This has been recorded. I can help with your loan application."
+         hi-Latn: "Nuksaan ki dhamki wale messages par main aage nahi badh sakta. Yeh record kiya gaya hai. Main aapke loan application mein madad kar sakta hoon."
+@@ -849,8 +849,8 @@ chatbot:
+         hi: "कृपया शिष्ट भाषा में बात करें। मैं आपके लोन आवेदन में मदद के लिए यहाँ हूँ।"
+         mr: "कृपया सभ्य भाषेत बोला. मी तुमच्या कर्ज अर्जासाठी मदत करण्यासाठी आहे."
+       cooldown:
+-        en: "Let's take a short break -- please try again in a minute."
+-        hi-Latn: "Thoda ruk jaate hain -- ek minute baad dobara likhiye."
++        en: "Let's take a short break, please try again in a minute."
++        hi-Latn: "Thoda ruk jaate hain, ek minute baad dobara likhiye."
+       rate_limited:
+         en: "You're sending messages very quickly. Please wait a few seconds and try again."
+         hi-Latn: "Aap bahut jaldi messages bhej rahe hain. Thoda ruk kar dobara try kijiye."
+@@ -878,7 +878,7 @@ chatbot:
+       queries_head: "📋 **Queries on this case**"
+       nothing_to_query: "✅ Nothing on this case needs a query right now."
+       new_case: "👉 Tap **New case** to open the case form."
+-      view: "📄 **{document}** -- the link works for {minutes} minutes."
++      view: "📄 **{document}**, the link works for {minutes} minutes."
+ 
+   # FOS plan 6.7 -- MISUNDERSTANDING RECOVERY: "ye nahi poocha" -> one question back with options (whole phrase)
+   misunderstood:
+@@ -927,11 +927,11 @@ chatbot:
+       # a document fills a slot: PAN -> its own; a DL / passport / voter ID -> ADDRESS_PROOF
+       slot_of: { DRIVING_LICENCE: [ADDRESS_PROOF], PASSPORT: [ADDRESS_PROOF], VOTER_ID: [ADDRESS_PROOF] }
+       labels:
+-        "yes": { en: "Yes -- with a verified {document}, every FOS check would pass. A person still confirms the move to CPA.",
+-                 hi-Latn: "Haan -- verified {document} ke saath saare FOS checks pass ho jayenge. CPA move ek vyakti confirm karega.",
++        "yes": { en: "Yes, with a verified {document}, every FOS check would pass. A person still confirms the move to CPA.",
++                 hi-Latn: "Haan, verified {document} ke saath saare FOS checks pass ho jayenge. CPA move ek vyakti confirm karega.",
+                  default: en }
+-        "no": { en: "Not yet -- after a verified {document}, {n} more to clear:",
+-                hi-Latn: "Abhi nahi -- verified {document} ke baad bhi {n} cheezein baaki:", default: en }
++        "no": { en: "Not yet, after a verified {document}, {n} more to clear:",
++                hi-Latn: "Abhi nahi, verified {document} ke baad bhi {n} cheezein baaki:", default: en }
+         not_needed: { en: "The {document} is not what is holding this case.",
+                       hi-Latn: "{document} is case ko nahi rok raha.", default: en }
+     review:
+@@ -950,7 +950,7 @@ chatbot:
+                 customer ke liye message, customer ko bhejne ke liye, draft for the customer,
+                 message to the customer, draft a message, ग्राहक के लिए संदेश, ग्राहकासाठी संदेश]
+       labels:
+-        intro: { en: "A message for the customer (not sent -- copy or edit it):", hi-Latn: "Customer ke liye message (bheja nahi gaya -- copy ya edit karein):", default: en }
++        intro: { en: "A message for the customer (not sent, copy or edit it):", hi-Latn: "Customer ke liye message (bheja nahi gaya, copy ya edit karein):", default: en }
+         greeting: { en: "Hello, for your loan application please share:", hi-Latn: "Namaste, aapke loan application ke liye kripya dein:",
+                     hi: "नमस्ते, आपके लोन आवेदन के लिए कृपया ये दें:", default: en }
+         bring: { en: "{items}.", default: en }
+@@ -1043,7 +1043,7 @@ chatbot:
+       group_signature: "Signature"
+       group_kyc: "KYC"
+       group_other: "Other gate conditions"
+-      kyc_advisory: "(advisory -- not required for CPA while the KYC rule is off)"
++      kyc_advisory: "(advisory, not required for CPA while the KYC rule is off)"
+       fields_ok: "All required details recorded"
+       passed_line: "Passed: {items}."
+       fix_upload: "Upload the {label}"
+@@ -1078,7 +1078,7 @@ chatbot:
+     # MASTER SPEC section 6: a party's KYC is complete only with one of these statuses
+     passed_statuses: [PASS, PASSED, VERIFIED]
+     labels:
+-      heading: { en: "KYC -- {party}", hi-Latn: "KYC -- {party}", hi: "KYC -- {party}", mr: "KYC -- {party}" }
++      heading: { en: "KYC, {party}", hi-Latn: "KYC, {party}", hi: "KYC, {party}", mr: "KYC, {party}" }
+       a_title: { en: "A. Application form vs documents", hi-Latn: "A. Application form vs documents",
+                  hi: "A. आवेदन फ़ॉर्म बनाम दस्तावेज़", mr: "A. अर्ज फॉर्म विरुद्ध कागदपत्रे" }
+       b_title: { en: "B. Documents vs each other", hi-Latn: "B. Documents aapas mein",
+@@ -1104,19 +1104,19 @@ chatbot:
+                             mr: "अर्जावर नाही" }
+       not_read: { en: "Not read from this document", hi-Latn: "Is document se padha nahi gaya",
+                   hi: "इस दस्तावेज़ से पढ़ा नहीं गया", mr: "या कागदपत्रातून वाचले नाही" }
+-      odd_one_out: { en: "Likely odd one out: the {document} ({check}) -- the other documents agree. Upload a correct {document}.",
+-                     hi-Latn: "Shayad galat: {document} ({check}) -- baaki documents match karte hain. Sahi {document} upload karein.",
+-                     hi: "संभवतः गलत: {document} ({check}) -- बाकी दस्तावेज़ मेल खाते हैं। सही {document} अपलोड करें।",
+-                     mr: "बहुधा चुकीचे: {document} ({check}) -- बाकी कागदपत्रे जुळतात. योग्य {document} अपलोड करा." }
++      odd_one_out: { en: "Likely odd one out: the {document} ({check}), the other documents agree. Upload a correct {document}.",
++                     hi-Latn: "Shayad galat: {document} ({check}), baaki documents match karte hain. Sahi {document} upload karein.",
++                     hi: "संभवतः गलत: {document} ({check}), बाकी दस्तावेज़ मेल खाते हैं। सही {document} अपलोड करें।",
++                     mr: "बहुधा चुकीचे: {document} ({check}), बाकी कागदपत्रे जुळतात. योग्य {document} अपलोड करा." }
+       none: { en: "No KYC check has been recorded for this case yet.",
+               hi-Latn: "Is case ka KYC check abhi record nahi hua hai.",
+               hi: "इस केस का KYC चेक अभी दर्ज नहीं हुआ है।", mr: "या केसचा KYC चेक अजून नोंदवलेला नाही." }
+       # the verdict when KYC failed / is in review (2-3 variants of the headline are not used: it is a fixed line)
+       not_ready: { en: "Not ready for CPA. KYC is not complete.", hi-Latn: "CPA ke liye ready nahi. KYC poora nahi hua.",
+                    hi: "CPA के लिए तैयार नहीं। KYC पूरा नहीं हुआ।", mr: "CPA साठी तयार नाही. KYC पूर्ण झालेले नाही." }
+-      reason_a: { en: "- {party}: {check} on the {document} -- {reason}.",
+-                  hi-Latn: "- {party}: {document} par {check} -- {reason}.",
+-                  hi: "- {party}: {document} पर {check} -- {reason}।", mr: "- {party}: {document} वर {check} -- {reason}." }
++      reason_a: { en: "- {party}: {check} on the {document}, {reason}.",
++                  hi-Latn: "- {party}: {document} par {check}, {reason}.",
++                  hi: "- {party}: {document} पर {check}, {reason}।", mr: "- {party}: {document} वर {check}, {reason}." }
+       reason_b: { en: "- {party}: {check} differs between the {first} and the {second}.",
+                   hi-Latn: "- {party}: {first} aur {second} mein {check} alag hai.",
+                   hi: "- {party}: {first} और {second} में {check} अलग है।",
+@@ -1363,11 +1363,13 @@ chatbot:
+     list_rule:
+       case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
+       cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, my, मेरे, सारे, सब]
++      # (2026-10-08: "view all cases" -- view / see / display / check are list verbs too, see `allowed`)
+       allowed: [ka, ki, ke, of, a, the, me, mujhe, show, give, do, dikhao, dikha, batao, bata, hai, h, hain, how,
+                 please, plz, pls, kya, wale, wala, kaun, kaunse, konse, which, are, i, have, bhai, yaar, open,
+                 dekhna, dekhne, chahiye, दिखाओ, बताओ, है, हैं, का, के, की,
+                 # courtesy / filler words around a list request ("sorry, my cases", "ok mere cases dikhao")
+-                sorry, ok, okay, acha, achha, theek, thik, thanks, thank, you, now, ab, फिर, ठीक]
++                sorry, ok, okay, acha, achha, theek, thik, thanks, thank, you, now, ab, फिर, ठीक,
++                view, see, display, check, get, fetch, open, all, total, dekho, dekhao, dikha, batana]
+     labels:
+       header: "📂 **Your cases**"
+       total: "{n} total"
+@@ -1376,7 +1378,7 @@ chatbot:
+       rejected: "❌ {n} rejected"
+       # the list is grouped by applicant (one applicant can have several cases); numbering runs across
+       # groups so "2 kholo" still works; {applicant_id} lets the officer say "APP-xxx wala case kholo"
+-      group: "🆔 **{applicant_id}** -- {name} ({count})"
++      group: "🆔 **{applicant_id}**, {name} ({count})"
+       group_one: "1 case"
+       group_many: "{n} cases"
+       row: "   {number}. **{case_id}** · 📍 {stage} · {status}"
+@@ -1388,21 +1390,19 @@ chatbot:
+       # {language: text} maps follow the locked reply language (FOS plan section 2); unlocked -> the en wording
+       ask: { default: hi-Latn, en: "👉 Which case do you want to open?", hi-Latn: "👉 Kis case mein jaana hai?",
+              hi: "👉 कौन सा केस खोलना है?", mr: "👉 कोणती केस उघडायची आहे?" }
+-      more: { default: hi-Latn, en: "👉 Say \"show more\" for more", hi-Latn: "👉 \"aur dikhao\" for more",
+-              hi: "👉 और देखने के लिए \"और दिखाओ\" कहें", mr: "👉 आणखी पाहण्यासाठी \"आणखी दाखवा\" म्हणा" }
++      more: { default: hi-Latn, en: "More cases are on the next page.", hi-Latn: "Aur cases agle page par hain.",
++              hi: "और केस अगले पेज पर हैं।", mr: "आणखी केस पुढच्या पानावर आहेत." }
+       none: "ℹ️ You have no cases you can open."
+       opened: "🔓 **{case_id} ({name})** opened."
+       snapshot_stage: "📍 Stage: **{stage}**"
+       snapshot_blocker: "⚠️ {blocker}"
+       snapshot_clear: "✅ Nothing blocking right now."
+-      suggest: "👉 Try: \"{question}\""
++      suggest: "{question}"
+       in_case: "📍 {case_id}"
+       closed: "🔒 **{case_id}** closed."
+       which: "Which one did you mean?"
+-      not_found: { en: "I couldn't find that case among yours. 👉 Say \"my cases\" to see the list.",
+-                   hi-Latn: "Yeh case aapke cases mein nahi mila. 👉 List ke liye \"mere cases\" boliye.",
+-                   hi: "यह केस आपके केसों में नहीं मिला। 👉 सूची के लिए \"मेरे केस\" कहें।",
+-                   mr: "ही केस तुमच्या केसमध्ये सापडली नाही. 👉 यादीसाठी \"माझ्या केस\" म्हणा." }
++      not_found: { en: "I can't find that case in your cases.", hi-Latn: "Yeh case aapke cases mein nahi mila.",
++                   hi: "यह केस आपके केसों में नहीं मिला।", mr: "ही केस तुमच्या केसमध्ये सापडली नाही." }
+       # MASTER SPEC section 2: an id / name typed in chat that is unknown OR not the caller's -- one neutral line,
+       # never confirming that it exists
+       not_found_applicant: { en: "I can't find that applicant in your cases.",
+@@ -1419,15 +1419,15 @@ chatbot:
+                         hi: "यह केस आपके केसों में नहीं मिला।", mr: "ही केस तुमच्या केसमध्ये सापडली नाही." }
+       no_other_case: { en: "You have only this one case.", hi-Latn: "Aapka sirf yahi ek case hai.",
+                        hi: "आपका केवल यही एक केस है।", mr: "तुमची फक्त हीच एक केस आहे." }
+-      pick_case_first: { en: "Which case is this about? Open one of your cases first.",
+-                         hi-Latn: "Yeh kis case ke baare mein hai? Pehle apna ek case kholiye.",
+-                         hi: "यह किस केस के बारे में है? पहले अपना एक केस खोलिए।",
+-                         mr: "हे कोणत्या केसबद्दल आहे? आधी तुमची एक केस उघडा." }
++      pick_case_first: { en: "Which case is this about? Reply with the number, or tap Open.",
++                         hi-Latn: "Yeh kis case ke baare mein hai? Number likhiye, ya Open dabaiye.",
++                         hi: "यह किस केस के बारे में है? नंबर लिखें या Open दबाएँ।",
++                         mr: "हे कोणत्या केसबद्दल आहे? क्रमांक लिहा किंवा Open दाबा." }
+       other_case: { default: hi-Latn, en: "👉 Open this case? ({case_id})", hi-Latn: "👉 Is case mein jaana hai? ({case_id})",
+                     hi: "👉 इस केस में जाना है? ({case_id})", mr: "👉 ही केस उघडायची? ({case_id})" }
+-      no_case: { default: hi-Latn, en: "👉 Open a case first -- say \"my cases\".",
+-                 hi-Latn: "👉 Pehle ek case kholiye -- \"mere cases\" boliye.",
+-                 hi: "👉 पहले एक केस खोलिए -- \"मेरे केस\" कहें।", mr: "👉 आधी एक केस उघडा -- \"माझ्या केस\" म्हणा." }
++      # used only when the officer has NO case at all (one case is answered directly; several -> "which case?")
++      no_case: { default: hi-Latn, en: "You don't have any cases yet.", hi-Latn: "Aapka abhi koi case nahi hai.",
++                 hi: "आपका अभी कोई केस नहीं है।", mr: "तुमची अजून कोणतीही केस नाही." }
+     quick_questions:
+       default: hi-Latn
+       en: ["What is pending?", "Why is it stuck?", "Co-applicant", "Summary"]
+@@ -1473,7 +1473,7 @@ chatbot:
+     max_conversations: 2000
+     # 6d (CHATBOT_SPEC section 3): an unsure reply re-asks more simply; a "no" is acknowledged
+     # with ONE alternative. Word lists: semantic_concepts.yaml conversation (UNSURE, AFFIRM, NEGATE...).
+-    reask_simpler: "Let me make it simpler -- reply with a number:\n{options}"
++    reask_simpler: "Let me make it simpler, reply with a number:\n{options}"
+     # (6c memory settings: chatbot.memory below)
+     reask_simpler_yes_no: "Simply yes or no: {question}"
+     declined_reply: "Okay. 👉 Want to see what is **pending** instead?"
+diff --git a/LOS-agentic-ai/app/config/abuse_lexicon.yaml b/LOS-agentic-ai/app/config/abuse_lexicon.yaml
+index 0e29645..d8a681a 100644
+--- a/LOS-agentic-ai/app/config/abuse_lexicon.yaml
++++ b/LOS-agentic-ai/app/config/abuse_lexicon.yaml
+@@ -57,10 +57,10 @@ reply:
+     hi: ["कृपया अपशब्दों का प्रयोग न करें। अपना सवाल सम्मान से दोबारा पूछें।"]
+     mr: ["कृपया अपशब्द वापरू नका. तुमचा प्रश्न आदराने पुन्हा विचारा."]
+   cooldown:
+-    en: "Let's take a short break -- you can ask again in {seconds} seconds."
+-    hi-Latn: "Thoda ruk jaate hain -- {seconds} second baad dobara poochhiye."
+-    hi: "थोड़ा रुकते हैं -- {seconds} सेकंड बाद दोबारा पूछें।"
+-    mr: "थोडा विराम घेऊया -- {seconds} सेकंदांनी पुन्हा विचारा."
++    en: "Let's take a short break, you can ask again in {seconds} seconds."
++    hi-Latn: "Thoda ruk jaate hain, {seconds} second baad dobara poochhiye."
++    hi: "थोड़ा रुकते हैं, {seconds} सेकंड बाद दोबारा पूछें।"
++    mr: "थोडा विराम घेऊया, {seconds} सेकंदांनी पुन्हा विचारा."
+ 
+ # repeated abuse: this many flagged messages inside the window -> a cooldown of `cooldown_seconds`
+ cooldown_after: 3
+diff --git a/LOS-agentic-ai/app/config/copilot_reply.yaml b/LOS-agentic-ai/app/config/copilot_reply.yaml
+index 1764a84..f2dd0a5 100644
+--- a/LOS-agentic-ai/app/config/copilot_reply.yaml
++++ b/LOS-agentic-ai/app/config/copilot_reply.yaml
+@@ -25,6 +25,16 @@ markdown:
+                         hi-Latn: ["#", "Case", "Applicant", "Stage", "Status", ""],
+                         hi: ["#", "केस", "आवेदक", "चरण", "स्थिति", ""],
+                         mr: ["#", "केस", "अर्जदार", "टप्पा", "स्थिती", ""] }
++  # FINAL FIX A1: a case reply never says "all clear" next to an open item. A line matching `all_clear` is dropped
++  # (and logged) when the same reply also matches `open` -- a safety net; the case brief is consistent by design
++  consistency:
++    all_clear: ["every check passes", "all checks pass", "all [a-z]+ checks have passed", "nothing blocking",
++                "saare checks pass", "saare [a-z]+ checks pass"]
++    open: ["not run", "hasn't run", "has not run", "not uploaded", "in review", "did not pass", "\\bpending\\b",
++           "\\bmissing\\b", "\\bfailed\\b", "nahi chala", "baaki"]
++  # FINAL FIX A5: never a command-style hint ("say ...", "type ...") -- a safety net under the templates
++  command_hints: ["(?i)\\s*(?:👉\\s*)?(?:say|type)\\s+[\"“][^\"”\\n]+[\"”][^.\\n]*\\.?",
++                  "(?i)\\s*[\"“][^\"”\\n]+[\"”]\\s+(?:boliye|likhiye|कहें|लिखें|म्हणा)\\.?"]
+   # the download buttons' format names (product_flow.yaml case_links.downloads)
+   format_names:
+     xlsx: { en: "Excel", hi-Latn: "Excel", hi: "Excel", mr: "Excel" }
+diff --git a/LOS-agentic-ai/app/config/faq.yaml b/LOS-agentic-ai/app/config/faq.yaml
+index 551f84e..5fdb4ff 100644
+--- a/LOS-agentic-ai/app/config/faq.yaml
++++ b/LOS-agentic-ai/app/config/faq.yaml
+@@ -155,7 +155,7 @@ answers:
+     steps:
+       en: ["Open the case (tap Open in My cases, or type its number).", "Tap Upload next to the document that is
+             pending, or attach the file in this chat.", "Choose the party (applicant or co-applicant) if asked.",
+-           "Wait for the check -- I will tell you here if the document is verified or needs a re-upload."]
++           "Wait for the check. I will tell you here if the document is verified or needs a re-upload."]
+       hi-Latn: ["Case kholiye (My cases mein Open dabaiye, ya uska number likhiye).", "Pending document ke saamne
+                  Upload dabaiye, ya file isi chat mein attach kijiye.", "Poocha jaaye to party chuniye (applicant
+                  ya co-applicant).", "Check hone dijiye -- document verify hua ya dobara upload chahiye, main yahin
+diff --git a/LOS-agentic-ai/app/config/product_flow.yaml b/LOS-agentic-ai/app/config/product_flow.yaml
+index e6f716d..da0b1a3 100644
+--- a/LOS-agentic-ai/app/config/product_flow.yaml
++++ b/LOS-agentic-ai/app/config/product_flow.yaml
+@@ -88,8 +88,8 @@ portfolio_flow:
+     yes_label: { en: "Yes", hi-Latn: "Haan", hi: "हाँ", mr: "हो" }
+     no_label: { en: "No", hi-Latn: "Nahi", hi: "नहीं", mr: "नाही" }
+     ask_group:
+-      en: ["Pending or Done?", "Which ones -- Pending or Done?"]
+-      hi-Latn: ["Pending ya Done?", "Kaunse -- Pending ya Done?"]
++      en: ["Pending or Done?", "Which ones. Pending or Done?"]
++      hi-Latn: ["Pending ya Done?", "Kaunse. Pending ya Done?"]
+       hi: ["लंबित या पूरे?"]
+       mr: ["प्रलंबित की पूर्ण?"]
+     no_reply:
+@@ -138,6 +138,14 @@ case_links:
+   on_lists: true                     # a list answer offers the filtered list as downloads too
+   # a typed download request ("excel download karo", "pdf chahiye"): the links for the open case, else for the list
+   ask_words: [download, export, excel, pdf, doc file, word file, xlsx, docx, डाउनलोड, एक्सेल]
++  # a typed "show in UI": the Show in UI action for the open case (else the list)
++  show_words: [show in ui, open in ui, ui mein dikhao, ui me dikhao, ui par dikhao, screen par dikhao,
++               main screen, show on screen, ui mein kholo, यूआई में दिखाओ]
++  show_here:
++    case: { en: "Open {case_id} on the main screen:", hi-Latn: "{case_id} main screen par kholiye:",
++            hi: "{case_id} मुख्य स्क्रीन पर खोलें:", mr: "{case_id} मुख्य स्क्रीनवर उघडा:" }
++    list: { en: "Open your cases on the main screen:", hi-Latn: "Apne cases main screen par kholiye:",
++            hi: "अपने केस मुख्य स्क्रीन पर खोलें:", mr: "तुमच्या केस मुख्य स्क्रीनवर उघडा:" }
+   here:
+     case: { en: "Downloads for {case_id}:", hi-Latn: "{case_id} ke downloads:", hi: "{case_id} के डाउनलोड:",
+             mr: "{case_id} चे डाउनलोड:" }
+@@ -220,8 +228,8 @@ case_form:
+     employment_type: { en: " ({choices})", hi-Latn: " ({choices})", hi: " ({choices})", mr: " ({choices})" }
+     loan_amount: { en: " (full amount in rupees, e.g. 500000)", hi-Latn: " (poori rakam rupaye mein, jaise 500000)",
+                    hi: " (पूरी राशि रुपये में, जैसे 500000)", mr: " (पूर्ण रक्कम रुपयांत, उदा. 500000)" }
+-  optional_hint: { en: " (optional -- type skip)", hi-Latn: " (optional -- skip likhiye)", hi: " (वैकल्पिक -- skip लिखें)",
+-                   mr: " (पर्यायी -- skip लिहा)" }
++  optional_hint: { en: " (optional, type skip)", hi-Latn: " (optional, skip likhiye)", hi: " (वैकल्पिक, skip लिखें)",
++                   mr: " (पर्यायी, skip लिहा)" }
+   skip_words: [skip, chhodo, chodo, rehne do, na, none, -, छोड़ो, वगळा]
+   cancel_words: [cancel, stop creating, band karo, rehne do case, cancel case, रद्द करो, रद्द करा]
+   confirm_words: [confirm, yes confirm, haan confirm, confirm karo, create karo, theek hai banao, पुष्टि, खात्री]
+@@ -334,8 +342,8 @@ import:
+       hi-Latn: "{total} mein se {ok} rows sahi hain. {bad} row(s) mein galti hai."
+       hi: "{total} में से {ok} पंक्तियाँ सही हैं। {bad} पंक्ति(यों) में गलती है।"
+       mr: "{total} पैकी {ok} ओळी बरोबर आहेत. {bad} ओळींमध्ये चूक आहे."
+-    row_error: { en: "Row {row}: {label} -- {why}", hi-Latn: "Row {row}: {label} -- {why}",
+-                 hi: "पंक्ति {row}: {label} -- {why}", mr: "ओळ {row}: {label} -- {why}" }
++    row_error: { en: "Row {row}: {label}, {why}", hi-Latn: "Row {row}: {label}, {why}",
++                 hi: "पंक्ति {row}: {label}, {why}", mr: "ओळ {row}: {label}, {why}" }
+     confirm_q:
+       en: "Create {ok} case(s) from the valid rows? Nothing is written until you confirm."
+       hi-Latn: "Sahi rows se {ok} case banayein? Confirm karne tak kuch save nahi hoga."
+@@ -424,10 +432,10 @@ stage_move:
+             disburse, reject this, reject kar, mark verified, kyc pass kar, kyc bypass, skip kyc, bypass kyc,
+             stage update, update the stage]
+   text:
+-    en: "I can't approve, reject, disburse or skip a check from chat -- a person does that. Here is where it stands:"
+-    hi-Latn: "Main chat se approve, reject, disburse ya koi check skip nahi kar sakta -- yeh ek vyakti karta hai. Abhi ki sthiti:"
+-    hi: "मैं चैट से मंज़ूरी, अस्वीकृति, वितरण या कोई जाँच छोड़ना नहीं कर सकता -- यह एक व्यक्ति करता है। अभी की स्थिति:"
+-    mr: "मी चॅटमधून मंजुरी, नकार, वितरण किंवा तपासणी वगळणे करू शकत नाही -- हे एक व्यक्ती करते. सध्याची स्थिती:"
++    en: "I can't approve, reject, disburse or skip a check from chat, a person does that. Here is where it stands:"
++    hi-Latn: "Main chat se approve, reject, disburse ya koi check skip nahi kar sakta, yeh ek vyakti karta hai. Abhi ki sthiti:"
++    hi: "मैं चैट से मंज़ूरी, अस्वीकृति, वितरण या कोई जाँच छोड़ना नहीं कर सकता, यह एक व्यक्ति करता है। अभी की स्थिति:"
++    mr: "मी चॅटमधून मंजुरी, नकार, वितरण किंवा तपासणी वगळणे करू शकत नाही, हे एक व्यक्ती करते. सध्याची स्थिती:"
+ 
+ # ---- THE FOS <-> CPA WORKFLOW (owner, 2026-10-08) -- read by capabilities/stage_flow.py --------------------------
+ # At FOS, anything wrong (KYC mismatch, rejected / missing document) -> a query to the CUSTOMER (one query listing
+@@ -468,10 +476,10 @@ stage_flow:
+       pending: { en: "{party}: please share the {document}.", hi-Latn: "{party}: kripya {document} dijiye.",
+                  hi: "{party}: कृपया {document} दें।", mr: "{party}: कृपया {document} द्या." }
+     nothing_wrong:
+-      en: "Nothing is wrong on {case_id} right now -- no query is needed."
+-      hi-Latn: "{case_id} mein abhi kuch galat nahi hai -- query ki zaroorat nahi."
+-      hi: "{case_id} में अभी कुछ गलत नहीं है -- क्वेरी की ज़रूरत नहीं।"
+-      mr: "{case_id} मध्ये सध्या काहीही चुकीचे नाही -- क्वेरीची गरज नाही."
++      en: "Nothing is wrong on {case_id} right now, no query is needed."
++      hi-Latn: "{case_id} mein abhi kuch galat nahi hai, query ki zaroorat nahi."
++      hi: "{case_id} में अभी कुछ गलत नहीं है, क्वेरी की ज़रूरत नहीं।"
++      mr: "{case_id} मध्ये सध्या काहीही चुकीचे नाही, क्वेरीची गरज नाही."
+     customer_sent:
+       en: "Query {query_id} recorded for the customer. Send them this message:"
+       hi-Latn: "Customer ke liye query {query_id} record ho gayi. Unhe yeh message bhejiye:"
+@@ -488,10 +496,10 @@ stage_flow:
+       hi: "{case_id} {here} से {there} में चला गया।"
+       mr: "{case_id} {here} मधून {there} मध्ये गेली."
+     not_ready:
+-      en: "{case_id} can't move to {there} yet -- these need to be fixed first:"
+-      hi-Latn: "{case_id} abhi {there} nahi ja sakta -- pehle yeh theek karna hoga:"
+-      hi: "{case_id} अभी {there} नहीं जा सकता -- पहले यह ठीक करना होगा:"
+-      mr: "{case_id} अजून {there} कडे जाऊ शकत नाही -- आधी हे दुरुस्त करावे लागेल:"
++      en: "{case_id} can't move to {there} yet, these need to be fixed first:"
++      hi-Latn: "{case_id} abhi {there} nahi ja sakta, pehle yeh theek karna hoga:"
++      hi: "{case_id} अभी {there} नहीं जा सकता, पहले यह ठीक करना होगा:"
++      mr: "{case_id} अजून {there} कडे जाऊ शकत नाही, आधी हे दुरुस्त करावे लागेल:"
+     move_failed:
+       en: "{case_id} was not moved: {why}"
+       hi-Latn: "{case_id} move nahi hua: {why}"
+@@ -553,4 +561,95 @@ stage_flow:
+     to_cpa: { en: "Raise query to CPA", hi-Latn: "CPA ko query bhejo", hi: "CPA को क्वेरी भेजें", mr: "CPA ला क्वेरी पाठवा" }
+   party_labels:
+     PRIMARY_APPLICANT: { en: "Applicant", hi-Latn: "Applicant", hi: "आवेदक", mr: "अर्जदार" }
+-    CO_APPLICANT: { en: "Co-applicant", hi-Latn: "Co-applicant", hi: "सह-आवेदक", mr: "सह-अर्जदार" }
+\ No newline at end of file
++    CO_APPLICANT: { en: "Co-applicant", hi-Latn: "Co-applicant", hi: "सह-आवेदक", mr: "सह-अर्जदार" }
++
++# ---- no case open, a CASE question ("Application status", "kya pending hai") -------------------------------------
++# Never a dead end: ask which case (the officer's recent cases as Open links) and, once one is picked, answer the
++# ORIGINAL question for it. A message with any of these words is a case question (never "I don't know that yet").
++which_case:
++  case_words: [status, pending, document, documents, doc, docs, kyc, pan, aadhaar, aadhar, loan, amount, cpa, stage,
++               ready, readiness, upload, uploaded, applicant, co-applicant, coapplicant, query, queries, verify,
++               verified, verification, emi, income, salary, bank, statement, address, proof, missing, baaki, baki,
++               atka, atki, stuck, details, detail, summary, form, checklist, next, history, timeline, application,
++               case, cases, customer, mobile, dob, signature, rejected, reupload, handoff, eligibility,
++               केस, स्थिति, दस्तावेज़, लोन, कागदपत्र]
++  ask:
++    en: "Which case is this about? Pick one and I'll answer \"{question}\" for it."
++    hi-Latn: "Yeh kis case ke baare mein hai? Ek case chuniye, main uske liye \"{question}\" ka jawab dunga."
++    hi: "यह किस केस के बारे में है? एक केस चुनें, मैं उसके लिए \"{question}\" का जवाब दूँगा।"
++    mr: "हे कोणत्या केसबद्दल आहे? एक केस निवडा, मी तिच्यासाठी \"{question}\" चे उत्तर देईन."
++
++# ---- THE CASE BRIEF on open (FINAL FIX A1 / A4) -- read by answering/case_brief.py ------------------------------
++# Three lines: the case (id, name, stage) / the main status or blocker WITH its reason / "Next step:". Built from
++# the readiness report only. "All checks have passed" ONLY when no item of ANY group (counted or advisory) is
++# pending, not run, failed or in review.
++case_brief:
++  max_suggestions: 2
++  # the documents KYC reads, per party: when these are pending, KYC "has not run BECAUSE they are not uploaded"
++  kyc_documents: [PAN, AADHAAR, AADHAR, PASSPORT, VOTER_ID, DRIVING_LICENCE, ADDRESS_PROOF]
++  texts:
++    head: { en: "**{case_id}** · {name} · {stage}", hi-Latn: "**{case_id}** · {name} · {stage}",
++            hi: "**{case_id}** · {name} · {stage}", mr: "**{case_id}** · {name} · {stage}" }
++    docs_and_kyc:
++      en: "{docs} {are} not uploaded, so {who}'s KYC hasn't run yet."
++      hi-Latn: "{docs} upload nahi hue, isliye {who} ka KYC abhi nahi chala."
++      hi: "{docs} अपलोड नहीं हुए, इसलिए {who} का KYC अभी नहीं चला।"
++      mr: "{docs} अपलोड झाले नाहीत, म्हणून {who} चे KYC अजून चालले नाही."
++    docs_pending:
++      en: "Pending: {docs}."
++      hi-Latn: "Baaki: {docs}."
++      hi: "बाकी: {docs}।"
++      mr: "बाकी: {docs}."
++    kyc_not_run:
++      en: "{who}'s KYC hasn't run yet."
++      hi-Latn: "{who} ka KYC abhi nahi chala."
++      hi: "{who} का KYC अभी नहीं चला।"
++      mr: "{who} चे KYC अजून चालले नाही."
++    failed:
++      en: "{what} did not pass: {reason}."
++      hi-Latn: "{what} pass nahi hua: {reason}."
++      hi: "{what} पास नहीं हुआ: {reason}।"
++      mr: "{what} पास झाले नाही: {reason}."
++    in_review:
++      en: "{what} is in review."
++      hi-Latn: "{what} review mein hai."
++      hi: "{what} समीक्षा में है।"
++      mr: "{what} पुनरावलोकनात आहे."
++    gate_blocked:
++      en: "Not ready yet: {what}."
++      hi-Latn: "Abhi ready nahi: {what}."
++      hi: "अभी तैयार नहीं: {what}।"
++      mr: "अजून तयार नाही: {what}."
++    all_clear:
++      en: "All {stage} checks have passed."
++      hi-Latn: "Saare {stage} checks pass ho gaye."
++      hi: "सभी {stage} जाँचें पास हो गईं।"
++      mr: "सर्व {stage} तपासण्या पास झाल्या."
++    next_step: { en: "Next step: {step}", hi-Latn: "Next step: {step}", hi: "अगला कदम: {step}", mr: "पुढचे पाऊल: {step}" }
++    next_ready: { en: "Move it to {next} when you're ready.", hi-Latn: "Taiyar hone par ise {next} mein bhejiye.",
++                  hi: "तैयार होने पर इसे {next} में भेजें।", mr: "तयार झाल्यावर ती {next} कडे पाठवा." }
++    are: { en: "are", hi-Latn: "", hi: "", mr: "" }
++    is: { en: "is", hi-Latn: "", hi: "", mr: "" }
++    and: { en: "and", hi-Latn: "aur", hi: "और", mr: "आणि" }
++  # suggestion questions by state (ask: links; the first 2 that apply)
++  suggestions:
++    problems: { en: ["What is pending?", "What is the KYC status?"], hi-Latn: ["Kya baaki hai?", "KYC status kya hai?"],
++                hi: ["क्या बाकी है?", "KYC की स्थिति क्या है?"], mr: ["काय बाकी आहे?", "KYC स्थिती काय आहे?"] }
++    ready: { en: ["Is it ready for CPA?"], hi-Latn: ["Kya CPA ke liye ready hai?"], hi: ["क्या CPA के लिए तैयार है?"],
++             mr: ["CPA साठी तयार आहे का?"] }
++
++# ---- links per reply (FINAL FIX A4): less is more --------------------------------------------------------------
++link_policy:
++  max_items: 3                 # extra link items per reply; a "Download: Excel · Doc · PDF" line counts as ONE
++  # downloads / Show in UI / workflow offers only on these answers (a portfolio or a case summary) or when asked
++  case_links_on: [CASE_LIST, FULL_SUMMARY, CASE_360, CASE_SUMMARY, DOWNLOADS, CASE_CREATED]
++  never_show: [exit_case, switch_case]     # understood from text ("bahar aao", "dusra case"), never a button
++  no_repeat: true              # a link shown in the previous reply of the chat is not shown again
++  download_label: { en: "Download:", hi-Latn: "Download:", hi: "डाउनलोड:", mr: "डाउनलोड:" }
++
++# ---- the frontend's routes for the UI actions (FINAL FIX D): POST /api/v1/fos/action answers show_in_ui /
++# show_list_in_ui / new_case with {"type": "open_ui", "route": ...} built from these
++ui_routes:
++  case: "/cases/{case_id}"
++  list: "/cases?{query}"
++  new_case: "/cases/new"
+\ No newline at end of file
+diff --git a/LOS-agentic-ai/tests/integration/selfcheck_conversations.py b/LOS-agentic-ai/tests/integration/selfcheck_conversations.py
+index cd142b8..dd49f32 100644
+--- a/LOS-agentic-ai/tests/integration/selfcheck_conversations.py
++++ b/LOS-agentic-ai/tests/integration/selfcheck_conversations.py
+@@ -13,7 +13,7 @@ R = r"(?i)"
+ LIST = [R + r"\| CASE-[0-9A-F]+ \|"]
+ PARTICULAR = [R + r"particular case|details of a particular"]
+ GROUP_Q = [R + r"pending or done|pending ya done"]
+-OPENED = [R + r"\bopened\b|khul gaya|kholaa"]
++OPENED = [R + r"CASE-[0-9A-F]+\** · [^\n]+ · FOS|\bopened\b"]       # the case brief's first line
+ WHAT_KNOW = [R + r"what do you want to know|what would you like to know|kya jaanna"]
+ PENDING_DOCS = [R + r"\bPAN\b"], [R + r"address proof"], [R + r"bank statement"]
+ NOT_READY = [R + r"not ready|ready nahi|abhi ready nahi|checks passed"]
+@@ -39,7 +39,7 @@ CONVERSATIONS: list[tuple[str, list[tuple]]] = [
+         ("my cases", [LIST, PARTICULAR], []),
+         ("Yes", [GROUP_Q], []),
+         ("Pending", [LIST], []),
+-        ("1", [OPENED, WHAT_KNOW, *DOWNLOADS, SHOW_UI], []),
++        ("1", [OPENED, WHAT_KNOW], [R + r"action:download"]),         # A4: no downloads on open
+         ("What is pending?", list(PENDING_DOCS), [],
+          [[R + r"PAN"], [R + r"address proof"], [R + r"bank statement"]]),     # the voice names all three
+         ("Is it ready for CPA?", [NOT_READY], [R + r"ready for cpa\. a person must"]),
+@@ -71,7 +71,7 @@ CONVERSATIONS: list[tuple[str, list[tuple]]] = [
+         ("stage kya hai", [STAGE_FOS], []),
+     ]),
+     ("07 open by id", [
+-        ("open {A}", [OPENED, *DOWNLOADS, SHOW_UI], []),
++        ("open {A}", [OPENED], [R + r"action:download"]),             # A4: the brief, no downloads
+         ("kyu atka hai?", [[R + r"PAN|document|pending|KYC"]], []),
+     ]),
+     ("08 readiness", [
+diff --git a/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py b/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py
+index 4ad4021..d8bac82 100644
+--- a/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py
++++ b/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py
+@@ -96,7 +96,7 @@ def test_portfolio_follow_up_yes_pending_pick_open(client, prod):
+     listed = turn(client, "mere cases dikhao")["markdown"]
+     assert "Do you want to know about a particular case?" in listed or "Would you like details" in listed
+     assert "](ask:Yes)" in listed and "](ask:No)" in listed
+-    assert "Download Excel" in listed and "Show in UI" in listed           # the list as downloads
++    assert "Download: [Excel]" in listed and "Show in UI" in listed         # the list as downloads (one item)
+     asked = turn(client, "Yes")["markdown"]
+     assert "Pending" in asked and "Done" in asked and "](ask:Pending)" in asked
+     pending = turn(client, "Pending")["markdown"]
+@@ -104,7 +104,7 @@ def test_portfolio_follow_up_yes_pending_pick_open(client, prod):
+     opened = turn(client, "1")["markdown"]
+     assert "CASE-" in opened and ("What do you want to know?" in opened or "What would you like to know" in opened)
+     assert "](ask:What%20is%20pending?)" in opened
+-    assert "Download Excel" in opened and "Download PDF" in opened and "Show in UI" in opened
++    assert "action:download" not in opened                               # FINAL FIX A4: not on open
+ 
+ 
+ def test_portfolio_follow_up_no_and_skip(client, prod):
+@@ -296,3 +296,20 @@ def test_open_shows_what_the_form_still_needs(client, prod):
+     repo.save_application(dataclasses.replace(application, loan_amount=None))
+     opened = turn(client, f"open {case_id}", chat="gap")["markdown"]
+     assert "This case still needs: Loan amount" in opened
++
++
++def test_a_case_question_with_no_case_open_asks_which_case_then_answers_it(client, prod):
++    make_case(client, "Rahul Sharma")
++    make_case(client, "Priya Verma")
++    asked = turn(client, "Application status", chat="wc")["markdown"]
++    assert asked.startswith("Which case is this about?") and "| CASE-" in asked
++    answered = turn(client, "1", chat="wc")["markdown"]
++    assert "CASE-" in answered and "Which case" not in answered and "Open a case first" not in answered
++    hinglish = turn(client, "status kya hai", chat="wc2")["markdown"]
++    assert hinglish.startswith("Which case is this about?") and "don't know that yet" not in hinglish
++
++
++def test_one_case_is_answered_directly_and_view_all_cases_lists(client, prod):
++    make_case(client, "Rahul Sharma")
++    assert "Which case" not in turn(client, "Application status", chat="one")["markdown"]
++    assert "| CASE-" in turn(client, "view all cases", chat="va")["markdown"]
+diff --git a/LOS-agentic-ai/docs/frontend/FRONTEND_GUIDE.md b/LOS-agentic-ai/docs/frontend/FRONTEND_GUIDE.md
+index 8f6efbf..2e158c5 100644
+--- a/LOS-agentic-ai/docs/frontend/FRONTEND_GUIDE.md
++++ b/LOS-agentic-ai/docs/frontend/FRONTEND_GUIDE.md
+@@ -135,6 +135,38 @@ live typing (same body, Server-Sent Events).
+   auto-read toggle.
+ - Nothing else is in the reply. Older fields (`answer`, `chips`, `presentation`, `actions`, …) are gone.
+ 
++### 5.2b ONE endpoint for every `action:` link (use this -- it replaces the per-action table below)
++`POST /api/v1/fos/action` with `Authorization: Bearer <JWT>` and
++`{"href": "<the link target exactly as in the markdown>", "chat_id": "...", "reply_language": "en"}`.
++
++| The action | What comes back |
++|---|---|
++| `download`, `download_list`, `handoff_note` | the **file** (200, `Content-Disposition: attachment; filename="case_CASE-…_2026-10-08.xlsx"`) -- save it with that name |
++| `view_document` | the document (200, `Content-Disposition: inline`) -- open it in a new tab |
++| `show_in_ui`, `show_list_in_ui`, `new_case` | `{"type": "open_ui", "route": "/cases/CASE-…"}` -- navigate your app there (routes are server config) |
++| `upload` | `{"type": "upload", "document_type": "PAN", "party": "applicant", "post_to": "/api/v1/fos/copilot?chat_id=…"}` -- open a file picker, then POST multipart |
++| `copy` | `{"type": "copy", "ref": "draft-1"}` -- copy the Nth `>` quote of that message (nothing sent) |
++| everything else (`open_case`, `list_more`, `confirm_write`, `cancel_write`, `exit_case`, `switch_case` …) | `{"type": "reply", "request_id", "markdown", "tts"}` -- append it to the chat |
++
++Errors: 401 login again · 403 link not yours / expired · 404 not your case (same as "does not exist") ·
++409 not ready (handoff note) · 422 not an action link / bad format · 429 too many downloads. Show `detail.message`.
++
++**Ready-to-paste React:** `docs/frontend/ChatLinks.jsx` (react-markdown `components` override: `ask:` sends the
++text, `action:` calls this endpoint and downloads blobs with the server's filename, normal links open in a new tab,
++links render as chips).
++
++Verified with real HTTP (2026-10-08):
++```bash
++curl -s -X POST "$BASE/api/v1/fos/action" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
++     -d '{"href":"action:download?format=xlsx&case=CASE-E2A7F9EADB50"}' -OJ        # -> case_CASE-E2A7F9EADB50_2026-10-08.xlsx
++curl -s -X POST "$BASE/api/v1/fos/action" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
++     -d '{"href":"action:show_in_ui?case=CASE-E2A7F9EADB50"}'                        # -> {"type":"open_ui","route":"/cases/CASE-E2A7F9EADB50"}
++curl -s -X POST "$BASE/api/v1/fos/action" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
++     -d '{"href":"action:open_case?id=CASE-E2A7F9EADB50","chat_id":"c1","reply_language":"en"}'   # -> {"type":"reply",...}
++curl -s -X POST "$BASE/api/v1/fos/action" -d '{"href":"action:download?format=pdf&case=CASE-E2A7F9EADB50"}' \
++     -H "Content-Type: application/json"                                                  # -> 401 (no token)
++```
++
+ ### 5.3 Buttons are links inside the markdown
+ 
+ Render every markdown link as a button (or chip).
+diff --git a/LOS-agentic-ai/docs/frontend/widget.html b/LOS-agentic-ai/docs/frontend/widget.html
+index 5e83e19..79bf6da 100644
+--- a/LOS-agentic-ai/docs/frontend/widget.html
++++ b/LOS-agentic-ai/docs/frontend/widget.html
+@@ -260,22 +260,21 @@ async function follow(href, m) {
+     const n = parseInt((p.ref || "draft-1").split("-")[1] || "1", 10), q = m.b.querySelectorAll("blockquote")[n - 1];
+     if (q) await navigator.clipboard.writeText(q.innerText); return;
+   }
+-  if (name === "handoff_note") {
+-    const r = await fetch(`${S.base}/api/v1/fos/handoff-note?case_id=${encodeURIComponent(p.case)}&format=pdf`, { headers: headers(false) });
+-    if (!r.ok) return ask("handoff note banao"); window.open(URL.createObjectURL(await r.blob())); return;
+-  }
+   if (name === "upload") return upload(p.doc, p.party);
+-  if (name === "new_case") return alert("Open your Create New Case form here.");
+-  if (name === "show_in_ui") return alert(`Open case ${p.case} on the main screen (GET /api/v1/fos/cases/${p.case}/form).`);
+-  if (name === "show_list_in_ui") return alert(`Open the home table with filters: ${p.q}`);
+-  if (name === "download" || name === "download_list") {         // a short-lived link, opened with the same login
+-    const q = name === "download" ? `case_id=${encodeURIComponent(p.case)}` : `q=${encodeURIComponent(p.q || "all")}`;
+-    const r = await fetch(`${S.base}/api/v1/fos/exports?format=${p.format}&${q}&lang=${$("lang").value}`, { headers:headers(false) });
+-    const data = await r.json(); if (!r.ok) return alert((data.detail && data.detail.message) || r.status);
+-    const f = await fetch(S.base + data.url, { headers:headers(false) });
+-    window.open(URL.createObjectURL(await f.blob())); return;
++  // EVERY other action: ONE endpoint (POST /api/v1/fos/action) -- a file, a UI route, or the chat reply
++  const r = await fetch(`${S.base}/api/v1/fos/action`, { method:"POST", headers:headers(),
++    body:JSON.stringify({ href, chat_id:S.chatId, reply_language:$("lang").value }) });
++  const type = r.headers.get("content-type") || "";
++  if (!r.ok) { const d = type.includes("json") ? await r.json() : {}; return alert((d.detail && d.detail.message) || r.status); }
++  if (!type.includes("application/json")) {                       // a file: save with the server's filename
++    const cd = r.headers.get("content-disposition") || "", url = URL.createObjectURL(await r.blob());
++    if (cd.startsWith("inline")) return window.open(url, "_blank");
++    const a = Object.assign(document.createElement("a"), { href:url, download:(cd.match(/filename="?([^";]+)"?/) || [])[1] || "download" });
++    document.body.appendChild(a); a.click(); a.remove(); return;
+   }
+-  return ask(null, { body:{ action_link: href }, label: m && m.b.querySelector(`[data-href="${CSS.escape(href)}"]`)?.textContent });
++  const data = await r.json();
++  if (data.type === "open_ui") return alert("Open on the main screen: " + data.route);   // your app navigates here
++  if (data.type === "reply") { mine(m && m.b.querySelector(`[data-href="${CSS.escape(href)}"]`)?.textContent || href); return render(bubble(""), data); }
+ }
+ function upload(doc, party) {
+   const input = document.createElement("input"); input.type = "file"; input.accept = "image/*,application/pdf";
+diff --git a/LOS-agentic-ai/CHANGES_LOG.md b/LOS-agentic-ai/CHANGES_LOG.md
+index 1c010c6..59a5406 100644
+--- a/LOS-agentic-ai/CHANGES_LOG.md
++++ b/LOS-agentic-ai/CHANGES_LOG.md
+@@ -1540,3 +1540,34 @@ Patch: `runs/patches/master-15-17-12-10-product-flow-guardrails-selfcheck.patch`
+   CPA -> FOS and FOS -> CPA queries; reply / resolve by query id. Every step proposal + Confirm; offers shown under
+   case answers. Stage-move note now only for approve / reject / disburse / skip-a-check.
+ - Tests: test_master_15b_stage_flow (7); self-check updated.
++- **No dead ends** (owner report "Application status -> Open a case first"): a case question with no case open now
++  asks "Which case is this about?" over the recent cases and answers the ORIGINAL question after the pick (one case:
++  answered directly). "view all cases" lists (view/see/display are list verbs). FIX: "status kya hai" with no case
++  was answered "I don't know that yet" (FAQ rule now skips case questions, product_flow.yaml which_case.case_words).
++- **Architecture kept**: the confirmed FOS -> CPA move runs in the route layer (`fos_api.move_case_stage`), never in
++  a copilot module (test_stage_lifecycle test_l). Full run before this fix: 2526 passed, 2 failed -> both fixed;
++  related suites after: 157 passed.
++
++## FINAL FIX + PROOF (2026-10-08)
++- **A1 contradiction** root cause: the review card counted only COUNTED groups, so an advisory item (KYC not run)
++  sat beside "every check passes". Case open is now the CASE BRIEF (`answering/case_brief.py`, product_flow.yaml
++  `case_brief`): case + name + stage / the main blocker WITH its reason ("PAN ... not uploaded, so Priya's KYC hasn't
++  run yet") / "Next step:", from the readiness report only; all-clear only when NO item of ANY group is open. Safety
++  net `contract._consistent` (copilot_reply.yaml markdown.consistency). The status answer's pending list now includes
++  the signature (status_facts.pending_documents) -- same set as the brief.
++- **A2 dead ends** removed everywhere (fos + universal): 0 cases -> "You don't have any cases yet" + Create New Case;
++  1 case -> answered; several -> "Which case is this about?" + the recent cases, and the pick answers the ORIGINAL
++  question (`workspace.ask_which_case`, `Turn.message`, `fos_api._no_case_turn`). "kyu?" with nothing recorded now
++  gives the real blocker (`case_brief.why_fallback`).
++- **A3** "view/show/list all cases", "all cases dikhao", "mere saare cases" -> the list (list_rule); evals/router_misses.yaml.
++- **A4 less is more** (product_flow.yaml `link_policy`): <= 3 extra link items per reply ("Download: Excel · Doc · PDF"
++  is one item), downloads / Show in UI / workflow offers only on a portfolio or case summary or when asked, never a
++  link from the previous reply, exit / switch never shown. Case open: 3 lines + <= 2 state-chosen links.
++- **A5** 59 config template lines lost their " -- "; command hints ("say ...") rewritten; output safety net in contract.
++- **B security**: every data / document / download route 401 without a token, 404 / 403 for another officer (live
++  HTTP); no public folder is served. FIX: `GET /api/v1/verify/` returned the server's upload path -> removed. FIX:
++  document view looked bytes up by the raw id only (OCR-queued bytes are kept under storage_key) -> both.
++- **C/D** ONE action endpoint `POST /api/v1/fos/action` (files with Content-Disposition, UI routes from
++  product_flow.yaml `ui_routes`, or the chat reply); `docs/frontend/ChatLinks.jsx` (react-markdown handler);
++  FRONTEND_GUIDE 5.2b with curl; widget uses the endpoint. Live HTTP: all 6 downloads open; every action yes.
++- Tests: tests/integration/test_final_fix.py (19).
+diff --git a/app/agents/applicant/copilot/answering/case_brief.py b/app/agents/applicant/copilot/answering/case_brief.py
+new file mode 100644
+index 0000000..572cbdb
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/case_brief.py
+@@ -0,0 +1,168 @@
++"""
++THE CASE BRIEF on open (FINAL FIX A1 / A4; config product_flow.yaml `case_brief`).
++
++    line 1   the case: id, name, stage
++    line 2   the main status or blocker WITH its reason ("PAN and Aadhaar are not uploaded, so Aniket's KYC hasn't
++             run yet") -- or "All FOS checks have passed" ONLY when no item of ANY group (counted or advisory) is
++             pending, not run, failed or in review
++    line 3   "Next step: ..."
++    links    at most `max_suggestions`, chosen by the case's state
++
++ONE SOURCE: the readiness report (readiness_report.build) -- the same items the readiness answer and the gate use,
++so the brief can never contradict them.
++"""
++
++from __future__ import annotations
++
++from typing import Any
++
++PASS, PENDING, FAILED, REVIEW = "PASS", "PENDING", "FAILED", "REVIEW"
++
++
++def _cfg() -> dict[str, Any]:
++    from app.agents.applicant.copilot.capabilities import product_flow
++
++    return product_flow.cfg().get("case_brief") or {}
++
++
++def _say(key: str, lang: str, **values: Any) -> str:
++    from app.agents.applicant.copilot.capabilities import product_flow
++
++    return product_flow.say((_cfg().get("texts") or {}).get(key), lang, **values)
++
++
++def _join(items: list[str], lang: str) -> str:
++    items = list(dict.fromkeys(i for i in items if i))
++    word = _say("and", lang) or "and"
++    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + f" {word} " + items[-1]
++
++
++def _party_of(item_id: str) -> str:
++    """'DOC:CO:PAN' / 'KYC:CO_APPLICANT:name' -> CO, else PRIMARY."""
++    parts = str(item_id).split(":")
++    return "CO" if len(parts) > 1 and parts[1].startswith("CO") else "PRIMARY"
++
++
++def _names(case_id: str, application: Any) -> dict[str, str]:
++    from app.agents.applicant.copilot.capabilities import workspace
++
++    out = {"PRIMARY": workspace._name(application.applicant_id, short=False) if application else ""}
++    try:
++        from app.agents.los import co_applicants
++
++        found = co_applicants.list_for_case(case_id) or []
++        if found:
++            out["CO"] = str(found[0].get("name") or "")
++    except Exception:  # noqa: BLE001 - no co-applicant record: the applicant's name only
++        pass
++    return out
++
++
++def build(case_id: str, lang: str) -> dict[str, Any]:
++    """{text, suggestions, all_clear}: the three lines and the state-chosen questions."""
++    from app.agents.applicant.copilot.answering import readiness_report
++    from app.agents.applicant.copilot.capabilities import workspace
++    from app.store import get_repository
++
++    application = get_repository().get_application(case_id)
++    stage = workspace._stage(case_id) or "--"
++    names = _names(case_id, application)
++    report = readiness_report.build(case_id)
++    items = [i for g in report.get("groups") or [] for i in g.get("items") or []]
++    open_items = [i for i in items if i.get("status") != PASS]
++    order = {i: n for n, i in enumerate(report.get("unblock_order") or [])}
++    open_items.sort(key=lambda i: order.get(i.get("id"), 999))
++    head = _say("head", lang, case_id=case_id, name=names.get("PRIMARY") or "", stage=stage)
++    status = _status_line(open_items, names, stage, report, lang)
++    from app.agents.applicant.copilot.capabilities import case_form
++
++    gaps = case_form.missing(case_id) if case_form.enabled() else []
++    if gaps:
++        # information first (the workflow's own order): a half-filled form is the main blocker
++        status = case_form._say("missing_fields", lang, fields=", ".join(case_form.label(f, lang) for f in gaps))
++    try:
++        from app.agents.applicant.copilot.capabilities import timeline
++
++        late = timeline.turnaround_line(case_id)
++    except Exception:  # noqa: BLE001 - the flag is a convenience; the brief stands without it
++        late = None
++    if late:
++        status = f"{status} {late}".strip()          # past the stage's target: said on the same status line
++    all_clear = not open_items and not gaps and bool(report.get("ready"))
++    if all_clear:
++        from app.agents.applicant.copilot.capabilities import product_flow
++
++        nexts = ((product_flow.cfg().get("stage_flow") or {}).get("chat_moves") or {}).get(stage.upper()) or []
++        step = _say("next_ready", lang, next=nexts[0]) if nexts else ""
++    else:
++        step = str(report.get("next_fix") or "")
++    lines = [head, status] + ([_say("next_step", lang, step=step.rstrip("."))  + "."] if step else [])
++    key = "ready" if all_clear else "problems"
++    from app.agents.applicant.copilot.answering import language_lock
++
++    asked = language_lock.pick((_cfg().get("suggestions") or {}).get(key) or [], lang)
++    return {"text": "\n".join(x for x in lines if x), "all_clear": all_clear,
++            "suggestions": list(asked if isinstance(asked, list) else [asked])}
++
++
++def _status_line(open_items: list[dict[str, Any]], names: dict[str, str], stage: str, report: dict[str, Any],
++                 lang: str) -> str:
++    """The ONE main status line, with its reason; consistent with every item by construction."""
++    if not open_items:
++        return _say("all_clear", lang, stage=stage) if report.get("ready") else ""
++    bad = [i for i in open_items if i.get("status") in (FAILED, REVIEW)]
++    if bad:
++        first = bad[0]
++        if first.get("status") == REVIEW:
++            return _say("in_review", lang, what=first.get("label"))
++        reason = str(first.get("reason") or "").rstrip(".") or str(first.get("fix") or "").rstrip(".")
++        if str(first.get("id", "")).startswith("GATE:"):
++            return _say("gate_blocked", lang, what=first.get("label"))
++        return _say("failed", lang, what=first.get("label"), reason=reason)
++    docs = [i for i in open_items if str(i.get("id", "")).startswith(("DOC:", "SIG:"))]
++    kyc = [i for i in open_items if str(i.get("id", "")).startswith("KYC:")]
++    kyc_docs = {str(d).upper() for d in _cfg().get("kyc_documents") or []}
++    if kyc:
++        party = _party_of(kyc[0]["id"])
++        who = names.get(party) or names.get("PRIMARY") or ""
++        blocking = [d["label"] for d in docs if _party_of(d["id"]) == party
++                    and str(d["id"]).split(":")[-1].upper() in kyc_docs]
++        if blocking:
++            others = [d["label"] for d in docs if d["label"] not in blocking]
++            line = _say("docs_and_kyc", lang, docs=_join(blocking + others, lang),
++                        are=_say("are" if len(blocking + others) > 1 else "is", lang), who=who)
++            return " ".join(line.split())
++        if not docs:
++            return _say("kyc_not_run", lang, who=who)
++    if docs:
++        return _say("docs_pending", lang, docs=_join([d["label"] for d in docs], lang))
++    first = open_items[0]
++    if str(first.get("id", "")).startswith("GATE:"):
++        return _say("gate_blocked", lang, what=first.get("label"))
++    return _say("docs_pending", lang, docs=first.get("label"))
++
++
++def why_fallback(published: Any) -> Any:
++    """
++    "kyu?" / "why is it stuck?" on a case with NO recorded finding: never "nothing on file explaining it" when the
++    case plainly waits on something -- the brief's status line and next step are the answer (both endpoints).
++    """
++    from app.agents.applicant import case_memory_facts
++
++    if not isinstance(published, dict) or not published.get("case_id"):
++        return published
++    empty = case_memory_facts.NOTHING_RECORDED
++    if empty not in str(published.get("answer") or ""):
++        return published
++    from app.agents.applicant.copilot.answering import language_lock
++
++    brief = build(str(published["case_id"]), language_lock.current() or "en")
++    if brief["all_clear"]:
++        return published
++    lines = brief["text"].split("\n")[1:]
++    published["answer"] = str(published["answer"]).replace(empty, "\n".join(lines))
++    published.pop("answer_markdown", None)
++    return published
++
++
++__all__ = ["build", "why_fallback"]
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/answering/officer_tools.py b/LOS-agentic-ai/app/agents/applicant/copilot/answering/officer_tools.py
+index 756a97b..8069b48 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/answering/officer_tools.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/answering/officer_tools.py
+@@ -111,7 +111,12 @@ def review_card(case_id: str) -> dict[str, Any]:
+     lines += [f"- {i['label']}: {i['status']}" + (f" -- {i['fix']}" if i.get("fix") else "") for i in card["issues"]]
+     if card["more"]:
+         lines.append(_label("review", "more", n=card["more"]))
+-    card["text"] = "\n".join(lines) if todo else _label("review", "clear")
++    open_anywhere = [i for g in report.get("groups") or [] for i in g.get("items") or [] if i.get("status") != "PASS"]
++    if not todo and open_anywhere:
++        # FINAL FIX A1: an advisory item (e.g. KYC not run) is NOT passed -- never "every check passes" beside it
++        lines += [f"- {i['label']}: {i['status']}" for i in open_anywhere[:top]]
++    card["text"] = "\n".join(lines) if (todo or open_anywhere or not report.get("ready")) \
++        else _label("review", "clear")
+     return card
+ 
+ 
+@@ -192,7 +197,7 @@ def attach(published: dict[str, Any], message: str) -> dict[str, Any]:
+     elif enabled("visit") and _asks("visit", message):
+         text = visit_checklist(case_id) or _label("visit", "nothing")
+         replace(text, "VISIT_CHECKLIST", printable=True)
+-    if enabled("review") and intent == "CASE_OPENED":
++    if enabled("review") and intent == "CASE_OPENED" and not published.get("brief"):
+         card = review_card(case_id)
+         published["review_card"] = card
+         published["answer"] = str(published.get("answer") or "").rstrip() + "\n\n" + card["text"]
+diff --git a/LOS-agentic-ai/app/agents/applicant/status_facts.py b/LOS-agentic-ai/app/agents/applicant/status_facts.py
+index 4a3aecd..119bc88 100644
+--- a/LOS-agentic-ai/app/agents/applicant/status_facts.py
++++ b/LOS-agentic-ai/app/agents/applicant/status_facts.py
+@@ -66,8 +66,32 @@ def stage_sentence(application: dict[str, Any]) -> str:
+         status, f"Your application is currently under {_readable(status)}")
+ 
+ 
+-def pending_documents(checklist: list[dict[str, Any]] | None) -> list[str]:
+-    """Required checklist slots with nothing uploaded, in checklist order."""
++def pending_documents(checklist: list[dict[str, Any]] | None, case_id: str | None = None) -> list[str]:
++    """
++    Required checklist slots with nothing uploaded, in checklist order -- and, given the case, the signature when
++    the signature rule applies (FINAL FIX A1: the SAME pending set as the readiness report and the case brief).
++    """
++    return _checklist_pending(checklist) + _signature_pending(case_id)
++
++
++def _signature_pending(case_id: str | None) -> list[str]:
++    if not case_id:
++        return []
++    try:
++        from app.agents.applicant import workflow
++        from app.store import get_repository
++
++        repository = get_repository()
++        application = repository.get_application(case_id)
++        if application is None or not workflow.signature_rule_applies(application)[0]:
++            return []
++        items = workflow.signature_items(application, repository.list_documents(case_id))
++    except Exception:  # noqa: BLE001 - no signature record: the checklist alone, as before
++        return []
++    return [_readable("SIGNATURE")] if any(i.get("code") == "DOCUMENT_MISSING" for i in items) else []
++
++
++def _checklist_pending(checklist: list[dict[str, Any]] | None) -> list[str]:
+     return [
+         _readable(entry.get("slot"))
+         for entry in (checklist or [])
+@@ -373,7 +397,7 @@ def answer(
+                  if during_stage(d, since)]
+     decision = str((decisions[-1] if decisions else {}).get("decision")
+                    or "").upper()
+-    pending = pending_documents(checklist)
++    pending = pending_documents(checklist, (application or {}).get("case_id"))
+     opening = stage_sentence(application)
+ 
+     held = _HELD.get(decision)
+diff --git a/LOS-agentic-ai/app/agents/applicant/case_memory_facts.py b/LOS-agentic-ai/app/agents/applicant/case_memory_facts.py
+index cab23ac..dab4bda 100644
+--- a/LOS-agentic-ai/app/agents/applicant/case_memory_facts.py
++++ b/LOS-agentic-ai/app/agents/applicant/case_memory_facts.py
+@@ -528,6 +528,11 @@ def review_reason(
+             _sources(findings=explaining, decisions=decisions))
+ 
+ 
++#: said only when nothing is recorded; the copilot replaces it with the case's real blocker (case_brief)
++NOTHING_RECORDED = ("No findings have been recorded for this case yet, so there is "
++                    "nothing on file explaining its current state.")
++
++
+ def explain(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+     """
+     Why the case stands where it does, and what says so.
+@@ -542,11 +547,7 @@ def explain(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+     decisions = memory.get("decisions") or []
+ 
+     if not findings and not decisions:
+-        return (
+-            "No findings have been recorded for this case yet, so there is "
+-            "nothing on file explaining its current state.",
+-            [],
+-        )
++        return NOTHING_RECORDED, []
+ 
+     latest = decisions[-1] if decisions else {}
+     clause, sources = review_reason(memory)
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/agent.py b/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
+index 0250091..64ed40e 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
+@@ -358,7 +358,8 @@ def _asks_what_to_do(text: str) -> bool:
+ def _pending_and_next(results: dict[str, Any]) -> str:
+     """What this case still needs, from its own checklist and next action."""
+     view = results.get("applicant.360") or {}
+-    pending = status_facts.pending_documents(view.get("checklist"))
++    pending = status_facts.pending_documents(view.get("checklist"),
++                                             (view.get("application") or {}).get("case_id"))
+     if pending:
+         listed = case_memory_facts._and_list(pending)
+         one = len(pending) == 1
+diff --git a/LOS-agentic-ai/app/agents/document_verification/service.py b/LOS-agentic-ai/app/agents/document_verification/service.py
+index 4e1aff0..14f8c93 100644
+--- a/LOS-agentic-ai/app/agents/document_verification/service.py
++++ b/LOS-agentic-ai/app/agents/document_verification/service.py
+@@ -266,7 +266,8 @@ def configuration() -> dict[str, Any]:
+             " (operation=VERIFY)"
+         ),
+         "supported_documents": list(SUPPORTED_DOCUMENTS),
+-        "upload_root": str(upload_root()),
++        # never a server path in a response (MASTER SPEC 17.5): where uploads are staged is said, not shown
++        "upload_staging": "server-side temporary file, deleted when the request ends",
+         "deterministic": True,
+         "authenticity_checked": False,
+         "note": (
+diff --git a/tests/integration/test_final_fix.py b/tests/integration/test_final_fix.py
+new file mode 100644
+index 0000000..36285d9
+--- /dev/null
++++ b/tests/integration/test_final_fix.py
+@@ -0,0 +1,276 @@
++"""
++FINAL FIX + PROOF (docs/MASTER_FINAL_SPEC.md, section 15 wins) -- every dev flag on.
++
++  A1 no contradiction: "all checks pass" never beside a pending / not-run item; the brief says WHY
++  A2 no dead end: no case open -> 0 / 1 / several cases; the pick answers the ORIGINAL question
++  A3 list phrasings route to the list
++  A4 less is more: case open = 3 lines + <= 2 links; <= 3 extra link items per reply; no repeat
++  A5 no "--", no "say ..." in any reply
++  B  documents / downloads only through authenticated routes; no token -> 401; another officer -> 403 / 404
++  C/D the ONE action endpoint: every action the bot emits works (files open, UI routes, chat replies)
++  E  the owner's transcript, as golden cases
++"""
++
++from __future__ import annotations
++
++import io
++import re
++import zipfile
++
++import pytest
++
++from tests.integration.master_env import make_case, prod  # noqa: F401
++from tests.integration.test_reupload_supersedes import FOS_SCOPES, _store, client  # noqa: F401
++
++FOS, ACTION = "/api/v1/fos/copilot", "/api/v1/fos/action"
++LINK = re.compile(r"\]\(((?:action|ask):[^)]*)\)")
++
++
++def say(client, message, chat="ff", **extra):
++    r = client.post(FOS, json={"action": "CUSTOM_QUERY", "message": message, "reply_language": "en",
++                               "chat_id": chat, **extra})
++    assert r.status_code == 200, r.text
++    return r.json()
++
++
++def extra_links(md: str) -> int:
++    """Link items outside the case table and outside the flow question's own answer options."""
++    lines = [ln for ln in md.split("\n") if not ln.startswith("|")]
++    items = 0
++    for ln in lines:
++        found = LINK.findall(ln)
++        if not found:
++            continue
++        if re.search(r"\]\(ask:(Yes|No|Pending|Done)\)", ln) or "confirm_write" in ln:
++            continue                                    # the flow question's answer options
++        items += 1 if ln.startswith("Download:") else len(found) - (1 if "show_in_ui" in ln and ln.startswith("Download:") else 0)
++    return items
++
++
++@pytest.fixture
++def other(make_token):
++    from fastapi.testclient import TestClient
++
++    import main
++
++    c = TestClient(main.app)
++    c.headers.update({"Authorization": f"Bearer {make_token(subject='officer-b', scopes=FOS_SCOPES)}"})
++    return c
++
++
++@pytest.fixture
++def stored_document(client, _store):
++    """A document on the caller's case, stored the way the upload pipeline stores it."""
++    from app.store.documents import get_document_store
++    from app.store.models import Document, DocumentStatus
++
++    app_id, case_id = make_case(client, "Rahul Sharma")
++    doc_id = f"{case_id}:{app_id}:pan.png"
++    _store.save_document(Document(document_id=doc_id, case_id=case_id, applicant_id=app_id, document_type="PAN",
++                                  status=DocumentStatus.VERIFIED))
++    get_document_store().put(doc_id, b"\x89PNG\r\n\x1a\nfake", "image/png")
++    return case_id, doc_id
++
++
++# ---- A1 ---------------------------------------------------------------------------------------------------------
++def test_the_consistency_guard_drops_an_all_clear_beside_an_open_item():
++    from app.agents.applicant.copilot.answering import contract
++
++    md = "CASE-1 · Rahul · FOS\nKYC has not run for this party.\nReview: every check passes."
++    assert "every check passes" not in contract._consistent(md, "r1")
++    assert contract._consistent("All FOS checks have passed.", "r2") == "All FOS checks have passed."
++
++
++def test_the_brief_says_why_and_never_all_clear_with_an_open_item(client, prod):
++    _, case_id = make_case(client, "Aniket Patil")
++    md = say(client, f"open {case_id}", chat="a1")["markdown"]
++    first, status = md.split("\n")[0], md.split("\n")[1]
++    assert case_id in first and "Aniket Patil" in first and "FOS" in first
++    assert "not uploaded, so Aniket Patil's KYC" in status.replace(" (Know Your Customer)", "")
++    assert "every check passes" not in md and "checks have passed" not in md
++
++
++def test_no_template_says_all_clear_next_to_open_items():
++    """Every summary / review / readiness template: an all-clear line only ever stands alone."""
++    import yaml
++
++    texts = []
++    for name in ("applicant_agent", "product_flow", "copilot_reply"):
++        def walk(node):
++            if isinstance(node, dict):
++                for v in node.values():
++                    walk(v)
++            elif isinstance(node, list):
++                for v in node:
++                    walk(v)
++            elif isinstance(node, str):
++                texts.append(node)
++        walk(yaml.safe_load(open(f"app/config/{name}.yaml", encoding="utf-8")))
++    clear = re.compile(r"(?i)every check passes|all checks pass")
++    pending = re.compile(r"(?i)not run|pending|not uploaded|in review|failed")
++    assert not [t for t in texts if clear.search(t) and pending.search(t)]
++
++
++# ---- A2 ---------------------------------------------------------------------------------------------------------
++def test_zero_cases_offers_create_new_case(client, prod):
++    md = say(client, "Application status", chat="z0")["markdown"]
++    assert "don't have any cases yet" in md and "action:new_case" in md
++    assert "Open a case first" not in md and "say" not in md.lower().split()
++
++
++def test_one_case_is_answered_directly_with_its_id(client, prod):
++    _, case_id = make_case(client, "Rahul Sharma")
++    md = say(client, "Application status", chat="z1")["markdown"]
++    assert case_id in md and "Which case" not in md
++
++
++def test_several_cases_ask_once_and_the_pick_answers_the_original_question(client, prod):
++    for n in ("Rahul Sharma", "Priya Verma"):
++        make_case(client, n)
++    asked = say(client, "Application status", chat="z2")["markdown"]
++    assert asked.startswith("Which case is this about?") and "| CASE-" in asked
++    for pick, chat in (("2", "z2"),):
++        answered = say(client, pick, chat=chat)["markdown"]
++        assert "Which case" not in answered and re.search(r"CASE-[0-9A-F]+", answered)
++        assert "created" in answered.lower() or "pending" in answered.lower()
++
++
++def test_no_dead_end_line_exists_anywhere():
++    import pathlib
++
++    for path in list(pathlib.Path("app/config").glob("*.yaml")) + list(pathlib.Path("app/api/routes").glob("*.py")):
++        text = path.read_text(encoding="utf-8")
++        assert "Open a case first" not in text, path
++        assert not re.search(r'(?i)\bsay \\?"my cases', text), path
++
++
++# ---- A3 ---------------------------------------------------------------------------------------------------------
++@pytest.mark.parametrize("phrase", ["view all cases", "show all cases", "list all case", "all cases dikhao",
++                                    "mere saare cases"])
++def test_list_phrasings_reach_the_list(client, prod, phrase):
++    make_case(client, "Rahul Sharma")
++    make_case(client, "Priya Verma")
++    md = say(client, phrase, chat="l-" + phrase)["markdown"]
++    assert "| CASE-" in md and re.search(r"Showing \d+-\d+ of \d+", md)
++
++
++# ---- A4 / A5 ----------------------------------------------------------------------------------------------------
++def test_case_open_is_three_lines_and_at_most_two_links(client, prod):
++    _, case_id = make_case(client, "Rahul Sharma")
++    md = say(client, f"open {case_id}", chat="o1")["markdown"]
++    body = [ln for ln in md.split("\n\n")[0].split("\n") if ln.strip()]
++    assert len(body) <= 3 and body[-1].startswith("Next step:")
++    assert len(LINK.findall(md)) <= 2
++    assert "exit_case" not in md and "switch_case" not in md and "action:download" not in md
++
++
++def test_replies_keep_the_link_budget_and_never_repeat(client, prod):
++    for n in ("Rahul Sharma", "Priya Verma", "Aniket Patil"):
++        make_case(client, n)
++    chat = "budget"
++    seen_before: set[str] = set()
++    for message in ["view all cases", "2", "what is pending?", "kyu?", "download excel", "show in UI"]:
++        md = say(client, message, chat=chat)["markdown"]
++        assert extra_links(md) <= 3, (message, md)
++        assert " -- " not in md and not re.search(r'(?i)\b(say|type) "', md), (message, md)
++        now = set(LINK.findall(md)) - {t for t in LINK.findall(md) if "open_case" in t}
++        assert not (now & seen_before) or message in ("download excel", "show in UI"), (message, now & seen_before)
++        seen_before = now
++
++
++# ---- B ----------------------------------------------------------------------------------------------------------
++def test_nothing_is_reachable_without_a_token(client, prod, stored_document):
++    from fastapi.testclient import TestClient
++
++    import main
++
++    case_id, doc_id = stored_document
++    anon = TestClient(main.app)
++    link = client.get(f"/api/v1/fos/exports?case_id={case_id}&format=pdf").json()["url"]
++    for path in ["/api/v1/fos/cases", f"/api/v1/fos/cases/{case_id}/form", link,
++                 f"/api/v1/fos/exports?case_id={case_id}&format=xlsx", "/api/v1/fos/documents/view?token=x",
++                 f"/api/v1/fos/documents/{case_id}", "/api/v1/fos/chats"]:
++        assert anon.get(path).status_code == 401, path
++    assert anon.post(ACTION, json={"href": f"action:view_document?id={doc_id}"}).status_code == 401
++    for folder in ("/runtime/documents/", "/static/", "/public/", "/wwwroot/", "/uploads/"):
++        assert anon.get(folder).status_code == 404, folder
++
++
++def test_another_officer_gets_nothing(client, other, prod, stored_document):
++    case_id, doc_id = stored_document
++    for href in (f"action:download?format=xlsx&case={case_id}", f"action:view_document?id={doc_id}",
++                 f"action:show_in_ui?case={case_id}"):
++        assert other.post(ACTION, json={"href": href}).status_code == 404, href
++    link = client.get(f"/api/v1/fos/exports?case_id={case_id}&format=pdf").json()["url"]
++    assert other.get(link).status_code == 403
++    assert "can't find that case" in other.post(ACTION, json={"href": f"action:open_case?id={case_id}",
++                                                              "chat_id": "x"}).text \
++        or other.post(ACTION, json={"href": f"action:open_case?id={case_id}"}).status_code == 403
++
++
++def test_no_server_path_in_the_verify_description(client):
++    r = client.get("/api/v1/verify/")
++    assert r.status_code in (200, 401, 403)
++    assert "runtime" not in r.text and ":\\\\" not in r.text and "upload_root" not in r.text
++
++
++# ---- C / D ------------------------------------------------------------------------------------------------------
++def test_every_action_works_through_the_one_endpoint(client, prod, stored_document):
++    case_id, doc_id = stored_document
++    sigs = {"xlsx": b"PK", "docx": b"PK", "pdf": b"%PDF"}
++    for href in [f"action:download?format={f}&case={case_id}" for f in sigs] + \
++                [f"action:download_list?format={f}&q=group:pending" for f in sigs]:
++        r = client.post(ACTION, json={"href": href})
++        fmt = re.search(r"format=(\w+)", href).group(1)
++        assert r.status_code == 200 and r.content.startswith(sigs[fmt]), href
++        assert re.search(rf'attachment; filename="[^"]+\.{fmt}"', r.headers["content-disposition"])
++    xlsx = client.post(ACTION, json={"href": f"action:download?format=xlsx&case={case_id}"}).content
++    from openpyxl import load_workbook
++
++    assert case_id in str([c for row in load_workbook(io.BytesIO(xlsx)).active.iter_rows(values_only=True) for c in row])
++    docx = client.post(ACTION, json={"href": f"action:download?format=docx&case={case_id}"}).content
++    assert "word/document.xml" in zipfile.ZipFile(io.BytesIO(docx)).namelist()
++    view = client.post(ACTION, json={"href": f"action:view_document?id={doc_id}"})
++    assert view.status_code == 200 and view.content.startswith(b"\x89PNG")
++    assert client.post(ACTION, json={"href": f"action:show_in_ui?case={case_id}"}).json() == \
++        {"type": "open_ui", "route": f"/cases/{case_id}"}
++    assert client.post(ACTION, json={"href": "action:show_list_in_ui?q=group:pending"}).json()["route"] == \
++        "/cases?group=pending"
++    assert client.post(ACTION, json={"href": "action:new_case"}).json() == {"type": "open_ui", "route": "/cases/new"}
++    assert client.post(ACTION, json={"href": "action:copy?ref=draft-1"}).json()["type"] == "copy"
++    opened = client.post(ACTION, json={"href": f"action:open_case?id={case_id}", "chat_id": "act"}).json()
++    assert opened["type"] == "reply" and case_id in opened["markdown"] and set(opened) == {"type", "request_id",
++                                                                                            "markdown", "tts"}
++    assert client.post(ACTION, json={"href": "action:exit_case", "chat_id": "act"}).json()["type"] == "reply"
++    assert client.post(ACTION, json={"href": "action:switch_case", "chat_id": "act"}).json()["type"] == "reply"
++    assert client.post(ACTION, json={"href": "https://evil.example"}).status_code == 422
++
++
++# ---- E: the owner's transcript ----------------------------------------------------------------------------------
++def test_the_owner_transcript(client, prod):
++    for n in ("Rahul Sharma", "Priya Verma", "Aniket Patil"):
++        make_case(client, n)
++    chat = "owner"
++    listed = say(client, "view all cases", chat=chat)["markdown"]
++    assert "| CASE-" in listed and "Showing 1-3 of 3" in listed
++    opened = say(client, "2", chat=chat)["markdown"]
++    assert "Priya Verma" in opened.split("\n")[0]
++    pending = say(client, "what is pending?", chat=chat)["markdown"]
++    assert "PAN" in pending and "Signature" in pending
++    why = say(client, "kyu?", chat=chat)["markdown"]
++    assert "nothing on file" not in why and "not uploaded" in why
++    dl = say(client, "download excel", chat=chat)["markdown"]
++    href = re.search(r"\]\((action:download\?format=xlsx[^)]*)\)", dl).group(1)
++    assert client.post(ACTION, json={"href": href}).content.startswith(b"PK")
++    ui = say(client, "show in UI", chat=chat)["markdown"]
++    assert "action:show_in_ui" in ui
++    other = say(client, "dusra case", chat=chat)["markdown"]
++    assert "| CASE-" in other
++    asked = say(client, "Application status", chat="owner-2", new_chat=True)["markdown"]
++    assert asked.startswith("Which case is this about?")
++    answered = say(client, "1", chat="owner-2")["markdown"]
++    assert "Which case" not in answered and "Signature" in answered.replace("1 more", "Signature")
++    abuse = say(client, "madarchod what is my kyc status", chat="owner-2")
++    assert "**m*******d**" in abuse["markdown"] and "madarchod" not in abuse["tts"] and "KYC" not in abuse["markdown"]
++    kyc = say(client, "KYC status", chat="owner-2")["markdown"]
++    assert "KYC" in kyc and "foul" not in kyc
+diff --git a/LOS-agentic-ai/tests/integration/test_fos_plan_9b_officer_tools.py b/LOS-agentic-ai/tests/integration/test_fos_plan_9b_officer_tools.py
+index 10681e2..4ff38de 100644
+--- a/LOS-agentic-ai/tests/integration/test_fos_plan_9b_officer_tools.py
++++ b/LOS-agentic-ai/tests/integration/test_fos_plan_9b_officer_tools.py
+@@ -35,8 +35,9 @@ def ask(client, message, **extra):
+ 
+ def test_review_card_on_open(case):
+     _, _, opened = case
+-    assert opened["review_card"]["total"] > opened["review_card"]["passed"]
+-    assert "Review:" in opened["answer"] and "Address Proof" in opened["answer"]
++    # FINAL FIX A1 / A4: the case brief replaces the review card -- the blocker named, never "every check passes"
++    assert "Address Proof" in opened["answer"] and "Next step:" in opened["answer"]
++    assert "every check passes" not in opened["answer"]
+ 
+ 
+ def test_what_if_one_document_is_not_enough(client, case):
+diff --git a/LOS-agentic-ai/tests/integration/test_master_4_followups.py b/LOS-agentic-ai/tests/integration/test_master_4_followups.py
+index 4e6f24d..3820d64 100644
+--- a/LOS-agentic-ai/tests/integration/test_master_4_followups.py
++++ b/LOS-agentic-ai/tests/integration/test_master_4_followups.py
+@@ -26,7 +26,7 @@ def test_open_by_number_then_every_answer_starts_with_the_case_line(client, prod
+     _seed(_store, a, c)
+     say(client, "my cases")
+     opened = say(client, "1")
+-    assert c in opened.split("\n")[0] and "Review" in opened, opened          # review on open
++    assert c in opened.split("\n")[0] and "Next step:" in opened, opened      # the case brief on open
+     answer = say(client, "kya baaki hai?")
+     assert answer.split("\n")[0].strip() == c, answer
+ 
+@@ -56,7 +56,7 @@ def test_aur_switches_the_document_keeping_the_question(client, prod, _store):
+     say(client, f"{c} kholo")
+     say(client, "PAN ka status?")
+     md = say(client, "aur driving licence?")
+-    assert "driving licence" in md.lower() and "reject" in md.lower(), md
++    assert "driving licence" in md.lower() and ("reject" in md.lower() or "did not pass" in md.lower()), md
+ 
+ 
+ def test_another_case_while_one_is_open_is_answered_then_offers_the_switch(client, prod):
+diff --git a/LOS-agentic-ai/tests/integration/test_master_7_faq.py b/LOS-agentic-ai/tests/integration/test_master_7_faq.py
+index dcce22c..e76dfc4 100644
+--- a/LOS-agentic-ai/tests/integration/test_master_7_faq.py
++++ b/LOS-agentic-ai/tests/integration/test_master_7_faq.py
+@@ -43,12 +43,13 @@ def test_help_me_upload_is_not_the_faq(client, prod):
+     assert "**This case:**" not in say(client, "help me upload the PAN")
+ 
+ 
+-def test_the_faq_shows_on_open_after_the_review(client, prod):
+-    _, c = make_case(client, "Rahul Sharma")
++def test_the_faq_is_not_dumped_on_open(client, prod):
++    # FINAL FIX A4 (less is more): the FAQ only when asked ("help") or at the end of a portfolio / summary answer;
++    # a case opens with the brief and at most 2 state-chosen links
++    _, c = make_case(client, f"Rahul Sharma")
+     md = say(client, f"{c} kholo")
+-    assert "Common questions for this case:" in md
+-    if "Review:" in md:
+-        assert md.index("Review:") < md.index("Common questions for this case:")
++    assert "Common questions for this case:" not in md and md.count("](ask:") + md.count("](action:") <= 2
++    assert "You can ask me" in say(client, "help") or "(ask:" in say(client, "help")
+ 
+ 
+ def test_kyc_failed_boosts_the_kyc_questions(client, prod, _store):
+diff --git a/LOS-agentic-ai/tests/integration/test_step6mvp_case_workspace.py b/LOS-agentic-ai/tests/integration/test_step6mvp_case_workspace.py
+index 3a70757..8215706 100644
+--- a/LOS-agentic-ai/tests/integration/test_step6mvp_case_workspace.py
++++ b/LOS-agentic-ai/tests/integration/test_step6mvp_case_workspace.py
+@@ -83,8 +83,9 @@ def test_click_opens_the_case_with_a_snapshot_and_buttons(client, on):
+     a, c = make_case(client, "Rahul Sharma")
+     body = ws(client, action="OPEN_CASE", case_id=c)
+     assert body["intent"] == "CASE_OPENED" and body["case_id"] == c
+-    assert f"🔓 **{c} (Rahul Sharma)** opened." in body["answer"]                 # full name inside
+-    assert "📍 Stage:" in body["answer"]
++    first = body["answer"].split("\n")[0]
++    assert c in first and "Rahul Sharma" in first and "FOS" in first             # the brief: case · full name · stage
++    assert "Next step:" in body["answer"]
+     block = body["presentation"]["workspace"]
+     assert block["header"] == f"📍 {c}" and {b["type"] for b in block["buttons"]} >= {"exit_case", "switch_case", "ask"}
+ 
+@@ -161,7 +162,7 @@ def test_exit_and_switch_close_the_case(client, on):
+     body = ws(client, message="bahar aao")
+     assert body["answer"].startswith(f"🔒 **{c}** closed.") and body["intent"] == "CASE_LIST"
+     after = ws(client, message="kya baaki hai?")
+-    assert after["intent"] == "CASE_SELECTION"                          # nothing open: asked to open one
++    assert after["case_id"] == c                     # FINAL FIX A2: nothing open + ONE case -> answered for it
+     ws(client, action="OPEN_CASE", case_id=c)
+     assert ws(client, action="EXIT_CASE")["answer"].startswith(f"🔒 **{c}** closed.")
+ 
+diff --git a/LOS-agentic-ai/tests/integration/test_master_11_realtime.py b/LOS-agentic-ai/tests/integration/test_master_11_realtime.py
+index 6148ec9..a4d0a6d 100644
+--- a/LOS-agentic-ai/tests/integration/test_master_11_realtime.py
++++ b/LOS-agentic-ai/tests/integration/test_master_11_realtime.py
+@@ -101,7 +101,7 @@ def test_changes_since_the_last_look_on_open_and_pushed(client, prod, _store):
+                                   document_type="PAN", status=DocumentStatus.REJECTED))
+     say(client, "bahar aao", chat_id="c1")
+     reopened = say(client, f"{c} kholo", chat_id="c1")
+-    line = next(ln for ln in reopened.split("\n") if ln.startswith("Since your last check:"))
++    line = next(ln for ln in reopened.replace("**", "").split("\n") if ln.startswith("Since your last check:"))
+     assert "PAN" in line and line.endswith("rejected."), reopened
+ 
+ 
+diff --git a/LOS-agentic-ai/evals/router_misses.yaml b/LOS-agentic-ai/evals/router_misses.yaml
+index 83c8df6..f7ae930 100644
+--- a/LOS-agentic-ai/evals/router_misses.yaml
++++ b/LOS-agentic-ai/evals/router_misses.yaml
+@@ -30,3 +30,13 @@ misses:
+   - { text: "CPA mein kab jayega?", tool: case_status, source: fast lane (normalised "kab jayega" unknown), added: 2026-10-07 }
+   # (no router tool for this; fixed in the fast lane) text: "co-applicant hai kya?"
+   # (no router tool for this; fixed in the fast lane) text: "is there a co-applicant?"
++  # FINAL FIX A3 (2026-10-08): "view" / "all ... dikhao" list phrasings that fell to "open a case first" -- fixed in
++  # the workspace list rule (applicant_agent.yaml case_workspace.list_rule), recorded here for the bank
++  - { text: "view all cases", tool: list_cases, source: final fix A3 (fast lane list rule), added: 2026-10-08 }
++  - { text: "view all case", tool: list_cases, source: final fix A3 (fast lane list rule), added: 2026-10-08 }
++  - { text: "show all cases", tool: list_cases, source: final fix A3, added: 2026-10-08 }
++  - { text: "list all case", tool: list_cases, source: final fix A3, added: 2026-10-08 }
++  - { text: "all cases dikhao", tool: list_cases, source: final fix A3, added: 2026-10-08 }
++  - { text: "mere saare cases", tool: list_cases, source: final fix A3, added: 2026-10-08 }
++  - { text: "Application status", tool: case_status, source: "final fix A2 (no case open, which case)", added: 2026-10-08 }
++  - { text: "status kya hai", tool: case_status, source: "final fix A2 (was FAQ unknown)", added: 2026-10-08 }
+diff --git a/docs/frontend/ChatLinks.jsx b/docs/frontend/ChatLinks.jsx
+new file mode 100644
+index 0000000..84fc27c
+--- /dev/null
++++ b/docs/frontend/ChatLinks.jsx
+@@ -0,0 +1,81 @@
++// ChatLinks.jsx -- ready to paste. Renders the bot's markdown and makes every link work.
++//
++//   npm i react-markdown remark-gfm
++//
++//   <ChatMarkdown markdown={reply.markdown} api={api} onAsk={sendMessage} onOpenUi={navigate} chatId={chatId} lang={lang} />
++//
++//   api        = { base: "https://<host>", token: "<the user's JWT>" }
++//   onAsk      = (text) => void        -- send `text` as the next chat message (ask: links)
++//   onOpenUi   = (route) => void       -- open a screen of YOUR app, e.g. "/cases/CASE-852C"
++//   onReply    = (reply) => void       -- a chat reply {request_id, markdown, tts} to append (open_case, confirm ...)
++//   onUpload   = ({document_type, party, post_to}) => void   -- open a file picker, then POST multipart to post_to
++//
++// The server checks the user's access on every action; the frontend never decides scope.
++import React from "react";
++import ReactMarkdown from "react-markdown";
++import remarkGfm from "remark-gfm";
++
++async function runAction(href, { api, chatId, lang, onReply, onOpenUi, onUpload, onError }) {
++  const r = await fetch(`${api.base}/api/v1/fos/action`, {
++    method: "POST",
++    headers: { "Authorization": `Bearer ${api.token}`, "Content-Type": "application/json" },
++    body: JSON.stringify({ href, chat_id: chatId, reply_language: lang }),
++  });
++  const type = r.headers.get("content-type") || "";
++  if (!r.ok) {                                            // 401 / 403 / 404 / 409 / 422 / 429: show the message
++    const body = type.includes("json") ? await r.json() : {};
++    return onError?.((body.detail && body.detail.message) || `Error ${r.status}`, r.status);
++  }
++  if (!type.includes("application/json")) {               // a FILE: download (or view) it with the server's name
++    const blob = await r.blob();
++    const cd = r.headers.get("content-disposition") || "";
++    const name = (cd.match(/filename="?([^";]+)"?/) || [])[1] || "download";
++    const url = URL.createObjectURL(blob);
++    if (cd.startsWith("inline")) { window.open(url, "_blank", "noopener"); return; }   // view_document
++    const a = Object.assign(document.createElement("a"), { href: url, download: name });
++    document.body.appendChild(a); a.click(); a.remove();
++    setTimeout(() => URL.revokeObjectURL(url), 30000);
++    return;
++  }
++  const data = await r.json();
++  if (data.type === "open_ui") return onOpenUi?.(data.route);      // show_in_ui, show_list_in_ui, new_case
++  if (data.type === "upload") return onUpload?.(data);            // the file picker
++  if (data.type === "copy") return data;                          // handled by the component (needs the message)
++  if (data.type === "reply") return onReply?.(data);              // open_case, list_more, confirm_write ...
++}
++
++export function ChatMarkdown({ markdown, api, chatId, lang, onAsk, onReply, onOpenUi, onUpload, onError }) {
++  const ref = React.useRef(null);
++  const handle = async (href) => {
++    if (href.startsWith("ask:")) return onAsk(decodeURIComponent(href.slice(4)));    // send the text as a message
++    if (href.startsWith("action:copy")) {                                             // copy the Nth quote, locally
++      const n = parseInt(((href.split("ref=")[1] || "draft-1").split("-")[1]) || "1", 10);
++      const quote = ref.current?.querySelectorAll("blockquote")[n - 1];
++      if (quote) await navigator.clipboard.writeText(quote.innerText);
++      return;
++    }
++    if (href.startsWith("action:")) return runAction(href, { api, chatId, lang, onReply, onOpenUi, onUpload, onError });
++  };
++  return (
++    <div ref={ref} className="bot-markdown">
++      <ReactMarkdown
++        remarkPlugins={[remarkGfm]}
++        // keep action: / ask: hrefs (react-markdown strips unknown protocols by default)
++        urlTransform={(url) => url}
++        components={{
++          a: ({ href = "", children }) =>
++            href.startsWith("action:") || href.startsWith("ask:") ? (
++              <button type="button" className={`chip ${href.startsWith("action:") ? "chip-action" : "chip-ask"}`}
++                      onClick={() => handle(href)}>{children}</button>
++            ) : (
++              <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>      // normal links: new tab
++            ),
++        }}
++      >
++        {markdown}
++      </ReactMarkdown>
++    </div>
++  );
++}
++
++export default ChatMarkdown;

@@ -1,0 +1,363 @@
+diff --git a/LOS-agentic-ai/app/api/routes/fos_api.py b/LOS-agentic-ai/app/api/routes/fos_api.py
+index fd64a40..da0e7e3 100644
+--- a/LOS-agentic-ai/app/api/routes/fos_api.py
++++ b/LOS-agentic-ai/app/api/routes/fos_api.py
+@@ -1311,6 +1311,36 @@ async def copilot(
+         }) from exc
+ 
+ 
++def move_case_stage(confirmed: dict[str, Any], request_id: str) -> dict[str, Any]:
++    """
++    Execute a stage move the officer confirmed in chat (capabilities/stage_flow.py proposed it, checked the
++    configured move permission and the case's ownership). The transition re-evaluates the gate itself: a case that
++    stopped being ready is never moved. Audited; written to the case's activity log.
++    """
++    from app.agents.applicant.copilot.answering import language_lock as _mv_lock
++    from app.agents.applicant.copilot.capabilities import case_form as _mv_form
++    from app.agents.applicant.copilot.capabilities import stage_flow as _mv_flow
++    from app.agents.los import stage_lifecycle
++
++    move = confirmed["execute_move"]
++    case_id, here, there, actor = move["case_id"], move["from"], move["to"], move["actor"]
++    lang = _mv_lock.current() or "en"
++    reply = {k: v for k, v in confirmed.items() if k != "execute_move"}
++    try:
++        stage_lifecycle.transition(case_id, there, reason=f"{here} gate passed; confirmed in chat by {actor}",
++                                   actor=actor, source="OPERATOR", expected_stage=here,
++                                   idempotency_key=f"chat-move-{move['ref']}", request_id=request_id)
++    except stage_lifecycle.StageTransitionError as exc:
++        audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
++                     tools=["los.stage"], write=True, status="REFUSED", detail=exc.code)
++        return {**reply, "intent": "STAGE_MOVE_REFUSED", "answer": _mv_flow.move_failed_text(case_id, exc.message, lang)}
++    audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
++                 tools=["los.stage"], write=True, confirmed=True, status="OK", detail=f"{here}->{there}")
++    _mv_form.activity(case_id, "STAGE_MOVED", f"{here} -> {there} by {actor} (chat)")
++    return {**reply, "intent": "STAGE_MOVED", "tools_invoked": ["los.stage"],
++            "answer": _mv_flow.moved_text(case_id, here, there, lang)}
++
++
+ def _published_reply(request: Request, reply: Any) -> Any:
+     """MASTER SPEC section 8: remember the chat's context server-side, then publish {request_id, markdown, tts}."""
+     from app.agents.applicant.copilot.answering import contract as _contract
+@@ -1603,6 +1633,10 @@ async def _copilot_json(
+                                                 _create_from_chat, wants_new)
+         except _form_access.AccessDenied as exc:
+             raise _form_access.http_denied(exc, request_id) from None
++        if formed is not None and formed.get("execute_move"):
++            # the officer confirmed a FOS -> CPA move in chat: made HERE, in the route layer (no copilot module
++            # reaches the transition service), through the gated transition under the user's own identity
++            return move_case_stage(formed, request_id)
+         if formed is not None:
+             return formed
+ 
+@@ -1639,28 +1673,42 @@ async def _copilot_json(
+         if ws_turn.case_id:
+             case_id = ws_turn.case_id
+             payload.applicant_id = ws_turn.applicant_id or payload.applicant_id
++        if ws_turn.message:
++            # the question asked before "which case?" -- answered now for the case just picked
++            message = ws_turn.message
++            request.state.copilot_message = message
+         if not case_id and not payload.applicant_id:
++            from app.agents.applicant.copilot.answering import language_lock as _nc_lock
+             from app.agents.applicant.copilot.capabilities import faq as _faq_none
+-
+-            if _faq_none.enabled() and action is FosAction.CUSTOM_QUERY and _faq_none.looks_like_faq(message):
+-                # 15.2 step 2: a general "how / what is" question, no case data and no FAQ answer -- never a guess
+-                from app.agents.applicant.copilot.answering import language_lock as _unk_lock
+-
+-                return _ws._base(request_id, "FAQ_UNKNOWN", _faq_none.unknown(_unk_lock.current() or "en",
+-                                                                             len(message)),
+-                                 query_type="CONVERSATION", category="KNOWLEDGE_ONLY", tools_invoked=[])
+             from app.agents.applicant.copilot.capabilities import product_flow as _oos
+ 
++            _nc_lang = _nc_lock.current() or "en"
+             if action is FosAction.CUSTOM_QUERY and _oos.out_of_scope(message):
+                 # MASTER SPEC 5: out of scope -- one polite line and the next option, nothing read
+-                from app.agents.applicant.copilot.answering import language_lock as _oos_lock
+-
+-                line, option = _oos.out_of_scope_reply(_oos_lock.current() or "en", len(message))
++                line, option = _oos.out_of_scope_reply(_nc_lang, len(message))
+                 reply = _ws._base(request_id, "NOT_IN_SCOPE", line, query_type="CONVERSATION",
+                                   category="UNSUPPORTED", tools_invoked=[])
+                 reply["faq_block"] = option
+                 return reply
+-            return _ws._base(request_id, "CASE_SELECTION", _ws._label("no_case"))
++            about_a_case = _oos.names_case_words(message)
++            if _faq_none.enabled() and action is FosAction.CUSTOM_QUERY and not about_a_case \
++                    and _faq_none.looks_like_faq(message):
++                # 15.2 step 2: a general "how / what is" question, no case data and no FAQ answer -- never a guess
++                return _ws._base(request_id, "FAQ_UNKNOWN", _faq_none.unknown(_nc_lang, len(message)),
++                                 query_type="CONVERSATION", category="KNOWLEDGE_ONLY", tools_invoked=[])
++            if action is FosAction.CUSTOM_QUERY:
++                # A CASE QUESTION WITH NO CASE OPEN (golden rule 2: never a dead end, one question with options):
++                # one case -> answered for it; several -> "Which case is this about?" + the recent cases, and the
++                # pick answers THIS question
++                owned = _ws.my_cases(claims)
++                if len(owned) == 1:
++                    case_id, payload.applicant_id = owned[0].case_id, owned[0].applicant_id
++                else:
++                    asked = _ws.ask_which_case(claims, request_id, payload.context, message) if owned else None
++                    if asked is not None:
++                        return asked
++            if not case_id:
++                return _ws._base(request_id, "CASE_SELECTION", _ws._label("no_case"))
+ 
+     # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS): view a document, raise / track queries, new case.
+     # Nothing is created or sent without the explicit Send (confirm=true).
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/stage_flow.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/stage_flow.py
+index b532b4d..df5457f 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/stage_flow.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/stage_flow.py
+@@ -5,7 +5,7 @@ THE FOS <-> CPA WORKFLOW IN CHAT (owner decision 2026-10-08; config product_flow
+                            missing documents) -> Confirm -> recorded as a CUSTOMER query (app.agents.los.queries) and
+                            shown as the message to send. It blocks the move until the officer resolves it.
+     FOS, all clear         "Move to CPA": the live gate (stage_gate.evaluate_live) must PASS -> Confirm -> the gated
+-                           transition (stage_lifecycle.transition re-checks the gate at the move).
++                           transition, executed by the API route (the gate is re-checked at the move).
+     CPA <-> FOS            "Raise query to FOS / CPA": the text -> Confirm -> a stage query along queries.yaml
+                            routes; "reply to QRY-..." -> RESPONDED; "resolve QRY-..." -> RESOLVED.
+ 
+@@ -335,27 +335,25 @@ def _execute(write: dict[str, Any], claims: dict[str, Any], request_id: str, lan
+ 
+ 
+ def _move(write: dict[str, Any], claims: dict[str, Any], actor: str, request_id: str, lang: str) -> dict[str, Any]:
+-    from app.agents.applicant import audit
+-    from app.agents.applicant.copilot.capabilities import case_form
+-    from app.agents.los import stage_lifecycle
+-
++    """
++    The confirmed move is NOT made here: no copilot module reaches the stage-transition service (an architecture
++    rule, guarded by the stage-lifecycle tests, test_l). The reply carries `execute_move`; the API route executes it through the
++    gated transition under the user's own identity (fos_api.move_case_stage).
++    """
+     case_id, here, there = str(write["case_id"]), str(write["here"]), str(write["there"])
+     if not _move_allowed(claims):
+         return _reply(request_id, case_id, _say("no_move_rights", lang))
+-    try:
+-        stage_lifecycle.transition(case_id, there, reason=f"{here} gate passed; confirmed in chat by {actor}",
+-                                   actor=actor, source="OPERATOR", expected_stage=here,
+-                                   idempotency_key=f"chat-move-{write['ref']}", request_id=request_id)
+-    except stage_lifecycle.StageTransitionError as exc:
+-        audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
+-                     tools=["los.stage"], write=True, status="REFUSED", detail=getattr(exc, "code", ""))
+-        return _reply(request_id, case_id, _say("move_failed", lang, case_id=case_id,
+-                                                why=getattr(exc, "message", str(exc))))
+-    audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
+-                 tools=["los.stage"], write=True, confirmed=True, status="OK", detail=f"{here}->{there}")
+-    case_form.activity(case_id, "STAGE_MOVED", f"{here} -> {there} by {actor} (chat)")
+-    return _reply(request_id, case_id, _say("moved", lang, case_id=case_id, here=here, there=there),
+-                  intent="STAGE_MOVED", tools_invoked=["los.stage"])
+-
+-
+-__all__ = ["KINDS", "enabled", "gate", "offers", "problems", "propose", "step"]
++    return _reply(request_id, case_id, "", intent="STAGE_MOVE_CONFIRMED",
++                  execute_move={"case_id": case_id, "from": here, "to": there, "ref": str(write["ref"]),
++                                "actor": actor})
++
++
++def moved_text(case_id: str, here: str, there: str, lang: str) -> str:
++    return _say("moved", lang, case_id=case_id, here=here, there=there)
++
++
++def move_failed_text(case_id: str, why: str, lang: str) -> str:
++    return _say("move_failed", lang, case_id=case_id, why=why)
++
++
++__all__ = ["KINDS", "enabled", "gate", "move_failed_text", "moved_text", "offers", "problems", "propose", "step"]
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py
+index dba3966..079ad92 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py
+@@ -278,6 +278,13 @@ def named_person(text: str) -> str | None:
+     return None
+ 
+ 
++def names_case_words(text: str) -> bool:
++    """A question about a case (status, pending, documents, KYC ...): product_flow.yaml which_case.case_words."""
++    words = set(_norm(text).split())
++    case_words = {w for p in (cfg().get("which_case") or {}).get("case_words") or [] for w in _norm(p).split()}
++    return bool(words & case_words)
++
++
+ def out_of_scope(text: str) -> bool:
+     """A message clearly outside the product (product_flow.yaml out_of_scope.off_topic_words; whole phrases)."""
+     return bool(_said(text, (cfg().get("out_of_scope") or {}).get("off_topic_words")))
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+index 9ddc5ff..31f64b4 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+@@ -345,7 +345,7 @@ def list_view(claims: dict[str, Any], request_id: str, state, *, page: int = 0)
+         suggested_questions=[f"{r['number']}" for r in rows][:3])
+ 
+ 
+-def paged_view(claims: dict[str, Any], request_id: str, state, query=None) -> dict[str, Any]:
++def paged_view(claims: dict[str, Any], request_id: str, state, query=None, *, ask: str | None = None) -> dict[str, Any]:
+     """
+     MASTER SPEC section 3 (COPILOT_CASE_LIST_PAGING): ONE page of the caller's own cases -- filtered, sorted,
+     "Showing x-y of N", the options as links. The query is remembered for "aur dikhao".
+@@ -361,7 +361,7 @@ def paged_view(claims: dict[str, Any], request_id: str, state, query=None) -> di
+     state.list_offset = page.page * page.size
+     state.listed_case_ids = [r["case_id"] for r in page.rows]
+     # section 15.2: the portfolio follow-up ("Do you want to know about a particular case?") closes the list
+-    closing = product_flow.closing_for_list(state, page.query.as_dict()) if page.rows else None
++    closing = ([ask] if ask else product_flow.closing_for_list(state, page.query.as_dict())) if page.rows else None
+     # the question travels apart (faq_block), after the table: no rewrite step touches its Yes / No links
+     answer = case_list.render(page, lang, seed=state.turn_id or 0, closing=[] if closing else None)
+     rows = [{**r, "action": {"type": "open_case", "case_id": r["case_id"]},
+@@ -582,6 +582,8 @@ class Turn:
+     other_case: str | None = None
+     #: inside the open case: decorate the answer with its header and buttons
+     in_case: str | None = None
++    #: the question to answer instead of the typed text (the one asked before "which case?" was answered)
++    message: str | None = None
+ 
+ 
+ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any], request_id: str,
+@@ -604,6 +606,18 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+         return Turn(reply=reply)
+ 
+     def opened(application: Any) -> Turn:
++        flow = dict(state.flow or {})
++        question = flow.pop("after_pick", None)
++        if question:
++            # "Application status" was asked with no case open -> "which case?" -> this pick: the case opens and the
++            # ORIGINAL question is answered for it (never a second "what do you want to know?")
++            state.flow = flow
++            state.active_case_id = application.case_id
++            history = [c for c in (state.case_history or []) if c != application.case_id]
++            state.case_history = (history + [application.case_id])[-10:]
++            _save(state)
++            return Turn(case_id=application.case_id, applicant_id=application.applicant_id,
++                        in_case=application.case_id, message=str(question))
+         return done(open_view(application, request_id, state))
+ 
+     if action == "CUSTOM_QUERY":
+@@ -779,6 +793,33 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+     return Turn()
+ 
+ 
++def ask_which_case(claims: dict[str, Any], request_id: str, context: dict[str, Any] | None,
++                   question: str) -> dict[str, Any] | None:
++    """
++    No case open and a CASE question: "Which case is this about?" over the officer's recent cases (Open links);
++    the question is kept so the pick answers it. None when the officer has no case at all.
++    """
++    from app.agents.applicant.copilot.answering import language_lock
++    from app.agents.applicant.copilot.capabilities import case_list, product_flow
++
++    workspace_id = (context or {}).get("workspace_id") if isinstance(context, dict) else None
++    state = _state(_subject(claims), workspace_id)
++    lang = language_lock.current() or "en"
++    text = product_flow.say((product_flow.cfg().get("which_case") or {}).get("ask"), lang,
++                            question=" ".join(str(question).split())[:80])
++    reply = paged_view(claims, request_id, state, case_list.ListQuery(), ask=text)
++    if not (reply.get("workspace_view") or {}).get("case_list"):
++        return None
++    reply["intent"], reply["query_type"] = "CASE_SELECTION", "CLARIFICATION"
++    # the question is the first line (the direct answer to an ambiguous question is the question back)
++    reply["answer"] = text + "\n\n" + str(reply.get("answer") or "")
++    reply.pop("faq_block", None)
++    state.flow = {**{k: v for k, v in (state.flow or {}).items() if k != "portfolio"}, "after_pick": str(question)}
++    _save(state)
++    reply["context"] = {**(reply.get("context") or {}), "workspace_id": workspace_id or "default"}
++    return reply
++
++
+ def decorate(result: dict[str, Any], turn: Turn) -> dict[str, Any]:
+     """The answer inside a case: the 📍 line first, the workspace block attached."""
+     if not isinstance(result, dict):
+@@ -802,5 +843,5 @@ def in_case_header(published: dict[str, Any]) -> dict[str, Any]:
+     return published
+ 
+ 
+-__all__ = ["FLAG", "Selection", "Turn", "decorate", "enabled", "handle", "in_case_header", "list_view", "my_cases",
++__all__ = ["FLAG", "Selection", "Turn", "ask_which_case", "decorate", "enabled", "handle", "in_case_header", "list_view", "my_cases",
+            "open_view", "select", "workspace_block"]
+diff --git a/LOS-agentic-ai/app/config/applicant_agent.yaml b/LOS-agentic-ai/app/config/applicant_agent.yaml
+index 552f804..d9a8944 100644
+--- a/LOS-agentic-ai/app/config/applicant_agent.yaml
++++ b/LOS-agentic-ai/app/config/applicant_agent.yaml
+@@ -1363,11 +1363,13 @@ chatbot:
+     list_rule:
+       case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
+       cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, my, मेरे, सारे, सब]
++      # (2026-10-08: "view all cases" -- view / see / display / check are list verbs too, see `allowed`)
+       allowed: [ka, ki, ke, of, a, the, me, mujhe, show, give, do, dikhao, dikha, batao, bata, hai, h, hain, how,
+                 please, plz, pls, kya, wale, wala, kaun, kaunse, konse, which, are, i, have, bhai, yaar, open,
+                 dekhna, dekhne, chahiye, दिखाओ, बताओ, है, हैं, का, के, की,
+                 # courtesy / filler words around a list request ("sorry, my cases", "ok mere cases dikhao")
+-                sorry, ok, okay, acha, achha, theek, thik, thanks, thank, you, now, ab, फिर, ठीक]
++                sorry, ok, okay, acha, achha, theek, thik, thanks, thank, you, now, ab, फिर, ठीक,
++                view, see, display, check, get, fetch, open, all, total, dekho, dekhao, dikha, batana]
+     labels:
+       header: "📂 **Your cases**"
+       total: "{n} total"
+diff --git a/LOS-agentic-ai/app/config/product_flow.yaml b/LOS-agentic-ai/app/config/product_flow.yaml
+index e6f716d..d4d08f7 100644
+--- a/LOS-agentic-ai/app/config/product_flow.yaml
++++ b/LOS-agentic-ai/app/config/product_flow.yaml
+@@ -553,4 +553,20 @@ stage_flow:
+     to_cpa: { en: "Raise query to CPA", hi-Latn: "CPA ko query bhejo", hi: "CPA को क्वेरी भेजें", mr: "CPA ला क्वेरी पाठवा" }
+   party_labels:
+     PRIMARY_APPLICANT: { en: "Applicant", hi-Latn: "Applicant", hi: "आवेदक", mr: "अर्जदार" }
+-    CO_APPLICANT: { en: "Co-applicant", hi-Latn: "Co-applicant", hi: "सह-आवेदक", mr: "सह-अर्जदार" }
+\ No newline at end of file
++    CO_APPLICANT: { en: "Co-applicant", hi-Latn: "Co-applicant", hi: "सह-आवेदक", mr: "सह-अर्जदार" }
++
++# ---- no case open, a CASE question ("Application status", "kya pending hai") -------------------------------------
++# Never a dead end: ask which case (the officer's recent cases as Open links) and, once one is picked, answer the
++# ORIGINAL question for it. A message with any of these words is a case question (never "I don't know that yet").
++which_case:
++  case_words: [status, pending, document, documents, doc, docs, kyc, pan, aadhaar, aadhar, loan, amount, cpa, stage,
++               ready, readiness, upload, uploaded, applicant, co-applicant, coapplicant, query, queries, verify,
++               verified, verification, emi, income, salary, bank, statement, address, proof, missing, baaki, baki,
++               atka, atki, stuck, details, detail, summary, form, checklist, next, history, timeline, application,
++               case, cases, customer, mobile, dob, signature, rejected, reupload, handoff, eligibility,
++               केस, स्थिति, दस्तावेज़, लोन, कागदपत्र]
++  ask:
++    en: "Which case is this about? Pick one and I'll answer \"{question}\" for it."
++    hi-Latn: "Yeh kis case ke baare mein hai? Ek case chuniye, main uske liye \"{question}\" ka jawab dunga."
++    hi: "यह किस केस के बारे में है? एक केस चुनें, मैं उसके लिए \"{question}\" का जवाब दूँगा।"
++    mr: "हे कोणत्या केसबद्दल आहे? एक केस निवडा, मी तिच्यासाठी \"{question}\" चे उत्तर देईन."
+\ No newline at end of file
+diff --git a/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py b/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py
+index 4ad4021..6970677 100644
+--- a/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py
++++ b/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py
+@@ -296,3 +296,20 @@ def test_open_shows_what_the_form_still_needs(client, prod):
+     repo.save_application(dataclasses.replace(application, loan_amount=None))
+     opened = turn(client, f"open {case_id}", chat="gap")["markdown"]
+     assert "This case still needs: Loan amount" in opened
++
++
++def test_a_case_question_with_no_case_open_asks_which_case_then_answers_it(client, prod):
++    make_case(client, "Rahul Sharma")
++    make_case(client, "Priya Verma")
++    asked = turn(client, "Application status", chat="wc")["markdown"]
++    assert asked.startswith("Which case is this about?") and "| CASE-" in asked
++    answered = turn(client, "1", chat="wc")["markdown"]
++    assert "CASE-" in answered and "Which case" not in answered and "Open a case first" not in answered
++    hinglish = turn(client, "status kya hai", chat="wc2")["markdown"]
++    assert hinglish.startswith("Which case is this about?") and "don't know that yet" not in hinglish
++
++
++def test_one_case_is_answered_directly_and_view_all_cases_lists(client, prod):
++    make_case(client, "Rahul Sharma")
++    assert "Which case" not in turn(client, "Application status", chat="one")["markdown"]
++    assert "| CASE-" in turn(client, "view all cases", chat="va")["markdown"]
+diff --git a/LOS-agentic-ai/CHANGES_LOG.md b/LOS-agentic-ai/CHANGES_LOG.md
+index 1c010c6..33a3bec 100644
+--- a/LOS-agentic-ai/CHANGES_LOG.md
++++ b/LOS-agentic-ai/CHANGES_LOG.md
+@@ -1540,3 +1540,10 @@ Patch: `runs/patches/master-15-17-12-10-product-flow-guardrails-selfcheck.patch`
+   CPA -> FOS and FOS -> CPA queries; reply / resolve by query id. Every step proposal + Confirm; offers shown under
+   case answers. Stage-move note now only for approve / reject / disburse / skip-a-check.
+ - Tests: test_master_15b_stage_flow (7); self-check updated.
++- **No dead ends** (owner report "Application status -> Open a case first"): a case question with no case open now
++  asks "Which case is this about?" over the recent cases and answers the ORIGINAL question after the pick (one case:
++  answered directly). "view all cases" lists (view/see/display are list verbs). FIX: "status kya hai" with no case
++  was answered "I don't know that yet" (FAQ rule now skips case questions, product_flow.yaml which_case.case_words).
++- **Architecture kept**: the confirmed FOS -> CPA move runs in the route layer (`fos_api.move_case_stage`), never in
++  a copilot module (test_stage_lifecycle test_l). Full run before this fix: 2526 passed, 2 failed -> both fixed;
++  related suites after: 157 passed.
