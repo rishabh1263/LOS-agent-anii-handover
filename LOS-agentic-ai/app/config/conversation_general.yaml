@@ -21,6 +21,9 @@ phrases:
                       kaunse documents, documents for, document list, checklist for, kya documents chahiye,
                       documents chahiye]
   co_applicant: [co-applicant, co applicant, coapplicant, co-applicants, co applicants]
+  # a document question about a CASE's state: the case logic answers it (never the product checklist)
+  case_document_state: [baaki, baki, pending, missing, uploaded, upload hua, upload hue, verify hua, verified, reject,
+                        rejected, atka, atke, bacha, bache, remaining, left, abhi tak]
   # a question about ONE named document is not a request for the product checklist
   one_document: [address proof, id proof, identity proof, income proof, bank statement, salary slip, signature, aadhaar,
                  aadhar, pan, passport, voter, driving licence, driving license, photo, form 16, itr, accepted as]
@@ -202,7 +205,7 @@ general_question:
     - ['^(.+?) (?:kya hai|kya hota hai|kya hoti hai|kya hote hai|kya hote hain|ka matlab|matlab)$', 'what is \1']
     - ['^(.+?) kaun (?:karta|karti|deta|deti|decide karta|decide karti) hai$', 'who \1']
     - ['^(.+?) aur (.+?) (?:mein|me|main) (?:kya )?(?:fark|farak|difference)(?: hai| kya hai)?$', 'difference between \1 and \2']
-    - ['^(.+?) (?:mein|me) (?:kya|kya kya) (?:chalega|chalta hai|chalti hai)$', 'which documents are accepted as \1']
+    - ['^(.+?) (?:mein|me|ke liye|ke liy) (?:kya|kya kya|kaunsa|kaunse|konsa|konse) (?:chalega|chalta hai|chalti hai|de sakte hai|de sakte hain|de sakta hai|de sakte|dena hai|dena hota hai|dein|lagta hai|accept hota hai)$', 'which documents are accepted as \1']
     - ['^(?:loan )?(approve|reject|sanction|decide) kaun (?:karta|karti|karte) (?:hai|hain)$', 'who \1s the loan']
     - ['\bloan (?:ka )?process\b', 'stages of a loan']
   # the knowledge pipeline may phrase with the model (grounded + checked, agent._knowledge_reply)

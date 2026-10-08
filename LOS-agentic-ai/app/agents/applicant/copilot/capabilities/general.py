@@ -451,7 +451,8 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         md, spoken = _coapp_table(lang)
         return _reply(request_id, "PRODUCT_CHECKLIST", md, case_id=case_id, tts=spoken, query_type="PROCESS_KNOWLEDGE")
     # "which documents are accepted as ADDRESS PROOF" asks about one document: the knowledge path answers it
-    if _has(text, "product_documents") and not _has(text, "one_document"):
+    # "kaunse documents BAAKI hai" asks about a case's documents (pending / uploaded / verified): never the product list
+    if _has(text, "product_documents") and not _has(text, "one_document") and not _has(text, "case_document_state"):
         product = _product_of(text)
         if product is None and not case_id:
             from app.agents.applicant import config
@@ -477,6 +478,10 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
     defined = await _definition(text, request_id, lang, case_id)
     if defined is not None:
         return defined
+    # "address proof mein kya de sakte hai" = WHICH DOCUMENTS ARE ACCEPTED: the configured list, case open or not
+    accepted = _english_shape(text).startswith("which documents are accepted")
+    if accepted:
+        return await _knowledge(_english_shape(text), request_id, lang, None)
     if _general_question(text) and not (case_id and _names_case_data(text)):
         # with a case OPEN, "is PAN mandatory?" / "documents required?" is about THAT case: the case logic answers
         return await _knowledge(text, request_id, lang, case_id)

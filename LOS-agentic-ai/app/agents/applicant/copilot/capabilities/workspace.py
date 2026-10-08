@@ -714,8 +714,12 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
     asked_list = None
     if action == "CUSTOM_QUERY" and _case_list.enabled() and not any(p.search(text) for p in _ID.values()):
         wanted = _case_list.understand(text)
-        nouns = {_norm(w) for w in (_cfg().get("list_rule") or {}).get("case_nouns") or []}
-        if wanted is not None and (not state.active_case_id or nouns & set(_norm(text).split())):
+        # with a case OPEN, a list needs the PLURAL ("atke hue cases") or a list verb ("dikhao", "show"): "case kahan
+        # atka hua hai" is about the open case -- never a "stuck cases" list that closes it (owner 2026-10-08)
+        _, plural = _case_list._case_nouns()
+        verbs = {_norm(v).strip() for v in (_case_list.cfg().get("phrases") or {}).get("list_verbs") or []}
+        words = set(_norm(text).split())
+        if wanted is not None and (not state.active_case_id or words & plural or words & verbs):
             asked_list = wanted
     if action == "LIST_CASES" or asked_list is not None or (
             action == "CUSTOM_QUERY" and (_says("list", text) or _says("switch", text))):
