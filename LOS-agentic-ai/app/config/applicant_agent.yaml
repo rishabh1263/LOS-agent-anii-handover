@@ -1362,14 +1362,15 @@ chatbot:
     # The `list` phrases above are matched first; this only adds wordings that ask for nothing else.
     list_rule:
       case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
-      cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, my, मेरे, सारे, सब]
+      cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, mera, meri, my,
+             मेरे, सारे, सब]
       # (2026-10-08: "view all cases" -- view / see / display / check are list verbs too, see `allowed`)
       allowed: [ka, ki, ke, of, a, the, me, mujhe, show, give, do, dikhao, dikha, batao, bata, hai, h, hain, how,
                 please, plz, pls, kya, wale, wala, kaun, kaunse, konse, which, are, i, have, bhai, yaar, open,
                 dekhna, dekhne, chahiye, दिखाओ, बताओ, है, हैं, का, के, की,
                 # courtesy / filler words around a list request ("sorry, my cases", "ok mere cases dikhao")
                 sorry, ok, okay, acha, achha, theek, thik, thanks, thank, you, now, ab, फिर, ठीक,
-                view, see, display, check, get, fetch, open, all, total, dekho, dekhao, dikha, batana]
+                view, see, display, check, get, fetch, open, all, total, dekho, dekhao, dikha, batana, what]
     labels:
       header: "📂 **Your cases**"
       total: "{n} total"

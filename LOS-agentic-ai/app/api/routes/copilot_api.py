@@ -1510,13 +1510,25 @@ async def query(
                 request.applicant_id = _owned_case.applicant_id
         except _own.AccessDenied:
             pass
+    # the context the reply no longer carries, reloaded FIRST: the general layer below must see a pending question
+    # ("ok" / "haan" / "2" answer it) exactly as the case logic does
+    chat_id = request.chat_id or request.conversation_id
+    if _contract.enabled():
+        if request.new_chat:
+            _contract.forget(subject, chat_id)
+        elif request.context is None:
+            request.context = _contract.recall(subject, chat_id)
+    if request.chat_id:
+        # ONE WORKSPACE PER CHAT, as on /fos/copilot: a pending question, the open case or the last list never
+        # leak from one chat into another. An explicit workspace_id still wins.
+        request.context = {**(request.context if isinstance(request.context, dict) else {})}
+        request.context.setdefault("workspace_id", str(request.chat_id)[:128])
+    # (THE GENERAL LAYER runs inside _query, after the safety screen and the input guardrail -- the /fos/copilot order)
+    from app.agents.applicant.copilot.answering import language_lock as _gen_lock
+    from app.agents.applicant.copilot.capabilities import general as _general
+
     if not _contract.enabled():
         return await _query(request, claims)
-    chat_id = request.chat_id or request.conversation_id
-    if request.new_chat:
-        _contract.forget(subject, chat_id)
-    elif request.context is None:
-        request.context = _contract.recall(subject, chat_id)
     reply = await _query(request, claims)
     if hasattr(reply, "model_dump"):
         reply = reply.model_dump()
@@ -1526,12 +1538,30 @@ async def query(
     from app.agents.applicant.copilot.answering import case_brief as _why
 
     reply = _why.why_fallback(reply)
+    reply = _general.after(reply, request.message or "", claims, request.context, _gen_lock.current() or "en")
     from app.agents.applicant.copilot.capabilities import product_flow as _stage_note
 
     reply = _stage_note.stage_move_note(reply, request.message or "")
     if isinstance(reply, dict) and isinstance(reply.get("context"), dict):
         _contract.remember(subject, chat_id, reply["context"])
     return _contract.publish(reply, chat_key=(subject, chat_id))
+
+
+def _general_allowed(request: CopilotQueryRequest) -> bool:
+    """The input guardrail's verdict, as /fos/copilot reads it before its general layer: the caller's own case list
+    ("saare cases") is allowed; a named id is decided later by the agent; anything else refused is never answered
+    by the general layer."""
+    from app.agents.applicant.copilot.capabilities import case_list as _scope_list
+    from app.security import guardrails as _guard
+
+    from app.agents.applicant.copilot.capabilities import general as _general
+
+    verdict = _guard.check_input(request.message or "",
+                                 allowed_ids=(request.case_id, request.applicant_id, request.party_id))
+    if not verdict.allowed or _scope_list.names_other_people(request.message or ""):
+        return False
+    # a case SENT with the request and a question about its data: the case logic answers it, as with an opened case
+    return not (request.case_id and _general._names_case_data(request.message or ""))
 
 
 async def _query(
@@ -1582,6 +1612,15 @@ async def _query(
                                   request.case_id)
         if screened is not None:
             return _published(screened, "GUARDRAIL")
+    # THE GENERAL LAYER (capabilities/general.py), in the /fos/copilot order: AFTER the safety screen and only for a
+    # message the input guardrail allows -- "what is the JWT secret" is refused by the agent, never answered here
+    if _general_allowed(request):
+        from app.agents.applicant.copilot.capabilities import general as _general
+
+        general_reply = await _general.answer(request.message or "", claims, request.context, request_id,
+                                              _lock.current() or "en", case_in_scope=request.case_id)
+        if general_reply is not None:
+            return _published(general_reply, "GENERAL")
     if _ws.enabled():
         from app.security import access as _ws_access
 

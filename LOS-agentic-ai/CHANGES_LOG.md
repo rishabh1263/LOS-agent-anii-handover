@@ -1571,3 +1571,45 @@ Patch: `runs/patches/master-15-17-12-10-product-flow-guardrails-selfcheck.patch`
   product_flow.yaml `ui_routes`, or the chat reply); `docs/frontend/ChatLinks.jsx` (react-markdown handler);
   FRONTEND_GUIDE 5.2b with curl; widget uses the endpoint. Live HTTP: all 6 downloads open; every action yes.
 - Tests: tests/integration/test_final_fix.py (19).
+
+## HANDOFF 2026-10-08 (general layer, resumed session) -- PAUSED: free RAM 1.77 GB < 2 GB
+- Done (uncommitted): `capabilities/general.py` + `app/config/conversation_general.yaml`; wired BEFORE case logic in
+  `/fos/copilot` (`_copilot_json`, CUSTOM_QUERY only) and `/copilot/query`; `general.after()` (did-you-mean +
+  gradual fallback) wired in both post-reply chains. Login `stage` signed into the dev-IdP access token
+  (`extra_claims`, never overrides a standard claim; read only by general.py). list_rule cues + mera/meri/what.
+  Acronym rule already code: all-caps, or 2-5 letters with no vowel. All changed files byte-compile; YAMLs parse.
+- Not yet done: re-run of the failed "related regression" (cause unknown), live HTTP transcript, multi-word list
+  check ("what are my cases"), runs/patches entry, frontend ChatLinks.tsx task.
+- Next step: when RAM >= 2 GB, `pytest tests/integration/test_zz_dump.py -s` then the related suites (-n 2).
+
+## General layer + GENERAL QUESTIONS OUTSIDE A CASE (2026-10-08, evening)
+Patch: `runs/patches/general-layer-and-general-questions.patch` (new files whole).
+- **Ordering fix**: `/copilot/query` reloads the remembered chat context BEFORE the general layer, and now keys the
+  workspace by chat_id (one workspace per chat, as /fos/copilot) -- a pending "which case?" leaked across chats.
+  `general._pending` also reads the agent's own pending clarification. "ok" while a question is pending answers it.
+- **Auth (approved, display-only)**: dev IdP `issue_access_token(extra_claims=)` signs ONLY allowlisted keys
+  (`_DISPLAY_CLAIMS = {"stage"}`); never sub/scope/role. `/auth/login` passes the validated stage. Read only by
+  general.py for "what is my stage"; never used for scope.
+- **General questions with no case** (owner: "outside bhi"): question SHAPE ("what is / how to / is X mandatory /
+  kya hai / kaise / kaun karta hai") + no case referent -> FAQ, configured facts, handbook -- never "which case?".
+  Credit decisions declined with who decides; EMI / FOIR / LTV calculators (exact, indicative); policy numbers read
+  live from eligibility_policy.yaml and SAID to be DEMO; CIBIL cut-off / fees / TAT said "not configured";
+  signature rule read from the flag + activation date. Relevance guard: a confident passage not ABOUT the question
+  is never shown (was: "top up loan" -> a paragraph on filenames). Heading tie-break; Hinglish shape rewrites for
+  search only. Did-you-mean no longer offers case tools for a knowledge miss. Unknown questions logged to
+  evals/knowledge_gaps.yaml (`questions:`).
+- **Content**: knowledge/fos/loan_terms.md (co-applicant, guarantor, sanction, disbursement, tenure, fees,
+  prepayment, foreclosure, BT, top-up, LAP, NACH, CKYC, video KYC, CERSAI, FI, PD, legal, technical, Form 16, net
+  salary, credit stage, EMI bounce), knowledge/fos/officer_howto.md; vocabulary + FAQ phrases. OVD left out (owner
+  decision 2026-10-07).
+- **Eval**: evals/general_questions.yaml (116 questions, golden keywords) + test_general_coverage.py ->
+  runs/general_coverage.md. Baseline 41/91 -> 116/116. Held-out round 1 (Hinglish) 8/12 first pass, round 2 7/13
+  first pass; both 100% after class-level fixes (shapes / rewrites / content), not per-question patches.
+- **Frontend**: frontend/src/builders/chatbot/components/ChatLinks.tsx + src/runtime/chatbot/api/chatActions.ts
+  (no new dependency; tsc + eslint clean for both; 3 pre-existing tsc errors in other files).
+
+## HANDOFF 2026-10-08 ~19:00
+- Done: everything above; test_general_layer (12) + test_general_coverage pass.
+- In progress: related regression rerun (runs/related_fast.log, -n 2, OCR e2e file split out); the earlier
+  run was killed by its own 50-min cap with failures unread.
+- Next: read runs/related_fast.log failures -> fix; live 14-message HTTP transcript (uvicorn :8010); TSX steps.

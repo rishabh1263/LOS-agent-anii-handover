@@ -1287,6 +1287,14 @@ async def copilot(
             from app.agents.applicant.copilot.answering import case_brief as _why
 
             published = _why.why_fallback(published)          # "kyu?" with nothing recorded: the real blocker
+            # "Do you mean X or Y?" when the router's best two are close; the second miss in a row -> the closest FAQ
+            # questions + the supervisor line (capabilities/general.py)
+            from app.agents.applicant.copilot.answering import language_lock as _after_lock
+            from app.agents.applicant.copilot.capabilities import general as _general_after
+
+            published = _general_after.after(published, str(getattr(request.state, "copilot_message", "") or ""),
+                                             claims, getattr(request.state, "copilot_context", None),
+                                             _after_lock.current() or "en")
             # golden rule 4, said first: a stage move / approval asked in chat is never done here
             from app.agents.applicant.copilot.capabilities import product_flow as _stage_note
 
@@ -1665,6 +1673,19 @@ async def _copilot_json(
             return move_case_stage(formed, request_id)
         if formed is not None:
             return formed
+
+    # THE GENERAL LAYER (owner 2026-10-08; capabilities/general.py): help / ok / frustration, role and stage from
+    # the login, definitions and full forms, process steps from the live config, the product checklist, "whose
+    # name?", unknown terms -- answered BEFORE any case logic, so they never meet "which case?"
+    request.state.copilot_context = payload.context
+    if action is FosAction.CUSTOM_QUERY:
+        from app.agents.applicant.copilot.answering import language_lock as _gen_lock
+        from app.agents.applicant.copilot.capabilities import general as _general
+
+        general_reply = await _general.answer(message, claims, payload.context, request_id,
+                                              _gen_lock.current() or "en", case_in_scope=payload.case_id)
+        if general_reply is not None:
+            return general_reply
 
     # "verify karna hai" / "kya upload karu" (6f, COPILOT_VERIFY_DIAGNOSE): never "which document?" --
     # the case is diagnosed (step 4's document action view, every party)

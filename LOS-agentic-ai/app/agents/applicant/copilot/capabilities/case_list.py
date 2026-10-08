@@ -307,6 +307,41 @@ def _number_in(text: str) -> int | None:
     return None
 
 
+def _case_nouns() -> tuple[set[str], set[str]]:
+    """(singular, plural) case nouns (case_list.yaml phrases.case_nouns)."""
+    nouns = (cfg().get("phrases") or {}).get("case_nouns") or {}
+    return ({_norm(w).strip() for w in nouns.get("singular") or []},
+            {_norm(w).strip() for w in nouns.get("plural") or []})
+
+
+def _singular_case(text: str) -> bool:
+    singular, plural = _case_nouns()
+    words = set(_norm(text).split())
+    return bool(words & singular) and not words & plural
+
+
+def _counted_cases(text: str) -> int | None:
+    """N when a number (digits or a number word) stands right before the case noun, at most one word between."""
+    singular, plural = _case_nouns()
+    words = _norm(text).split()
+    numbers = (cfg().get("phrases") or {}).get("numbers") or {}
+    verbs = {_norm(v).strip() for v in (cfg().get("phrases") or {}).get("list_verbs") or []}
+    filler = {_norm(v).strip() for v in (cfg().get("phrases") or {}).get("list_filler") or []}
+    other = [w for w in words if not (w.isdigit() or w in numbers or w in singular | plural)]
+    if len(words) > 3 and not set(words) & verbs:
+        return None                     # "ek case ka status batao" is not a list
+    if len(words) <= 3 and any(w not in verbs | filler for w in other):
+        return None                     # "ek case banao" (create one) is not a list
+    for i, w in enumerate(words):
+        if w not in singular | plural:
+            continue
+        for j in (i - 1, i - 2):
+            if j >= 0 and (words[j].isdigit() or words[j] in numbers):
+                value = int(words[j]) if words[j].isdigit() else int(numbers[words[j]])
+                return value if 0 < value <= 99 else None
+    return None
+
+
 def names_other_people(text: str) -> bool:
     """Section 17.2: the message asks about other officers' / users' cases (case_list.yaml other_people)."""
     return bool(_has(text, cfg().get("other_people") or []))
@@ -332,15 +367,21 @@ def understand(text: str, previous: dict[str, Any] | None = None) -> ListQuery |
         wanted = product_flow.understand(text)
         if wanted:
             query.group, query.status, asked = wanted.get("group"), wanted.get("status"), True
+    # "last case" / "latest case" / "first case": ONE case, said in the singular with no number
+    one = n is None and _singular_case(text)
     if _has(text, p.get("oldest")):
         query.sort, asked = "oldest", True
+        query.size = 1 if one else None
     elif _has(text, p.get("longest_in_stage")):
         query.sort, asked = "longest_in_stage", True
     elif _has(text, p.get("last_n")):
         query.sort, asked = "recent", True
-        query.size = n
-    elif _has(text, p.get("first_n")) and n:
-        query.size, asked = n, True
+        query.size = 1 if one else n
+    elif _has(text, p.get("first_n")) and (n or one):
+        query.size, asked = n or 1, True
+    elif _counted_cases(text) is not None:
+        # "show 2 cases", "2 cases dikhao", "only 3 cases", "3 pending cases": a count beside the case noun
+        query.size, asked = _counted_cases(text), True
     if n and asked and not query.size:
         query.size = n
     if not asked and previous is not None and _has(text, p.get("next")):
