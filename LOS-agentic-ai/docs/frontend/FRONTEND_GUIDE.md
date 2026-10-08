@@ -135,6 +135,38 @@ live typing (same body, Server-Sent Events).
   auto-read toggle.
 - Nothing else is in the reply. Older fields (`answer`, `chips`, `presentation`, `actions`, …) are gone.
 
+### 5.2b ONE endpoint for every `action:` link (use this -- it replaces the per-action table below)
+`POST /api/v1/fos/action` with `Authorization: Bearer <JWT>` and
+`{"href": "<the link target exactly as in the markdown>", "chat_id": "...", "reply_language": "en"}`.
+
+| The action | What comes back |
+|---|---|
+| `download`, `download_list`, `handoff_note` | the **file** (200, `Content-Disposition: attachment; filename="case_CASE-…_2026-10-08.xlsx"`) -- save it with that name |
+| `view_document` | the document (200, `Content-Disposition: inline`) -- open it in a new tab |
+| `show_in_ui`, `show_list_in_ui`, `new_case` | `{"type": "open_ui", "route": "/cases/CASE-…"}` -- navigate your app there (routes are server config) |
+| `upload` | `{"type": "upload", "document_type": "PAN", "party": "applicant", "post_to": "/api/v1/fos/copilot?chat_id=…"}` -- open a file picker, then POST multipart |
+| `copy` | `{"type": "copy", "ref": "draft-1"}` -- copy the Nth `>` quote of that message (nothing sent) |
+| everything else (`open_case`, `list_more`, `confirm_write`, `cancel_write`, `exit_case`, `switch_case` …) | `{"type": "reply", "request_id", "markdown", "tts"}` -- append it to the chat |
+
+Errors: 401 login again · 403 link not yours / expired · 404 not your case (same as "does not exist") ·
+409 not ready (handoff note) · 422 not an action link / bad format · 429 too many downloads. Show `detail.message`.
+
+**Ready-to-paste React:** `docs/frontend/ChatLinks.jsx` (react-markdown `components` override: `ask:` sends the
+text, `action:` calls this endpoint and downloads blobs with the server's filename, normal links open in a new tab,
+links render as chips).
+
+Verified with real HTTP (2026-10-08):
+```bash
+curl -s -X POST "$BASE/api/v1/fos/action" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"href":"action:download?format=xlsx&case=CASE-E2A7F9EADB50"}' -OJ        # -> case_CASE-E2A7F9EADB50_2026-10-08.xlsx
+curl -s -X POST "$BASE/api/v1/fos/action" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"href":"action:show_in_ui?case=CASE-E2A7F9EADB50"}'                        # -> {"type":"open_ui","route":"/cases/CASE-E2A7F9EADB50"}
+curl -s -X POST "$BASE/api/v1/fos/action" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"href":"action:open_case?id=CASE-E2A7F9EADB50","chat_id":"c1","reply_language":"en"}'   # -> {"type":"reply",...}
+curl -s -X POST "$BASE/api/v1/fos/action" -d '{"href":"action:download?format=pdf&case=CASE-E2A7F9EADB50"}' \
+     -H "Content-Type: application/json"                                                  # -> 401 (no token)
+```
+
 ### 5.3 Buttons are links inside the markdown
 
 Render every markdown link as a button (or chip).

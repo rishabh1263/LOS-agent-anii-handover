@@ -528,6 +528,11 @@ def review_reason(
             _sources(findings=explaining, decisions=decisions))
 
 
+#: said only when nothing is recorded; the copilot replaces it with the case's real blocker (case_brief)
+NOTHING_RECORDED = ("No findings have been recorded for this case yet, so there is "
+                    "nothing on file explaining its current state.")
+
+
 def explain(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     """
     Why the case stands where it does, and what says so.
@@ -542,11 +547,7 @@ def explain(memory: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     decisions = memory.get("decisions") or []
 
     if not findings and not decisions:
-        return (
-            "No findings have been recorded for this case yet, so there is "
-            "nothing on file explaining its current state.",
-            [],
-        )
+        return NOTHING_RECORDED, []
 
     latest = decisions[-1] if decisions else {}
     clause, sources = review_reason(memory)

@@ -111,7 +111,12 @@ def review_card(case_id: str) -> dict[str, Any]:
     lines += [f"- {i['label']}: {i['status']}" + (f" -- {i['fix']}" if i.get("fix") else "") for i in card["issues"]]
     if card["more"]:
         lines.append(_label("review", "more", n=card["more"]))
-    card["text"] = "\n".join(lines) if todo else _label("review", "clear")
+    open_anywhere = [i for g in report.get("groups") or [] for i in g.get("items") or [] if i.get("status") != "PASS"]
+    if not todo and open_anywhere:
+        # FINAL FIX A1: an advisory item (e.g. KYC not run) is NOT passed -- never "every check passes" beside it
+        lines += [f"- {i['label']}: {i['status']}" for i in open_anywhere[:top]]
+    card["text"] = "\n".join(lines) if (todo or open_anywhere or not report.get("ready")) \
+        else _label("review", "clear")
     return card
 
 
@@ -192,7 +197,7 @@ def attach(published: dict[str, Any], message: str) -> dict[str, Any]:
     elif enabled("visit") and _asks("visit", message):
         text = visit_checklist(case_id) or _label("visit", "nothing")
         replace(text, "VISIT_CHECKLIST", printable=True)
-    if enabled("review") and intent == "CASE_OPENED":
+    if enabled("review") and intent == "CASE_OPENED" and not published.get("brief"):
         card = review_card(case_id)
         published["review_card"] = card
         published["answer"] = str(published.get("answer") or "").rstrip() + "\n\n" + card["text"]

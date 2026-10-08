@@ -35,8 +35,9 @@ def ask(client, message, **extra):
 
 def test_review_card_on_open(case):
     _, _, opened = case
-    assert opened["review_card"]["total"] > opened["review_card"]["passed"]
-    assert "Review:" in opened["answer"] and "Address Proof" in opened["answer"]
+    # FINAL FIX A1 / A4: the case brief replaces the review card -- the blocker named, never "every check passes"
+    assert "Address Proof" in opened["answer"] and "Next step:" in opened["answer"]
+    assert "every check passes" not in opened["answer"]
 
 
 def test_what_if_one_document_is_not_enough(client, case):

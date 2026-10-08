@@ -430,9 +430,13 @@ def render(page: ListPage, lang: str, seed: int = 0, closing: list[str] | None =
         links.append(contract.link("list_more", lang))
     else:
         lines.append(_say("end", lang, seed))
-    links += [contract.ask(o) for o in options[1:]]
+    if closing is None:
+        links += [contract.ask(o) for o in options[1:]]     # with the flow's question: only "Show more"
     # a `closing` (even empty) replaces the follow-up line; its own lines are placed by the caller
-    lines += ["", " · ".join(links)] if closing is not None else ["", _say("follow_up", lang, seed), " · ".join(links)]
+    if closing is not None:
+        lines += ["", " · ".join(links)] if links else []
+    else:
+        lines += ["", _say("follow_up", lang, seed), " · ".join(links)]
     if closing:
         lines += [""] + list(closing)
     return "\n".join(lines)

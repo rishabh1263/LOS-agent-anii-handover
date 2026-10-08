@@ -25,6 +25,16 @@ markdown:
                         hi-Latn: ["#", "Case", "Applicant", "Stage", "Status", ""],
                         hi: ["#", "केस", "आवेदक", "चरण", "स्थिति", ""],
                         mr: ["#", "केस", "अर्जदार", "टप्पा", "स्थिती", ""] }
+  # FINAL FIX A1: a case reply never says "all clear" next to an open item. A line matching `all_clear` is dropped
+  # (and logged) when the same reply also matches `open` -- a safety net; the case brief is consistent by design
+  consistency:
+    all_clear: ["every check passes", "all checks pass", "all [a-z]+ checks have passed", "nothing blocking",
+                "saare checks pass", "saare [a-z]+ checks pass"]
+    open: ["not run", "hasn't run", "has not run", "not uploaded", "in review", "did not pass", "\\bpending\\b",
+           "\\bmissing\\b", "\\bfailed\\b", "nahi chala", "baaki"]
+  # FINAL FIX A5: never a command-style hint ("say ...", "type ...") -- a safety net under the templates
+  command_hints: ["(?i)\\s*(?:👉\\s*)?(?:say|type)\\s+[\"“][^\"”\\n]+[\"”][^.\\n]*\\.?",
+                  "(?i)\\s*[\"“][^\"”\\n]+[\"”]\\s+(?:boliye|likhiye|कहें|लिखें|म्हणा)\\.?"]
   # the download buttons' format names (product_flow.yaml case_links.downloads)
   format_names:
     xlsx: { en: "Excel", hi-Latn: "Excel", hi: "Excel", mr: "Excel" }

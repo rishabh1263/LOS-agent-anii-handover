@@ -96,7 +96,7 @@ def test_portfolio_follow_up_yes_pending_pick_open(client, prod):
     listed = turn(client, "mere cases dikhao")["markdown"]
     assert "Do you want to know about a particular case?" in listed or "Would you like details" in listed
     assert "](ask:Yes)" in listed and "](ask:No)" in listed
-    assert "Download Excel" in listed and "Show in UI" in listed           # the list as downloads
+    assert "Download: [Excel]" in listed and "Show in UI" in listed         # the list as downloads (one item)
     asked = turn(client, "Yes")["markdown"]
     assert "Pending" in asked and "Done" in asked and "](ask:Pending)" in asked
     pending = turn(client, "Pending")["markdown"]
@@ -104,7 +104,7 @@ def test_portfolio_follow_up_yes_pending_pick_open(client, prod):
     opened = turn(client, "1")["markdown"]
     assert "CASE-" in opened and ("What do you want to know?" in opened or "What would you like to know" in opened)
     assert "](ask:What%20is%20pending?)" in opened
-    assert "Download Excel" in opened and "Download PDF" in opened and "Show in UI" in opened
+    assert "action:download" not in opened                               # FINAL FIX A4: not on open
 
 
 def test_portfolio_follow_up_no_and_skip(client, prod):
@@ -296,3 +296,20 @@ def test_open_shows_what_the_form_still_needs(client, prod):
     repo.save_application(dataclasses.replace(application, loan_amount=None))
     opened = turn(client, f"open {case_id}", chat="gap")["markdown"]
     assert "This case still needs: Loan amount" in opened
+
+
+def test_a_case_question_with_no_case_open_asks_which_case_then_answers_it(client, prod):
+    make_case(client, "Rahul Sharma")
+    make_case(client, "Priya Verma")
+    asked = turn(client, "Application status", chat="wc")["markdown"]
+    assert asked.startswith("Which case is this about?") and "| CASE-" in asked
+    answered = turn(client, "1", chat="wc")["markdown"]
+    assert "CASE-" in answered and "Which case" not in answered and "Open a case first" not in answered
+    hinglish = turn(client, "status kya hai", chat="wc2")["markdown"]
+    assert hinglish.startswith("Which case is this about?") and "don't know that yet" not in hinglish
+
+
+def test_one_case_is_answered_directly_and_view_all_cases_lists(client, prod):
+    make_case(client, "Rahul Sharma")
+    assert "Which case" not in turn(client, "Application status", chat="one")["markdown"]
+    assert "| CASE-" in turn(client, "view all cases", chat="va")["markdown"]

@@ -5,7 +5,7 @@ THE FOS <-> CPA WORKFLOW IN CHAT (owner decision 2026-10-08; config product_flow
                            missing documents) -> Confirm -> recorded as a CUSTOMER query (app.agents.los.queries) and
                            shown as the message to send. It blocks the move until the officer resolves it.
     FOS, all clear         "Move to CPA": the live gate (stage_gate.evaluate_live) must PASS -> Confirm -> the gated
-                           transition (stage_lifecycle.transition re-checks the gate at the move).
+                           transition, executed by the API route (the gate is re-checked at the move).
     CPA <-> FOS            "Raise query to FOS / CPA": the text -> Confirm -> a stage query along queries.yaml
                            routes; "reply to QRY-..." -> RESPONDED; "resolve QRY-..." -> RESOLVED.
 
@@ -335,27 +335,25 @@ def _execute(write: dict[str, Any], claims: dict[str, Any], request_id: str, lan
 
 
 def _move(write: dict[str, Any], claims: dict[str, Any], actor: str, request_id: str, lang: str) -> dict[str, Any]:
-    from app.agents.applicant import audit
-    from app.agents.applicant.copilot.capabilities import case_form
-    from app.agents.los import stage_lifecycle
-
+    """
+    The confirmed move is NOT made here: no copilot module reaches the stage-transition service (an architecture
+    rule, guarded by the stage-lifecycle tests, test_l). The reply carries `execute_move`; the API route executes it through the
+    gated transition under the user's own identity (fos_api.move_case_stage).
+    """
     case_id, here, there = str(write["case_id"]), str(write["here"]), str(write["there"])
     if not _move_allowed(claims):
         return _reply(request_id, case_id, _say("no_move_rights", lang))
-    try:
-        stage_lifecycle.transition(case_id, there, reason=f"{here} gate passed; confirmed in chat by {actor}",
-                                   actor=actor, source="OPERATOR", expected_stage=here,
-                                   idempotency_key=f"chat-move-{write['ref']}", request_id=request_id)
-    except stage_lifecycle.StageTransitionError as exc:
-        audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
-                     tools=["los.stage"], write=True, status="REFUSED", detail=getattr(exc, "code", ""))
-        return _reply(request_id, case_id, _say("move_failed", lang, case_id=case_id,
-                                                why=getattr(exc, "message", str(exc))))
-    audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
-                 tools=["los.stage"], write=True, confirmed=True, status="OK", detail=f"{here}->{there}")
-    case_form.activity(case_id, "STAGE_MOVED", f"{here} -> {there} by {actor} (chat)")
-    return _reply(request_id, case_id, _say("moved", lang, case_id=case_id, here=here, there=there),
-                  intent="STAGE_MOVED", tools_invoked=["los.stage"])
+    return _reply(request_id, case_id, "", intent="STAGE_MOVE_CONFIRMED",
+                  execute_move={"case_id": case_id, "from": here, "to": there, "ref": str(write["ref"]),
+                                "actor": actor})
 
 
-__all__ = ["KINDS", "enabled", "gate", "offers", "problems", "propose", "step"]
+def moved_text(case_id: str, here: str, there: str, lang: str) -> str:
+    return _say("moved", lang, case_id=case_id, here=here, there=there)
+
+
+def move_failed_text(case_id: str, why: str, lang: str) -> str:
+    return _say("move_failed", lang, case_id=case_id, why=why)
+
+
+__all__ = ["KINDS", "enabled", "gate", "move_failed_text", "moved_text", "offers", "problems", "propose", "step"]

@@ -1523,12 +1523,15 @@ async def query(
     from app.agents.applicant.copilot.capabilities import faq as _faq_unknown
 
     reply = _faq_unknown.apply_unknown(reply, request.message or "")       # the same rules as /fos/copilot
+    from app.agents.applicant.copilot.answering import case_brief as _why
+
+    reply = _why.why_fallback(reply)
     from app.agents.applicant.copilot.capabilities import product_flow as _stage_note
 
     reply = _stage_note.stage_move_note(reply, request.message or "")
     if isinstance(reply, dict) and isinstance(reply.get("context"), dict):
         _contract.remember(subject, chat_id, reply["context"])
-    return _contract.publish(reply)
+    return _contract.publish(reply, chat_key=(subject, chat_id))
 
 
 async def _query(
@@ -1591,6 +1594,8 @@ async def _query(
             return _published(ws_turn.reply, str(ws_turn.reply.get("intent") or "CASE_LIST"))
         if ws_turn.case_id:
             request.case_id, request.applicant_id = ws_turn.case_id, str(ws_turn.applicant_id or "") or None
+        if ws_turn.message:
+            request.message = ws_turn.message            # the question asked before "which case?"
 
     # NO CASE NAMED (FOS plan 1.4): "case details do" without a case_id answered "None of the application details
     # are recorded" -- untrue, no case was chosen. The case the officer OPENED in the workspace answers it, or their
@@ -1762,10 +1767,10 @@ async def _query(
                     and envelope.get("intent") not in ("CASE_PORTFOLIO", "CASE_LIST"):
                 # a case question with several cases and none chosen: "which case?" + the caller's list,
                 # never an answer about no case at all (FOS plan 1.4)
-                _ws_state = _ws._state(_ws._subject(claims), None)
-                listed = _ws.list_view(claims, request_id, _ws_state)     # "2" then picks from this list
-                _ws._save(_ws_state)
-                envelope["answer"] = _ws._label("pick_case_first") + "\n\n" + str(listed.get("answer") or "")
+                # the SAME question as /fos/copilot: the recent cases, the question kept -- the pick answers it
+                listed = _ws.ask_which_case(claims, request_id, request.context, request.message) or \
+                    _ws.list_view(claims, request_id, _ws._state(_ws._subject(claims), None))
+                envelope["answer"] = str(listed.get("answer") or "")
                 envelope["intent"] = "CASE_SELECTION"
                 envelope["query_type"] = "CLARIFICATION"
                 envelope["workspace_view"] = listed.get("workspace_view")

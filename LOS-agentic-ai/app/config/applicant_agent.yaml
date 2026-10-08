@@ -286,13 +286,13 @@ routing:
   LOAN_DECISION:     { route_to: DECISION_AGENT, message: "The lending decision is made downstream, after CPA.",
                        suggestions: ["What is still pending on my case?", "Is my case ready for CPA?"] }
   # DOMAIN-ADJACENT (scope policy): a reason, a redirect, and what to ask instead.
-  ELIGIBILITY_AMOUNT: { route_to: CREDIT_AGENT,  message: "How much you can borrow, and when it is disbursed, are worked out by the credit team after CPA -- not at this stage.",
+  ELIGIBILITY_AMOUNT: { route_to: CREDIT_AGENT,  message: "How much you can borrow, and when it is disbursed, are worked out by the credit team after CPA, not at this stage.",
                         suggestions: ["What loan amount did I apply for?", "What is still pending on my case?"] }
   LOAN_TERMS:        { route_to: CREDIT_AGENT,   message: "Interest rate, EMI and fees are set when the loan is sanctioned after the credit assessment, so I can't quote or change them here. Your relationship manager can discuss terms.",
                        suggestions: ["What is my loan amount and tenure?", "What is still pending on my case?"] }
-  INVESTMENT_ADVICE: { route_to: NONE,           message: "I can't give investment or financial advice -- I'm set up only for your loan application.",
+  INVESTMENT_ADVICE: { route_to: NONE,           message: "I can't give investment or financial advice. I'm set up only for your loan application.",
                        suggestions: ["What stage is my application at?", "Which documents are pending?"] }
-  PRODUCT_ADVICE:    { route_to: NONE,           message: "I can't recommend which loan to choose -- your relationship manager can help with that. I can tell you what each product needs.",
+  PRODUCT_ADVICE:    { route_to: NONE,           message: "I can't recommend which loan to choose, your relationship manager can help with that. I can tell you what each product needs.",
                        suggestions: ["What documents do I need for a personal loan?", "What documents do I need for a home loan?"] }
 
 # -----------------------------------------------------------------------------
@@ -835,10 +835,10 @@ chatbot:
                            already verified by, approval mil gaya hai, direct cpa bhejo, override karo]
     replies:
       self_harm:
-        en: "I'm really sorry you're feeling this way. You don't have to handle it alone -- please talk to someone you trust right now. In India you can call Tele-MANAS on 14416 (free, 24x7). If you're in danger, call 112."
-        hi-Latn: "Mujhe bahut afsos hai ki aap aisa mehsoos kar rahe hain. Aap akele nahi hain -- abhi kisi bharosemand insaan se baat kijiye. Tele-MANAS 14416 (free, 24x7) par call kar sakte hain. Khatra ho to 112 par call kijiye."
-        hi: "मुझे बहुत अफ़सोस है कि आप ऐसा महसूस कर रहे हैं। आप अकेले नहीं हैं -- अभी किसी भरोसेमंद व्यक्ति से बात कीजिए। टेली-मानस 14416 (मुफ़्त, 24x7) पर कॉल कर सकते हैं। ख़तरा हो तो 112 पर कॉल कीजिए।"
-        mr: "तुम्हाला असं वाटतंय याचं खूप वाईट वाटतं. तुम्ही एकटे नाही -- आत्ता एखाद्या विश्वासू व्यक्तीशी बोला. टेली-मानस 14416 (मोफत, 24x7) वर कॉल करू शकता. धोका असल्यास 112 वर कॉल करा."
+        en: "I'm really sorry you're feeling this way. You don't have to handle it alone, please talk to someone you trust right now. In India you can call Tele-MANAS on 14416 (free, 24x7). If you're in danger, call 112."
+        hi-Latn: "Mujhe bahut afsos hai ki aap aisa mehsoos kar rahe hain. Aap akele nahi hain, abhi kisi bharosemand insaan se baat kijiye. Tele-MANAS 14416 (free, 24x7) par call kar sakte hain. Khatra ho to 112 par call kijiye."
+        hi: "मुझे बहुत अफ़सोस है कि आप ऐसा महसूस कर रहे हैं। आप अकेले नहीं हैं, अभी किसी भरोसेमंद व्यक्ति से बात कीजिए। टेली-मानस 14416 (मुफ़्त, 24x7) पर कॉल कर सकते हैं। ख़तरा हो तो 112 पर कॉल कीजिए।"
+        mr: "तुम्हाला असं वाटतंय याचं खूप वाईट वाटतं. तुम्ही एकटे नाही, आत्ता एखाद्या विश्वासू व्यक्तीशी बोला. टेली-मानस 14416 (मोफत, 24x7) वर कॉल करू शकता. धोका असल्यास 112 वर कॉल करा."
       threat:
         en: "I can't continue with messages that threaten harm. This has been recorded. I can help with your loan application."
         hi-Latn: "Nuksaan ki dhamki wale messages par main aage nahi badh sakta. Yeh record kiya gaya hai. Main aapke loan application mein madad kar sakta hoon."
@@ -849,8 +849,8 @@ chatbot:
         hi: "कृपया शिष्ट भाषा में बात करें। मैं आपके लोन आवेदन में मदद के लिए यहाँ हूँ।"
         mr: "कृपया सभ्य भाषेत बोला. मी तुमच्या कर्ज अर्जासाठी मदत करण्यासाठी आहे."
       cooldown:
-        en: "Let's take a short break -- please try again in a minute."
-        hi-Latn: "Thoda ruk jaate hain -- ek minute baad dobara likhiye."
+        en: "Let's take a short break, please try again in a minute."
+        hi-Latn: "Thoda ruk jaate hain, ek minute baad dobara likhiye."
       rate_limited:
         en: "You're sending messages very quickly. Please wait a few seconds and try again."
         hi-Latn: "Aap bahut jaldi messages bhej rahe hain. Thoda ruk kar dobara try kijiye."
@@ -878,7 +878,7 @@ chatbot:
       queries_head: "📋 **Queries on this case**"
       nothing_to_query: "✅ Nothing on this case needs a query right now."
       new_case: "👉 Tap **New case** to open the case form."
-      view: "📄 **{document}** -- the link works for {minutes} minutes."
+      view: "📄 **{document}**, the link works for {minutes} minutes."
 
   # FOS plan 6.7 -- MISUNDERSTANDING RECOVERY: "ye nahi poocha" -> one question back with options (whole phrase)
   misunderstood:
@@ -927,11 +927,11 @@ chatbot:
       # a document fills a slot: PAN -> its own; a DL / passport / voter ID -> ADDRESS_PROOF
       slot_of: { DRIVING_LICENCE: [ADDRESS_PROOF], PASSPORT: [ADDRESS_PROOF], VOTER_ID: [ADDRESS_PROOF] }
       labels:
-        "yes": { en: "Yes -- with a verified {document}, every FOS check would pass. A person still confirms the move to CPA.",
-                 hi-Latn: "Haan -- verified {document} ke saath saare FOS checks pass ho jayenge. CPA move ek vyakti confirm karega.",
+        "yes": { en: "Yes, with a verified {document}, every FOS check would pass. A person still confirms the move to CPA.",
+                 hi-Latn: "Haan, verified {document} ke saath saare FOS checks pass ho jayenge. CPA move ek vyakti confirm karega.",
                  default: en }
-        "no": { en: "Not yet -- after a verified {document}, {n} more to clear:",
-                hi-Latn: "Abhi nahi -- verified {document} ke baad bhi {n} cheezein baaki:", default: en }
+        "no": { en: "Not yet, after a verified {document}, {n} more to clear:",
+                hi-Latn: "Abhi nahi, verified {document} ke baad bhi {n} cheezein baaki:", default: en }
         not_needed: { en: "The {document} is not what is holding this case.",
                       hi-Latn: "{document} is case ko nahi rok raha.", default: en }
     review:
@@ -950,7 +950,7 @@ chatbot:
                 customer ke liye message, customer ko bhejne ke liye, draft for the customer,
                 message to the customer, draft a message, ग्राहक के लिए संदेश, ग्राहकासाठी संदेश]
       labels:
-        intro: { en: "A message for the customer (not sent -- copy or edit it):", hi-Latn: "Customer ke liye message (bheja nahi gaya -- copy ya edit karein):", default: en }
+        intro: { en: "A message for the customer (not sent, copy or edit it):", hi-Latn: "Customer ke liye message (bheja nahi gaya, copy ya edit karein):", default: en }
         greeting: { en: "Hello, for your loan application please share:", hi-Latn: "Namaste, aapke loan application ke liye kripya dein:",
                     hi: "नमस्ते, आपके लोन आवेदन के लिए कृपया ये दें:", default: en }
         bring: { en: "{items}.", default: en }
@@ -1043,7 +1043,7 @@ chatbot:
       group_signature: "Signature"
       group_kyc: "KYC"
       group_other: "Other gate conditions"
-      kyc_advisory: "(advisory -- not required for CPA while the KYC rule is off)"
+      kyc_advisory: "(advisory, not required for CPA while the KYC rule is off)"
       fields_ok: "All required details recorded"
       passed_line: "Passed: {items}."
       fix_upload: "Upload the {label}"
@@ -1078,7 +1078,7 @@ chatbot:
     # MASTER SPEC section 6: a party's KYC is complete only with one of these statuses
     passed_statuses: [PASS, PASSED, VERIFIED]
     labels:
-      heading: { en: "KYC -- {party}", hi-Latn: "KYC -- {party}", hi: "KYC -- {party}", mr: "KYC -- {party}" }
+      heading: { en: "KYC, {party}", hi-Latn: "KYC, {party}", hi: "KYC, {party}", mr: "KYC, {party}" }
       a_title: { en: "A. Application form vs documents", hi-Latn: "A. Application form vs documents",
                  hi: "A. आवेदन फ़ॉर्म बनाम दस्तावेज़", mr: "A. अर्ज फॉर्म विरुद्ध कागदपत्रे" }
       b_title: { en: "B. Documents vs each other", hi-Latn: "B. Documents aapas mein",
@@ -1104,19 +1104,19 @@ chatbot:
                             mr: "अर्जावर नाही" }
       not_read: { en: "Not read from this document", hi-Latn: "Is document se padha nahi gaya",
                   hi: "इस दस्तावेज़ से पढ़ा नहीं गया", mr: "या कागदपत्रातून वाचले नाही" }
-      odd_one_out: { en: "Likely odd one out: the {document} ({check}) -- the other documents agree. Upload a correct {document}.",
-                     hi-Latn: "Shayad galat: {document} ({check}) -- baaki documents match karte hain. Sahi {document} upload karein.",
-                     hi: "संभवतः गलत: {document} ({check}) -- बाकी दस्तावेज़ मेल खाते हैं। सही {document} अपलोड करें।",
-                     mr: "बहुधा चुकीचे: {document} ({check}) -- बाकी कागदपत्रे जुळतात. योग्य {document} अपलोड करा." }
+      odd_one_out: { en: "Likely odd one out: the {document} ({check}), the other documents agree. Upload a correct {document}.",
+                     hi-Latn: "Shayad galat: {document} ({check}), baaki documents match karte hain. Sahi {document} upload karein.",
+                     hi: "संभवतः गलत: {document} ({check}), बाकी दस्तावेज़ मेल खाते हैं। सही {document} अपलोड करें।",
+                     mr: "बहुधा चुकीचे: {document} ({check}), बाकी कागदपत्रे जुळतात. योग्य {document} अपलोड करा." }
       none: { en: "No KYC check has been recorded for this case yet.",
               hi-Latn: "Is case ka KYC check abhi record nahi hua hai.",
               hi: "इस केस का KYC चेक अभी दर्ज नहीं हुआ है।", mr: "या केसचा KYC चेक अजून नोंदवलेला नाही." }
       # the verdict when KYC failed / is in review (2-3 variants of the headline are not used: it is a fixed line)
       not_ready: { en: "Not ready for CPA. KYC is not complete.", hi-Latn: "CPA ke liye ready nahi. KYC poora nahi hua.",
                    hi: "CPA के लिए तैयार नहीं। KYC पूरा नहीं हुआ।", mr: "CPA साठी तयार नाही. KYC पूर्ण झालेले नाही." }
-      reason_a: { en: "- {party}: {check} on the {document} -- {reason}.",
-                  hi-Latn: "- {party}: {document} par {check} -- {reason}.",
-                  hi: "- {party}: {document} पर {check} -- {reason}।", mr: "- {party}: {document} वर {check} -- {reason}." }
+      reason_a: { en: "- {party}: {check} on the {document}, {reason}.",
+                  hi-Latn: "- {party}: {document} par {check}, {reason}.",
+                  hi: "- {party}: {document} पर {check}, {reason}।", mr: "- {party}: {document} वर {check}, {reason}." }
       reason_b: { en: "- {party}: {check} differs between the {first} and the {second}.",
                   hi-Latn: "- {party}: {first} aur {second} mein {check} alag hai.",
                   hi: "- {party}: {first} और {second} में {check} अलग है।",
@@ -1363,11 +1363,13 @@ chatbot:
     list_rule:
       case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
       cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, my, मेरे, सारे, सब]
+      # (2026-10-08: "view all cases" -- view / see / display / check are list verbs too, see `allowed`)
       allowed: [ka, ki, ke, of, a, the, me, mujhe, show, give, do, dikhao, dikha, batao, bata, hai, h, hain, how,
                 please, plz, pls, kya, wale, wala, kaun, kaunse, konse, which, are, i, have, bhai, yaar, open,
                 dekhna, dekhne, chahiye, दिखाओ, बताओ, है, हैं, का, के, की,
                 # courtesy / filler words around a list request ("sorry, my cases", "ok mere cases dikhao")
-                sorry, ok, okay, acha, achha, theek, thik, thanks, thank, you, now, ab, फिर, ठीक]
+                sorry, ok, okay, acha, achha, theek, thik, thanks, thank, you, now, ab, फिर, ठीक,
+                view, see, display, check, get, fetch, open, all, total, dekho, dekhao, dikha, batana]
     labels:
       header: "📂 **Your cases**"
       total: "{n} total"
@@ -1376,7 +1378,7 @@ chatbot:
       rejected: "❌ {n} rejected"
       # the list is grouped by applicant (one applicant can have several cases); numbering runs across
       # groups so "2 kholo" still works; {applicant_id} lets the officer say "APP-xxx wala case kholo"
-      group: "🆔 **{applicant_id}** -- {name} ({count})"
+      group: "🆔 **{applicant_id}**, {name} ({count})"
       group_one: "1 case"
       group_many: "{n} cases"
       row: "   {number}. **{case_id}** · 📍 {stage} · {status}"
@@ -1388,21 +1390,19 @@ chatbot:
       # {language: text} maps follow the locked reply language (FOS plan section 2); unlocked -> the en wording
       ask: { default: hi-Latn, en: "👉 Which case do you want to open?", hi-Latn: "👉 Kis case mein jaana hai?",
              hi: "👉 कौन सा केस खोलना है?", mr: "👉 कोणती केस उघडायची आहे?" }
-      more: { default: hi-Latn, en: "👉 Say \"show more\" for more", hi-Latn: "👉 \"aur dikhao\" for more",
-              hi: "👉 और देखने के लिए \"और दिखाओ\" कहें", mr: "👉 आणखी पाहण्यासाठी \"आणखी दाखवा\" म्हणा" }
+      more: { default: hi-Latn, en: "More cases are on the next page.", hi-Latn: "Aur cases agle page par hain.",
+              hi: "और केस अगले पेज पर हैं।", mr: "आणखी केस पुढच्या पानावर आहेत." }
       none: "ℹ️ You have no cases you can open."
       opened: "🔓 **{case_id} ({name})** opened."
       snapshot_stage: "📍 Stage: **{stage}**"
       snapshot_blocker: "⚠️ {blocker}"
       snapshot_clear: "✅ Nothing blocking right now."
-      suggest: "👉 Try: \"{question}\""
+      suggest: "{question}"
       in_case: "📍 {case_id}"
       closed: "🔒 **{case_id}** closed."
       which: "Which one did you mean?"
-      not_found: { en: "I couldn't find that case among yours. 👉 Say \"my cases\" to see the list.",
-                   hi-Latn: "Yeh case aapke cases mein nahi mila. 👉 List ke liye \"mere cases\" boliye.",
-                   hi: "यह केस आपके केसों में नहीं मिला। 👉 सूची के लिए \"मेरे केस\" कहें।",
-                   mr: "ही केस तुमच्या केसमध्ये सापडली नाही. 👉 यादीसाठी \"माझ्या केस\" म्हणा." }
+      not_found: { en: "I can't find that case in your cases.", hi-Latn: "Yeh case aapke cases mein nahi mila.",
+                   hi: "यह केस आपके केसों में नहीं मिला।", mr: "ही केस तुमच्या केसमध्ये सापडली नाही." }
       # MASTER SPEC section 2: an id / name typed in chat that is unknown OR not the caller's -- one neutral line,
       # never confirming that it exists
       not_found_applicant: { en: "I can't find that applicant in your cases.",
@@ -1419,15 +1419,15 @@ chatbot:
                         hi: "यह केस आपके केसों में नहीं मिला।", mr: "ही केस तुमच्या केसमध्ये सापडली नाही." }
       no_other_case: { en: "You have only this one case.", hi-Latn: "Aapka sirf yahi ek case hai.",
                        hi: "आपका केवल यही एक केस है।", mr: "तुमची फक्त हीच एक केस आहे." }
-      pick_case_first: { en: "Which case is this about? Open one of your cases first.",
-                         hi-Latn: "Yeh kis case ke baare mein hai? Pehle apna ek case kholiye.",
-                         hi: "यह किस केस के बारे में है? पहले अपना एक केस खोलिए।",
-                         mr: "हे कोणत्या केसबद्दल आहे? आधी तुमची एक केस उघडा." }
+      pick_case_first: { en: "Which case is this about? Reply with the number, or tap Open.",
+                         hi-Latn: "Yeh kis case ke baare mein hai? Number likhiye, ya Open dabaiye.",
+                         hi: "यह किस केस के बारे में है? नंबर लिखें या Open दबाएँ।",
+                         mr: "हे कोणत्या केसबद्दल आहे? क्रमांक लिहा किंवा Open दाबा." }
       other_case: { default: hi-Latn, en: "👉 Open this case? ({case_id})", hi-Latn: "👉 Is case mein jaana hai? ({case_id})",
                     hi: "👉 इस केस में जाना है? ({case_id})", mr: "👉 ही केस उघडायची? ({case_id})" }
-      no_case: { default: hi-Latn, en: "👉 Open a case first -- say \"my cases\".",
-                 hi-Latn: "👉 Pehle ek case kholiye -- \"mere cases\" boliye.",
-                 hi: "👉 पहले एक केस खोलिए -- \"मेरे केस\" कहें।", mr: "👉 आधी एक केस उघडा -- \"माझ्या केस\" म्हणा." }
+      # used only when the officer has NO case at all (one case is answered directly; several -> "which case?")
+      no_case: { default: hi-Latn, en: "You don't have any cases yet.", hi-Latn: "Aapka abhi koi case nahi hai.",
+                 hi: "आपका अभी कोई केस नहीं है।", mr: "तुमची अजून कोणतीही केस नाही." }
     quick_questions:
       default: hi-Latn
       en: ["What is pending?", "Why is it stuck?", "Co-applicant", "Summary"]
@@ -1473,7 +1473,7 @@ chatbot:
     max_conversations: 2000
     # 6d (CHATBOT_SPEC section 3): an unsure reply re-asks more simply; a "no" is acknowledged
     # with ONE alternative. Word lists: semantic_concepts.yaml conversation (UNSURE, AFFIRM, NEGATE...).
-    reask_simpler: "Let me make it simpler -- reply with a number:\n{options}"
+    reask_simpler: "Let me make it simpler, reply with a number:\n{options}"
     # (6c memory settings: chatbot.memory below)
     reask_simpler_yes_no: "Simply yes or no: {question}"
     declined_reply: "Okay. 👉 Want to see what is **pending** instead?"

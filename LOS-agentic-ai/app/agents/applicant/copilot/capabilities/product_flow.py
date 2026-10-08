@@ -278,6 +278,13 @@ def named_person(text: str) -> str | None:
     return None
 
 
+def names_case_words(text: str) -> bool:
+    """A question about a case (status, pending, documents, KYC ...): product_flow.yaml which_case.case_words."""
+    words = set(_norm(text).split())
+    case_words = {w for p in (cfg().get("which_case") or {}).get("case_words") or [] for w in _norm(p).split()}
+    return bool(words & case_words)
+
+
 def out_of_scope(text: str) -> bool:
     """A message clearly outside the product (product_flow.yaml out_of_scope.off_topic_words; whole phrases)."""
     return bool(_said(text, (cfg().get("out_of_scope") or {}).get("off_topic_words")))
@@ -321,13 +328,30 @@ def asks_download(text: str) -> bool:
     return len(words) <= 6 and bool(_said(text, (cfg().get("case_links") or {}).get("ask_words")))
 
 
+def asks_show_in_ui(text: str) -> bool:
+    """'show in UI', 'ui mein dikhao': the Show in UI action (product_flow.yaml case_links.show_words)."""
+    return len(_norm(text).split()) <= 6 and bool(_said(text, (cfg().get("case_links") or {}).get("show_words")))
+
+
+def show_in_ui_reply(case_id: str | None, list_query: dict[str, Any] | None, lang: str | None = None) -> str:
+    """The heading + the ONE Show in UI link (the open case, else the last list)."""
+    from app.agents.applicant.copilot.answering import contract
+
+    lang = lang or _lang()
+    here = (cfg().get("case_links") or {}).get("show_here") or {}
+    if case_id:
+        return say(here.get("case"), lang, case_id=case_id) + "\n" + contract.link("show_in_ui", lang, case=case_id)
+    query = ",".join(f"{k}:{v}" for k, v in (list_query or {}).items() if k in LIST_KEYS and v not in (None, ""))
+    return say(here.get("list"), lang) + "\n" + contract.link("show_list_in_ui", lang, q=query or "all")
+
+
 def downloads_reply(case_id: str | None, list_query: dict[str, Any] | None, lang: str | None = None) -> str:
     """The heading + the download links (the open case, else the last list / all cases)."""
     lang = lang or _lang()
     here = (cfg().get("case_links") or {}).get("here") or {}
     if case_id:
-        return say(here.get("case"), lang, case_id=case_id) + "\n" + " · ".join(case_links(case_id, lang))
-    return say(here.get("list"), lang) + "\n" + " · ".join(case_links(None, lang, list_query=list_query or {}))
+        return say(here.get("case"), lang, case_id=case_id) + "\n" + " · ".join(case_link_items(case_id, lang))
+    return say(here.get("list"), lang) + "\n" + " · ".join(case_link_items(None, lang, list_query=list_query or {}))
 
 
 LIST_KEYS = ("filter", "group", "status", "search", "sort", "stage")
@@ -341,6 +365,22 @@ def parse_list_q(q: str | None) -> dict[str, str]:
         if key.strip() in LIST_KEYS and value.strip():
             out[key.strip()] = value.strip()[:80]
     return out
+
+
+def case_link_items(case_id: str | None, lang: str, *, list_query: dict[str, Any] | None = None) -> list[str]:
+    """
+    FINAL FIX A4: the same links as `case_links`, as ITEMS -- "Download: [Excel] · [Doc] · [PDF]" is ONE item, then
+    "[Show in UI]". The reply's link budget counts items.
+    """
+    links = case_links(case_id, lang, list_query=list_query)
+    downloads = [ln for ln in links if "(action:download" in ln]
+    rest = [ln for ln in links if ln not in downloads]
+    if not downloads:
+        return rest
+    plain = [re.sub(r"^\[[^\]]*\]", f"[{_fmt(re.search(r'format=(\w+)', ln).group(1), lang)}]", ln)
+             for ln in downloads]
+    label = say((cfg().get("link_policy") or {}).get("download_label"), lang)
+    return [(label + " " if label else "") + " · ".join(plain)] + rest
 
 
 def _fmt(fmt: str, lang: str) -> str:

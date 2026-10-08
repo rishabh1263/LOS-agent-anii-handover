@@ -43,12 +43,13 @@ def test_help_me_upload_is_not_the_faq(client, prod):
     assert "**This case:**" not in say(client, "help me upload the PAN")
 
 
-def test_the_faq_shows_on_open_after_the_review(client, prod):
-    _, c = make_case(client, "Rahul Sharma")
+def test_the_faq_is_not_dumped_on_open(client, prod):
+    # FINAL FIX A4 (less is more): the FAQ only when asked ("help") or at the end of a portfolio / summary answer;
+    # a case opens with the brief and at most 2 state-chosen links
+    _, c = make_case(client, f"Rahul Sharma")
     md = say(client, f"{c} kholo")
-    assert "Common questions for this case:" in md
-    if "Review:" in md:
-        assert md.index("Review:") < md.index("Common questions for this case:")
+    assert "Common questions for this case:" not in md and md.count("](ask:") + md.count("](action:") <= 2
+    assert "You can ask me" in say(client, "help") or "(ask:" in say(client, "help")
 
 
 def test_kyc_failed_boosts_the_kyc_questions(client, prod, _store):

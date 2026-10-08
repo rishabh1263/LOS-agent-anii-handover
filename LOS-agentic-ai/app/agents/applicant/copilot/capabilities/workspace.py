@@ -345,7 +345,7 @@ def list_view(claims: dict[str, Any], request_id: str, state, *, page: int = 0) 
         suggested_questions=[f"{r['number']}" for r in rows][:3])
 
 
-def paged_view(claims: dict[str, Any], request_id: str, state, query=None) -> dict[str, Any]:
+def paged_view(claims: dict[str, Any], request_id: str, state, query=None, *, ask: str | None = None) -> dict[str, Any]:
     """
     MASTER SPEC section 3 (COPILOT_CASE_LIST_PAGING): ONE page of the caller's own cases -- filtered, sorted,
     "Showing x-y of N", the options as links. The query is remembered for "aur dikhao".
@@ -361,7 +361,7 @@ def paged_view(claims: dict[str, Any], request_id: str, state, query=None) -> di
     state.list_offset = page.page * page.size
     state.listed_case_ids = [r["case_id"] for r in page.rows]
     # section 15.2: the portfolio follow-up ("Do you want to know about a particular case?") closes the list
-    closing = product_flow.closing_for_list(state, page.query.as_dict()) if page.rows else None
+    closing = ([ask] if ask else product_flow.closing_for_list(state, page.query.as_dict())) if page.rows else None
     # the question travels apart (faq_block), after the table: no rewrite step touches its Yes / No links
     answer = case_list.render(page, lang, seed=state.turn_id or 0, closing=[] if closing else None)
     rows = [{**r, "action": {"type": "open_case", "case_id": r["case_id"]},
@@ -389,66 +389,43 @@ def _list(claims: dict[str, Any], request_id: str, state, text: str = "", *, mor
 
 
 def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
+    """
+    FINAL FIX A1 / A4 -- less is more: the case brief (answering/case_brief.py: case + name + stage / the main status
+    or blocker with its reason / "Next step:") and at most `case_brief.max_suggestions` links chosen by state -- the
+    workflow step first (query the customer / move to CPA / query FOS), then a question. No downloads, no FAQ here.
+    """
+    from app.agents.applicant.copilot.answering import case_brief, contract, language_lock
+    from app.agents.applicant.copilot.capabilities import product_flow, stage_flow
+
     state.active_case_id = application.case_id
     # 6c: the cases opened this session, oldest first ("pehle wala case" goes back one)
     history = [c for c in (state.case_history or []) if c != application.case_id]
     state.case_history = (history + [application.case_id])[-10:]
-    name = _name(application.applicant_id, short=False)
-    blocker = _main_blocker(application)
-    lines = [_label("opened", case_id=application.case_id, name=name),
-             _label("snapshot_stage", stage=_stage(application.case_id) or "--"),
-             _label("snapshot_blocker", blocker=blocker) if blocker else _label("snapshot_clear"),
-             "", _label("suggest", question=_pick(_cfg().get("suggested_question", "Kya baaki hai?")))]
-    from app.agents.applicant.copilot.capabilities import timeline as _timeline
-
-    late = _timeline.turnaround_line(application.case_id)
-    if late:
-        lines.insert(3, f"⏰ {late}")                       # FOS plan 7.3: past target, with the main blocker
-    from app.agents.applicant.copilot.capabilities import case_form as _case_form
-
-    if _case_form.enabled():
-        # MASTER SPEC 15.5: a partly filled form -- what is still missing ("loan amount 500000 karo" fills it)
-        gaps = _case_form.missing(application.case_id)
-        if gaps:
-            lines.insert(3, _case_form._say("missing_fields", None,
-                                            fields=", ".join(_case_form.label(f) for f in gaps)))
-    from app.agents.applicant.copilot.answering import contract as _contract
-
-    if _contract.enabled():
-        # MASTER SPEC section 11: what changed since this chat last looked at the case
-        from app.agents.applicant.copilot.answering import language_lock, realtime
+    lang = language_lock.current() or "en"
+    brief = case_brief.build(application.case_id, lang)
+    lines = brief["text"].split("\n")
+    if contract.enabled():
+        # MASTER SPEC section 11: what changed since this chat last looked at the case (only when something did)
+        from app.agents.applicant.copilot.answering import realtime
 
         try:
-            since = realtime.since_last(state.subject_key, state.conversation_id, application.case_id,
-                                        language_lock.current() or "en")
+            since = realtime.since_last(state.subject_key, state.conversation_id, application.case_id, lang)
         except Exception:  # noqa: BLE001 - a convenience line never fails the open
             since = None
         if since:
             lines.insert(1, since)
-    from app.agents.applicant.copilot.capabilities import faq as _faq
-
-    if _faq.enabled():
-        # MASTER SPEC section 7: the FAQ for this case's state, under the review (officer_tools) -- it replaces
-        # the single "Try:" hint, which it covers
-        from app.agents.applicant.copilot.answering import language_lock
-
-        lang = language_lock.current() or "en"
-        shown = _faq.render(_faq.items(application.case_id, lang, int(_faq.cfg().get("max_items_on_open", 4))),
-                            lang, "on_open")
-        if shown:
-            hint = _label("suggest", question="").split('"')[0]
-            lines = [ln for ln in lines if not (hint and ln.startswith(hint))]
-    else:
-        shown = ""
     reply = _base(request_id, "CASE_OPENED", "\n".join(lines), case_id=application.case_id,
                   applicant_id=application.applicant_id, workspace_view={"workspace": workspace_block(application.case_id)})
-    from app.agents.applicant.copilot.capabilities import product_flow as _product_flow
-
-    asked = _product_flow.after_open(state)
-    if asked:
-        shown = asked                            # section 15.2: picked from the flow's list -> "What do you want to know?"
-    if shown:
-        reply["faq_block"] = shown              # placed after the answer (and the review) by the reply contract
+    reply["brief"] = True                        # officer_tools adds no second review under it
+    reply["tts_text"] = "\n".join(lines[1:])     # the voice: the status and the next step (never the id line)
+    limit = int(case_brief._cfg().get("max_suggestions", 2))
+    links = (stage_flow.offers(application.case_id, lang) + [contract.ask(q) for q in brief["suggestions"]])[:limit]
+    asked = product_flow.after_open(state)
+    question = asked.split("\n")[0] if asked else ""   # picked from the flow's list -> "What do you want to know?"
+    block = "\n".join(x for x in [question, " · ".join(links)] if x)
+    if block:
+        reply["faq_block"] = block
+    reply["no_case_links"] = True                 # downloads / Show in UI only on a summary or when asked
     return reply
 
 
@@ -582,6 +559,8 @@ class Turn:
     other_case: str | None = None
     #: inside the open case: decorate the answer with its header and buttons
     in_case: str | None = None
+    #: the question to answer instead of the typed text (the one asked before "which case?" was answered)
+    message: str | None = None
 
 
 def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any], request_id: str,
@@ -604,6 +583,18 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
         return Turn(reply=reply)
 
     def opened(application: Any) -> Turn:
+        flow = dict(state.flow or {})
+        question = flow.pop("after_pick", None)
+        if question:
+            # "Application status" was asked with no case open -> "which case?" -> this pick: the case opens and the
+            # ORIGINAL question is answered for it (never a second "what do you want to know?")
+            state.flow = flow
+            state.active_case_id = application.case_id
+            history = [c for c in (state.case_history or []) if c != application.case_id]
+            state.case_history = (history + [application.case_id])[-10:]
+            _save(state)
+            return Turn(case_id=application.case_id, applicant_id=application.applicant_id,
+                        in_case=application.case_id, message=str(question))
         return done(open_view(application, request_id, state))
 
     if action == "CUSTOM_QUERY":
@@ -621,6 +612,13 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
         if flowed and flowed.get("list"):
             state.active_case_id = None
             return done(paged_view(claims, request_id, state, _flow_list.ListQuery(**flowed["list"])))
+        if _product_flow.asks_show_in_ui(text):
+            # FINAL FIX A: "show in UI" typed -- the action itself (the frontend opens the same case / list)
+            reply = _base(request_id, "SHOW_IN_UI", "", case_id=state.active_case_id, query_type="CONVERSATION",
+                          tools_invoked=[])
+            heading, _, links = _product_flow.show_in_ui_reply(state.active_case_id, state.list_query).partition("\n")
+            reply["answer"], reply["faq_block"], reply["no_case_links"] = heading, links, True
+            return done(reply)
         if _product_flow.asks_download(text):
             # 15.3: "excel download karo" -- the links for the open case (scope re-checked when opened), else
             # for the last list; the links travel apart so no rewrite step touches them
@@ -779,6 +777,33 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
     return Turn()
 
 
+def ask_which_case(claims: dict[str, Any], request_id: str, context: dict[str, Any] | None,
+                   question: str) -> dict[str, Any] | None:
+    """
+    No case open and a CASE question: "Which case is this about?" over the officer's recent cases (Open links);
+    the question is kept so the pick answers it. None when the officer has no case at all.
+    """
+    from app.agents.applicant.copilot.answering import language_lock
+    from app.agents.applicant.copilot.capabilities import case_list, product_flow
+
+    workspace_id = (context or {}).get("workspace_id") if isinstance(context, dict) else None
+    state = _state(_subject(claims), workspace_id)
+    lang = language_lock.current() or "en"
+    text = product_flow.say((product_flow.cfg().get("which_case") or {}).get("ask"), lang,
+                            question=" ".join(str(question).split())[:80])
+    reply = paged_view(claims, request_id, state, case_list.ListQuery(), ask=text)
+    if not (reply.get("workspace_view") or {}).get("case_list"):
+        return None
+    reply["intent"], reply["query_type"] = "CASE_SELECTION", "CLARIFICATION"
+    # the question is the first line (the direct answer to an ambiguous question is the question back)
+    reply["answer"] = text + "\n\n" + str(reply.get("answer") or "")
+    reply.pop("faq_block", None)
+    state.flow = {**{k: v for k, v in (state.flow or {}).items() if k != "portfolio"}, "after_pick": str(question)}
+    _save(state)
+    reply["context"] = {**(reply.get("context") or {}), "workspace_id": workspace_id or "default"}
+    return reply
+
+
 def decorate(result: dict[str, Any], turn: Turn) -> dict[str, Any]:
     """The answer inside a case: the 📍 line first, the workspace block attached."""
     if not isinstance(result, dict):
@@ -802,5 +827,5 @@ def in_case_header(published: dict[str, Any]) -> dict[str, Any]:
     return published
 
 
-__all__ = ["FLAG", "Selection", "Turn", "decorate", "enabled", "handle", "in_case_header", "list_view", "my_cases",
+__all__ = ["FLAG", "Selection", "Turn", "ask_which_case", "decorate", "enabled", "handle", "in_case_header", "list_view", "my_cases",
            "open_view", "select", "workspace_block"]

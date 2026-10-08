@@ -66,8 +66,32 @@ def stage_sentence(application: dict[str, Any]) -> str:
         status, f"Your application is currently under {_readable(status)}")
 
 
-def pending_documents(checklist: list[dict[str, Any]] | None) -> list[str]:
-    """Required checklist slots with nothing uploaded, in checklist order."""
+def pending_documents(checklist: list[dict[str, Any]] | None, case_id: str | None = None) -> list[str]:
+    """
+    Required checklist slots with nothing uploaded, in checklist order -- and, given the case, the signature when
+    the signature rule applies (FINAL FIX A1: the SAME pending set as the readiness report and the case brief).
+    """
+    return _checklist_pending(checklist) + _signature_pending(case_id)
+
+
+def _signature_pending(case_id: str | None) -> list[str]:
+    if not case_id:
+        return []
+    try:
+        from app.agents.applicant import workflow
+        from app.store import get_repository
+
+        repository = get_repository()
+        application = repository.get_application(case_id)
+        if application is None or not workflow.signature_rule_applies(application)[0]:
+            return []
+        items = workflow.signature_items(application, repository.list_documents(case_id))
+    except Exception:  # noqa: BLE001 - no signature record: the checklist alone, as before
+        return []
+    return [_readable("SIGNATURE")] if any(i.get("code") == "DOCUMENT_MISSING" for i in items) else []
+
+
+def _checklist_pending(checklist: list[dict[str, Any]] | None) -> list[str]:
     return [
         _readable(entry.get("slot"))
         for entry in (checklist or [])
@@ -373,7 +397,7 @@ def answer(
                  if during_stage(d, since)]
     decision = str((decisions[-1] if decisions else {}).get("decision")
                    or "").upper()
-    pending = pending_documents(checklist)
+    pending = pending_documents(checklist, (application or {}).get("case_id"))
     opening = stage_sentence(application)
 
     held = _HELD.get(decision)

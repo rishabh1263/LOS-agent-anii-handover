@@ -1284,6 +1284,9 @@ async def copilot(
 
             # an FAQ-style question with no answer and no data: "I don't know that yet" (15.2 step 2)
             published = _faq_unknown.apply_unknown(published, str(getattr(request.state, "copilot_message", "") or ""))
+            from app.agents.applicant.copilot.answering import case_brief as _why
+
+            published = _why.why_fallback(published)          # "kyu?" with nothing recorded: the real blocker
             # golden rule 4, said first: a stage move / approval asked in chat is never done here
             from app.agents.applicant.copilot.capabilities import product_flow as _stage_note
 
@@ -1311,6 +1314,59 @@ async def copilot(
         }) from exc
 
 
+def _no_case_turn(claims: dict[str, Any], request_id: str, payload: Any, message: str) -> Any:
+    """
+    No case open and the request needs one: (case_id, applicant_id) when the officer has exactly ONE case (answered
+    for it), else the reply to send -- "Which case ...?" over the recent cases with the question kept for the pick,
+    or, with no case at all, the plain fact + Create New Case.
+    """
+    from app.agents.applicant.copilot.answering import contract as _nc_contract
+    from app.agents.applicant.copilot.answering import language_lock as _nc_lock
+    from app.agents.applicant.copilot.capabilities import workspace as _nc_ws
+
+    owned = _nc_ws.my_cases(claims)
+    if len(owned) == 1:
+        return owned[0].case_id, owned[0].applicant_id
+    if owned:
+        asked = _nc_ws.ask_which_case(claims, request_id, payload.context, message)
+        if asked is not None:
+            return asked
+    reply = _nc_ws._base(request_id, "NO_CASES", _nc_ws._label("no_case"), query_type="CONVERSATION",
+                         tools_invoked=["application.list"])
+    reply["faq_block"] = _nc_contract.link("new_case", _nc_lock.current() or "en")
+    return reply
+
+
+def move_case_stage(confirmed: dict[str, Any], request_id: str) -> dict[str, Any]:
+    """
+    Execute a stage move the officer confirmed in chat (capabilities/stage_flow.py proposed it, checked the
+    configured move permission and the case's ownership). The transition re-evaluates the gate itself: a case that
+    stopped being ready is never moved. Audited; written to the case's activity log.
+    """
+    from app.agents.applicant.copilot.answering import language_lock as _mv_lock
+    from app.agents.applicant.copilot.capabilities import case_form as _mv_form
+    from app.agents.applicant.copilot.capabilities import stage_flow as _mv_flow
+    from app.agents.los import stage_lifecycle
+
+    move = confirmed["execute_move"]
+    case_id, here, there, actor = move["case_id"], move["from"], move["to"], move["actor"]
+    lang = _mv_lock.current() or "en"
+    reply = {k: v for k, v in confirmed.items() if k != "execute_move"}
+    try:
+        stage_lifecycle.transition(case_id, there, reason=f"{here} gate passed; confirmed in chat by {actor}",
+                                   actor=actor, source="OPERATOR", expected_stage=here,
+                                   idempotency_key=f"chat-move-{move['ref']}", request_id=request_id)
+    except stage_lifecycle.StageTransitionError as exc:
+        audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
+                     tools=["los.stage"], write=True, status="REFUSED", detail=exc.code)
+        return {**reply, "intent": "STAGE_MOVE_REFUSED", "answer": _mv_flow.move_failed_text(case_id, exc.message, lang)}
+    audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
+                 tools=["los.stage"], write=True, confirmed=True, status="OK", detail=f"{here}->{there}")
+    _mv_form.activity(case_id, "STAGE_MOVED", f"{here} -> {there} by {actor} (chat)")
+    return {**reply, "intent": "STAGE_MOVED", "tools_invoked": ["los.stage"],
+            "answer": _mv_flow.moved_text(case_id, here, there, lang)}
+
+
 def _published_reply(request: Request, reply: Any) -> Any:
     """MASTER SPEC section 8: remember the chat's context server-side, then publish {request_id, markdown, tts}."""
     from app.agents.applicant.copilot.answering import contract as _contract
@@ -1320,7 +1376,7 @@ def _published_reply(request: Request, reply: Any) -> Any:
     key = getattr(request.state, "chat_key", None)
     if key and isinstance(reply.get("context"), dict):
         _contract.remember(key[0], key[1], reply["context"])
-    published = _contract.publish(reply)
+    published = _contract.publish(reply, chat_key=key)
     from app.agents.applicant.copilot.answering import realtime as _realtime
 
     if key:
@@ -1603,6 +1659,10 @@ async def _copilot_json(
                                                 _create_from_chat, wants_new)
         except _form_access.AccessDenied as exc:
             raise _form_access.http_denied(exc, request_id) from None
+        if formed is not None and formed.get("execute_move"):
+            # the officer confirmed a FOS -> CPA move in chat: made HERE, in the route layer (no copilot module
+            # reaches the transition service), through the gated transition under the user's own identity
+            return move_case_stage(formed, request_id)
         if formed is not None:
             return formed
 
@@ -1639,28 +1699,36 @@ async def _copilot_json(
         if ws_turn.case_id:
             case_id = ws_turn.case_id
             payload.applicant_id = ws_turn.applicant_id or payload.applicant_id
+        if ws_turn.message:
+            # the question asked before "which case?" -- answered now for the case just picked
+            message = ws_turn.message
+            request.state.copilot_message = message
         if not case_id and not payload.applicant_id:
+            from app.agents.applicant.copilot.answering import language_lock as _nc_lock
             from app.agents.applicant.copilot.capabilities import faq as _faq_none
-
-            if _faq_none.enabled() and action is FosAction.CUSTOM_QUERY and _faq_none.looks_like_faq(message):
-                # 15.2 step 2: a general "how / what is" question, no case data and no FAQ answer -- never a guess
-                from app.agents.applicant.copilot.answering import language_lock as _unk_lock
-
-                return _ws._base(request_id, "FAQ_UNKNOWN", _faq_none.unknown(_unk_lock.current() or "en",
-                                                                             len(message)),
-                                 query_type="CONVERSATION", category="KNOWLEDGE_ONLY", tools_invoked=[])
             from app.agents.applicant.copilot.capabilities import product_flow as _oos
 
+            _nc_lang = _nc_lock.current() or "en"
             if action is FosAction.CUSTOM_QUERY and _oos.out_of_scope(message):
                 # MASTER SPEC 5: out of scope -- one polite line and the next option, nothing read
-                from app.agents.applicant.copilot.answering import language_lock as _oos_lock
-
-                line, option = _oos.out_of_scope_reply(_oos_lock.current() or "en", len(message))
+                line, option = _oos.out_of_scope_reply(_nc_lang, len(message))
                 reply = _ws._base(request_id, "NOT_IN_SCOPE", line, query_type="CONVERSATION",
                                   category="UNSUPPORTED", tools_invoked=[])
                 reply["faq_block"] = option
                 return reply
-            return _ws._base(request_id, "CASE_SELECTION", _ws._label("no_case"))
+            about_a_case = _oos.names_case_words(message)
+            if _faq_none.enabled() and action is FosAction.CUSTOM_QUERY and not about_a_case \
+                    and _faq_none.looks_like_faq(message):
+                # 15.2 step 2: a general "how / what is" question, no case data and no FAQ answer -- never a guess
+                return _ws._base(request_id, "FAQ_UNKNOWN", _faq_none.unknown(_nc_lang, len(message)),
+                                 query_type="CONVERSATION", category="KNOWLEDGE_ONLY", tools_invoked=[])
+            # A CASE QUESTION (typed or from the dropdown) WITH NO CASE OPEN -- golden rule 2, never a dead end:
+            # 0 cases -> say so + Create New Case; 1 case -> answered for it; several -> "Which case ...?" + the
+            # recent cases, and the pick answers THIS question
+            picked = _no_case_turn(claims, request_id, payload, message)
+            if isinstance(picked, dict):
+                return picked
+            case_id, payload.applicant_id = picked
 
     # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS): view a document, raise / track queries, new case.
     # Nothing is created or sent without the explicit Send (confirm=true).
@@ -1683,8 +1751,11 @@ async def _copilot_json(
                 if wanted is FosAction.NEW_CASE:
                     return _ca.new_case(request_id)
                 if not case_id:
-                    return {"request_id": request_id, "intent": "CASE_SELECTION", "case_id": None,
-                            "answer": "👉 Open a case first.", "errors": [], "actions": []}
+                    # "query raise karo" with no case open: which case? (the pick answers it), never a dead end
+                    picked = _no_case_turn(claims, request_id, payload, message)
+                    if isinstance(picked, dict):
+                        return picked
+                    case_id, payload.applicant_id = picked
                 if wanted is FosAction.VIEW_DOCUMENT:
                     return _ca.view_document(case_id, str(payload.document_id or ""), claims, request_id)
                 if wanted is FosAction.RAISE_QUERY:
@@ -3357,6 +3428,15 @@ async def export_file(token: str, claims: dict[str, Any] = Depends(require_jwt))
     if spec is None:
         raise HTTPException(403, detail={"request_id": request_id, "error": "LINK_INVALID",
                                          "message": "This link is invalid or has expired."})
+    return _export_file_response(spec, claims, subject, request_id)
+
+
+def _export_file_response(spec: dict[str, Any], claims: dict[str, Any], subject: str, request_id: str):
+    """The file of one export spec: scope re-checked, built in memory (never written to disk), audited."""
+    from fastapi.responses import Response
+
+    from app.agents.applicant.copilot.capabilities import exports as _exports
+
     if spec["k"] == "case":
         _own_case(claims, spec["c"], request_id)                  # scope re-checked when opened
         content = _exports.case_content(spec["c"], claims, spec["l"])
@@ -3367,6 +3447,106 @@ async def export_file(token: str, claims: dict[str, Any] = Depends(require_jwt))
                  intent="EXPORT_DOWNLOAD", tools=["export." + spec["f"]], status="OK", detail=spec["k"])
     return Response(data, media_type=_exports.FORMATS[spec["f"]],
                     headers={"Content-Disposition": f'attachment; filename="{content["file"]}.{spec["f"]}"'})
+
+
+class ActionRequest(BaseModel):
+    """One `action:` link from a reply, exactly as it appeared in the markdown."""
+
+    href: str = Field(..., max_length=600, examples=["action:download?format=xlsx&case=CASE-852C1A2B3C4D"])
+    chat_id: str | None = Field(None, max_length=128)
+    reply_language: str | None = Field(None, max_length=12)
+
+
+@router.post(
+    "/action",
+    summary="Run any action: link from a chat reply (FINAL FIX D) -- a file, a UI route, or the chat reply",
+)
+async def run_action(body: ActionRequest, request: Request, claims: dict[str, Any] = Depends(require_jwt)):
+    """
+    ONE endpoint for every `[Label](action:...)` the bot emits. The answer depends on the action:
+
+      download / download_list / handoff_note / view_document  -> the FILE (Content-Disposition: attachment;
+                                                                   filename=...), scope-checked and audited
+      show_in_ui / show_list_in_ui / new_case                  -> {"type": "open_ui", "route": "..."}
+      upload                                                   -> {"type": "upload", "document_type", "party"}
+      copy                                                     -> {"type": "copy", "ref"}
+      anything else (open_case, list_more, confirm_write ...)  -> {"type": "reply", request_id, markdown, tts}
+
+    401 no / bad token, 403 a link for someone else, 404 not your case (or does not exist), 409 not ready,
+    422 not an action link, 429 too many downloads.
+    """
+    from fastapi.responses import Response
+
+    from app.agents.applicant.copilot.answering import contract as _contract
+    from app.agents.applicant.copilot.capabilities import exports as _exports
+    from app.agents.applicant.copilot.capabilities import product_flow as _pf
+    from app.security.auth import get_subject
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    scheme, name, params = _contract.parse(body.href)
+    if scheme != "action" or name not in _contract.registry():
+        raise HTTPException(422, detail={"request_id": request_id, "error": "INVALID_ACTION_LINK",
+                                         "message": "This is not an action link."})
+    lang = _lang_of(body.reply_language)
+    subject = str(get_subject(claims) or "")
+    routes = _pf.cfg().get("ui_routes") or {}
+    if name in ("download", "download_list"):
+        fmt = str(params.get("format") or "").lower()
+        if fmt not in _exports.FORMATS:
+            raise HTTPException(422, detail={"request_id": request_id, "error": "UNKNOWN_FORMAT",
+                                             "message": f"format must be one of {sorted(_exports.FORMATS)}"})
+        if not _exports.allowed(subject):
+            raise HTTPException(429, detail={"request_id": request_id, "error": "RATE_LIMITED",
+                                             "message": _flow_text(("exports", "rate_limited"), lang)})
+        spec = ({"k": "case", "c": str(params.get("case") or ""), "f": fmt, "l": lang} if name == "download"
+                else {"k": "list", "q": _pf.parse_list_q(params.get("q")), "f": fmt, "l": lang})
+        return _export_file_response(spec, claims, subject, request_id)
+    if name == "handoff_note":
+        return await handoff_note_file(str(params.get("case") or ""), "pdf", claims)
+    if name == "view_document":
+        from app.agents.applicant.copilot.capabilities import case_actions as _ca
+        from app.store import get_repository
+        from app.store.documents import get_document_store
+
+        document = get_repository().get_document(str(params.get("id") or ""))
+        if document is None:
+            raise HTTPException(404, detail={"request_id": request_id, "error": "DOCUMENT_NOT_AVAILABLE",
+                                             "message": "The document is not available."})
+        _own_case(claims, document.case_id, request_id)
+        from app.store.documents import storage_key as _storage_key
+
+        store = get_document_store()
+        # the bytes are kept under the id itself or, for the OCR queue, under storage_key(id)
+        content = store.get(document.document_id) or store.get(_storage_key(document.document_id))
+        if content is None:
+            raise HTTPException(404, detail={"request_id": request_id, "error": "DOCUMENT_NOT_AVAILABLE",
+                                             "message": "The document is not available."})
+        _ca._audit(request_id, claims, document.case_id, "VIEW_DOCUMENT", "OPENED", document.document_type)
+        described = store.describe(document.document_id)
+        name_part = re.sub(r"[^A-Za-z0-9._-]", "_", str(document.document_type or "document"))[:40]
+        return Response(content=content, media_type=(described.content_type if described else None)
+                        or "application/octet-stream",
+                        headers={"Content-Disposition": f'inline; filename="{name_part}"'})
+    if name == "show_in_ui":
+        _own_case(claims, str(params.get("case") or ""), request_id)
+        return {"type": "open_ui", "route": str(routes.get("case") or "/cases/{case_id}").format(
+            case_id=params.get("case"))}
+    if name == "show_list_in_ui":
+        from urllib.parse import urlencode
+
+        query = urlencode(_pf.parse_list_q(params.get("q")))
+        return {"type": "open_ui", "route": str(routes.get("list") or "/cases?{query}").format(query=query).rstrip("?")}
+    if name == "new_case":
+        return {"type": "open_ui", "route": str(routes.get("new_case") or "/cases/new")}
+    if name == "upload":
+        return {"type": "upload", "document_type": params.get("doc"), "party": params.get("party"),
+                "post_to": "/api/v1/fos/copilot" + (f"?chat_id={body.chat_id}" if body.chat_id else "")}
+    if name == "copy":
+        return {"type": "copy", "ref": params.get("ref") or "draft-1"}
+    # every other action is a chat turn: the SAME route, the same checks, as posting {"action_link": ...}
+    request._json = {"action_link": body.href, "chat_id": body.chat_id, "reply_language": body.reply_language}
+    reply = await copilot(request, claims)
+    return {"type": "reply", **reply} if isinstance(reply, dict) else reply
 
 
 @router.post("/imports", summary="Validate an Excel (.xlsx) of new cases: row-by-row errors, nothing written")
@@ -3533,8 +3713,12 @@ async def view_document(token: str, claims: dict[str, Any] = Depends(require_jwt
     except _acc.AccessDenied as exc:
         raise _acc.http_denied(exc, request_id) from None
     document = get_repository().get_document(found["document_id"])
+    from app.store.documents import storage_key as _storage_key
+
     store = get_document_store()
-    content = store.get(found["document_id"]) if document is not None else None
+    # the bytes are kept under the id itself or, for the OCR queue, under storage_key(id)
+    content = (store.get(found["document_id"]) or store.get(_storage_key(found["document_id"]))) \
+        if document is not None else None
     if document is None or document.case_id != found["case_id"] or content is None:
         raise HTTPException(404, detail={"request_id": request_id, "error": "DOCUMENT_NOT_AVAILABLE",
                                          "message": "The document is not available."})

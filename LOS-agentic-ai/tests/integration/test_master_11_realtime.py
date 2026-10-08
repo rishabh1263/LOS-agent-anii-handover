@@ -101,7 +101,7 @@ def test_changes_since_the_last_look_on_open_and_pushed(client, prod, _store):
                                   document_type="PAN", status=DocumentStatus.REJECTED))
     say(client, "bahar aao", chat_id="c1")
     reopened = say(client, f"{c} kholo", chat_id="c1")
-    line = next(ln for ln in reopened.split("\n") if ln.startswith("Since your last check:"))
+    line = next(ln for ln in reopened.replace("**", "").split("\n") if ln.startswith("Since your last check:"))
     assert "PAN" in line and line.endswith("rejected."), reopened
 
 

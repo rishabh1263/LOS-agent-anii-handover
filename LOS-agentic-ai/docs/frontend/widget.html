@@ -260,22 +260,21 @@ async function follow(href, m) {
     const n = parseInt((p.ref || "draft-1").split("-")[1] || "1", 10), q = m.b.querySelectorAll("blockquote")[n - 1];
     if (q) await navigator.clipboard.writeText(q.innerText); return;
   }
-  if (name === "handoff_note") {
-    const r = await fetch(`${S.base}/api/v1/fos/handoff-note?case_id=${encodeURIComponent(p.case)}&format=pdf`, { headers: headers(false) });
-    if (!r.ok) return ask("handoff note banao"); window.open(URL.createObjectURL(await r.blob())); return;
-  }
   if (name === "upload") return upload(p.doc, p.party);
-  if (name === "new_case") return alert("Open your Create New Case form here.");
-  if (name === "show_in_ui") return alert(`Open case ${p.case} on the main screen (GET /api/v1/fos/cases/${p.case}/form).`);
-  if (name === "show_list_in_ui") return alert(`Open the home table with filters: ${p.q}`);
-  if (name === "download" || name === "download_list") {         // a short-lived link, opened with the same login
-    const q = name === "download" ? `case_id=${encodeURIComponent(p.case)}` : `q=${encodeURIComponent(p.q || "all")}`;
-    const r = await fetch(`${S.base}/api/v1/fos/exports?format=${p.format}&${q}&lang=${$("lang").value}`, { headers:headers(false) });
-    const data = await r.json(); if (!r.ok) return alert((data.detail && data.detail.message) || r.status);
-    const f = await fetch(S.base + data.url, { headers:headers(false) });
-    window.open(URL.createObjectURL(await f.blob())); return;
+  // EVERY other action: ONE endpoint (POST /api/v1/fos/action) -- a file, a UI route, or the chat reply
+  const r = await fetch(`${S.base}/api/v1/fos/action`, { method:"POST", headers:headers(),
+    body:JSON.stringify({ href, chat_id:S.chatId, reply_language:$("lang").value }) });
+  const type = r.headers.get("content-type") || "";
+  if (!r.ok) { const d = type.includes("json") ? await r.json() : {}; return alert((d.detail && d.detail.message) || r.status); }
+  if (!type.includes("application/json")) {                       // a file: save with the server's filename
+    const cd = r.headers.get("content-disposition") || "", url = URL.createObjectURL(await r.blob());
+    if (cd.startsWith("inline")) return window.open(url, "_blank");
+    const a = Object.assign(document.createElement("a"), { href:url, download:(cd.match(/filename="?([^";]+)"?/) || [])[1] || "download" });
+    document.body.appendChild(a); a.click(); a.remove(); return;
   }
-  return ask(null, { body:{ action_link: href }, label: m && m.b.querySelector(`[data-href="${CSS.escape(href)}"]`)?.textContent });
+  const data = await r.json();
+  if (data.type === "open_ui") return alert("Open on the main screen: " + data.route);   // your app navigates here
+  if (data.type === "reply") { mine(m && m.b.querySelector(`[data-href="${CSS.escape(href)}"]`)?.textContent || href); return render(bubble(""), data); }
 }
 function upload(doc, party) {
   const input = document.createElement("input"); input.type = "file"; input.accept = "image/*,application/pdf";
