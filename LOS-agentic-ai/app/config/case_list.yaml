@@ -39,6 +39,8 @@ phrases:
   last_n: [last, latest, recent, naye, naya, nayi, newest, haal ke, pichle, pichhle, pichla, pichhla, akhri, aakhri,
            aakhiri, most recent]
   # the case noun, singular / plural: "last case" = one case; "2 cases" = a count (2026-10-08)
+  # a message with one of these is never a list request (a query / workflow step that happens to say "purana")
+  not_with: [query, queries, क्वेरी]
   # a count beside the case noun is a list only with one of these (or in a message of 3 words or fewer)
   list_verbs: [show, list, display, give, only, sirf, dikhao, dikha, dikhado, dikhana, de, do, view, see]
   # words a SHORT count message may carry besides the number and the noun ("my 3 cases", "mere 2 case")

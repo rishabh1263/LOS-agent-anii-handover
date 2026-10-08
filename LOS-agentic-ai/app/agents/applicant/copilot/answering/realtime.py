@@ -27,6 +27,22 @@ _ACTIVE: dict[tuple[str, str], str] = {}                          # (subject, ch
 _REPLAY: dict[str, tuple[float, str, dict[str, Any]]] = {}        # request_id -> (expiry, subject, reply)
 _IDEMPOTENT: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _SEEN: dict[tuple[str, str, str], dict[str, str]] = {}            # (subject, chat, case) -> doc type -> status
+_HINTS: dict[str, str] = {}                                       # request_id -> a specific status line
+
+
+def hint(request_id: str, text: str) -> None:
+    """A SPECIFIC status for this request (e.g. "Understanding your question" while the rewrite runs); the stream
+    shows it at once instead of the generic one. Names no case data."""
+    with _LOCK:
+        if text:
+            _HINTS[request_id] = text
+            while len(_HINTS) > 500:
+                _HINTS.pop(next(iter(_HINTS)))
+
+
+def say_status(key: str, lang: str) -> str:
+    """A configured status line (copilot_reply.yaml realtime.status_lines.<key>)."""
+    return _say((_rt().get("status_lines") or {}).get(key), lang)
 
 
 def _cfg() -> dict[str, Any]:
@@ -143,6 +159,11 @@ async def events(answer: Callable[[], Awaitable[Any]], *, subject: str, chat_id:
             task.cancel()
             yield _event("cancelled", {"request_id": request_id, "ms": ms()})
             return
+        hinted = _HINTS.pop(request_id, None) if not atomic and not said_status else None
+        if hinted:
+            said_status = True                          # the specific line, at once ("Understanding your question")
+            yield _event("status", {"request_id": request_id, "text": hinted, "ms": ms()})
+            continue
         if not atomic and not said_status and (time.perf_counter() - started) >= status_after:
             said_status = True                          # one GENERIC line: it names nothing that is being read
             yield _event("status", {"request_id": request_id, "text": _say(_rt().get("status_text"), lang),

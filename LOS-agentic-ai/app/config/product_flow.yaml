@@ -449,7 +449,8 @@ stage_flow:
   # holding ANY of these scopes allows a confirmed move from chat (owner decision: the FOS officer moves FOS -> CPA)
   move_scopes: [los.stage:write, los.write, create_application]
   phrases:
-    customer_query: [send query to customer, query to customer, customer ko query, customer ko query bhejo,
+    customer_query: [collect from customer, customer se lena hai, customer se kya lena hai, kya collect karna hai,
+                     customer se lo, what to collect, send query to customer, query to customer, customer ko query, customer ko query bhejo,
                      customer ko bolo, customer ko message, raise query, query raise karo, query bhejo,
                      ग्राहक को क्वेरी, ग्राहकाला क्वेरी]
     move: [move to cpa, send to cpa, cpa ko bhejo, cpa ko bhej do, cpa mein bhejo, cpa mein bhej do, cpa me bhejo,
@@ -458,7 +459,75 @@ stage_flow:
                      cpa ko bolo, raise query to cpa]
     reply_query: [reply to, reply karo, jawab do, answer query, respond to]
     resolve_query: [resolve query, query resolve, query band karo, close query, resolve karo]
+    # a query in the OFFICER'S words ("raise a query: address mismatch with Aadhaar") -> draft -> Confirm
+    free_query: [raise a query, raise query, raise new query, new query, create a query, create query, add a query,
+                 query raise karo, query raise kar do, query raise karna hai, ek query raise karo, query daalo,
+                 query dalo, query bana do, query banao, customer se query bhejo, customer se query, customer se puchho,
+                 customer se pucho, query bhejo, query bhej do, क्वेरी भेजो, क्वेरी बनाओ]
+    # every query on the open case, with its status
+    query_status: [query ka status, query status, queries ka status, status of my query, status of the query,
+                   status of query, my queries, queries dikhao, query dikhao, show queries, open queries, list queries,
+                   query kahan tak, query ka kya hua, queries kya hai, क्वेरी का स्टेटस]
+  # the free-text query (owner 2026-10-08): to whom, which type the words point at
+  free_query:
+    target_type: CUSTOMER
+    min_words: 2
+    default_type: CLARIFICATION
+    types:
+      DOCUMENT_DISCREPANCY: [mismatch, does not match, doesn't match, match nahi, alag, different, wrong, galat]
+      MISSING_INFORMATION: [missing, not provided, nahi diya, nahi hai, required, chahiye, pending]
+      ADDITIONAL_EVIDENCE: [more proof, additional, extra document, aur document, another document]
+      EXPLANATION_REQUIRED: [explain, why, kyu, reason, wajah]
+  # at FOS the customer is not sent a query: the officer is told what to collect (owner 2026-10-08); "query" = the
+  # old recorded customer query
+  fos_customer_mode: collect
   texts:
+    collect_heading:
+      en: "Collect from the customer for {case_id}:"
+      hi-Latn: "{case_id} ke liye customer se yeh lena hai:"
+      hi: "{case_id} के लिए ग्राहक से यह लेना है:"
+      mr: "{case_id} साठी ग्राहकाकडून हे घ्यायचे आहे:"
+    free_draft:
+      en: "Draft query on {case_id} (to: {target}, type: {query_type}). Confirm to raise it:"
+      hi-Latn: "{case_id} par query ka draft (kisko: {target}, type: {query_type}). Raise karne ke liye Confirm kijiye:"
+      hi: "{case_id} पर क्वेरी का ड्राफ़्ट (किसे: {target}, प्रकार: {query_type})। भेजने के लिए Confirm करें:"
+      mr: "{case_id} वर क्वेरीचा मसुदा (कोणाला: {target}, प्रकार: {query_type}). पाठवण्यासाठी Confirm करा:"
+    free_sent:
+      en: "Query {query_id} raised ({status})."
+      hi-Latn: "Query {query_id} raise ho gayi ({status})."
+      hi: "क्वेरी {query_id} भेज दी गई ({status})।"
+      mr: "क्वेरी {query_id} पाठवली ({status})."
+    free_exists:
+      en: "This query is already open as {query_id} ({status}); nothing new was raised."
+      hi-Latn: "Yeh query pehle se {query_id} ke roop mein khuli hai ({status}); nayi query nahi bani."
+      hi: "यह क्वेरी पहले से {query_id} के रूप में खुली है ({status}); नई क्वेरी नहीं बनी।"
+      mr: "ही क्वेरी आधीच {query_id} म्हणून उघडी आहे ({status}); नवीन क्वेरी तयार झाली नाही."
+    ask_query_text:
+      en: "What should the query say?"
+      hi-Latn: "Query mein kya likhna hai?"
+      hi: "क्वेरी में क्या लिखना है?"
+      mr: "क्वेरीमध्ये काय लिहायचे?"
+    queries_heading:
+      en: "Queries on {case_id} ({n}):"
+      hi-Latn: "{case_id} ki queries ({n}):"
+      hi: "{case_id} की क्वेरी ({n}):"
+      mr: "{case_id} वरील क्वेरी ({n}):"
+    queries_columns:
+      en: "Query|Status|To|Type|Text"
+      hi-Latn: "Query|Status|Kisko|Type|Text"
+      hi: "क्वेरी|स्थिति|किसे|प्रकार|विवरण"
+      mr: "क्वेरी|स्थिती|कोणाला|प्रकार|मजकूर"
+    no_queries:
+      en: "There are no queries on {case_id}."
+      hi-Latn: "{case_id} par koi query nahi hai."
+      hi: "{case_id} पर कोई क्वेरी नहीं है।"
+      mr: "{case_id} वर कोणतीही क्वेरी नाही."
+    target_customer: { en: "the customer", hi-Latn: "customer", hi: "ग्राहक", mr: "ग्राहक" }
+    target_case: { en: "the case", hi-Latn: "case", hi: "केस", mr: "केस" }
+    target_document: { en: "a document", hi-Latn: "document", hi: "दस्तावेज़", mr: "कागदपत्र" }
+    target_party: { en: "a party", hi-Latn: "party", hi: "पक्ष", mr: "पक्ष" }
+    target_finding: { en: "a finding", hi-Latn: "finding", hi: "निष्कर्ष", mr: "निष्कर्ष" }
+    target_stage: { en: "a stage", hi-Latn: "stage", hi: "चरण", mr: "टप्पा" }
     customer_draft:
       en: "Query to the customer for {case_id}:"
       hi-Latn: "{case_id} ke liye customer ko query:"
@@ -554,8 +623,8 @@ stage_flow:
                  hi: "ठीक है, कुछ नहीं भेजा या बदला गया।", mr: "ठीक आहे, काहीही पाठवले किंवा बदलले नाही." }
   # the offers shown under case answers (ask: links)
   offers:
-    customer_query: { en: "Send query to customer", hi-Latn: "Customer ko query bhejo", hi: "ग्राहक को क्वेरी भेजें",
-                      mr: "ग्राहकाला क्वेरी पाठवा" }
+    customer_query: { en: "Collect from customer", hi-Latn: "Customer se lena hai", hi: "ग्राहक से लेना है",
+                      mr: "ग्राहकाकडून घ्यायचे" }
     move: { en: "Move to CPA", hi-Latn: "CPA ko bhejo", hi: "CPA को भेजें", mr: "CPA ला पाठवा" }
     to_fos: { en: "Raise query to FOS", hi-Latn: "FOS ko query bhejo", hi: "FOS को क्वेरी भेजें", mr: "FOS ला क्वेरी पाठवा" }
     to_cpa: { en: "Raise query to CPA", hi-Latn: "CPA ko query bhejo", hi: "CPA को क्वेरी भेजें", mr: "CPA ला क्वेरी पाठवा" }
@@ -643,7 +712,12 @@ link_policy:
   max_items: 3                 # extra link items per reply; a "Download: Excel · Doc · PDF" line counts as ONE
   # downloads / Show in UI / workflow offers only on these answers (a portfolio or a case summary) or when asked
   case_links_on: [CASE_LIST, FULL_SUMMARY, CASE_360, CASE_SUMMARY, DOWNLOADS, CASE_CREATED]
-  never_show: [exit_case, switch_case]     # understood from text ("bahar aao", "dusra case"), never a button
+  never_show: [switch_case]                # understood from text ("dusra case"), never a button
+  # shown on EVERY reply while a case is open, outside the budget and never dropped as a repeat -- "Close" is always
+  # there the way "Open" is on a list row (owner 2026-10-08)
+  always_on_case: [exit_case]
+  # ... but not on these replies (the case was just closed / a list is shown)
+  always_on_case_not_on: [CASE_LIST, CASE_EXITED, EXIT_CASE, WORKSPACE_EXIT, CASE_CLOSED]
   no_repeat: true              # a link shown in the previous reply of the chat is not shown again
   download_label: { en: "Download:", hi-Latn: "Download:", hi: "डाउनलोड:", mr: "डाउनलोड:" }
 

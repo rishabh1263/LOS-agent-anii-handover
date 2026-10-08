@@ -67,21 +67,24 @@ def test_my_cases_shows_the_five_most_recent(client, prod):
     assert "Showing 1-5 of 7" in md
 
 
-def test_something_wrong_at_fos_sends_one_query_to_the_customer(client, prod):
+def test_something_wrong_at_fos_is_collected_not_queried(client, prod):
+    """Owner 2026-10-08: at FOS no query -- "Collect from customer" lists everything pending (with Upload links);
+    nothing is recorded. A query the officer asks for in words is drafted, confirmed, resolved."""
     from app.agents.los import queries
 
     _, case_id = make_case(client, "Rahul Sharma")
     opened = turn(client, f"open {case_id}", chat="cq")
-    assert "[Send query to customer](ask:" in opened                  # offered, never sent by itself
-    draft = turn(client, "Send query to customer", chat="cq")
-    assert "PAN" in draft and "Address Proof" in draft and "Bank Statement" in draft and "Confirm" in draft
-    assert queries.list_queries(case_id) == []                         # nothing written before Confirm
+    assert "[Collect from customer](ask:" in opened and "query" not in opened.lower()
+    collect = turn(client, "Collect from customer", chat="cq")
+    assert "PAN" in collect and "Address Proof" in collect and "Bank Statement" in collect
+    assert "action:upload" in collect and "Confirm" not in collect
+    assert queries.list_queries(case_id) == []                         # nothing recorded at FOS
+    draft = turn(client, "raise a query: address mismatch with Aadhaar", chat="cq")
     sent = link(client, draft, "Confirm", chat="cq")
-    assert "recorded for the customer" in sent and "[Copy message]" in sent
     raised = queries.list_queries(case_id)
-    assert len(raised) == 1 and raised[0]["target_type"] == "CUSTOMER" and raised[0]["status"] == "OPEN"
+    assert "raised" in sent and len(raised) == 1 and raised[0]["status"] == "OPEN"
     events = client.get(f"/api/v1/fos/cases/{case_id}/activity").json()["events"]
-    assert any(e["type"] == "CUSTOMER_QUERY" for e in events)
+    assert any(e["type"] == "QUERY_RAISED" for e in events)
     # the officer who raised it closes it once the customer has answered
     closed = turn(client, f"resolve query {raised[0]['query_id']}", chat="cq")
     done = link(client, closed, "Confirm", chat="cq")
@@ -141,7 +144,7 @@ def test_cancel_sends_nothing(client, prod):
 
     _, case_id = make_case(client, "Rahul Sharma")
     turn(client, f"open {case_id}", chat="cx")
-    draft = turn(client, "customer ko query bhejo", chat="cx")
+    draft = turn(client, "query raise karo ki address proof purana hai", chat="cx")
     assert "nothing was sent" in link(client, draft, "Cancel", chat="cx")
     assert queries.list_queries(case_id) == []
 

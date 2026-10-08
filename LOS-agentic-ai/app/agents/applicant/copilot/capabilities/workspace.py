@@ -418,6 +418,20 @@ def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
                   applicant_id=application.applicant_id, workspace_view={"workspace": workspace_block(application.case_id)})
     reply["brief"] = True                        # officer_tools adds no second review under it
     reply["tts_text"] = "\n".join(lines[1:])     # the voice: the status and the next step (never the id line)
+    try:
+        # UPLOAD from the brief (owner 2026-10-08): the documents to re-upload / still missing become the reply's
+        # document actions -> one "Upload <doc>" link each (contract._action_links), within the link budget
+        from app.agents.applicant.copilot.answering import document_actions
+
+        view = document_actions.build(application.case_id)
+        # ONE upload on the brief: the next step's document (re-upload first) -- the full list is "what is pending"
+        nxt = (view.get("reupload") or []) + (view.get("pending") or [])
+        if nxt:
+            first = nxt[0]
+            key = "reupload" if view.get("reupload") else "pending"
+            reply["document_actions"] = {key: [first]}
+    except Exception:  # noqa: BLE001 - the upload links are a convenience; the brief stands without them
+        pass
     limit = int(case_brief._cfg().get("max_suggestions", 2))
     links = (stage_flow.offers(application.case_id, lang) + [contract.ask(q) for q in brief["suggestions"]])[:limit]
     asked = product_flow.after_open(state)

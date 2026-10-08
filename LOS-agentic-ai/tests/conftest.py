@@ -229,6 +229,8 @@ def llm_router_off_by_default(monkeypatch):
     The decision and knowledge caches are emptied so no test sees another's.
     """
     monkeypatch.setenv("COPILOT_LLM_ROUTER", "false")
+    # the question rewrite (general layer slow path) likewise: off unless a test / the eval gate opts in
+    monkeypatch.setenv("COPILOT_LLM_REWRITE", "false")
     monkeypatch.delenv("COPILOT_UNDERSTANDING_LLM", raising=False)
     from app.agents.applicant.copilot import agent as _agent
     from app.agents.applicant.copilot.semantics import llm_router as _router

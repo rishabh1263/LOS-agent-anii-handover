@@ -66,7 +66,7 @@ action_links:
     params: []
     request: { action: EXIT_CASE }
     scope: none (closes the open case)
-    labels: { en: "Exit case", hi-Latn: "Case se bahar", hi: "केस से बाहर", mr: "केसमधून बाहेर" }
+    labels: { en: "Close", hi-Latn: "Band karo", hi: "बंद करें", mr: "बंद करा" }
   switch_case:
     params: []
     request: { action: LIST_CASES }
@@ -213,6 +213,10 @@ realtime:
     hi-Latn: ["Dekh raha hoon...", "Ek second...", "Check kar raha hoon..."]
     hi: ["देख रहा हूँ...", "एक क्षण..."]
     mr: ["पाहतो आहे...", "एक क्षण..."]
+  # specific status lines a step asks for (realtime.hint): shown at once instead of the generic one
+  status_lines:
+    understanding: { en: "Understanding your question...", hi-Latn: "Aapka sawal samajh raha hoon...",
+                     hi: "आपका सवाल समझ रहा हूँ...", mr: "तुमचा प्रश्न समजून घेत आहे..." }
   delta_pause_ms: 15
   # replay a final reply by request_id (reconnect), and the Idempotency-Key window
   replay_ttl_seconds: 600

@@ -1,4 +1,4 @@
-# General question coverage: 116/116
+# General question coverage: 126/127
 
 - terms: 40/40
 - calculators: 4/4
@@ -9,6 +9,8 @@
 - decisions: 3/3
 - hinglish: 12/12
 - held_out_2: 13/13
+- classes_2: 8/9
+- multi_value: 2/2
 - case_questions: 3/3
 | category | ok | question | expect | got | reply |
 |---|---|---|---|---|---|
@@ -85,7 +87,7 @@
 | process | ✅ | what are the stages of a loan | answer | answer | Every case moves through these stages, in this order: FOS (Field Officer Sales) (details and documents collected) → CPA → Credit (the credit decision) → RCU (risk check)  |
 | process | ✅ | loan process kya hai | answer | answer | Every case moves through these stages, in this order: FOS (Field Officer Sales) (details and documents collected) → CPA → Credit (the credit decision) → RCU (risk check)  |
 | process | ✅ | how does KYC work | answer | answer | KYC (Know Your Customer) is checked for every party (the applicant and each co-applicant) in two ways: A, the application form against the documents (name, date of birth, |
-| process | ✅ | KYC fail ho gaya to kya kare | answer | answer | The result is pass, review (a person checks) or **failed**. KYC (Know Your Customer) runs once the identity documents are uploaded; a failed KYC must be fixed before the  |
+| process | ✅ | KYC fail ho gaya to kya kare | answer | answer | A **failed** KYC (Know Your Customer) means the documents do not match the application form, or do not match each other. Open the case to see which detail did not match,  |
 | process | ✅ | how to add a co-applicant | answer | answer | Open the case and upload the co-applicant's documents, choosing Co-applicant as the party when asked. The co-applicant's documents and KYC (Know Your Customer) are checke |
 | process | ✅ | who approves the loan | answer | answer | The credit team approves or rejects a loan, at the Credit stage after CPA. The field officer (FOS (Field Officer Sales)) and this chat never approve, reject or sanction a |
 | process | ✅ | how long does approval take | not_configured | not_configured | No approval time (TAT) is configured in this system. After CPA the case goes through Credit, RCU, BOPS and HOPS before disbursement; your branch can tell you the usual ti |
@@ -125,6 +127,17 @@
 | held_out_2 | ✅ | is rent agreement accepted as address proof | answer | answer | No. Rent Agreement is not accepted by this service. Driving Licence, Passport or Voter ID can satisfy the Address Proof requirement. |
 | held_out_2 | ✅ | what is EMI bounce | answer | answer | An **EMI (Equated Monthly Instalment)** bounce** is an EMI that could not be collected on its due date, usually because the account did not have enough money, or the NACH |
 | held_out_2 | ✅ | loan kitne din mein milega | not_configured | not_configured | No approval time (TAT) is configured in this system. After CPA the case goes through Credit, RCU, BOPS and HOPS before disbursement; your branch can tell you the usual ti |
+| classes_2 | ✅ | what is ITR and what is Form 16 | answer | answer | What is ITR (Income Tax Return)** ITR (Income Tax Return): the yearly income statement filed with the tax department. Source: the glossary What is Form 16 Form 16 is the  |
+| classes_2 | ✅ | what is NACH and CERSAI | answer | answer | What is NACH NACH (National Automated Clearing House, run by NPCI) lets the lender collect each EMI (Equated Monthly Instalment) automatically from the borrower's bank ac |
+| classes_2 | ✅ | explain top up loan and balance transfer | answer | answer | Explain top up loan A top-up loan is an extra loan given on top of an existing loan, often to a customer with a good repayment record or together with a balance transfer. |
+| classes_2 | ✅ | how much is the foreclosure charge | not_configured | not_configured | No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter. |
+| classes_2 | ✅ | stamp paper charges kitne hai | not_configured | not_configured | No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter. |
+| classes_2 | ✅ | emi for 6 lakh at 10% for 3 yeras | answer | answer | EMI (Equated Monthly Instalment) for **₹6,00,000** at 10% a year for 36 months: ₹19,360 a month (total interest ₹96,971, total paid ₹6,96,971). Formula: EMI = P × r × (1+ |
+| classes_2 | ✅ | emi 1 lakh 12 percent 12 mnths | answer | answer | EMI (Equated Monthly Instalment) for **₹1,00,000** at 12% a year for 12 months: ₹8,885 a month (total interest ₹6,619, total paid ₹1,06,619). Formula: EMI = P × r × (1+r) |
+| classes_2 | ✅ | what is the late fee | not_configured | not_configured | No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter. |
+| classes_2 | ❌ | my customer says another lender gives a better rate, can we take over his loan | answer | case | Which case is this about? Pick one and I'll answer "my customer says another lender gives a better rate, can we take over his loan" for it. You have 2 cases: 2 with docum |
+| multi_value | ✅ | loan amount and tenure for personal loan | answer | answer | - Personal Loan: tenure 6 to 60 months. These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits. Source: th |
+| multi_value | ✅ | interest rate and maximum ltv for home loan | answer | answer | - Home Loan: 8.5% a year (the rate used for the EMI (Equated Monthly Instalment) estimate). These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy,  |
 | case_questions | ✅ | kyc status | case | case | Which case is this about? Pick one and I'll answer "kyc status" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole |
 | case_questions | ✅ | what is pending | case | case | Which case is this about? Pick one and I'll answer "what is **pending**" for it. You have 2 cases: 2 with documents pending. Showing 1-2 of 2 (newest first). That is the  |
 | case_questions | ✅ | loan amount kitna hai | case | case | Which case is this about? Pick one and I'll answer "loan amount kitna hai" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That i |

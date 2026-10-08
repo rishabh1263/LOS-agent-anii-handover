@@ -142,6 +142,23 @@ categories:
     - { q: "what is EMI bounce", expect: answer, must: ["bounce"] }
     - { q: "loan kitne din mein milega", expect: not_configured }
 
+  # classes added 2026-10-08 (multi-part, fee amounts, unit typos, sibling-passage guard, value questions) --
+  # golden wordings written for the CLASS, none copied from the held-out set
+  classes_2:
+    - { q: "what is ITR and what is Form 16", expect: answer, must: ["Income Tax Return", "employer"] }
+    - { q: "what is NACH and CERSAI", expect: answer, must: ["mandate", "registry"] }
+    - { q: "explain top up loan and balance transfer", expect: answer, must: ["top-up", "another lender"] }
+    - { q: "how much is the foreclosure charge", expect: not_configured }
+    - { q: "stamp paper charges kitne hai", expect: not_configured }
+    - { q: "emi for 6 lakh at 10% for 3 yeras", expect: answer, must: ["19,36"] }
+    - { q: "emi 1 lakh 12 percent 12 mnths", expect: answer, must: ["8,88"] }
+    - { q: "what is the late fee", expect: not_configured }
+    - { q: "my customer says another lender gives a better rate, can we take over his loan", expect: answer, must: ["balance transfer"] }
+
+  multi_value:                 # several policy values in one question (class added 2026-10-08)
+    - { q: "loan amount and tenure for personal loan", expect: answer, must: ["10,00,000", "60"] }
+    - { q: "interest rate and maximum ltv for home loan", expect: answer, must: ["8.5%", "80%"] }
+
   case_questions:              # these DO need a case: asking which one is right
     - { q: "kyc status", expect: case }
     - { q: "what is pending", expect: case }

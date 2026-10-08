@@ -120,6 +120,8 @@ texts:
   what_is_cpa_tail:
     en: "A case moves from FOS to CPA when every FOS check passes: {checks}."
     hi-Latn: "Case FOS se CPA tab jaata hai jab saare FOS checks pass hon: {checks}."
+  understood_as: { en: "_Understood as: {question}_", hi-Latn: "_Samjha: {question}_", hi: "_समझा: {question}_",
+                   mr: "_समजले: {question}_" }
   glossary_source: { en: "the glossary", hi-Latn: "glossary", hi: "शब्दावली", mr: "शब्दसूची" }
   coapp_source: { en: "the co-applicant checklist", hi-Latn: "co-applicant checklist" }
   # what a reply names as its source: plain names, never a file name (guardrails FILE_PATH_LEAK)
@@ -222,6 +224,20 @@ decisions:
 # ---- POLICY NUMBERS: read from the eligibility policy NOW (eligibility_policy.yaml via policy.get_policy) ----------
 # Never a typed number. A demo policy is SAID to be demo; a criterion the policy does not set is said "not set".
 policy:
+  # once ONE policy topic is named, these bare words name more topics in the same question ("tenure and interest rate")
+  bare_words:
+    tenure: [tenure, tenor, kitne saal, kitne mahine]
+    interest: [interest, rate, roi, byaj]
+    loan_amount: [loan amount, amount]
+    age: [age, umar]
+    ltv: [ltv]
+    foir: [foir]
+  # a long message reaches a policy number only with one of these (a value is asked)
+  value_words: [how much, how many, how long, kitna, kitni, kitne, maximum, minimum, max, min, limit, range, allowed,
+                required, what is the, kya hai, criteria, eligible, up to, upto]
+  # the AMOUNT of any fee / charge / penalty (regex on the plain message): not configured here, said so
+  fee_amount: ['\b(how much|kitna|kitni|kitne|amount of|what is the|what are the)\b.*\b(fee|fees|charge|charges|penalty|penalties)\b',
+               '\b(fee|fees|charge|charges|penalty)\b.*\b(kitna|kitni|kitne|how much|amount)\b']
   subjects:
     loan_amount: [maximum loan, max loan, minimum loan, min loan, loan amount limit, kitna loan, how much loan,
                   loan limit, loan range]
@@ -288,3 +304,34 @@ general_unknown:
   hi-Latn: "Yeh abhi knowledge base mein nahi hai, isliye main andaza nahi lagaunga. Maine sawal team ke liye note kar liya hai."
   hi: "यह अभी ज्ञान-आधार में नहीं है, इसलिए मैं अनुमान नहीं लगाऊँगा। मैंने सवाल टीम के लिए नोट कर लिया है।"
   mr: "हे अजून ज्ञान-आधारात नाही, म्हणून मी अंदाज लावणार नाही. मी प्रश्न टीमसाठी नोंदवला आहे."
+
+# ---- THE QUESTION REWRITE (owner 2026-10-08, step 1; semantics/question_rewrite.py) -------------------------------
+# SLOW PATH ONLY: when the rules do not understand a message with confidence, Qwen rewrites it into ONE standard English
+# question and the rules route THAT. The model never answers; the rewrite may not add a number or an id (validated).
+# The examples are deliberately NOT taken from the frozen held-out set (evals/heldout/) -- never add held-out items.
+llm_rewrite:
+  enabled: true
+  timeout_seconds: 1.5
+  min_free_ram_gb: 2.0
+  num_predict: 48
+  max_chars: 160
+  cache_size: 1024
+  log_file: evals/rewrite_log.jsonl
+  instructions: |-
+    You rewrite a loan field officer's chat message (English, Hindi, Hinglish, typos, indirect wording) into ONE short,
+    standard English question about loans, KYC, documents, eligibility, the loan stages or the loan app.
+    Rules: keep every number, amount, percentage and duration exactly as the officer said it; never add a number, a
+    name, an id or a fact; never answer the question; keep the meaning; if the message asks two things, keep both,
+    joined with "and"; if a previous question is given, use it only to complete a short follow-up ("and for home
+    loan?"); if the message is not about loans or the app, answer NONE. Reply only with JSON {"q": "..."}.
+  examples:
+    - ["excel se case kaise daalu", "How do I import cases from Excel?"]
+    - ["case list excel mein chahiye", "How do I download the case list?"]
+    - ["itr matlab kya hai bhai", "What is ITR?"]
+    - ["salary mein se kaat ke jo haath mein aata hai usko kya bolte", "What is net salary?"]
+    - ["top up wala loan kya hota", "What is a top-up loan?"]
+    - ["review mein pada hai iska matlab", "What does in review mean?"]
+    - ["cersai kya cheez hai", "What is CERSAI?"]
+    - ["8 lakh ka 9 percent pe 4 saal ki kist", "What is the EMI for 8 lakh at 9% for 4 years?"]
+    - ["Previous question: what is ITR. Message: aur form 16?", "What is Form 16?"]
+    - ["aaj mausam kaisa hai", "NONE"]

@@ -353,6 +353,8 @@ def understand(text: str, previous: dict[str, Any] | None = None) -> ListQuery |
     (state): "aur dikhao" pages it; a new filter / order starts a fresh first page.
     """
     p = cfg().get("phrases") or {}
+    if _has(text, p.get("not_with") or []):
+        return None                     # "query raise karo ki address proof purana hai" is a query, not "oldest cases"
     query = ListQuery()
     asked = False
     n = _number_in(text)

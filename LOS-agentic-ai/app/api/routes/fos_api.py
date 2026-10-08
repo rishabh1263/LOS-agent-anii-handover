@@ -1519,9 +1519,16 @@ async def _copilot_json(
     try:
         payload = CopilotRequest.model_validate(await request.json())
     except Exception as exc:
+        # WHICH field, so the frontend can fix it from the browser (names and pydantic's reason only -- never values)
+        from pydantic import ValidationError
+
+        fields = [{"field": ".".join(str(p) for p in e.get("loc") or ()), "problem": str(e.get("msg") or "")}
+                  for e in exc.errors()] if isinstance(exc, ValidationError) else []
         raise HTTPException(422, detail={
             "request_id": request_id, "error": "INVALID_REQUEST",
-            "message": f"The request body could not be read: {type(exc).__name__}.",
+            "message": f"The request body could not be read: {type(exc).__name__}"
+                       + (" (" + "; ".join(f"{f['field']}: {f['problem']}" for f in fields) + ")." if fields else "."),
+            "fields": fields,
         }) from exc
 
     # MASTER SPEC section 8: an action link posted back becomes the request it stands for (one registry,
@@ -1724,6 +1731,18 @@ async def _copilot_json(
             # the question asked before "which case?" -- answered now for the case just picked
             message = ws_turn.message
             request.state.copilot_message = message
+            if _case_form.enabled() and action is FosAction.CUSTOM_QUERY:
+                # a WORKFLOW request picked a case ("query raise karo ki ..." -> "which case?" -> "1"): the same chat
+                # step as when the case was already open -- the draft, then Confirm (nothing written here)
+                try:
+                    formed = await _case_form.chat_turn(action.value, message, claims, request_id, payload.context,
+                                                        _create_from_chat, False)
+                except _form_access.AccessDenied as exc:
+                    raise _form_access.http_denied(exc, request_id) from None
+                if formed is not None and formed.get("execute_move"):
+                    return move_case_stage(formed, request_id)
+                if formed is not None:
+                    return formed
         if not case_id and not payload.applicant_id:
             from app.agents.applicant.copilot.answering import language_lock as _nc_lock
             from app.agents.applicant.copilot.capabilities import faq as _faq_none
