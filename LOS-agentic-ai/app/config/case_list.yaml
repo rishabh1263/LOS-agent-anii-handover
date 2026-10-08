@@ -1,0 +1,122 @@
+# THE CASE LIST AT SCALE (MASTER SPEC section 3) -- read by app/agents/applicant/copilot/capabilities/case_list.py
+# and the paginated list endpoint GET /api/v1/fos/cases. Scope is code (the caller's own grants, every row
+# re-checked); everything below is config.
+
+# flag COPILOT_CASE_LIST_PAGING (env) overrides; false = the earlier grouped list
+enabled: true
+page_size: 5         # one chat reply never shows more than one page
+max_page_size: 20
+cache_ttl_seconds: 30 # per user: the computed row statuses of their cases
+
+# the default order (owner 2026-10-08): the officer's 5 MOST RECENT cases first. "needs_action" stays available
+# ("KYC wale", "atke hue", the table's sort); the list never shows more than one page
+default_sort: recent
+sorts:
+  needs_action: { order: [KYC, DOCS, OTHER, READY], then: recent }
+  recent: { by: updated_at, desc: true }
+  oldest: { by: created_at, desc: false }
+  longest_in_stage: { by: days_in_stage, desc: true }
+
+# filters: a row status kind (KYC / DOCS / READY / OTHER), "over target" (timeline), a stage, a product
+filters:
+  needs_action: { kinds: [KYC, DOCS] }
+  kyc_issue: { kinds: [KYC] }
+  documents_pending: { kinds: [DOCS] }
+  ready_for_cpa: { kinds: [READY] }
+  stuck: { over_target: true }
+
+# ---- section 17.2: a list request naming OTHER people is refused (never answered with anyone's list); "saare
+# cases" / "list all case" without them is the caller's own list (scoped by the grants, section 2) ---------------
+other_people: [other officers, other officer, all officers, all the officers, other users, all users, everyone,
+               everybody, other people, other employees, officer b, dusre logon, dusre officers, dusron ke,
+               doosron ke, sab logon, saare officers, sabhi officers, kisi aur ke, kisi aur ka, baaki officers,
+               दूसरे लोगों, सभी अधिकारियों, इतर अधिकारी]
+# ---- natural language -> the query (matched as whole words, after the normaliser) ------------------------------
+phrases:
+  # "top 5", "pehle 3", "first 10": the first N in the default order
+  first_n: [top, pehle, pehla, first, shuru ke]
+  # "last 3", "latest 3", "recent cases": the newest N
+  last_n: [last, latest, recent, naye, naya, nayi, newest, haal ke]
+  # "sabse purane", "oldest"
+  oldest: [sabse purane, sabse purana, oldest, purane, purana, old cases]
+  longest_in_stage: [sabse zyada atke, longest in stage, sabse lambe]
+  # "aur dikhao", "next", "agle 5"
+  next: [aur dikhao, next, agle, agla, aage, more, show more, aur]
+  filter:
+    kyc_issue: [kyc wale, kyc wala, kyc issue, kyc fail, kyc problem, kyc atka, kyc pending wale]
+    ready_for_cpa: [ready wale, ready wala, cpa ready, ready for cpa, taiyar wale, ready cases]
+    stuck: [atke hue, atka hua, atke, stuck, over target, late wale, der wale]
+    documents_pending: [pending docs wale, docs pending, documents pending, document pending wale, docs baaki,
+                        pending documents wale, docs wale]
+    needs_action: [action wale, needs action, kaam wale, jinme kaam hai]
+  # a number said as a word
+  numbers: { ek: 1, one: 1, do: 2, two: 2, teen: 3, three: 3, char: 4, chaar: 4, four: 4, paanch: 5, panch: 5,
+             five: 5, chhe: 6, six: 6, saat: 7, seven: 7, aath: 8, eight: 8, nau: 9, nine: 9, das: 10, ten: 10 }
+
+# ---- the words of the reply (per language; 2-4 variants where a line is said often) ---------------------------
+labels:
+  summary:
+    en: ["You have {total} cases: {parts}.", "{total} cases in all: {parts}."]
+    hi-Latn: ["Aapke {total} cases hain: {parts}.", "Kul {total} cases: {parts}."]
+    hi: ["आपके {total} केस हैं: {parts}।", "कुल {total} केस: {parts}।"]
+    mr: ["तुमच्या {total} केस आहेत: {parts}.", "एकूण {total} केस: {parts}."]
+  part:
+    KYC: { en: "{n} with a KYC issue", hi-Latn: "{n} mein KYC issue", hi: "{n} में KYC समस्या", mr: "{n} मध्ये KYC समस्या" }
+    DOCS: { en: "{n} with documents pending", hi-Latn: "{n} mein documents baaki", hi: "{n} में दस्तावेज़ बाकी",
+            mr: "{n} मध्ये कागदपत्रे बाकी" }
+    READY: { en: "{n} ready for CPA", hi-Latn: "{n} CPA ke liye ready", hi: "{n} CPA के लिए तैयार",
+             mr: "{n} CPA साठी तयार" }
+    OTHER: { en: "{n} in progress", hi-Latn: "{n} chal rahe hain", hi: "{n} प्रगति में", mr: "{n} प्रगतीत" }
+  filtered:
+    en: "{n} of your cases match ({filter})."
+    hi-Latn: "Aapke {n} cases match karte hain ({filter})."
+    hi: "आपके {n} केस मेल खाते हैं ({filter})।"
+    mr: "तुमच्या {n} केस जुळतात ({filter})."
+  filter_names:
+    kyc_issue: { en: "KYC issue", hi-Latn: "KYC issue", hi: "KYC समस्या", mr: "KYC समस्या" }
+    ready_for_cpa: { en: "ready for CPA", hi-Latn: "CPA ready", hi: "CPA के लिए तैयार", mr: "CPA साठी तयार" }
+    stuck: { en: "past the stage target", hi-Latn: "target se zyada atke", hi: "लक्ष्य से अधिक अटके",
+             mr: "लक्ष्यापेक्षा जास्त अडकलेले" }
+    documents_pending: { en: "documents pending", hi-Latn: "documents baaki", hi: "दस्तावेज़ बाकी", mr: "कागदपत्रे बाकी" }
+    needs_action: { en: "needs action", hi-Latn: "kaam baaki", hi: "कार्रवाई ज़रूरी", mr: "कारवाई आवश्यक" }
+    search: { en: "search: {q}", hi-Latn: "search: {q}", hi: "खोज: {q}", mr: "शोध: {q}" }
+  sorted:
+    needs_action: { en: "needs action first", hi-Latn: "pehle jinme kaam hai", hi: "पहले जिनमें काम है",
+                    mr: "आधी ज्यांत काम आहे" }
+    recent: { en: "newest first", hi-Latn: "naye pehle", hi: "नए पहले", mr: "नवीन आधी" }
+    oldest: { en: "oldest first", hi-Latn: "purane pehle", hi: "पुराने पहले", mr: "जुने आधी" }
+    longest_in_stage: { en: "longest in stage first", hi-Latn: "sabse lambe atke pehle", hi: "सबसे लंबे अटके पहले",
+                        mr: "सर्वात जास्त काळ अडकलेले आधी" }
+  showing:
+    en: "Showing {first}-{last} of {total} ({sort})."
+    hi-Latn: "{total} mein se {first}-{last} dikha rahe hain ({sort})."
+    hi: "{total} में से {first}-{last} दिखा रहे हैं ({sort})।"
+    mr: "{total} पैकी {first}-{last} दाखवत आहोत ({sort})."
+  none:
+    en: ["You have no cases you can open.", "There are no cases under you yet."]
+    hi-Latn: ["Aapke paas abhi koi case nahi hai.", "Abhi aapke under koi case nahi hai."]
+    hi: ["आपके पास अभी कोई केस नहीं है।"]
+    mr: ["तुमच्याकडे अजून कोणतीही केस नाही."]
+  none_match:
+    en: "None of your cases match ({filter})."
+    hi-Latn: "Aapka koi case match nahi karta ({filter})."
+    hi: "आपका कोई केस मेल नहीं खाता ({filter})।"
+    mr: "तुमची कोणतीही केस जुळत नाही ({filter})."
+  end:
+    en: "That is the whole list."
+    hi-Latn: "Bas, list yahin tak hai."
+    hi: "सूची यहीं तक है।"
+    mr: "यादी इथेच संपते."
+  follow_up:
+    en: ["Open one, or ask: show more, KYC issues, ready for CPA, oldest.",
+         "Pick a case to open, or say show more / KYC issues / ready for CPA."]
+    hi-Latn: ["Ek case kholiye, ya boliye: aur dikhao, KYC wale, ready wale, sabse purane.",
+              "Case kholne ke liye chuniye, ya boliye aur dikhao / KYC wale / ready wale."]
+    hi: ["कोई केस खोलें, या कहें: और दिखाओ, KYC वाले, तैयार वाले, सबसे पुराने।"]
+    mr: ["एक केस उघडा, किंवा म्हणा: आणखी दाखवा, KYC वाले, तयार, सर्वात जुने."]
+  # the options under the list (ask: links)
+  options:
+    en: ["Show more", "KYC issues", "Ready for CPA", "Oldest cases"]
+    hi-Latn: ["Aur dikhao", "KYC wale", "Ready wale", "Sabse purane"]
+    hi: ["और दिखाओ", "KYC वाले", "तैयार वाले", "सबसे पुराने"]
+    mr: ["आणखी दाखवा", "KYC वाले", "तयार केस", "सर्वात जुने"]

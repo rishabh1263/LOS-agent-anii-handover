@@ -1,0 +1,556 @@
+# THE APPROVED PRODUCT FLOW (MASTER SPEC section 15 / 15.5) -- one file for the officer-facing words, mappings and
+# limits of: the case statuses (Created / Review / Disbursal -> Pending / Done), the home table, the chat follow-up
+# ("Do you want to know about a particular case?"), the quick buttons, downloads, case creation / editing from
+# chat, Excel import, chat history, the activity log and notifications.
+#
+# Read by app/agents/applicant/copilot/capabilities/product_flow.py (and exports.py, case_form.py, importer.py).
+# Scope, confirmation before every write, and the reply contract are CODE and never configurable (section 14).
+# Every text: en, hi-Latn, hi, mr. A list = variants (picked per turn).
+
+# ---- statuses (15.5) -------------------------------------------------------------------------------------------
+# The real data has stages (app/config/stage_lifecycle.yaml). Each stage maps to ONE business status; each
+# status belongs to ONE group. The home table, chat lists, filters, counts and the Pending/Done follow-up all
+# use this mapping. A stage not listed here maps to `default_status`.
+case_status:
+  by_stage:
+    FOS: Created
+    CPA: Review
+    CREDIT: Review
+    RCU: Review
+    BOPS: Review
+    HOPS: Review
+    DISBURSEMENT: Disbursal
+  default_status: Created
+  groups:
+    pending: [Created, Review]
+    done: [Disbursal]
+  labels:
+    Created: { en: "Created", hi-Latn: "Created", hi: "बनाया गया", mr: "तयार केले" }
+    Review: { en: "Review", hi-Latn: "Review", hi: "समीक्षा", mr: "पुनरावलोकन" }
+    Disbursal: { en: "Disbursal", hi-Latn: "Disbursal", hi: "वितरण", mr: "वितरण" }
+  group_labels:
+    pending: { en: "Pending", hi-Latn: "Pending", hi: "लंबित", mr: "प्रलंबित" }
+    done: { en: "Done", hi-Latn: "Done", hi: "पूरे", mr: "पूर्ण" }
+  # chat phrases for a status / group filter (whole phrases, after the normaliser; longest first). Bare
+  # "pending" / "done" count only as the answer to "Pending or Done?" (portfolio_flow), never on their own.
+  phrases:
+    group:
+      pending: [my pending cases, pending cases, pending case, pending wale cases, pending wale, pending wala,
+                baaki cases, baaki wale cases, lambit cases, लंबित केस, प्रलंबित केस]
+      done: [done cases, done case, done wale cases, done wale, completed cases, complete cases, pure hue cases,
+             ho gaye cases, पूरे केस, पूर्ण केस]
+    status:
+      Created: [created cases, created wale, naye bane cases, new created cases]
+      Review: [review cases, review wale, review wale cases, review mein, review me]
+      Disbursal: [disbursal cases, disbursal wale, disbursal wale cases, disbursed cases, disburse wale]
+
+# ---- the home table (15.1 step 2): served by GET /api/v1/fos/cases --------------------------------------------
+home_table:
+  columns:
+    - { key: case_id, label: { en: "Case ID", hi-Latn: "Case ID", hi: "केस आईडी", mr: "केस आयडी" } }
+    - { key: app_id, label: { en: "App ID", hi-Latn: "App ID", hi: "ऐप आईडी", mr: "ॲप आयडी" } }
+    - { key: applicant_name, label: { en: "Applicant name", hi-Latn: "Applicant ka naam", hi: "आवेदक का नाम",
+                                      mr: "अर्जदाराचे नाव" } }
+    - { key: stage, label: { en: "Stage", hi-Latn: "Stage", hi: "चरण", mr: "टप्पा" } }
+    - { key: status, label: { en: "Status", hi-Latn: "Status", hi: "स्थिति", mr: "स्थिती" } }
+    - { key: created_date, label: { en: "Created date", hi-Latn: "Bani tareekh", hi: "बनने की तारीख",
+                                    mr: "तयार झाल्याची तारीख" } }
+    - { key: action, label: { en: "Action", hi-Latn: "Action", hi: "कार्रवाई", mr: "कृती" } }
+  action_label: { en: "Open", hi-Latn: "Kholo", hi: "खोलें", mr: "उघडा" }
+  new_case_label: { en: "Create New Case", hi-Latn: "Create New Case", hi: "Create New Case", mr: "Create New Case" }
+  empty: { en: "No cases yet.", hi-Latn: "Abhi koi case nahi hai.", hi: "अभी कोई केस नहीं है।",
+           mr: "अजून कोणतीही केस नाही." }
+  no_match: { en: "No cases match your search.", hi-Latn: "Aapki search se koi case match nahi hua.",
+              hi: "आपकी खोज से कोई केस नहीं मिला।", mr: "तुमच्या शोधाशी कोणतीही केस जुळली नाही." }
+  loading: { en: "Loading your cases...", hi-Latn: "Aapke cases load ho rahe hain...", hi: "आपके केस लोड हो रहे हैं...",
+             mr: "तुमच्या केस लोड होत आहेत..." }
+  error: { en: "We couldn't load your cases. Please try again.", hi-Latn: "Cases load nahi ho paye. Dobara try karein.",
+           hi: "केस लोड नहीं हो पाए। कृपया फिर से कोशिश करें।", mr: "केस लोड झाल्या नाहीत. कृपया पुन्हा प्रयत्न करा." }
+  # table sort keys -> case_list.yaml sorts
+  sorts: { created_date: oldest, created_date_desc: recent, updated: recent, needs_action: needs_action }
+
+# ---- the chat follow-up after a case-portfolio answer (15.2 step 4) --------------------------------------------
+portfolio_flow:
+  enabled: true
+  # quoted: bare yes / no / y / n / ok are booleans in YAML
+  yes_words: ["yes", "y", "haan", "ha", "han", "haa", "ji", "ji haan", "yes please", "sure", "ok", "okay", "theek hai",
+              "bilkul", "हाँ", "हां", "हो", "होय"]
+  no_words: ["no", "n", "nahi", "nahin", "na", "nope", "no thanks", "rehne do", "नहीं", "नाही", "नको"]
+  pending_words: [pending, pending wale, pending cases, baaki, lambit, लंबित, प्रलंबित]
+  done_words: [done, done wale, done cases, complete, completed, pure, ho gaye, पूरे, पूर्ण]
+  texts:
+    ask_particular:
+      en: ["Do you want to know about a particular case?", "Would you like details of a particular case?"]
+      hi-Latn: ["Kya aap kisi particular case ke baare mein jaanna chahte hain?",
+                "Kisi ek case ki details chahiye?"]
+      hi: ["क्या आप किसी खास केस के बारे में जानना चाहते हैं?"]
+      mr: ["तुम्हाला एखाद्या विशिष्ट केसबद्दल जाणून घ्यायचे आहे का?"]
+    yes_label: { en: "Yes", hi-Latn: "Haan", hi: "हाँ", mr: "हो" }
+    no_label: { en: "No", hi-Latn: "Nahi", hi: "नहीं", mr: "नाही" }
+    ask_group:
+      en: ["Pending or Done?", "Which ones -- Pending or Done?"]
+      hi-Latn: ["Pending ya Done?", "Kaunse -- Pending ya Done?"]
+      hi: ["लंबित या पूरे?"]
+      mr: ["प्रलंबित की पूर्ण?"]
+    no_reply:
+      en: ["Okay. Ask me anything about your cases.", "Sure. What else can I help with?"]
+      hi-Latn: ["Theek hai. Apne cases ke baare mein kuch bhi poochhiye.", "Theek hai. Aur kya madad karoon?"]
+      hi: ["ठीक है। अपने केस के बारे में कुछ भी पूछिए।"]
+      mr: ["ठीक आहे. तुमच्या केसबद्दल काहीही विचारा."]
+    pick:
+      en: "Pick a case from the list (tap Open, or type its number)."
+      hi-Latn: "List mein se ek case chuniye (Open dabaiye, ya number likhiye)."
+      hi: "सूची में से एक केस चुनें (Open दबाएँ या नंबर लिखें)।"
+      mr: "यादीतून एक केस निवडा (Open दाबा किंवा क्रमांक लिहा)."
+    what_to_know:
+      en: ["What do you want to know?", "What would you like to know about this case?"]
+      hi-Latn: ["Aap kya jaanna chahte hain?", "Is case ke baare mein kya jaanna hai?"]
+      hi: ["आप क्या जानना चाहते हैं?"]
+      mr: ["तुम्हाला काय जाणून घ्यायचे आहे?"]
+  # the options after a case opens from the flow (label = the question sent)
+  what_options:
+    en: ["What is the status?", "What is pending?", "Show the documents", "What is the KYC status?",
+         "Is it ready for CPA?"]
+    hi-Latn: ["Status kya hai?", "Kya pending hai?", "Documents dikhao", "KYC status kya hai?",
+              "Kya CPA ke liye ready hai?"]
+    hi: ["स्थिति क्या है?", "क्या बाकी है?", "दस्तावेज़ दिखाओ", "KYC की स्थिति क्या है?", "क्या CPA के लिए तैयार है?"]
+    mr: ["स्थिती काय आहे?", "काय बाकी आहे?", "कागदपत्रे दाखवा", "KYC स्थिती काय आहे?", "CPA साठी तयार आहे का?"]
+
+# ---- quick buttons, always available (15.2 step 5): GET /api/v1/fos/quick-actions -------------------------------
+quick_buttons:
+  - id: my_pending_cases
+    label: { en: "My pending cases", hi-Latn: "Mere pending cases", hi: "मेरे लंबित केस", mr: "माझ्या प्रलंबित केस" }
+    send: { en: "My pending cases", hi-Latn: "My pending cases", hi: "My pending cases", mr: "My pending cases" }
+  - id: create_new_case
+    label: { en: "Create New Case", hi-Latn: "Create New Case", hi: "Create New Case", mr: "Create New Case" }
+    send: { en: "Create new case", hi-Latn: "Create new case", hi: "Create new case", mr: "Create new case" }
+  - id: how_to_upload
+    label: { en: "How to upload", hi-Latn: "Upload kaise karein", hi: "अपलोड कैसे करें", mr: "अपलोड कसे करावे" }
+    send: { en: "How do I upload a document?", hi-Latn: "Document upload kaise karein?",
+            hi: "दस्तावेज़ कैसे अपलोड करें?", mr: "कागदपत्र कसे अपलोड करावे?" }
+  - id: faq
+    label: { en: "FAQ", hi-Latn: "FAQ", hi: "FAQ", mr: "FAQ" }
+    send: { en: "FAQ", hi-Latn: "FAQ", hi: "FAQ", mr: "FAQ" }
+
+# ---- links on every case answer (15.2 steps 3 and 6) -------------------------------------------------------------
+case_links:
+  downloads: [xlsx, docx, pdf]       # the order of the Download buttons
+  on_lists: true                     # a list answer offers the filtered list as downloads too
+  # a typed download request ("excel download karo", "pdf chahiye"): the links for the open case, else for the list
+  ask_words: [download, export, excel, pdf, doc file, word file, xlsx, docx, डाउनलोड, एक्सेल]
+  here:
+    case: { en: "Downloads for {case_id}:", hi-Latn: "{case_id} ke downloads:", hi: "{case_id} के डाउनलोड:",
+            mr: "{case_id} चे डाउनलोड:" }
+    list: { en: "Downloads for your cases:", hi-Latn: "Aapke cases ke downloads:", hi: "आपके केस के डाउनलोड:",
+            mr: "तुमच्या केसचे डाउनलोड:" }
+
+# ---- downloads (15.3 / 15.5): Excel, Doc, PDF -- single case and filtered lists ----------------------------------
+exports:
+  link_ttl_seconds: 300              # the signed download link is short-lived
+  max_rows: 500                      # a list export never holds more rows than this
+  rate_limit_per_minute: 10          # per user (section 17)
+  file_name: "{kind}_{ref}_{date}"   # kind = case | cases
+  title:
+    case: { en: "Case summary", hi-Latn: "Case summary", hi: "केस सारांश", mr: "केस सारांश" }
+    list: { en: "My cases", hi-Latn: "Mere cases", hi: "मेरे केस", mr: "माझ्या केस" }
+  generated: { en: "Generated on {date} for {user}", hi-Latn: "{date} ko {user} ke liye banaya gaya",
+               hi: "{date} को {user} के लिए बनाया गया", mr: "{date} रोजी {user} साठी तयार केले" }
+  sections:
+    applicant: { en: "Applicant", hi-Latn: "Applicant", hi: "आवेदक", mr: "अर्जदार" }
+    application: { en: "Application", hi-Latn: "Application", hi: "आवेदन", mr: "अर्ज" }
+    documents: { en: "Documents", hi-Latn: "Documents", hi: "दस्तावेज़", mr: "कागदपत्रे" }
+    pending: { en: "Pending items", hi-Latn: "Pending items", hi: "बाकी काम", mr: "बाकी कामे" }
+  document_columns: { en: ["Document", "Party", "Status"], hi-Latn: ["Document", "Party", "Status"],
+                      hi: ["दस्तावेज़", "पक्ष", "स्थिति"], mr: ["कागदपत्र", "पक्ष", "स्थिती"] }
+  field_columns: { en: ["Field", "Value"], hi-Latn: ["Field", "Value"], hi: ["फ़ील्ड", "मान"], mr: ["फील्ड", "मूल्य"] }
+  nothing_pending: { en: "Nothing pending.", hi-Latn: "Kuch pending nahi.", hi: "कुछ बाकी नहीं।",
+                     mr: "काहीही बाकी नाही." }
+  rate_limited: { en: "Too many downloads in a minute. Please wait a moment and try again.",
+                  hi-Latn: "Ek minute mein bahut downloads. Thoda ruk kar dobara try karein.",
+                  hi: "एक मिनट में बहुत डाउनलोड। थोड़ा रुककर फिर कोशिश करें।",
+                  mr: "एका मिनिटात खूप डाउनलोड. थोडा वेळ थांबून पुन्हा प्रयत्न करा." }
+
+# ---- case creation and editing from chat (15.5): the SAME fields and rules as the UI form ------------------------
+# The field list, types and max lengths come from the create-case request schema (CreateCaseRequest); the order,
+# questions, required set and format rules below are shared by the UI create / edit routes and the chat.
+case_form:
+  chat_create: true                  # 15.5: chat case creation ON (env COPILOT_CHAT_CASE_CREATE overrides)
+  draft_ttl_seconds: 1800            # an unconfirmed draft is dropped after this
+  required: [full_name, mobile, date_of_birth, address, product, loan_amount]
+  order: [full_name, mobile, date_of_birth, address, email, product, loan_amount, employment_type, tenure_months,
+          interest_rate_pct, declared_monthly_income, declared_monthly_obligations, property_value]
+  formats:
+    mobile: { pattern: "^[6-9]\\d{9}$", strip: "[\\s+-]|^91(?=\\d{10}$)" }
+    email: { pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
+    date_of_birth: { date: true, min_age: 18, max_age: 80 }
+    full_name: { pattern: "^[A-Za-z\\u0900-\\u097F .'-]{2,}$" }
+    tenure_months: { integer: true, min: 1, max: 480 }
+    interest_rate_pct: { number: true, min: 1, max: 60 }
+    loan_amount: { number: true }
+    declared_monthly_income: { number: true }
+    declared_monthly_obligations: { number: true }
+    property_value: { number: true }
+  choices:
+    employment_type: [SALARIED, SELF_EMPLOYED]
+  labels:
+    full_name: { en: "Applicant name", hi-Latn: "Applicant ka naam", hi: "आवेदक का नाम", mr: "अर्जदाराचे नाव" }
+    mobile: { en: "Mobile", hi-Latn: "Mobile", hi: "मोबाइल", mr: "मोबाईल" }
+    email: { en: "Email", hi-Latn: "Email", hi: "ईमेल", mr: "ईमेल" }
+    date_of_birth: { en: "Date of birth", hi-Latn: "Janm tithi", hi: "जन्म तिथि", mr: "जन्मतारीख" }
+    address: { en: "Address", hi-Latn: "Address", hi: "पता", mr: "पत्ता" }
+    product: { en: "Product", hi-Latn: "Product", hi: "प्रोडक्ट", mr: "प्रॉडक्ट" }
+    loan_amount: { en: "Loan amount (Rs)", hi-Latn: "Loan amount (Rs)", hi: "लोन राशि (रु)", mr: "कर्ज रक्कम (रु)" }
+    employment_type: { en: "Employment type", hi-Latn: "Employment type", hi: "रोज़गार का प्रकार", mr: "रोजगार प्रकार" }
+    tenure_months: { en: "Tenure (months)", hi-Latn: "Tenure (mahine)", hi: "अवधि (महीने)", mr: "मुदत (महिने)" }
+    interest_rate_pct: { en: "Interest rate (%)", hi-Latn: "Interest rate (%)", hi: "ब्याज दर (%)", mr: "व्याज दर (%)" }
+    declared_monthly_income: { en: "Monthly income (Rs)", hi-Latn: "Mahine ki income (Rs)", hi: "मासिक आय (रु)",
+                               mr: "मासिक उत्पन्न (रु)" }
+    declared_monthly_obligations: { en: "Monthly EMIs (Rs)", hi-Latn: "Mahine ki EMI (Rs)", hi: "मासिक ईएमआई (रु)",
+                                    mr: "मासिक ईएमआय (रु)" }
+    property_value: { en: "Property value (Rs)", hi-Latn: "Property value (Rs)", hi: "संपत्ति मूल्य (रु)",
+                      mr: "मालमत्ता मूल्य (रु)" }
+  ask:
+    en: "Please enter the **{label}**{hint}."
+    hi-Latn: "Kripya **{label}** batayein{hint}."
+    hi: "कृपया **{label}** बताएँ{hint}।"
+    mr: "कृपया **{label}** सांगा{hint}."
+  hints:
+    date_of_birth: { en: " (YYYY-MM-DD)", hi-Latn: " (YYYY-MM-DD)", hi: " (YYYY-MM-DD)", mr: " (YYYY-MM-DD)" }
+    product: { en: " ({choices})", hi-Latn: " ({choices})", hi: " ({choices})", mr: " ({choices})" }
+    employment_type: { en: " ({choices})", hi-Latn: " ({choices})", hi: " ({choices})", mr: " ({choices})" }
+    loan_amount: { en: " (full amount in rupees, e.g. 500000)", hi-Latn: " (poori rakam rupaye mein, jaise 500000)",
+                   hi: " (पूरी राशि रुपये में, जैसे 500000)", mr: " (पूर्ण रक्कम रुपयांत, उदा. 500000)" }
+  optional_hint: { en: " (optional -- type skip)", hi-Latn: " (optional -- skip likhiye)", hi: " (वैकल्पिक -- skip लिखें)",
+                   mr: " (पर्यायी -- skip लिहा)" }
+  skip_words: [skip, chhodo, chodo, rehne do, na, none, -, छोड़ो, वगळा]
+  cancel_words: [cancel, stop creating, band karo, rehne do case, cancel case, रद्द करो, रद्द करा]
+  confirm_words: [confirm, yes confirm, haan confirm, confirm karo, create karo, theek hai banao, पुष्टि, खात्री]
+  edit_words: [edit, badlo, change, बदलो, बदला]
+  # while a field is asked, a message that is clearly a question / command PARKS the draft (it is answered as
+  # usual, nothing is lost); "Create New Case" or a resume word continues where it stopped
+  escape_first: [open, show, list, what, how, why, when, which, kya, kaise, kyu, kyun, kab, kaun, kaunsa, hi, hello,
+                 namaste, help, top, aur, dusra, review, created, mere, my, isko, iska, sorry, ignore, manager, tell,
+                 batao, dikhao, kholo, give, can, could, please, plz, क्या, कैसे, मेरे, दिखाओ]
+  escape_any: [cases, case, kyc, faq, download, pdf, excel, status, pending]
+  resume_words: [continue, continue case, resume, resume case, aage badho, jaari rakho, case continue karo]
+  resume:
+    en: "Let's continue the new case."
+    hi-Latn: "Chaliye naya case aage badhate hain."
+    hi: "चलिए नया केस आगे बढ़ाते हैं।"
+    mr: "चला नवीन केस पुढे नेऊया."
+  invalid:
+    en: "That doesn't look right for **{label}**: {why}. Please enter it again."
+    hi-Latn: "**{label}** sahi nahi lag raha: {why}. Kripya dobara likhiye."
+    hi: "**{label}** सही नहीं लग रहा: {why}। कृपया फिर से लिखें।"
+    mr: "**{label}** बरोबर वाटत नाही: {why}. कृपया पुन्हा लिहा."
+  why:
+    required: { en: "it is required", hi-Latn: "yeh zaroori hai", hi: "यह ज़रूरी है", mr: "हे आवश्यक आहे" }
+    format: { en: "the format is not valid", hi-Latn: "format sahi nahi hai", hi: "फ़ॉर्मेट सही नहीं है",
+              mr: "फॉरमॅट बरोबर नाही" }
+    mobile: { en: "enter a 10-digit mobile number", hi-Latn: "10 digit ka mobile number likhiye",
+              hi: "10 अंकों का मोबाइल नंबर लिखें", mr: "10 अंकी मोबाईल नंबर लिहा" }
+    date: { en: "enter the date as YYYY-MM-DD", hi-Latn: "tareekh YYYY-MM-DD mein likhiye",
+            hi: "तारीख YYYY-MM-DD में लिखें", mr: "तारीख YYYY-MM-DD मध्ये लिहा" }
+    age: { en: "the age must be between {min} and {max}", hi-Latn: "umar {min} se {max} ke beech honi chahiye",
+           hi: "उम्र {min} से {max} के बीच होनी चाहिए", mr: "वय {min} ते {max} दरम्यान असावे" }
+    choice: { en: "choose one of: {choices}", hi-Latn: "inmein se chuniye: {choices}", hi: "इनमें से चुनें: {choices}",
+              mr: "यापैकी निवडा: {choices}" }
+    number: { en: "enter a number", hi-Latn: "number likhiye", hi: "संख्या लिखें", mr: "संख्या लिहा" }
+    range: { en: "it must be between {min} and {max}", hi-Latn: "{min} se {max} ke beech hona chahiye",
+             hi: "{min} से {max} के बीच होना चाहिए", mr: "{min} ते {max} दरम्यान असावे" }
+    too_long: { en: "it is too long (max {max} characters)", hi-Latn: "bahut lamba hai (max {max} akshar)",
+                hi: "बहुत लंबा है (अधिकतम {max} अक्षर)", mr: "खूप लांब आहे (कमाल {max} अक्षरे)" }
+  start:
+    en: "Let's create a new case. I'll ask for the same details as the form. You can type cancel any time."
+    hi-Latn: "Chaliye naya case banate hain. Main form wali hi details poochunga. Kabhi bhi cancel likh sakte hain."
+    hi: "चलिए नया केस बनाते हैं। मैं फ़ॉर्म वाली ही जानकारी पूछूँगा। कभी भी cancel लिख सकते हैं।"
+    mr: "चला नवीन केस तयार करूया. मी फॉर्ममधील तीच माहिती विचारेन. कधीही cancel लिहू शकता."
+  summary:
+    en: "Please check the details:"
+    hi-Latn: "Kripya details check kijiye:"
+    hi: "कृपया जानकारी जाँच लें:"
+    mr: "कृपया माहिती तपासा:"
+  confirm_q: { en: "Confirm?", hi-Latn: "Confirm?", hi: "Confirm?", mr: "Confirm?" }
+  confirm_label: { en: "Confirm", hi-Latn: "Confirm", hi: "Confirm", mr: "Confirm" }
+  cancel_label: { en: "Cancel", hi-Latn: "Cancel", hi: "Cancel", mr: "Cancel" }
+  edit_label: { en: "Edit {label}", hi-Latn: "{label} badlo", hi: "{label} बदलें", mr: "{label} बदला" }
+  created:
+    en: "**{case_id}** created for {name}. Documents needed: {n}."
+    hi-Latn: "{name} ke liye **{case_id}** ban gaya. Documents chahiye: {n}."
+    hi: "{name} के लिए **{case_id}** बन गया। दस्तावेज़ चाहिए: {n}।"
+    mr: "{name} साठी **{case_id}** तयार झाली. हवी असलेली कागदपत्रे: {n}."
+  cancelled: { en: "Okay, nothing was created.", hi-Latn: "Theek hai, kuch nahi banaya gaya.",
+               hi: "ठीक है, कुछ नहीं बनाया गया।", mr: "ठीक आहे, काहीही तयार केले नाही." }
+  edit_cancelled: { en: "Okay, nothing was changed.", hi-Latn: "Theek hai, kuch nahi badla.",
+                    hi: "ठीक है, कुछ नहीं बदला।", mr: "ठीक आहे, काहीही बदलले नाही." }
+  failed: { en: "The case could not be created: {why}", hi-Latn: "Case nahi ban paya: {why}",
+            hi: "केस नहीं बन पाया: {why}", mr: "केस तयार झाली नाही: {why}" }
+  or_form: { en: "Or open the form:", hi-Latn: "Ya form kholiye:", hi: "या फ़ॉर्म खोलें:", mr: "किंवा फॉर्म उघडा:" }
+  no_rights: { en: "You don't have permission to create cases.", hi-Latn: "Aapko case banane ki permission nahi hai.",
+               hi: "आपको केस बनाने की अनुमति नहीं है।", mr: "तुम्हाला केस तयार करण्याची परवानगी नाही." }
+  # editing a field of the open case: "loan amount 600000 karo", "change mobile to 9876543210"
+  edit_cues: [change, update, badlo, badal do, karo, kar do, set, edit, बदलो, बदला]
+  edit_proposal:
+    en: "Change **{label}** of {case_id} from {old} to **{new}**?"
+    hi-Latn: "{case_id} ka **{label}** {old} se **{new}** karna hai?"
+    hi: "{case_id} का **{label}** {old} से **{new}** करना है?"
+    mr: "{case_id} चे **{label}** {old} वरून **{new}** करायचे का?"
+  edited: { en: "Updated **{label}** of {case_id} to {new}.", hi-Latn: "{case_id} ka **{label}** {new} kar diya.",
+            hi: "{case_id} का **{label}** {new} कर दिया।", mr: "{case_id} चे **{label}** {new} केले." }
+  missing_fields:
+    en: "This case still needs: {fields}."
+    hi-Latn: "Is case mein abhi bhi chahiye: {fields}."
+    hi: "इस केस में अभी भी चाहिए: {fields}।"
+    mr: "या केसमध्ये अजून हवे: {fields}."
+  empty: { en: "(empty)", hi-Latn: "(khaali)", hi: "(खाली)", mr: "(रिकामे)" }
+  edit_locked: { en: "This case is past FOS; its form can no longer be edited here.",
+                 hi-Latn: "Yeh case FOS se aage hai; iska form ab yahan edit nahi ho sakta.",
+                 hi: "यह केस FOS से आगे है; इसका फ़ॉर्म अब यहाँ बदला नहीं जा सकता।",
+                 mr: "ही केस FOS च्या पुढे आहे; तिचा फॉर्म आता येथे बदलता येणार नाही." }
+  editable_stages: [FOS]
+
+# ---- Excel import (15.3): validate first, nothing written until Confirm -----------------------------------------
+import:
+  max_rows: 200
+  ttl_seconds: 1800                  # a validated import waits this long for Confirm
+  # header text in the sheet -> form field (case-insensitive; spaces / underscores ignored)
+  headers:
+    full_name: [applicant name, name, full name, full_name]
+    mobile: [mobile, mobile number, phone]
+    email: [email, email id]
+    date_of_birth: [date of birth, dob, date_of_birth]
+    address: [address]
+    product: [product]
+    loan_amount: [loan amount, amount, loan_amount]
+    employment_type: [employment type, employment]
+    tenure_months: [tenure, tenure months, tenure_months]
+    interest_rate_pct: [interest rate, rate, interest_rate_pct]
+    declared_monthly_income: [monthly income, income]
+    declared_monthly_obligations: [monthly obligations, emis, obligations]
+    property_value: [property value]
+  texts:
+    summary:
+      en: "{ok} of {total} rows are valid. {bad} row(s) have errors."
+      hi-Latn: "{total} mein se {ok} rows sahi hain. {bad} row(s) mein galti hai."
+      hi: "{total} में से {ok} पंक्तियाँ सही हैं। {bad} पंक्ति(यों) में गलती है।"
+      mr: "{total} पैकी {ok} ओळी बरोबर आहेत. {bad} ओळींमध्ये चूक आहे."
+    row_error: { en: "Row {row}: {label} -- {why}", hi-Latn: "Row {row}: {label} -- {why}",
+                 hi: "पंक्ति {row}: {label} -- {why}", mr: "ओळ {row}: {label} -- {why}" }
+    confirm_q:
+      en: "Create {ok} case(s) from the valid rows? Nothing is written until you confirm."
+      hi-Latn: "Sahi rows se {ok} case banayein? Confirm karne tak kuch save nahi hoga."
+      hi: "सही पंक्तियों से {ok} केस बनाएँ? पुष्टि तक कुछ सेव नहीं होगा।"
+      mr: "बरोबर ओळींमधून {ok} केस तयार करायच्या? पुष्टी करेपर्यंत काहीही सेव्ह होणार नाही."
+    done: { en: "{n} case(s) created.", hi-Latn: "{n} case ban gaye.", hi: "{n} केस बन गए।", mr: "{n} केस तयार झाल्या." }
+    unreadable: { en: "This file could not be read as an Excel sheet (.xlsx).",
+                  hi-Latn: "Yeh file Excel sheet (.xlsx) ki tarah padhi nahi ja saki.",
+                  hi: "यह फ़ाइल Excel शीट (.xlsx) की तरह पढ़ी नहीं जा सकी।",
+                  mr: "ही फाईल Excel शीट (.xlsx) म्हणून वाचता आली नाही." }
+    too_many: { en: "The sheet has more than {max} rows. Please split it.",
+                hi-Latn: "Sheet mein {max} se zyada rows hain. Kripya baant dijiye.",
+                hi: "शीट में {max} से ज़्यादा पंक्तियाँ हैं। कृपया बाँट दें।",
+                mr: "शीटमध्ये {max} पेक्षा जास्त ओळी आहेत. कृपया विभागून द्या." }
+    no_header: { en: "No known column headers were found (for example: Applicant name, Mobile, Product).",
+                 hi-Latn: "Koi jaana-pehchana column header nahi mila (jaise: Applicant name, Mobile, Product).",
+                 hi: "कोई पहचाना हुआ कॉलम हेडर नहीं मिला (जैसे: Applicant name, Mobile, Product)।",
+                 mr: "ओळखीचे कॉलम हेडर सापडले नाहीत (उदा. Applicant name, Mobile, Product)." }
+    abuse: { en: "contains words that are not allowed", hi-Latn: "ismein aise shabd hain jo allowed nahi",
+             hi: "इसमें ऐसे शब्द हैं जिनकी अनुमति नहीं", mr: "यात परवानगी नसलेले शब्द आहेत" }
+    expired: { en: "This import has expired. Please upload the file again.",
+               hi-Latn: "Yeh import expire ho gaya. File dobara upload karein.",
+               hi: "यह इम्पोर्ट समाप्त हो गया। फ़ाइल फिर से अपलोड करें।",
+               mr: "हा इम्पोर्ट कालबाह्य झाला. फाईल पुन्हा अपलोड करा." }
+
+# ---- chat history (15.4): stored masked + encrypted by app/store/chat_history.py; RETENTION is the one existing
+# setting applicant_agent.yaml chatbot.memory.retention_days (never a second copy here) --------------------------
+history:
+  max_chats: 50
+  untitled: { en: "Chat", hi-Latn: "Chat", hi: "चैट", mr: "चॅट" }
+
+# ---- notifications (15.4): shown in the chat greeting and on the home screen -------------------------------------
+notifications:
+  pending_days: 5                    # a Pending case untouched this many days in its stage
+  max_items: 10
+  text:
+    en: "{case_id} has been pending for {days} days."
+    hi-Latn: "{case_id} {days} din se pending hai."
+    hi: "{case_id} {days} दिनों से लंबित है।"
+    mr: "{case_id} {days} दिवसांपासून प्रलंबित आहे."
+  heading: { en: "Needs attention:", hi-Latn: "Dhyan dein:", hi: "ध्यान दें:", mr: "लक्ष द्या:" }
+
+# ---- plain-English errors (15.4) ---------------------------------------------------------------------------------
+errors:
+  not_found: { en: "I can't find that case in your cases.", hi-Latn: "Yeh case aapke cases mein nahi mila.",
+               hi: "यह केस आपके केस में नहीं मिला।", mr: "ही केस तुमच्या केसमध्ये सापडली नाही." }
+  login_failed: { en: "Wrong username or password. Please try again.",
+                  hi-Latn: "Username ya password galat hai. Dobara try karein.",
+                  hi: "यूज़रनेम या पासवर्ड गलत है। फिर से कोशिश करें।",
+                  mr: "युजरनेम किंवा पासवर्ड चुकीचा आहे. पुन्हा प्रयत्न करा." }
+  unknown_stage: { en: "Please choose a valid stage.", hi-Latn: "Kripya sahi stage chuniye.",
+                   hi: "कृपया सही चरण चुनें।", mr: "कृपया योग्य टप्पा निवडा." }
+
+# ---- no case open: a named person, or a question outside the product (MASTER SPEC 2 / 5) ------------------------
+# "Zoravar Khanna ka case" / "Priya's case" / "cases of Anil": looked up among the caller's OWN cases only -- found
+# opens it, else the same neutral line as an unknown id (never confirming the person exists elsewhere).
+name_lookup:
+  patterns:
+    - "^(?P<name>[A-Za-zऀ-ॿ]+(?: [A-Za-zऀ-ॿ]+){0,2}) (?:ka|ke|ki|wala|wale|wali) cases?\\b"
+    - "\\b(?P<name>[A-Za-z]+(?: [A-Za-z]+)?)'s cases?\\b"
+    - "\\bcases? (?:of|for) (?P<name>[A-Za-z]+(?: [A-Za-z]+)?)\\s*$"
+  not_names: [mera, mere, meri, my, mine, is, iss, us, uss, iska, uska, kis, kiska, kiske, kaun, kaunsa, konsa,
+              dusra, dusre, doosra, pehla, pehle, agla, agle, last, new, naya, naye, sab, saare, sare, all, this,
+              that, the, a, an, kyc, pending, done, review, created, disbursal, ready, top, oldest, latest, other,
+              officer, officers, applicant, customer, every, any, same, previous, next, kal, aaj, abhi, open,
+              pan, aadhaar, aadhar, address, proof, bank, statement, salary, slip, document, documents, loan, cpa,
+              status, stage, home, personal, co, coapplicant, form, file, query]
+# a question clearly outside the product (any of these words): one polite line and the next option. Positive cues
+# only -- a short Hinglish case question ("kya baaki hai?") is never treated as off-topic.
+out_of_scope:
+  off_topic_words: [ipl, cricket, match, score, football, weather, mausam, movie, film, song, gaana, joke, chutkula,
+                    news, khabar, politics, election, prime minister, recipe, horoscope, rashifal, bitcoin, share price,
+                    stock market, lottery, girlfriend, boyfriend, game, games, क्रिकेट, मौसम, फ़िल्म, चुटकुला]
+  text:
+    en: ["I can only help with your cases, documents, KYC and moving to CPA.",
+         "That's outside what I can help with. I can help with your cases, documents, KYC and CPA."]
+    hi-Latn: ["Main sirf aapke cases, documents, KYC aur CPA mein madad kar sakta hoon.",
+              "Yeh mere daayre se bahar hai. Main cases, documents, KYC aur CPA mein madad kar sakta hoon."]
+    hi: ["मैं सिर्फ़ आपके केस, दस्तावेज़, KYC और CPA में मदद कर सकता हूँ।"]
+    mr: ["मी फक्त तुमच्या केस, कागदपत्रे, KYC आणि CPA मध्ये मदत करू शकतो."]
+  next: { en: "My cases", hi-Latn: "Mere cases", hi: "मेरे केस", mr: "माझ्या केस" }
+# a request to approve / reject / disburse / bypass a check: said plainly before anything else (golden rule 4).
+# (Moving FOS -> CPA is NOT here: with a case open it is the workflow's proposal + Confirm, `stage_flow` below.)
+stage_move:
+  phrases: [stage badal, stage change, change the stage, change stage, approve the loan, approve kar, approve karo,
+            disburse, reject this, reject kar, mark verified, kyc pass kar, kyc bypass, skip kyc, bypass kyc,
+            stage update, update the stage]
+  text:
+    en: "I can't approve, reject, disburse or skip a check from chat -- a person does that. Here is where it stands:"
+    hi-Latn: "Main chat se approve, reject, disburse ya koi check skip nahi kar sakta -- yeh ek vyakti karta hai. Abhi ki sthiti:"
+    hi: "मैं चैट से मंज़ूरी, अस्वीकृति, वितरण या कोई जाँच छोड़ना नहीं कर सकता -- यह एक व्यक्ति करता है। अभी की स्थिति:"
+    mr: "मी चॅटमधून मंजुरी, नकार, वितरण किंवा तपासणी वगळणे करू शकत नाही -- हे एक व्यक्ती करते. सध्याची स्थिती:"
+
+# ---- THE FOS <-> CPA WORKFLOW (owner, 2026-10-08) -- read by capabilities/stage_flow.py --------------------------
+# At FOS, anything wrong (KYC mismatch, rejected / missing document) -> a query to the CUSTOMER (one query listing
+# every problem, shown as a message to send). All clear -> FOS moves the case to CPA. At CPA, CPA raises a query to
+# FOS; FOS replies (or raises one to CPA). EVERY step is a proposal + Confirm; the gate is re-checked at the move;
+# query routes are app/config/queries.yaml `routes`.
+stage_flow:
+  enabled: true
+  # chat moves the officer may confirm (from -> to); anything else stays with the operator route
+  chat_moves: { FOS: [CPA] }
+  # holding ANY of these scopes allows a confirmed move from chat (owner decision: the FOS officer moves FOS -> CPA)
+  move_scopes: [los.stage:write, los.write, create_application]
+  phrases:
+    customer_query: [send query to customer, query to customer, customer ko query, customer ko query bhejo,
+                     customer ko bolo, customer ko message, raise query, query raise karo, query bhejo,
+                     ग्राहक को क्वेरी, ग्राहकाला क्वेरी]
+    move: [move to cpa, send to cpa, cpa ko bhejo, cpa ko bhej do, cpa mein bhejo, cpa mein bhej do, cpa me bhejo,
+           cpa mein move, cpa me move, move kar do, submit to cpa, aage bhejo, सीपीए को भेजो]
+    query_to_stage: [query to fos, fos ko query, fos ko bolo, raise query to fos, query to cpa, cpa ko query,
+                     cpa ko bolo, raise query to cpa]
+    reply_query: [reply to, reply karo, jawab do, answer query, respond to]
+    resolve_query: [resolve query, query resolve, query band karo, close query, resolve karo]
+  texts:
+    customer_draft:
+      en: "Query to the customer for {case_id}:"
+      hi-Latn: "{case_id} ke liye customer ko query:"
+      hi: "{case_id} के लिए ग्राहक को क्वेरी:"
+      mr: "{case_id} साठी ग्राहकाला क्वेरी:"
+    customer_line:
+      kyc: { en: "{party}: {field} does not match ({values}). Please share the correct document.",
+             hi-Latn: "{party}: {field} match nahi ho raha ({values}). Kripya sahi document dijiye.",
+             hi: "{party}: {field} मेल नहीं खाता ({values})। कृपया सही दस्तावेज़ दें।",
+             mr: "{party}: {field} जुळत नाही ({values}). कृपया योग्य कागदपत्र द्या." }
+      reupload: { en: "{party}: {document} could not be verified ({reason}). Please upload a clear copy.",
+                  hi-Latn: "{party}: {document} verify nahi ho paya ({reason}). Kripya saaf copy upload kijiye.",
+                  hi: "{party}: {document} सत्यापित नहीं हो पाया ({reason})। कृपया साफ़ कॉपी अपलोड करें।",
+                  mr: "{party}: {document} सत्यापित होऊ शकले नाही ({reason}). कृपया स्पष्ट प्रत अपलोड करा." }
+      pending: { en: "{party}: please share the {document}.", hi-Latn: "{party}: kripya {document} dijiye.",
+                 hi: "{party}: कृपया {document} दें।", mr: "{party}: कृपया {document} द्या." }
+    nothing_wrong:
+      en: "Nothing is wrong on {case_id} right now -- no query is needed."
+      hi-Latn: "{case_id} mein abhi kuch galat nahi hai -- query ki zaroorat nahi."
+      hi: "{case_id} में अभी कुछ गलत नहीं है -- क्वेरी की ज़रूरत नहीं।"
+      mr: "{case_id} मध्ये सध्या काहीही चुकीचे नाही -- क्वेरीची गरज नाही."
+    customer_sent:
+      en: "Query {query_id} recorded for the customer. Send them this message:"
+      hi-Latn: "Customer ke liye query {query_id} record ho gayi. Unhe yeh message bhejiye:"
+      hi: "ग्राहक के लिए क्वेरी {query_id} दर्ज हो गई। उन्हें यह संदेश भेजें:"
+      mr: "ग्राहकासाठी क्वेरी {query_id} नोंदवली. त्यांना हा संदेश पाठवा:"
+    move_proposal:
+      en: "{case_id} has passed every {here} check. Move it to {there}?"
+      hi-Latn: "{case_id} ke saare {here} checks pass hain. Ise {there} mein bhejein?"
+      hi: "{case_id} की सभी {here} जाँचें पास हैं। इसे {there} में भेजें?"
+      mr: "{case_id} च्या सर्व {here} तपासण्या पास आहेत. ती {there} मध्ये पाठवायची?"
+    moved:
+      en: "{case_id} moved from {here} to {there}."
+      hi-Latn: "{case_id} {here} se {there} mein chala gaya."
+      hi: "{case_id} {here} से {there} में चला गया।"
+      mr: "{case_id} {here} मधून {there} मध्ये गेली."
+    not_ready:
+      en: "{case_id} can't move to {there} yet -- these need to be fixed first:"
+      hi-Latn: "{case_id} abhi {there} nahi ja sakta -- pehle yeh theek karna hoga:"
+      hi: "{case_id} अभी {there} नहीं जा सकता -- पहले यह ठीक करना होगा:"
+      mr: "{case_id} अजून {there} कडे जाऊ शकत नाही -- आधी हे दुरुस्त करावे लागेल:"
+    move_failed:
+      en: "{case_id} was not moved: {why}"
+      hi-Latn: "{case_id} move nahi hua: {why}"
+      hi: "{case_id} आगे नहीं बढ़ा: {why}"
+      mr: "{case_id} पुढे गेली नाही: {why}"
+    no_move_rights:
+      en: "You don't have permission to move cases. Someone with stage permission can move it."
+      hi-Latn: "Aapko case move karne ki permission nahi hai. Stage permission wala vyakti ise move kar sakta hai."
+      hi: "आपको केस आगे बढ़ाने की अनुमति नहीं है। चरण अनुमति वाला व्यक्ति इसे आगे बढ़ा सकता है।"
+      mr: "तुम्हाला केस पुढे नेण्याची परवानगी नाही. टप्पा परवानगी असलेली व्यक्ती ती पुढे नेऊ शकते."
+    not_this_stage:
+      en: "{case_id} is at {here}; that move is not available from here."
+      hi-Latn: "{case_id} {here} par hai; yahan se yeh move nahi ho sakta."
+      hi: "{case_id} {here} पर है; यहाँ से यह नहीं हो सकता।"
+      mr: "{case_id} {here} वर आहे; येथून हे शक्य नाही."
+    ask_text:
+      en: "What should the query to {there} say?"
+      hi-Latn: "{there} ko query mein kya likhna hai?"
+      hi: "{there} को क्वेरी में क्या लिखना है?"
+      mr: "{there} ला क्वेरीमध्ये काय लिहायचे?"
+    stage_query_proposal:
+      en: "Send this query from {here} to {there} on {case_id}?"
+      hi-Latn: "{case_id} par {here} se {there} ko yeh query bhejein?"
+      hi: "{case_id} पर {here} से {there} को यह क्वेरी भेजें?"
+      mr: "{case_id} वर {here} कडून {there} ला ही क्वेरी पाठवायची?"
+    stage_query_sent:
+      en: "Query {query_id} sent from {here} to {there}."
+      hi-Latn: "Query {query_id} {here} se {there} ko bhej di."
+      hi: "क्वेरी {query_id} {here} से {there} को भेज दी।"
+      mr: "क्वेरी {query_id} {here} कडून {there} ला पाठवली."
+    reply_proposal:
+      en: "Reply to {query_id} with this?"
+      hi-Latn: "{query_id} ka jawab yeh bhejein?"
+      hi: "{query_id} का जवाब यह भेजें?"
+      mr: "{query_id} ला हे उत्तर पाठवायचे?"
+    replied: { en: "Reply recorded on {query_id}.", hi-Latn: "{query_id} par jawab record ho gaya.",
+               hi: "{query_id} पर जवाब दर्ज हो गया।", mr: "{query_id} वर उत्तर नोंदवले." }
+    resolve_proposal: { en: "Mark {query_id} as resolved?", hi-Latn: "{query_id} ko resolved mark karein?",
+                        hi: "{query_id} को हल हुआ मार्क करें?", mr: "{query_id} सोडवली म्हणून नोंदवायची?" }
+    resolved: { en: "{query_id} marked as resolved.", hi-Latn: "{query_id} resolved mark ho gaya.",
+                hi: "{query_id} हल हुआ मार्क हो गया।", mr: "{query_id} सोडवली म्हणून नोंदवली." }
+    which_query:
+      en: "Which query? Open ones: {ids}"
+      hi-Latn: "Kaunsi query? Khuli queries: {ids}"
+      hi: "कौन-सी क्वेरी? खुली क्वेरी: {ids}"
+      mr: "कोणती क्वेरी? उघड्या क्वेरी: {ids}"
+    no_open_query: { en: "There is no open query on {case_id}.", hi-Latn: "{case_id} par koi khuli query nahi hai.",
+                     hi: "{case_id} पर कोई खुली क्वेरी नहीं है।", mr: "{case_id} वर कोणतीही उघडी क्वेरी नाही." }
+    query_failed: { en: "The query was not saved: {why}", hi-Latn: "Query save nahi hui: {why}",
+                    hi: "क्वेरी सेव नहीं हुई: {why}", mr: "क्वेरी सेव्ह झाली नाही: {why}" }
+    cancelled: { en: "Okay, nothing was sent or changed.", hi-Latn: "Theek hai, kuch bheja ya badla nahi gaya.",
+                 hi: "ठीक है, कुछ नहीं भेजा या बदला गया।", mr: "ठीक आहे, काहीही पाठवले किंवा बदलले नाही." }
+  # the offers shown under case answers (ask: links)
+  offers:
+    customer_query: { en: "Send query to customer", hi-Latn: "Customer ko query bhejo", hi: "ग्राहक को क्वेरी भेजें",
+                      mr: "ग्राहकाला क्वेरी पाठवा" }
+    move: { en: "Move to CPA", hi-Latn: "CPA ko bhejo", hi: "CPA को भेजें", mr: "CPA ला पाठवा" }
+    to_fos: { en: "Raise query to FOS", hi-Latn: "FOS ko query bhejo", hi: "FOS को क्वेरी भेजें", mr: "FOS ला क्वेरी पाठवा" }
+    to_cpa: { en: "Raise query to CPA", hi-Latn: "CPA ko query bhejo", hi: "CPA को क्वेरी भेजें", mr: "CPA ला क्वेरी पाठवा" }
+  party_labels:
+    PRIMARY_APPLICANT: { en: "Applicant", hi-Latn: "Applicant", hi: "आवेदक", mr: "अर्जदार" }
+    CO_APPLICANT: { en: "Co-applicant", hi-Latn: "Co-applicant", hi: "सह-आवेदक", mr: "सह-अर्जदार" }

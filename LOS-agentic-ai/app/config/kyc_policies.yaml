@@ -56,6 +56,20 @@ policy_version: "1.0.0"
 signed_off: false
 
 # ---------------------------------------------------------------------------
+# SOURCES (FOS plan section 4) -- which documents feed KYC, and which extracted keys carry each value.
+# Read by app/agents/los/mapping.py (cross-document KYC) and profile_match.py (application vs documents).
+# Compared today (2026-10-08): PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT (identity) and SALARY_SLIP,
+# BANK_STATEMENT, ITR (financial -- the financial agent hands the holder / employee name over as `name`).
+# NOT compared: AADHAAR -- no Aadhaar extractor exists, so no value ever reaches KYC (open item). A type listed
+# here that the KYC agent does not know is ignored, never invented.
+# ---------------------------------------------------------------------------
+sources:
+  document_types: [PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT, SALARY_SLIP, BANK_STATEMENT, ITR]
+  name_fields: [name, employee_name, account_holder, holder_name]
+  father_name_fields: [father_name, guardian_name]
+  pan_fields: [pan_number, pan]
+
+# ---------------------------------------------------------------------------
 # NAME
 # ---------------------------------------------------------------------------
 # Scores come from the deterministic matcher in app/services/name_match.py:

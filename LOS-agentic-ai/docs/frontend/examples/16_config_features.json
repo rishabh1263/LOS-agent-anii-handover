@@ -16,7 +16,16 @@
       "party_recognition": false,
       "co_applicant_identity": false,
       "llm_router": false,
-      "emphasis": false
+      "emphasis": false,
+      "language_lock": false,
+      "professional_format": false,
+      "kyc_table": false,
+      "readiness_report": false,
+      "snapshot_qa": false,
+      "count_answers": false,
+      "handoff_note": false,
+      "smart_upload": false,
+      "case_timeline": false
     },
     "endpoints": {
       "copilot": "/api/v1/fos/copilot",

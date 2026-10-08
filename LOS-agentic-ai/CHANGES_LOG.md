@@ -1228,3 +1228,315 @@ documents/view), examples/01..14, widget.html; contract test tests/integration/t
 - Takes effect at the next server start. Undo: restore .env from the backup.
 - docs/frontend/API_REQUEST_RESPONSE.md: every new API's request + response (generated from real responses of the
   contract test; 17 examples incl. /fos/actions, /fos/config, an error, streaming, the document link).
+
+## Case list grouped by applicant + typed open fixes (user, 2026-10-07: "list all cases ... with app id, ek app id ke multiple case")
+- workspace.list_view: the list is grouped by applicant ("🆔 APP-x -- Rahul S. (2 cases)", rows under it), numbering runs
+  across groups; presentation.applicant_groups = [{applicant_id, applicant_name, case_count, case_ids}] (case_list unchanged).
+  Labels group / group_one / group_many / row in applicant_agent.yaml case_workspace.labels. Never asks for app/case id:
+  the list is the caller's live grants (APPLICANT grant = all that applicant's cases).
+- Fix: "2 kholo" / "1 wala case open karo" / "doosra wala case kholo" did not open (the ordinal reader needed the bare
+  number); open / case / filler words (new config phrases.filler) are dropped first. Switch words kept ("doosra").
+- Fix: /fos/copilot/stream declared no request body, so Swagger "Try it out" sent none -> 422 JSONDecodeError; it now
+  declares the CopilotRequest body + 2 examples.
+- tests/conftest.py: Phase 3 flags pinned to "false" (not deleted) -- ocr.py calls load_dotenv() mid-test and put the .env
+  flags back (cause of the verify_e2e / families failures in regression half 1).
+- Tests: test_step6mvp_case_workspace.py +1 (14 passed); step6* + frontend contract 186 passed.
+- Patch: runs/patches/step6-mvp-grouped-list.patch
+
+## Case summary: case ids + point-wise (user, 2026-10-07: "case id chahiye latest ke badle", "format clean point wise")
+- portfolio.summarise: each per-case line is led by its CASE ID (was "Latest -- / Previous --"); focused answers
+  ("latest case", "pichla case") carry the id too. Structured `position` LATEST / PREVIOUS unchanged.
+- portfolio.pointwise + agent.py: with COPILOT_RESPONSE_STYLE on, the summary is one block per case
+  ("**1. CASE-x** · Personal Loan" + bullets Status / Documents / KYC / Blocking / Next); labels in
+  applicant_agent.yaml response_style.portfolio. Off: the "Across N cases: ..." contract stands.
+- Product rule changed: the caller's OWN case ids may appear in the sentence (they used to be structured-only);
+  another applicant's never do. test_copilot_applicant_scope updated to say so.
+- test_fos_api: the generic every-action tests skip the flagged workspace / case actions (own suites);
+  /fos/actions test asserts the flag-aware list both ways. These passed before only because .env flags leaked in.
+- Tests: portfolio 11, applicant_scope / routing / case_history / phrasing / fos_api: 152 + 68 passed.
+- Patch: runs/patches/portfolio-case-ids-pointwise.patch
+
+## Pending / verify list: REVIEW documents + KYC verdict listed (user, 2026-10-07: "review yaa fail hai toh aana chahaiye")
+- document_actions.build: a REVIEW document goes to "upload again" with its reason (config
+  chatbot.document_actions.review_needs_reupload: true; was "Under review (no action needed)"); a party's KYC
+  REVIEW / FAIL verdict is a line of its own, first, with its reason (kyc_status_line: true) -- only where no
+  field-level KYC mismatch already says it. A document is listed once (no longer both pending and to fix).
+  "Under review" now means still being verified (UPLOADED / PROCESSING). languages.yaml: docact_kyc_status_*.
+- Applies to "verify karna hai" (6f), "kya baaki hai", "pending documents", "kya upload karu".
+- test_step5a_emphasis: flags pinned "false" (an upload's load_dotenv put a deleted flag back from .env).
+- docs/STEP10_SMARTER_BOT.md: STEP 10 spec saved (build after FINISH MODE).
+- Tests: +1 in test_step6f_diagnose.py; document-action / emphasis / co-app / signature suites 77 passed;
+  the 13 related files 535 passed before the two fixes above.
+- Patch: runs/patches/pending-review-kyc-listed.patch
+
+## Inside an opened case: upload + ask anything (user, 2026-10-07: "docu upload, case related kuch bhi ... makkhan")
+- Upload without applicant_id / case_id goes to the case opened in the workspace (workspace.active_case, re-authorized;
+  ownership still checked with write). No open case -> the same 422 as before.
+- Routing fixes found end to end (recorded in evals/router_misses.yaml where a router tool exists):
+  "kyu atka hai?" = why the CASE is stuck (no longer "why" of the last answer); "kaunse documents upload hue?" =
+  uploaded list (SUBMITTED phrases); "CPA mein kab jayega?" = readiness (PROCEED + a named stage; normalised forms);
+  "co-applicant hai kya?" / "is there a co-applicant?" = their profile / "no co-applicant" (new EXISTS concept, read on
+  the message as typed). Style: KYC PASS gets ✅ and no "fix the mismatch" step (next_step per recorded state).
+- Tests: tests/integration/test_ask_anything_in_case.py; with related suites 82 passed.
+
+## FOS plan 1.1 -- implausible amounts (TRIGGER WAS DEMO DATA: the "loan amount: Rs 5" was entered for a demo;
+## kept as production protection)
+- Intake: app/agents/applicant/plausibility.py + chatbot.plausibility config. Create (FOS route, before the applicant
+  is written) and application.create / application.update refuse a figure below its minimum or with a unit word
+  (lakh / cr / k ...) -> 422 AMOUNT_IMPLAUSIBLE with a clear message. ALL AMOUNTS ARE IN RUPEES (documented in
+  docs/frontend/FRONTEND_API.md section 0a; the backend never converts lakhs).
+- Chat: a stored figure below its minimum is never said -- "The recorded loan amount needs verification ..." (also in
+  the case pick label).
+- scripts/report_implausible_amounts.py (read-only). Dev DB: 178 cases, none below minimum, 11 legacy test cases with
+  no amount.
+- GET /ready -> `build` {phase, step, commit, chatbot_flags (live), counts}; FRONTEND_API.md section 0: point the
+  frontend at http://127.0.0.1:8010 and verify with /ready.
+- Tests: tests/integration/test_fos_plan_1_1_amounts.py 10; with fos_api / frontend contract / workspace 96 passed.
+- Patch: runs/patches/fos-plan-1.1-and-ask-anything.patch
+
+## FOS plan 1.2 + 1.3 -- "my cases" everywhere, and "the other case"
+- 1.2 ROOT CAUSE: the chat widget sends general chat to the UNIVERSAL /api/v1/copilot/query, which has no case
+  workspace -- "all case ka list" was a GUARDRAIL_BLOCKED bulk-data refusal, "my cases" a "can't share" reply.
+  Now, with COPILOT_CASE_WORKSPACE on, a message that only asks for the list gets the caller's OWN list there too
+  (live grants, each case re-authorized). Another customer's cases are still refused.
+  Wording: a config list_rule (case noun + cue + nothing but list words) adds "all case ka list", "give a list of
+  case", "sab case dikhao", "mere kitne case hai" ...; a topic word (status, KYC, documents) never makes a list.
+- 1.3: "dusre case ka details do" answered the OPEN case. Now (phrases.other_case): one other case -> switched to and
+  answered there; several -> "Which one did you mean?" (never the open case); bare "dusra case" = the old switch.
+- evals/golden/fos_plan_section1.yaml started (16 cases: 1.1-1.3 + the ask-anything fixes).
+- Tests: tests/integration/test_fos_plan_1_2_case_list.py; with workspace / scope / portfolio / policy lock 150 passed.
+- Patch: runs/patches/fos-plan-1.2-1.3.patch
+
+## FOS plan 1.4 - 1.8 (+ family evals fixed on the way)
+- 1.4 ROOT CAUSE: the universal /copilot/query with no case_id answered "None of the application details are
+  recorded" (no case chosen, not an empty case). Now: the opened workspace case, else the caller's only case, else a
+  case question gets "Which case is this about?" + the list. Also: "mere case ka details" no longer CLOSES the open
+  case (a list phrase counts only when every other word is a list word); "details batao" = everything recorded
+  (chatbot.bare_details, incl. the normalised "tell me details").
+- 1.5: "3 pending" vs "7 upload buttons" = 3 required + 4 optional. case_state (the one count) adds
+  documents_optional / documents_optional_missing; every checklist upload action carries requirement REQUIRED /
+  OPTIONAL and a label "(optional)" (chatbot.document_counts.labels).
+- 1.6: a garbled message holding a work word (chatbot.domain_words: list, details ...) is never "outside what I can
+  help with"; a document named right before a case word ("mere Aadhar case ka details") asks "Do you mean the Aadhaar
+  details, or this case's details?" (chatbot.ambiguity).
+- 1.7: chips follow the turn: per intent the chips about the topic just answered are dropped and that topic's next
+  questions lead (chatbot.suggestions; frontend.contextual_suggestions).
+- 1.8: the case opened in the workspace wins over a case_id sent on every request, on both endpoints (the stale id is
+  never read); without an opened case the sent id is used as before. FRONTEND_API.md 0b/0c: the widget uses ONE
+  endpoint, /api/v1/fos/copilot; the case_id rule.
+- Family evals fixed (were failing): mixed_hinglish (a definition tail was taken by the case-stage rule first --
+  the MIXED split now runs before it), verify_followups ("kyun fail hua?" -> document_why now carries the recorded
+  reason), rag_conversation ("Tell me more." after a knowledge answer -> "What are the rules for <topic>?", not
+  "... in detail" which read as document DETAILS). Also a NameError introduced in the 1.6 hook (500) -- fixed.
+- Tests: tests/integration/test_fos_plan_1_{2,5,6,7,8}*.py; golden evals/golden/fos_plan_section1.yaml (28 cases).
+- Patch: runs/patches/fos-plan-1.4-1.8.patch
+
+## FOS plan sections 2 + 3 (approved) -- language lock + professional format
+- answering/language_lock.py (COPILOT_LANGUAGE_LOCK; config chatbot.language_lock, on in dev): reply_language /
+  response_language / language lock EVERY text of the reply on both endpoints (agent answer, workspace labels as
+  {language: text} maps, style next steps, safety replies, case-action labels, field sentences via phrasing).
+  Nothing selected -> previous wording (`default` key of a label map).
+- answering/professional.py (COPILOT_PROFESSIONAL_FORMAT; config chatbot.professional_format, on in dev, emojis false):
+  applied last on both endpoints: no pictograph in any field, emoji rows -> "- " bullets, the closing hint -> one
+  "**Next step:**" line, answer_plain always. Facts untouched (IDs, ₹, "FOS → CPA").
+- Universal /copilot/query parity: 6h safety screen + the whole workspace (open by number, switch, exit, other case)
+  + default stage FOS for a no-case knowledge question. Only 6i case-action buttons stay FOS-envelope features.
+- CHATBOT_SPEC section 1 amended; FRONTEND_API.md 0d/0e; examples regenerated in the production format (the flows
+  test turns the two flags on; the shared `demo` fixture keeps the emoji style the section tests assert).
+- Tests: test_fos_plan_2_language_lock.py, test_fos_plan_3_professional_format.py; golden fos_plan_section2_3.yaml.
+- Eval files pass one by one (9/9); run all together in one process they hang -- open item, investigated in 9.7.
+- Patch: runs/patches/fos-plan-2-3-language-lock-format.patch
+
+## FOS plan section 4 -- name matching across documents + the KYC table
+- WHICH DOCUMENTS ARE COMPARED TODAY: PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT, SALARY_SLIP, BANK_STATEMENT, ITR (the
+  financial agent hands account_holder / employee_name over as `name`), + the application form (profile_match).
+  NOT compared: AADHAAR -- no Aadhaar extractor exists (open item). Now config: kyc_policies.yaml `sources`
+  (document_types, name_fields, father_name_fields, pan_fields), read by mapping.py and profile_match.py; code
+  defaults unchanged; same matchers (name_match, date/PAN normalisers, address comparator).
+- answering/kyc_table.py (COPILOT_KYC_TABLE, on in dev): every KYC answer, both endpoints, gets per party
+  check | document | on document | on application | result | reason -- recorded findings only, masked per policy,
+  row result from the existing profile-match comparator -- and the likely odd one out (the one document disagreeing
+  with >= 2 that agree) with its fix. presentation.kyc_table for the frontend.
+- Tests: test_fos_plan_4_kyc_table.py (4).
+
+## FOS plan sections 5 + 7.1 (first half) -- readiness, ask anything
+- answering/readiness_report.py (COPILOT_READINESS_REPORT, on in dev): every requirement the FOS gate evaluates --
+  application details, applicant documents, co-applicant documents (when required), signature (when the rule applies),
+  KYC per party per cpa_gate check (advisory while LOS_FOS_CPA_KYC_RULE is off) -- PASS/PENDING/FAILED/REVIEW with
+  reason and fix, "CPA Readiness: X of Y checks passed", failing items fastest-unblock first (config unblock_order),
+  presentation.progress. READY = the live gate's verdict only (stage_gate.evaluate_live); a gate blocker the groups
+  did not name is listed under "Other"; a ready case says "A person must confirm the move."
+- Routing: the next stage named + a need/pending/blocking cue = READINESS ("CPA ke liye kya chahiye", "what is
+  blocking CPA", "what do I need for CPA"); a definition ("CPA kya hai") never (chatbot.readiness_report.question).
+- Tests: test_fos_plan_5_readiness.py (12).
+- Patch: runs/patches/fos-plan-4-5-kyc-table-readiness.patch
+
+## FOS plan section 6 -- ask-anything engine (CPU design)
+- Already in place and kept: 6.1 dialogue state + 6.2 deterministic follow-up rewriting (conversation/state.py,
+  followup.py; the original and the resolved question are in `followed_up`), 6.3 fast lane -> bank -> router,
+  6.7 glossary both ways + correction recovery ("nahi, mera matlab ..."), 6.8 phrasing variants.
+- 6.4 / 6.5 / 11d CASE SNAPSHOT QA (capabilities/snapshot_qa.py, COPILOT_SNAPSHOT_QA, on in dev): inside a case, a
+  question no intent fits is answered by the model ONLY from the case's masked fact sheet (application, applicant,
+  documents + reasons + dates, extracted fields, KYC, counts), citing keys; FACT CHECK: every number / ID / date /
+  status / document name must be on the sheet and every key must exist, else the answer is DISCARDED -> "This is not
+  recorded on the case." + where it would come from (config answerability, e.g. tenure / EMI / CIBIL at Credit). One
+  model call, timeout 3 s, RAM guard; model down -> nothing invented. New intent CASE_SNAPSHOT. Ownership first.
+- 6.6 coverage fixes from the probe: "PAN pe DOB kya hai" on a rejected PAN said "No PAN recorded" (wrong data) ->
+  "the PAN is on this case but it is rejected ..."; count questions counted from the store (answering/counts.py,
+  COPILOT_COUNT_ANSWERS); the case header kept on replaced answers.
+- 6.7 "ye nahi poocha" / "that's not what I asked" -> one question back with options (chatbot.misunderstood),
+  read before the follow-up rewrite.
+- Time questions ("kal wala verify hua", "kitne din se atka hai", "case kab bana tha") -> section 7.3 timeline.
+- Tests: test_fos_plan_6_snapshot_qa.py (8), test_fos_plan_6_coverage.py (5); with sections 4-5 + document suites 67.
+- Patch: runs/patches/fos-plan-6-ask-anything.patch
+
+## FOS plan section 7 -- features (deterministic, CPU)
+- 7.1 CPA HANDOFF NOTE (answering/handoff_note.py, COPILOT_HANDOFF_NOTE): "handoff note banao" -> only when the live
+  FOS gate passes: case + parties (masked), loan details, documents + status, KYC table, exceptions (advisory items)
+  and overrides (recorded maker-checker approvals), generated time, officer; in chat + GET /api/v1/fos/handoff-note
+  (md / html / pdf -- PDF via the installed PyMuPDF, no new dependency); not ready -> refused with X / Y and the next
+  fix (409 on the file); someone else's case 403; every note / download audited. Readiness (7.1 first half) above.
+- 7.2 SMART UPLOAD (capabilities/smart_upload.py, COPILOT_SMART_UPLOAD): an upload inside a case with no ids and no
+  document type -> per file "This looks like the applicant's PAN. Filed under Applicant > PAN. <verdict>" (existing
+  classification; whose = name on the document vs the parties by the existing name matcher); unsure -> ONE question
+  (UPLOAD_TYPE_UNKNOWN with slots / UPLOAD_PARTY_UNSURE with an upload-again action); nothing moved silently.
+- 7.3 TIMELINE + TURNAROUND (capabilities/timeline.py, COPILOT_CASE_TIMELINE): dated timeline (created, uploads,
+  KYC runs, stage events), days in the current stage (never reset by a re-recorded event) vs config targets_days
+  (FOS 3), "case kab bana tha", "kal / aaj wala verify hua?"; past target -> flagged in the case-list row and on open
+  with the main blocker.
+- Tests: test_fos_plan_7_1_handoff_note.py (3), test_fos_plan_7_2_smart_upload.py (4), test_fos_plan_7_3_timeline.py (6).
+
+## FOS plan section 8 -- frontend contract
+- FRONTEND_API.md: endpoints (handoff-note, /ready), section 11 (KYC table, readiness report + progress, handoff
+  note, long-tail answers, smart upload, timeline, counts, recovery). /fos/config `features` adds language_lock,
+  professional_format, kyc_table, readiness_report, snapshot_qa, count_answers, handoff_note, smart_upload,
+  case_timeline (+ endpoints.handoff_note). Examples 18-23 generated (production format, English selected);
+  docs/frontend/openapi.yaml regenerated from the running app (15 paths).
+- Patch: runs/patches/fos-plan-7-8.patch
+
+## FOS plan 9.x / 9b (backfilled entry) -- errors, golden gate, officer tools, /ready
+- `app/api/errors.py classify`: DB down -> 503 CASE_STORE_UNAVAILABLE, timeout -> 504; /ready shows the build
+  marker, migrations_applied and gated_migrations_pending. Golden runner + gate (`evals/golden/run.py`, `gate.py`,
+  baseline recorded 2026-10-08: all 9 eval files PASS, golden 100%). Officer tools (what-if, review on open,
+  status tables, customer message draft, visit checklist) -- flags COPILOT_WHAT_IF ... COPILOT_VISIT_CHECKLIST.
+
+## MASTER SPEC v2 (docs/MASTER_FINAL_SPEC.md) -- sections 2, 8, 3
+Patch: `runs/patches/master-2-8-3-scope-contract-list.patch`.
+- **2 Login and scope.** FINDING: `/auth/login` with app_id + case_id, and `/case/fetch`, GRANTED the caller any
+  case they named (a scope bypass). Now login is username/password only; the ids are accepted (no 422) but only
+  preload a case the caller already holds; `/case/fetch` runs the ordinary ownership check (403 otherwise). The
+  old self-grant only behind `LOS_LOGIN_SELF_GRANT_LEGACY` (default off, one release). Single scope rule:
+  `access_grants` by JWT subject (written by `record_ownership` on create). In chat: an applicant / case /
+  co-applicant id or a name lists or opens within scope; unknown and not-yours get the same neutral line
+  (`case_workspace.labels.not_found_*`); "is applicant ke case" lists the open case's applicant's cases.
+- **8 Response contract.** `answering/contract.py` + `app/config/copilot_reply.yaml`, flag
+  `COPILOT_MD_TTS_CONTRACT` (config default ON; false = the old envelope for one release). Every reply of
+  /fos/copilot, its stream and /copilot/query is `{request_id, markdown, tts}`. Links from ONE registry
+  (`action:open_case?id=`, `list_more`, `upload`, `view_document`, `copy?ref=draft-1`, `handoff_note` ...) and
+  `ask:` links; posted back as `action_link`, mapped by the registry, scope re-checked by the ordinary route. The
+  context the reply no longer carries is remembered per (user, chat_id); `new_chat: true` starts fresh. tts: from
+  the markdown only -- answer line, list summary by status, next step, max 3 sentences, ids / amounts / dates
+  spoken (config per language).
+- **3 Case list at scale.** `capabilities/case_list.py` + `app/config/case_list.yaml`, flag
+  `COPILOT_CASE_LIST_PAGING` (config default ON). SQL page + separate count (`list_granted_cases(limit, offset,
+  order, filters)`, `count_granted_cases`; no schema change -- the access_grants primary key covers the subject),
+  30 s per-user status cache, filters / search / sort, NL phrases ("top 5", "last 3", "sabse purane", "KYC
+  wale", "aur dikhao", "agle 5"), one page per reply with "Showing x-y of N", row numbers across pages. Panel
+  endpoint `GET /api/v1/fos/cases` (same scope, size capped at 20).
+- Tests: test_master_2_login_scope (17), test_master_8_contract (15), test_master_3_case_list_scale (10);
+  related sets 743 + 116 passed.
+
+## MASTER SPEC v2 -- sections 4, 5, 6, 7
+Patch: `runs/patches/master-4-7-followups-coverage-kyc-faq.patch` (contract.py / case_list.py included whole).
+- **4 Follow-ups.** Already built; verified end to end under the markdown + tts reply (open by number / id /
+  name, case line first, review on open, other case, "kyu?", "aur X?", exit, new chat). The follow-up as typed
+  and as rewritten is LOGGED (masked) now that the reply no longer carries `followed_up`. Fix: the contract used a
+  stale `answer_markdown` and lost the review appended later.
+- **5 Ask anything.** Multi-question: "PAN aur bank statement ka status" -- bare nouns share the last part's
+  predicate (`chatbot.compound.shared_predicate_linkers`), and two documents asked alike are two questions. A
+  configured document code (`ADDRESS_PROOF`) is never shown raw. tts reads only the answer body (not the links),
+  a "name: STATUS" row only by a configured status word.
+- **6 KYC A / B.** Per party: A application form vs documents, B documents vs each other -- two tables; the odd
+  one out. KYC failed / in review: "Not ready for CPA. KYC is not complete." first, reasons A then B, "Next step:
+  Ask the customer to upload correct documents that match the application form (Applicant: Bank Statement)", a
+  link to draft the customer message. Wording in `chatbot.kyc_table.labels` / `readiness_report.labels` (per
+  language; the code defaults removed). Ready line now "Ready for CPA. A person must confirm the move." A recorded
+  KYC failure counts as a KYC issue in the case list and FAQ even while LOS_FOS_CPA_KYC_RULE is off.
+- **7 FAQ.** `app/config/faq.yaml` + `capabilities/faq.py`, flag `COPILOT_FAQ` (config default ON): categories,
+  per-language questions, `send`, conditions, priority, boosts; on "help / kya pooch sakta hoon" and on case
+  open (after the review); a golden test sends every item shown in each state.
+- Tests: test_master_4 (7), _5 (11), _6 (5), _7 (9); old FOS-plan KYC / readiness tests updated to the spec
+  wording.
+
+## MASTER SPEC v2 -- sections 11, 9, 14 (finished) and 16 / 19 (abuse rule, completed)
+Patch: `runs/patches/master-11-9-14-16-realtime-features-config-abuse.patch` (new files included whole).
+- **11 Real-time.** `answering/realtime.py`: typing at once, one generic status only when slow, markdown in deltas,
+  `final` = {request_id, markdown, tts}; newer message / stop cancels; replay by request_id (own subject);
+  Idempotency-Key never reruns; changes since last look on open + pushed via GET /copilot/updates; greeting.
+- **9 Features** through markdown + tts only (review on open, fix-it / what-if, upload answer, timeline, customer
+  message, visit checklist, handoff-note link when ready, checks passed X of Y).
+- **14 Nothing hardcoded.** Scan for user-facing sentences in copilot code (ratchet baseline) + config-change tests
+  (page size 7, new synonym, tts limit, link label, reply wording).
+- **16 / 19 Abuse rule** (was written but NOT wired; finished now). `capabilities/abuse_guard.py` +
+  `app/config/abuse_lexicon.yaml`, flag `COPILOT_ABUSE_GUARD` (config default ON). Runs FIRST on /fos/copilot,
+  /copilot/query and the stream: no case read, no tool, no model, nothing remembered or replayed. Warning with the
+  word bold + masked (**m*******d**); tts = warning only. Stream: no status event, the warning as ONE delta.
+  Cooldown after repeats; audit gets masked word + severity + count only. Every published markdown is masked and
+  the tts drops a flagged word (generated drafts / notes / quoted text); follow-up log lines masked.
+  FIX: `screen()` deadlocked (held the lock, then re-read config under the same non-reentrant lock) -> RLock.
+- Tests: test_master_9 / 11 / 14 (21), test_master_16_abuse (29); related 34 files 480 passed, 2 skipped (-n 2).
+- Not yet on the shared abuse path (open): voice text is the same /fos/copilot message (covered); file names,
+  import text, exports and history writers are not yet routed through `abuse_guard.mask_text`.
+
+## MASTER SPEC v2 -- sections 15 (product flow), 17 (guardrails), 12 (self-check), 10 (frontend), sync pass
+Patch: `runs/patches/master-15-17-12-10-product-flow-guardrails-selfcheck.patch` (new files whole).
+`docs/frontend/MASTER_FINAL_SPEC (2).md` == `docs/MASTER_FINAL_SPEC.md` (byte-identical); gap table: `docs/GAP_ANALYSIS.md`.
+- **15 Product flow** (`capabilities/product_flow.py`, `app/config/product_flow.yaml`, flag `COPILOT_PRODUCT_FLOW`,
+  config default ON): stage -> Created / Review / Disbursal -> Pending / Done (config); home table on
+  `GET /fos/cases` (columns, labels, group / status filters, empty / loading texts; every older row field kept);
+  the follow-up "particular case?" Yes/No -> "Pending or Done?" -> list -> pick -> "What do you want to know?";
+  quick buttons `GET /fos/quick-actions`; Download Excel / Doc / PDF + Show in UI links on case and list answers;
+  typed "excel download karo"; notifications (`GET /fos/notifications`, in the greeting).
+- **15.5 Form** (`capabilities/case_form.py`, flag `COPILOT_CHAT_CASE_CREATE`, ON): ONE form definition (fields from
+  `CreateCaseRequest`, rules in config) for `GET /fos/form-schema`, `GET|PUT /fos/cases/{id}/form` and the chat.
+  Chat creation: required fields one by one -> summary -> Confirm -> the UI's own `create_case` (split from its
+  route). A question typed mid-draft parks it (nothing lost; "Create New Case" resumes). Field edits in an open
+  FOS case: proposal -> Confirm -> saved + audited + activity log. "This case still needs: ..." on open.
+- **15.3 Downloads / import** (`capabilities/exports.py`, `importer.py`): xlsx (openpyxl), docx (stdlib zipfile,
+  no new dependency), pdf (PyMuPDF, the handoff note's writer); one content builder, masked (PII + abuse), signed
+  short-lived link bound to the caller, scope re-checked on open, audited, rate-limited. Excel import: row-by-row
+  plain errors, nothing written until Confirm (UI routes and in chat).
+- **15.4** chat history `GET /fos/chats[/{id}]` (existing masked + encrypted store; retention = the one existing
+  setting), activity log `GET /fos/cases/{id}/activity` (case events, who + channel), notifications.
+- **15.1 Login**: `stage` validated (422 plain message) and echoed. `/copilot/query` needs no applicant id.
+- **17 Guardrails**: input guardrail now runs FIRST on `/fos/copilot` (before any case read), same refusals as
+  `/copilot/query`; own-list bulk phrasing allowed, any list naming other people refused (`case_list.yaml
+  other_people`); refusals carry no case links. Attack suite `test_master_17_attack_suite.py`: 130 attacks x 2
+  endpoints (case open on /fos/copilot), 0 cross-user / PII / stage-change / leakage.
+- **SYNC / OVERLAP FIXES**: two abuse cooldowns -> one (safety defers to abuse_guard); `/copilot/query` ran the
+  safety screen twice (double rate-limit) -> once; history retention not duplicated; one workspace per chat_id
+  (the open case and drafts leaked across chats); `/ready` now reports the master-spec flags.
+- **Found by the self-check and fixed in code**: YAML booleans (`yes`/`no` keys and list items), FAQ "how to"
+  starting a draft, out-of-scope with no case open, unknown named person, stage-move requests now said plainly,
+  dead "[Upload]" chip text, list voice naming only the first item, help-menu voice, edit-cancel wording,
+  "Case case ending" voice collision, "500000.0" / "PERSONAL_LOAN" shown raw.
+- **12 Self-check**: 30 conversations / 73 turns, 0 wrong, clarify rate 2.7% (`test_master_12_selfcheck.py`).
+- **Also fixed (earlier sessions, half-done)**: CASE_SNAPSHOT intent unmapped (query type + fields); endpoint
+  inventory test missing the section-11 routes; policy tests used amount 0 (refused since FOS plan 1.1);
+  "when did it move to CPA" read as readiness (past tense now excluded, config `not_with`).
+- **Tests**: 99 related files, **2220 passed, 4 skipped, 1 xfailed, 0 failed** (-n 2, fake model).
+- **10 Frontend**: `docs/frontend/FRONTEND_GUIDE.md` (plain-language guide for the frontend team), widget (stage at
+  login, quick buttons, downloads, Show in UI), `openapi.yaml` regenerated (34 paths, `scripts/export_frontend_openapi.py`).
+
+## Owner requests 2026-10-08 (afternoon): everything ON, recent 5, FOS <-> CPA workflow
+- **All flags ON**: `.env` now also sets LOS_STAGE_GATE_IN_SERVICE, LOS_FOS_CPA_KYC_RULE, LOS_SIGNATURE_MANDATORY,
+  LOS_COAPP_MANDATORY_DOCS = true (backup `.env.bak-before-gate-flags`); signature rule activation_date
+  2026-10-08 (without it the flag fails closed on every case). LOS_LOGIN_SELF_GRANT_LEGACY stays OFF (scope bypass).
+  Master fixture mirrors this. 153 master tests passed with everything ON.
+- **Recent 5**: "my cases" = the officer's 5 newest (case_list default_sort recent; old grouped list page_size 10->5).
+  Counts asked for explicitly (`ListQuery.with_counts`) -- FIX: the greeting had said "none need action".
+- **FOS <-> CPA workflow** (`capabilities/stage_flow.py`, product_flow.yaml `stage_flow`): customer query listing every
+  FOS problem (queries.yaml target CUSTOMER; the raiser may resolve it); Move to CPA through the gated transition;
+  CPA -> FOS and FOS -> CPA queries; reply / resolve by query id. Every step proposal + Confirm; offers shown under
+  case answers. Stage-move note now only for approve / reject / disburse / skip-a-check.
+- Tests: test_master_15b_stage_flow (7); self-check updated.

@@ -209,6 +209,13 @@ def _broad(said: str) -> Question | None:
     """A request for everything recorded, or None."""
     if _EVERYTHING.search(said):
         return Question(ALL)
+    # "details batao" / "details do" ALONE (FOS plan 1.4): inside a case, everything recorded on it
+    # (applicant_agent.yaml chatbot.bare_details -- whole message only)
+    from app.agents.applicant import config as _config
+
+    bare = " ".join(re.sub(r"[^\w\s]", " ", said.lower()).split())
+    if bare in {" ".join(str(p).lower().split()) for p in _config.chatbot("bare_details").get("phrases") or []}:
+        return Question(ALL)
     if _MY_DETAILS.search(said) and not _ABOUT_APPLICATION.search(said) \
             and not _DOCUMENT_WORDS.search(said):
         return Question(ALL_APPLICANT)
@@ -369,6 +376,24 @@ def _readable(value: str) -> str:
     return " ".join(w.capitalize() for w in str(value).replace("_", " ").split())
 
 
+def _implausible(field: str, value: Any) -> str | None:
+    """
+    The configured label when a recorded amount is below the field's plausible minimum
+    (applicant_agent.yaml chatbot.plausibility; FOS plan 1.1: "Rs 5" on a Home Loan), else None.
+    """
+    from app.agents.applicant import config
+
+    rules = config.chatbot("plausibility") or {}
+    minimum = (rules.get("minimum") or {}).get(field)
+    try:
+        amount = float(re.sub(r"[,\s₹]|rs\.?|inr", "", str(value or ""), flags=re.I))
+    except ValueError:
+        return None
+    if minimum is not None and 0 <= amount < float(minimum):
+        return str(rules.get("label") or "Amount needs verification")
+    return None
+
+
 def _values(results: dict[str, Any]) -> dict[str, Any]:
     """The recorded values, from the tool results -- only registry fields."""
     from app.agents.applicant.copilot.answering.answer import _get
@@ -399,6 +424,9 @@ def _shown(field: str, value: Any) -> str | None:
         shown = sensitivity.mask_identifiers(shown)   # a number typed into a text field
     if field in ("loan_amount", "declared_monthly_income", "declared_monthly_obligations",
                  "property_value"):
+        implausible = _implausible(field, value)
+        if implausible:
+            return implausible                   # never "₹5" for a loan: the figure is flagged, not shown
         return _rupees(value) or shown
     if field == "product":
         return _readable(shown)
@@ -419,6 +447,13 @@ def _said(field: str, value: Any, language: str | None = None) -> str:
     shown = _shown(field, value)
     if shown is None:
         return f"For your security, I can't show your {label(field)} here."
+    if _implausible(field, value):
+        # a flagged amount gets its own sentence -- never slotted into "You applied for {value}."
+        from app.agents.applicant import config
+
+        sentence = (config.chatbot("plausibility") or {}).get("sentence") \
+            or "The recorded {field} needs verification; the figure on the case does not look right."
+        return str(sentence).format(field=label(field))
     # THE SAME VALUE, in one of several sentence shapes (phrasing.py), chosen
     # by the turn's seed -- and in the language the question was typed in.
     varied = phrasing.field_sentence(field, str(shown), language=language,

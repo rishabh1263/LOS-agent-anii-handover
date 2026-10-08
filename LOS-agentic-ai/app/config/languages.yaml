@@ -1007,6 +1007,14 @@ templates:
     hi: "आपके KYC सत्यापन पर ध्यान देना ज़रूरी है:"
     hi-Latn: "Aapke KYC verification par dhyan dena zaroori hai:"
     mr: "तुमच्या KYC पडताळणीकडे लक्ष देणे आवश्यक आहे:"
+  docact_kyc_status_REVIEW:
+    hi: "KYC की समीक्षा बाकी है"
+    hi-Latn: "KYC review mein hai"
+    mr: "KYC पुनरावलोकनात आहे"
+  docact_kyc_status_FAIL:
+    hi: "KYC फेल हुआ है"
+    hi-Latn: "KYC fail hua hai"
+    mr: "KYC अयशस्वी झाले आहे"
   docact_reupload_heading:
     hi: "कृपया सही दस्तावेज़ अपलोड करें:"
     hi-Latn: "Kripya sahi documents upload karein:"

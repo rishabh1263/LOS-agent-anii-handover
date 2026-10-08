@@ -1,0 +1,710 @@
+{
+  "request": {
+    "action": "CUSTOM_QUERY",
+    "message": "handoff note banao",
+    "reply_language": "en"
+  },
+  "response": {
+    "request_id": "<request_id>",
+    "applicant_id": "APP-F2D29DB3305E",
+    "case_id": "CASE-DA842B2E38A9",
+    "action": "CUSTOM_QUERY",
+    "intent": "HANDOFF_NOTE",
+    "answer": "CASE-DA842B2E38A9\nA handoff note is made once the case is ready for CPA. Not ready yet: 2 of 4 checks passed.\n**Next step:** Upload the Address Proof.",
+    "query_type": "CASE_FACT",
+    "case_state": {
+      "case_id": "CASE-DA842B2E38A9",
+      "product": "PERSONAL_LOAN",
+      "stage": "APPLICATION_CREATED",
+      "readiness": "NOT_READY",
+      "documents_collected": 1,
+      "documents_required": 3,
+      "documents_satisfied": 1,
+      "documents_missing": 2,
+      "documents_under_review": 0,
+      "documents_failed": 0,
+      "documents_optional": 1,
+      "documents_optional_missing": 1,
+      "collection_progress": 33,
+      "applicant_fields_missing": []
+    },
+    "suggested_questions": [
+      "What should I do next?",
+      "What is the KYC status?",
+      "What can be used as address proof?",
+      "Why is address proof required for this application?"
+    ],
+    "available_actions": [
+      {
+        "action": "UPLOAD_DOCUMENT",
+        "label": "Upload a document",
+        "enabled": true
+      },
+      {
+        "action": "GET_DOCUMENT_CHECKLIST",
+        "label": "What is still needed",
+        "enabled": true
+      },
+      {
+        "action": "GET_VERIFICATION_STATUS",
+        "label": "Document verification status",
+        "enabled": true
+      },
+      {
+        "action": "MARK_FOR_REUPLOAD",
+        "label": "Ask for a document again",
+        "enabled": false,
+        "invoke": {
+          "action": "CUSTOM_QUERY",
+          "message_template": "Mark the {slot} for re-upload."
+        },
+        "disabled_reason": "No document is in a state that needs collecting again."
+      },
+      {
+        "action": "CHECK_CPA_READINESS",
+        "label": "Check readiness for handoff",
+        "enabled": true
+      },
+      {
+        "action": "GET_CASE_360",
+        "label": "Full case view",
+        "enabled": true
+      }
+    ],
+    "document_highlights": [],
+    "clarification_required": null,
+    "followed_up": null,
+    "context": {
+      "conversation_id": "a4248774d3be48cab97ca9c13ffc0a16",
+      "case_id": "CASE-DA842B2E38A9",
+      "last_query_type": "CASE_FACT",
+      "last_intent": "READINESS",
+      "last_slot": "ADDRESS_PROOF",
+      "last_documents": [
+        "ADDRESS_PROOF",
+        "BANK_STATEMENT"
+      ],
+      "last_document": null,
+      "last_field": null,
+      "last_aspect": null,
+      "last_subject": null,
+      "last_task": "READINESS",
+      "last_object": "NONE",
+      "last_stage": "FOS",
+      "last_source": "STRUCTURED",
+      "last_language": "en"
+    },
+    "understanding": {
+      "frame": {
+        "task": "READINESS",
+        "object": "NONE",
+        "qualifiers": [],
+        "referents": {},
+        "party": "SELF",
+        "stage": null,
+        "scope": "CURRENT_CASE",
+        "confidence": "high",
+        "language": "en",
+        "document_type": null,
+        "source": "PARSER",
+        "concepts": [
+          "READY"
+        ]
+      },
+      "decided_by": "FRAME",
+      "referents": {},
+      "short_query": null,
+      "llm": {
+        "consulted": false,
+        "status": "NOT_NEEDED"
+      },
+      "parse_ms": 0.24,
+      "case_stage": "FOS",
+      "model_routing": {
+        "route": "FAST",
+        "reason": "model unreachable",
+        "phrased_by_model": false
+      },
+      "conversation": {
+        "conversation_id": "a4248774d3be48cab97ca9c13ffc0a16",
+        "turn_id": 1,
+        "outcome": "NEW_TOPIC",
+        "note": null,
+        "pending_before": null,
+        "turn_type": "NEW_REQUEST",
+        "pending_after": null,
+        "state": {
+          "conversation_id": "a4248774d3be48cab97ca9c13ffc0a16",
+          "turn_id": 1,
+          "current_topic": "NONE",
+          "active_party": "SELF",
+          "active_stage": "FOS",
+          "language": "en",
+          "pending_clarification": null,
+          "last_intent": "READINESS",
+          "last_document": null,
+          "last_documents": []
+        }
+      },
+      "response_plan": "ANSWER_EXPLANATION",
+      "natural_composition": {
+        "plan": "ANSWER_EXPLANATION",
+        "enabled": false,
+        "attempted": false,
+        "accepted": false,
+        "reason": "FLAG_OFF",
+        "ms": 0.0
+      }
+    },
+    "observability": {
+      "correlation_id": "<request_id>",
+      "surface": "fos",
+      "conversation_id": "a4248774d3be48cab97ca9c13ffc0a16",
+      "turn_id": 1,
+      "turn_type": "NEW_REQUEST",
+      "outcome": "NEW_TOPIC",
+      "scope": "fos",
+      "capability": "READINESS",
+      "intent": "READINESS",
+      "category": "CASE_ONLY",
+      "query_type": "CASE_FACT",
+      "decided_by": "FRAME",
+      "language": "en",
+      "model_route": "FAST",
+      "model_used": null,
+      "model_attempted": 0,
+      "model_calls": 0,
+      "model_ledger": {
+        "calls": 0,
+        "ok": 0,
+        "timeouts": 0,
+        "errors": 0,
+        "used": 0,
+        "ms": 0,
+        "detail": []
+      },
+      "model_fallbacks": 0,
+      "tools": [
+        "workflow.readiness",
+        "documents.checklist"
+      ],
+      "tool_calls": 2,
+      "source": "STRUCTURED",
+      "clarification": false,
+      "clarification_reason": null,
+      "guardrail": null,
+      "fidelity": null,
+      "status": "OK",
+      "error": null,
+      "latency": {
+        "security_ms": 0.57,
+        "conversation_ms": 6.2,
+        "routing_ms": 1.65,
+        "summary_ms": 0.02,
+        "language_ms": 0.03,
+        "total_ms": 13.45,
+        "semantic_ms": 0.24
+      }
+    },
+    "category": "CASE_ONLY",
+    "next_action": null,
+    "readiness": {
+      "status": "NOT_READY",
+      "blocking_items": [
+        {
+          "type": "DOCUMENT",
+          "code": "DOCUMENT_MISSING",
+          "detail": "Address Proof has not been uploaded.",
+          "slot": "ADDRESS_PROOF"
+        },
+        {
+          "type": "DOCUMENT",
+          "code": "DOCUMENT_MISSING",
+          "detail": "Bank Statement has not been uploaded.",
+          "slot": "BANK_STATEMENT"
+        }
+      ],
+      "blocking_count": 2,
+      "rules_applied": {
+        "require_applicant_fields": true,
+        "require_application_fields": true,
+        "require_all_documents": true,
+        "require_documents_verified": true,
+        "block_on_review": true
+      }
+    },
+    "actions": [],
+    "response_source": "STRUCTURED",
+    "processing_ms": 5.49,
+    "errors": [],
+    "summary": "The application is open. 2 item(s) are blocking handoff.",
+    "status": null,
+    "processing_queue": [],
+    "grounded": true,
+    "response_type": "CASE_STATUS",
+    "subject": {
+      "party": "PRIMARY_APPLICANT"
+    },
+    "language": "en",
+    "processing": null,
+    "portfolio": null,
+    "scope": "CASE",
+    "language_contract": {
+      "language": "en",
+      "script": "Latin",
+      "input_mode": "ENGLISH",
+      "semantic_rewrite": false,
+      "confidence": 0.7,
+      "response_language": "en",
+      "review_status": "NATIVE",
+      "provider": "lexicon",
+      "provider_fallback": false,
+      "reply_language": "en",
+      "localized": true,
+      "selected_by": "FRONTEND"
+    },
+    "pending_work": null,
+    "gate": null,
+    "semantic_decisions": null,
+    "presentation": {
+      "workspace": {
+        "case_id": "CASE-DA842B2E38A9",
+        "header": "CASE-DA842B2E38A9",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "What is pending?",
+            "message": "What is pending?"
+          },
+          {
+            "type": "ask",
+            "label": "Why is it stuck?",
+            "message": "Why is it stuck?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      },
+      "message": "CASE-DA842B2E38A9",
+      "intent": "READINESS",
+      "response_type": "STATUS",
+      "response_depth": "BRIEF",
+      "language": "en",
+      "status": "INFO",
+      "next_step": "What is still needed",
+      "next_action": {
+        "type": "GET_DOCUMENT_CHECKLIST",
+        "document_type": null,
+        "label": "What is still needed"
+      },
+      "audio": {
+        "enabled": false,
+        "status": "DEGRADED",
+        "language": "en",
+        "voice": "Zira",
+        "text": "CASE-DA842B2E38A9. Not ready for CPA yet. Still to do: Address Proof has not been uploaded. Bank Statement has not been uploaded.",
+        "endpoint": null,
+        "format": "wav"
+      },
+      "case_context": {
+        "case_id": "CASE-DA842B2E38A9",
+        "applicant_id": "APP-F2D29DB3305E",
+        "stage": null
+      },
+      "sections": [
+        {
+          "title": null,
+          "items": [
+            {
+              "icon": "",
+              "label": "Not ready for CPA yet. Still to do:",
+              "status": null
+            },
+            {
+              "icon": "•",
+              "label": "Address Proof has not been uploaded",
+              "status": null
+            },
+            {
+              "icon": "•",
+              "label": "Bank Statement has not been uploaded",
+              "status": null
+            }
+          ]
+        }
+      ],
+      "documents": [],
+      "document_groups": [],
+      "actions": [
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "next_actions": [
+        {
+          "label": "What is still needed",
+          "action": "GET_DOCUMENT_CHECKLIST"
+        },
+        {
+          "label": "Document verification status",
+          "action": "GET_VERIFICATION_STATUS"
+        },
+        {
+          "label": "Check readiness for handoff",
+          "action": "CHECK_CPA_READINESS"
+        }
+      ],
+      "knowledge_sources": [],
+      "citations": [],
+      "semantic_decisions": [],
+      "metadata": {
+        "request_id": "<request_id>",
+        "language": "en",
+        "response_source": "STRUCTURED"
+      },
+      "readiness_report": {
+        "case_id": "CASE-DA842B2E38A9",
+        "ready": false,
+        "gate": {
+          "stage": "FOS",
+          "next_stage": "CPA",
+          "status": "BLOCKED",
+          "criteria_status": "UNCONFIRMED",
+          "policy_version": "0.1.0",
+          "blockers": [
+            {
+              "id": "FOS_READINESS",
+              "label": "FOS requirements",
+              "status": "BLOCKED",
+              "reason_code": "FOS_READINESS_BLOCKED",
+              "evidence": [
+                {
+                  "code": "DOCUMENT_MISSING",
+                  "detail": "Address Proof has not been uploaded.",
+                  "slot": "ADDRESS_PROOF"
+                },
+                {
+                  "code": "DOCUMENT_MISSING",
+                  "detail": "Bank Statement has not been uploaded.",
+                  "slot": "BANK_STATEMENT"
+                }
+              ]
+            }
+          ]
+        },
+        "groups": [
+          {
+            "group": "APPLICATION",
+            "label": "Application details",
+            "items": [
+              {
+                "id": "FIELD:ALL",
+                "label": "All required details recorded",
+                "status": "PASS",
+                "reason": "",
+                "fix": null,
+                "kind": "PASS"
+              }
+            ],
+            "counted": true
+          },
+          {
+            "group": "APPLICANT_DOCUMENTS",
+            "label": "Applicant documents",
+            "counted": true,
+            "items": [
+              {
+                "id": "DOC:PRIMARY:PAN",
+                "label": "PAN",
+                "status": "PASS",
+                "reason": "verified",
+                "fix": null,
+                "kind": "DOCUMENT_PASS"
+              },
+              {
+                "id": "DOC:PRIMARY:ADDRESS_PROOF",
+                "label": "Address Proof",
+                "status": "PENDING",
+                "reason": "not uploaded yet",
+                "fix": "Upload the Address Proof",
+                "kind": "DOCUMENT_PENDING"
+              },
+              {
+                "id": "DOC:PRIMARY:BANK_STATEMENT",
+                "label": "Bank Statement",
+                "status": "PENDING",
+                "reason": "not uploaded yet",
+                "fix": "Upload the Bank Statement",
+                "kind": "DOCUMENT_PENDING"
+              }
+            ]
+          },
+          {
+            "group": "KYC",
+            "label": "KYC",
+            "items": [
+              {
+                "id": "KYC:PRIMARY_APPLICANT:NAME",
+                "label": "Applicant: name",
+                "status": "PENDING",
+                "reason": "KYC has not run for this party",
+                "kind": "KYC_PENDING",
+                "fix": "Upload the identity documents so KYC can run"
+              },
+              {
+                "id": "KYC:PRIMARY_APPLICANT:DOB",
+                "label": "Applicant: date of birth",
+                "status": "PENDING",
+                "reason": "KYC has not run for this party",
+                "kind": "KYC_PENDING",
+                "fix": "Upload the identity documents so KYC can run"
+              },
+              {
+                "id": "KYC:PRIMARY_APPLICANT:ADDRESS",
+                "label": "Applicant: address",
+                "status": "PENDING",
+                "reason": "KYC has not run for this party",
+                "kind": "KYC_PENDING",
+                "fix": "Upload the identity documents so KYC can run"
+              },
+              {
+                "id": "KYC:PRIMARY_APPLICANT:PAN",
+                "label": "Applicant: PAN number",
+                "status": "PENDING",
+                "reason": "KYC has not run for this party",
+                "kind": "KYC_PENDING",
+                "fix": "Upload the identity documents so KYC can run"
+              },
+              {
+                "id": "KYC:PRIMARY_APPLICANT:FATHER_NAME",
+                "label": "Applicant: father's name",
+                "status": "PENDING",
+                "reason": "KYC has not run for this party",
+                "kind": "KYC_PENDING",
+                "fix": "Upload the identity documents so KYC can run"
+              }
+            ],
+            "counted": false,
+            "note": "(advisory -- not required for CPA while the KYC rule is off)"
+          }
+        ],
+        "passed": 2,
+        "total": 4,
+        "unblock_order": [
+          "DOC:PRIMARY:ADDRESS_PROOF",
+          "DOC:PRIMARY:BANK_STATEMENT"
+        ],
+        "next_fix": "Upload the Address Proof"
+      },
+      "progress": {
+        "passed": 2,
+        "total": 4,
+        "ready": false
+      }
+    },
+    "workspace_view": {
+      "workspace": {
+        "case_id": "CASE-DA842B2E38A9",
+        "header": "CASE-DA842B2E38A9",
+        "buttons": [
+          {
+            "type": "exit_case",
+            "label": "Exit"
+          },
+          {
+            "type": "switch_case",
+            "label": "Switch case"
+          },
+          {
+            "type": "ask",
+            "label": "What is pending?",
+            "message": "What is pending?"
+          },
+          {
+            "type": "ask",
+            "label": "Why is it stuck?",
+            "message": "Why is it stuck?"
+          },
+          {
+            "type": "ask",
+            "label": "Co-applicant",
+            "message": "Co-applicant"
+          },
+          {
+            "type": "ask",
+            "label": "Summary",
+            "message": "Summary"
+          }
+        ]
+      }
+    },
+    "response_style": {
+      "applied": true,
+      "expanded": []
+    },
+    "readiness_report": {
+      "case_id": "CASE-DA842B2E38A9",
+      "ready": false,
+      "gate": {
+        "stage": "FOS",
+        "next_stage": "CPA",
+        "status": "BLOCKED",
+        "criteria_status": "UNCONFIRMED",
+        "policy_version": "0.1.0",
+        "blockers": [
+          {
+            "id": "FOS_READINESS",
+            "label": "FOS requirements",
+            "status": "BLOCKED",
+            "reason_code": "FOS_READINESS_BLOCKED",
+            "evidence": [
+              {
+                "code": "DOCUMENT_MISSING",
+                "detail": "Address Proof has not been uploaded.",
+                "slot": "ADDRESS_PROOF"
+              },
+              {
+                "code": "DOCUMENT_MISSING",
+                "detail": "Bank Statement has not been uploaded.",
+                "slot": "BANK_STATEMENT"
+              }
+            ]
+          }
+        ]
+      },
+      "groups": [
+        {
+          "group": "APPLICATION",
+          "label": "Application details",
+          "items": [
+            {
+              "id": "FIELD:ALL",
+              "label": "All required details recorded",
+              "status": "PASS",
+              "reason": "",
+              "fix": null,
+              "kind": "PASS"
+            }
+          ],
+          "counted": true
+        },
+        {
+          "group": "APPLICANT_DOCUMENTS",
+          "label": "Applicant documents",
+          "counted": true,
+          "items": [
+            {
+              "id": "DOC:PRIMARY:PAN",
+              "label": "PAN",
+              "status": "PASS",
+              "reason": "verified",
+              "fix": null,
+              "kind": "DOCUMENT_PASS"
+            },
+            {
+              "id": "DOC:PRIMARY:ADDRESS_PROOF",
+              "label": "Address Proof",
+              "status": "PENDING",
+              "reason": "not uploaded yet",
+              "fix": "Upload the Address Proof",
+              "kind": "DOCUMENT_PENDING"
+            },
+            {
+              "id": "DOC:PRIMARY:BANK_STATEMENT",
+              "label": "Bank Statement",
+              "status": "PENDING",
+              "reason": "not uploaded yet",
+              "fix": "Upload the Bank Statement",
+              "kind": "DOCUMENT_PENDING"
+            }
+          ]
+        },
+        {
+          "group": "KYC",
+          "label": "KYC",
+          "items": [
+            {
+              "id": "KYC:PRIMARY_APPLICANT:NAME",
+              "label": "Applicant: name",
+              "status": "PENDING",
+              "reason": "KYC has not run for this party",
+              "kind": "KYC_PENDING",
+              "fix": "Upload the identity documents so KYC can run"
+            },
+            {
+              "id": "KYC:PRIMARY_APPLICANT:DOB",
+              "label": "Applicant: date of birth",
+              "status": "PENDING",
+              "reason": "KYC has not run for this party",
+              "kind": "KYC_PENDING",
+              "fix": "Upload the identity documents so KYC can run"
+            },
+            {
+              "id": "KYC:PRIMARY_APPLICANT:ADDRESS",
+              "label": "Applicant: address",
+              "status": "PENDING",
+              "reason": "KYC has not run for this party",
+              "kind": "KYC_PENDING",
+              "fix": "Upload the identity documents so KYC can run"
+            },
+            {
+              "id": "KYC:PRIMARY_APPLICANT:PAN",
+              "label": "Applicant: PAN number",
+              "status": "PENDING",
+              "reason": "KYC has not run for this party",
+              "kind": "KYC_PENDING",
+              "fix": "Upload the identity documents so KYC can run"
+            },
+            {
+              "id": "KYC:PRIMARY_APPLICANT:FATHER_NAME",
+              "label": "Applicant: father's name",
+              "status": "PENDING",
+              "reason": "KYC has not run for this party",
+              "kind": "KYC_PENDING",
+              "fix": "Upload the identity documents so KYC can run"
+            }
+          ],
+          "counted": false,
+          "note": "(advisory -- not required for CPA while the KYC rule is off)"
+        }
+      ],
+      "passed": 2,
+      "total": 4,
+      "unblock_order": [
+        "DOC:PRIMARY:ADDRESS_PROOF",
+        "DOC:PRIMARY:BANK_STATEMENT"
+      ],
+      "next_fix": "Upload the Address Proof"
+    },
+    "answer_plain": "CASE-DA842B2E38A9\nA handoff note is made once the case is ready for CPA. Not ready yet: 2 of 4 checks passed.\nNext step: Upload the Address Proof.",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
+    }
+  }
+}

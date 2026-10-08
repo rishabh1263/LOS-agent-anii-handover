@@ -1,0 +1,567 @@
+﻿diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/agent.py b/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
+index 34bab21..a24f30f 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
+@@ -3013,7 +3013,7 @@ def _classify_typed(message: str, *, has_case: bool) -> tuple[Classification, An
+         if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
+             # A PERSON'S DETAILS OR KYC, asked of the co-applicant: the
+             # party's own record answers it (subjects.party_question).
+-            asked_of_party = subjects.party_question(said, classification)
++            asked_of_party = subjects.party_question(said, classification, original=message)
+             if asked_of_party is not None:
+                 classification = asked_of_party
+         if named_subject:
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/answering/profile.py b/LOS-agentic-ai/app/agents/applicant/copilot/answering/profile.py
+index 631465f..273ec7c 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/answering/profile.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/answering/profile.py
+@@ -369,6 +369,24 @@ def _readable(value: str) -> str:
+     return " ".join(w.capitalize() for w in str(value).replace("_", " ").split())
+ 
+ 
++def _implausible(field: str, value: Any) -> str | None:
++    """
++    The configured label when a recorded amount is below the field's plausible minimum
++    (applicant_agent.yaml chatbot.plausibility; FOS plan 1.1: "Rs 5" on a Home Loan), else None.
++    """
++    from app.agents.applicant import config
++
++    rules = config.chatbot("plausibility") or {}
++    minimum = (rules.get("minimum") or {}).get(field)
++    try:
++        amount = float(re.sub(r"[,\s₹]|rs\.?|inr", "", str(value or ""), flags=re.I))
++    except ValueError:
++        return None
++    if minimum is not None and 0 <= amount < float(minimum):
++        return str(rules.get("label") or "Amount needs verification")
++    return None
++
++
+ def _values(results: dict[str, Any]) -> dict[str, Any]:
+     """The recorded values, from the tool results -- only registry fields."""
+     from app.agents.applicant.copilot.answering.answer import _get
+@@ -399,6 +417,9 @@ def _shown(field: str, value: Any) -> str | None:
+         shown = sensitivity.mask_identifiers(shown)   # a number typed into a text field
+     if field in ("loan_amount", "declared_monthly_income", "declared_monthly_obligations",
+                  "property_value"):
++        implausible = _implausible(field, value)
++        if implausible:
++            return implausible                   # never "₹5" for a loan: the figure is flagged, not shown
+         return _rupees(value) or shown
+     if field == "product":
+         return _readable(shown)
+@@ -419,6 +440,13 @@ def _said(field: str, value: Any, language: str | None = None) -> str:
+     shown = _shown(field, value)
+     if shown is None:
+         return f"For your security, I can't show your {label(field)} here."
++    if _implausible(field, value):
++        # a flagged amount gets its own sentence -- never slotted into "You applied for {value}."
++        from app.agents.applicant import config
++
++        sentence = (config.chatbot("plausibility") or {}).get("sentence") \
++            or "The recorded {field} needs verification; the figure on the case does not look right."
++        return str(sentence).format(field=label(field))
+     # THE SAME VALUE, in one of several sentence shapes (phrasing.py), chosen
+     # by the turn's seed -- and in the language the question was typed in.
+     varied = phrasing.field_sentence(field, str(shown), language=language,
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/answering/style.py b/LOS-agentic-ai/app/agents/applicant/copilot/answering/style.py
+index 327e9b3..9281b23 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/answering/style.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/answering/style.py
+@@ -117,6 +117,9 @@ def format_answer(answer: str, intent: str | None, status: str | None = None) ->
+     last = text.rstrip().splitlines()[-1] if text.strip() else ""
+     if "👉" not in text and not last.rstrip().endswith("?"):
+         step = (cfg.get("next_step") or {}).get(str(intent or "").upper())
++        if isinstance(step, dict):
++            # per recorded status (e.g. KYC PASS -> no "fix the mismatch" step); "default" otherwise
++            step = step.get(str(status or "").upper(), step.get("default"))
+         if step:
+             text = f"{text}\n\n👉 {step}"
+     return text
+@@ -128,6 +131,11 @@ def apply(published: dict[str, Any], *, explained: set[str], language: str | Non
+     if not answer.strip():
+         return published, set()
+     status = (published.get("readiness") or {}).get("status") if isinstance(published.get("readiness"), dict) else None
++    parties = ((published.get("kyc") or {}).get("parties") or []) if isinstance(published.get("kyc"), dict) else []
++    if status is None and parties:
++        # the KYC answer's recorded state: PASS only when every party asked about passed
++        states = {str(p.get("state") or p.get("status") or "").upper() for p in parties if isinstance(p, dict)}
++        status = "PASS" if states == {"PASS"} else (sorted(states - {"PASS"})[0] if states - {"PASS"} else None)
+     styled = format_answer(answer, published.get("intent"), status)
+     styled, newly = expand_first_mentions(styled, explained)
+     published["answer"] = styled
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_pick.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_pick.py
+index 67ae33e..60a2dd7 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_pick.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_pick.py
+@@ -42,7 +42,9 @@ def _label(application: Any) -> dict[str, Any]:
+     try:
+         from app.agents.applicant.copilot.facts.document_facts import _rupees
+ 
+-        amount_text = _rupees(amount) if amount not in (None, "") else None
++        from app.agents.applicant.copilot.answering.profile import _implausible
++
++        amount_text = (_implausible("loan_amount", amount) or _rupees(amount)) if amount not in (None, "") else None
+     except Exception:  # noqa: BLE001 - an unformattable amount is shown as recorded
+         amount_text = str(amount) if amount else None
+     product = _readable(getattr(application, "product", None)) if getattr(application, "product", None) else None
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+index 6575e10..18a2c8c 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+@@ -107,6 +107,21 @@ def authorize(claims: dict[str, Any], case_id: str) -> None:
+     access.authorize_conversation(_subject(claims), access.get_scopes(claims), case_id=case_id)
+ 
+ 
++def active_case(claims: dict[str, Any], workspace_id: str | None = None) -> Any:
++    """The application the caller has open in this workspace (re-authorized now), else None."""
++    from app.security import access
++    from app.store import get_repository
++
++    case_id = _state(_subject(claims), workspace_id).active_case_id
++    if not case_id:
++        return None
++    try:
++        authorize(claims, case_id)
++    except access.AccessDenied:
++        return None
++    return get_repository().get_application(case_id)
++
++
+ def _stage(case_id: str) -> str | None:
+     from app.agents.los import stages
+ 
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/conversation/state.py b/LOS-agentic-ai/app/agents/applicant/copilot/conversation/state.py
+index ec6edbb..1bcac1e 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/conversation/state.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/conversation/state.py
+@@ -111,8 +111,10 @@ _MORE = re.compile(r"^\s*(and\s+|aur\s+|ok\s*,?\s*|okay\s*,?\s*|accha\s*,?\s*)?"
+ #: not more of the same answer.
+ _THEN = re.compile(r"^\s*(and\s+|aur\s+|so\s+|ok\s*,?\s*)?(then|then\s+what|what\s+now|what\s+next|phir|fir|"
+                    r"phir\s+kya|uske\s+baad|aage\s+kya|फिर|फिर\s+क्या|आगे\s+क्या)\s*[?.!]*\s*$", re.IGNORECASE)
++# (not "kyu atka hai?": that asks why the CASE is stuck -- the workspace quick question -- and is routed as one,
++# never as "why" of whatever the last answer was)
+ _WHY = re.compile(r"^\s*(and\s+|aur\s+|but\s+|par\s+|lekin\s+)?(why|why\s+so|how\s+come|kyun|kyon|kyu|"
+-                  r"kyun\s+atka(\s+hai)?|kyu\s+atka(\s+hai)?|क्यों)\s*[?.!]*\s*$", re.IGNORECASE)
++                  r"क्यों)\s*[?.!]*\s*$", re.IGNORECASE)
+ #: WHERE AN ANSWER GOES NEXT: each capability's next level, as the question
+ #: the ordinary pipeline answers (never a sentence composed here).
+ _EXPAND_MORE = {
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/routing/subjects.py b/LOS-agentic-ai/app/agents/applicant/copilot/routing/subjects.py
+index 6faf6d0..5712914 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/routing/subjects.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/routing/subjects.py
+@@ -705,7 +705,7 @@ def carried(message: str, last_subject: str | None) -> "Kind | None":
+     return Kind.CO if any(c == "THIRD_PERSON" for _, c in _sf.concepts_in(message)) else None
+ 
+ 
+-def party_question(message: str, classification: Any) -> Any | None:
++def party_question(message: str, classification: Any, *, original: str | None = None) -> Any | None:
+     """
+     A question NAMING the co-applicant (or both) that asks for a person's
+     details or KYC, read as that -- APPLICANT_PROFILE / KYC_RESULT, with the
+@@ -755,7 +755,11 @@ def party_question(message: str, classification: Any) -> Any | None:
+         # for the application as a whole).
+         return _intents.Classification(Intent.DOCUMENTS_UPLOADED, matched_on="party_documents",
+                                        frame=getattr(classification, "frame", None))
+-    if _PROFILE_ASK.search(text) and not _DOCUMENT_NOUN.search(text):
++    # "co-applicant hai kya?" / "is there a co-applicant?" -- does the person exist on the case: their
++    # profile answers it (or says none is recorded). EXISTS phrases in semantic_concepts.yaml.
++    # (read on the message AS TYPED too: normalisation turns "hai kya" into "what is ... is")
++    exists = any(concept == "EXISTS" for said in (text, str(original or "")) for _, concept in _sf.concepts_in(said))
++    if (exists or _PROFILE_ASK.search(text)) and not _DOCUMENT_NOUN.search(text):
+         field_ = ("full_name" if re.search(r"^\s*(who|kaun)\b|\bwho\s+is\b|\bkaun\s+(hai|h)\b",
+                                            text, _I) else _profile.ALL_APPLICANT)
+         return _intents.Classification(Intent.APPLICANT_PROFILE, matched_on="party_profile",
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/semantic_concepts.yaml b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/semantic_concepts.yaml
+index ed31d2c..fde5c4c 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/semantic_concepts.yaml
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/semantic_concepts.yaml
+@@ -188,6 +188,21 @@ concepts:
+     - उसके
+     - त्याचे
+     - तिचे
++  # "co-applicant hai kya?" -- does a person exist on the case (answered from their profile)
++  EXISTS:
++    - hai kya
++    - h kya
++    - hai ki nahi
++    - koi hai
++    - is there
++    - is there any
++    - do i have
++    - do we have
++    - exists
++    - added
++    - add hai
++    - है क्या
++    - आहे का
+   PROCESS_TERM:                     # things a knowledge question asks ABOUT
+     - kyc
+     - verification
+@@ -294,6 +309,12 @@ concepts:
+     - upload ho gaya
+     - upload ho gaye
+     - upload ho gayi
++    - upload hue
++    - upload hua
++    - upload hui
++    - upload kiye
++    - upload kiya
++    - upload kiye gaye
+     - de diya
+     - de diye
+     - de di
+@@ -517,6 +538,22 @@ concepts:
+     - aage badh
+     - aage badhe
+     - aage badhna
++    - kab jayega
++    - kab jaega
++    - kab jaayega
++    - kab jayegi
++    - kab move hoga
++    - kab tak jayega
++    - aage jayega
++    - jayega kab
++    - when jayega                   # the normalised form of "kab jayega" ("CPA mein kab jayega" -> "cpa in when jayega")
++    - when jaega
++    - when jaayega
++    - when will it go
++    - when will it move
++    - when will it reach
++    - when will the case go
++    - when will the case move
+     - taiyar
+     - तैयार
+     - तयार
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/semantic_frame.py b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/semantic_frame.py
+index 1188dee..25050e6 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/semantic_frame.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/semantic_frame.py
+@@ -484,6 +484,9 @@ def parse(message: str, *, original: str | None = None) -> SemanticFrame:
+             task_cues.append(Task.NEXT_ACTION)
+         elif "READY" in present and not explain:
+             task_cues.append(Task.READINESS)
++        elif "PROCEED" in present and frame.referents.get("stage") and not explain:
++            # "CPA mein kab jayega?" -- moving to a NAMED stage is the readiness question
++            task_cues.append(Task.READINESS)
+         elif ("PENDING" in present or "MISSING" in present) and not explain:
+             # "what is pending?" asks for everything pending on the case
+             # (PENDING_ITEMS); "anything pending?" / "kya pending hai" ask
+diff --git a/LOS-agentic-ai/app/api/routes/fos_api.py b/LOS-agentic-ai/app/api/routes/fos_api.py
+index fd3c411..b7ee89f 100644
+--- a/LOS-agentic-ai/app/api/routes/fos_api.py
++++ b/LOS-agentic-ai/app/api/routes/fos_api.py
+@@ -788,6 +788,16 @@ async def create_case(
+             "request_id": request_id, "error": exc.code, "message": exc.message,
+         }) from exc
+ 
++    # ALL AMOUNTS ARE IN RUPEES (FOS plan 1.1): an implausible amount is refused BEFORE the applicant is
++    # created, so a bad form never leaves a half-made case behind
++    if request.application is not None:
++        from app.agents.applicant import plausibility
++
++        found = plausibility.problem(request.application.model_dump(exclude_none=True))
++        if found is not None:
++            raise HTTPException(422, detail={"request_id": request_id, "error": plausibility.CODE,
++                                             "field": found[0], "message": found[1]})
++
+     # ANOTHER CASE FOR A CUSTOMER THIS CALLER ALREADY SERVES. One applicant may
+     # hold several cases; naming an applicant the caller may WRITE opens a new
+     # case for them, and the recorded person is left exactly as captured (never
+@@ -2017,10 +2027,19 @@ async def _copilot_upload(
+             "message": (f"{declared_action} is not valid for a multipart "
+             "request. Only UPLOAD_DOCUMENT is."),
+         })
++    if (not applicant_id or not case_id):
++        # INSIDE AN OPENED CASE (6-MVP workspace): an upload without ids goes to the case the officer
++        # opened -- ownership is still checked below (write), exactly as for explicit ids
++        from app.agents.applicant.copilot.capabilities import workspace as _ws
++
++        opened = _ws.active_case(claims, str(form.get("workspace_id") or "").strip() or None) \
++            if _ws.enabled() else None
++        if opened is not None and (not case_id or case_id == opened.case_id):
++            case_id, applicant_id = opened.case_id, applicant_id or str(opened.applicant_id)
+     if not applicant_id or not case_id:
+         raise HTTPException(422, detail={
+             "request_id": request_id, "error": "INVALID_REQUEST",
+-            "message": "applicant_id and case_id are required for an upload.",
++            "message": "applicant_id and case_id are required for an upload (or open a case first).",
+         })
+     if not uploads:
+         raise HTTPException(422, detail={
+@@ -2710,7 +2729,7 @@ def _raise_from(request_id: str, envelope) -> None:
+     error = envelope.error
+     code = error.code if error else "FAILED"
+     raise HTTPException(
+-        404 if code == "NOT_FOUND" else 400,
++        404 if code == "NOT_FOUND" else 422 if code == "AMOUNT_IMPLAUSIBLE" else 400,
+         detail={"request_id": request_id, "error": code,
+                 "message": error.message if error else "The call failed."},
+     )
+diff --git a/LOS-agentic-ai/app/api/routes/ops.py b/LOS-agentic-ai/app/api/routes/ops.py
+index af2e6b3..bf44db2 100644
+--- a/LOS-agentic-ai/app/api/routes/ops.py
++++ b/LOS-agentic-ai/app/api/routes/ops.py
+@@ -146,9 +146,40 @@ async def ready(response: Response) -> dict:
+         "unsigned_policy_override": allow_unsigned_policy(),
+         "circuits": resilience.breaker.snapshot(),
+         "in_flight": resilience.bulkhead.snapshot(),
++        "build": build_marker(),
+     }
+ 
+ 
++def build_marker() -> dict:
++    """
++    WHICH BACKEND IS THIS (FOS plan 1.1): the build step (applicant_agent.yaml chatbot.build), the git
++    commit when one can be read, and every chatbot flag as it is RIGHT NOW in this process -- so a
++    frontend tester can confirm with GET /ready that they reach this server with the features on.
++    """
++    import os
++    import subprocess
++    from pathlib import Path
++
++    from app.agents.applicant import config
++
++    build = config.chatbot("build") or {}
++    on = {"1", "true", "yes", "on"}
++    from app.agents.applicant.copilot.semantics import llm_router
++
++    flags = {name: (llm_router.enabled() if name == llm_router.FLAG      # ON by default when unset
++                    else (os.getenv(name, "") or "").strip().lower() in on)
++             for name in build.get("chatbot_flags") or []}
++    commit = None
++    try:
++        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2,
++                                cwd=Path(__file__).resolve().parents[3]).stdout.strip() or None
++    except Exception:  # noqa: BLE001 - no git on the host: the step still says which build
++        commit = None
++    return {"phase": build.get("phase"), "step": build.get("step"), "commit": commit,
++            "uncommitted_changes_possible": True, "chatbot_flags": flags,
++            "chatbot_flags_on": sum(flags.values()), "chatbot_flags_total": len(flags)}
++
++
+ @router.get("/metrics", summary="Prometheus metrics")
+ async def prometheus_metrics() -> Response:
+     """Agent, orchestration and Copilot aggregate metrics in one scrape."""
+diff --git a/LOS-agentic-ai/app/config/applicant_agent.yaml b/LOS-agentic-ai/app/config/applicant_agent.yaml
+index 83f850c..a7498dc 100644
+--- a/LOS-agentic-ai/app/config/applicant_agent.yaml
++++ b/LOS-agentic-ai/app/config/applicant_agent.yaml
+@@ -875,6 +875,43 @@ chatbot:
+       new_case: "👉 Tap **New case** to open the case form."
+       view: "📄 **{document}** -- the link works for {minutes} minutes."
+ 
++  # BUILD MARKER on GET /ready (FOS plan 1.1): which backend a frontend is talking to. Update `step` with
++  # each delivered step; the flags are reported as they are in the running process.
++  build:
++    phase: "Phase 3"
++    step: "FOS E2E plan, section 1"
++    chatbot_flags: [COPILOT_CASE_WORKSPACE, COPILOT_CASE_ACTIONS, COPILOT_RESPONSE_STYLE, COPILOT_TERMS_KNOWLEDGE,
++                    COPILOT_SESSION_MEMORY, COPILOT_VERIFY_DIAGNOSE, COPILOT_DOCUMENT_ACTIONS,
++                    COPILOT_PARTY_RECOGNITION, LOS_COAPP_IDENTITY, COPILOT_GUARDRAIL_HARDENING, COPILOT_STREAMING,
++                    COPILOT_LLM_ROUTER, COPILOT_EMPHASIS, COPILOT_LOCALIZED_KYC_REASONS, COPILOT_SINGLE_CASE_RESOLVE]
++
++  # PLAUSIBLE AMOUNTS (FOS plan 1.1; trigger was demo data, kept as production protection).
++  # ALL AMOUNTS ARE IN RUPEES, NOT LAKHS. Intake (create / update, app/agents/applicant/plausibility.py)
++  # refuses a figure below its minimum or written with a unit word -> 422 AMOUNT_IMPLAUSIBLE. A stored
++  # figure below its minimum is never shown in chat -- the label / sentence is said instead.
++  plausibility:
++    label: "Amount needs verification"
++    sentence: "The recorded {field} needs verification; the figure on the case does not look right."
++    minimum:
++      loan_amount: 10000
++      property_value: 100000
++      declared_monthly_income: 1000
++    field_labels: { loan_amount: "Loan amount", property_value: "Property value",
++                    declared_monthly_income: "Monthly income" }
++    examples: { loan_amount: 500000, property_value: 8000000, declared_monthly_income: 65000 }
++    unit_words: [lakh, lakhs, lac, lacs, l, cr, crore, crores, k, thousand, hazaar, hazar]
++    reject_message: "{label} looks too small; enter the full amount in rupees, e.g. {example}."
++    unit_message: "{label}: enter the full amount in rupees (not lakhs / crores), e.g. {example}."
++
++  # DOCUMENTS THAT NEED ACTION (COPILOT_DOCUMENT_ACTIONS; answering/document_actions.py).
++  # User, 2026-10-07: "kuch bhi pure process me review hai yaa fail hai toh aana chahaiye" --
++  # a REVIEW document is offered for upload again with its reason (was: "under review, no action"),
++  # and a party's KYC REVIEW / FAIL verdict is always a line of its own (was: only with field detail).
++  # false / false = the previous behaviour.
++  document_actions:
++    review_needs_reupload: true
++    kyc_status_line: true
++
+   # 6f VERIFY / UPLOAD DIAGNOSE (COPILOT_VERIFY_DIAGNOSE, default off; CHATBOT_SPEC section 4).
+   # "verify karna hai" / "kya upload karu" never asks "which document?": the case is diagnosed
+   # (step 4's document action view: ❌ fix first -> ⏳ pending -> ℹ️ under review, every party).
+@@ -893,7 +930,7 @@ chatbot:
+   # Glossary + abbreviation rule: app/config/glossary.yaml.
+   response_style:
+     status_emoji: { READY_FOR_CPA: "✅", NOT_READY: "⏳", VERIFIED: "✅", REJECTED: "❌", REVIEW: "⏳",
+-                    MISMATCH: "⚠️", BLOCKED: "⚠️" }
++                    MISMATCH: "⚠️", BLOCKED: "⚠️", PASS: "✅", FAIL: "❌" }
+     # "all my cases" summary, point-wise: one block per case, latest first (capabilities/portfolio.py pointwise)
+     portfolio:
+       head: "📂 **{total} cases**"
+@@ -937,7 +974,12 @@ chatbot:
+       DOCUMENTS_PENDING: "Upload these to move the case to **CPA**."
+       DOCUMENTS_MISSING: "Upload these to move the case to **CPA**."
+       PENDING_ITEMS: "Clear these to move the case to **CPA**."
+-      KYC_RESULT: "Upload the correct document to fix the mismatch."
++      # per recorded KYC state: a PASS gets no "fix" step; NOT_RECORDED / PENDING says what runs it
++      KYC_RESULT:
++        default: "Upload the correct document to fix the mismatch."
++        PASS: ""
++        NOT_RECORDED: "KYC runs once the identity documents are uploaded."
++        PENDING: "KYC runs once the identity documents are uploaded."
+       FOS_KNOWLEDGE: "Check your **status** or **pending documents**?"
+       OUT_OF_SCOPE: "Check your **status** or **pending documents**?"
+ 
+diff --git a/LOS-agentic-ai/app/mcp/applicant.py b/LOS-agentic-ai/app/mcp/applicant.py
+index 46bb322..1285ff4 100644
+--- a/LOS-agentic-ai/app/mcp/applicant.py
++++ b/LOS-agentic-ai/app/mcp/applicant.py
+@@ -592,6 +592,17 @@ async def applicant_update(
+     return await _envelope("applicant.update", run)
+ 
+ 
++def _plausible(**amounts: Any) -> None:
++    """ALL AMOUNTS ARE IN RUPEES (FOS plan 1.1): an implausible one is refused before anything is written."""
++    from app.agents.applicant import plausibility
++    from app.mcp.errors import ToolError, ToolStatus
++
++    found = plausibility.problem(amounts)
++    if found is not None:
++        field, message = found
++        raise ToolError(ToolStatus.INVALID_INPUT, plausibility.CODE, message, field=field)
++
++
+ async def application_create(
+     applicant_id: str,
+     product: str | None = None,
+@@ -616,6 +627,8 @@ async def application_create(
+         from app.store.models import Application
+ 
+         aid = _require(applicant_id, "applicant_id")
++        _plausible(loan_amount=loan_amount, property_value=property_value,
++                   declared_monthly_income=declared_monthly_income)
+         repo = _repo()
+         if request_cache.read(repo, "get_applicant", aid) is None:
+             raise NotFound(
+@@ -660,6 +673,8 @@ async def application_update(
+ 
+     async def run() -> dict[str, Any]:
+         cid = _require(case_id, "case_id")
++        _plausible(loan_amount=loan_amount, property_value=property_value,
++                   declared_monthly_income=declared_monthly_income)
+         repo = _repo()
+         record = request_cache.read(repo, "get_application", cid)
+         if record is None:
+diff --git a/LOS-agentic-ai/docs/frontend/FRONTEND_API.md b/LOS-agentic-ai/docs/frontend/FRONTEND_API.md
+index 57cbf7a..b044653 100644
+--- a/LOS-agentic-ai/docs/frontend/FRONTEND_API.md
++++ b/LOS-agentic-ai/docs/frontend/FRONTEND_API.md
+@@ -6,6 +6,31 @@ A working reference widget (plain HTML + JS, no build): `docs/frontend/widget.ht
+ 
+ All features below are behind server flags (default OFF); the "demo set" turns them on (README_CHATBOT.md).
+ 
++## 0. Which backend -- check this first
++- **Point the frontend at THIS backend for testing:** base URL `http://127.0.0.1:8010` (the Vite dev proxy
++  `/api` -> `http://127.0.0.1:8010`). Tokens come from the same server (`POST /api/v1/auth/login`; its JWKS is
++  `http://127.0.0.1:8010/.well-known/jwks.json`).
++- **Verify:** `GET /ready` -> `build`:
++  ```json
++  "build": {"phase": "Phase 3", "step": "FOS E2E plan, section 1", "commit": "b8dc73…",
++            "chatbot_flags": {"COPILOT_CASE_WORKSPACE": true, "COPILOT_CASE_ACTIONS": true, "...": true},
++            "chatbot_flags_on": 15, "chatbot_flags_total": 15}
++  ```
++  If `build` is missing, or a flag you need is `false`, the frontend is talking to an older or differently
++  configured server (a typical symptom: 422 `WORKSPACE_DISABLED` on "mere cases"). Restart that server after any
++  `.env` change -- flags are read at start.
++
++## 0a. Amounts: ALL AMOUNTS ARE IN RUPEES, NOT LAKHS
++`loan_amount`, `property_value`, `declared_monthly_income` (and every other amount) are sent as full rupees:
++`500000`, not `5` and not `"5 lakh"`. Create / update refuses an implausible figure or a unit word
++(`lakh`, `cr`, `k`, ...) with **422**:
++```json
++{"detail": {"request_id": "fos_…", "error": "AMOUNT_IMPLAUSIBLE", "field": "loan_amount",
++            "message": "Loan amount looks too small; enter the full amount in rupees, e.g. 500000."}}
++```
++Show `detail.message` next to the field. If the form collects lakhs, multiply by 100000 before sending. Minimums
++are server config (`applicant_agent.yaml` -> `chatbot.plausibility`).
++
+ ## 1. Auth
+ Every call: `Authorization: Bearer <JWT>` (the same token the app already uses). A case the user does not own is
+ **403** -- render the `detail.message`, never retry.
+diff --git a/LOS-agentic-ai/evals/router_misses.yaml b/LOS-agentic-ai/evals/router_misses.yaml
+index e289b53..83c8df6 100644
+--- a/LOS-agentic-ai/evals/router_misses.yaml
++++ b/LOS-agentic-ai/evals/router_misses.yaml
+@@ -24,3 +24,9 @@ misses:
+   - { text: "uska kya baaki hai?", tool: documents_needing_action, args: { party: CO_APPLICANT }, state: KYC_RESULT, source: fast lane (party not carried), added: 2026-10-07 }
+   - { text: "CIBIL kya hota hai?", tool: knowledge, args: { topic: CIBIL }, source: fast lane (normalised form not a definition), added: 2026-10-07 }
+   - { text: "And what about passport?", tool: knowledge, state: FOS_KNOWLEDGE, source: "fast lane (address in address proof read as a field; families rag_followup)", added: 2026-10-07 }
++  # e2e "ask anything" pass (2026-10-07): wrong in the FAST LANE -- fixed in rules/config, recorded here
++  - { text: "kyu atka hai?", tool: case_status, source: fast lane (read as "why" of the last answer), added: 2026-10-07 }
++  # (no router tool for this; fixed in the fast lane) text: "kaunse documents upload hue?"
++  - { text: "CPA mein kab jayega?", tool: case_status, source: fast lane (normalised "kab jayega" unknown), added: 2026-10-07 }
++  # (no router tool for this; fixed in the fast lane) text: "co-applicant hai kya?"
++  # (no router tool for this; fixed in the fast lane) text: "is there a co-applicant?"
+diff --git a/app/agents/applicant/plausibility.py b/app/agents/applicant/plausibility.py
+new file mode 100644
+index 0000000..13426e8
+--- /dev/null
++++ b/app/agents/applicant/plausibility.py
+@@ -0,0 +1,53 @@
++"""
++PLAUSIBLE AMOUNTS AT INTAKE (FOS plan 1.1, production protection).
++
++Every amount an application records is in RUPEES. A figure below its configured minimum ("5" for a
++home loan -- almost always lakhs typed as rupees) or written with a unit word ("5 lakh", "2 cr") is
++refused at creation / update with one clear message, so it never reaches the case. The same config
++(applicant_agent.yaml chatbot.plausibility) keeps the chatbot from ever saying such a figure.
++"""
++
++from __future__ import annotations
++
++import re
++from typing import Any
++
++CODE = "AMOUNT_IMPLAUSIBLE"
++
++
++def _cfg() -> dict[str, Any]:
++    from app.agents.applicant import config
++
++    return config.chatbot("plausibility") or {}
++
++
++def problem(values: dict[str, Any]) -> tuple[str, str] | None:
++    """(field, message) for the first implausible amount among `values`, else None. Absent / blank = fine."""
++    cfg = _cfg()
++    minimum = cfg.get("minimum") or {}
++    units = [str(u).lower() for u in cfg.get("unit_words") or []]
++    examples = cfg.get("examples") or {}
++    labels = cfg.get("field_labels") or {}
++    for field, floor in minimum.items():
++        raw = values.get(field)
++        if raw is None or not str(raw).strip():
++            continue
++        text = str(raw).strip().lower()
++        label = str(labels.get(field) or field.replace("_", " ").capitalize())
++        example = examples.get(field, 500000)
++        # a unit right after the number or after a space: "5 lakh", "50k", "2cr"
++        if any(re.search(rf"(?:^|[\d\s.]){re.escape(u)}\b", text) for u in units):
++            return field, str(cfg.get("unit_message") or "{label}: enter the full amount in rupees, e.g. {example}.") \
++                .format(label=label, example=example)
++        try:
++            amount = float(re.sub(r"[,\s₹]|rs\.?|inr", "", text))
++        except ValueError:
++            continue                                   # not a number: the existing schema rules decide
++        if amount < float(floor):
++            return field, str(cfg.get("reject_message")
++                              or "{label} looks too small; enter the full amount in rupees, e.g. {example}.") \
++                .format(label=label, example=example)
++    return None
++
++
++__all__ = ["CODE", "problem"]

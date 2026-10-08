@@ -5,11 +5,11 @@
   },
   "response": {
     "request_id": "<request_id>",
-    "applicant_id": "APP-B597637EF37D",
-    "case_id": "CASE-AB355D618BF7",
+    "applicant_id": "APP-AEAFB9EC3769",
+    "case_id": "CASE-E658D45C16BD",
     "action": "GET_PENDING_ITEMS",
     "intent": "PENDING_ITEMS",
-    "answer": "📍 CASE-AB355D618BF7\n⏳ Please upload the correct documents:\n📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to **CPA**.",
+    "answer": "CASE-E658D45C16BD\nPlease upload the correct documents:\n- **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n- Address Proof [Upload]\n- Bank Statement [Upload]\n\n**Next step:** Clear these to move the case to **CPA**.",
     "applicant": null,
     "application": null,
     "stage": null,
@@ -44,7 +44,7 @@
         "status": "REJECTED",
         "fulfilment": "FAILED",
         "document_type": "PAN",
-        "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
+        "document_id": "CASE-E658D45C16BD:APP-AEAFB9EC3769:pan1",
         "reason_codes": [
           "DOCUMENT_UNREADABLE"
         ],
@@ -62,7 +62,9 @@
             "accepted_types": [
               "PAN"
             ],
-            "enabled": true
+            "enabled": true,
+            "requirement": "REQUIRED",
+            "label": "Upload PAN"
           }
         ]
       },
@@ -150,7 +152,9 @@
               "PASSPORT",
               "VOTER_ID"
             ],
-            "enabled": true
+            "enabled": true,
+            "requirement": "REQUIRED",
+            "label": "Upload Address Proof"
           }
         ]
       },
@@ -202,7 +206,9 @@
             "accepted_types": [
               "BANK_STATEMENT"
             ],
-            "enabled": true
+            "enabled": true,
+            "requirement": "REQUIRED",
+            "label": "Upload Bank Statement"
           }
         ]
       },
@@ -243,7 +249,9 @@
             "accepted_types": [
               "SIGNATURE"
             ],
-            "enabled": true
+            "enabled": true,
+            "requirement": "OPTIONAL",
+            "label": "Upload Signature (optional)"
           }
         ]
       }
@@ -282,7 +290,7 @@
     },
     "query_type": "CASE_FACT",
     "case_state": {
-      "case_id": "CASE-AB355D618BF7",
+      "case_id": "CASE-E658D45C16BD",
       "product": "PERSONAL_LOAN",
       "stage": "APPLICATION_CREATED",
       "readiness": "NOT_READY",
@@ -292,14 +300,16 @@
       "documents_missing": 2,
       "documents_under_review": 0,
       "documents_failed": 1,
+      "documents_optional": 1,
+      "documents_optional_missing": 1,
       "collection_progress": 0,
       "applicant_fields_missing": []
     },
     "suggested_questions": [
+      "Is this case ready for CPA?",
+      "What is the KYC status?",
       "Why was the PAN rejected?",
-      "What can be used as address proof?",
-      "Why is address proof required for this application?",
-      "Why does the checklist depend on the employment type?"
+      "What can be used as address proof?"
     ],
     "available_actions": [
       {
@@ -342,7 +352,7 @@
     "followed_up": null,
     "context": {
       "conversation_id": null,
-      "case_id": "CASE-AB355D618BF7",
+      "case_id": "CASE-E658D45C16BD",
       "last_query_type": "CASE_FACT",
       "last_intent": "PENDING_ITEMS",
       "last_slot": "PAN",
@@ -404,7 +414,7 @@
     "actions": [],
     "route_to": null,
     "response_source": "STRUCTURED",
-    "processing_ms": 6.86,
+    "processing_ms": 51.71,
     "errors": [],
     "summary": "The application is open. 3 item(s) remain outstanding.",
     "status": null,
@@ -442,7 +452,7 @@
             "party_label": "Applicant",
             "document_type": "PAN",
             "label": "PAN",
-            "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
+            "document_id": "CASE-E658D45C16BD:APP-AEAFB9EC3769:pan1",
             "reasons": [
               "Too little text could be read from this document. Re-upload a clearer copy."
             ],
@@ -483,22 +493,23 @@
         ],
         "under_review": [],
         "kyc_issues": [],
+        "kyc_status": [],
         "emphasis": [
           "PAN",
           "Address Proof"
         ]
       },
       "workspace": {
-        "case_id": "CASE-AB355D618BF7",
-        "header": "📍 CASE-AB355D618BF7",
+        "case_id": "CASE-E658D45C16BD",
+        "header": "CASE-E658D45C16BD",
         "buttons": [
           {
             "type": "exit_case",
-            "label": "🔒 Exit"
+            "label": "Exit"
           },
           {
             "type": "switch_case",
-            "label": "🔁 Switch case"
+            "label": "Switch case"
           },
           {
             "type": "ask",
@@ -522,21 +533,7 @@
           }
         ]
       },
-      "emphasis": [
-        {
-          "text": "PAN",
-          "start": 61,
-          "end": 64
-        },
-        {
-          "text": "Address Proof",
-          "start": 196,
-          "end": 209
-        }
-      ],
-      "answer_markdown": "📍 CASE-AB355D618BF7\n⏳ Please upload the correct documents:\n📄 **PAN** (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 **Address Proof** [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to CPA.",
-      "answer_plain": "📍 CASE-AB355D618BF7\n⏳ Please upload the correct documents:\n📄 PAN (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to CPA.",
-      "message": "📍 CASE-AB355D618BF7 📄 **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy. 📄 Address Proof [Upload] 📄 Bank Statement [Upload] 👉 Clear these to move the case to **CPA**.",
+      "message": "CASE-E658D45C16BD **PAN (Permanent Account Number)** [Upload] — Too little text could be read from this document. Re-upload a clearer copy. Address Proof [Upload] Bank Statement [Upload] Clear these to move the case to **CPA**.",
       "intent": "PENDING_ITEMS",
       "response_type": "STATUS",
       "response_depth": "BRIEF",
@@ -553,13 +550,13 @@
         "status": "DEGRADED",
         "language": "en",
         "voice": "Zira",
-        "text": "📍 CASE-AB355D618BF7. Please upload the correct documents: 📄 **PAN (Permanent Account Number)** [Upload], Too little text could be read from this document. Re-upload a clearer copy. Still pending: 📄 Address Proof [Upload]. 📄 Bank Statement [Upload]. 👉 Clear these to move the case to **CPA**.",
+        "text": "CASE-E658D45C16BD. Please upload the correct documents: **PAN (Permanent Account Number)** [Upload], Too little text could be read from this document. Re-upload a clearer copy. Still pending: Address Proof [Upload]. Bank Statement [Upload]. Clear these to move the case to **CPA**.",
         "endpoint": null,
         "format": "wav"
       },
       "case_context": {
-        "case_id": "CASE-AB355D618BF7",
-        "applicant_id": "APP-B597637EF37D",
+        "case_id": "CASE-E658D45C16BD",
+        "applicant_id": "APP-AEAFB9EC3769",
         "stage": null
       },
       "sections": [
@@ -567,7 +564,7 @@
           "title": null,
           "items": [
             {
-              "icon": "⏳",
+              "icon": "",
               "label": "Please upload the correct documents:",
               "status": null
             }
@@ -631,16 +628,16 @@
     },
     "workspace_view": {
       "workspace": {
-        "case_id": "CASE-AB355D618BF7",
-        "header": "📍 CASE-AB355D618BF7",
+        "case_id": "CASE-E658D45C16BD",
+        "header": "CASE-E658D45C16BD",
         "buttons": [
           {
             "type": "exit_case",
-            "label": "🔒 Exit"
+            "label": "Exit"
           },
           {
             "type": "switch_case",
-            "label": "🔁 Switch case"
+            "label": "Switch case"
           },
           {
             "type": "ask",
@@ -672,7 +669,7 @@
           "party_label": "Applicant",
           "document_type": "PAN",
           "label": "PAN",
-          "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
+          "document_id": "CASE-E658D45C16BD:APP-AEAFB9EC3769:pan1",
           "reasons": [
             "Too little text could be read from this document. Re-upload a clearer copy."
           ],
@@ -713,6 +710,7 @@
       ],
       "under_review": [],
       "kyc_issues": [],
+      "kyc_status": [],
       "emphasis": [
         "PAN",
         "Address Proof"
@@ -725,19 +723,10 @@
         "PAN"
       ]
     },
-    "emphasis": [
-      {
-        "text": "PAN",
-        "start": 61,
-        "end": 64
-      },
-      {
-        "text": "Address Proof",
-        "start": 196,
-        "end": 209
-      }
-    ],
-    "answer_plain": "📍 CASE-AB355D618BF7\n⏳ Please upload the correct documents:\n📄 PAN (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 Address Proof [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to CPA.",
-    "answer_markdown": "📍 CASE-AB355D618BF7\n⏳ Please upload the correct documents:\n📄 **PAN** (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n📄 **Address Proof** [Upload]\n📄 Bank Statement [Upload]\n\n👉 Clear these to move the case to CPA."
+    "answer_plain": "CASE-E658D45C16BD\nPlease upload the correct documents:\n- PAN (Permanent Account Number) [Upload] — Too little text could be read from this document. Re-upload a clearer copy.\nStill pending:\n- Address Proof [Upload]\n- Bank Statement [Upload]\n\nNext step: Clear these to move the case to CPA.",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
+    }
   }
 }

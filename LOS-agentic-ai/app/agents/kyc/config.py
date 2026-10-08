@@ -101,6 +101,17 @@ def check_cpa_gate(name: str) -> bool:
     return bool(section(name).get("cpa_gate", False))
 
 
+def source_keys(key: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """
+    FOS plan section 4: which documents feed KYC and which extracted keys carry each value (`sources:` in the
+    policy). A list in config replaces the default; absent -> the code default, unchanged.
+    """
+    raw = section("sources").get(key)
+    if isinstance(raw, list) and raw:
+        return tuple(str(v) for v in raw)
+    return default
+
+
 def threshold(name: str, key: str, default: float) -> float:
     raw = section(name).get(key, default)
     try:

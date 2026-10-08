@@ -40,7 +40,17 @@ _EN = {
     "docact_shows": "{document} shows \"{value}\"",
     "docact_upload": "Upload",
     "docact_being_verified": "being verified",
+    "docact_kyc_status_heading": "KYC:",
+    "docact_kyc_status_REVIEW": "KYC needs review",
+    "docact_kyc_status_FAIL": "KYC failed",
 }
+
+
+def _policy() -> dict[str, Any]:
+    """applicant_agent.yaml chatbot.document_actions (user, 2026-10-07: anything in review or failed is listed)."""
+    from app.agents.applicant import config
+
+    return config.chatbot("document_actions") or {}
 
 
 def enabled() -> bool:
@@ -112,6 +122,9 @@ def build(case_id: str, *, party: str | None = None, repository: Any = None) -> 
               if _value(getattr(d, "status", "")).upper() != "SUPERSEDED"]
     role_of_party = {getattr(d, "party_id", None): _role(getattr(d, "party_role", None)) for d in stored}
 
+    # REVIEW documents: offered for upload again (with their reasons) when the policy says so -- a
+    # reviewer flagged them; otherwise information only, as before
+    review_reupload = bool(_policy().get("review_needs_reupload", False))
     reupload: list[dict[str, Any]] = []
     under_review: list[dict[str, Any]] = []
     for d in stored:
@@ -119,20 +132,28 @@ def build(case_id: str, *, party: str | None = None, repository: Any = None) -> 
         role = _role(getattr(d, "party_role", None))
         row = {"party": role, "party_label": _ROLE_LABEL[role], "document_type": d.document_type,
                "label": _readable(d.document_type), "document_id": d.document_id}   # 6i: view / query targets
-        if status == "REJECTED":
+        if status == "REJECTED" or (status == "REVIEW" and review_reupload):
             reasons = [r for r in (_explained(c) for c in (getattr(d, "reason_codes", None) or [])) if r]
-            reupload.append({**row, "reasons": reasons[:2], "source": "VERIFICATION"})
+            reupload.append({**row, "reasons": reasons[:2],
+                             "source": "VERIFICATION" if status == "REJECTED" else "VERIFICATION_REVIEW"})
         elif status in ("REVIEW", "UPLOADED", "PROCESSING"):
             under_review.append({**row, "state": "REVIEW" if status == "REVIEW" else "PROCESSING"})
 
     # KYC: every failed / reviewed identity field, with the values the record kept
     kyc_issues: list[dict[str, Any]] = []
+    kyc_status: list[dict[str, Any]] = []
     try:
         findings = repository.get_current_findings(case_id, kind="KYC") or []
     except Exception:  # noqa: BLE001 - unreadable KYC: no KYC rows, never invented ones
         findings = []
     for finding in findings:
         role = role_of_party.get(getattr(finding, "party_id", None)) or "PRIMARY_APPLICANT"
+        verdict = str(getattr(finding, "status", "") or "").upper()
+        if verdict in ("REVIEW", "FAIL") and _policy().get("kyc_status_line", False):
+            # THE PARTY'S KYC VERDICT ITSELF -- shown even when the finding names no field
+            reasons = [r for r in (_explained(c) for c in (getattr(finding, "reason_codes", None) or [])) if r]
+            kyc_status.append({"party": role, "party_label": _ROLE_LABEL[role], "status": verdict,
+                               "reasons": reasons[:2]})
         for field in (getattr(finding, "payload", None) or {}).get("fields") or []:
             name = str((field or {}).get("field") or "").upper()
             status = str((field or {}).get("status") or "").upper()
@@ -189,8 +210,16 @@ def build(case_id: str, *, party: str | None = None, repository: Any = None) -> 
     def keep(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [r for r in rows if party is None or r["party"] == party]
 
+    # the verdict line only where no field-level mismatch already says it for that party
+    detailed = {i["party"] for i in kyc_issues if i["values"]}
+    kyc_status = [k for k in kyc_status if k["party"] not in detailed]
+
+    # ONE ROW PER DOCUMENT: a slot already listed to upload again / under review is not "still pending" too
+    listed = {(r["party"], str(r["document_type"]).upper()) for r in reupload + under_review}
+    pending = [r for r in pending if (r["party"], str(r["document_type"]).upper()) not in listed]
+
     out = {"reupload": keep(reupload), "pending": keep(pending), "under_review": keep(under_review),
-           "kyc_issues": keep(kyc_issues)}
+           "kyc_issues": keep(kyc_issues), "kyc_status": keep(kyc_status)}
     for row in out["reupload"] + out["pending"]:
         row["action"] = {"type": "UPLOAD_DOCUMENT", "document_type": row["document_type"], "party": row["party"],
                          "label": f"Upload {row['label']}"}
@@ -199,13 +228,21 @@ def build(case_id: str, *, party: str | None = None, repository: Any = None) -> 
 
 def render(view: dict[str, Any], language: str | None = None) -> dict[str, Any]:
     """(answer text, the 1-2 words worth emphasis) from a built view. Compact; the payload holds the rest."""
-    two = len({r["party"] for k in ("reupload", "pending", "under_review", "kyc_issues") for r in view[k]}) > 1
+    two = len({r["party"] for k in ("reupload", "pending", "under_review", "kyc_issues", "kyc_status")
+               for r in view.get(k) or []}) > 1
 
     def name(row: dict[str, Any]) -> str:
         return f"{row['party_label']}'s {row['label']}" if two else row["label"]
 
     lines: list[str] = []
     emphasis: list[str] = []
+    for k in view.get("kyc_status") or []:
+        # the KYC verdict first: "⚠️ KYC needs review — <reason>" (per party when two)
+        said = _t(f"docact_kyc_status_{k['status']}", language)
+        who = f"{k['party_label']}: " if two else ""
+        reason = f" — {k['reasons'][0]}" if k.get("reasons") else ""
+        lines.append(f"⚠️ {who}{said}{reason}")
+        emphasis.append("KYC")
     issues = [i for i in view["kyc_issues"] if i["values"]]
     if issues:
         lines.append(_t("docact_kyc_heading", language))

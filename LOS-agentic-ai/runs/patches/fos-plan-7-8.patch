@@ -1,0 +1,2378 @@
+﻿diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+index 6575e10..33da0d0 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+@@ -38,8 +38,24 @@ def _cfg() -> dict[str, Any]:
+     return config.chatbot("case_workspace") or {}
+ 
+ 
++def _pick(value: Any) -> Any:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    return language_lock.pick(value)
++
++
++def quick_questions() -> list[str]:
++    """The quick-question buttons, in the locked reply language (a plain list is used as is)."""
++    value = _cfg().get("quick_questions") or []
++    picked = _pick(value) if isinstance(value, dict) else value
++    return [str(q) for q in (picked if isinstance(picked, list) else [picked])]
++
++
+ def _label(key: str, **values: Any) -> str:
+-    return str((_cfg().get("labels") or {}).get(key, key)).format(**values)
++    # a label may be one string or a {language: text} map -- the locked reply language picks (FOS plan section 2)
++    from app.agents.applicant.copilot.answering import language_lock
++
++    return language_lock.pick((_cfg().get("labels") or {}).get(key, key)).format(**values)
+ 
+ 
+ def _norm(text: str) -> str:
+@@ -49,7 +65,46 @@ def _norm(text: str) -> str:
+ def _says(kind: str, text: str) -> bool:
+     """Whether the text contains one of the configured phrases of this kind (whole words)."""
+     said = f" {_norm(text)} "
+-    return any(f" {_norm(p)} " in said for p in (_cfg().get("phrases") or {}).get(kind, []))
++    matched = [p for p in (_cfg().get("phrases") or {}).get(kind, []) if f" {_norm(p)} " in said]
++    if kind != "list":
++        return bool(matched)
++    if matched:
++        # "mere case ka details" names a TOPIC beyond the list (FOS plan 1.4): it is a question about the case,
++        # never the list -- a list phrase counts only when every other word is a list word
++        rest = said
++        for phrase in sorted(matched, key=len, reverse=True):
++            rest = rest.replace(f" {_norm(phrase)} ", " ")
++        return set(rest.split()) <= _list_words()
++    return _only_asks_for_the_list(text)
++
++
++def _list_words() -> set[str]:
++    rule = _cfg().get("list_rule") or {}
++    return {_norm(w) for key in ("case_nouns", "cues", "allowed") for w in rule.get(key) or []} \
++        | {w for p in (_cfg().get("phrases") or {}).get("list", []) for w in _norm(p).split()}
++
++
++def _asks_more_than_the_switch(text: str) -> bool:
++    """Whether a message naming "the other case" also asks something (any word beyond those phrases / fillers)."""
++    phrases = _cfg().get("phrases") or {}
++    plain = f" {_norm(text)} "
++    for phrase in sorted(phrases.get("other_case") or [], key=len, reverse=True):
++        plain = plain.replace(f" {_norm(phrase)} ", " ")
++    rest = [w for w in plain.split() if w not in _noise() and w not in {"mere", "mera", "my", "the", "of"}]
++    return bool(rest)
++
++
++def _only_asks_for_the_list(text: str) -> bool:
++    """
++    FOS plan 1.2: "all case ka list", "sab case dikhao", "mere kitne case hai", "give a list of case" -- a case
++    noun, a list cue, and NOTHING ELSE but list words (applicant_agent.yaml case_workspace.list_rule). "case ka
++    status dikhao" is not a list: "status" is not a list word.
++    """
++    rule = _cfg().get("list_rule") or {}
++    words = _norm(text).split()
++    nouns = {_norm(w) for w in rule.get("case_nouns") or []}
++    cues = {_norm(w) for w in rule.get("cues") or []}
++    return bool(words) and bool(nouns & set(words)) and bool(cues & set(words)) and set(words) <= _list_words()
+ 
+ 
+ # --------------------------------------------------------------------------
+@@ -107,6 +162,21 @@ def authorize(claims: dict[str, Any], case_id: str) -> None:
+     access.authorize_conversation(_subject(claims), access.get_scopes(claims), case_id=case_id)
+ 
+ 
++def active_case(claims: dict[str, Any], workspace_id: str | None = None) -> Any:
++    """The application the caller has open in this workspace (re-authorized now), else None."""
++    from app.security import access
++    from app.store import get_repository
++
++    case_id = _state(_subject(claims), workspace_id).active_case_id
++    if not case_id:
++        return None
++    try:
++        authorize(claims, case_id)
++    except access.AccessDenied:
++        return None
++    return get_repository().get_application(case_id)
++
++
+ def _stage(case_id: str) -> str | None:
+     from app.agents.los import stages
+ 
+@@ -140,6 +210,21 @@ def _name(applicant_id: str, *, short: bool) -> str:
+     return full
+ 
+ 
++def _over_target(case_id: str) -> str | None:
++    """'⏰ 5d in FOS (target 3)' when the case is past its stage's turnaround target (timeline.py), else None."""
++    try:
++        from app.agents.applicant.copilot.capabilities import timeline
++
++        if not timeline.enabled():
++            return None
++        t = timeline.build(case_id)
++        if not t.get("over_target"):
++            return None
++        return _label("row_over_target", days=t["days_in_stage"], stage=t["stage"], target=t["target_days"])
++    except Exception:  # noqa: BLE001 - a row is a summary; the case itself has the detail
++        return None
++
++
+ def _row_status(application: Any) -> tuple[str, str]:
+     """(label, kind) -- a KYC issue first, then documents pending, else ready."""
+     from app.agents.applicant import workflow
+@@ -221,6 +306,9 @@ def list_view(claims: dict[str, Any], request_id: str, state, *, page: int = 0)
+         status, kind = _row_status(application)
+         stage = _stage(application.case_id) or "--"
+         name = _name(application.applicant_id, short=True)
++        over = _over_target(application.case_id)
++        if over:
++            status = f"{status} · {over}"                  # FOS plan 7.3: past the stage's turnaround target
+         if not groups or groups[-1]["applicant_id"] != application.applicant_id:
+             n = per_applicant[str(application.applicant_id)]
+             count = _label("group_one") if n == 1 else _label("group_many", n=n)
+@@ -255,13 +343,18 @@ def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
+     lines = [_label("opened", case_id=application.case_id, name=name),
+              _label("snapshot_stage", stage=_stage(application.case_id) or "--"),
+              _label("snapshot_blocker", blocker=blocker) if blocker else _label("snapshot_clear"),
+-             "", _label("suggest", question=_cfg().get("suggested_question", "Kya baaki hai?"))]
++             "", _label("suggest", question=_pick(_cfg().get("suggested_question", "Kya baaki hai?")))]
++    from app.agents.applicant.copilot.capabilities import timeline as _timeline
++
++    late = _timeline.turnaround_line(application.case_id)
++    if late:
++        lines.insert(3, f"⏰ {late}")                       # FOS plan 7.3: past target, with the main blocker
+     return _base(request_id, "CASE_OPENED", "\n".join(lines), case_id=application.case_id,
+                  applicant_id=application.applicant_id, workspace_view={"workspace": workspace_block(application.case_id)})
+ 
+ 
+ def workspace_block(case_id: str) -> dict[str, Any]:
+-    quick = list(_cfg().get("quick_questions") or [])
++    quick = quick_questions()
+     return {"case_id": case_id, "header": _label("in_case", case_id=case_id),
+             "buttons": [{"type": "exit_case", "label": "🔒 Exit"}, {"type": "switch_case", "label": "🔁 Switch case"}]
+             + [{"type": "ask", "label": q, "message": q} for q in quick]}
+@@ -365,6 +458,10 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+     workspace_id = (context or {}).get("workspace_id") if isinstance(context, dict) else None
+     state = _state(subject, workspace_id)
+     text = message or ""
++    if action == "CUSTOM_QUERY" and case_id and state.active_case_id and case_id != state.active_case_id:
++        # THE OPENED CASE WINS (FOS plan 1.8): a frontend that sends the same case_id on every request (the one
++        # from login) never overrides the case the officer opened here; the stale id is ignored, never read
++        case_id = None
+ 
+     def done(reply: dict[str, Any]) -> Turn:
+         reply["context"] = {**(reply.get("context") or {}), "workspace_id": workspace_id or "default"}
+@@ -380,6 +477,19 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+         if closed:
+             reply["answer"] = _label("closed", case_id=closed) + "\n\n" + reply["answer"]
+         return done(reply)
++    if action == "CUSTOM_QUERY" and _says("other_case", text) and _asks_more_than_the_switch(text):
++        # "dusre case ka details do" (FOS plan 1.3): the question is about ANOTHER of the caller's cases --
++        # one other case: switch to it and answer there; several: ask which (never the open case's answer)
++        others = [a for a in my_cases(claims) if a.case_id != state.active_case_id]
++        if len(others) == 1:
++            state.active_case_id = others[0].case_id
++            history = [c for c in (state.case_history or []) if c != others[0].case_id]
++            state.case_history = (history + [others[0].case_id])[-10:]
++            _save(state)
++            return Turn(case_id=others[0].case_id, applicant_id=others[0].applicant_id, in_case=others[0].case_id)
++        if others:
++            return done(which_view(others, request_id, state))
++        return done(_base(request_id, "CASE_SELECTION", _label("no_other_case")))
+     if action == "LIST_CASES" or (action == "CUSTOM_QUERY" and (_says("list", text) or _says("switch", text))):
+         # the list (or a switch) closes the open case first: never two cases at once
+         closed, state.active_case_id = state.active_case_id, None
+diff --git a/LOS-agentic-ai/app/api/routes/copilot_api.py b/LOS-agentic-ai/app/api/routes/copilot_api.py
+index edf47e3..7310c6d 100644
+--- a/LOS-agentic-ai/app/api/routes/copilot_api.py
++++ b/LOS-agentic-ai/app/api/routes/copilot_api.py
+@@ -125,6 +125,10 @@ class CopilotQueryRequest(BaseModel):
+                      "English answer is returned and `language.localized` is "
+                      "false. The business truth never depends on it."),
+         examples=["en"])
++    reply_language: str | None = Field(
++        None, max_length=16, examples=["en"],
++        description=("The frontend's selected language (FOS plan section 2) -- the same as `language`. Either one "
++                     "LOCKS every text of the reply to that language, whatever the question was typed in."))
+     channel: str | None = Field(
+         None, max_length=32,
+         description=("The channel the question came from: web, mobile, "
+@@ -1486,6 +1490,78 @@ async def query(
+     started = time.perf_counter()
+     timings: dict[str, float] = {}
+ 
++    # THE LANGUAGE LOCK (FOS plan section 2) -- the same shared lock /fos/copilot sets
++    from app.agents.applicant.copilot.answering import language_lock as _lock
++
++    _locked = _lock.set_for_request(request.reply_language, request.language)
++    if _locked:
++        request.language = _locked
++
++    # "MY CASES" (FOS plan 1.2): with the case workspace on, a message that only asks for the caller's case
++    # list ("all case ka list", "my cases") is THE CALLER'S OWN LIST -- live grants, each case re-authorized --
++    # never a bulk-data refusal and never one applicant's portfolio. The same list as /fos/copilot.
++    from app.agents.applicant.copilot.capabilities import workspace as _ws
++
++    def _published(reply: dict[str, Any], response_type: str) -> dict[str, Any]:
++        from app.agents.applicant.copilot.answering import professional as _professional
++
++        reply = dict(reply or {})
++        reply["presentation"] = {**(reply.get("presentation") or {}), **(reply.pop("workspace_view", None) or {})}
++        reply.setdefault("response_type", response_type)
++        reply["processing_ms"] = round((time.perf_counter() - started) * 1000, 1)
++        return _professional.apply(reply)
++
++    # PARITY WITH /fos/copilot (FOS plan section 1/2): the 6h safety screen, then the WHOLE case workspace --
++    # "my cases", "2 kholo", "dusre case ka details", exit / switch, the opened case -- the same shared code
++    from app.agents.applicant.copilot.capabilities import safety as _safety
++
++    if _safety.enabled():
++        from app.security.auth import get_subject as _safety_subject
++
++        screened = _safety.screen(request.message, str(_safety_subject(claims) or "anonymous"), request_id,
++                                  request.case_id)
++        if screened is not None:
++            return _published(screened, "GUARDRAIL")
++    if _ws.enabled():
++        from app.security import access as _ws_access
++
++        try:
++            ws_turn = _ws.handle("CUSTOM_QUERY", request.message, request.case_id, claims, request_id,
++                                 request.context)
++        except _ws_access.AccessDenied as exc:
++            raise _ws_access.http_denied(exc, request_id) from None
++        if ws_turn.reply is not None:
++            return _published(ws_turn.reply, str(ws_turn.reply.get("intent") or "CASE_LIST"))
++        if ws_turn.case_id:
++            request.case_id, request.applicant_id = ws_turn.case_id, str(ws_turn.applicant_id or "") or None
++
++    # NO CASE NAMED (FOS plan 1.4): "case details do" without a case_id answered "None of the application details
++    # are recorded" -- untrue, no case was chosen. The case the officer OPENED in the workspace answers it, or their
++    # only case; with several and none open, a case question is answered with "which case?" (below).
++    unresolved_case = False
++    workspace_id = (request.context or {}).get("workspace_id") if isinstance(request.context, dict) else None
++    if _ws.enabled() and request.case_id:
++        # THE OPENED CASE WINS (FOS plan 1.8): the same rule as /fos/copilot -- a case_id sent on every request
++        # never overrides the case the officer opened in the workspace
++        opened = _ws.active_case(claims, workspace_id)
++        if opened is not None and opened.case_id != request.case_id:
++            request.case_id, request.applicant_id = opened.case_id, str(opened.applicant_id)
++    if _ws.enabled() and not request.case_id and not request.applicant_id:
++        chosen = _ws.active_case(claims, workspace_id)
++        if chosen is None:
++            mine = _ws.my_cases(claims)
++            chosen = mine[0] if len(mine) == 1 else None
++            unresolved_case = len(mine) > 1
++        if chosen is not None:
++            request.case_id, request.applicant_id = chosen.case_id, str(chosen.applicant_id)
++    if _ws.enabled() and not request.case_id and not request.stage:
++        # NO CASE AT ALL: a workspace caller's process question ("KYC kya hai?") is answered for the workspace's
++        # desk (case_workspace.default_stage) -- never "the stage could not be determined"; a case's own stage
++        # always wins once a case is chosen
++        from app.agents.applicant import config as _ws_config
++
++        request.stage = (_ws_config.chatbot("case_workspace").get("default_stage") or None)
++
+     # SECURITY AND SMALL TALK FIRST (decision order: 1. what kind of request
+     # is this, 2. is the caller allowed ...). A request the input policy
+     # refuses, or a greeting, is answered by the agent before any read -- so
+@@ -1625,6 +1701,17 @@ async def query(
+                 if isinstance(envelope.get("understanding"), dict):
+                     envelope["understanding"]["compound"] = {
+                         "parts": list(parts), "intents": intents_seen}
++            if unresolved_case and envelope.get("query_type") == "CASE_FACT" \
++                    and envelope.get("intent") not in ("CASE_PORTFOLIO", "CASE_LIST"):
++                # a case question with several cases and none chosen: "which case?" + the caller's list,
++                # never an answer about no case at all (FOS plan 1.4)
++                _ws_state = _ws._state(_ws._subject(claims), None)
++                listed = _ws.list_view(claims, request_id, _ws_state)     # "2" then picks from this list
++                _ws._save(_ws_state)
++                envelope["answer"] = _ws._label("pick_case_first") + "\n\n" + str(listed.get("answer") or "")
++                envelope["intent"] = "CASE_SELECTION"
++                envelope["query_type"] = "CLARIFICATION"
++                envelope["workspace_view"] = listed.get("workspace_view")
+     except NotOwned:
+         # A REFUSAL, NOT AN ERROR, AND NOT A DISCLOSURE. Phrased
+         # identically whether the case belongs to somebody else or
+@@ -1958,8 +2045,27 @@ async def query(
+     # history, next actions, provenance, handoff summary: a full PAN, Aadhaar
+     # or account number never leaves in any field (sensitivity.py).
+     from app.security import sensitivity
++    # PROFESSIONAL FORMAT, LAST (FOS plan section 3) -- the same shared step /fos/copilot applies
++    from app.agents.applicant.copilot.answering import professional as _professional
++
++    from app.agents.applicant.copilot.answering import kyc_table as _kyc_table
++
++    published = _kyc_table.attach(published)          # the KYC table (FOS plan section 4), as on /fos/copilot
++    from app.agents.applicant.copilot.answering import readiness_report as _readiness_report
++
++    published = _readiness_report.attach(published)   # the readiness report (FOS plan sections 5 / 7.1)
++    from app.agents.applicant.copilot.answering import counts as _counts
++
++    published = _counts.attach(published, request.message)   # count questions, from the store (FOS plan 6.6)
++    from app.agents.applicant.copilot.capabilities import timeline as _timeline
++
++    published = _timeline.attach(published, request.message)  # time questions (FOS plan 7.3)
++    from app.agents.applicant.copilot.answering import handoff_note as _handoff_note
+ 
+-    return CopilotQueryResponse(**sensitivity.mask_payload(published))
++    published = _handoff_note.attach(published, request.message, claims)   # the CPA handoff note (FOS plan 7.1)
++    formatted = _professional.apply(sensitivity.mask_payload(published))
++    return CopilotQueryResponse(**{k: v for k, v in formatted.items()
++                                   if k in CopilotQueryResponse.model_fields or k not in ("answer_plain", "format")})
+ 
+ 
+ __all__ = ["router"]
+diff --git a/LOS-agentic-ai/app/api/routes/fos_api.py b/LOS-agentic-ai/app/api/routes/fos_api.py
+index fd3c411..4516de7 100644
+--- a/LOS-agentic-ai/app/api/routes/fos_api.py
++++ b/LOS-agentic-ai/app/api/routes/fos_api.py
+@@ -320,6 +320,11 @@ class CopilotRequest(BaseModel):
+             "the language; where no template covers a fact the English answer stands and "
+             "`language_contract.localized` is false."),
+     )
++    reply_language: str | None = Field(
++        None, max_length=16, examples=["en"],
++        description=("The same as `response_language` (FOS plan section 2, the frontend's name for it). Either one "
++                     "LOCKS every text of the reply -- answer, clarifications, buttons, refusals -- to that language."),
++    )
+     # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS)
+     document_id: str | None = Field(None, max_length=256, description="VIEW_DOCUMENT: the document to open.")
+     query: dict[str, Any] | None = Field(None, description="RAISE_QUERY: the (edited) draft to send.")
+@@ -788,6 +793,16 @@ async def create_case(
+             "request_id": request_id, "error": exc.code, "message": exc.message,
+         }) from exc
+ 
++    # ALL AMOUNTS ARE IN RUPEES (FOS plan 1.1): an implausible amount is refused BEFORE the applicant is
++    # created, so a bad form never leaves a half-made case behind
++    if request.application is not None:
++        from app.agents.applicant import plausibility
++
++        found = plausibility.problem(request.application.model_dump(exclude_none=True))
++        if found is not None:
++            raise HTTPException(422, detail={"request_id": request_id, "error": plausibility.CODE,
++                                             "field": found[0], "message": found[1]})
++
+     # ANOTHER CASE FOR A CUSTOMER THIS CALLER ALREADY SERVES. One applicant may
+     # hold several cases; naming an applicant the caller may WRITE opens a new
+     # case for them, and the recorded person is left exactly as captured (never
+@@ -1200,7 +1215,32 @@ async def copilot(
+             from app.agents.applicant.copilot.answering import presentation as _presentation
+ 
+             published["presentation"] = _presentation.build(published)
+-            return _sensitivity.mask_payload(published)
++            # THE KYC TABLE on a KYC answer (FOS plan section 4; shared with /copilot/query)
++            from app.agents.applicant.copilot.answering import kyc_table as _kyc_table
++
++            published = _kyc_table.attach(published)
++            # THE READINESS REPORT on a readiness answer (FOS plan sections 5 / 7.1; shared with /copilot/query)
++            from app.agents.applicant.copilot.answering import readiness_report as _readiness_report
++
++            published = _readiness_report.attach(published)
++            # COUNT QUESTIONS, counted from the store (FOS plan 6.6; shared with /copilot/query)
++            from app.agents.applicant.copilot.answering import counts as _counts
++
++            published = _counts.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
++            # TIME QUESTIONS: the dated timeline, days in stage, "kal wala" (FOS plan 7.3; shared)
++            from app.agents.applicant.copilot.capabilities import timeline as _timeline
++
++            published = _timeline.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
++            # THE CPA HANDOFF NOTE, only for a ready case (FOS plan 7.1; shared with /copilot/query)
++            from app.agents.applicant.copilot.answering import handoff_note as _handoff_note
++
++            published = _handoff_note.attach(published, str(getattr(request.state, "copilot_message", "") or ""),
++                                             claims)
++            # PROFESSIONAL FORMAT, LAST (FOS plan section 3; shared with /copilot/query): no emojis anywhere,
++            # one "Next step:" line, a plain-text answer
++            from app.agents.applicant.copilot.answering import professional as _professional
++
++            return _professional.apply(_sensitivity.mask_payload(published))
+         return published
+     except HTTPException:
+         raise
+@@ -1344,6 +1384,13 @@ async def _copilot_json(
+ 
+     action = payload.action
+ 
++    # THE LANGUAGE LOCK (FOS plan section 2): the selected language, for every text this turn writes
++    from app.agents.applicant.copilot.answering import language_lock as _lock
++
++    locked = _lock.set_for_request(payload.reply_language, payload.response_language)
++    if locked:
++        payload.response_language = locked
++
+     if action is FosAction.UPLOAD_DOCUMENT:
+         raise HTTPException(415, detail={
+             "request_id": request_id, "error": "UPLOAD_REQUIRES_MULTIPART",
+@@ -1360,6 +1407,7 @@ async def _copilot_json(
+             })
+     else:
+         message = _ACTION_PHRASE[action]
++    request.state.copilot_message = message if action is FosAction.CUSTOM_QUERY else ""   # post-steps read it
+ 
+     # 6h GUARDRAIL HARDENING (COPILOT_GUARDRAIL_HARDENING): rate limit, self-harm care, threats,
+     # social engineering, abuse cooldown -- BEFORE anything is read
+@@ -2017,10 +2065,19 @@ async def _copilot_upload(
+             "message": (f"{declared_action} is not valid for a multipart "
+             "request. Only UPLOAD_DOCUMENT is."),
+         })
++    if (not applicant_id or not case_id):
++        # INSIDE AN OPENED CASE (6-MVP workspace): an upload without ids goes to the case the officer
++        # opened -- ownership is still checked below (write), exactly as for explicit ids
++        from app.agents.applicant.copilot.capabilities import workspace as _ws
++
++        opened = _ws.active_case(claims, str(form.get("workspace_id") or "").strip() or None) \
++            if _ws.enabled() else None
++        if opened is not None and (not case_id or case_id == opened.case_id):
++            case_id, applicant_id = opened.case_id, applicant_id or str(opened.applicant_id)
+     if not applicant_id or not case_id:
+         raise HTTPException(422, detail={
+             "request_id": request_id, "error": "INVALID_REQUEST",
+-            "message": "applicant_id and case_id are required for an upload.",
++            "message": "applicant_id and case_id are required for an upload (or open a case first).",
+         })
+     if not uploads:
+         raise HTTPException(422, detail={
+@@ -2185,6 +2242,10 @@ async def _copilot_upload(
+             "document_type": document.get("type"),
+             "expected_type": document.get("expected_type"),
+             "verification": document.get("verification"),
++            # THE NAME THE DOCUMENT CARRIES (released fields only) -- whose document it looks like (FOS plan 7.2)
++            "name_on_document": next((((document.get("extraction") or {}).get("fields") or {}).get(k)
++                                      for k in ("name", "employee_name", "account_holder", "holder_name")
++                                      if ((document.get("extraction") or {}).get("fields") or {}).get(k)), None),
+             "status": document.get("status"),
+             "reason_codes": document.get("reason_codes") or [],
+             # The gate's decision, restated. Extraction is released only
+@@ -2372,6 +2433,17 @@ async def _copilot_upload(
+     if stage_sentence:
+         answer = f"{answer} {stage_sentence}"
+ 
++    # SMART UPLOAD (FOS plan 7.2): what each file looks like, whose, where it was filed -- or ONE question
++    from app.agents.applicant.copilot.capabilities import smart_upload as _smart
++
++    smart_question, smart_actions = None, []
++    if _smart.enabled():
++        smart_lines, smart_question, smart_actions = _smart.describe(case_id, outcomes,
++                                                                     filed_as_co=bool(upload_co_id))
++        lead = [smart_question["question"]] if smart_question else []
++        if lead or smart_lines:
++            answer = "\n".join(lead + smart_lines + [answer])
++
+     return _blank(
+         request_id,
+         applicant_id=applicant_id,
+@@ -2379,6 +2451,8 @@ async def _copilot_upload(
+         action=FosAction.UPLOAD_DOCUMENT.value,
+         intent="UPLOAD_DOCUMENT",
+         answer=answer,
++        clarification_required=smart_question,
++        actions=smart_actions,
+         response_type="UPLOAD_VALIDATION" if rejected else "UPLOAD_RESULT",
+         applicant=result.get("applicant"),
+         application=result.get("application"),
+@@ -2703,6 +2777,10 @@ def _frontend_contract(result: dict[str, Any],
+     suggested = result.get("suggested_questions")
+     if suggested:
+         block["suggested_questions"] = list(suggested)
++    else:
++        # the case-derived chips, turned to follow THIS turn (FOS plan 1.7)
++        block["suggested_questions"] = frontend.contextual_suggestions(block.get("suggested_questions"),
++                                                                       result.get("intent"))
+     return block
+ 
+ 
+@@ -2710,7 +2788,7 @@ def _raise_from(request_id: str, envelope) -> None:
+     error = envelope.error
+     code = error.code if error else "FAILED"
+     raise HTTPException(
+-        404 if code == "NOT_FOUND" else 400,
++        404 if code == "NOT_FOUND" else 422 if code == "AMOUNT_IMPLAUSIBLE" else 400,
+         detail={"request_id": request_id, "error": code,
+                 "message": error.message if error else "The call failed."},
+     )
+@@ -2778,6 +2856,50 @@ async def copilot_stream(request: Request, claims: dict[str, Any] = Depends(requ
+                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+ 
+ 
++@router.get(
++    "/handoff-note",
++    summary="The CPA handoff note of a ready case, as md / html / pdf (FOS plan 7.1)",
++    responses={200: {"description": "The note."}, 403: {"description": "Not the caller's case."},
++               409: {"description": "The case is not ready for CPA."}},
++)
++async def handoff_note_file(case_id: str, format: str = "pdf", claims: dict[str, Any] = Depends(require_jwt)):
++    """Only the caller's own case (the ordinary ownership check), only when ready, every download audited."""
++    from fastapi.responses import Response
++
++    from app.agents.applicant import audit
++    from app.agents.applicant.copilot.answering import handoff_note
++    from app.agents.applicant.copilot.capabilities import workspace as _ws
++    from app.security import access as _acc
++    from app.security.auth import get_subject
++
++    request_id = f"fos_{uuid.uuid4().hex}"
++    if not handoff_note.enabled():
++        raise HTTPException(404, detail={"request_id": request_id, "error": "HANDOFF_NOTE_DISABLED",
++                                         "message": "The handoff note is off."})
++    try:
++        _ws.authorize(claims, case_id)
++    except _acc.AccessDenied as exc:
++        raise _acc.http_denied(exc, request_id) from None
++    officer = str(get_subject(claims) or "")
++    note = handoff_note.build(case_id, officer)
++    if not note["ready"]:
++        audit.record(request_id=request_id, subject=officer, applicant_id=None, case_id=case_id,
++                     intent="HANDOFF_NOTE_DOWNLOAD", tools=[], status="REFUSED_NOT_READY")
++        raise HTTPException(409, detail={"request_id": request_id, "error": "NOT_READY_FOR_CPA",
++                                         "message": "A handoff note is made once the case is ready for CPA."})
++    kind = str(format or "pdf").lower()
++    audit.record(request_id=request_id, subject=officer, applicant_id=None, case_id=case_id,
++                 intent="HANDOFF_NOTE_DOWNLOAD", tools=["handoff.note"], status="OK", detail=kind)
++    name = f"handoff-note-{case_id}"
++    if kind == "md":
++        return Response(note["markdown"], media_type="text/markdown",
++                        headers={"Content-Disposition": f'attachment; filename="{name}.md"'})
++    if kind == "html":
++        return Response(handoff_note.to_html(note["markdown"]), media_type="text/html")
++    return Response(handoff_note.to_pdf(note["markdown"]), media_type="application/pdf",
++                    headers={"Content-Disposition": f'attachment; filename="{name}.pdf"'})
++
++
+ @router.get(
+     "/documents/view",
+     summary="Open a document through a short-lived signed link (6i VIEW_DOCUMENT)",
+@@ -3073,7 +3195,19 @@ def _frontend_features() -> dict[str, Any]:
+         "co_applicant_identity": _co.enabled(), "llm_router": _lr.enabled(),
+         "emphasis": (os.getenv("COPILOT_EMPHASIS", "false") or "false").strip().lower() in {"1", "true", "yes", "on"},
+     }
++    # FOS E2E plan sections 2-7: each feature's own switch, as the running server sees it
++    from app.agents.applicant.copilot.answering import (counts as _cnt, handoff_note as _hn, kyc_table as _kt,
++                                                        language_lock as _ll, professional as _pf,
++                                                        readiness_report as _rr)
++    from app.agents.applicant.copilot.capabilities import (smart_upload as _su, snapshot_qa as _sq,
++                                                           timeline as _tl)
++
++    features.update({"language_lock": _ll.enabled(), "professional_format": _pf.enabled(), "kyc_table": _kt.enabled(),
++                     "readiness_report": _rr.enabled(), "snapshot_qa": _sq.enabled(), "count_answers": _cnt.enabled(),
++                     "handoff_note": _hn.enabled(), "smart_upload": _su.enabled(), "case_timeline": _tl.enabled()})
+     endpoints = {"copilot": "/api/v1/fos/copilot", "actions": "/api/v1/fos/actions", "config": "/api/v1/fos/config"}
++    if features["handoff_note"]:
++        endpoints["handoff_note"] = "/api/v1/fos/handoff-note?case_id={case_id}&format=pdf"
+     if features["streaming"]:
+         endpoints["stream"] = "/api/v1/fos/copilot/stream"
+     if features["case_actions"]:
+@@ -3081,7 +3215,7 @@ def _frontend_features() -> dict[str, Any]:
+     out: dict[str, Any] = {"features": features, "endpoints": endpoints}
+     if features["case_workspace"]:
+         cfg = config.chatbot("case_workspace") or {}
+-        out["workspace"] = {"page_size": cfg.get("page_size", 10), "quick_questions": cfg.get("quick_questions") or [],
++        out["workspace"] = {"page_size": cfg.get("page_size", 10), "quick_questions": _ws.quick_questions(),
+                             "list_message": "mere cases dikhao"}
+     return out
+ 
+diff --git a/LOS-agentic-ai/app/api/routes/ops.py b/LOS-agentic-ai/app/api/routes/ops.py
+index af2e6b3..ac55a89 100644
+--- a/LOS-agentic-ai/app/api/routes/ops.py
++++ b/LOS-agentic-ai/app/api/routes/ops.py
+@@ -146,9 +146,60 @@ async def ready(response: Response) -> dict:
+         "unsigned_policy_override": allow_unsigned_policy(),
+         "circuits": resilience.breaker.snapshot(),
+         "in_flight": resilience.bulkhead.snapshot(),
++        "build": build_marker(),
+     }
+ 
+ 
++def build_marker() -> dict:
++    """
++    WHICH BACKEND IS THIS (FOS plan 1.1): the build step (applicant_agent.yaml chatbot.build), the git
++    commit when one can be read, and every chatbot flag as it is RIGHT NOW in this process -- so a
++    frontend tester can confirm with GET /ready that they reach this server with the features on.
++    """
++    import os
++    import subprocess
++    from pathlib import Path
++
++    from app.agents.applicant import config
++
++    build = config.chatbot("build") or {}
++    on = {"1", "true", "yes", "on"}
++    from app.agents.applicant.copilot.answering import kyc_table, language_lock, professional, readiness_report
++    from app.agents.applicant.copilot.semantics import llm_router
++
++    # flags whose default is ON in config when the environment says nothing: their own enabled() decides
++    by_module = {llm_router.FLAG: llm_router.enabled, language_lock.FLAG: language_lock.enabled,
++                 professional.FLAG: professional.enabled, kyc_table.FLAG: kyc_table.enabled,
++                 readiness_report.FLAG: readiness_report.enabled}
++    from app.agents.applicant.copilot.capabilities import snapshot_qa
++
++    by_module[snapshot_qa.FLAG] = snapshot_qa.enabled
++    from app.agents.applicant.copilot.answering import counts
++
++    by_module[counts.FLAG] = counts.enabled
++    from app.agents.applicant.copilot.answering import handoff_note
++
++    by_module[handoff_note.FLAG] = handoff_note.enabled
++    from app.agents.applicant.copilot.capabilities import smart_upload
++
++    by_module[smart_upload.FLAG] = smart_upload.enabled
++    from app.agents.applicant.copilot.capabilities import timeline
++
++    by_module[timeline.FLAG] = timeline.enabled
++    flags = {name: (by_module[name]() if name in by_module
++                    else (os.getenv(name, "") or "").strip().lower() in on)
++             for name in build.get("chatbot_flags") or []}
++    commit = None
++    try:
++        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2,
++                                cwd=Path(__file__).resolve().parents[3]).stdout.strip() or None
++    except Exception:  # noqa: BLE001 - no git on the host: the step still says which build
++        commit = None
++    return {"phase": build.get("phase"), "step": build.get("step"), "commit": commit,
++            "uncommitted_changes_possible": True, "chatbot_flags": flags,
++            "chatbot_flags_on": sum(flags.values()), "chatbot_flags_total": len(flags)}
++
++
+ @router.get("/metrics", summary="Prometheus metrics")
+ async def prometheus_metrics() -> Response:
+     """Agent, orchestration and Copilot aggregate metrics in one scrape."""
+diff --git a/LOS-agentic-ai/app/config/applicant_agent.yaml b/LOS-agentic-ai/app/config/applicant_agent.yaml
+index 83f850c..1055621 100644
+--- a/LOS-agentic-ai/app/config/applicant_agent.yaml
++++ b/LOS-agentic-ai/app/config/applicant_agent.yaml
+@@ -875,6 +875,225 @@ chatbot:
+       new_case: "👉 Tap **New case** to open the case form."
+       view: "📄 **{document}** -- the link works for {minutes} minutes."
+ 
++  # FOS plan 6.7 -- MISUNDERSTANDING RECOVERY: "ye nahi poocha" -> one question back with options (whole phrase)
++  misunderstood:
++    phrases: [ye nahi poocha, yeh nahi poocha, ye nahi pucha, yeh nahi pucha, maine ye nahi poocha, galat samjha,
++              galat samjhe, aap galat samjhe, not what i asked, thats not what i asked, that's not what i asked,
++              you misunderstood, wrong answer, galat jawab, ये नहीं पूछा, गलत समझा]
++    question: { en: "Sorry, I got that wrong. What did you want to know about this case?",
++                hi-Latn: "Maaf kijiye, main galat samjha. Is case ke baare mein kya jaanna tha?",
++                default: en }
++    options:
++      - { en: "What is pending?", hi-Latn: "Kya baaki hai?", default: en }
++      - { en: "Is it ready for CPA?", hi-Latn: "CPA ke liye ready hai?", default: en }
++      - { en: "KYC status", hi-Latn: "KYC ka status", default: en }
++
++  # FOS plan 6.6 -- COUNT QUESTIONS (answering/counts.py): "kitne documents verified hain" -> the number, counted
++  # from the store. Env COPILOT_COUNT_ANSWERS.
++  counts:
++    enabled: true
++    cues: [kitne, kitni, kitna, how many, count, number of, total]
++    nouns: [document, documents, doc, docs, papers, kagaz, files, दस्तावेज़]
++    statuses:
++      VERIFIED: [verified, verify, pass, passed, approved, sahi]
++      REJECTED: [rejected, reject, fail, failed, galat]
++      PENDING: [pending, baaki, baki, missing, review, processing]
++    groups:
++      VERIFIED: [VERIFIED]
++      REJECTED: [REJECTED]
++      PENDING: [UPLOADED, PROCESSING, REVIEW]
++    labels:
++      VERIFIED: { one: "1 document is verified: {names}.", many: "{n} documents are verified: {names}.",
++                  none: "No document is verified yet." }
++      REJECTED: { one: "1 document was rejected: {names}.", many: "{n} documents were rejected: {names}.",
++                  none: "No document was rejected." }
++      PENDING: { one: "1 document is still being checked: {names}.", many: "{n} documents are still being checked: {names}.",
++                 none: "No uploaded document is waiting for a check." }
++      ALL: { one: "1 document is on the case: {names}.", many: "{n} documents are on the case: {names}.",
++             none: "No document is on the case yet." }
++
++  # FOS plan 7.3 -- CASE TIMELINE AND TURNAROUND (capabilities/timeline.py). Env COPILOT_CASE_TIMELINE.
++  timeline:
++    enabled: true
++    targets_days: { FOS: 3, CPA: 2, CREDIT: 5 }       # turnaround target per stage (calendar days)
++    phrases:
++      timeline: [timeline, case ka timeline, kab kya hua, history of the case, case history dikhao, what happened when]
++      days: [kitne din se, kitne din ho gaye, how many days, how long, kab se atka, since when, days in fos]
++      created: [case kab bana, kab bana tha, kab create hua, when was the case created, created on, case kab khula]
++      day_cues: [verify, verified, upload, uploaded, wala, waala, document, documents, dala]
++    relative_days: { kal: -1, yesterday: -1, aaj: 0, today: 0, parso: -2 }
++    day_words: { "-1": "yesterday", "0": "today", "-2": "two days ago" }
++
++  # FOS plan 7.2 -- SMART UPLOAD (capabilities/smart_upload.py): per file what it looks like, whose (name on the
++  # document vs the parties, existing name matcher) and where it was filed; one question when unsure.
++  smart_upload:
++    enabled: true
++    match_threshold: 0.85
++    party_margin: 0.15                    # the other party must fit this much better before asking
++    ask_slots: [PAN, ADDRESS_PROOF, BANK_STATEMENT, SALARY_SLIP, ITR]
++
++  # FOS plan 7.1 -- THE CPA HANDOFF NOTE (answering/handoff_note.py): only for a case that passes the live FOS gate;
++  # chat + GET /api/v1/fos/handoff-note (md / html / pdf); audited. Env COPILOT_HANDOFF_NOTE.
++  handoff_note:
++    enabled: true
++    phrases: [handoff note, hand off note, handover note, cpa note, cpa handoff, note for cpa, handoff note banao,
++              handoff note do, cpa ke liye note, handoff summary, cpa handoff note]
++
++  # FOS plan SECTION 6.4-6.6 -- CASE SNAPSHOT QA + FACT CHECK (capabilities/snapshot_qa.py): inside a case, a
++  # question no intent fits is answered by the model ONLY from the masked fact sheet; every number / date / ID /
++  # status / document name must be on the sheet or the answer is discarded. Env COPILOT_SNAPSHOT_QA.
++  snapshot_qa:
++    enabled: true
++    timeout_seconds: 3.0
++    num_predict: 120
++    min_free_ram_gb: 1.5
++    max_fields_per_document: 14
++    # words that, when said, must be on the fact sheet too (statuses, document names)
++    checked_words: [verified, rejected, review, pending, uploaded, missing, pass, fail, ready, pan, aadhaar, passport,
++                    licence, voter, salary, itr, statement, signature]
++    # 11d ANSWERABILITY: what is not captured at FOS, and where it comes from
++    answerability:
++      - { words: [tenure, emi, interest, rate], say: "Tenure, rate and EMI are set at the Credit stage, not captured at FOS." }
++      - { words: [cibil, credit score, score], say: "The credit score is checked at the Credit stage, not at FOS." }
++      - { words: [sanction, approved, approval, disburse, disbursement], say: "Sanction and disbursement happen after CPA and Credit; FOS does not record them." }
++    labels:
++      not_recorded: "This is not recorded on the case."
++
++  # FOS plan SECTIONS 5 + 7.1 -- READINESS, ASK ANYTHING (answering/readiness_report.py): every requirement the
++  # FOS gate evaluates, grouped, PASS / PENDING / FAILED / REVIEW with reason and fix; READY is the live gate's
++  # verdict only. Env COPILOT_READINESS_REPORT overrides `enabled`.
++  readiness_report:
++    enabled: true
++    # failing items, what unblocks the case FASTEST first: a re-upload the officer can do now, then a missing
++    # upload, then details to record, then KYC, then what only a reviewer can clear
++    unblock_order: [DOCUMENT_FAILED, DOCUMENT_PENDING, FIELD_PENDING, KYC_FAILED, KYC_PENDING, KYC_REVIEW,
++                    DOCUMENT_REVIEW, GATE]
++    # a question about what THIS case needs to reach the next stage ("CPA ke liye kya chahiye") -> the report.
++    # The next stage named + one cue (whole words, as typed or normalised); a definition ("CPA kya hai") never.
++    question:
++      next_stages: [cpa]
++      cues: [chahiye, chaiye, needed, need, needs, required, require, baaki, baki, pending, blocking, block, blocked,
++             rok, roka, atka, atki, missing, remaining, left, kab, when, ready]
++
++  # FOS plan SECTION 4 -- THE KYC TABLE on every KYC answer (answering/kyc_table.py): per party, check | document |
++  # on document | on application | result | reason, from recorded findings, masked; the likely odd one out.
++  # Env COPILOT_KYC_TABLE overrides `enabled`. Labels may be {language: text} maps.
++  kyc_table:
++    enabled: true
++
++  # FOS plan SECTION 3 -- PROFESSIONAL FORMAT (answering/professional.py), applied last on BOTH endpoints.
++  # emojis: false = no pictograph in any reply field (production default); the closing hint becomes one
++  # "Next step:" line; answer_plain always present. Env COPILOT_PROFESSIONAL_FORMAT overrides `enabled`.
++  professional_format:
++    enabled: true
++    emojis: false
++    next_step_label: "Next step:"
++
++  # FOS plan SECTION 2 -- LANGUAGE LOCK (answering/language_lock.py). The frontend's selected language
++  # (reply_language / response_language / language) is authoritative for EVERY text of the reply. Env
++  # COPILOT_LANGUAGE_LOCK overrides `enabled`. Labels anywhere in this file may be {en: ..., hi-Latn: ...} maps.
++  language_lock:
++    enabled: true
++    supported: [en, hi, hi-Latn, mr, mr-Latn]
++    aliases: { english: en, en-in: en, en-us: en, en-gb: en, hindi: hi, hi-in: hi, hinglish: hi-Latn,
++               hi_latn: hi-Latn, marathi: mr, mr-in: mr }
++
++  # FOS plan 1.7: SUGGESTION CHIPS FOLLOW THE TURN. After an answer, chips naming the topic just answered are
++  # dropped (`drop`: substrings, lower case) and that topic's next questions lead (`after`).
++  suggestions:
++    drop:
++      DOCUMENTS_PENDING: [pending]
++      DOCUMENTS_MISSING: [pending]
++      PENDING_ITEMS: [pending]
++      READINESS: [ready to hand over, pending on this case]
++      APPLICATION_STATUS: [status]
++      KYC_RESULT: [kyc]
++      DOCUMENTS_UPLOADED: [uploaded]
++    after:
++      DOCUMENTS_PENDING: ["Is this case ready for CPA?", "What should I do next?"]
++      DOCUMENTS_MISSING: ["Is this case ready for CPA?", "What should I do next?"]
++      PENDING_ITEMS: ["Is this case ready for CPA?", "What is the KYC status?"]
++      READINESS: ["What should I do next?", "What is the KYC status?"]
++      APPLICATION_STATUS: ["What is pending on this case?", "What should I do next?"]
++      KYC_RESULT: ["Which documents does KYC compare?", "What is pending on this case?"]
++      DOCUMENTS_UPLOADED: ["Are these documents verified?", "What is pending on this case?"]
++      DOCUMENT_VERIFICATION: ["What is pending on this case?", "What is the KYC status?"]
++      APPLICANT_PROFILE: ["What is pending on this case?", "What is the KYC status?"]
++      NEXT_ACTION: ["Is this case ready for CPA?", "What is the KYC status?"]
++
++  # FOS plan 1.6: words of the officer's work. A garbled message holding one gets ONE clarifying question
++  # (the general offer), never "That's outside what I can help with here".
++  domain_words:
++    words: [list, lists, details, detail, record, records, file, files, customer, customers, query, queries,
++            upload, verify, verification, pending, baaki, status, signature, photo, form, amount, salary, income,
++            timeline, readiness, handoff]
++
++  # FOS plan 1.6: a document named right before a case word ("mere Aadhar case ka details kaise dekhun") is
++  # ambiguous -- one question with both readings as options.
++  ambiguity:
++    document_before_case:
++      case_nouns: [case, file, application, केस]
++      question: "Do you mean the {doc} details, or this case's details?"
++      options: ["Show the {doc} details", "Show this case's details"]
++
++  # FOS plan 1.4: a message that is ONLY a request for details ("details batao") -> everything recorded on the
++  # case (applicant + application). Whole message only; "PAN details" etc. keep their own meaning.
++  bare_details:
++    phrases: [details, detail, details batao, detail batao, details do, detail do, details dikhao,
++              details dikha do, details bata do, details please, sab details, saari details, poori details,
++              full details, all details, show details, give details, jaankari do, jankari do, details chahiye,
++              विवरण दो, डिटेल्स बताओ,
++              # the normalised forms the pipeline also reads ("details batao" -> "tell me details")
++              tell me details, tell me the details, give me details, give me the details, show me details,
++              show me the details, details give, details show, details tell]
++
++  # FOS plan 1.5: ONE count of documents -- `case_state` (app/agents/applicant/frontend.py: required counts +
++  # documents_optional / documents_optional_missing); every upload button says required or optional.
++  document_counts:
++    labels:
++      upload_required: "Upload {label}"
++      upload_optional: "Upload {label} (optional)"
++
++  # BUILD MARKER on GET /ready (FOS plan 1.1): which backend a frontend is talking to. Update `step` with
++  # each delivered step; the flags are reported as they are in the running process.
++  build:
++    phase: "Phase 3"
++    step: "FOS E2E plan, section 1"
++    chatbot_flags: [COPILOT_CASE_WORKSPACE, COPILOT_CASE_ACTIONS, COPILOT_RESPONSE_STYLE, COPILOT_TERMS_KNOWLEDGE,
++                    COPILOT_SESSION_MEMORY, COPILOT_VERIFY_DIAGNOSE, COPILOT_DOCUMENT_ACTIONS,
++                    COPILOT_PARTY_RECOGNITION, LOS_COAPP_IDENTITY, COPILOT_GUARDRAIL_HARDENING, COPILOT_STREAMING,
++                    COPILOT_LLM_ROUTER, COPILOT_EMPHASIS, COPILOT_LOCALIZED_KYC_REASONS, COPILOT_SINGLE_CASE_RESOLVE,
++                    COPILOT_LANGUAGE_LOCK, COPILOT_PROFESSIONAL_FORMAT, COPILOT_KYC_TABLE,
++                    COPILOT_READINESS_REPORT, COPILOT_SNAPSHOT_QA, COPILOT_COUNT_ANSWERS,
++                    COPILOT_HANDOFF_NOTE, COPILOT_SMART_UPLOAD, COPILOT_CASE_TIMELINE]
++
++  # PLAUSIBLE AMOUNTS (FOS plan 1.1; trigger was demo data, kept as production protection).
++  # ALL AMOUNTS ARE IN RUPEES, NOT LAKHS. Intake (create / update, app/agents/applicant/plausibility.py)
++  # refuses a figure below its minimum or written with a unit word -> 422 AMOUNT_IMPLAUSIBLE. A stored
++  # figure below its minimum is never shown in chat -- the label / sentence is said instead.
++  plausibility:
++    label: "Amount needs verification"
++    sentence: "The recorded {field} needs verification; the figure on the case does not look right."
++    minimum:
++      loan_amount: 10000
++      property_value: 100000
++      declared_monthly_income: 1000
++    field_labels: { loan_amount: "Loan amount", property_value: "Property value",
++                    declared_monthly_income: "Monthly income" }
++    examples: { loan_amount: 500000, property_value: 8000000, declared_monthly_income: 65000 }
++    unit_words: [lakh, lakhs, lac, lacs, l, cr, crore, crores, k, thousand, hazaar, hazar]
++    reject_message: "{label} looks too small; enter the full amount in rupees, e.g. {example}."
++    unit_message: "{label}: enter the full amount in rupees (not lakhs / crores), e.g. {example}."
++
++  # DOCUMENTS THAT NEED ACTION (COPILOT_DOCUMENT_ACTIONS; answering/document_actions.py).
++  # User, 2026-10-07: "kuch bhi pure process me review hai yaa fail hai toh aana chahaiye" --
++  # a REVIEW document is offered for upload again with its reason (was: "under review, no action"),
++  # and a party's KYC REVIEW / FAIL verdict is always a line of its own (was: only with field detail).
++  # false / false = the previous behaviour.
++  document_actions:
++    review_needs_reupload: true
++    kyc_status_line: true
++
+   # 6f VERIFY / UPLOAD DIAGNOSE (COPILOT_VERIFY_DIAGNOSE, default off; CHATBOT_SPEC section 4).
+   # "verify karna hai" / "kya upload karu" never asks "which document?": the case is diagnosed
+   # (step 4's document action view: ❌ fix first -> ⏳ pending -> ℹ️ under review, every party).
+@@ -893,7 +1112,7 @@ chatbot:
+   # Glossary + abbreviation rule: app/config/glossary.yaml.
+   response_style:
+     status_emoji: { READY_FOR_CPA: "✅", NOT_READY: "⏳", VERIFIED: "✅", REJECTED: "❌", REVIEW: "⏳",
+-                    MISMATCH: "⚠️", BLOCKED: "⚠️" }
++                    MISMATCH: "⚠️", BLOCKED: "⚠️", PASS: "✅", FAIL: "❌" }
+     # "all my cases" summary, point-wise: one block per case, latest first (capabilities/portfolio.py pointwise)
+     portfolio:
+       head: "📂 **{total} cases**"
+@@ -937,7 +1156,12 @@ chatbot:
+       DOCUMENTS_PENDING: "Upload these to move the case to **CPA**."
+       DOCUMENTS_MISSING: "Upload these to move the case to **CPA**."
+       PENDING_ITEMS: "Clear these to move the case to **CPA**."
+-      KYC_RESULT: "Upload the correct document to fix the mismatch."
++      # per recorded KYC state: a PASS gets no "fix" step; NOT_RECORDED / PENDING says what runs it
++      KYC_RESULT:
++        default: "Upload the correct document to fix the mismatch."
++        PASS: ""
++        NOT_RECORDED: "KYC runs once the identity documents are uploaded."
++        PENDING: "KYC runs once the identity documents are uploaded."
+       FOS_KNOWLEDGE: "Check your **status** or **pending documents**?"
+       OUT_OF_SCOPE: "Check your **status** or **pending documents**?"
+ 
+@@ -966,6 +1190,23 @@ chatbot:
+       case_word: [case, ka case, wala case, file, application]
+       # small words dropped before a name / ordinal is read ("2 wala case open karo" -> "2")
+       filler: [ka, ki, ke, wala, wali, ji, karo, kar, please, plz, the, number]
++      # FOS plan 1.3: a question about ANOTHER of the caller's cases ("dusre case ka details do"): one other case
++      # -> switched to and answered there; several -> "which one?". Alone ("dusra case") it is the switch above.
++      other_case: [dusre case, doosre case, dusra case, doosra case, dusri case, doosri case, other case,
++                   another case, the other case, mere dusre case, dusre wale case, doosre wale case, दूसरे केस,
++                   दूसरा केस, दुसऱ्या केस]
++    # the desk a workspace caller with NO case chosen is answered for (process / knowledge questions on the
++    # universal /copilot/query); a chosen case's own recorded stage always wins
++    default_stage: FOS
++    # FOS plan 1.2: any wording that ONLY asks for the case list -- a case noun + a cue + nothing but these words
++    # ("all case ka list", "sab case dikhao", "mere kitne case hai"); a topic word (status, KYC, PAN) is never one.
++    # The `list` phrases above are matched first; this only adds wordings that ask for nothing else.
++    list_rule:
++      case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
++      cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, my, मेरे, सारे, सब]
++      allowed: [ka, ki, ke, of, a, the, me, mujhe, show, give, do, dikhao, dikha, batao, bata, hai, h, hain, how,
++                please, plz, pls, kya, wale, wala, kaun, kaunse, konse, which, are, i, have, bhai, yaar, open,
++                dekhna, dekhne, chahiye, दिखाओ, बताओ, है, हैं, का, के, की]
+     labels:
+       header: "📂 **Your cases**"
+       total: "{n} total"
+@@ -982,8 +1223,12 @@ chatbot:
+       row_docs: "⏳ {n} docs pending"
+       row_ready: "✅ Ready for CPA"
+       row_other: "⏳ In progress"
+-      ask: "👉 Kis case mein jaana hai?"
+-      more: "👉 \"aur dikhao\" for more"
++      row_over_target: "⏰ {days}d in {stage} (target {target})"
++      # {language: text} maps follow the locked reply language (FOS plan section 2); unlocked -> the en wording
++      ask: { default: hi-Latn, en: "👉 Which case do you want to open?", hi-Latn: "👉 Kis case mein jaana hai?",
++             hi: "👉 कौन सा केस खोलना है?", mr: "👉 कोणती केस उघडायची आहे?" }
++      more: { default: hi-Latn, en: "👉 Say \"show more\" for more", hi-Latn: "👉 \"aur dikhao\" for more",
++              hi: "👉 और देखने के लिए \"और दिखाओ\" कहें", mr: "👉 आणखी पाहण्यासाठी \"आणखी दाखवा\" म्हणा" }
+       none: "ℹ️ You have no cases you can open."
+       opened: "🔓 **{case_id} ({name})** opened."
+       snapshot_stage: "📍 Stage: **{stage}**"
+@@ -993,11 +1238,28 @@ chatbot:
+       in_case: "📍 {case_id}"
+       closed: "🔒 **{case_id}** closed."
+       which: "Which one did you mean?"
+-      not_found: "I couldn't find that case among yours. 👉 Say \"mere cases\" to see the list."
+-      other_case: "👉 Is case mein jaana hai? ({case_id})"
+-      no_case: "👉 Pehle ek case kholiye -- \"mere cases\" boliye."
+-    quick_questions: ["Kya baaki hai?", "Kyu atka hai?", "Co-applicant", "Summary"]
+-    suggested_question: "Kya baaki hai?"
++      not_found: { en: "I couldn't find that case among yours. 👉 Say \"my cases\" to see the list.",
++                   hi-Latn: "Yeh case aapke cases mein nahi mila. 👉 List ke liye \"mere cases\" boliye.",
++                   hi: "यह केस आपके केसों में नहीं मिला। 👉 सूची के लिए \"मेरे केस\" कहें।",
++                   mr: "ही केस तुमच्या केसमध्ये सापडली नाही. 👉 यादीसाठी \"माझ्या केस\" म्हणा." }
++      no_other_case: { en: "You have only this one case.", hi-Latn: "Aapka sirf yahi ek case hai.",
++                       hi: "आपका केवल यही एक केस है।", mr: "तुमची फक्त हीच एक केस आहे." }
++      pick_case_first: { en: "Which case is this about? Open one of your cases first.",
++                         hi-Latn: "Yeh kis case ke baare mein hai? Pehle apna ek case kholiye.",
++                         hi: "यह किस केस के बारे में है? पहले अपना एक केस खोलिए।",
++                         mr: "हे कोणत्या केसबद्दल आहे? आधी तुमची एक केस उघडा." }
++      other_case: { default: hi-Latn, en: "👉 Open this case? ({case_id})", hi-Latn: "👉 Is case mein jaana hai? ({case_id})",
++                    hi: "👉 इस केस में जाना है? ({case_id})", mr: "👉 ही केस उघडायची? ({case_id})" }
++      no_case: { default: hi-Latn, en: "👉 Open a case first -- say \"my cases\".",
++                 hi-Latn: "👉 Pehle ek case kholiye -- \"mere cases\" boliye.",
++                 hi: "👉 पहले एक केस खोलिए -- \"मेरे केस\" कहें।", mr: "👉 आधी एक केस उघडा -- \"माझ्या केस\" म्हणा." }
++    quick_questions:
++      default: hi-Latn
++      en: ["What is pending?", "Why is it stuck?", "Co-applicant", "Summary"]
++      hi-Latn: ["Kya baaki hai?", "Kyu atka hai?", "Co-applicant", "Summary"]
++      hi: ["क्या बाकी है?", "क्यों अटका है?", "सह-आवेदक", "सारांश"]
++      mr: ["काय बाकी आहे?", "का अडकले आहे?", "सह-अर्जदार", "सारांश"]
++    suggested_question: { default: hi-Latn, en: "What is pending?", hi-Latn: "Kya baaki hai?", hi: "क्या बाकी है?", mr: "काय बाकी आहे?" }
+ 
+   # MODEL ROUTING (model_routing.py): which turns the language model may
+   # phrase (MODEL), which are worded deterministically (FAST) and which it
+diff --git a/LOS-agentic-ai/docs/frontend/FRONTEND_API.md b/LOS-agentic-ai/docs/frontend/FRONTEND_API.md
+index 57cbf7a..39c5ce6 100644
+--- a/LOS-agentic-ai/docs/frontend/FRONTEND_API.md
++++ b/LOS-agentic-ai/docs/frontend/FRONTEND_API.md
+@@ -6,6 +6,63 @@ A working reference widget (plain HTML + JS, no build): `docs/frontend/widget.ht
+ 
+ All features below are behind server flags (default OFF); the "demo set" turns them on (README_CHATBOT.md).
+ 
++## 0. Which backend -- check this first
++- **Point the frontend at THIS backend for testing:** base URL `http://127.0.0.1:8010` (the Vite dev proxy
++  `/api` -> `http://127.0.0.1:8010`). Tokens come from the same server (`POST /api/v1/auth/login`; its JWKS is
++  `http://127.0.0.1:8010/.well-known/jwks.json`).
++- **Verify:** `GET /ready` -> `build`:
++  ```json
++  "build": {"phase": "Phase 3", "step": "FOS E2E plan, section 1", "commit": "b8dc73…",
++            "chatbot_flags": {"COPILOT_CASE_WORKSPACE": true, "COPILOT_CASE_ACTIONS": true, "...": true},
++            "chatbot_flags_on": 15, "chatbot_flags_total": 15}
++  ```
++  If `build` is missing, or a flag you need is `false`, the frontend is talking to an older or differently
++  configured server (a typical symptom: 422 `WORKSPACE_DISABLED` on "mere cases"). Restart that server after any
++  `.env` change -- flags are read at start.
++
++## 0b. Which endpoint the chat widget uses -- ONE: `POST /api/v1/fos/copilot`
++- Send **every** chat turn (typed questions and buttons) to `/api/v1/fos/copilot` (or `/copilot/stream`). It carries
++  the whole Phase 3 contract: workspace (`presentation.case_list`, `presentation.workspace`), the `📍 CASE` header,
++  response style, context-aware `suggested_questions`, `document_actions`, `case_state` counts, guardrail replies,
++  and (sections 2-3 of the FOS plan) the language lock and the professional format.
++- `/api/v1/copilot/query` (the Universal Copilot) stays for other stages and existing clients. It answers the same
++  case questions from the same agent, and with the workspace on it also lists "my cases", answers in the opened case
++  and asks "which case?" when none is chosen -- but it has no FOS envelope (no `presentation`, no chips). Do not
++  split one chat between the two endpoints by guessing whether a message is "about documents".
++
++## 0c. `case_id` on requests -- the opened case wins
++- Inside the workspace send **no** `case_id` / `applicant_id` with chat turns: send back the `context` of the last
++  response. The case the officer opened (`OPEN_CASE`, "2 kholo") answers every question.
++- If the frontend sends a `case_id` on every request anyway (e.g. the one from login), it is **ignored while a case is
++  open** -- the opened case wins, on both endpoints. With no case open, a sent `case_id` is used (ownership-checked;
++  someone else's case is 403).
++- `OPEN_CASE` always uses its `case_id` (the case to open).
++
++## 0d. Language lock -- send the selected language on every turn
++- Send `reply_language` (`en`, `hi`, `hi-Latn`, `mr`; aliases `english`, `hinglish` ...) on every request. It is
++  AUTHORITATIVE: `en` selected -> every text of the reply is English (answer, clarifying question, options, buttons,
++  chips, refusals, document reasons) even when the user typed Hinglish / Hindi / Marathi. Understanding still works
++  in any language. `/fos/copilot` also accepts `response_language`; `/copilot/query` also accepts `language`.
++- Nothing sent -> the language is detected from the message, as before.
++- Server switch: `COPILOT_LANGUAGE_LOCK` (on in dev; `/ready` -> `build.chatbot_flags`).
++
++## 0e. Format -- professional, no emojis
++- With `COPILOT_PROFESSIONAL_FORMAT` on (production default) no reply field or button carries an emoji; lists are
++  `- ` bullets; the reply ends with one `**Next step:** ...` line when there is one; `answer_plain` is the answer with
++  no `**` markers (render it where markdown is not supported); `format` = `{"style": "PROFESSIONAL", "emojis": false}`.
++- Examples in `docs/frontend/examples/` are generated in this format.
++
++## 0a. Amounts: ALL AMOUNTS ARE IN RUPEES, NOT LAKHS
++`loan_amount`, `property_value`, `declared_monthly_income` (and every other amount) are sent as full rupees:
++`500000`, not `5` and not `"5 lakh"`. Create / update refuses an implausible figure or a unit word
++(`lakh`, `cr`, `k`, ...) with **422**:
++```json
++{"detail": {"request_id": "fos_…", "error": "AMOUNT_IMPLAUSIBLE", "field": "loan_amount",
++            "message": "Loan amount looks too small; enter the full amount in rupees, e.g. 500000."}}
++```
++Show `detail.message` next to the field. If the form collects lakhs, multiply by 100000 before sending. Minimums
++are server config (`applicant_agent.yaml` -> `chatbot.plausibility`).
++
+ ## 1. Auth
+ Every call: `Authorization: Bearer <JWT>` (the same token the app already uses). A case the user does not own is
+ **403** -- render the `detail.message`, never retry.
+@@ -17,7 +74,9 @@ Every call: `Authorization: Bearer <JWT>` (the same token the app already uses).
+ | POST | `/api/v1/fos/copilot` | every chat turn and every button (JSON) |
+ | POST | `/api/v1/fos/copilot/stream` | the same request, as Server-Sent Events (status lines, then the answer) -- `COPILOT_STREAMING` |
+ | GET | `/api/v1/fos/documents/view?token=…` | open a document from a VIEW_DOCUMENT link (5 min, same user) -- `COPILOT_CASE_ACTIONS` |
+-| POST | `/api/v1/fos/copilot` (multipart) | document upload (unchanged) |
++| POST | `/api/v1/fos/copilot` (multipart) | document upload; inside an opened case no ids are needed and no `document_types` either (smart upload, 11e) |
++| GET | `/api/v1/fos/handoff-note?case_id=…&format=pdf\|md\|html` | the CPA handoff note of a READY case (409 when not ready, 403 when not the caller's) -- `COPILOT_HANDOFF_NOTE` |
++| GET | `/ready` | `build` -- which backend and which chatbot flags (section 0) |
+ 
+ ### 2a. Build the UI from the server -- no hard-coding
+ - `GET /api/v1/fos/config` -> `features` (`case_workspace`, `case_actions`, `streaming`, `response_style`,
+@@ -121,3 +180,44 @@ Show each `status` as a typing line; replace it with the `answer`. Status lines
+ ## 10. Safety replies (`COPILOT_GUARDRAIL_HARDENING`)
+ `intent` `RATE_LIMITED` / `COOLDOWN` carry `retry_after_seconds` -- disable the input for that long.
+ `SELF_HARM_SUPPORT`, `SECURITY_EVENT`, `SOCIAL_ENGINEERING`: render `answer` as is (no buttons).
++
++## 11. FOS production features (FOS E2E plan sections 4-7) -- what to render
++
++All of them work the same on `/api/v1/fos/copilot` and `/api/v1/copilot/query`, follow `reply_language` and the
++professional format, and each has its own server flag (all on in dev; `/ready` -> `build.chatbot_flags`).
++
++### 11a. KYC table (`COPILOT_KYC_TABLE`) -- on every KYC answer (`intent: KYC_RESULT`)
++`presentation.kyc_table.parties[]`: `{party_role, party_label, status, rows[], odd_one_out[]}`;
++`rows[]`: `{check, check_label, document_type, document_label, value_on_document, value_on_application, result
++(PASS / PARTIAL / FAIL / NOT_COMPARED), reason}` -- values masked per policy; `odd_one_out[]`: `{check, document_type,
++fix: {action: "UPLOAD_DOCUMENT", document_type}}`. The answer text carries the same table in markdown.
++
++### 11b. Readiness report (`COPILOT_READINESS_REPORT`) -- "ready hai kya", "CPA ke liye kya chahiye" (`intent: READINESS`)
++`presentation.progress`: `{passed, total, ready}` -> a "checks passed X / Y" bar. `presentation.readiness_report`:
++`{ready, gate, passed, total, groups[], unblock_order[], next_fix}`; `groups[]`: `{group (APPLICATION /
++APPLICANT_DOCUMENTS / CO_APPLICANT_DOCUMENTS / SIGNATURE / KYC / OTHER), label, counted, note, items[]}`; `items[]`:
++`{id, label, status (PASS / PENDING / FAILED / REVIEW), reason, fix}`. `ready` is the live gate's verdict only. A ready
++case answers "Case is ready for CPA. A person must confirm the move." -- the chatbot never moves a stage.
++
++### 11c. CPA handoff note (`COPILOT_HANDOFF_NOTE`) -- "handoff note banao" (`intent: HANDOFF_NOTE`)
++Ready: the note in `answer` (markdown) + `actions[]` `{type: "OPEN_URL", label, url: "/api/v1/fos/handoff-note?...
++&format=pdf"}` (call it with the same Bearer token). Not ready: the refusal with X / Y and the next fix.
++
++### 11d. Long-tail answers (`COPILOT_SNAPSHOT_QA`) -- `intent: CASE_SNAPSHOT`
++`snapshot`: `{status: ANSWERED | NOT_RECORDED, keys[], ms}`. ANSWERED = the model answered from the case's facts and
++every value was checked against them; NOT_RECORDED = "This is not recorded on the case." + where it would come from.
++Render as an ordinary answer.
++
++### 11e. Smart upload (`COPILOT_SMART_UPLOAD`) -- multipart upload with no `document_types`
++The answer starts with "This looks like the applicant's PAN. Filed under Applicant > PAN. <verdict>". When unsure:
++`clarification_required` `{reason: UPLOAD_TYPE_UNKNOWN | UPLOAD_PARTY_UNSURE, question, options[]}` and, for the
++party case, `actions[]` `{type: "UPLOAD_DOCUMENT", document_type, label, co_applicant_id?}` -> offer "upload again as
++the co-applicant's". Nothing is re-filed silently.
++
++### 11f. Timeline (`COPILOT_CASE_TIMELINE`) -- "case ka timeline", "kitne din se FOS mein hai", "kal wala verify hua?"
++`intent: CASE_TIMELINE`; dated lines in `answer`. A case past its stage's turnaround target shows
++"⏰ 6d in FOS (target 3)" in its case-list row and a "Past the FOS target ... Main blocker: ..." line on open.
++
++### 11g. Counts and recovery
++- "kitne documents verified hain" -> `intent: DOCUMENT_COUNT`, the number counted from the store (`COPILOT_COUNT_ANSWERS`).
++- "ye nahi poocha" -> `clarification_required.reason: MISUNDERSTOOD` with options -> render the options as buttons.
+diff --git a/LOS-agentic-ai/docs/frontend/openapi.yaml b/LOS-agentic-ai/docs/frontend/openapi.yaml
+index db76ef2..e73fd22 100644
+--- a/LOS-agentic-ai/docs/frontend/openapi.yaml
++++ b/LOS-agentic-ai/docs/frontend/openapi.yaml
+@@ -1,10 +1,136 @@
+ openapi: 3.1.0
+ info:
+-  title: FOS Copilot API (frontend subset)
++  title: LOS Agentic AI
+   description: Deterministic document extraction and risk assessment, orchestrated
+     through LangGraph. Language models write summaries; they never decide.
+   version: 1.0.0
+ paths:
++  /ready:
++    get:
++      tags:
++      - Ops
++      summary: Readiness probe
++      description: 'Ready to serve traffic.
++
++
++        Returns 503 if the agent configuration or the risk policy cannot be
++
++        loaded, so an orchestrator will not route traffic to a process that would
++
++        fail every request.'
++      operationId: ready_ready_get
++      responses:
++        '200':
++          description: Successful Response
++          content:
++            application/json:
++              schema:
++                additionalProperties: true
++                type: object
++                title: Response Ready Ready Get
++  /api/v1/copilot/query:
++    post:
++      tags:
++      - Copilot
++      summary: Ask the Universal LOS Copilot about a case
++      description: 'Natural-language questions about one case, answered from stored
++        records.
++
++
++        **Case history** — *"why is this case in review?"* — is answered from the
++        findings the LOS pipeline recorded at the time, with the reason codes it wrote
++        down. Nothing is inferred: when no findings were recorded, the answer says
++        so rather than offering a plausible explanation.
++
++
++        Requires `case_id`, and the caller must own it. Credit, risk and underwriting
++        decisions are out of scope and are never generated here — recorded ones are
++        reported as recorded.'
++      operationId: query_api_v1_copilot_query_post
++      requestBody:
++        content:
++          application/json:
++            schema:
++              $ref: '#/components/schemas/CopilotQueryRequest'
++        required: true
++      responses:
++        '200':
++          description: The answer.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/CopilotQueryResponse'
++        '401':
++          description: No token, or a token that is expired, malformed, for another
++            audience, or signed by an unknown key.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '403':
++          description: Authenticated, but the scope, stage or case ownership does
++            not permit this. A case you cannot access and a case that does not exist
++            answer the same way.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '422':
++          description: The request failed validation, or a document could not be used.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++      security:
++      - HTTPBearer: []
++  /api/v1/fos/applicants:
++    post:
++      tags:
++      - FOS
++      summary: 'Open a case: create the applicant and their application'
++      description: 'One call creates the applicant, generates `applicant_id` and `case_id`,
++        creates the application, initialises the FOS stage and returns the opened
++        case -- including the document checklist the chosen product requires.
++
++
++        **Scopes:** `create_applicant` and, when an application is included, `create_application`.'
++      operationId: create_case_api_v1_fos_applicants_post
++      requestBody:
++        content:
++          application/json:
++            schema:
++              $ref: '#/components/schemas/CreateCaseRequest'
++        required: true
++      responses:
++        '201':
++          description: The opened case.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/FosResponse'
++        '401':
++          description: No token, or a token that is expired, malformed, for another
++            audience, or signed by an unknown key.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '403':
++          description: Authenticated, but the scope, stage or case ownership does
++            not permit this. A case you cannot access and a case that does not exist
++            answer the same way.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '422':
++          description: The request failed validation, or a document could not be used.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++      security:
++      - HTTPBearer: []
+   /api/v1/fos/copilot:
+     post:
+       tags:
+@@ -204,6 +330,25 @@ paths:
+         `error` (an HTTP status + detail). One pipeline: the answer IS the /fos/copilot
+         answer.'
+       operationId: copilot_stream_api_v1_fos_copilot_stream_post
++      requestBody:
++        content:
++          application/json:
++            schema:
++              $ref: '#/components/schemas/CopilotRequest'
++            examples:
++              in_case_question:
++                summary: CUSTOM_QUERY on a case
++                value:
++                  applicant_id: APP-3D51FFAC6342
++                  case_id: CASE-7DFE2F497522
++                  action: CUSTOM_QUERY
++                  message: kaunse documents pending hain?
++              case_list:
++                summary: CUSTOM_QUERY -- my cases (case workspace on)
++                value:
++                  action: CUSTOM_QUERY
++                  message: mere cases dikhao
++        required: true
+       responses:
+         '200':
+           description: Successful Response
+@@ -236,6 +381,54 @@ paths:
+           description: Streaming is off.
+       security:
+       - HTTPBearer: []
++  /api/v1/fos/handoff-note:
++    get:
++      tags:
++      - FOS
++      summary: The CPA handoff note of a ready case, as md / html / pdf (FOS plan
++        7.1)
++      description: Only the caller's own case (the ordinary ownership check), only
++        when ready, every download audited.
++      operationId: handoff_note_file_api_v1_fos_handoff_note_get
++      security:
++      - HTTPBearer: []
++      parameters:
++      - name: case_id
++        in: query
++        required: true
++        schema:
++          type: string
++          title: Case Id
++      - name: format
++        in: query
++        required: false
++        schema:
++          type: string
++          default: pdf
++          title: Format
++      responses:
++        '200':
++          description: The note.
++          content:
++            application/json:
++              schema: {}
++        '401':
++          description: No token, or a token that is expired, malformed, for another
++            audience, or signed by an unknown key.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '403':
++          description: Not the caller's case.
++        '422':
++          description: The request failed validation, or a document could not be used.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '409':
++          description: The case is not ready for CPA.
+   /api/v1/fos/documents/view:
+     get:
+       tags:
+@@ -279,6 +472,343 @@ paths:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
++  /api/v1/fos/applicants/{applicant_id}:
++    get:
++      tags:
++      - FOS
++      summary: The applicant record
++      description: Who this applicant is, as the store holds them.
++      operationId: get_applicant_api_v1_fos_applicants__applicant_id__get
++      security:
++      - HTTPBearer: []
++      parameters:
++      - name: applicant_id
++        in: path
++        required: true
++        schema:
++          type: string
++          title: Applicant Id
++      - name: case_id
++        in: query
++        required: false
++        schema:
++          anyOf:
++          - type: string
++          - type: 'null'
++          title: Case Id
++      responses:
++        '200':
++          description: The applicant.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/FosResponse'
++        '401':
++          description: No token, or a token that is expired, malformed, for another
++            audience, or signed by an unknown key.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '403':
++          description: Authenticated, but the scope, stage or case ownership does
++            not permit this. A case you cannot access and a case that does not exist
++            answer the same way.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '422':
++          description: The request failed validation, or a document could not be used.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++  /api/v1/fos/applications/{case_id}:
++    get:
++      tags:
++      - FOS
++      summary: The application and where it stands
++      description: 'The application record and its FOS stage.
++
++
++        A STAGE, NOT A DECISION. `status` here is how far intake has got --
++
++        documents collected, basic verification done -- and says nothing
++
++        about whether the loan will be approved.'
++      operationId: get_application_api_v1_fos_applications__case_id__get
++      security:
++      - HTTPBearer: []
++      parameters:
++      - name: case_id
++        in: path
++        required: true
++        schema:
++          type: string
++          title: Case Id
++      - name: applicant_id
++        in: query
++        required: false
++        schema:
++          anyOf:
++          - type: string
++          - type: 'null'
++          title: Applicant Id
++      responses:
++        '200':
++          description: The application.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/FosResponse'
++        '401':
++          description: No token, or a token that is expired, malformed, for another
++            audience, or signed by an unknown key.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '403':
++          description: Authenticated, but the scope, stage or case ownership does
++            not permit this. A case you cannot access and a case that does not exist
++            answer the same way.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '422':
++          description: The request failed validation, or a document could not be used.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++  /api/v1/fos/documents/{case_id}:
++    get:
++      tags:
++      - FOS
++      summary: The documents on this case and their verification status
++      description: 'What has been uploaded, and what basic verification made of it.
++
++
++        BASIC VERIFICATION ONLY: whether each file is readable, is the type
++
++        it was declared as, and is structurally coherent. Identity
++
++        consistency across documents, income and affordability are later
++
++        stages and are not reported here.'
++      operationId: get_documents_api_v1_fos_documents__case_id__get
++      security:
++      - HTTPBearer: []
++      parameters:
++      - name: case_id
++        in: path
++        required: true
++        schema:
++          type: string
++          title: Case Id
++      - name: applicant_id
++        in: query
++        required: false
++        schema:
++          anyOf:
++          - type: string
++          - type: 'null'
++          title: Applicant Id
++      responses:
++        '200':
++          description: The documents.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/FosResponse'
++        '401':
++          description: No token, or a token that is expired, malformed, for another
++            audience, or signed by an unknown key.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '403':
++          description: Authenticated, but the scope, stage or case ownership does
++            not permit this. A case you cannot access and a case that does not exist
++            answer the same way.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '422':
++          description: The request failed validation, or a document could not be used.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++  /api/v1/fos/checklist/{case_id}:
++    get:
++      tags:
++      - FOS
++      summary: What this product requires, and what is still missing
++      description: 'The required documents for this case, with the policy that produced
++
++        them and which rules could not be evaluated.'
++      operationId: get_checklist_api_v1_fos_checklist__case_id__get
++      security:
++      - HTTPBearer: []
++      parameters:
++      - name: case_id
++        in: path
++        required: true
++        schema:
++          type: string
++          title: Case Id
++      - name: applicant_id
++        in: query
++        required: false
++        schema:
++          anyOf:
++          - type: string
++          - type: 'null'
++          title: Applicant Id
++      responses:
++        '200':
++          description: The checklist.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/FosResponse'
++        '401':
++          description: No token, or a token that is expired, malformed, for another
++            audience, or signed by an unknown key.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '403':
++          description: Authenticated, but the scope, stage or case ownership does
++            not permit this. A case you cannot access and a case that does not exist
++            answer the same way.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '422':
++          description: The request failed validation, or a document could not be used.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++  /api/v1/fos/documents:
++    post:
++      tags:
++      - FOS
++      summary: Upload one or more documents for a case
++      description: 'Runs the existing intake pipeline: classification, then basic
++        document verification, then extraction only behind a PASS.
++
++
++        **Intake only.** Cross-document identity checks, income analysis and affordability
++        do not run here -- they belong to later stages, and this endpoint has no authority
++        over them.
++
++
++        The same handler as `POST /api/v1/fos/copilot` with `action=UPLOAD_DOCUMENT`;
++        both accept `files` and positional `document_types`.'
++      operationId: post_documents_api_v1_fos_documents_post
++      requestBody:
++        content:
++          multipart/form-data:
++            schema:
++              properties:
++                applicant_id:
++                  type: string
++                  example: APP-3D51FFAC6342
++                case_id:
++                  type: string
++                  example: CASE-7DFE2F497522
++                action:
++                  type: string
++                  enum:
++                  - UPLOAD_DOCUMENT
++                  example: UPLOAD_DOCUMENT
++                files:
++                  items:
++                    type: string
++                    format: binary
++                  type: array
++                  description: 'One or more documents. In Swagger, press **Add string
++                    item** once per document and pick a file for each.
++
++
++                    Each file is classified and verified independently and gets its
++                    own entry in `verification.documents_processed`, so one bad file
++                    never stops the rest.'
++                document_types:
++                  items:
++                    type: string
++                  type: array
++                  description: 'Optional, positional: the Nth value asserts the type
++                    of the Nth file. Omit the field entirely to let the pipeline classify
++                    everything, or leave an individual entry blank to classify just
++                    that file.
++
++
++                    Send it as repeated parts (one per file). A single comma-separated
++                    value (`PAN,DRIVING_LICENCE`) is also accepted, because some clients
++                    join array fields that way.
++
++
++                    An assertion is CHECKED, never applied: a file that is not the
++                    type claimed fails with DOCUMENT_TYPE_MISMATCH and is not silently
++                    reclassified. A checklist slot name such as ADDRESS_PROOF is accepted
++                    and resolves to the document types that satisfy it.'
++                  example:
++                  - PAN
++                  - DRIVING_LICENCE
++              type: object
++              required:
++              - applicant_id
++              - case_id
++              - action
++            encoding:
++              files:
++                style: form
++                explode: true
++              document_types:
++                contentType: text/plain
++                style: form
++                explode: true
++        required: true
++      responses:
++        '200':
++          description: What was made of the upload.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/FosResponse'
++        '401':
++          description: No token, or a token that is expired, malformed, for another
++            audience, or signed by an unknown key.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '403':
++          description: Authenticated, but the scope, stage or case ownership does
++            not permit this. A case you cannot access and a case that does not exist
++            answer the same way.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '422':
++          description: The request failed validation, or a document could not be used.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++      security:
++      - HTTPBearer: []
+   /api/v1/fos/actions:
+     get:
+       tags:
+@@ -361,6 +891,51 @@ paths:
+                 $ref: '#/components/schemas/ErrorResponse'
+       security:
+       - HTTPBearer: []
++  /api/v1/fos/tools:
++    get:
++      tags:
++      - FOS
++      summary: The MCP tool catalogue
++      description: 'Every tool the copilot can call, with its JSON Schema, the scope
++        required to call it, and whether it writes. Published so the boundary is reviewable
++        rather than inferred from source.
++
++
++        The scope shown is the one the permission layer enforces; a test checks the
++        two agree.
++
++
++        *Supporting endpoint — not part of the two-endpoint integration surface.*'
++      operationId: fos_tools_api_v1_fos_tools_get
++      responses:
++        '200':
++          description: Successful Response
++          content:
++            application/json:
++              schema: {}
++        '401':
++          description: No token, or a token that is expired, malformed, for another
++            audience, or signed by an unknown key.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '403':
++          description: Authenticated, but the scope, stage or case ownership does
++            not permit this. A case you cannot access and a case that does not exist
++            answer the same way.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++        '422':
++          description: The request failed validation, or a document could not be used.
++          content:
++            application/json:
++              schema:
++                $ref: '#/components/schemas/ErrorResponse'
++      security:
++      - HTTPBearer: []
+ components:
+   schemas:
+     AddressInput:
+@@ -1419,6 +1994,17 @@ components:
+             business truth never depends on it.'
+           examples:
+           - en
++        reply_language:
++          anyOf:
++          - type: string
++            maxLength: 16
++          - type: 'null'
++          title: Reply Language
++          description: The frontend's selected language (FOS plan section 2) -- the
++            same as `language`. Either one LOCKS every text of the reply to that language,
++            whatever the question was typed in.
++          examples:
++          - en
+         channel:
+           anyOf:
+           - type: string
+@@ -5595,6 +6181,18 @@ components:
+           examples:
+           - mr
+           title: Response Language
++        reply_language:
++          anyOf:
++          - maxLength: 16
++            type: string
++          - type: 'null'
++          default: null
++          description: The same as `response_language` (FOS plan section 2, the frontend's
++            name for it). Either one LOCKS every text of the reply -- answer, clarifications,
++            buttons, refusals -- to that language.
++          examples:
++          - en
++          title: Reply Language
+         document_id:
+           anyOf:
+           - maxLength: 256
+diff --git a/LOS-agentic-ai/evals/copilot/harness.py b/LOS-agentic-ai/evals/copilot/harness.py
+index f0fa85a..35af567 100644
+--- a/LOS-agentic-ai/evals/copilot/harness.py
++++ b/LOS-agentic-ai/evals/copilot/harness.py
+@@ -71,7 +71,11 @@ PHASE3_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESPO
+                 "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_LOCALIZED_KYC_REASONS",
+                 "COPILOT_SINGLE_CASE_RESOLVE", "COPILOT_EMPHASIS", "COPILOT_STREAMING", "COPILOT_SESSION_MEMORY",
+                 "LOS_COAPP_IDENTITY", "COPILOT_PARTY_RECOGNITION", "COPILOT_GUARDRAIL_HARDENING",
+-                "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY")
++                "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY",
++                 "COPILOT_LANGUAGE_LOCK", "COPILOT_PROFESSIONAL_FORMAT", "COPILOT_KYC_TABLE",
++                 "COPILOT_READINESS_REPORT", "COPILOT_SNAPSHOT_QA",
++                 "COPILOT_COUNT_ANSWERS", "COPILOT_HANDOFF_NOTE",
++                 "COPILOT_SMART_UPLOAD", "COPILOT_CASE_TIMELINE")
+ 
+ 
+ def _environment(live: bool, workdir: str) -> None:
+diff --git a/LOS-agentic-ai/tests/conftest.py b/LOS-agentic-ai/tests/conftest.py
+index c7ce346..1340b79 100644
+--- a/LOS-agentic-ai/tests/conftest.py
++++ b/LOS-agentic-ai/tests/conftest.py
+@@ -199,7 +199,11 @@ _PHASE3_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESP
+                  "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_LOCALIZED_KYC_REASONS",
+                  "COPILOT_SINGLE_CASE_RESOLVE", "COPILOT_EMPHASIS", "COPILOT_STREAMING", "COPILOT_SESSION_MEMORY",
+                  "LOS_COAPP_IDENTITY", "COPILOT_PARTY_RECOGNITION", "COPILOT_GUARDRAIL_HARDENING",
+-                 "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY")
++                 "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY",
++                 "COPILOT_LANGUAGE_LOCK", "COPILOT_PROFESSIONAL_FORMAT", "COPILOT_KYC_TABLE",
++                 "COPILOT_READINESS_REPORT", "COPILOT_SNAPSHOT_QA",
++                 "COPILOT_COUNT_ANSWERS", "COPILOT_HANDOFF_NOTE",
++                 "COPILOT_SMART_UPLOAD", "COPILOT_CASE_TIMELINE")
+ 
+ 
+ @pytest.fixture(autouse=True)
+diff --git a/LOS-agentic-ai/tests/integration/test_frontend_contract.py b/LOS-agentic-ai/tests/integration/test_frontend_contract.py
+index 3b3630b..0ca1264 100644
+--- a/LOS-agentic-ai/tests/integration/test_frontend_contract.py
++++ b/LOS-agentic-ai/tests/integration/test_frontend_contract.py
+@@ -19,6 +19,9 @@ from tests.integration.test_reupload_supersedes import _store, client  # noqa: F
+ OUT = Path(__file__).resolve().parents[2] / "docs" / "frontend" / "examples"
+ DEMO_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESPONSE_STYLE", "COPILOT_VERIFY_DIAGNOSE",
+               "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_STREAMING", "COPILOT_GUARDRAIL_HARDENING")
++#: the production format (FOS plan 2-3), on for the flows that write docs/frontend/examples -- not part of `demo`,
++#: which the section tests share and which assert the emoji style
++PRODUCTION_FORMAT = ("COPILOT_LANGUAGE_LOCK", "COPILOT_PROFESSIONAL_FORMAT")
+ 
+ 
+ @pytest.fixture
+@@ -61,7 +64,9 @@ def make_case(client, name):
+     return r.json()["applicant_id"], r.json()["case_id"]
+ 
+ 
+-def test_the_frontend_flows(client, demo, _store):
++def test_the_frontend_flows(client, demo, _store, monkeypatch):
++    for flag in PRODUCTION_FORMAT:
++        monkeypatch.setenv(flag, "true")
+     a1, c1 = make_case(client, "Rahul Sharma")
+     make_case(client, "Priya Verma")
+     _store.save_document(Document(document_id=f"{c1}:{a1}:pan1", case_id=c1, applicant_id=a1, document_type="PAN",
+@@ -73,9 +78,9 @@ def test_the_frontend_flows(client, demo, _store):
+     s, listed = call(client, "01_case_list", action="CUSTOM_QUERY", message="mere cases dikhao")
+     assert s == 200 and listed["presentation"]["case_list"][0]["action"]["type"] == "open_case"
+     s, opened = call(client, "02_open_case", action="OPEN_CASE", case_id=c1)
+-    assert opened["presentation"]["workspace"]["header"] == f"📍 {c1}"
++    assert opened["presentation"]["workspace"]["header"] == c1          # "📍" removed by the professional format
+     s, inside = call(client, "03_inside_case_question", action="CUSTOM_QUERY", message="kya baaki hai?")
+-    assert inside["answer"].startswith(f"📍 {c1}")
++    assert inside["answer"].startswith(c1)
+     s, diag = call(client, "04_verify_diagnose", action="CUSTOM_QUERY", message="verify karna hai")
+     assert diag.get("document_actions")
+     s, draft = call(client, "05_raise_query_draft", action="CUSTOM_QUERY", message="query raise karo")
+@@ -88,7 +93,7 @@ def test_the_frontend_flows(client, demo, _store):
+     s, tracked = call(client, "08_list_queries", action="LIST_QUERIES")
+     assert tracked["queries"]
+     s, glossary = call(client, "09_glossary", action="CUSTOM_QUERY", message="KYC kya hai?")
+-    assert glossary["answer"].startswith("ℹ️ **KYC (Know Your Customer)**")
++    assert glossary["answer"].startswith("**KYC (Know Your Customer)**")
+     s, new = call(client, "10_new_case", action="NEW_CASE")
+     assert new["actions"][0]["type"] == "OPEN_UI_NEW_CASE"
+     s, closed = call(client, "11_exit_case", action="EXIT_CASE")
+@@ -104,6 +109,36 @@ def test_the_frontend_flows(client, demo, _store):
+         (OUT / "14_stream.txt").write_text(text[:4000], encoding="utf-8")
+ 
+ 
++#: the FOS E2E plan features (sections 4-7), on for the examples they write
++PLAN_FEATURES = ("COPILOT_KYC_TABLE", "COPILOT_READINESS_REPORT", "COPILOT_COUNT_ANSWERS", "COPILOT_CASE_TIMELINE",
++                 "COPILOT_HANDOFF_NOTE", "COPILOT_SMART_UPLOAD", "COPILOT_SNAPSHOT_QA")
++
++
++def test_the_fos_plan_flows(client, demo, _store, monkeypatch):
++    """Examples 18-23 (FOS plan 4-7), in the production format and with English selected."""
++    for flag in PRODUCTION_FORMAT + PLAN_FEATURES:
++        monkeypatch.setenv(flag, "true")
++    a1, c1 = make_case(client, "Rahul Sharma")
++    _store.save_document(Document(document_id=f"{c1}:{a1}:pan1", case_id=c1, applicant_id=a1, document_type="PAN",
++                                  status=DocumentStatus.VERIFIED))
++    call(client, "_open", action="OPEN_CASE", case_id=c1)
++    s, ready = call(client, "18_readiness", action="CUSTOM_QUERY", message="CPA ke liye kya chahiye?",
++                    reply_language="en")
++    assert ready["intent"] == "READINESS" and ready["presentation"]["progress"]["ready"] is False
++    s, count = call(client, "19_count", action="CUSTOM_QUERY", message="kitne documents verified hain",
++                    reply_language="en")
++    assert count["intent"] == "DOCUMENT_COUNT"
++    s, timeline = call(client, "20_timeline", action="CUSTOM_QUERY", message="case ka timeline", reply_language="en")
++    assert timeline["intent"] == "CASE_TIMELINE"
++    s, note = call(client, "21_handoff_not_ready", action="CUSTOM_QUERY", message="handoff note banao",
++                   reply_language="en")
++    assert note["intent"] == "HANDOFF_NOTE" and "ready for CPA" in note["answer"]
++    s, lost = call(client, "22_misunderstood", action="CUSTOM_QUERY", message="ye nahi poocha", reply_language="en")
++    assert lost["clarification_required"]["reason"] == "MISUNDERSTOOD"
++    s, kyc = call(client, "23_kyc", action="CUSTOM_QUERY", message="KYC ka kya status hai?", reply_language="en")
++    assert kyc["intent"] == "KYC_RESULT"
++
++
+ # ---- what the frontend builds its UI from: /fos/actions and /fos/config -------------------------
+ def test_actions_list_only_what_is_on(client, monkeypatch):
+     for flag in ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS"):
+diff --git a/app/agents/applicant/copilot/answering/handoff_note.py b/app/agents/applicant/copilot/answering/handoff_note.py
+new file mode 100644
+index 0000000..e06de6a
+--- /dev/null
++++ b/app/agents/applicant/copilot/answering/handoff_note.py
+@@ -0,0 +1,182 @@
++"""
++THE CPA HANDOFF NOTE (FOS plan 7.1; flag COPILOT_HANDOFF_NOTE, config chatbot.handoff_note -- ON in dev).
++
++"handoff note banao" / "CPA note" -> ONLY when the case passes the live FOS gate (readiness_report, which is the
++gate's verdict): one page -- case and parties (masked), loan details, documents with their verification status, the
++KYC table per party, signature, exceptions and overrides with reasons (the recorded maker-checker approvals),
++generated time, officer. In chat (markdown) and as a file (`GET /api/v1/fos/handoff-note?case_id=..&format=md|html|
++pdf`; PDF through the installed PyMuPDF -- no new dependency). Every note made or downloaded is audited. Not ready ->
++refused, with what is still blocking. The note never moves the case: a person confirms the move.
++"""
++
++from __future__ import annotations
++
++import os
++import re
++from datetime import datetime, timezone
++from typing import Any
++
++FLAG = "COPILOT_HANDOFF_NOTE"
++_ON = {"1", "true", "yes", "on"}
++
++
++def _cfg() -> dict[str, Any]:
++    from app.agents.applicant import config
++
++    return config.chatbot("handoff_note")
++
++
++def enabled() -> bool:
++    value = os.getenv(FLAG)
++    if value is not None and value.strip():
++        return value.strip().lower() in _ON
++    return bool(_cfg().get("enabled", False))
++
++
++def asked(message: str) -> bool:
++    said = " " + " ".join(re.findall(r"[\wऀ-ॿ]+", str(message or "").lower())) + " "
++    return any(f" {' '.join(str(p).lower().split())} " in said for p in _cfg().get("phrases") or [])
++
++
++def _label(key: str, **values: Any) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    defaults = {"title": "CPA Handoff Note -- {case_id}", "not_ready": "A handoff note is made once the case is "
++                "ready for CPA. Not ready yet: {passed} of {total} checks passed.",
++                "confirm": "Case is ready for CPA. A person must confirm the move.",
++                "download": "Download the handoff note (PDF)"}
++    return language_lock.pick((_cfg().get("labels") or {}).get(key, defaults.get(key, key))).format(**values)
++
++
++def _readable(value: Any) -> str:
++    from app.agents.applicant.copilot.answering.answer import _readable as readable
++
++    return readable(value)
++
++
++def build(case_id: str, officer: str | None = None, repository: Any = None) -> dict[str, Any]:
++    """{"ready", "markdown", "generated_at"} -- the note, or ready=False with the report that blocks it."""
++    from app.agents.applicant.copilot.answering import kyc_table, readiness_report
++    from app.agents.applicant.copilot.answering.profile import _shown
++    from app.store import get_repository
++
++    repository = repository or get_repository()
++    report = readiness_report.build(case_id, repository)
++    if not report.get("ready"):
++        return {"ready": False, "report": report}
++    application = repository.get_application(case_id)
++    applicant = repository.get_applicant(application.applicant_id)
++    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
++    lines = [f"# {_label('title', case_id=case_id)}", "",
++             f"**Generated:** {generated}  ", f"**Officer:** {officer or '--'}", "", _label("confirm"), "",
++             "## Case and parties",
++             f"- Case: {case_id} -- stage FOS, {_readable(getattr(application, 'status', ''))}",
++             f"- Applicant: {_shown('full_name', getattr(applicant, 'full_name', None)) or '--'} "
++             f"({application.applicant_id})"]
++    try:
++        from app.agents.los import co_applicants
++
++        for co in co_applicants.list_for_case(case_id, repository):
++            lines.append(f"- Co-applicant: {_shown('full_name', co.get('name')) or '--'} ({co.get('co_applicant_id')})")
++    except Exception:  # noqa: BLE001 - no co-applicant table: none listed
++        pass
++    lines += ["", "## Loan details"]
++    for field in ("product", "loan_amount", "tenure_months", "interest_rate_pct", "employment_type"):
++        value = getattr(application, field, None)
++        if value not in (None, ""):
++            lines.append(f"- {_readable(field)}: {_shown(field, value)}")
++    lines += ["", "## Documents", "| Party | Document | Status |", "|---|---|---|"]
++    for d in repository.list_documents(case_id) or []:
++        status = str(getattr(getattr(d, "status", ""), "value", getattr(d, "status", ""))).upper()
++        if status == "SUPERSEDED":
++            continue
++        role = str(getattr(getattr(d, "party_role", None), "value", getattr(d, "party_role", None)) or "")
++        lines.append(f"| {'Co-applicant' if role == 'CO_APPLICANT' else 'Applicant'} | "
++                     f"{_readable(d.document_type)} | {_readable(status)} |")
++    table = kyc_table.build(case_id, repository)
++    lines += ["", "## KYC", kyc_table.render(table)]
++    exceptions = [i for g in report.get("groups") or [] if not g.get("counted") for i in g["items"]
++                  if i["status"] != "PASS"]
++    approvals = []
++    try:
++        approvals = repository.list_approvals(case_id) or []
++    except Exception:  # noqa: BLE001
++        approvals = []
++    lines += ["", "## Exceptions and overrides"]
++    if not exceptions and not approvals:
++        lines.append("- None recorded.")
++    for i in exceptions:
++        lines.append(f"- {i['label']}: {i['status']} -- {i['reason']} (not required for CPA by the current policy)")
++    for a in approvals:
++        lines.append(f"- {_readable(a.get('action') or a.get('type') or 'Approval')}: {_readable(a.get('status') or '')}"
++                     f" -- {a.get('reason') or 'no reason recorded'}")
++    return {"ready": True, "markdown": "\n".join(lines).strip(), "generated_at": generated, "report": report}
++
++
++def to_html(markdown: str) -> str:
++    from markdown_it import MarkdownIt
++
++    body = MarkdownIt("commonmark").enable("table").render(markdown)
++    style = ("body{font-family:Helvetica,Arial,sans-serif;font-size:10pt;color:#111}"
++             "table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:3px 5px;text-align:left}"
++             "h1{font-size:15pt}h2{font-size:12pt;margin-top:12px}")
++    return f"<!doctype html><html><head><meta charset='utf-8'><style>{style}</style></head><body>{body}</body></html>"
++
++
++def to_pdf(markdown: str) -> bytes:
++    """The note as PDF through PyMuPDF's HTML story (already installed)."""
++    import io
++
++    import fitz
++
++    html = to_html(markdown)
++    buffer = io.BytesIO()
++    writer = fitz.DocumentWriter(buffer)
++    story = fitz.Story(html=html)
++    rect = fitz.paper_rect("a4")
++    where = rect + (36, 36, -36, -36)
++    more = True
++    while more:
++        device = writer.begin_page(rect)
++        more, _ = story.place(where)
++        story.draw(device)
++        writer.end_page()
++    writer.close()
++    return buffer.getvalue()
++
++
++def attach(published: dict[str, Any], message: str, claims: dict[str, Any] | None = None) -> dict[str, Any]:
++    """A handoff-note request: the note (ready) or the refusal with what blocks it. Shared by both routes."""
++    if not isinstance(published, dict) or not enabled() or not published.get("case_id") or not asked(message):
++        return published
++    from app.agents.applicant import audit
++    from app.security.auth import get_subject
++
++    case_id = published["case_id"]
++    officer = str(get_subject(claims) or "") if claims else None
++    note = build(case_id, officer)
++    from app.agents.applicant.copilot.answering.counts import keep_case_header
++
++    if not note["ready"]:
++        report = note["report"]
++        text = _label("not_ready", passed=report.get("passed", 0), total=report.get("total", 0))
++        if report.get("next_fix"):
++            text += f"\n👉 {report['next_fix']}."
++        published.update(intent="HANDOFF_NOTE", answer=keep_case_header(published.get("answer"), text, case_id))
++        audit.record(request_id=str(published.get("request_id") or ""), subject=officer,
++                     applicant_id=published.get("applicant_id"), case_id=case_id,
++                     intent="HANDOFF_NOTE", tools=[], status="REFUSED_NOT_READY", message=message)
++        return published
++    published.update(intent="HANDOFF_NOTE", answer=keep_case_header(published.get("answer"), note["markdown"], case_id),
++                     handoff_note={"generated_at": note["generated_at"]})
++    published.pop("answer_markdown", None)
++    published["actions"] = list(published.get("actions") or []) + [
++        {"type": "OPEN_URL", "label": _label("download"),
++         "url": f"/api/v1/fos/handoff-note?case_id={case_id}&format=pdf"}]
++    audit.record(request_id=str(published.get("request_id") or ""), subject=officer,
++                     applicant_id=published.get("applicant_id"), case_id=case_id,
++                 intent="HANDOFF_NOTE", tools=["handoff.note"], status="OK", message=message)
++    return published
++
++
++__all__ = ["FLAG", "asked", "attach", "build", "enabled", "to_html", "to_pdf"]
+diff --git a/app/agents/applicant/copilot/capabilities/smart_upload.py b/app/agents/applicant/copilot/capabilities/smart_upload.py
+new file mode 100644
+index 0000000..200db4e
+--- /dev/null
++++ b/app/agents/applicant/copilot/capabilities/smart_upload.py
+@@ -0,0 +1,119 @@
++"""
++SMART UPLOAD (FOS plan 7.2; flag COPILOT_SMART_UPLOAD, config chatbot.smart_upload -- ON in dev).
++
++The officer uploads any file inside a case without saying what it is. The EXISTING classification identifies the
++type (the upload pipeline already does: a blank document type means "classify this one"); this step says, per file,
++WHAT it looks like, WHOSE it looks like -- the name on the document against the applicant's and the
++co-applicant's names, by the existing name matcher -- and WHERE it was filed:
++
++    "This looks like the applicant's PAN. Filed under Applicant > PAN. Verification passed."
++
++LOW CONFIDENCE -> ONE QUESTION: the type could not be told ("Which document is this?", with the case's open slots
++as options), or the name on it fits the OTHER party better than the one it was filed under ("Is this the applicant's
++or the co-applicant's document?", with an upload-again action for the other party). Nothing is moved silently.
++"""
++
++from __future__ import annotations
++
++import os
++from typing import Any
++
++FLAG = "COPILOT_SMART_UPLOAD"
++_ON = {"1", "true", "yes", "on"}
++
++
++def _cfg() -> dict[str, Any]:
++    from app.agents.applicant import config
++
++    return config.chatbot("smart_upload")
++
++
++def enabled() -> bool:
++    value = os.getenv(FLAG)
++    if value is not None and value.strip():
++        return value.strip().lower() in _ON
++    return bool(_cfg().get("enabled", False))
++
++
++def _label(key: str, **values: Any) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    defaults = {
++        "filed": "This looks like {whose} {document}. Filed under {party} > {document}. {verdict}",
++        "unknown": "I couldn't tell what document {file} is. Which document is it?",
++        "other_party": "The name on {file} looks like {other_name}'s ({other_party}), but it was filed under the "
++                       "{party}. Is this the {party_lower}'s or the {other_lower}'s document?",
++        "passed": "Verification passed.", "review": "It needs a review.", "failed": "It did not pass verification.",
++        "started": "Verification started.",
++    }
++    return language_lock.pick((_cfg().get("labels") or {}).get(key, defaults.get(key, key))).format(**values)
++
++
++def _readable(value: Any) -> str:
++    from app.agents.applicant.copilot.answering.answer import _readable as readable
++
++    return readable(value)
++
++
++def _score(a: str | None, b: str | None) -> float:
++    if not a or not b:
++        return 0.0
++    from app.services.name_match import match_names
++
++    return float(match_names(str(a), str(b)).score)
++
++
++def describe(case_id: str, outcomes: list[dict[str, Any]], *, filed_as_co: bool,
++             repository: Any = None) -> tuple[list[str], dict[str, Any] | None, list[dict[str, Any]]]:
++    """(lines, clarification or None, actions) for the files of one upload."""
++    from app.store import get_repository
++
++    repository = repository or get_repository()
++    application = repository.get_application(case_id)
++    applicant = repository.get_applicant(application.applicant_id) if application else None
++    applicant_name = getattr(applicant, "full_name", None)
++    co_name, co_id = None, None
++    try:
++        from app.agents.los import co_applicants
++
++        rows = co_applicants.list_for_case(case_id, repository)
++        if rows:
++            co_name, co_id = rows[0].get("name"), rows[0].get("co_applicant_id")
++    except Exception:  # noqa: BLE001 - no co-applicant on record: only the applicant can match
++        pass
++    margin = float(_cfg().get("party_margin", 0.15))
++    lines: list[str] = []
++    question: dict[str, Any] | None = None
++    actions: list[dict[str, Any]] = []
++    party, party_lower = ("Co-applicant", "co-applicant") if filed_as_co else ("Applicant", "applicant")
++    other, other_lower = ("Applicant", "applicant") if filed_as_co else ("Co-applicant", "co-applicant")
++    for o in outcomes:
++        kind = str(o.get("document_type") or "").upper()
++        file = str(o.get("source_id") or "the file")
++        if not kind or kind == "UNKNOWN":
++            slots = [_readable(s) for s in _cfg().get("ask_slots") or []]
++            question = question or {"reason": "UPLOAD_TYPE_UNKNOWN", "question": _label("unknown", file=file),
++                                    "options": slots}
++            continue
++        name = o.get("name_on_document")
++        mine = _score(name, co_name if filed_as_co else applicant_name)
++        theirs = _score(name, applicant_name if filed_as_co else co_name)
++        if name and theirs >= float(_cfg().get("match_threshold", 0.85)) and theirs - mine >= margin:
++            other_name = applicant_name if filed_as_co else co_name
++            question = question or {"reason": "UPLOAD_PARTY_UNSURE", "question": _label(
++                "other_party", file=file, other_name=other_name or other_lower, other_party=other_lower,
++                party=party_lower, party_lower=party_lower, other_lower=other_lower),
++                "options": [f"{party}'s", f"{other}'s"]}
++            actions.append({"type": "UPLOAD_DOCUMENT", "document_type": kind,
++                            "label": f"Upload again as the {other_lower}'s {_readable(kind)}",
++                            **({"co_applicant_id": co_id} if not filed_as_co and co_id else {})})
++            continue
++        verdict = str(o.get("verification") or "").upper()
++        said = {"PASS": _label("passed"), "VERIFIED": _label("passed"), "REVIEW": _label("review"),
++                "FAIL": _label("failed"), "REJECTED": _label("failed")}.get(verdict, _label("started"))
++        whose = "the co-applicant's" if filed_as_co else "the applicant's"
++        lines.append(_label("filed", whose=whose, document=_readable(kind), party=party, verdict=said).strip())
++    return lines, question, actions
++
++
++__all__ = ["FLAG", "describe", "enabled"]
+diff --git a/app/agents/applicant/copilot/capabilities/timeline.py b/app/agents/applicant/copilot/capabilities/timeline.py
+new file mode 100644
+index 0000000..6027fb7
+--- /dev/null
++++ b/app/agents/applicant/copilot/capabilities/timeline.py
+@@ -0,0 +1,198 @@
++"""
++CASE TIMELINE AND TURNAROUND (FOS plan 7.3; flag COPILOT_CASE_TIMELINE, config chatbot.timeline -- ON in dev).
++
++"case ka timeline", "kab kya hua", "kitne din se FOS mein hai", "case kab bana tha", "kal wala verify hua?" -- a
++dated timeline from what the store recorded (the case created, each upload and its status, each KYC run, the
++recorded stage events), the days in the current stage, and the stage's configured turnaround target. A case past its
++target is flagged (here, in the case list row and on open) with its main blocker. Dates are the recorded ones; nothing
++is estimated.
++"""
++
++from __future__ import annotations
++
++import os
++import re
++from datetime import date, datetime, timedelta, timezone
++from typing import Any
++
++FLAG = "COPILOT_CASE_TIMELINE"
++_ON = {"1", "true", "yes", "on"}
++
++
++def _cfg() -> dict[str, Any]:
++    from app.agents.applicant import config
++
++    return config.chatbot("timeline")
++
++
++def enabled() -> bool:
++    value = os.getenv(FLAG)
++    if value is not None and value.strip():
++        return value.strip().lower() in _ON
++    return bool(_cfg().get("enabled", False))
++
++
++def _label(key: str, **values: Any) -> str:
++    from app.agents.applicant.copilot.answering import language_lock
++
++    defaults = {"heading": "Case timeline -- {case_id}", "created": "Case created", "uploaded": "{document} uploaded "
++                "({status})", "kyc": "KYC run ({status})", "event": "{event}",
++                "days": "{days} day(s) in {stage}.", "over": "Past the {stage} target of {target} day(s).",
++                "within": "Within the {stage} target of {target} day(s).", "blocker": "Main blocker: {blocker}.",
++                "day_none": "Nothing was uploaded {when}.", "day_some": "Uploaded {when}: {items}.",
++                "created_on": "The case was created on {date}."}
++    return language_lock.pick((_cfg().get("labels") or {}).get(key, defaults.get(key, key))).format(**values)
++
++
++def _readable(value: Any) -> str:
++    from app.agents.applicant.copilot.answering.answer import _readable as readable
++
++    return readable(value)
++
++
++def _when(value: Any) -> datetime | None:
++    if isinstance(value, datetime):
++        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
++    try:
++        parsed = datetime.fromisoformat(str(value))
++        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
++    except (TypeError, ValueError):
++        return None
++
++
++def _status(x: Any) -> str:
++    return str(getattr(getattr(x, "status", ""), "value", getattr(x, "status", "")) or "").upper()
++
++
++def build(case_id: str, repository: Any = None, *, now: datetime | None = None) -> dict[str, Any]:
++    from app.agents.los import stages
++    from app.store import get_repository
++
++    repository = repository or get_repository()
++    now = now or datetime.now(timezone.utc)
++    application = repository.get_application(case_id)
++    if application is None:
++        return {"case_id": case_id, "events": []}
++    events: list[dict[str, Any]] = []
++    created = _when(getattr(application, "created_at", None))
++    if created:
++        events.append({"at": created, "kind": "CREATED", "text": _label("created")})
++    for d in repository.list_documents(case_id) or []:
++        at = _when(getattr(d, "uploaded_at", None))
++        if at and _status(d) != "SUPERSEDED":
++            events.append({"at": at, "kind": "UPLOAD", "document_type": str(d.document_type).upper(),
++                           "status": _status(d), "text": _label("uploaded", document=_readable(d.document_type),
++                                                                status=_readable(_status(d)).lower())})
++    try:
++        for f in repository.get_current_findings(case_id, kind="KYC") or []:
++            at = _when(getattr(f, "created_at", None))
++            if at:
++                events.append({"at": at, "kind": "KYC", "text": _label("kyc", status=_readable(_status(f)).lower())})
++        for e in repository.get_case_timeline(case_id) or []:
++            at = _when(getattr(e, "created_at", None))
++            if at and getattr(e, "event_type", None):
++                text = getattr(e, "summary", None) or f"{_readable(e.event_type)}" + (
++                    f" -- {e.stage}" if getattr(e, "stage", None) else "")
++                events.append({"at": at, "kind": "EVENT", "stage": getattr(e, "stage", None),
++                               "text": _label("event", event=text)})
++    except Exception:  # noqa: BLE001 - a store without these reads: the dated uploads still stand
++        pass
++    events.sort(key=lambda e: e["at"])
++    stage = getattr(stages.resolve(case_id).stage, "value", None) or "FOS"
++    # WHEN THE CURRENT STAGE BEGAN: never left -> the case's own creation; else the first event of this stage
++    # after the last event of another one (a re-recorded stage event never resets the clock)
++    staged = [e for e in events if e.get("stage")]
++    last_other = max((i for i, e in enumerate(staged) if e["stage"] != stage), default=None)
++    if last_other is None:
++        entered = created
++    else:
++        entered = next((e["at"] for e in staged[last_other + 1:] if e["stage"] == stage), created)
++    days = max(0, (now - entered).days) if entered else None
++    target = (_cfg().get("targets_days") or {}).get(stage)
++    return {"case_id": case_id, "stage": stage, "events": events, "days_in_stage": days, "target_days": target,
++            "over_target": bool(target is not None and days is not None and days > int(target)),
++            "created_at": created}
++
++
++def turnaround_line(case_id: str, repository: Any = None) -> str | None:
++    """'5 day(s) in FOS. Past the FOS target of 3 day(s). Main blocker: ...' -- or None within target."""
++    if not enabled():
++        return None
++    t = build(case_id, repository)
++    if not t.get("over_target"):
++        return None
++    line = _label("days", days=t["days_in_stage"], stage=t["stage"]) + " " + \
++        _label("over", stage=t["stage"], target=t["target_days"])
++    try:
++        from app.agents.applicant.copilot.answering import readiness_report
++
++        report = readiness_report.build(case_id, repository)
++        first = next((i for g in report.get("groups") or [] for i in g["items"]
++                      if i["id"] == (report.get("unblock_order") or [None])[0]), None)
++        if first:
++            line += " " + _label("blocker", blocker=f"{first['label']} ({first['status'].lower()})")
++    except Exception:  # noqa: BLE001
++        pass
++    return line
++
++
++def render(t: dict[str, Any]) -> str:
++    lines = [f"**{_label('heading', case_id=t['case_id'])}**"]
++    for e in t.get("events") or []:
++        lines.append(f"- {e['at'].strftime('%d %b %Y, %H:%M')} -- {e['text']}")
++    if t.get("days_in_stage") is not None:
++        lines += ["", _label("days", days=t["days_in_stage"], stage=t["stage"])]
++        if t.get("target_days") is not None:
++            lines[-1] += " " + _label("over" if t.get("over_target") else "within", stage=t["stage"],
++                                      target=t["target_days"])
++    return "\n".join(lines)
++
++
++def asked(message: str) -> str | None:
++    """TIMELINE / DAYS / CREATED / DAY:<offset> -- what a time question asks, from config phrases; else None."""
++    said = " " + " ".join(re.findall(r"[\wऀ-ॿ]+", str(message or "").lower())) + " "
++    phrases = _cfg().get("phrases") or {}
++    for kind in ("timeline", "days", "created"):
++        if any(f" {' '.join(str(p).lower().split())} " in said for p in phrases.get(kind) or []):
++            return kind.upper()
++    for word, offset in (_cfg().get("relative_days") or {}).items():
++        if f" {str(word).lower()} " in said and any(f" {w} " in said for w in phrases.get("day_cues") or []):
++            return f"DAY:{int(offset)}"
++    return None
++
++
++def answer(case_id: str, kind: str, repository: Any = None, *, today: date | None = None) -> str:
++    t = build(case_id, repository)
++    if kind == "TIMELINE":
++        return render(t)
++    if kind == "DAYS":
++        text = _label("days", days=t["days_in_stage"], stage=t["stage"])
++        if t.get("target_days") is not None:
++            text += " " + _label("over" if t["over_target"] else "within", stage=t["stage"], target=t["target_days"])
++        return text
++    if kind == "CREATED":
++        return _label("created_on", date=t["created_at"].strftime("%d %b %Y") if t.get("created_at") else "--")
++    offset = int(kind.split(":", 1)[1])
++    day = (today or datetime.now(timezone.utc).date()) + timedelta(days=offset)
++    when = str((_cfg().get("day_words") or {}).get(str(offset)) or day.strftime("%d %b"))
++    items = [f"{_readable(e['document_type'])} ({_readable(e['status']).lower()})" for e in t["events"]
++             if e["kind"] == "UPLOAD" and e["at"].date() == day]
++    return _label("day_some", when=when, items=", ".join(items)) if items else _label("day_none", when=when)
++
++
++def attach(published: dict[str, Any], message: str) -> dict[str, Any]:
++    if not isinstance(published, dict) or not enabled() or not published.get("case_id"):
++        return published
++    kind = asked(message)
++    if kind is None:
++        return published
++    from app.agents.applicant.copilot.answering.counts import keep_case_header
++
++    published["answer"] = keep_case_header(published.get("answer"), answer(published["case_id"], kind),
++                                           published["case_id"])
++    published.pop("answer_markdown", None)
++    published["intent"] = "CASE_TIMELINE"
++    return published
++
++
++__all__ = ["FLAG", "answer", "asked", "attach", "build", "enabled", "render", "turnaround_line"]

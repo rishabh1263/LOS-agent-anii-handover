@@ -24,7 +24,8 @@ from typing import Any
 
 _WORD = re.compile(r"[a-z0-9][a-z0-9'-]*|[ऀ-ॿ]+", re.IGNORECASE)
 _FILLER = frozenset("""my mine our the a an please pls plz tell me show give kya hai hain mera meri
-mere ka ki ke batao bata do dikhao about of for and is what""".split())
+mere ka ki ke batao bata do dikhao about of for and is what wala wali wale waala""".split())
+# ("KYC wala detail" is "KYC detail" -- FOS plan 5 follow-up, golden s5_followup_kyc)
 
 #: Ambiguous heads -> the choices, each a full question the service answers.
 AMBIGUOUS: dict[str, dict[str, Any]] = {

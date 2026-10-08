@@ -14,7 +14,8 @@ status: UNCONFIRMED
 
 queries:
   # what a query may be about (target_type) and what kind it is (query_type)
-  target_types: [DOCUMENT, PARTY, CASE, FINDING, STAGE]
+  # CUSTOMER (2026-10-08): a query the FOS officer sends to the customer (anything wrong at FOS)
+  target_types: [DOCUMENT, PARTY, CASE, FINDING, STAGE, CUSTOMER]
   query_types:
     CLARIFICATION:        "A clarification is needed."
     MISSING_INFORMATION:  "Information is missing."
@@ -44,6 +45,8 @@ queries:
   raise_scopes: [los.query:write, documents:write, upload_document, los.stage:write]
   # resolving needs a reviewer-side scope: the person who answers is not the one who closes
   resolve_scopes: [los.query:resolve, los.stage:write]
+  # ... except a CUSTOMER query: the officer who raised it closes it once the customer has answered
+  resolve_by_raiser_target_types: [CUSTOMER]
   # UNCONFIRMED: an outstanding query blocks the gate out of its stage
   blocks_forward_move: true
   max_text_length: 1000

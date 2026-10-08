@@ -253,6 +253,19 @@ def answer(
         and str((f.payload or {}).get("type") or "").upper() == document_type
     ]
     if not verified:
+        # NEVER "NO PAN" WHILE A PAN IS ON THE CASE (FOS plan 6.6): the store's own document row is checked
+        # before saying it is absent -- a rejected / unverified one is named with its state, its values unreleased
+        try:
+            stored = [d for d in _repository().list_documents(case_id) or []
+                      if str(getattr(d, "document_type", "")).upper() == document_type
+                      and str(getattr(getattr(d, "status", ""), "value", getattr(d, "status", ""))).upper()
+                      != "SUPERSEDED" and (party_id is None or getattr(d, "party_id", None) in (party_id, None))]
+        except Exception:  # noqa: BLE001 - unreadable: the plain "not recorded" below stands
+            stored = []
+        if stored:
+            state = str(getattr(getattr(stored[-1], "status", ""), "value", getattr(stored[-1], "status", ""))).lower()
+            return (f"The {words} is on this case but it is {state}, so its details have not been released. "
+                    f"Upload a clear, correct {words} to get them read.", [])
         # No document, so no value of any field: said without naming a field
         # the question may not have asked for.
         return (f"No {words} has been recorded for this case yet, so I "

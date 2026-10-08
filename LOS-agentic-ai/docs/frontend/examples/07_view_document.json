@@ -1,13 +1,13 @@
 {
   "request": {
     "action": "VIEW_DOCUMENT",
-    "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1"
+    "document_id": "CASE-E658D45C16BD:APP-AEAFB9EC3769:pan1"
   },
   "response": {
     "request_id": "<request_id>",
-    "case_id": "CASE-AB355D618BF7",
+    "case_id": "CASE-E658D45C16BD",
     "intent": "VIEW_DOCUMENT",
-    "answer": "📄 **Pan** -- the link works for 5 minutes.",
+    "answer": "**Pan** -- the link works for 5 minutes.",
     "category": "CASE_ONLY",
     "query_type": "ACTION_REQUEST",
     "response_source": "STRUCTURED",
@@ -26,14 +26,8 @@
       "applied": true,
       "expanded": []
     },
-    "emphasis": [],
-    "answer_plain": "📄 Pan -- the link works for 5 minutes.",
-    "answer_markdown": "📄 Pan -- the link works for 5 minutes.",
     "presentation": {
-      "emphasis": [],
-      "answer_markdown": "📄 Pan -- the link works for 5 minutes.",
-      "answer_plain": "📄 Pan -- the link works for 5 minutes.",
-      "message": "📄 **Pan** -- the link works for 5 minutes.",
+      "message": "**Pan** -- the link works for 5 minutes.",
       "intent": "VIEW_DOCUMENT",
       "response_type": "ANSWER",
       "response_depth": "NORMAL",
@@ -46,12 +40,12 @@
         "status": "NO_VOICE_FOR_LANGUAGE",
         "language": null,
         "voice": null,
-        "text": "📄 **Pan**, the link works for 5 minutes.",
+        "text": "**Pan**, the link works for 5 minutes.",
         "endpoint": null,
         "format": "wav"
       },
       "case_context": {
-        "case_id": "CASE-AB355D618BF7",
+        "case_id": "CASE-E658D45C16BD",
         "applicant_id": null,
         "stage": null
       },
@@ -68,6 +62,11 @@
         "language": null,
         "response_source": "STRUCTURED"
       }
+    },
+    "answer_plain": "Pan -- the link works for 5 minutes.",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
     }
   }
 }

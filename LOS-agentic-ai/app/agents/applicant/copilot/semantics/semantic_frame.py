@@ -484,6 +484,9 @@ def parse(message: str, *, original: str | None = None) -> SemanticFrame:
             task_cues.append(Task.NEXT_ACTION)
         elif "READY" in present and not explain:
             task_cues.append(Task.READINESS)
+        elif "PROCEED" in present and frame.referents.get("stage") and not explain:
+            # "CPA mein kab jayega?" -- moving to a NAMED stage is the readiness question
+            task_cues.append(Task.READINESS)
         elif ("PENDING" in present or "MISSING" in present) and not explain:
             # "what is pending?" asks for everything pending on the case
             # (PENDING_ITEMS); "anything pending?" / "kya pending hai" ask

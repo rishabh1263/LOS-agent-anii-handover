@@ -5,15 +5,15 @@
     "query": {
       "target_type": "DOCUMENT",
       "query_type": "VERIFICATION_ISSUE",
-      "target_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
+      "target_id": "CASE-E658D45C16BD:APP-AEAFB9EC3769:pan1",
       "text": "PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy."
     }
   },
   "response": {
     "request_id": "<request_id>",
-    "case_id": "CASE-AB355D618BF7",
+    "case_id": "CASE-E658D45C16BD",
     "intent": "RAISE_QUERY",
-    "answer": "✅ Query **QRY-811CBF4FE6** raised.\n\nℹ️ There is no customer channel here yet. Copy this message to the customer, then tap **Mark as sent**:\n> **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
+    "answer": "Query **QRY-72267A139F** raised.\n\nThere is no customer channel here yet. Copy this message to the customer, then tap **Mark as sent**:\n> **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
     "category": "CASE_ONLY",
     "query_type": "ACTION_REQUEST",
     "response_source": "STRUCTURED",
@@ -22,13 +22,13 @@
     "tools_invoked": [],
     "suggested_questions": [],
     "query": {
-      "query_id": "QRY-811CBF4FE6",
+      "query_id": "QRY-72267A139F",
       "status": "OPEN",
       "stage": "FOS",
       "party_id": null,
-      "document_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
+      "document_id": "CASE-E658D45C16BD:APP-AEAFB9EC3769:pan1",
       "target_type": "DOCUMENT",
-      "target_id": "CASE-AB355D618BF7:APP-B597637EF37D:pan1",
+      "target_id": "CASE-E658D45C16BD:APP-AEAFB9EC3769:pan1",
       "query_type": "VERIFICATION_ISSUE",
       "text": "PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
       "source_stage": "FOS",
@@ -38,7 +38,7 @@
       "related_field": null,
       "raised_by": "test-subject",
       "evidence_refs": [],
-      "idempotency_key": "chat:CASE-AB355D618BF7:82dd21226a956c9f",
+      "idempotency_key": "chat:CASE-E658D45C16BD:82dd21226a956c9f",
       "history": [
         {
           "status": "OPEN",
@@ -53,8 +53,8 @@
     "actions": [
       {
         "type": "MARK_QUERY_SENT",
-        "case_id": "CASE-AB355D618BF7",
-        "query_id": "QRY-811CBF4FE6",
+        "case_id": "CASE-E658D45C16BD",
+        "query_id": "QRY-72267A139F",
         "label": "Mark as sent",
         "copy_text": "PAN could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy."
       }
@@ -65,26 +65,8 @@
         "PAN"
       ]
     },
-    "emphasis": [
-      {
-        "text": "verified",
-        "start": 178,
-        "end": 186
-      }
-    ],
-    "answer_plain": "✅ Query QRY-811CBF4FE6 raised.\n\nℹ️ There is no customer channel here yet. Copy this message to the customer, then tap Mark as sent:\n> PAN (Permanent Account Number) could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
-    "answer_markdown": "✅ Query QRY-811CBF4FE6 raised.\n\nℹ️ There is no customer channel here yet. Copy this message to the customer, then tap Mark as sent:\n> PAN (Permanent Account Number) could not be **verified**: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
     "presentation": {
-      "emphasis": [
-        {
-          "text": "verified",
-          "start": 178,
-          "end": 186
-        }
-      ],
-      "answer_markdown": "✅ Query QRY-811CBF4FE6 raised.\n\nℹ️ There is no customer channel here yet. Copy this message to the customer, then tap Mark as sent:\n> PAN (Permanent Account Number) could not be **verified**: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
-      "answer_plain": "✅ Query QRY-811CBF4FE6 raised.\n\nℹ️ There is no customer channel here yet. Copy this message to the customer, then tap Mark as sent:\n> PAN (Permanent Account Number) could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
-      "message": "✅ Query **QRY-811CBF4FE6** raised. > **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
+      "message": "Query **QRY-72267A139F** raised. > **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
       "intent": "RAISE_QUERY",
       "response_type": "ANSWER",
       "response_depth": "NORMAL",
@@ -97,12 +79,12 @@
         "status": "NO_VOICE_FOR_LANGUAGE",
         "language": null,
         "voice": null,
-        "text": "✅ Query **QRY-811CBF4FE6** raised. ℹ️ There is no customer channel here yet. Copy this message to the customer, then tap **Mark as sent**: > **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
+        "text": "Query **QRY-72267A139F** raised. There is no customer channel here yet. Copy this message to the customer, then tap **Mark as sent**: > **PAN (Permanent Account Number)** could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
         "endpoint": null,
         "format": "wav"
       },
       "case_context": {
-        "case_id": "CASE-AB355D618BF7",
+        "case_id": "CASE-E658D45C16BD",
         "applicant_id": null,
         "stage": null
       },
@@ -119,6 +101,11 @@
         "language": null,
         "response_source": "STRUCTURED"
       }
+    },
+    "answer_plain": "Query QRY-72267A139F raised.\n\nThere is no customer channel here yet. Copy this message to the customer, then tap Mark as sent:\n> PAN (Permanent Account Number) could not be verified: Too little text could be read from this document. Re-upload a clearer copy.. Please upload a clear copy.",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
     }
   }
 }

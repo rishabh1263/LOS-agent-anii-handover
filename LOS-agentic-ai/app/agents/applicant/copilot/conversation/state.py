@@ -111,8 +111,10 @@ _MORE = re.compile(r"^\s*(and\s+|aur\s+|ok\s*,?\s*|okay\s*,?\s*|accha\s*,?\s*)?"
 #: not more of the same answer.
 _THEN = re.compile(r"^\s*(and\s+|aur\s+|so\s+|ok\s*,?\s*)?(then|then\s+what|what\s+now|what\s+next|phir|fir|"
                    r"phir\s+kya|uske\s+baad|aage\s+kya|फिर|फिर\s+क्या|आगे\s+क्या)\s*[?.!]*\s*$", re.IGNORECASE)
+# (not "kyu atka hai?": that asks why the CASE is stuck -- the workspace quick question -- and is routed as one,
+# never as "why" of whatever the last answer was)
 _WHY = re.compile(r"^\s*(and\s+|aur\s+|but\s+|par\s+|lekin\s+)?(why|why\s+so|how\s+come|kyun|kyon|kyu|"
-                  r"kyun\s+atka(\s+hai)?|kyu\s+atka(\s+hai)?|क्यों)\s*[?.!]*\s*$", re.IGNORECASE)
+                  r"क्यों)\s*[?.!]*\s*$", re.IGNORECASE)
 #: WHERE AN ANSWER GOES NEXT: each capability's next level, as the question
 #: the ordinary pipeline answers (never a sentence composed here).
 _EXPAND_MORE = {
@@ -211,7 +213,8 @@ def _expanded(text: str, state: "ConversationState") -> "Reading | None":
     if _MORE.match(text) and last_intent == "FOS_KNOWLEDGE":
         topic = _knowledge_topic(state.last_message)
         if topic:
-            return Reading(REPLAY, f"Explain {topic} in detail", note="the previous answer, expanded")
+            # (not "Explain {topic} in detail": "detail" read it as the case's document DETAILS -- eval rag_conversation)
+            return Reading(REPLAY, f"What are the rules for {topic}?", note="the previous answer, expanded")
     if _MORE.match(text) and last_intent == "STAGE_PROCESS":
         # the stage guide was already given whole: more is the handbook's detail
         from app.agents.applicant.copilot.semantics.intents import stage_in as _stage_in
@@ -670,6 +673,14 @@ class ConversationState:
     #: the case ids of the last list shown (for "2" / "doosra"). Public ids only.
     active_case_id: str | None = None
     listed_case_ids: list[str] = field(default_factory=list)
+    #: MASTER SPEC section 3: the last list's query (filter / search / sort / page / size) for "aur dikhao", and
+    #: the number of the first row shown (row "7" on page 2 picks the 2nd row of that page)
+    list_query: dict[str, Any] = field(default_factory=dict)
+    list_offset: int = 0
+    #: MASTER SPEC section 15: the product flow's pending question ("particular" / "group" / "pick") and the
+    #: unconfirmed write proposed in chat (case draft, field edit, import) -- capabilities/product_flow.py,
+    #: capabilities/case_form.py
+    flow: dict[str, Any] = field(default_factory=dict)
     #: 6e ABBREVIATION RULE: glossary terms already shown with their full form this session
     explained_terms: list[str] = field(default_factory=list)
     #: 6c SESSION MEMORY (COPILOT_SESSION_MEMORY): the last N turns as labels + a rolling summary

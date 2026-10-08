@@ -1,0 +1,258 @@
+﻿diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/agent.py b/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
+index 9a28f8f..34bab21 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
+@@ -1760,6 +1760,11 @@ async def answer_question(
+             answer = _portfolio_answer({"applications.list": {"applications": _authorized,
+                                                               "count": len(_authorized)}})
+             answer = f"{answer}\n{_detail.split(chr(10), 1)[1] if chr(10) in _detail else ''}".rstrip()
++            from app.agents.applicant.copilot.answering import style as _pstyle
++
++            if _pstyle.enabled():
++                # 6e STYLE: the same recorded rows, point-wise, one block per case (portfolio.pointwise)
++                answer = _portfolio.pointwise(_block)
+             from app.agents.applicant.copilot.answering import structured as _pstructured
+ 
+             _pstructured.put("portfolio", None, _block)
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/portfolio.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/portfolio.py
+index 0ccbb31..ba1e9be 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/portfolio.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/portfolio.py
+@@ -54,16 +54,16 @@ def focused(focus: str, block: dict[str, Any], lines: list[str]) -> str:
+     # time recorded) -- which is "latest" is not guessed
+     if focus in (LATEST, PREVIOUS) and len(cases) >= 2 and (
+             not cases[0].get("opened_at") or cases[0].get("opened_at") == cases[1].get("opened_at")):
+-        both = "".join(f"\n- {line.split(' -- ', 1)[-1]}" for line in lines[:2])
++        both = "".join(f"\n- {line}" for line in lines[:2])
+         return ("I can't tell which of these cases is the latest -- they were opened at the same "
+                 "recorded time. Here are both:" + both)
+     if focus == LATEST:
+-        return f"Your latest case: {lines[0][len('Latest -- '):]}"
++        return f"Your latest case: {lines[0]}"
+     if focus == PREVIOUS:
+         if len(cases) < 2:
+             return ("You have only one case, so there is no previous case. "
+-                    f"Your current case: {lines[0][len('Latest -- '):]}")
+-        rest = [line[len("Previous -- "):] for line in lines[1:]]
++                    f"Your current case: {lines[0]}")
++        rest = lines[1:]
+         if len(rest) == 1:
+             return f"Your previous case: {rest[0]}"
+         return "Your previous cases:" + "".join(f"\n- {line}" for line in rest)
+@@ -156,7 +156,9 @@ def summarise(results: dict[str, Any], *, caller: Any, applicant_id: str | None,
+         cases.append(entry)
+         counts = ", ".join(f"{n} {k.lower()}" for k, n in sorted(verification["summary"].items())) \
+             or "no documents yet"
+-        said = (f"{'Latest' if position == 0 else 'Previous'} -- "
++        # each line is led by its CASE ID (user, 2026-10-07: "case id chahiye latest ke badle"); the
++        # latest-first order stands and the structured `position` still says LATEST / PREVIOUS
++        said = (f"{case_id} -- "
+                 f"{_readable(str(product)) + ' application' if product else 'application'}: "
+                 f"{_readable(status)}; documents: {counts}; KYC: "
+                 f"{'not recorded' if kyc_status == 'NOT_RECORDED' else _readable(kyc_status).lower()}")
+@@ -175,4 +177,40 @@ def summarise(results: dict[str, Any], *, caller: Any, applicant_id: str | None,
+     return head + "\n" + "\n".join(f"- {line}" for line in lines), block
+ 
+ 
+-__all__ = ["ATTENTION", "LATEST", "PREVIOUS", "focus_of", "focused", "summarise"]
++def pointwise(block: dict[str, Any]) -> str:
++    """
++    The same cases, point-wise (COPILOT_RESPONSE_STYLE): a header, then one block per case -- case id,
++    product, then a bullet each for status / documents / KYC / blocking / next. Labels are
++    response_style.portfolio in applicant_agent.yaml. The values are the recorded ones `summarise` read.
++    """
++    from app.agents.applicant.copilot.answering import style
++    from app.agents.applicant.copilot.answering.answer import _readable
++
++    labels = dict(style._cfg().get("portfolio") or {})
++
++    def say(key: str, **values: Any) -> str:
++        return str(labels.get(key, key)).format(**values)
++
++    cases = block.get("cases") or []
++    total, blocked = len(cases), int(block.get("blocked") or 0)
++    head = (say("head_one") if total == 1 else say("head", total=total)) \
++        + (say("blocked", n=blocked) if blocked else say("clear"))
++    out = [head]
++    for number, case in enumerate(cases, 1):
++        product = _readable(str(case["product"])) if case.get("product") else say("no_product")
++        counts = ", ".join(f"{n} {k.lower()}" for k, n in sorted((case.get("verification") or {}).items())) \
++            or say("no_documents")
++        kyc = case.get("kyc_status") or "NOT_RECORDED"
++        out += ["", say("case", number=number, case_id=case["case_id"], product=product),
++                say("status", value=_readable(str(case.get("status") or "UNKNOWN"))),
++                say("documents", value=counts),
++                say("kyc", value=say("kyc_not_recorded") if kyc == "NOT_RECORDED" else _readable(kyc).lower())]
++        if case.get("blockers"):
++            out.append(say("blocking", value=", ".join(case["blockers"])))
++        step = case.get("next_action") or {}
++        if step.get("label"):
++            out.append(say("next", value=step["label"]))
++    return "\n".join(out)
++
++
++__all__ = ["ATTENTION", "LATEST", "PREVIOUS", "focus_of", "focused", "pointwise", "summarise"]
+diff --git a/LOS-agentic-ai/app/config/applicant_agent.yaml b/LOS-agentic-ai/app/config/applicant_agent.yaml
+index dbd4414..83f850c 100644
+--- a/LOS-agentic-ai/app/config/applicant_agent.yaml
++++ b/LOS-agentic-ai/app/config/applicant_agent.yaml
+@@ -894,6 +894,21 @@ chatbot:
+   response_style:
+     status_emoji: { READY_FOR_CPA: "✅", NOT_READY: "⏳", VERIFIED: "✅", REJECTED: "❌", REVIEW: "⏳",
+                     MISMATCH: "⚠️", BLOCKED: "⚠️" }
++    # "all my cases" summary, point-wise: one block per case, latest first (capabilities/portfolio.py pointwise)
++    portfolio:
++      head: "📂 **{total} cases**"
++      head_one: "📂 **1 case**"
++      blocked: " · ⚠️ {n} blocked"
++      clear: " · ✅ nothing blocking"
++      case: "**{number}. {case_id}** · {product}"
++      status: "   • Status: {value}"
++      documents: "   • Documents: {value}"
++      kyc: "   • KYC: {value}"
++      blocking: "   • ⚠️ Blocking: {value}"
++      next: "   • 👉 Next: {value}"
++      no_documents: "none yet"
++      kyc_not_recorded: "not recorded"
++      no_product: "Application"
+     intent_emoji:
+       APPLICATION_STATUS: "📍"
+       APPLICATION_STAGE: "📍"
+@@ -949,12 +964,20 @@ chatbot:
+       switch: [dusra case, doosra case, another case, case badlo, switch case, other case]
+       previous: [pehle wala case, pichla case, previous case, last case, wapas pehle wala, pehle wale case]
+       case_word: [case, ka case, wala case, file, application]
++      # small words dropped before a name / ordinal is read ("2 wala case open karo" -> "2")
++      filler: [ka, ki, ke, wala, wali, ji, karo, kar, please, plz, the, number]
+     labels:
+       header: "📂 **Your cases**"
+       total: "{n} total"
+       pending: "⏳ {n} pending"
+       completed: "✅ {n} completed"
+       rejected: "❌ {n} rejected"
++      # the list is grouped by applicant (one applicant can have several cases); numbering runs across
++      # groups so "2 kholo" still works; {applicant_id} lets the officer say "APP-xxx wala case kholo"
++      group: "🆔 **{applicant_id}** -- {name} ({count})"
++      group_one: "1 case"
++      group_many: "{n} cases"
++      row: "   {number}. **{case_id}** · 📍 {stage} · {status}"
+       row_kyc: "⚠️ KYC issue"
+       row_docs: "⏳ {n} docs pending"
+       row_ready: "✅ Ready for CPA"
+diff --git a/LOS-agentic-ai/tests/integration/test_copilot_applicant_scope.py b/LOS-agentic-ai/tests/integration/test_copilot_applicant_scope.py
+index 1f8ea23..1d7754c 100644
+--- a/LOS-agentic-ai/tests/integration/test_copilot_applicant_scope.py
++++ b/LOS-agentic-ai/tests/integration/test_copilot_applicant_scope.py
+@@ -100,15 +100,17 @@ def test_every_case_is_named_with_its_own_status(client, repo):
+ 
+     answer = ask(client, "what happened across my previous cases?").json()["answer"]
+ 
+-    # One numbered entry per case, each with its own status -- and no case
+-    # id in the sentence (the ids are in the structured response; an
+-    # internal identifier is never part of a natural-language answer).
++    # One numbered entry per case, each with its own status. CHANGED
++    # 2026-10-07 (user: "case id chahiye latest ke badle"): each per-case
++    # detail line is now led by the caller's OWN case id -- it used to say
++    # "Latest / Previous" with no id. Another applicant's id never appears
++    # (test_another_applicants_cases_are_not_returned).
+     # The store's listing order is not insertion order, so each status is
+     # matched to SOME numbered entry, and every number 1..3 is used once.
+     for case_id, status in THREE:
+         readable = status.replace("_", " ").title().replace("Cpa", "CPA")
+         assert re.search(rf"\b[1-3]\) application, {readable}\b", answer), answer
+-        assert case_id not in answer
++        assert f"{case_id} -- application: {readable}" in answer
+     for number in (1, 2, 3):
+         assert answer.count(f"{number}) application,") == 1
+ 
+@@ -167,11 +169,13 @@ def test_another_applicants_cases_are_not_returned(client, repo):
+     answer = ask(client, "my cases", applicant_id="APP-1").json()["answer"]
+ 
+     # Scoping is proved by the count and by the other applicant's
+-    # READY_FOR_CPA case being absent; no id is named in the sentence.
++    # READY_FOR_CPA case being absent. The caller's own case is named by
++    # its id (2026-10-07); the other applicant's ids never are.
+     assert answer.startswith("Across 1 case:")
+     assert "Document Collection" in answer
+     assert "Ready For CPA" not in answer
+-    for case_id in ("MINE-1", "THEIRS-1", "THEIRS-2"):
++    assert "MINE-1" in answer
++    for case_id in ("THEIRS-1", "THEIRS-2"):
+         assert case_id not in answer
+ 
+ 
+diff --git a/LOS-agentic-ai/tests/integration/test_copilot_portfolio.py b/LOS-agentic-ai/tests/integration/test_copilot_portfolio.py
+index e5af77f..0c300ec 100644
+--- a/LOS-agentic-ai/tests/integration/test_copilot_portfolio.py
++++ b/LOS-agentic-ai/tests/integration/test_copilot_portfolio.py
+@@ -109,6 +109,21 @@ def test_the_owner_gets_every_case_summarised(repo, make_token, monkeypatch):
+     assert calls == {"documents": 1, "findings": 1}           # batched, not one read per case
+ 
+ 
++def test_the_summary_is_point_wise_with_case_ids_when_style_is_on(repo, make_token, monkeypatch):
++    """COPILOT_RESPONSE_STYLE: one block per case, led by its CASE ID (not "Latest / Previous")."""
++    monkeypatch.setenv("COPILOT_RESPONSE_STYLE", "true")
++    repo.grant_access("owner-1", "APPLICANT", APP)
++    answer = _ask(_client(make_token, "owner-1"), APP, CASE_NEW, f"{APP} ke saare cases ka summary do")["answer"]
++    print("\n" + answer)
++
++    assert "📂 **2 cases** · ⚠️ 1 blocked" in answer
++    assert answer.index(CASE_NEW) < answer.index(CASE_OLD)                       # latest first
++    assert f"**1. {CASE_NEW}** · Personal Loan" in answer
++    assert "**: review" in answer and "• ⚠️ Blocking:" in answer          # KYC expanded on first mention (6e)
++    assert "Latest --" not in answer and "Previous --" not in answer
++    assert CASE_OTHER not in answer
++
++
+ def test_a_caller_granted_one_case_never_learns_of_the_other(repo, make_token):
+     repo.grant_access("officer-1", "CASE", CASE_NEW)
+     response = _client(make_token, "officer-1").post("/api/v1/fos/copilot", json={
+diff --git a/LOS-agentic-ai/tests/integration/test_fos_api.py b/LOS-agentic-ai/tests/integration/test_fos_api.py
+index e1c0eac..62a5951 100644
+--- a/LOS-agentic-ai/tests/integration/test_fos_api.py
++++ b/LOS-agentic-ai/tests/integration/test_fos_api.py
+@@ -18,7 +18,7 @@ import pytest
+ from fastapi.testclient import TestClient
+ 
+ from app.agents.applicant import config as agent_config
+-from app.api.routes.fos_api import FosAction
++from app.api.routes.fos_api import _CASE_ACTIONS, _WORKSPACE_ACTIONS, FosAction
+ from app.store import set_repository
+ from app.store.models import Document, DocumentStatus, status_for_verdict
+ from app.store.testing import fresh_repository
+@@ -229,6 +229,8 @@ def test_identifiers_can_be_supplied(client):
+ @pytest.mark.parametrize("action", [
+     a.value for a in FosAction
+     if a not in (FosAction.UPLOAD_DOCUMENT, FosAction.CUSTOM_QUERY)
++    # the flagged workspace / case actions (6-MVP, 6i) have their own suites and extra fields
++    and a not in _WORKSPACE_ACTIONS | _CASE_ACTIONS
+ ])
+ def test_every_dropdown_action_answers(client, case, action):
+     applicant_id, case_id = case
+@@ -244,6 +246,7 @@ def test_every_dropdown_action_answers(client, case, action):
+ @pytest.mark.parametrize("action", [
+     a.value for a in FosAction
+     if a not in (FosAction.UPLOAD_DOCUMENT, FosAction.CUSTOM_QUERY)
++    and a not in _WORKSPACE_ACTIONS | _CASE_ACTIONS
+ ])
+ def test_every_action_returns_the_same_envelope(client, case, action):
+     """One response model for the frontend, not eleven."""
+@@ -663,8 +666,16 @@ def test_the_response_carries_no_internals(client, case, _store):
+ # SUPPORTING ENDPOINTS
+ # ==========================================================================
+ 
+-def test_the_action_list_matches_the_enum(client):
+-    """A dropdown rendered from this must offer everything the API accepts."""
++def test_the_action_list_matches_the_enum(client, monkeypatch):
++    """
++    A dropdown rendered from this must offer everything the API accepts -- and nothing it would refuse:
++    the flagged workspace / case actions (6-MVP, 6i) are listed only while their flag is on.
++    """
++    flagged = {a.value for a in _WORKSPACE_ACTIONS | _CASE_ACTIONS}
++    body = client.get("/api/v1/fos/actions").json()
++    assert {a["value"] for a in body["actions"]} == {a.value for a in FosAction} - flagged
++    monkeypatch.setenv("COPILOT_CASE_WORKSPACE", "true")
++    monkeypatch.setenv("COPILOT_CASE_ACTIONS", "true")
+     body = client.get("/api/v1/fos/actions").json()
+     assert {a["value"] for a in body["actions"]} == {a.value for a in FosAction}
+ 

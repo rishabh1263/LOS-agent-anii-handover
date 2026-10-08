@@ -117,6 +117,12 @@ def format_answer(answer: str, intent: str | None, status: str | None = None) ->
     last = text.rstrip().splitlines()[-1] if text.strip() else ""
     if "👉" not in text and not last.rstrip().endswith("?"):
         step = (cfg.get("next_step") or {}).get(str(intent or "").upper())
+        if isinstance(step, dict) and not ({"en", "hi-Latn", "hi", "mr"} & set(step)):
+            # per recorded status (e.g. KYC PASS -> no "fix the mismatch" step); "default" otherwise
+            step = step.get(str(status or "").upper(), step.get("default"))
+        from app.agents.applicant.copilot.answering import language_lock
+
+        step = language_lock.pick(step) if isinstance(step, dict) else step     # a {language: text} map
         if step:
             text = f"{text}\n\n👉 {step}"
     return text
@@ -128,6 +134,11 @@ def apply(published: dict[str, Any], *, explained: set[str], language: str | Non
     if not answer.strip():
         return published, set()
     status = (published.get("readiness") or {}).get("status") if isinstance(published.get("readiness"), dict) else None
+    parties = ((published.get("kyc") or {}).get("parties") or []) if isinstance(published.get("kyc"), dict) else []
+    if status is None and parties:
+        # the KYC answer's recorded state: PASS only when every party asked about passed
+        states = {str(p.get("state") or p.get("status") or "").upper() for p in parties if isinstance(p, dict)}
+        status = "PASS" if states == {"PASS"} else (sorted(states - {"PASS"})[0] if states - {"PASS"} else None)
     styled = format_answer(answer, published.get("intent"), status)
     styled, newly = expand_first_mentions(styled, explained)
     published["answer"] = styled

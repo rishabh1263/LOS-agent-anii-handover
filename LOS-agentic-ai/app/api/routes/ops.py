@@ -146,7 +146,68 @@ async def ready(response: Response) -> dict:
         "unsigned_policy_override": allow_unsigned_policy(),
         "circuits": resilience.breaker.snapshot(),
         "in_flight": resilience.bulkhead.snapshot(),
+        "build": build_marker(),
     }
+
+
+def build_marker() -> dict:
+    """
+    WHICH BACKEND IS THIS (FOS plan 1.1): the build step (applicant_agent.yaml chatbot.build), the git
+    commit when one can be read, and every chatbot flag as it is RIGHT NOW in this process -- so a
+    frontend tester can confirm with GET /ready that they reach this server with the features on.
+    """
+    import os
+    import subprocess
+    from pathlib import Path
+
+    from app.agents.applicant import config
+
+    build = config.chatbot("build") or {}
+    on = {"1", "true", "yes", "on"}
+    from app.agents.applicant.copilot.answering import kyc_table, language_lock, professional, readiness_report
+    from app.agents.applicant.copilot.semantics import llm_router
+
+    # flags whose default is ON in config when the environment says nothing: their own enabled() decides
+    by_module = {llm_router.FLAG: llm_router.enabled, language_lock.FLAG: language_lock.enabled,
+                 professional.FLAG: professional.enabled, kyc_table.FLAG: kyc_table.enabled,
+                 readiness_report.FLAG: readiness_report.enabled}
+    from app.agents.applicant.copilot.capabilities import snapshot_qa
+
+    by_module[snapshot_qa.FLAG] = snapshot_qa.enabled
+    from app.agents.applicant.copilot.answering import counts
+
+    by_module[counts.FLAG] = counts.enabled
+    from app.agents.applicant.copilot.answering import handoff_note
+
+    by_module[handoff_note.FLAG] = handoff_note.enabled
+    from app.agents.applicant.copilot.capabilities import smart_upload
+
+    by_module[smart_upload.FLAG] = smart_upload.enabled
+    from app.agents.applicant.copilot.capabilities import timeline
+
+    by_module[timeline.FLAG] = timeline.enabled
+    from app.agents.applicant.copilot.answering import officer_tools
+
+    for _feature, _flag in officer_tools.FLAGS.items():
+        by_module[_flag] = (lambda f=_feature: officer_tools.enabled(f))
+    # MASTER SPEC v2: config-default-ON flags (their own enabled() reads env, then config)
+    from app.agents.applicant.copilot.answering import contract as _contract_flag
+    from app.agents.applicant.copilot.capabilities import abuse_guard, case_form, case_list, faq, product_flow
+
+    for _module in (_contract_flag, case_list, faq, abuse_guard, product_flow, case_form):
+        by_module[_module.FLAG] = _module.enabled
+    flags = {name: (by_module[name]() if name in by_module
+                    else (os.getenv(name, "") or "").strip().lower() in on)
+             for name in build.get("chatbot_flags") or []}
+    commit = None
+    try:
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2,
+                                cwd=Path(__file__).resolve().parents[3]).stdout.strip() or None
+    except Exception:  # noqa: BLE001 - no git on the host: the step still says which build
+        commit = None
+    return {"phase": build.get("phase"), "step": build.get("step"), "commit": commit,
+            "uncommitted_changes_possible": True, "chatbot_flags": flags,
+            "chatbot_flags_on": sum(flags.values()), "chatbot_flags_total": len(flags)}
 
 
 @router.get("/metrics", summary="Prometheus metrics")

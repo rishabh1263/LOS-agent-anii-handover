@@ -109,6 +109,21 @@ def test_the_owner_gets_every_case_summarised(repo, make_token, monkeypatch):
     assert calls == {"documents": 1, "findings": 1}           # batched, not one read per case
 
 
+def test_the_summary_is_point_wise_with_case_ids_when_style_is_on(repo, make_token, monkeypatch):
+    """COPILOT_RESPONSE_STYLE: one block per case, led by its CASE ID (not "Latest / Previous")."""
+    monkeypatch.setenv("COPILOT_RESPONSE_STYLE", "true")
+    repo.grant_access("owner-1", "APPLICANT", APP)
+    answer = _ask(_client(make_token, "owner-1"), APP, CASE_NEW, f"{APP} ke saare cases ka summary do")["answer"]
+    print("\n" + answer)
+
+    assert "📂 **2 cases** · ⚠️ 1 blocked" in answer
+    assert answer.index(CASE_NEW) < answer.index(CASE_OLD)                       # latest first
+    assert f"**1. {CASE_NEW}** · Personal Loan" in answer
+    assert "**: review" in answer and "• ⚠️ Blocking:" in answer          # KYC expanded on first mention (6e)
+    assert "Latest --" not in answer and "Previous --" not in answer
+    assert CASE_OTHER not in answer
+
+
 def test_a_caller_granted_one_case_never_learns_of_the_other(repo, make_token):
     repo.grant_access("officer-1", "CASE", CASE_NEW)
     response = _client(make_token, "officer-1").post("/api/v1/fos/copilot", json={

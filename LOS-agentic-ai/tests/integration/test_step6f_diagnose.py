@@ -61,3 +61,27 @@ def test_fix_first_then_pending_then_under_review():
             "under_review": [{"party": "A", "party_label": "Applicant", "label": "Salary Slip", "state": "REVIEW"}]}
     text = document_actions.render(view)["answer"]
     assert text.index("PAN") < text.index("Address Proof") < text.index("Salary Slip")
+
+
+# ---- user, 2026-10-07: anything in REVIEW or FAILED anywhere is listed, KYC first -----------------------------
+def test_review_and_failed_documents_and_kyc_review_are_all_listed(client, on, monkeypatch, _store):
+    from app.store.models import CaseFinding, Document, DocumentStatus, FindingKind
+
+    monkeypatch.setenv("COPILOT_DOCUMENT_ACTIONS", "true")
+    a, c = open_case(client)
+    _store.save_document(Document(document_id=f"{c}:{a}:pan", case_id=c, applicant_id=a, party_id=a,
+                                  document_type="PAN", status=DocumentStatus.REJECTED, verification_status="FAIL",
+                                  reason_codes=["DOCUMENT_UNREADABLE"]))
+    _store.save_document(Document(document_id=f"{c}:{a}:addr", case_id=c, applicant_id=a, party_id=a,
+                                  document_type="ADDRESS_PROOF", status=DocumentStatus.REVIEW,
+                                  verification_status="REVIEW", reason_codes=["NAME_MISMATCH"]))
+    _store.save_finding(CaseFinding(finding_id="k-6f", case_id=c, party_id=a, finding_kind=FindingKind.KYC,
+                                    status="REVIEW", reason_codes=["NAME_MISMATCH"], content_hash="k-6f"))
+    answer = ask(client, a, c, "verify karna hai")["answer"]
+    lines = answer.splitlines()
+
+    assert "needs review" in lines[0] and "KYC" in lines[0]                        # the KYC verdict first
+    assert any(line.startswith("📄 Address Proof [Upload] —") for line in lines)   # REVIEW: upload again, with why
+    assert any("PAN" in line and "[Upload] —" in line for line in lines)            # FAIL: upload again, with why
+    assert answer.count("Address Proof") == 1                                      # never pending AND to fix
+    assert "no action needed" not in answer

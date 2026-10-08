@@ -1,12 +1,12 @@
 {
   "request": {
     "action": "OPEN_CASE",
-    "case_id": "CASE-AB355D618BF7"
+    "case_id": "CASE-E658D45C16BD"
   },
   "response": {
     "request_id": "<request_id>",
     "intent": "CASE_OPENED",
-    "answer": "🔓 **CASE-AB355D618BF7 (Rahul Sharma)** opened.\n📍 Stage: **FOS**\n⚠️ **KYC (Know Your Customer)** name (the applicant's): KYC has not run for this party.\n\n👉 Try: \"Kya baaki hai?\"",
+    "answer": "**CASE-E658D45C16BD (Rahul Sharma)** opened.\n- Stage: **FOS**\n- **KYC (Know Your Customer)** name (the applicant's): KYC has not run for this party.\n\n**Next step:** Try: \"Kya baaki hai?\"",
     "category": "CASE_ONLY",
     "query_type": "CASE_FACT",
     "response_source": "STRUCTURED",
@@ -17,20 +17,20 @@
       "application.list"
     ],
     "suggested_questions": [],
-    "case_id": "CASE-AB355D618BF7",
-    "applicant_id": "APP-B597637EF37D",
+    "case_id": "CASE-E658D45C16BD",
+    "applicant_id": "APP-AEAFB9EC3769",
     "workspace_view": {
       "workspace": {
-        "case_id": "CASE-AB355D618BF7",
-        "header": "📍 CASE-AB355D618BF7",
+        "case_id": "CASE-E658D45C16BD",
+        "header": "CASE-E658D45C16BD",
         "buttons": [
           {
             "type": "exit_case",
-            "label": "🔒 Exit"
+            "label": "Exit"
           },
           {
             "type": "switch_case",
-            "label": "🔁 Switch case"
+            "label": "Switch case"
           },
           {
             "type": "ask",
@@ -65,27 +65,18 @@
         "KYC"
       ]
     },
-    "emphasis": [
-      {
-        "text": "baaki",
-        "start": 153,
-        "end": 158
-      }
-    ],
-    "answer_plain": "🔓 CASE-AB355D618BF7 (Rahul Sharma) opened.\n📍 Stage: FOS\n⚠️ KYC (Know Your Customer) name (the applicant's): KYC has not run for this party.\n\n👉 Try: \"Kya baaki hai?\"",
-    "answer_markdown": "🔓 CASE-AB355D618BF7 (Rahul Sharma) opened.\n📍 Stage: FOS\n⚠️ KYC (Know Your Customer) name (the applicant's): KYC has not run for this party.\n\n👉 Try: \"Kya **baaki** hai?\"",
     "presentation": {
       "workspace": {
-        "case_id": "CASE-AB355D618BF7",
-        "header": "📍 CASE-AB355D618BF7",
+        "case_id": "CASE-E658D45C16BD",
+        "header": "CASE-E658D45C16BD",
         "buttons": [
           {
             "type": "exit_case",
-            "label": "🔒 Exit"
+            "label": "Exit"
           },
           {
             "type": "switch_case",
-            "label": "🔁 Switch case"
+            "label": "Switch case"
           },
           {
             "type": "ask",
@@ -109,16 +100,7 @@
           }
         ]
       },
-      "emphasis": [
-        {
-          "text": "baaki",
-          "start": 153,
-          "end": 158
-        }
-      ],
-      "answer_markdown": "🔓 CASE-AB355D618BF7 (Rahul Sharma) opened.\n📍 Stage: FOS\n⚠️ KYC (Know Your Customer) name (the applicant's): KYC has not run for this party.\n\n👉 Try: \"Kya **baaki** hai?\"",
-      "answer_plain": "🔓 CASE-AB355D618BF7 (Rahul Sharma) opened.\n📍 Stage: FOS\n⚠️ KYC (Know Your Customer) name (the applicant's): KYC has not run for this party.\n\n👉 Try: \"Kya baaki hai?\"",
-      "message": "🔓 **CASE-AB355D618BF7 (Rahul Sharma)** opened. 📍 Stage: **FOS** 👉 Try: \"Kya baaki hai?\"",
+      "message": "**CASE-E658D45C16BD (Rahul Sharma)** opened. Stage: **FOS** Try: \"Kya baaki hai?\"",
       "intent": "CASE_OPENED",
       "response_type": "ANSWER",
       "response_depth": "NORMAL",
@@ -131,13 +113,13 @@
         "status": "NO_VOICE_FOR_LANGUAGE",
         "language": null,
         "voice": null,
-        "text": "🔓 **CASE-AB355D618BF7 (Rahul Sharma)** opened. 📍 Stage: **FOS**. ️ **KYC (Know Your Customer)** name (the applicant's): KYC has not run for this party. 👉 Try: \"Kya baaki hai?\".",
+        "text": "**CASE-E658D45C16BD (Rahul Sharma)** opened. Stage: **FOS**. **KYC (Know Your Customer)** name (the applicant's): KYC has not run for this party. Try: \"Kya baaki hai?\".",
         "endpoint": null,
         "format": "wav"
       },
       "case_context": {
-        "case_id": "CASE-AB355D618BF7",
-        "applicant_id": "APP-B597637EF37D",
+        "case_id": "CASE-E658D45C16BD",
+        "applicant_id": "APP-AEAFB9EC3769",
         "stage": null
       },
       "sections": [
@@ -145,8 +127,8 @@
           "title": null,
           "items": [
             {
-              "icon": "⚠",
-              "label": "️ **KYC (Know Your Customer)** name (the applicant's): KYC has not run for this party.",
+              "icon": "",
+              "label": "**KYC (Know Your Customer)** name (the applicant's): KYC has not run for this party.",
               "status": null
             }
           ]
@@ -164,6 +146,11 @@
         "language": null,
         "response_source": "STRUCTURED"
       }
+    },
+    "answer_plain": "CASE-E658D45C16BD (Rahul Sharma) opened.\n- Stage: FOS\n- KYC (Know Your Customer) name (the applicant's): KYC has not run for this party.\n\nNext step: Try: \"Kya baaki hai?\"",
+    "format": {
+      "style": "PROFESSIONAL",
+      "emojis": false
     }
   }
 }

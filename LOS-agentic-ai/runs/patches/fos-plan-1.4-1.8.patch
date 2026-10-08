@@ -1,0 +1,699 @@
+﻿diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/agent.py b/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
+index 34bab21..86e1182 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
+@@ -1227,6 +1227,25 @@ async def answer_question(
+         "case_stage": getattr(getattr(stage_context, "stage", None), "value", None),
+     }
+ 
++    if not referent_clarification and intent is not Intent.UNKNOWN:
++        # "mere Aadhar case ka details" (FOS plan 1.6): a document named RIGHT BEFORE a case word -- the
++        # document's details, or the case's? One question, never "No Aadhaar recorded" (config: ambiguity)
++        from app.agents.applicant.copilot.semantics import intents as _amb_intents
++
++        _amb = config.chatbot("ambiguity").get("document_before_case") or {}
++        _nouns = [str(n).lower() for n in _amb.get("case_nouns") or []]
++        _words = re.findall(r"[\wऀ-ॿ]+", str(message or "").lower())
++        for _i, _w in enumerate(_words[1:], 1):
++            _doc = _amb_intents._document_type(_words[_i - 1]) if _w in _nouns else None
++            if _doc:
++                from app.agents.applicant.copilot.answering import structured as _astructured
++
++                _dl = _astructured._readable_type(_doc)
++                referent_clarification = str(_amb.get("question") or "Do you mean the {doc} details, "
++                                             "or this case's details?").format(doc=_dl)
++                referent_options = [str(o).format(doc=_dl) for o in _amb.get("options")
++                                    or ["Show the {doc} details", "Show this case's details"]]
++                break
+     if referent_clarification and intent is not Intent.UNKNOWN:
+         audit.record(request_id=request_id, subject=caller.subject,
+                      applicant_id=applicant_id, case_id=case_id,
+@@ -2342,8 +2361,8 @@ async def _answer_for_subject(
+                                        classification.document_type)
+         if _OWN_WORDS.search(message):
+             answer = subjects._to_caller(subject, answer)
+-        if classification.matched_on == "document_rejected":
+-            # WHY IT WAS REJECTED: the recorded reason on that document, per
++        if classification.matched_on in ("document_rejected", "document_why"):
++            # WHY IT WAS REJECTED ("why was the PAN rejected?" is document_why): the recorded reason on that document, per
+             # party -- never guessed; said plainly when none was recorded.
+             memory = case_memory_facts.case_memory(case_id)
+             reasons = []
+@@ -3013,7 +3032,7 @@ def _classify_typed(message: str, *, has_case: bool) -> tuple[Classification, An
+         if named_subject in (subjects.Kind.CO, subjects.Kind.BOTH):
+             # A PERSON'S DETAILS OR KYC, asked of the co-applicant: the
+             # party's own record answers it (subjects.party_question).
+-            asked_of_party = subjects.party_question(said, classification)
++            asked_of_party = subjects.party_question(said, classification, original=message)
+             if asked_of_party is not None:
+                 classification = asked_of_party
+         if named_subject:
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/answering/profile.py b/LOS-agentic-ai/app/agents/applicant/copilot/answering/profile.py
+index 631465f..3e80158 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/answering/profile.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/answering/profile.py
+@@ -209,6 +209,13 @@ def _broad(said: str) -> Question | None:
+     """A request for everything recorded, or None."""
+     if _EVERYTHING.search(said):
+         return Question(ALL)
++    # "details batao" / "details do" ALONE (FOS plan 1.4): inside a case, everything recorded on it
++    # (applicant_agent.yaml chatbot.bare_details -- whole message only)
++    from app.agents.applicant import config as _config
++
++    bare = " ".join(re.sub(r"[^\w\s]", " ", said.lower()).split())
++    if bare in {" ".join(str(p).lower().split()) for p in _config.chatbot("bare_details").get("phrases") or []}:
++        return Question(ALL)
+     if _MY_DETAILS.search(said) and not _ABOUT_APPLICATION.search(said) \
+             and not _DOCUMENT_WORDS.search(said):
+         return Question(ALL_APPLICANT)
+@@ -369,6 +376,24 @@ def _readable(value: str) -> str:
+     return " ".join(w.capitalize() for w in str(value).replace("_", " ").split())
+ 
+ 
++def _implausible(field: str, value: Any) -> str | None:
++    """
++    The configured label when a recorded amount is below the field's plausible minimum
++    (applicant_agent.yaml chatbot.plausibility; FOS plan 1.1: "Rs 5" on a Home Loan), else None.
++    """
++    from app.agents.applicant import config
++
++    rules = config.chatbot("plausibility") or {}
++    minimum = (rules.get("minimum") or {}).get(field)
++    try:
++        amount = float(re.sub(r"[,\s₹]|rs\.?|inr", "", str(value or ""), flags=re.I))
++    except ValueError:
++        return None
++    if minimum is not None and 0 <= amount < float(minimum):
++        return str(rules.get("label") or "Amount needs verification")
++    return None
++
++
+ def _values(results: dict[str, Any]) -> dict[str, Any]:
+     """The recorded values, from the tool results -- only registry fields."""
+     from app.agents.applicant.copilot.answering.answer import _get
+@@ -399,6 +424,9 @@ def _shown(field: str, value: Any) -> str | None:
+         shown = sensitivity.mask_identifiers(shown)   # a number typed into a text field
+     if field in ("loan_amount", "declared_monthly_income", "declared_monthly_obligations",
+                  "property_value"):
++        implausible = _implausible(field, value)
++        if implausible:
++            return implausible                   # never "₹5" for a loan: the figure is flagged, not shown
+         return _rupees(value) or shown
+     if field == "product":
+         return _readable(shown)
+@@ -419,6 +447,13 @@ def _said(field: str, value: Any, language: str | None = None) -> str:
+     shown = _shown(field, value)
+     if shown is None:
+         return f"For your security, I can't show your {label(field)} here."
++    if _implausible(field, value):
++        # a flagged amount gets its own sentence -- never slotted into "You applied for {value}."
++        from app.agents.applicant import config
++
++        sentence = (config.chatbot("plausibility") or {}).get("sentence") \
++            or "The recorded {field} needs verification; the figure on the case does not look right."
++        return str(sentence).format(field=label(field))
+     # THE SAME VALUE, in one of several sentence shapes (phrasing.py), chosen
+     # by the turn's seed -- and in the language the question was typed in.
+     varied = phrasing.field_sentence(field, str(shown), language=language,
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/answering/structured.py b/LOS-agentic-ai/app/agents/applicant/copilot/answering/structured.py
+index 56dda4a..6065219 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/answering/structured.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/answering/structured.py
+@@ -210,6 +210,13 @@ def verification_block(documents: list[dict[str, Any]], checklist: list[dict[str
+             "needs_attention": [e["document_type"] for e in entries if e["verdict"] in ("REVIEW", "FAIL")]}
+ 
+ 
++def _count_label(key: str, **values: Any) -> str:
++    from app.agents.applicant import config
++
++    defaults = {"upload_required": "Upload {label}", "upload_optional": "Upload {label} (optional)"}
++    return str((config.chatbot("document_counts").get("labels") or {}).get(key, defaults.get(key, key))).format(**values)
++
++
+ def checklist_row(row: dict[str, Any]) -> dict[str, Any]:
+     """
+     ONE CONFIGURED REQUIREMENT, renderable as it stands: its category, the
+@@ -228,8 +235,13 @@ def checklist_row(row: dict[str, Any]) -> dict[str, Any]:
+     row.setdefault("required", required)
+     actions = []
+     if status in ("MISSING", "REJECTED", ""):
++        # REQUIRED vs OPTIONAL said on the button itself (FOS plan 1.5): a UI that offers every upload must not
++        # make 4 optional slots look like 4 more pending ones
++        requirement = "REQUIRED" if required else "OPTIONAL"
++        label = str(row.get("label") or "")
+         actions.append({"action": "UPLOAD_DOCUMENT", "document_type": row.get("slot"),
+-                        "accepted_types": accepts, "enabled": True})
++                        "accepted_types": accepts, "enabled": True, "requirement": requirement,
++                        "label": _count_label("upload_required" if required else "upload_optional", label=label)})
+     if status in ("UPLOADED", "PROCESSING") and row.get("document_id"):
+         actions.append({"action": "VERIFY_DOCUMENT", "document_id": row.get("document_id"), "enabled": True})
+     if status in ("VERIFIED", "REVIEW") and row.get("document_id"):
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+index 6575e10..7a137ff 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+@@ -49,7 +49,46 @@ def _norm(text: str) -> str:
+ def _says(kind: str, text: str) -> bool:
+     """Whether the text contains one of the configured phrases of this kind (whole words)."""
+     said = f" {_norm(text)} "
+-    return any(f" {_norm(p)} " in said for p in (_cfg().get("phrases") or {}).get(kind, []))
++    matched = [p for p in (_cfg().get("phrases") or {}).get(kind, []) if f" {_norm(p)} " in said]
++    if kind != "list":
++        return bool(matched)
++    if matched:
++        # "mere case ka details" names a TOPIC beyond the list (FOS plan 1.4): it is a question about the case,
++        # never the list -- a list phrase counts only when every other word is a list word
++        rest = said
++        for phrase in sorted(matched, key=len, reverse=True):
++            rest = rest.replace(f" {_norm(phrase)} ", " ")
++        return set(rest.split()) <= _list_words()
++    return _only_asks_for_the_list(text)
++
++
++def _list_words() -> set[str]:
++    rule = _cfg().get("list_rule") or {}
++    return {_norm(w) for key in ("case_nouns", "cues", "allowed") for w in rule.get(key) or []} \
++        | {w for p in (_cfg().get("phrases") or {}).get("list", []) for w in _norm(p).split()}
++
++
++def _asks_more_than_the_switch(text: str) -> bool:
++    """Whether a message naming "the other case" also asks something (any word beyond those phrases / fillers)."""
++    phrases = _cfg().get("phrases") or {}
++    plain = f" {_norm(text)} "
++    for phrase in sorted(phrases.get("other_case") or [], key=len, reverse=True):
++        plain = plain.replace(f" {_norm(phrase)} ", " ")
++    rest = [w for w in plain.split() if w not in _noise() and w not in {"mere", "mera", "my", "the", "of"}]
++    return bool(rest)
++
++
++def _only_asks_for_the_list(text: str) -> bool:
++    """
++    FOS plan 1.2: "all case ka list", "sab case dikhao", "mere kitne case hai", "give a list of case" -- a case
++    noun, a list cue, and NOTHING ELSE but list words (applicant_agent.yaml case_workspace.list_rule). "case ka
++    status dikhao" is not a list: "status" is not a list word.
++    """
++    rule = _cfg().get("list_rule") or {}
++    words = _norm(text).split()
++    nouns = {_norm(w) for w in rule.get("case_nouns") or []}
++    cues = {_norm(w) for w in rule.get("cues") or []}
++    return bool(words) and bool(nouns & set(words)) and bool(cues & set(words)) and set(words) <= _list_words()
+ 
+ 
+ # --------------------------------------------------------------------------
+@@ -107,6 +146,21 @@ def authorize(claims: dict[str, Any], case_id: str) -> None:
+     access.authorize_conversation(_subject(claims), access.get_scopes(claims), case_id=case_id)
+ 
+ 
++def active_case(claims: dict[str, Any], workspace_id: str | None = None) -> Any:
++    """The application the caller has open in this workspace (re-authorized now), else None."""
++    from app.security import access
++    from app.store import get_repository
++
++    case_id = _state(_subject(claims), workspace_id).active_case_id
++    if not case_id:
++        return None
++    try:
++        authorize(claims, case_id)
++    except access.AccessDenied:
++        return None
++    return get_repository().get_application(case_id)
++
++
+ def _stage(case_id: str) -> str | None:
+     from app.agents.los import stages
+ 
+@@ -365,6 +419,10 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+     workspace_id = (context or {}).get("workspace_id") if isinstance(context, dict) else None
+     state = _state(subject, workspace_id)
+     text = message or ""
++    if action == "CUSTOM_QUERY" and case_id and state.active_case_id and case_id != state.active_case_id:
++        # THE OPENED CASE WINS (FOS plan 1.8): a frontend that sends the same case_id on every request (the one
++        # from login) never overrides the case the officer opened here; the stale id is ignored, never read
++        case_id = None
+ 
+     def done(reply: dict[str, Any]) -> Turn:
+         reply["context"] = {**(reply.get("context") or {}), "workspace_id": workspace_id or "default"}
+@@ -380,6 +438,19 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+         if closed:
+             reply["answer"] = _label("closed", case_id=closed) + "\n\n" + reply["answer"]
+         return done(reply)
++    if action == "CUSTOM_QUERY" and _says("other_case", text) and _asks_more_than_the_switch(text):
++        # "dusre case ka details do" (FOS plan 1.3): the question is about ANOTHER of the caller's cases --
++        # one other case: switch to it and answer there; several: ask which (never the open case's answer)
++        others = [a for a in my_cases(claims) if a.case_id != state.active_case_id]
++        if len(others) == 1:
++            state.active_case_id = others[0].case_id
++            history = [c for c in (state.case_history or []) if c != others[0].case_id]
++            state.case_history = (history + [others[0].case_id])[-10:]
++            _save(state)
++            return Turn(case_id=others[0].case_id, applicant_id=others[0].applicant_id, in_case=others[0].case_id)
++        if others:
++            return done(which_view(others, request_id, state))
++        return done(_base(request_id, "CASE_SELECTION", _label("no_other_case")))
+     if action == "LIST_CASES" or (action == "CUSTOM_QUERY" and (_says("list", text) or _says("switch", text))):
+         # the list (or a switch) closes the open case first: never two cases at once
+         closed, state.active_case_id = state.active_case_id, None
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/conversation/state.py b/LOS-agentic-ai/app/agents/applicant/copilot/conversation/state.py
+index ec6edbb..7cc01a4 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/conversation/state.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/conversation/state.py
+@@ -111,8 +111,10 @@ _MORE = re.compile(r"^\s*(and\s+|aur\s+|ok\s*,?\s*|okay\s*,?\s*|accha\s*,?\s*)?"
+ #: not more of the same answer.
+ _THEN = re.compile(r"^\s*(and\s+|aur\s+|so\s+|ok\s*,?\s*)?(then|then\s+what|what\s+now|what\s+next|phir|fir|"
+                    r"phir\s+kya|uske\s+baad|aage\s+kya|फिर|फिर\s+क्या|आगे\s+क्या)\s*[?.!]*\s*$", re.IGNORECASE)
++# (not "kyu atka hai?": that asks why the CASE is stuck -- the workspace quick question -- and is routed as one,
++# never as "why" of whatever the last answer was)
+ _WHY = re.compile(r"^\s*(and\s+|aur\s+|but\s+|par\s+|lekin\s+)?(why|why\s+so|how\s+come|kyun|kyon|kyu|"
+-                  r"kyun\s+atka(\s+hai)?|kyu\s+atka(\s+hai)?|क्यों)\s*[?.!]*\s*$", re.IGNORECASE)
++                  r"क्यों)\s*[?.!]*\s*$", re.IGNORECASE)
+ #: WHERE AN ANSWER GOES NEXT: each capability's next level, as the question
+ #: the ordinary pipeline answers (never a sentence composed here).
+ _EXPAND_MORE = {
+@@ -211,7 +213,8 @@ def _expanded(text: str, state: "ConversationState") -> "Reading | None":
+     if _MORE.match(text) and last_intent == "FOS_KNOWLEDGE":
+         topic = _knowledge_topic(state.last_message)
+         if topic:
+-            return Reading(REPLAY, f"Explain {topic} in detail", note="the previous answer, expanded")
++            # (not "Explain {topic} in detail": "detail" read it as the case's document DETAILS -- eval rag_conversation)
++            return Reading(REPLAY, f"What are the rules for {topic}?", note="the previous answer, expanded")
+     if _MORE.match(text) and last_intent == "STAGE_PROCESS":
+         # the stage guide was already given whole: more is the handbook's detail
+         from app.agents.applicant.copilot.semantics.intents import stage_in as _stage_in
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py
+index 9c660e8..e3f9853 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/intents.py
+@@ -1409,6 +1409,12 @@ def classify(message: str) -> Classification:
+     if _WHAT_ABOUT_DOC.match(text) and _document_type(text):
+         return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
+                               document_type=_document_type(text), matched_on="what_about_document")
++    # A DEFINITION TAIL ("... CPA mein kyun hai aur KYC review ka matlab kya hai?") is split BEFORE this stage
++    # rule too -- it took the whole message on its first half (the same check as below, moved ahead of it)
++    if _CASE_STAGE.search(text) and re.search(r"\b(means?|meaning|matlab|arth)\b", text, re.IGNORECASE):
++        early = _mixed_with_knowledge_tail(text)
++        if early is not None:
++            return early
+     if _CASE_STAGE.search(text):
+         return Classification(Intent.APPLICATION_STAGE, confidence="high", matched_on="case_stage")
+ 
+diff --git a/LOS-agentic-ai/app/agents/applicant/frontend.py b/LOS-agentic-ai/app/agents/applicant/frontend.py
+index 9327ed6..7fea281 100644
+--- a/LOS-agentic-ai/app/agents/applicant/frontend.py
++++ b/LOS-agentic-ai/app/agents/applicant/frontend.py
+@@ -152,6 +152,11 @@ def case_state(
+         "documents_missing": len(_with_fulfilment(required, MISSING)),
+         "documents_under_review": len(_with_fulfilment(required, UNDER_REVIEW)),
+         "documents_failed": len(_with_fulfilment(required, FAILED)),
++        # OPTIONAL SLOTS, COUNTED APART (FOS plan 1.5): "3 pending" and "7 upload buttons" were both true --
++        # 3 required + 4 optional. Every count above is REQUIRED only; these say how many optional there are.
++        "documents_optional": len([r for r in checklist or [] if not r.get("mandatory", True)]),
++        "documents_optional_missing": len([r for r in checklist or [] if not r.get("mandatory", True)
++                                           and str(r.get("status") or "MISSING").upper() == "MISSING"]),
+         # A percentage a progress bar can bind to. Over REQUIRED slots only
+         # -- counting optional ones would leave a complete case short of
+         # 100% and an officer looking for a document nobody needs.
+@@ -347,6 +352,23 @@ def suggested_questions(
+     return list(dict.fromkeys(out))[:limit]
+ 
+ 
++def contextual_suggestions(suggested: Sequence[str] | None, intent: str | None, limit: int = 4) -> list[str]:
++    """
++    THE CHIPS FOLLOW THE CONVERSATION (FOS plan 1.7). The case-derived suggestions above are the same on every turn
++    of one case; after a pending answer, "What is pending on this case?" is the question just answered. Per intent
++    (applicant_agent.yaml chatbot.suggestions): the chips about the topic just answered are dropped, and that
++    topic's natural next questions lead.
++    """
++    from app.agents.applicant import config
++
++    rules = config.chatbot("suggestions")
++    key = str(intent or "").upper()
++    drop = [str(w).lower() for w in (rules.get("drop") or {}).get(key) or []]
++    lead = [str(q) for q in (rules.get("after") or {}).get(key) or []]
++    kept = [s for s in suggested or [] if not any(w in str(s).lower() for w in drop)]
++    return list(dict.fromkeys(lead + kept))[:limit]
++
++
+ # ==========================================================================
+ # DOCUMENT HIGHLIGHTS -- the one line a card shows
+ # ==========================================================================
+diff --git a/LOS-agentic-ai/app/agents/applicant/query_types.py b/LOS-agentic-ai/app/agents/applicant/query_types.py
+index 0a7390d..f25fc8c 100644
+--- a/LOS-agentic-ai/app/agents/applicant/query_types.py
++++ b/LOS-agentic-ai/app/agents/applicant/query_types.py
+@@ -197,9 +197,15 @@ def _in_domain(message: str) -> bool:
+     try:
+         from app.agents.applicant.copilot.semantics import intents, semantic_frame
+ 
++        from app.agents.applicant import config
++
++        # FOS plan 1.6: words of the officer's own work ("list", "details") make a garbled message a
++        # clarification, never "outside what I can help with" (applicant_agent.yaml chatbot.domain_words)
++        extra = [re.escape(str(w)) for w in config.chatbot("domain_words").get("words") or []]
+         return bool(semantic_frame.concepts_in(message) or intents._document_type(message)
+                     or semantic_frame._named_stage(message)
+-                    or re.search(r"\b(loan|application|case|applicant|kyc|emi|bank|credit|cpa|fos)\b", message, re.I))
++                    or re.search(r"\b(loan|application|case|applicant|kyc|emi|bank|credit|cpa|fos)\b", message, re.I)
++                    or (extra and re.search(r"\b(" + "|".join(extra) + r")\b", message, re.I)))
+     except Exception:  # noqa: BLE001 - unknown: treat as in-domain (the general offer)
+         return True
+ 
+diff --git a/LOS-agentic-ai/app/api/routes/copilot_api.py b/LOS-agentic-ai/app/api/routes/copilot_api.py
+index edf47e3..37b071b 100644
+--- a/LOS-agentic-ai/app/api/routes/copilot_api.py
++++ b/LOS-agentic-ai/app/api/routes/copilot_api.py
+@@ -1486,6 +1486,44 @@ async def query(
+     started = time.perf_counter()
+     timings: dict[str, float] = {}
+ 
++    # "MY CASES" (FOS plan 1.2): with the case workspace on, a message that only asks for the caller's case
++    # list ("all case ka list", "my cases") is THE CALLER'S OWN LIST -- live grants, each case re-authorized --
++    # never a bulk-data refusal and never one applicant's portfolio. The same list as /fos/copilot.
++    from app.agents.applicant.copilot.capabilities import workspace as _ws
++
++    if _ws.enabled() and _ws._says("list", request.message):
++        from app.security import access as _ws_access
++
++        try:
++            turn = _ws.handle("LIST_CASES", request.message, None, claims, request_id, request.context)
++        except _ws_access.AccessDenied as exc:
++            raise _ws_access.http_denied(exc, request_id) from None
++        reply = dict(turn.reply or {})
++        reply["presentation"] = {**(reply.get("presentation") or {}), **(reply.pop("workspace_view", None) or {})}
++        reply.setdefault("response_type", "CASE_LIST")
++        reply["processing_ms"] = round((time.perf_counter() - started) * 1000, 1)
++        return reply
++
++    # NO CASE NAMED (FOS plan 1.4): "case details do" without a case_id answered "None of the application details
++    # are recorded" -- untrue, no case was chosen. The case the officer OPENED in the workspace answers it, or their
++    # only case; with several and none open, a case question is answered with "which case?" (below).
++    unresolved_case = False
++    workspace_id = (request.context or {}).get("workspace_id") if isinstance(request.context, dict) else None
++    if _ws.enabled() and request.case_id:
++        # THE OPENED CASE WINS (FOS plan 1.8): the same rule as /fos/copilot -- a case_id sent on every request
++        # never overrides the case the officer opened in the workspace
++        opened = _ws.active_case(claims, workspace_id)
++        if opened is not None and opened.case_id != request.case_id:
++            request.case_id, request.applicant_id = opened.case_id, str(opened.applicant_id)
++    if _ws.enabled() and not request.case_id and not request.applicant_id:
++        chosen = _ws.active_case(claims, workspace_id)
++        if chosen is None:
++            mine = _ws.my_cases(claims)
++            chosen = mine[0] if len(mine) == 1 else None
++            unresolved_case = len(mine) > 1
++        if chosen is not None:
++            request.case_id, request.applicant_id = chosen.case_id, str(chosen.applicant_id)
++
+     # SECURITY AND SMALL TALK FIRST (decision order: 1. what kind of request
+     # is this, 2. is the caller allowed ...). A request the input policy
+     # refuses, or a greeting, is answered by the agent before any read -- so
+@@ -1625,6 +1663,17 @@ async def query(
+                 if isinstance(envelope.get("understanding"), dict):
+                     envelope["understanding"]["compound"] = {
+                         "parts": list(parts), "intents": intents_seen}
++            if unresolved_case and envelope.get("query_type") == "CASE_FACT" \
++                    and envelope.get("intent") not in ("CASE_PORTFOLIO", "CASE_LIST"):
++                # a case question with several cases and none chosen: "which case?" + the caller's list,
++                # never an answer about no case at all (FOS plan 1.4)
++                _ws_state = _ws._state(_ws._subject(claims), None)
++                listed = _ws.list_view(claims, request_id, _ws_state)     # "2" then picks from this list
++                _ws._save(_ws_state)
++                envelope["answer"] = _ws._label("pick_case_first") + "\n\n" + str(listed.get("answer") or "")
++                envelope["intent"] = "CASE_SELECTION"
++                envelope["query_type"] = "CLARIFICATION"
++                envelope["workspace_view"] = listed.get("workspace_view")
+     except NotOwned:
+         # A REFUSAL, NOT AN ERROR, AND NOT A DISCLOSURE. Phrased
+         # identically whether the case belongs to somebody else or
+diff --git a/LOS-agentic-ai/app/api/routes/fos_api.py b/LOS-agentic-ai/app/api/routes/fos_api.py
+index fd3c411..e786745 100644
+--- a/LOS-agentic-ai/app/api/routes/fos_api.py
++++ b/LOS-agentic-ai/app/api/routes/fos_api.py
+@@ -788,6 +788,16 @@ async def create_case(
+             "request_id": request_id, "error": exc.code, "message": exc.message,
+         }) from exc
+ 
++    # ALL AMOUNTS ARE IN RUPEES (FOS plan 1.1): an implausible amount is refused BEFORE the applicant is
++    # created, so a bad form never leaves a half-made case behind
++    if request.application is not None:
++        from app.agents.applicant import plausibility
++
++        found = plausibility.problem(request.application.model_dump(exclude_none=True))
++        if found is not None:
++            raise HTTPException(422, detail={"request_id": request_id, "error": plausibility.CODE,
++                                             "field": found[0], "message": found[1]})
++
+     # ANOTHER CASE FOR A CUSTOMER THIS CALLER ALREADY SERVES. One applicant may
+     # hold several cases; naming an applicant the caller may WRITE opens a new
+     # case for them, and the recorded person is left exactly as captured (never
+@@ -2017,10 +2027,19 @@ async def _copilot_upload(
+             "message": (f"{declared_action} is not valid for a multipart "
+             "request. Only UPLOAD_DOCUMENT is."),
+         })
++    if (not applicant_id or not case_id):
++        # INSIDE AN OPENED CASE (6-MVP workspace): an upload without ids goes to the case the officer
++        # opened -- ownership is still checked below (write), exactly as for explicit ids
++        from app.agents.applicant.copilot.capabilities import workspace as _ws
++
++        opened = _ws.active_case(claims, str(form.get("workspace_id") or "").strip() or None) \
++            if _ws.enabled() else None
++        if opened is not None and (not case_id or case_id == opened.case_id):
++            case_id, applicant_id = opened.case_id, applicant_id or str(opened.applicant_id)
+     if not applicant_id or not case_id:
+         raise HTTPException(422, detail={
+             "request_id": request_id, "error": "INVALID_REQUEST",
+-            "message": "applicant_id and case_id are required for an upload.",
++            "message": "applicant_id and case_id are required for an upload (or open a case first).",
+         })
+     if not uploads:
+         raise HTTPException(422, detail={
+@@ -2703,6 +2722,10 @@ def _frontend_contract(result: dict[str, Any],
+     suggested = result.get("suggested_questions")
+     if suggested:
+         block["suggested_questions"] = list(suggested)
++    else:
++        # the case-derived chips, turned to follow THIS turn (FOS plan 1.7)
++        block["suggested_questions"] = frontend.contextual_suggestions(block.get("suggested_questions"),
++                                                                       result.get("intent"))
+     return block
+ 
+ 
+@@ -2710,7 +2733,7 @@ def _raise_from(request_id: str, envelope) -> None:
+     error = envelope.error
+     code = error.code if error else "FAILED"
+     raise HTTPException(
+-        404 if code == "NOT_FOUND" else 400,
++        404 if code == "NOT_FOUND" else 422 if code == "AMOUNT_IMPLAUSIBLE" else 400,
+         detail={"request_id": request_id, "error": code,
+                 "message": error.message if error else "The call failed."},
+     )
+diff --git a/LOS-agentic-ai/app/config/applicant_agent.yaml b/LOS-agentic-ai/app/config/applicant_agent.yaml
+index 83f850c..d8db493 100644
+--- a/LOS-agentic-ai/app/config/applicant_agent.yaml
++++ b/LOS-agentic-ai/app/config/applicant_agent.yaml
+@@ -875,6 +875,99 @@ chatbot:
+       new_case: "👉 Tap **New case** to open the case form."
+       view: "📄 **{document}** -- the link works for {minutes} minutes."
+ 
++  # FOS plan 1.7: SUGGESTION CHIPS FOLLOW THE TURN. After an answer, chips naming the topic just answered are
++  # dropped (`drop`: substrings, lower case) and that topic's next questions lead (`after`).
++  suggestions:
++    drop:
++      DOCUMENTS_PENDING: [pending]
++      DOCUMENTS_MISSING: [pending]
++      PENDING_ITEMS: [pending]
++      READINESS: [ready to hand over, pending on this case]
++      APPLICATION_STATUS: [status]
++      KYC_RESULT: [kyc]
++      DOCUMENTS_UPLOADED: [uploaded]
++    after:
++      DOCUMENTS_PENDING: ["Is this case ready for CPA?", "What should I do next?"]
++      DOCUMENTS_MISSING: ["Is this case ready for CPA?", "What should I do next?"]
++      PENDING_ITEMS: ["Is this case ready for CPA?", "What is the KYC status?"]
++      READINESS: ["What should I do next?", "What is the KYC status?"]
++      APPLICATION_STATUS: ["What is pending on this case?", "What should I do next?"]
++      KYC_RESULT: ["Which documents does KYC compare?", "What is pending on this case?"]
++      DOCUMENTS_UPLOADED: ["Are these documents verified?", "What is pending on this case?"]
++      DOCUMENT_VERIFICATION: ["What is pending on this case?", "What is the KYC status?"]
++      APPLICANT_PROFILE: ["What is pending on this case?", "What is the KYC status?"]
++      NEXT_ACTION: ["Is this case ready for CPA?", "What is the KYC status?"]
++
++  # FOS plan 1.6: words of the officer's work. A garbled message holding one gets ONE clarifying question
++  # (the general offer), never "That's outside what I can help with here".
++  domain_words:
++    words: [list, lists, details, detail, record, records, file, files, customer, customers, query, queries,
++            upload, verify, verification, pending, baaki, status, signature, photo, form, amount, salary, income,
++            timeline, readiness, handoff]
++
++  # FOS plan 1.6: a document named right before a case word ("mere Aadhar case ka details kaise dekhun") is
++  # ambiguous -- one question with both readings as options.
++  ambiguity:
++    document_before_case:
++      case_nouns: [case, file, application, केस]
++      question: "Do you mean the {doc} details, or this case's details?"
++      options: ["Show the {doc} details", "Show this case's details"]
++
++  # FOS plan 1.4: a message that is ONLY a request for details ("details batao") -> everything recorded on the
++  # case (applicant + application). Whole message only; "PAN details" etc. keep their own meaning.
++  bare_details:
++    phrases: [details, detail, details batao, detail batao, details do, detail do, details dikhao,
++              details dikha do, details bata do, details please, sab details, saari details, poori details,
++              full details, all details, show details, give details, jaankari do, jankari do, details chahiye,
++              विवरण दो, डिटेल्स बताओ,
++              # the normalised forms the pipeline also reads ("details batao" -> "tell me details")
++              tell me details, tell me the details, give me details, give me the details, show me details,
++              show me the details, details give, details show, details tell]
++
++  # FOS plan 1.5: ONE count of documents -- `case_state` (app/agents/applicant/frontend.py: required counts +
++  # documents_optional / documents_optional_missing); every upload button says required or optional.
++  document_counts:
++    labels:
++      upload_required: "Upload {label}"
++      upload_optional: "Upload {label} (optional)"
++
++  # BUILD MARKER on GET /ready (FOS plan 1.1): which backend a frontend is talking to. Update `step` with
++  # each delivered step; the flags are reported as they are in the running process.
++  build:
++    phase: "Phase 3"
++    step: "FOS E2E plan, section 1"
++    chatbot_flags: [COPILOT_CASE_WORKSPACE, COPILOT_CASE_ACTIONS, COPILOT_RESPONSE_STYLE, COPILOT_TERMS_KNOWLEDGE,
++                    COPILOT_SESSION_MEMORY, COPILOT_VERIFY_DIAGNOSE, COPILOT_DOCUMENT_ACTIONS,
++                    COPILOT_PARTY_RECOGNITION, LOS_COAPP_IDENTITY, COPILOT_GUARDRAIL_HARDENING, COPILOT_STREAMING,
++                    COPILOT_LLM_ROUTER, COPILOT_EMPHASIS, COPILOT_LOCALIZED_KYC_REASONS, COPILOT_SINGLE_CASE_RESOLVE]
++
++  # PLAUSIBLE AMOUNTS (FOS plan 1.1; trigger was demo data, kept as production protection).
++  # ALL AMOUNTS ARE IN RUPEES, NOT LAKHS. Intake (create / update, app/agents/applicant/plausibility.py)
++  # refuses a figure below its minimum or written with a unit word -> 422 AMOUNT_IMPLAUSIBLE. A stored
++  # figure below its minimum is never shown in chat -- the label / sentence is said instead.
++  plausibility:
++    label: "Amount needs verification"
++    sentence: "The recorded {field} needs verification; the figure on the case does not look right."
++    minimum:
++      loan_amount: 10000
++      property_value: 100000
++      declared_monthly_income: 1000
++    field_labels: { loan_amount: "Loan amount", property_value: "Property value",
++                    declared_monthly_income: "Monthly income" }
++    examples: { loan_amount: 500000, property_value: 8000000, declared_monthly_income: 65000 }
++    unit_words: [lakh, lakhs, lac, lacs, l, cr, crore, crores, k, thousand, hazaar, hazar]
++    reject_message: "{label} looks too small; enter the full amount in rupees, e.g. {example}."
++    unit_message: "{label}: enter the full amount in rupees (not lakhs / crores), e.g. {example}."
++
++  # DOCUMENTS THAT NEED ACTION (COPILOT_DOCUMENT_ACTIONS; answering/document_actions.py).
++  # User, 2026-10-07: "kuch bhi pure process me review hai yaa fail hai toh aana chahaiye" --
++  # a REVIEW document is offered for upload again with its reason (was: "under review, no action"),
++  # and a party's KYC REVIEW / FAIL verdict is always a line of its own (was: only with field detail).
++  # false / false = the previous behaviour.
++  document_actions:
++    review_needs_reupload: true
++    kyc_status_line: true
++
+   # 6f VERIFY / UPLOAD DIAGNOSE (COPILOT_VERIFY_DIAGNOSE, default off; CHATBOT_SPEC section 4).
+   # "verify karna hai" / "kya upload karu" never asks "which document?": the case is diagnosed
+   # (step 4's document action view: ❌ fix first -> ⏳ pending -> ℹ️ under review, every party).
+@@ -893,7 +986,7 @@ chatbot:
+   # Glossary + abbreviation rule: app/config/glossary.yaml.
+   response_style:
+     status_emoji: { READY_FOR_CPA: "✅", NOT_READY: "⏳", VERIFIED: "✅", REJECTED: "❌", REVIEW: "⏳",
+-                    MISMATCH: "⚠️", BLOCKED: "⚠️" }
++                    MISMATCH: "⚠️", BLOCKED: "⚠️", PASS: "✅", FAIL: "❌" }
+     # "all my cases" summary, point-wise: one block per case, latest first (capabilities/portfolio.py pointwise)
+     portfolio:
+       head: "📂 **{total} cases**"
+@@ -937,7 +1030,12 @@ chatbot:
+       DOCUMENTS_PENDING: "Upload these to move the case to **CPA**."
+       DOCUMENTS_MISSING: "Upload these to move the case to **CPA**."
+       PENDING_ITEMS: "Clear these to move the case to **CPA**."
+-      KYC_RESULT: "Upload the correct document to fix the mismatch."
++      # per recorded KYC state: a PASS gets no "fix" step; NOT_RECORDED / PENDING says what runs it
++      KYC_RESULT:
++        default: "Upload the correct document to fix the mismatch."
++        PASS: ""
++        NOT_RECORDED: "KYC runs once the identity documents are uploaded."
++        PENDING: "KYC runs once the identity documents are uploaded."
+       FOS_KNOWLEDGE: "Check your **status** or **pending documents**?"
+       OUT_OF_SCOPE: "Check your **status** or **pending documents**?"
+ 
+@@ -966,6 +1064,20 @@ chatbot:
+       case_word: [case, ka case, wala case, file, application]
+       # small words dropped before a name / ordinal is read ("2 wala case open karo" -> "2")
+       filler: [ka, ki, ke, wala, wali, ji, karo, kar, please, plz, the, number]
++      # FOS plan 1.3: a question about ANOTHER of the caller's cases ("dusre case ka details do"): one other case
++      # -> switched to and answered there; several -> "which one?". Alone ("dusra case") it is the switch above.
++      other_case: [dusre case, doosre case, dusra case, doosra case, dusri case, doosri case, other case,
++                   another case, the other case, mere dusre case, dusre wale case, doosre wale case, दूसरे केस,
++                   दूसरा केस, दुसऱ्या केस]
++    # FOS plan 1.2: any wording that ONLY asks for the case list -- a case noun + a cue + nothing but these words
++    # ("all case ka list", "sab case dikhao", "mere kitne case hai"); a topic word (status, KYC, PAN) is never one.
++    # The `list` phrases above are matched first; this only adds wordings that ask for nothing else.
++    list_rule:
++      case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
++      cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, my, मेरे, सारे, सब]
++      allowed: [ka, ki, ke, of, a, the, me, mujhe, show, give, do, dikhao, dikha, batao, bata, hai, h, hain, how,
++                please, plz, pls, kya, wale, wala, kaun, kaunse, konse, which, are, i, have, bhai, yaar, open,
++                dekhna, dekhne, chahiye, दिखाओ, बताओ, है, हैं, का, के, की]
+     labels:
+       header: "📂 **Your cases**"
+       total: "{n} total"
+@@ -994,6 +1106,8 @@ chatbot:
+       closed: "🔒 **{case_id}** closed."
+       which: "Which one did you mean?"
+       not_found: "I couldn't find that case among yours. 👉 Say \"mere cases\" to see the list."
++      no_other_case: "You have only this one case."
++      pick_case_first: "Which case is this about? Open one of your cases first."
+       other_case: "👉 Is case mein jaana hai? ({case_id})"
+       no_case: "👉 Pehle ek case kholiye -- \"mere cases\" boliye."
+     quick_questions: ["Kya baaki hai?", "Kyu atka hai?", "Co-applicant", "Summary"]
+diff --git a/LOS-agentic-ai/docs/frontend/FRONTEND_API.md b/LOS-agentic-ai/docs/frontend/FRONTEND_API.md
+index 57cbf7a..44df5bf 100644
+--- a/LOS-agentic-ai/docs/frontend/FRONTEND_API.md
++++ b/LOS-agentic-ai/docs/frontend/FRONTEND_API.md
+@@ -6,6 +6,49 @@ A working reference widget (plain HTML + JS, no build): `docs/frontend/widget.ht
+ 
+ All features below are behind server flags (default OFF); the "demo set" turns them on (README_CHATBOT.md).
+ 
++## 0. Which backend -- check this first
++- **Point the frontend at THIS backend for testing:** base URL `http://127.0.0.1:8010` (the Vite dev proxy
++  `/api` -> `http://127.0.0.1:8010`). Tokens come from the same server (`POST /api/v1/auth/login`; its JWKS is
++  `http://127.0.0.1:8010/.well-known/jwks.json`).
++- **Verify:** `GET /ready` -> `build`:
++  ```json
++  "build": {"phase": "Phase 3", "step": "FOS E2E plan, section 1", "commit": "b8dc73…",
++            "chatbot_flags": {"COPILOT_CASE_WORKSPACE": true, "COPILOT_CASE_ACTIONS": true, "...": true},
++            "chatbot_flags_on": 15, "chatbot_flags_total": 15}
++  ```
++  If `build` is missing, or a flag you need is `false`, the frontend is talking to an older or differently
++  configured server (a typical symptom: 422 `WORKSPACE_DISABLED` on "mere cases"). Restart that server after any
++  `.env` change -- flags are read at start.
++
++## 0b. Which endpoint the chat widget uses -- ONE: `POST /api/v1/fos/copilot`
++- Send **every** chat turn (typed questions and buttons) to `/api/v1/fos/copilot` (or `/copilot/stream`). It carries
++  the whole Phase 3 contract: workspace (`presentation.case_list`, `presentation.workspace`), the `📍 CASE` header,
++  response style, context-aware `suggested_questions`, `document_actions`, `case_state` counts, guardrail replies,
++  and (sections 2-3 of the FOS plan) the language lock and the professional format.
++- `/api/v1/copilot/query` (the Universal Copilot) stays for other stages and existing clients. It answers the same
++  case questions from the same agent, and with the workspace on it also lists "my cases", answers in the opened case
++  and asks "which case?" when none is chosen -- but it has no FOS envelope (no `presentation`, no chips). Do not
++  split one chat between the two endpoints by guessing whether a message is "about documents".
++
++## 0c. `case_id` on requests -- the opened case wins
++- Inside the workspace send **no** `case_id` / `applicant_id` with chat turns: send back the `context` of the last
++  response. The case the officer opened (`OPEN_CASE`, "2 kholo") answers every question.
++- If the frontend sends a `case_id` on every request anyway (e.g. the one from login), it is **ignored while a case is
++  open** -- the opened case wins, on both endpoints. With no case open, a sent `case_id` is used (ownership-checked;
++  someone else's case is 403).
++- `OPEN_CASE` always uses its `case_id` (the case to open).
++
++## 0a. Amounts: ALL AMOUNTS ARE IN RUPEES, NOT LAKHS
++`loan_amount`, `property_value`, `declared_monthly_income` (and every other amount) are sent as full rupees:
++`500000`, not `5` and not `"5 lakh"`. Create / update refuses an implausible figure or a unit word
++(`lakh`, `cr`, `k`, ...) with **422**:
++```json
++{"detail": {"request_id": "fos_…", "error": "AMOUNT_IMPLAUSIBLE", "field": "loan_amount",
++            "message": "Loan amount looks too small; enter the full amount in rupees, e.g. 500000."}}
++```
++Show `detail.message` next to the field. If the form collects lakhs, multiply by 100000 before sending. Minimums
++are server config (`applicant_agent.yaml` -> `chatbot.plausibility`).
++
+ ## 1. Auth
+ Every call: `Authorization: Bearer <JWT>` (the same token the app already uses). A case the user does not own is
+ **403** -- render the `detail.message`, never retry.

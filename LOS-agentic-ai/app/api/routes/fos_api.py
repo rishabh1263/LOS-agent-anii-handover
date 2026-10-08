@@ -30,7 +30,7 @@ from app.store import request_cache
 from enum import Enum
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.agents.applicant import audit, config, permissions
@@ -320,6 +320,11 @@ class CopilotRequest(BaseModel):
             "the language; where no template covers a fact the English answer stands and "
             "`language_contract.localized` is false."),
     )
+    reply_language: str | None = Field(
+        None, max_length=16, examples=["en"],
+        description=("The same as `response_language` (FOS plan section 2, the frontend's name for it). Either one "
+                     "LOCKS every text of the reply -- answer, clarifications, buttons, refusals -- to that language."),
+    )
     # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS)
     document_id: str | None = Field(None, max_length=256, description="VIEW_DOCUMENT: the document to open.")
     query: dict[str, Any] | None = Field(None, description="RAISE_QUERY: the (edited) draft to send.")
@@ -332,6 +337,14 @@ class CopilotRequest(BaseModel):
             "allowed only when the caller may open the case it is on; otherwise the same 403 as any "
             "case the caller does not own."),
     )
+    # MASTER SPEC section 8: the reply is {request_id, markdown, tts}; these drive it
+    action_link: str | None = Field(
+        None, max_length=600, examples=["action:open_case?id=CASE-852C"],
+        description=("A link from the reply's markdown, posted back as is (`action:...` or `ask:...`). Mapped by the "
+                     "server's action registry to the request it stands for; scope is re-checked like any request."))
+    chat_id: str | None = Field(
+        None, max_length=128, description="The chat this message belongs to (the server remembers its context).")
+    new_chat: bool = Field(False, description="Start this chat fresh: nothing remembered from before.")
     context: dict[str, Any] | None = Field(
         None,
         description=(
@@ -767,10 +780,15 @@ def _required_slots(checklist: list[dict[str, Any]]) -> list[str]:
     ),
     responses={201: {"model": FosResponse, "description": "The opened case."}},
 )
-async def create_case(
+async def create_case_route(
     request: CreateCaseRequest,
     claims: dict[str, Any] = Depends(require_jwt),
 ):
+    return await create_case(request, claims, channel="ui")
+
+
+async def create_case(request: CreateCaseRequest, claims: dict[str, Any], *, channel: str = "ui"):
+    """THE one create path: the UI form (create_case_route) and the chat (case_form, after Confirm) both use it."""
     from app.mcp import applicant as tools
 
     request_id = f"fos_{uuid.uuid4().hex}"
@@ -787,6 +805,16 @@ async def create_case(
         raise HTTPException(403, detail={
             "request_id": request_id, "error": exc.code, "message": exc.message,
         }) from exc
+
+    # ALL AMOUNTS ARE IN RUPEES (FOS plan 1.1): an implausible amount is refused BEFORE the applicant is
+    # created, so a bad form never leaves a half-made case behind
+    if request.application is not None:
+        from app.agents.applicant import plausibility
+
+        found = plausibility.problem(request.application.model_dump(exclude_none=True))
+        if found is not None:
+            raise HTTPException(422, detail={"request_id": request_id, "error": plausibility.CODE,
+                                             "field": found[0], "message": found[1]})
 
     # ANOTHER CASE FOR A CUSTOMER THIS CALLER ALREADY SERVES. One applicant may
     # hold several cases; naming an applicant the caller may WRITE opens a new
@@ -852,7 +880,11 @@ async def create_case(
                  applicant_id=applicant_id, case_id=case_id,
                  intent="CREATE_CASE", tools=["applicant.create",
                         "application.create"],
-                 write=True, confirmed=True, status="OK")
+                 write=True, confirmed=True, status="OK", detail=f"channel={channel}")
+    # the activity log (MASTER SPEC 15.4): who created it, and where
+    from app.agents.applicant.copilot.capabilities import case_form as _activity
+
+    _activity.activity(case_id, "CASE_CREATED", f"case created by {caller.subject} ({channel})")
 
     logger.info("fos create_case request_id=%s applicant=%s case=%s product=%s",
                 request_id, applicant_id, case_id, application_details.product)
@@ -1098,8 +1130,19 @@ async def copilot(
     request: Request,
     claims: dict[str, Any] = Depends(require_jwt),
 ):
-    request_id = f"fos_{uuid.uuid4().hex}"
+    request_id = getattr(request.state, "request_id", None) or f"fos_{uuid.uuid4().hex}"
     content_type = (request.headers.get("content-type") or "").lower()
+    # MASTER SPEC section 11: the same Idempotency-Key from the same caller returns the stored reply, never a rerun
+    from app.agents.applicant.copilot.answering import contract as _contract_rt
+    from app.agents.applicant.copilot.answering import realtime as _realtime
+    from app.security.auth import get_subject as _rt_subject
+
+    _idem = (request.headers.get("idempotency-key") or "").strip()[:128] or None
+    if _idem and _contract_rt.enabled():
+        _again = _realtime.idempotent(str(_rt_subject(claims) or "anonymous"), _idem)
+        if _again is not None:
+            return _again
+    request.state.idempotency_key = _idem
 
     try:
         # Both form encodings reach the upload handler. A caller who posts
@@ -1118,6 +1161,13 @@ async def copilot(
                                    and _jev_config.trigger_enabled("document_processed") else "DISABLED"),
                     "semantic_decisions": [], "semantic_actions": [],
                     "poll": f"/api/v1/jev/cases/{uploaded.get('case_id')}/decisions"}
+                # MASTER SPEC sections 8 / 9: the upload's answer (smart upload included) is a chat reply too;
+                # the case is watched, so its verification result is pushed by /copilot/updates
+                from app.security.auth import get_subject as _up_subject
+
+                request.state.chat_key = (str(_up_subject(claims) or "anonymous"),
+                                          request.query_params.get("chat_id"))
+                return _published_reply(request, uploaded)
             return uploaded
         # THE SAME PUBLISHING RULE AS THE UNIVERSAL COPILOT: no full PAN,
         # Aadhaar or account number anywhere in the published response --
@@ -1126,6 +1176,8 @@ async def copilot(
         from app.security import sensitivity as _sensitivity
 
         published = await _copilot_json(request, claims, request_id)
+        if isinstance(published, dict) and published.get("atomic"):
+            return _published_reply(request, published)         # a blocked message: the warning, untouched
         if isinstance(published, dict):
             # THE TYPED DECISIONS, as recorded -- read, never re-evaluated here.
             # The case was authorized by the action that produced `published`.
@@ -1200,8 +1252,45 @@ async def copilot(
             from app.agents.applicant.copilot.answering import presentation as _presentation
 
             published["presentation"] = _presentation.build(published)
-            return _sensitivity.mask_payload(published)
-        return published
+            # THE KYC TABLE on a KYC answer (FOS plan section 4; shared with /copilot/query)
+            from app.agents.applicant.copilot.answering import kyc_table as _kyc_table
+
+            published = _kyc_table.attach(published)
+            # THE READINESS REPORT on a readiness answer (FOS plan sections 5 / 7.1; shared with /copilot/query)
+            from app.agents.applicant.copilot.answering import readiness_report as _readiness_report
+
+            published = _readiness_report.attach(published)
+            # COUNT QUESTIONS, counted from the store (FOS plan 6.6; shared with /copilot/query)
+            from app.agents.applicant.copilot.answering import counts as _counts
+
+            published = _counts.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
+            # TIME QUESTIONS: the dated timeline, days in stage, "kal wala" (FOS plan 7.3; shared)
+            from app.agents.applicant.copilot.capabilities import timeline as _timeline
+
+            published = _timeline.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
+            # THE CPA HANDOFF NOTE, only for a ready case (FOS plan 7.1; shared with /copilot/query)
+            from app.agents.applicant.copilot.answering import handoff_note as _handoff_note
+
+            published = _handoff_note.attach(published, str(getattr(request.state, "copilot_message", "") or ""),
+                                             claims)
+            # OFFICER TOOLS: what-if, review on open, status tables, customer message, visit checklist (FOS plan 9b)
+            from app.agents.applicant.copilot.answering import officer_tools as _officer_tools
+
+            published = _officer_tools.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
+            # PROFESSIONAL FORMAT, LAST (FOS plan section 3; shared with /copilot/query): no emojis anywhere,
+            # one "Next step:" line, a plain-text answer
+            from app.agents.applicant.copilot.answering import professional as _professional
+            from app.agents.applicant.copilot.capabilities import faq as _faq_unknown
+
+            # an FAQ-style question with no answer and no data: "I don't know that yet" (15.2 step 2)
+            published = _faq_unknown.apply_unknown(published, str(getattr(request.state, "copilot_message", "") or ""))
+            # golden rule 4, said first: a stage move / approval asked in chat is never done here
+            from app.agents.applicant.copilot.capabilities import product_flow as _stage_note
+
+            published = _stage_note.stage_move_note(published,
+                                                    str(getattr(request.state, "copilot_message", "") or ""))
+            return _published_reply(request, _professional.apply(_sensitivity.mask_payload(published)))
+        return _published_reply(request, published)
     except HTTPException:
         raise
     except AgentError as exc:
@@ -1210,10 +1299,39 @@ async def copilot(
         }) from exc
     except Exception as exc:
         logger.exception("FOS copilot failed request_id=%s", request_id)
+        from app.api.errors import classify as _classify
+
+        status_code, code, message = _classify(exc)       # DB down -> 503, a timeout -> 504 (FOS plan 9.4)
+        if status_code != 500:
+            raise HTTPException(status_code, detail={"request_id": request_id, "error": code,
+                                                     "message": message}) from exc
         raise HTTPException(500, detail={
             "request_id": request_id, "error": "COPILOT_FAILED",
             "message": "The request could not be completed.",
         }) from exc
+
+
+def _published_reply(request: Request, reply: Any) -> Any:
+    """MASTER SPEC section 8: remember the chat's context server-side, then publish {request_id, markdown, tts}."""
+    from app.agents.applicant.copilot.answering import contract as _contract
+
+    if not _contract.enabled() or not isinstance(reply, dict):
+        return reply
+    key = getattr(request.state, "chat_key", None)
+    if key and isinstance(reply.get("context"), dict):
+        _contract.remember(key[0], key[1], reply["context"])
+    published = _contract.publish(reply)
+    from app.agents.applicant.copilot.answering import realtime as _realtime
+
+    if key:
+        # section 11: kept for replay (reconnect) and the Idempotency-Key; the case is watched for pushed updates
+        _realtime.keep(key[0], published, getattr(request.state, "idempotency_key", None))
+        if reply.get("case_id"):
+            try:
+                _realtime.watch(key[0], key[1], str(reply["case_id"]))
+            except Exception:  # noqa: BLE001 - watching is a convenience; the answer stands
+                pass
+    return published
 
 
 def _resolve_co_applicant(payload: "CopilotRequest", claims: dict[str, Any], request_id: str,
@@ -1342,7 +1460,41 @@ async def _copilot_json(
             "message": f"The request body could not be read: {type(exc).__name__}.",
         }) from exc
 
+    # MASTER SPEC section 8: an action link posted back becomes the request it stands for (one registry,
+    # app/config/copilot_reply.yaml); every check below runs on it exactly as on a typed request
+    from app.agents.applicant.copilot.answering import contract as _contract
+    from app.security.auth import get_subject as _chat_subject
+
+    if payload.action_link:
+        mapped = _contract.request_for(payload.action_link)
+        if mapped is None:
+            raise HTTPException(422, detail={"request_id": request_id, "error": "INVALID_ACTION_LINK",
+                                             "message": "This link is not a server action."})
+        payload = CopilotRequest.model_validate({**payload.model_dump(exclude={"action_link"}), **mapped})
+    _subject_key = str(_chat_subject(claims) or "anonymous")
+    request.state.chat_key = (_subject_key, payload.chat_id)
+    if _contract.enabled():
+        from app.agents.applicant.copilot.answering import realtime as _realtime
+
+        _realtime.start(_subject_key, payload.chat_id, request_id)    # a newer message cancels an older stream
+    if payload.new_chat:
+        _contract.forget(_subject_key, payload.chat_id)
+    elif payload.context is None and _contract.enabled():
+        payload.context = _contract.recall(_subject_key, payload.chat_id)   # the context the reply no longer carries
+    if payload.chat_id:
+        # ONE WORKSPACE PER CHAT (MASTER SPEC 4: a new chat starts fresh): the open case, the last list, a pending
+        # question or draft never leak from one chat into another. An explicit workspace_id still wins.
+        payload.context = {**(payload.context if isinstance(payload.context, dict) else {})}
+        payload.context.setdefault("workspace_id", str(payload.chat_id)[:128])
+
     action = payload.action
+
+    # THE LANGUAGE LOCK (FOS plan section 2): the selected language, for every text this turn writes
+    from app.agents.applicant.copilot.answering import language_lock as _lock
+
+    locked = _lock.set_for_request(payload.reply_language, payload.response_language)
+    if locked:
+        payload.response_language = locked
 
     if action is FosAction.UPLOAD_DOCUMENT:
         raise HTTPException(415, detail={
@@ -1360,6 +1512,18 @@ async def _copilot_json(
             })
     else:
         message = _ACTION_PHRASE[action]
+    request.state.copilot_message = message if action is FosAction.CUSTOM_QUERY else ""   # post-steps read it
+
+    # THE ABUSE RULE, FIRST (MASTER SPEC sections 16 / 19; capabilities/abuse_guard.py): a message with foul
+    # language is never answered in any part -- no case read, no tool, no model, no pending intent stored
+    from app.agents.applicant.copilot.capabilities import abuse_guard as _abuse_guard
+
+    if action is FosAction.CUSTOM_QUERY:
+        screened = _abuse_guard.screen(message, _subject_key, request_id, payload.case_id,
+                                       lang=payload.response_language)
+        if screened is not None:
+            request.state.chat_key = None                  # nothing of this turn is remembered or replayed
+            return screened
 
     # 6h GUARDRAIL HARDENING (COPILOT_GUARDRAIL_HARDENING): rate limit, self-harm care, threats,
     # social engineering, abuse cooldown -- BEFORE anything is read
@@ -1375,6 +1539,72 @@ async def _copilot_json(
     # NO CASE ID (COPILOT_SINGLE_CASE_RESOLVE, default off; capabilities/case_pick.py):
     # one case of the applicant's is answered for, several are listed and asked about.
     case_id, picked = payload.case_id, None
+
+    # THE INPUT GUARDRAIL, BEFORE ANYTHING IS READ (MASTER SPEC 17.1 / 19): injection, encoded / other-language
+    # attacks, prompt and tool leakage, SQL / code, role-play -- refused here exactly as /copilot/query refuses
+    # them, with nothing read. An id typed in chat is NOT refused here: the workspace resolves it within the
+    # caller's own cases and answers not-yours / unknown with the same neutral line (section 2).
+    if action is FosAction.CUSTOM_QUERY:
+        from app.agents.applicant.copilot.agent import GUARDRAIL_BLOCKED
+        from app.security import guardrails as _early_guard
+
+        from app.agents.applicant.copilot.capabilities import case_list as _scope_list
+
+        verdict = _early_guard.check_input(message, allowed_ids=(payload.case_id, payload.applicant_id))
+        others = _scope_list.names_other_people(message)
+        if not verdict.allowed and verdict.category is _early_guard.Category.BULK_DATA and not others:
+            # "saare cases" / "list all case": the caller's OWN list (section 2) -- scoped by the grants
+            verdict = _early_guard.Verdict(True)
+        elif verdict.allowed and others:
+            # "show cases of other officers": never answered with anyone's list (section 17.2)
+            verdict = _early_guard.Verdict(False, _early_guard.Category.BULK_DATA, "other_people")
+        # a named id / person is NOT decided here: it depends on the ids the caller holds in this case, which the
+        # agent knows (and it remembers the refusal, so "that loan" next is refused too)
+        if not verdict.allowed and verdict.category is not _early_guard.Category.UNAUTHORIZED_SUBJECT:
+            audit.record(request_id=request_id, subject=_subject_key, applicant_id=None, case_id=None,
+                         intent=GUARDRAIL_BLOCKED, tools=[], status="BLOCKED", detail=verdict.category.value)
+            # the refusal is remembered like the agent's own, so a follow-up ("and that?") points at it
+            from app.agents.applicant.copilot.conversation import state as _refusal_state
+
+            _conv_id = (payload.context or {}).get("conversation_id") if isinstance(payload.context, dict) else None
+            _found = _refusal_state.STORE.get(_subject_key, _conv_id) if _conv_id else None
+            if _found is not None:
+                _found.last_refusal = verdict.category.value
+                _refusal_state.STORE.put(_found)
+            return {"request_id": request_id, "intent": GUARDRAIL_BLOCKED, "case_id": None, "applicant_id": None,
+                    "answer": _early_guard.refusal(verdict.category), "category": "UNSUPPORTED",
+                    "query_type": "CLARIFICATION", "response_source": "GUARDRAIL", "documents": [], "actions": [],
+                    "tools_invoked": [], "suggested_questions": [],
+                    "guardrail": {"stage": "input", "action": "BLOCKED", "category": verdict.category.value},
+                    "errors": [{"code": "REQUEST_NOT_ALLOWED",
+                                "message": _early_guard.refusal(verdict.category)}]}
+
+    # CASE CREATION AND FIELD EDITS FROM CHAT (MASTER SPEC 15.5; capabilities/case_form.py, COPILOT_CHAT_CASE_CREATE):
+    # the same fields and rules as the UI form, a summary, "Confirm?", then the UI form's own create route. Runs
+    # BEFORE the workspace: while a draft is open, "Rahul Sharma" is the applicant's name, not a case to open.
+    from app.agents.applicant.copilot.capabilities import case_actions as _form_ca
+    from app.agents.applicant.copilot.capabilities import case_form as _case_form
+
+    if _case_form.enabled() and action in (FosAction.CUSTOM_QUERY, FosAction.NEW_CASE):
+        async def _create_from_chat(body: dict[str, Any]) -> Any:
+            return await create_case(CreateCaseRequest.model_validate(body), claims, channel="chat")
+
+        from app.agents.applicant.copilot.answering import language_lock as _form_lock
+        from app.agents.applicant.copilot.capabilities import faq as _form_faq
+
+        # "naya case kaise banaye" asks HOW (the FAQ's steps), never starts a draft
+        wants_new = action is FosAction.NEW_CASE or (
+            _form_ca.enabled() and _form_ca.asks("new_case", message)
+            and not (_form_faq.enabled() and _form_faq.answer_for(message, _form_lock.current() or "en")))
+        from app.security import access as _form_access
+
+        try:
+            formed = await _case_form.chat_turn(action.value, message, claims, request_id, payload.context,
+                                                _create_from_chat, wants_new)
+        except _form_access.AccessDenied as exc:
+            raise _form_access.http_denied(exc, request_id) from None
+        if formed is not None:
+            return formed
 
     # "verify karna hai" / "kya upload karu" (6f, COPILOT_VERIFY_DIAGNOSE): never "which document?" --
     # the case is diagnosed (step 4's document action view, every party)
@@ -1410,6 +1640,26 @@ async def _copilot_json(
             case_id = ws_turn.case_id
             payload.applicant_id = ws_turn.applicant_id or payload.applicant_id
         if not case_id and not payload.applicant_id:
+            from app.agents.applicant.copilot.capabilities import faq as _faq_none
+
+            if _faq_none.enabled() and action is FosAction.CUSTOM_QUERY and _faq_none.looks_like_faq(message):
+                # 15.2 step 2: a general "how / what is" question, no case data and no FAQ answer -- never a guess
+                from app.agents.applicant.copilot.answering import language_lock as _unk_lock
+
+                return _ws._base(request_id, "FAQ_UNKNOWN", _faq_none.unknown(_unk_lock.current() or "en",
+                                                                             len(message)),
+                                 query_type="CONVERSATION", category="KNOWLEDGE_ONLY", tools_invoked=[])
+            from app.agents.applicant.copilot.capabilities import product_flow as _oos
+
+            if action is FosAction.CUSTOM_QUERY and _oos.out_of_scope(message):
+                # MASTER SPEC 5: out of scope -- one polite line and the next option, nothing read
+                from app.agents.applicant.copilot.answering import language_lock as _oos_lock
+
+                line, option = _oos.out_of_scope_reply(_oos_lock.current() or "en", len(message))
+                reply = _ws._base(request_id, "NOT_IN_SCOPE", line, query_type="CONVERSATION",
+                                  category="UNSUPPORTED", tools_invoked=[])
+                reply["faq_block"] = option
+                return reply
             return _ws._base(request_id, "CASE_SELECTION", _ws._label("no_case"))
 
     # 6i CASE ACTIONS (COPILOT_CASE_ACTIONS): view a document, raise / track queries, new case.
@@ -2011,16 +2261,43 @@ async def _copilot_upload(
     # types does not have to guess at the third.
     declared_types = _declared_types(form)
 
+    # AN EXCEL OF NEW CASES SENT IN CHAT (MASTER SPEC 15.3): the same validation as the UI import -- row-by-row
+    # errors, nothing written; the reply's Confirm creates the valid rows (case_form.chat_turn)
+    from app.agents.applicant.copilot.capabilities import case_form as _import_form
+
+    if _import_form.enabled() and len(uploads) == 1 \
+            and str(getattr(uploads[0], "filename", "") or "").lower().endswith(".xlsx"):
+        from app.agents.applicant.copilot.capabilities import importer as _importer
+        from app.security.auth import get_subject as _import_subject
+
+        try:
+            permissions.check_capability(Caller.from_claims(claims), Intent.CREATE_APPLICANT)
+        except PermissionDenied as exc:
+            raise HTTPException(403, detail={"request_id": request_id, "error": exc.code,
+                                             "message": exc.message}) from exc
+        return _importer.chat_reply(await uploads[0].read(), str(_import_subject(claims) or ""), request_id)
+
     if declared_action != FosAction.UPLOAD_DOCUMENT.value:
         raise HTTPException(422, detail={
             "request_id": request_id, "error": "UNSUPPORTED_ACTION",
             "message": (f"{declared_action} is not valid for a multipart "
             "request. Only UPLOAD_DOCUMENT is."),
         })
+    if (not applicant_id or not case_id):
+        # INSIDE AN OPENED CASE (6-MVP workspace): an upload without ids goes to the case the officer
+        # opened -- ownership is still checked below (write), exactly as for explicit ids
+        from app.agents.applicant.copilot.capabilities import workspace as _ws
+
+        # the same workspace as the chat's own turns (one per chat_id, unless a workspace_id is named)
+        workspace_key = (str(form.get("workspace_id") or "").strip() or str(form.get("chat_id") or "").strip()
+                         or str(request.query_params.get("chat_id") or "").strip() or None)
+        opened = _ws.active_case(claims, workspace_key) if _ws.enabled() else None
+        if opened is not None and (not case_id or case_id == opened.case_id):
+            case_id, applicant_id = opened.case_id, applicant_id or str(opened.applicant_id)
     if not applicant_id or not case_id:
         raise HTTPException(422, detail={
             "request_id": request_id, "error": "INVALID_REQUEST",
-            "message": "applicant_id and case_id are required for an upload.",
+            "message": "applicant_id and case_id are required for an upload (or open a case first).",
         })
     if not uploads:
         raise HTTPException(422, detail={
@@ -2185,6 +2462,10 @@ async def _copilot_upload(
             "document_type": document.get("type"),
             "expected_type": document.get("expected_type"),
             "verification": document.get("verification"),
+            # THE NAME THE DOCUMENT CARRIES (released fields only) -- whose document it looks like (FOS plan 7.2)
+            "name_on_document": next((((document.get("extraction") or {}).get("fields") or {}).get(k)
+                                      for k in ("name", "employee_name", "account_holder", "holder_name")
+                                      if ((document.get("extraction") or {}).get("fields") or {}).get(k)), None),
             "status": document.get("status"),
             "reason_codes": document.get("reason_codes") or [],
             # The gate's decision, restated. Extraction is released only
@@ -2372,6 +2653,17 @@ async def _copilot_upload(
     if stage_sentence:
         answer = f"{answer} {stage_sentence}"
 
+    # SMART UPLOAD (FOS plan 7.2): what each file looks like, whose, where it was filed -- or ONE question
+    from app.agents.applicant.copilot.capabilities import smart_upload as _smart
+
+    smart_question, smart_actions = None, []
+    if _smart.enabled():
+        smart_lines, smart_question, smart_actions = _smart.describe(case_id, outcomes,
+                                                                     filed_as_co=bool(upload_co_id))
+        lead = [smart_question["question"]] if smart_question else []
+        if lead or smart_lines:
+            answer = "\n".join(lead + smart_lines + [answer])
+
     return _blank(
         request_id,
         applicant_id=applicant_id,
@@ -2379,6 +2671,8 @@ async def _copilot_upload(
         action=FosAction.UPLOAD_DOCUMENT.value,
         intent="UPLOAD_DOCUMENT",
         answer=answer,
+        clarification_required=smart_question,
+        actions=smart_actions,
         response_type="UPLOAD_VALIDATION" if rejected else "UPLOAD_RESULT",
         applicant=result.get("applicant"),
         application=result.get("application"),
@@ -2703,6 +2997,10 @@ def _frontend_contract(result: dict[str, Any],
     suggested = result.get("suggested_questions")
     if suggested:
         block["suggested_questions"] = list(suggested)
+    else:
+        # the case-derived chips, turned to follow THIS turn (FOS plan 1.7)
+        block["suggested_questions"] = frontend.contextual_suggestions(block.get("suggested_questions"),
+                                                                       result.get("intent"))
     return block
 
 
@@ -2710,7 +3008,7 @@ def _raise_from(request_id: str, envelope) -> None:
     error = envelope.error
     code = error.code if error else "FAILED"
     raise HTTPException(
-        404 if code == "NOT_FOUND" else 400,
+        404 if code == "NOT_FOUND" else 422 if code == "AMOUNT_IMPLAUSIBLE" else 400,
         detail={"request_id": request_id, "error": code,
                 "message": error.message if error else "The call failed."},
     )
@@ -2772,10 +3070,438 @@ async def copilot_stream(request: Request, claims: dict[str, Any] = Depends(requ
         body = await request.json()
     except Exception:  # noqa: BLE001 - the copilot reports an unreadable body itself
         body = {}
-    status_text = _streaming.first_status(str((body or {}).get("message") or ""), str((body or {}).get("action") or ""))
+    from app.agents.applicant.copilot.answering import contract as _contract
+    from app.agents.applicant.copilot.answering import language_lock as _lock
+    from app.agents.applicant.copilot.answering import realtime as _realtime
+    from app.agents.applicant.copilot.capabilities import abuse_guard as _abuse_guard
+    from app.security.auth import get_subject as _stream_subject
+
+    body = body if isinstance(body, dict) else {}
+    # a blocked message (section 19): no status event, the warning sent whole -- copilot() itself decides the reply
+    blocked = bool(_abuse_guard.blocked(str(body.get("message") or "")))
+    if _contract.enabled():
+        # MASTER SPEC section 11: typing at once, one generic status if slow, the markdown in deltas, `final`
+        request.state.request_id = f"fos_{uuid.uuid4().hex}"
+        lang = _lock.normalise(body.get("reply_language") or body.get("response_language")) or "en"
+        return StreamingResponse(
+            _realtime.events(lambda: copilot(request, claims), subject=str(_stream_subject(claims) or "anonymous"),
+                             chat_id=body.get("chat_id"), request_id=request.state.request_id, lang=lang,
+                             atomic=blocked),
+            media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    status_text = "" if blocked else _streaming.first_status(str(body.get("message") or ""),
+                                                             str(body.get("action") or ""))
     return StreamingResponse(_streaming.events(lambda: copilot(request, claims), status_text),
                              media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+class _ChatRef(BaseModel):
+    chat_id: str | None = Field(None, max_length=128)
+
+
+@router.post("/copilot/stop", summary="Stop the reply streaming in this chat (MASTER SPEC section 11)")
+async def copilot_stop(body: _ChatRef, claims: dict[str, Any] = Depends(require_jwt)):
+    from app.agents.applicant.copilot.answering import realtime as _realtime
+    from app.security.auth import get_subject
+
+    _realtime.stop(str(get_subject(claims) or "anonymous"), body.chat_id)
+    return {"stopped": True}
+
+
+@router.get("/copilot/replay/{request_id}",
+            summary="The final reply of a request, for a reconnecting client (MASTER SPEC section 11)",
+            responses={404: {"description": "Unknown, expired, or not the caller's."}})
+async def copilot_replay(request_id: str, claims: dict[str, Any] = Depends(require_jwt)):
+    from app.agents.applicant.copilot.answering import realtime as _realtime
+    from app.security.auth import get_subject
+
+    found = _realtime.replay(str(get_subject(claims) or "anonymous"), request_id)
+    if found is None:
+        raise HTTPException(404, detail={"error": "NOT_FOUND", "message": "No reply to replay."})
+    return found
+
+
+@router.get("/copilot/updates",
+            summary="Pushed follow-ups: what changed on the cases this chat looked at (MASTER SPEC section 11)")
+async def copilot_updates(chat_id: str | None = None, wait: float = 0, reply_language: str | None = None,
+                          claims: dict[str, Any] = Depends(require_jwt)):
+    """
+    Long-poll: returns at once when something changed (a document verified / rejected since the chat last saw the
+    case), else waits up to `wait` seconds (capped by config). Only the caller's own watched cases; every message is
+    {request_id, markdown, tts}, replayable.
+    """
+    import asyncio
+
+    from app.agents.applicant.copilot.answering import contract as _contract
+    from app.agents.applicant.copilot.answering import language_lock as _lock
+    from app.agents.applicant.copilot.answering import realtime as _realtime
+    from app.security.auth import get_subject
+
+    subject = str(get_subject(claims) or "anonymous")
+    lang = _lock.normalise(reply_language) or "en"
+    rt = _contract.cfg().get("realtime") or {}
+    deadline = time.monotonic() + max(0.0, min(float(wait or 0), float(rt.get("updates_wait_seconds", 20))))
+    while True:
+        messages = await asyncio.to_thread(_realtime.updates, subject, chat_id, lang)
+        if messages or time.monotonic() >= deadline:
+            return {"messages": messages}
+        await asyncio.sleep(float(rt.get("updates_poll_seconds", 1.0)))
+
+
+# ==========================================================================
+# MASTER SPEC SECTION 15 -- THE PRODUCT FLOW FOR THE UI (config app/config/product_flow.yaml)
+# Home table, form schema / saved form / edit, downloads, Excel import, chat history, activity log,
+# notifications, quick buttons. EVERY route: the caller's own cases only (the ordinary ownership check).
+# ==========================================================================
+
+def _lang_of(lang: str | None) -> str:
+    from app.agents.applicant.copilot.answering import language_lock as _lock
+
+    return _lock.normalise(lang) or "en"
+
+
+def _flow_text(path: tuple[str, ...], lang: str, **values: Any) -> str:
+    from app.agents.applicant.copilot.capabilities import product_flow as _pf
+
+    node: Any = _pf.cfg()
+    for key in path:
+        node = (node or {}).get(key) if isinstance(node, dict) else None
+    return _pf.say(node, lang, **values) if node is not None else ""
+
+
+def _own_case(claims: dict[str, Any], case_id: str, request_id: str) -> None:
+    """The ordinary ownership check; not yours and not found are the same 404 (never confirming it exists)."""
+    from app.agents.applicant.copilot.capabilities import workspace as _ws
+    from app.security import access as _acc
+    from app.store import get_repository
+
+    try:
+        _ws.authorize(claims, case_id)
+    except _acc.AccessDenied:
+        raise HTTPException(404, detail={"request_id": request_id, "error": "CASE_NOT_FOUND",
+                                         "message": _flow_text(("errors", "not_found"), "en")}) from None
+    if get_repository().get_application(case_id) is None:
+        raise HTTPException(404, detail={"request_id": request_id, "error": "CASE_NOT_FOUND",
+                                         "message": _flow_text(("errors", "not_found"), "en")})
+
+
+@router.get(
+    "/cases",
+    summary="The home table: the caller's own cases, searched / filtered / sorted / paged on the server",
+)
+async def list_cases(filter: str | None = None, search: str | None = None, sort: str | None = None,
+                     page: int = 0, size: int | None = None, stage: str | None = None, product: str | None = None,
+                     created_from: str | None = None, created_to: str | None = None, status: str | None = None,
+                     group: str | None = None, lang: str | None = None,
+                     claims: dict[str, Any] = Depends(require_jwt)):
+    """
+    MASTER SPEC 3 + 15.1: the SAME query as the chat list -- only the caller's cases (live grants, each row
+    re-checked by the ownership rule). Columns: Case ID, App ID, Applicant name, Stage, Status (Created / Review /
+    Disbursal, mapped from the stage in config), Created date, Action. `group` = pending / done. Clicking a row:
+    GET /cases/{case_id}/form (the filled form) -- or post {"action": "OPEN_CASE"} to /fos/copilot for the chat.
+    """
+    from app.agents.applicant.copilot.answering import contract as _contract
+    from app.agents.applicant.copilot.answering import language_lock as _lock
+    from app.agents.applicant.copilot.capabilities import case_list as _case_list
+    from app.agents.applicant.copilot.capabilities import product_flow as _pf
+
+    lang = _lang_of(lang)
+    filters = _case_list.cfg().get("filters") or {}
+    home = _pf.cfg().get("home_table") or {}
+    sorts = {**{k: k for k in (_case_list.cfg().get("sorts") or {})}, **(home.get("sorts") or {})}
+    groups = (_pf.cfg().get("case_status") or {}).get("groups") or {}
+    statuses = sorted({s for members in groups.values() for s in members or []})
+    for name, value, allowed in (("filter", filter, filters), ("sort", sort, sorts), ("group", group, groups),
+                                 ("status", status, statuses)):
+        if value and value not in allowed:
+            raise HTTPException(422, detail={"error": f"UNKNOWN_{name.upper()}",
+                                             "message": f"{name} must be one of {sorted(allowed)}"})
+    result = _case_list.run(claims, _case_list.ListQuery(
+        filter=filter, search=(search or "").strip()[:80] or None, sort=sorts.get(sort) if sort else None,
+        page=max(0, page), size=size, stage=stage, product=product, created_from=created_from,
+        created_to=created_to, group=group, status=status))     # a plain order stays ONE SQL page (section 3)
+    # every earlier field keeps its meaning (status_label = what needs action, applicant_id, link ...); the home
+    # table's fields are ADDED: app_id, status (Created / Review / Disbursal) + status_text, group + group_label,
+    # created_date, action. applicant_name is the full name (the table shows it; applicant_short has "Rahul S.").
+    rows = [{**{k: v for k, v in r.items() if k not in ("created_at", "updated_at", "applicant_full_name")},
+             "applicant_name": r.get("applicant_full_name") or r["applicant_name"], "applicant_short": r["applicant_name"],
+             "app_id": r["applicant_id"], "status_text": _pf.status_label(r["status"], lang),
+             "group_label": _pf.group_label(r["group"], lang), "created_date": str(r.get("created_at") or "")[:10],
+             "link": _contract.link("open_case", lang, id=r["case_id"]),
+             "action": {"label": _pf.say(home.get("action_label"), lang),
+                        "open_form": f"/api/v1/fos/cases/{r['case_id']}/form",
+                        "open_chat": _contract.link("open_case", lang, id=r["case_id"])}}
+            for r in result.rows]
+    columns = [{"key": c["key"], "label": str(_lock.pick(c.get("label"), lang))} for c in home.get("columns") or []]
+    empty = _pf.say(home.get("empty"), lang) if result.all_total == 0 else (
+        _pf.say(home.get("no_match"), lang) if result.total == 0 else None)
+    return {"rows": rows, "columns": columns, "total": result.total, "all_total": result.all_total,
+            "counts": result.counts, "page": result.page, "size": result.size, "has_more": result.has_more,
+            "empty_text": empty, "texts": {k: _pf.say(home.get(k), lang) for k in ("loading", "error", "new_case_label")},
+            "filters": sorted(filters), "sorts": sorted(sorts), "groups": {g: _pf.group_label(g, lang) for g in groups},
+            "statuses": {s: _pf.status_label(s, lang) for s in statuses}}
+
+
+@router.get("/quick-actions", summary="The always-available chat buttons (MASTER SPEC 15.2 step 5)")
+async def quick_actions(lang: str | None = None, claims: dict[str, Any] = Depends(require_jwt)):
+    """Each button: {id, label, send} -- the frontend posts `send` as a CUSTOM_QUERY message."""
+    from app.agents.applicant.copilot.capabilities import product_flow as _pf
+
+    return {"buttons": _pf.quick_buttons(_lang_of(lang))}
+
+
+@router.get("/form-schema", summary="The case form: fields, order, required, rules (UI and chat share it)")
+async def form_schema(lang: str | None = None, claims: dict[str, Any] = Depends(require_jwt)):
+    from app.agents.applicant.copilot.capabilities import case_form as _form
+
+    return _form.schema(_lang_of(lang))
+
+
+@router.get("/cases/{case_id}/form", summary="The saved form of one case (row click: continue where you stopped)")
+async def case_form_values(case_id: str, lang: str | None = None, claims: dict[str, Any] = Depends(require_jwt)):
+    from app.agents.applicant.copilot.capabilities import case_form as _form
+    from app.agents.applicant.copilot.capabilities import product_flow as _pf
+    from app.agents.applicant.copilot.capabilities import workspace as _ws
+    from app.store import get_repository
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    _own_case(claims, case_id, request_id)
+    lang = _lang_of(lang)
+    stage = _ws._stage(case_id) or "--"
+    status_ = _pf.status_of(stage)
+    return {"request_id": request_id, "case_id": case_id,
+            "app_id": get_repository().get_application(case_id).applicant_id, "stage": stage,
+            "status": status_, "status_label": _pf.status_label(status_, lang), "values": _form.values_of(case_id),
+            "missing": _form.missing(case_id), "editable": _form.editable(case_id)}
+
+
+class FormUpdate(BaseModel):
+    """The changed fields only. The frontend shows the summary and asks "Confirm?" before sending this."""
+
+    changes: dict[str, Any] = Field(..., examples=[{"loan_amount": 600000, "email": "rahul@example.com"}])
+
+
+@router.put("/cases/{case_id}/form", summary="Save changed fields of a case's form (same rules as create and chat)")
+async def case_form_update(case_id: str, body: FormUpdate, lang: str | None = None,
+                           claims: dict[str, Any] = Depends(require_jwt)):
+    from app.agents.applicant.copilot.capabilities import case_form as _form
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    _own_case(claims, case_id, request_id)
+    lang = _lang_of(lang)
+    known = {*_form.APPLICANT_FIELDS, *_form.APPLICATION_FIELDS}
+    unknown = sorted(set(body.changes) - known)
+    if unknown:
+        raise HTTPException(422, detail={"request_id": request_id, "error": "UNKNOWN_FIELD", "fields": unknown})
+    if not _form.editable(case_id):
+        raise HTTPException(409, detail={"request_id": request_id, "error": "FORM_LOCKED",
+                                         "message": _flow_text(("case_form", "edit_locked"), lang)})
+    clean, errors = {}, {}
+    for field, raw in body.changes.items():
+        value, why = _form.check(field, raw, lang)
+        if why:
+            errors[field] = why
+        else:
+            clean[field] = value
+    if errors:
+        raise HTTPException(422, detail={"request_id": request_id, "error": "INVALID_FIELDS",
+                                         "fields": {f: {"label": _form.label(f, lang), "message": w}
+                                                    for f, w in errors.items()}})
+    _form.save(case_id, clean, claims, request_id, "ui")
+    return {"request_id": request_id, "case_id": case_id, "values": _form.values_of(case_id),
+            "missing": _form.missing(case_id)}
+
+
+@router.get("/exports", summary="A short-lived download link: one case or a filtered list, as xlsx / docx / pdf")
+async def export_link(format: str = "xlsx", case_id: str | None = None, q: str | None = None,
+                      lang: str | None = None, claims: dict[str, Any] = Depends(require_jwt)):
+    """
+    `case_id` = one case's summary; else `q` = the list's filters ("group:pending,search:rahul" / "all") over the
+    caller's own cases. Returns {url, expires_in}; the url is bound to the caller and opened with the same JWT.
+    """
+    from app.agents.applicant.copilot.capabilities import exports as _exports
+    from app.agents.applicant.copilot.capabilities import product_flow as _pf
+    from app.security.auth import get_subject
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    fmt = str(format or "").lower()
+    if fmt not in _exports.FORMATS:
+        raise HTTPException(422, detail={"request_id": request_id, "error": "UNKNOWN_FORMAT",
+                                         "message": f"format must be one of {sorted(_exports.FORMATS)}"})
+    subject = str(get_subject(claims) or "")
+    lang = _lang_of(lang)
+    if not _exports.allowed(subject):
+        raise HTTPException(429, detail={"request_id": request_id, "error": "RATE_LIMITED",
+                                         "message": _flow_text(("exports", "rate_limited"), lang)})
+    if case_id:
+        _own_case(claims, case_id, request_id)
+        spec = {"k": "case", "c": case_id, "f": fmt, "l": lang}
+    else:
+        spec = {"k": "list", "q": _pf.parse_list_q(q), "f": fmt, "l": lang}
+    token, ttl = _exports.sign(spec, subject)
+    audit.record(request_id=request_id, subject=subject, applicant_id=None, case_id=case_id, intent="EXPORT_LINK",
+                 tools=[], status="LINK_ISSUED", detail=f"{spec['k']} {fmt}")
+    return {"request_id": request_id, "url": f"/api/v1/fos/exports/file?token={token}", "expires_in": ttl}
+
+
+@router.get("/exports/file", summary="Download the file of a signed export link (same caller, unexpired)")
+async def export_file(token: str, claims: dict[str, Any] = Depends(require_jwt)):
+    from fastapi.responses import Response
+
+    from app.agents.applicant.copilot.capabilities import exports as _exports
+    from app.security.auth import get_subject
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    subject = str(get_subject(claims) or "")
+    spec = _exports.verify(token, subject)
+    if spec is None:
+        raise HTTPException(403, detail={"request_id": request_id, "error": "LINK_INVALID",
+                                         "message": "This link is invalid or has expired."})
+    if spec["k"] == "case":
+        _own_case(claims, spec["c"], request_id)                  # scope re-checked when opened
+        content = _exports.case_content(spec["c"], claims, spec["l"])
+    else:
+        content = _exports.list_content(claims, spec.get("q") or {}, spec["l"])
+    data = _exports.render(content, spec["f"])
+    audit.record(request_id=request_id, subject=subject, applicant_id=None, case_id=spec.get("c"),
+                 intent="EXPORT_DOWNLOAD", tools=["export." + spec["f"]], status="OK", detail=spec["k"])
+    return Response(data, media_type=_exports.FORMATS[spec["f"]],
+                    headers={"Content-Disposition": f'attachment; filename="{content["file"]}.{spec["f"]}"'})
+
+
+@router.post("/imports", summary="Validate an Excel (.xlsx) of new cases: row-by-row errors, nothing written")
+async def import_validate(file: UploadFile = File(...), lang: str | None = None,
+                          claims: dict[str, Any] = Depends(require_jwt)):
+    from app.agents.applicant.copilot.capabilities import importer as _importer
+    from app.security.auth import get_subject
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    try:
+        permissions.check_capability(Caller.from_claims(claims), Intent.CREATE_APPLICANT)
+    except PermissionDenied as exc:
+        raise HTTPException(403, detail={"request_id": request_id, "error": exc.code, "message": exc.message}) from exc
+    lang = _lang_of(lang)
+    try:
+        result = _importer.validate(await file.read(), str(get_subject(claims) or ""), lang)
+    except _importer.ImportProblem as exc:
+        raise HTTPException(422, detail={"request_id": request_id, "error": "IMPORT_INVALID",
+                                         "message": str(exc)}) from None
+    return {"request_id": request_id, **result}
+
+
+@router.post("/imports/{import_id}/confirm", summary="Create the valid rows of a validated import (after Confirm)")
+async def import_confirm(import_id: str, lang: str | None = None, claims: dict[str, Any] = Depends(require_jwt)):
+    from app.agents.applicant.copilot.capabilities import importer as _importer
+    from app.security.auth import get_subject
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    lang = _lang_of(lang)
+    rows = _importer.take(import_id, str(get_subject(claims) or ""))
+    if rows is None:
+        raise HTTPException(404, detail={"request_id": request_id, "error": "IMPORT_NOT_FOUND",
+                                         "message": _flow_text(("import", "texts", "expired"), lang)})
+    created, failed = [], []
+    for number, values in enumerate(rows, start=1):
+        try:
+            made = await create_case(CreateCaseRequest.model_validate(_importer.body_for(values)), claims,
+                                     channel="import")
+            created.append(made.get("case_id") if isinstance(made, dict) else getattr(made, "case_id", None))
+        except HTTPException as exc:
+            failed.append({"row": number, "message": (exc.detail or {}).get("message")
+                           if isinstance(exc.detail, dict) else str(exc.detail)})
+    return {"request_id": request_id, "created": created, "failed": failed,
+            "message": _flow_text(("import", "texts", "done"), lang, n=len(created))}
+
+
+@router.get("/chats", summary="The caller's own past chats (masked; retention from config)")
+async def chat_list(claims: dict[str, Any] = Depends(require_jwt)):
+    from app.agents.applicant.copilot.capabilities import product_flow as _pf
+    from app.security.auth import get_subject
+    from app.store import chat_history
+
+    limit = int((_pf.cfg().get("history") or {}).get("max_chats", 50))
+    return {"chats": chat_history.conversations(str(get_subject(claims) or ""), limit),
+            "retention_days": chat_history.retention_days()}
+
+
+@router.get("/chats/{chat_id}", summary="One of the caller's own past chats, as stored (masked)")
+async def chat_transcript(chat_id: str, claims: dict[str, Any] = Depends(require_jwt)):
+    from app.security.auth import get_subject
+    from app.store import chat_history
+
+    turns = chat_history.transcript(str(get_subject(claims) or ""), chat_id)
+    if not turns:
+        raise HTTPException(404, detail={"error": "CHAT_NOT_FOUND", "message": "This chat was not found."})
+    return {"chat_id": chat_id, "turns": turns}
+
+
+@router.get("/cases/{case_id}/activity", summary="Who created or changed what on a case, and when (UI and chat)")
+async def case_activity(case_id: str, claims: dict[str, Any] = Depends(require_jwt)):
+    from app.agents.applicant.copilot.capabilities import abuse_guard as _abuse
+    from app.security import sensitivity as _sens
+    from app.store import get_repository
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    _own_case(claims, case_id, request_id)
+    events = get_repository().get_case_timeline(case_id) or []
+    return {"case_id": case_id, "events": [
+        {"at": str(getattr(e, "created_at", "") or ""), "type": getattr(e, "event_type", None),
+         "stage": getattr(e, "stage", None),
+         "summary": _abuse.mask_text(_sens.mask_identifiers(str(getattr(e, "summary", "") or "")))}
+        for e in sorted(events, key=lambda e: (str(getattr(e, "created_at", "")), getattr(e, "sequence", 0)),
+                        reverse=True)]}
+
+
+@router.get("/notifications", summary="Cases pending longer than the configured days (home screen and greeting)")
+async def notifications(lang: str | None = None, claims: dict[str, Any] = Depends(require_jwt)):
+    from app.agents.applicant.copilot.capabilities import product_flow as _pf
+
+    lang = _lang_of(lang)
+    return {"heading": _flow_text(("notifications", "heading"), lang), "items": _pf.notifications(claims, lang)}
+
+
+@router.get(
+    "/handoff-note",
+    summary="The CPA handoff note of a ready case, as md / html / pdf (FOS plan 7.1)",
+    responses={200: {"description": "The note."}, 403: {"description": "Not the caller's case."},
+               409: {"description": "The case is not ready for CPA."}},
+)
+async def handoff_note_file(case_id: str, format: str = "pdf", claims: dict[str, Any] = Depends(require_jwt)):
+    """Only the caller's own case (the ordinary ownership check), only when ready, every download audited."""
+    from fastapi.responses import Response
+
+    from app.agents.applicant import audit
+    from app.agents.applicant.copilot.answering import handoff_note
+    from app.agents.applicant.copilot.capabilities import workspace as _ws
+    from app.security import access as _acc
+    from app.security.auth import get_subject
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    if not handoff_note.enabled():
+        raise HTTPException(404, detail={"request_id": request_id, "error": "HANDOFF_NOTE_DISABLED",
+                                         "message": "The handoff note is off."})
+    try:
+        _ws.authorize(claims, case_id)
+    except _acc.AccessDenied as exc:
+        raise _acc.http_denied(exc, request_id) from None
+    officer = str(get_subject(claims) or "")
+    note = handoff_note.build(case_id, officer)
+    if not note["ready"]:
+        audit.record(request_id=request_id, subject=officer, applicant_id=None, case_id=case_id,
+                     intent="HANDOFF_NOTE_DOWNLOAD", tools=[], status="REFUSED_NOT_READY")
+        raise HTTPException(409, detail={"request_id": request_id, "error": "NOT_READY_FOR_CPA",
+                                         "message": "A handoff note is made once the case is ready for CPA."})
+    kind = str(format or "pdf").lower()
+    audit.record(request_id=request_id, subject=officer, applicant_id=None, case_id=case_id,
+                 intent="HANDOFF_NOTE_DOWNLOAD", tools=["handoff.note"], status="OK", detail=kind)
+    name = f"handoff-note-{case_id}"
+    if kind == "md":
+        return Response(note["markdown"], media_type="text/markdown",
+                        headers={"Content-Disposition": f'attachment; filename="{name}.md"'})
+    if kind == "html":
+        return Response(handoff_note.to_html(note["markdown"]), media_type="text/html")
+    return Response(handoff_note.to_pdf(note["markdown"]), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.pdf"'})
 
 
 @router.get(
@@ -3073,7 +3799,19 @@ def _frontend_features() -> dict[str, Any]:
         "co_applicant_identity": _co.enabled(), "llm_router": _lr.enabled(),
         "emphasis": (os.getenv("COPILOT_EMPHASIS", "false") or "false").strip().lower() in {"1", "true", "yes", "on"},
     }
+    # FOS E2E plan sections 2-7: each feature's own switch, as the running server sees it
+    from app.agents.applicant.copilot.answering import (counts as _cnt, handoff_note as _hn, kyc_table as _kt,
+                                                        language_lock as _ll, professional as _pf,
+                                                        readiness_report as _rr)
+    from app.agents.applicant.copilot.capabilities import (smart_upload as _su, snapshot_qa as _sq,
+                                                           timeline as _tl)
+
+    features.update({"language_lock": _ll.enabled(), "professional_format": _pf.enabled(), "kyc_table": _kt.enabled(),
+                     "readiness_report": _rr.enabled(), "snapshot_qa": _sq.enabled(), "count_answers": _cnt.enabled(),
+                     "handoff_note": _hn.enabled(), "smart_upload": _su.enabled(), "case_timeline": _tl.enabled()})
     endpoints = {"copilot": "/api/v1/fos/copilot", "actions": "/api/v1/fos/actions", "config": "/api/v1/fos/config"}
+    if features["handoff_note"]:
+        endpoints["handoff_note"] = "/api/v1/fos/handoff-note?case_id={case_id}&format=pdf"
     if features["streaming"]:
         endpoints["stream"] = "/api/v1/fos/copilot/stream"
     if features["case_actions"]:
@@ -3081,7 +3819,7 @@ def _frontend_features() -> dict[str, Any]:
     out: dict[str, Any] = {"features": features, "endpoints": endpoints}
     if features["case_workspace"]:
         cfg = config.chatbot("case_workspace") or {}
-        out["workspace"] = {"page_size": cfg.get("page_size", 10), "quick_questions": cfg.get("quick_questions") or [],
+        out["workspace"] = {"page_size": cfg.get("page_size", 10), "quick_questions": _ws.quick_questions(),
                             "list_message": "mere cases dikhao"}
     return out
 

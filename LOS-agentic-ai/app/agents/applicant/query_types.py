@@ -94,6 +94,8 @@ _CASE_FACT = frozenset({
     Intent.READINESS,
     Intent.COMPLETENESS,
     Intent.FULL_SUMMARY,
+    # FOS plan 6: a free question answered from the case's own fact sheet is a fact about the case
+    Intent.CASE_SNAPSHOT,
     # Recorded findings are stored records too. Not DOCUMENT_STATUS: the
     # question is why the case stands where it does, not what state a
     # document is in, and a UI renders those differently. Not
@@ -197,9 +199,15 @@ def _in_domain(message: str) -> bool:
     try:
         from app.agents.applicant.copilot.semantics import intents, semantic_frame
 
+        from app.agents.applicant import config
+
+        # FOS plan 1.6: words of the officer's own work ("list", "details") make a garbled message a
+        # clarification, never "outside what I can help with" (applicant_agent.yaml chatbot.domain_words)
+        extra = [re.escape(str(w)) for w in config.chatbot("domain_words").get("words") or []]
         return bool(semantic_frame.concepts_in(message) or intents._document_type(message)
                     or semantic_frame._named_stage(message)
-                    or re.search(r"\b(loan|application|case|applicant|kyc|emi|bank|credit|cpa|fos)\b", message, re.I))
+                    or re.search(r"\b(loan|application|case|applicant|kyc|emi|bank|credit|cpa|fos)\b", message, re.I)
+                    or (extra and re.search(r"\b(" + "|".join(extra) + r")\b", message, re.I)))
     except Exception:  # noqa: BLE001 - unknown: treat as in-domain (the general offer)
         return True
 

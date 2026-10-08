@@ -220,8 +220,13 @@ def to_kyc_source(
     that did not clear the verification gate. A document whose fields were
     never released must not reach KYC, or the gate would be worth nothing.
     """
+    from app.agents.kyc import config as _kyc_types
+
     document = response.get("document") or {}
     document_type = _TYPES.get(str(document.get("type") or "").upper())
+    if document_type is not None and document_type.value not in _kyc_types.source_keys(
+            "document_types", tuple(t.value for t in _TYPES.values())):
+        document_type = None                     # a type the policy's `sources.document_types` leaves out
 
     if document_type is None:
         return None
@@ -234,15 +239,18 @@ def to_kyc_source(
     if not isinstance(fields, dict) or not fields:
         return None
 
+    # WHICH KEYS CARRY EACH VALUE: kyc_policies.yaml `sources:` (FOS plan section 4), these tuples as the default
+    from app.agents.kyc import config as _kyc_config
+
     try:
         return SourceDocument(
             source_id=source_id,
             document_type=document_type,
-            name=_first(fields, _NAME_FIELDS),
-            father_name=(_first(fields, _FATHER_NAME_FIELDS)
+            name=_first(fields, _kyc_config.source_keys("name_fields", _NAME_FIELDS)),
+            father_name=(_first(fields, _kyc_config.source_keys("father_name_fields", _FATHER_NAME_FIELDS))
                          or _relation_father_name(fields)),
             date_of_birth=fields.get("date_of_birth"),
-            pan=_first(fields, _PAN_FIELDS),
+            pan=_first(fields, _kyc_config.source_keys("pan_fields", _PAN_FIELDS)),
             address=address_input(fields),
             income=_income(fields),
             field_quality=_quality(response),

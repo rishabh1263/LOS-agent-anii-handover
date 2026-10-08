@@ -6,9 +6,8 @@ Returns all data associated with a given Case ID + APP ID.
 
 Design rules (matching the project's auth contract):
   - Requires a valid Bearer JWT issued by /api/v1/auth/login.
-  - Case ID and APP ID are NOT tied to the logged-in user (subject).
-    Any authenticated user can query any valid combination.
-  - Authentication (JWT) and Case/APP data access are SEPARATE flows.
+  - MASTER SPEC section 2: only a case the logged-in user holds (created or granted,
+    access_grants by JWT subject); any other pair gets the ordinary 403, never a grant.
 
 Data aggregated (best-effort -- each call is independent):
   1. Applicant record   via GET /api/v1/fos/applicants/{app_id}
@@ -81,7 +80,7 @@ class CaseDataResponse(BaseModel):
         "Returns the applicant record, application, document checklist and "
         "uploaded documents for the given `case_id` and `app_id`.\n\n"
         "**Authentication**: Bearer JWT from `/api/v1/auth/login`.\n"
-        "**Authorization**: Any authenticated user — IDs are not user-scoped."
+        "**Authorization**: only a case the logged-in user holds; any other pair is 403."
     ),
 )
 async def fetch_case_data(
@@ -97,16 +96,24 @@ async def fetch_case_data(
             detail="case_id and app_id must not be blank.",
         )
 
-    # Ensure access grant for this authenticated subject on the requested case/applicant
+    # MASTER SPEC section 2: the ids select WHAT to read, never WHO may read it. This used to grant the caller
+    # whatever pair it named (any login could read any case); now the ordinary ownership check decides, with the
+    # same refusal as every other route. The old self-grant only behind the one-release compatibility flag.
     sub = claims.get("sub") or "user"
+    from app.api.routes.auth_api import legacy_self_grant
     from app.security import access
     from app.store import get_repository
     repo = get_repository()
+    if legacy_self_grant():
+        try:
+            repo.grant_access(sub, access.APPLICANT, app_id)
+            repo.grant_access(sub, access.CASE, case_id)
+        except Exception:
+            pass
     try:
-        repo.grant_access(sub, access.APPLICANT, app_id)
-        repo.grant_access(sub, access.CASE, case_id)
-    except Exception:
-        pass
+        access.authorize_claims(claims, applicant_id=app_id, case_id=case_id)
+    except access.AccessDenied as exc:
+        raise access.http_denied(exc) from exc
 
     req_id = f"case_fetch_{uuid.uuid4().hex}"
 

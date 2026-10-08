@@ -260,9 +260,14 @@ def move_query(case_id: str, query_id: str, *, to_status: str, actor: str, scope
     request_id = request_id or f"qry_{uuid.uuid4().hex}"
     to_status = str(to_status or "").strip().upper()
     needed = cfg.get("resolve_scopes") if to_status == "RESOLVED" else cfg.get("raise_scopes")
-    if not _held(scopes, list(needed or [])):
-        raise QueryError("QUERY_NOT_PERMITTED", f"Moving a query to {to_status} needs the query permission.", 403)
     row = _get(case_id, "QUERY", query_id, repository)
+    own_customer_query = (to_status == "RESOLVED"
+                          and str((row.payload or {}).get("target_type") or "").upper()
+                          in {str(t).upper() for t in cfg.get("resolve_by_raiser_target_types") or []}
+                          and (row.payload or {}).get("raised_by") == actor
+                          and _held(scopes, list(cfg.get("raise_scopes") or [])))
+    if not own_customer_query and not _held(scopes, list(needed or [])):
+        raise QueryError("QUERY_NOT_PERMITTED", f"Moving a query to {to_status} needs the query permission.", 403)
     allowed = (cfg.get("lifecycle") or {}).get(row.status) or []
     if to_status == row.status:
         return {**_view(row), "result": "NO_CHANGE"}

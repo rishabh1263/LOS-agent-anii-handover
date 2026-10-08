@@ -17,8 +17,9 @@ from tests.integration.test_reupload_supersedes import OTHER_PAN, RISHABH_DL, RI
 
 @pytest.fixture(autouse=True)
 def flag_off(monkeypatch):
-    monkeypatch.delenv(emphasis.FLAG, raising=False)
-    monkeypatch.delenv("COPILOT_DOCUMENT_ACTIONS", raising=False)
+    # "false", not deleted: an upload runs ocr.py's load_dotenv(), which would put a deleted flag back from .env
+    monkeypatch.setenv(emphasis.FLAG, "false")
+    monkeypatch.setenv("COPILOT_DOCUMENT_ACTIONS", "false")
 
 
 # ---- the rules ---------------------------------------------------------------------------

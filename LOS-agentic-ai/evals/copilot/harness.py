@@ -71,7 +71,14 @@ PHASE3_FLAGS = ("COPILOT_CASE_WORKSPACE", "COPILOT_CASE_ACTIONS", "COPILOT_RESPO
                 "COPILOT_DOCUMENT_ACTIONS", "COPILOT_TERMS_KNOWLEDGE", "COPILOT_LOCALIZED_KYC_REASONS",
                 "COPILOT_SINGLE_CASE_RESOLVE", "COPILOT_EMPHASIS", "COPILOT_STREAMING", "COPILOT_SESSION_MEMORY",
                 "LOS_COAPP_IDENTITY", "COPILOT_PARTY_RECOGNITION", "COPILOT_GUARDRAIL_HARDENING",
-                "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY")
+                "LOS_COAPP_MANDATORY_DOCS", "LOS_SIGNATURE_MANDATORY",
+                 "COPILOT_LANGUAGE_LOCK", "COPILOT_PROFESSIONAL_FORMAT", "COPILOT_KYC_TABLE",
+                 "COPILOT_READINESS_REPORT", "COPILOT_SNAPSHOT_QA",
+                 "COPILOT_COUNT_ANSWERS", "COPILOT_HANDOFF_NOTE",
+                 "COPILOT_SMART_UPLOAD", "COPILOT_CASE_TIMELINE",
+                 "COPILOT_WHAT_IF", "COPILOT_AUTOPILOT_REVIEW", "COPILOT_STATUS_TABLES", "COPILOT_CUSTOMER_MESSAGE", "COPILOT_VISIT_CHECKLIST",
+                 # MASTER SPEC (config default ON): the evals read the full envelope; the golden runner turns them on
+                 "COPILOT_MD_TTS_CONTRACT", "LOS_LOGIN_SELF_GRANT_LEGACY", "COPILOT_CASE_LIST_PAGING", "COPILOT_FAQ")
 
 
 def _environment(live: bool, workdir: str) -> None:
@@ -169,6 +176,9 @@ class Harness:
             "owner": ("eval-customer", FOS_SCOPES),
             "service": ("eval-service-desk", SERVICE_SCOPES),
             "stranger": ("eval-stranger", FOS_SCOPES),
+            # an FOS officer as the login issues one: reads + create / upload (the golden runner opens cases)
+            "officer": ("eval-officer", FOS_SCOPES + ["create_applicant", "update_applicant", "create_application",
+                                                      "upload_document"]),
         }[caller]
         now = datetime.now(timezone.utc)
         return jwt.encode({"sub": subject, "iss": self._auth.JWT_ISSUER,

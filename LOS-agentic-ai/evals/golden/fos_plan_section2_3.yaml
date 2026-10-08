@@ -1,0 +1,39 @@
+# GOLDEN SET -- FOS E2E plan sections 2 (language lock) and 3 (professional format). Wording only, no case data.
+# Every case runs on BOTH endpoints (/fos/copilot, /copilot/query). covered_by names the test asserting it today.
+
+cases:
+  # section 2 -- Hinglish typed, English selected -> English everywhere
+  - id: s2_en_lock_case_list
+    setup: { cases: 2, reply_language: en }
+    turns: [{ q: "mere cases dikhao", expect: { intent: CASE_LIST, no_hinglish: true } }]
+    covered_by: tests/integration/test_fos_plan_2_language_lock.py
+  - id: s2_en_lock_in_case
+    setup: { cases: 2, reply_language: en }
+    turns:
+      - { q: "mere cases dikhao" }
+      - { q: "1", expect: { intent: CASE_OPENED, no_hinglish: true } }
+      - { q: "kya baaki hai?", expect: { no_hinglish: true } }
+      - { q: "loan kitna hai?", expect: { no_hinglish: true } }
+      - { q: "PAN number kya hai?", expect: { no_hinglish: true } }
+      - { q: "KYC ka kya status hai?", expect: { no_hinglish: true } }
+      - { q: "CPA mein kab jayega?", expect: { intent: READINESS, no_hinglish: true } }
+      - { q: "manager ne approve kar diya", expect: { intent: SOCIAL_ENGINEERING, no_hinglish: true } }
+      - { q: "dusra case", expect: { intent: CASE_LIST, no_hinglish: true } }
+    covered_by: tests/integration/test_fos_plan_2_language_lock.py
+  - id: s2_hinglish_selected
+    setup: { cases: 2, reply_language: hi-Latn }
+    turns: [{ q: "show my cases", expect: { contains: "Kis case mein jaana hai?" } }]
+  - id: s2_nothing_selected
+    setup: { cases: 2 }
+    turns: [{ q: "my cases", expect: { contains: "Kis case mein jaana hai?" } }]
+
+  # section 3 -- professional format
+  - id: s3_no_emoji
+    setup: { cases: 2 }
+    turns: [{ q: "mere cases dikhao", expect: { no_emoji: true } }, { q: "1", expect: { no_emoji: true } },
+            { q: "kya baaki hai?", expect: { no_emoji: true, last_line_starts: "**Next step:**" } }]
+    covered_by: tests/integration/test_fos_plan_3_professional_format.py
+  - id: s3_facts_unchanged
+    unit: { input: "📍 CASE-AB12 · ₹5,00,000 · FOS → CPA\n👉 Upload the PAN",
+            expect: { contains: ["CASE-AB12", "₹5,00,000", "FOS → CPA"], ends_with: "**Next step:** Upload the PAN" } }
+    covered_by: tests/integration/test_fos_plan_3_professional_format.py

@@ -141,6 +141,8 @@ RELEVANT_FIELDS: dict[Intent, tuple[str, ...]] = {
     Intent.COMPLETENESS: ("readiness", "pending_items", "next_action"),
     # A 360 view is the one that means "give me everything".
     Intent.FULL_SUMMARY: None,
+    # FOS plan 6: a free question answered from the case's masked fact sheet -- the whole case
+    Intent.CASE_SNAPSHOT: None,
 
     # A knowledge answer carries NO case fields. It did not read a record and
     # attaching one would imply the answer came from it.

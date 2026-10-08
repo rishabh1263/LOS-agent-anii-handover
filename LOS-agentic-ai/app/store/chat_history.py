@@ -59,10 +59,12 @@ def subject_hash(subject: str) -> str:
 
 
 def mask(text: str, case_id: str | None, repository: Any = None) -> str:
+    from app.agents.applicant.copilot.capabilities import abuse_guard
     from app.security import sensitivity
     from app.store import get_repository
 
-    out = sensitivity.mask_identifiers(str(text or ""))
+    # MASTER SPEC 16 / 19: a flagged word is stored masked, never raw
+    out = abuse_guard.mask_text(sensitivity.mask_identifiers(str(text or "")))
     if not case_id:
         return out
     repository = repository or get_repository()
@@ -105,6 +107,39 @@ def record(*, subject: str, conversation_id: str, case_id: str | None, turn_no: 
                 "created_at": now.isoformat(), "expires_at": expires.isoformat()})
     except Exception as exc:  # noqa: BLE001
         logger.warning("chat history not stored (%s)", type(exc).__name__)
+
+
+def conversations(subject: str, limit: int = 50, repository: Any = None) -> list[dict[str, Any]]:
+    """MASTER SPEC 15.4: the caller's own chats, newest first (unexpired only). Never another subject's."""
+    from app.store import get_repository
+
+    repository = repository or get_repository()
+    if not hasattr(repository, "_all") or not repository.chat_history_ready():
+        return []
+    rows = repository._all(
+        "SELECT conversation_id, min(created_at) AS started_at, max(created_at) AS last_at, count(*) AS turns "
+        "FROM chat_turns WHERE subject_hash = ? AND expires_at > ? GROUP BY conversation_id "
+        "ORDER BY max(created_at) DESC LIMIT ?",
+        (subject_hash(subject), datetime.now(timezone.utc).isoformat(), int(limit)))
+    return [{"chat_id": r["conversation_id"], "started_at": str(r["started_at"]), "last_at": str(r["last_at"]),
+             "messages": int(r["turns"])} for r in rows]
+
+
+def transcript(subject: str, conversation_id: str, repository: Any = None) -> list[dict[str, Any]]:
+    """One of the caller's chats, as stored (masked); decrypted for the caller only."""
+    from app.store import crypto, get_repository
+
+    repository = repository or get_repository()
+    if not repository.chat_history_ready():
+        return []
+    out = []
+    for row in repository.chat_turns(subject_hash(subject), conversation_id):
+        if str(row.get("expires_at") or "") <= datetime.now(timezone.utc).isoformat():
+            continue
+        out.append({"role": "user" if row.get("role") == "USER" else "bot", "turn": row.get("turn_no"),
+                    "text": crypto.open_value(row.get("text_sealed")) or "", "case_id": row.get("case_id"),
+                    "at": str(row.get("created_at") or "")})
+    return out
 
 
 def forget(subject: str, repository: Any = None) -> int:

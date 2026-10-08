@@ -56,12 +56,28 @@ _DEFAULT_ROLES = (os.getenv("DEV_IDP_ROLES") or "los-fos-user").split()
 import uuid
 from typing import Any
 
+#: MASTER SPEC section 2: login is username/password only and NEVER decides scope. An app_id / case_id in the
+#: body used to GRANT the caller that case -- anyone could log in naming any case. Now the ids are accepted (an
+#: older frontend still sends them, so no 422) but only preload a case the caller ALREADY holds. The old
+#: self-grant stays behind this compatibility flag for one release, default off.
+LEGACY_SELF_GRANT_FLAG = "LOS_LOGIN_SELF_GRANT_LEGACY"
+
+
+def legacy_self_grant() -> bool:
+    return (os.getenv(LEGACY_SELF_GRANT_FLAG, "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
 class LoginRequest(BaseModel):
     username: str = Field(..., examples=["local-dev-user"])
     password: str = Field(..., examples=["<your local dev password>"])
-    stage: str | None = None
-    case_id: str | None = Field(default=None, description="Optional Case ID to load on login")
-    app_id: str | None = Field(default=None, description="Optional Applicant ID to load on login")
+    stage: str | None = Field(default=None, examples=["FOS"],
+                              description="The stage the user works in (MASTER SPEC 15.1): one of the LOS stages. "
+                                          "Echoed in the token response; scope stays the user's own cases.")
+    case_id: str | None = Field(default=None, json_schema_extra={"deprecated": True},
+                                description="No longer needed and never used for scope. Preloads case_data only "
+                                            "for a case the user already has.")
+    app_id: str | None = Field(default=None, json_schema_extra={"deprecated": True},
+                               description="No longer needed and never used for scope (see case_id).")
 
 
 class TokenResponse(BaseModel):
@@ -72,6 +88,7 @@ class TokenResponse(BaseModel):
     case_id: str | None = None
     app_id: str | None = None
     case_data: dict[str, Any] | None = None
+    stage: str | None = None
 
 
 class RefreshRequest(BaseModel):
@@ -144,19 +161,39 @@ async def login(payload: LoginRequest, request: Request) -> TokenResponse:
 
     login_rate_limiter.record_success(rate_limit_key)
 
+    # MASTER SPEC 15.1: username, password and stage. A stage, when sent, must be a known LOS stage.
+    login_stage = None
+    if payload.stage and payload.stage.strip():
+        from app.agents.los.stages import ORDER as _STAGES
+
+        login_stage = payload.stage.strip().upper()
+        if login_stage not in {s.value for s in _STAGES}:
+            from app.agents.applicant.copilot.capabilities import product_flow as _pf
+
+            raise HTTPException(status_code=422, detail={"error": "UNKNOWN_STAGE",
+                                                         "message": _pf.say((_pf.cfg().get("errors") or {}).get("unknown_stage"), "en"),
+                                                         "stages": [s.value for s in _STAGES]})
+
     case_data: dict[str, Any] | None = None
     c_id = payload.case_id.strip() if payload.case_id else None
     a_id = payload.app_id.strip() if payload.app_id else None
 
-    if c_id and a_id:
-        from app.security import access
-        from app.store import get_repository
-        repo = get_repository()
+    from app.security import access
+
+    if c_id and a_id and legacy_self_grant():
         try:
-            repo.grant_access(payload.username, access.APPLICANT, a_id)
-            repo.grant_access(payload.username, access.CASE, c_id)
+            from app.store import get_repository
+
+            get_repository().grant_access(payload.username, access.APPLICANT, a_id)
+            get_repository().grant_access(payload.username, access.CASE, c_id)
         except Exception:
             pass
+    if c_id and a_id and not access.holds(payload.username, c_id):
+        c_id = a_id = None                     # not the caller's case: nothing preloaded, nothing confirmed
+
+    if c_id and a_id:
+        from app.store import get_repository
+        repo = get_repository()
 
         applicant_data: dict[str, Any] | None = None
         application_data: dict[str, Any] | None = None
@@ -257,12 +294,14 @@ async def login(payload: LoginRequest, request: Request) -> TokenResponse:
             "stage": stage,
         }
 
-    return _issue_token_pair(
+    issued = _issue_token_pair(
         subject=payload.username,
         case_id=c_id,
         app_id=a_id,
         case_data=case_data,
     )
+    issued.stage = login_stage
+    return issued
 
 
 @router.post("/api/v1/auth/refresh", response_model=TokenResponse, summary="Exchange a refresh token for a new pair")

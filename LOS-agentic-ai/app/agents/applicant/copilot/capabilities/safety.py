@@ -60,6 +60,10 @@ def matches(kind: str, message: str) -> bool:
 
 def _language(message: str) -> str:
     from app.agents.applicant import language
+    from app.agents.applicant.copilot.answering import language_lock
+
+    if language_lock.current():
+        return language_lock.current()          # the selected language wins over the typed one (FOS plan section 2)
 
     try:
         return language.detect(message).code
@@ -127,6 +131,12 @@ def screen(message: str, subject: str, request_id: str, case_id: str | None, *, 
         return _envelope(request_id, case_id, "SOCIAL_ENGINEERING", reply("social_engineering", language),
                          guardrail={"stage": "input", "action": "BLOCKED", "category": "SOCIAL_ENGINEERING"})
 
+    from app.agents.applicant.copilot.capabilities import abuse_guard
+
+    if abuse_guard.enabled():
+        # foul language and its cooldown are owned by abuse_guard (MASTER SPEC 16 / 19: one shared module) --
+        # it has already screened this message; a second counter here would double-count
+        return None
     act = abuse.classify(message)
     if act.kind is not None:
         with _LOCK:
