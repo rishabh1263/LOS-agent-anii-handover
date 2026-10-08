@@ -373,7 +373,10 @@ def _render(reply: dict[str, Any], previous: set[str] | None = None) -> tuple[st
 
     def fresh(item: str) -> bool:
         targets = re.findall(r"\]\(((?:action|ask):[^)]*)\)", item)
-        return bool(targets) and not any(n in item for n in never) and not all(t in shown_before for t in targets)
+        # an UPLOAD link is the action itself (owner 2026-10-08: "upload nahi aa raha"): never dropped as a repeat
+        repeat_ok = all(t.startswith("action:upload") for t in targets)
+        return bool(targets) and not any(n in item for n in never) and (
+            repeat_ok or not all(t in shown_before for t in targets))
 
     budget = int(policy.get("max_items", 3))     # the flow question's own options (faq_block) are its answers
     items = [i for i in dict.fromkeys([ln for ln in _action_links(reply, lang) if ln not in text]
@@ -395,6 +398,13 @@ def _render(reply: dict[str, Any], previous: set[str] | None = None) -> tuple[st
         if asked:
             label = str(_pick((cfg().get("markdown") or {}).get("suggestions_label") or "", lang) or "")
             blocks.append(((label + "\n") if label else "") + "\n".join(f"- {ask(q)}" for q in asked))
+    # CLOSE, always while a case is open (link_policy.always_on_case): outside the budget, never a "repeat"
+    if reply.get("case_id") and str(reply.get("intent") or "").upper() not in \
+            {str(i).upper() for i in policy.get("always_on_case_not_on") or []}:
+        always = [link(name, lang) for name in policy.get("always_on_case") or []]
+        always = [a for a in always if a and a not in "\n".join(blocks)]
+        if always:
+            blocks.append(" · ".join(always))
     md = _tidy_links(dedupe("\n\n".join(b for b in blocks if b.strip())))
     if reply.get("case_id") and str(reply.get("intent") or "") != "CASE_LIST":
         md = _consistent(md, str(reply.get("request_id") or ""))

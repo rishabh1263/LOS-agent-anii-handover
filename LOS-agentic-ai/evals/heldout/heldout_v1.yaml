@@ -1,0 +1,130 @@
+# HELD-OUT SET v1 -- FROZEN 2026-10-08, written BEFORE the LLM rewrite was built.
+#
+# NEVER tune on these. Do not add phrases, rewrites, vocabulary or content because one of these failed; fix the
+# CLASS of problem and confirm on the golden set (evals/general_questions.yaml), then re-measure here. A new held-out
+# set (heldout_v2.yaml) is written when this one has been looked at too often.
+#
+# Each item: one message (`q`) or a conversation (`turns`, judged on the LAST reply), with NO case open, two cases on
+# file (Rahul Sharma, Priya Verma -- personal loan, documents pending).
+#   expect: answer          -- a real answer; `must` words must all appear (else: WRONG)
+#           not_configured  -- says the value is not configured / not set (never a guessed number)
+#           decline         -- a credit decision: says who decides
+#           case            -- needs a case: "Which case is this about?" (or a list to pick from) is right
+#           unknown         -- not in the knowledge base: "not in the knowledge base yet" is right
+#           list            -- the officer's case list (`must` may name the count line)
+# Metrics (scripts/eval_gate.py): correct, WRONG (must stay 0), unknown, clarify, case, p50 / p95 latency, model %.
+
+frozen: true
+version: 1
+items:
+  # ---- Hinglish ---------------------------------------------------------------------------------------------
+  - { id: H001, q: "foir ka full form kya hai", expect: answer, must: ["Fixed Obligation"] }
+  - { id: H002, q: "loan pass hone mein kitna time lagta hai bhai", expect: not_configured }
+  - { id: H003, q: "home loan mein kitne saal tak ka loan milta hai", expect: answer, must: ["360"] }
+  - { id: H004, q: "customer ka cibil kitna hona chahiye", expect: not_configured }
+  - { id: H005, q: "personal loan ke liye kaun kaun se documents lagte hai", expect: answer, must: ["PAN"] }
+  - { id: H006, q: "bijli ka bill address proof chalega kya", expect: answer, must: ["not accepted"] }
+  - { id: H007, q: "guarantor kaun hota hai", expect: answer, must: ["not a borrower"] }
+  - { id: H008, q: "sanction letter kab milta hai", expect: answer, must: ["sanction"] }
+  - { id: H009, q: "emi kitni banegi 3 lakh pe 15 percent 2 saal", expect: answer, must: ["14,546"] }
+  - { id: H010, q: "case cpa mein kaise bhejte hai", expect: answer, must: ["Move to CPA"] }
+  - { id: H011, q: "kyc reject kyu hota hai", expect: answer, must: ["match"] }
+  - { id: H012, q: "loan dene ka decision kaun leta hai", expect: answer, must: ["credit team"] }
+  - { id: H013, q: "processing charge kitna lagta hai", expect: not_configured }
+  - { id: H014, q: "self employed ko loan milta hai kya", expect: answer, must: ["Self"] }
+  - { id: H015, q: "minimum salary kitni chahiye personal loan ke liye", expect: answer, must: ["25,000"] }
+  - { id: H016, q: "photo kheech ke document upload kar sakte hai kya", expect: answer, must: ["photo"] }
+  - { id: H017, q: "disbursement ka matlab kya hota hai", expect: answer, must: ["release"] }
+  - { id: H018, q: "mere saare case dikhao", expect: list, must: ["Showing"] }
+  - { id: H019, q: "nach mandate kya hota hai", expect: answer, must: ["mandate"] }
+  - { id: H020, q: "co applicant ke documents kaun se lagenge", expect: answer, must: ["|"] }
+  - { id: H021, q: "loan approve kar do please", expect: decline }
+  - { id: H022, q: "is customer ko loan milega kya", expect: decline }
+  - { id: H023, q: "case banane ka process batao", expect: answer, must: ["Create New Case"] }
+  - { id: H024, q: "ltv kitna allowed hai home loan mein", expect: answer, must: ["80%"] }
+  - { id: H025, q: "interest rate kitna chal raha hai", expect: answer, must: ["%"] }
+
+  # ---- typos ------------------------------------------------------------------------------------------------
+  - { id: H026, q: "wat is foir", expect: answer, must: ["Fixed Obligation"] }
+  - { id: H027, q: "documnets required for home lone", expect: answer, must: ["PAN"] }
+  - { id: H028, q: "what is santion letter", expect: answer, must: ["approval"] }
+  - { id: H029, q: "how to uplod documents", expect: answer, must: ["Upload"] }
+  - { id: H030, q: "wht is co-aplicant", expect: answer, must: ["together"] }
+  - { id: H031, q: "minimun income for personal laon", expect: answer, must: ["25,000"] }
+  - { id: H032, q: "what is disbursment", expect: answer, must: ["release"] }
+  - { id: H033, q: "how to move case to cpa stage", expect: answer, must: ["Move to CPA"] }
+  - { id: H034, q: "is adhaar mandatory", expect: answer, must: ["Aadhaar"] }
+  - { id: H035, q: "what is forclosure", expect: answer, must: ["early"] }
+  - { id: H036, q: "emi for 2 lakh at 11% for 24 monts", expect: answer, must: ["9,32"] }
+  - { id: H037, q: "maximum tenur for personal loan", expect: answer, must: ["60"] }
+  - { id: H038, q: "who aproves the loan", expect: answer, must: ["credit team"] }
+  - { id: H039, q: "what is balnce transfer", expect: answer, must: ["another lender"] }
+  - { id: H040, q: "proces to verify documents", expect: answer, must: ["1."] }
+
+  # ---- indirect wording -------------------------------------------------------------------------------------
+  - { id: H041, q: "my customer wants to close his loan early, what is that called", expect: answer, must: ["foreclosure"] }
+  - { id: H042, q: "customer is asking how much he will pay every month for 10 lakh at 10% for 5 years", expect: answer, must: ["21,247"] }
+  - { id: H043, q: "the customer has no electricity bill, what else can he give for address", expect: answer, must: ["Passport"] }
+  - { id: H044, q: "someone else will repay if the borrower can't, what is that person called", expect: answer, must: ["guarantor"] }
+  - { id: H045, q: "what happens to the file after I send it to CPA", expect: answer, must: ["Credit"] }
+  - { id: H046, q: "how do I know if a customer can afford the loan", expect: answer, must: ["FOIR"] }
+  - { id: H047, q: "the customer wants a lower interest rate from another bank's loan, what do we offer", expect: answer, must: ["balance transfer"] }
+  - { id: H048, q: "I need to add the wife as a second borrower, how", expect: answer, must: ["Co-applicant"] }
+  - { id: H049, q: "my upload got rejected, now what", expect: answer, must: ["upload"] }
+  - { id: H050, q: "who checks the property papers", expect: answer, must: ["legal"] }
+  - { id: H051, q: "who visits the customer's house to verify", expect: answer, must: ["field investigation"] }
+  - { id: H052, q: "how is the house value decided for the loan", expect: answer, must: ["valuation"] }
+  - { id: H053, q: "is there a penalty if the customer pays extra early", expect: not_configured }
+  - { id: H054, q: "what does the bank check before giving money", expect: answer, must: ["Credit"] }
+  - { id: H055, q: "how much of his salary can go to EMIs", expect: answer, must: ["50%"] }
+  - { id: H056, q: "what if the customer misses an EMI", expect: answer, must: ["bounce"] }
+  - { id: H057, q: "can a retired person get a loan", expect: not_configured }
+  - { id: H058, q: "how old must the customer be", expect: not_configured }
+  - { id: H059, q: "why can't I move my case to CPA", expect: case }
+  - { id: H060, q: "the customer gave a salary slip, is that income proof", expect: answer, must: ["salary slip"] }
+
+  # ---- multi-part -------------------------------------------------------------------------------------------
+  - { id: H061, q: "what is FOIR and what is LTV", expect: answer, must: ["Fixed Obligation", "Loan to Value"] }
+  - { id: H062, q: "foir kya hai aur maximum kitna allowed hai", expect: answer, must: ["50%"] }
+  - { id: H063, q: "what is a co-applicant and how do I add one", expect: answer, must: ["together", "party"] }
+  - { id: H064, q: "minimum and maximum loan amount for personal loan", expect: answer, must: ["50,000", "10,00,000"] }
+  - { id: H065, q: "what is NACH and what is e-mandate", expect: answer, must: ["mandate"] }
+  - { id: H066, q: "tenure and interest rate for home loan", expect: answer, must: ["360", "8.5%"] }
+  - { id: H067, q: "what is CKYC and video KYC", expect: answer, must: ["Registry", "video"] }
+  - { id: H068, q: "what is prepayment and foreclosure", expect: answer, must: ["principal", "early"] }
+  - { id: H069, q: "who approves the loan and how long does it take", expect: answer, must: ["credit team"] }
+  - { id: H070, q: "what is RCU and BOPS", expect: answer, must: ["RCU", "BOPS"] }
+
+  # ---- follow-ups (judged on the last reply) ----------------------------------------------------------------
+  - { id: H071, turns: ["what is FOIR", "and LTV?"], expect: answer, must: ["Loan to Value"] }
+  - { id: H072, turns: ["what is the maximum tenure for home loan", "and for personal loan?"], expect: answer, must: ["60"] }
+  - { id: H073, turns: ["what is a guarantor", "aur co-applicant?"], expect: answer, must: ["together"] }
+  - { id: H074, turns: ["what is prepayment", "is there a charge for it?"], expect: not_configured }
+  - { id: H075, turns: ["EMI for 5 lakh at 12% for 3 years", "and for 5 years?"], expect: answer, must: ["11,12"] }
+  - { id: H076, turns: ["minimum income for personal loan", "home loan ka?"], expect: answer, must: ["25,000"] }
+  - { id: H077, turns: ["what is CPA", "what comes after it?"], expect: answer, must: ["Credit"] }
+  - { id: H078, turns: ["what is NACH", "matlab hindi mein samjhao"], expect: answer, must: ["EMI"] }
+  - { id: H079, turns: ["show my cases", "top 1"], expect: list, must: ["Showing 1-1"] }
+  - { id: H080, turns: ["what is legal verification", "and technical?"], expect: answer, must: ["valu"] }
+
+  # ---- decisions, cases, not configured, unknown ------------------------------------------------------------
+  - { id: H081, q: "should I approve this file", expect: decline }
+  - { id: H082, q: "will Rahul's loan be sanctioned", expect: decline }
+  - { id: H083, q: "reject the case", expect: decline }
+  - { id: H084, q: "what is the status of Priya's case", expect: case }
+  - { id: H085, q: "which documents are pending", expect: case }
+  - { id: H086, q: "is the KYC done", expect: case }
+  - { id: H087, q: "what is the bounce charge", expect: not_configured }
+  - { id: H088, q: "what is the prepayment penalty", expect: not_configured }
+  - { id: H089, q: "how many days does disbursement take", expect: not_configured }
+  - { id: H090, q: "what is the late payment fee", expect: not_configured }
+  - { id: H091, q: "what is MCLR", expect: unknown }
+  - { id: H092, q: "what is PMAY subsidy", expect: unknown }
+  - { id: H093, q: "what is a moratorium", expect: unknown }
+  - { id: H094, q: "what is a gold loan", expect: unknown }
+  - { id: H095, q: "what is the repo rate", expect: unknown }
+  - { id: H096, q: "what is an NOC", expect: unknown }
+  - { id: H097, q: "what is a cheque bounce under section 138", expect: unknown }
+  - { id: H098, q: "what is OVD", expect: unknown }
+  - { id: H099, q: "what is udyam registration", expect: unknown }
+  - { id: H100, q: "what is the stamp duty for home loan", expect: unknown }

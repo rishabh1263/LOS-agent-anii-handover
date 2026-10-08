@@ -1,0 +1,918 @@
+{
+ "summary": {
+  "set": "heldout_v1",
+  "label": "fast",
+  "total": 100,
+  "correct": 35,
+  "WRONG": 1,
+  "unknown": 15,
+  "clarify": 2,
+  "case": 44,
+  "other_miss": 3,
+  "p50_ms": 43.5,
+  "p95_ms": 118.9,
+  "model_pct": 0.0
+ },
+ "rows": [
+  {
+   "id": "H001",
+   "q": "foir ka full form kya hai",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 118.9,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H002",
+   "q": "loan pass hone mein kitna time lagta hai bhai",
+   "expect": "not_configured",
+   "result": "case",
+   "ms": 137.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"loan pass hone mein kitna time lagta hai bhai\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the "
+  },
+  {
+   "id": "H003",
+   "q": "home loan mein kitne saal tak ka loan milta hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 57.4,
+   "model": false,
+   "reply": "- Home Loan: tenure 12 to 360 months. These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits. Source: the eligibility policy"
+  },
+  {
+   "id": "H004",
+   "q": "customer ka cibil kitna hona chahiye",
+   "expect": "not_configured",
+   "result": "case",
+   "ms": 109.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"customer ka cibil kitna hona chahiye\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole lis"
+  },
+  {
+   "id": "H005",
+   "q": "personal loan ke liye kaun kaun se documents lagte hai",
+   "expect": "answer",
+   "result": "case",
+   "ms": 129.2,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"personal loan ke liye kaun kaun se documents lagte hai\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). Tha"
+  },
+  {
+   "id": "H006",
+   "q": "bijli ka bill address proof chalega kya",
+   "expect": "answer",
+   "result": "case",
+   "ms": 119.8,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"bijli ka bill address proof chalega kya\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole "
+  },
+  {
+   "id": "H007",
+   "q": "guarantor kaun hota hai",
+   "expect": "answer",
+   "result": "case",
+   "ms": 122.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"guarantor kaun hota hai\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H008",
+   "q": "sanction letter kab milta hai",
+   "expect": "answer",
+   "result": "case",
+   "ms": 123.6,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"sanction letter kab milta hai\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H009",
+   "q": "emi kitni banegi 3 lakh pe 15 percent 2 saal",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 53.7,
+   "model": false,
+   "reply": "EMI (Equated Monthly Instalment) for **₹3,00,000** at 15% a year for 24 months: ₹14,546 a month (total interest ₹49,104, total paid ₹3,49,104). Formula: EMI = P × r × (1+r)^n ÷ ((1+r)^n − 1), r = mont"
+  },
+  {
+   "id": "H010",
+   "q": "case cpa mein kaise bhejte hai",
+   "expect": "answer",
+   "result": "case",
+   "ms": 82.2,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"case cpa mein kaise bhejte hai\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H011",
+   "q": "kyc reject kyu hota hai",
+   "expect": "answer",
+   "result": "case",
+   "ms": 88.3,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"kyc reject kyu hota hai\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H012",
+   "q": "loan dene ka decision kaun leta hai",
+   "expect": "answer",
+   "result": "case",
+   "ms": 78.7,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"loan dene ka decision kaun leta hai\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list"
+  },
+  {
+   "id": "H013",
+   "q": "processing charge kitna lagta hai",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 35.8,
+   "model": false,
+   "reply": "No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter."
+  },
+  {
+   "id": "H014",
+   "q": "self employed ko loan milta hai kya",
+   "expect": "answer",
+   "result": "case",
+   "ms": 86.1,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"self employed ko loan milta hai kya\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list"
+  },
+  {
+   "id": "H015",
+   "q": "minimum salary kitni chahiye personal loan ke liye",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 32.1,
+   "model": false,
+   "reply": "- Personal Loan: minimum monthly income **₹25,000,** taken from the **verified** net pay. These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, the credit team confirms the rea"
+  },
+  {
+   "id": "H016",
+   "q": "photo kheech ke document upload kar sakte hai kya",
+   "expect": "answer",
+   "result": "case",
+   "ms": 75.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"photo kheech ke document upload kar sakte hai kya\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is "
+  },
+  {
+   "id": "H017",
+   "q": "disbursement ka matlab kya hota hai",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 41.9,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H018",
+   "q": "mere saare case dikhao",
+   "expect": "list",
+   "result": "correct",
+   "ms": 42.1,
+   "model": false,
+   "reply": "You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list. Do you want to know about a particular case? [Yes](ask:Yes) · [No](ask:No) Download: [Excel](ac"
+  },
+  {
+   "id": "H019",
+   "q": "nach mandate kya hota hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 48.9,
+   "model": false,
+   "reply": "NACH (National Automated Clearing House, run by NPCI) lets the lender collect each EMI (Equated Monthly Instalment) automatically from the borrower's bank account, under a mandate the borrower signs. "
+  },
+  {
+   "id": "H020",
+   "q": "co applicant ke documents kaun se lagenge",
+   "expect": "answer",
+   "result": "case",
+   "ms": 71.6,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"co applicant ke documents kaun se lagenge\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whol"
+  },
+  {
+   "id": "H021",
+   "q": "loan approve kar do please",
+   "expect": "decline",
+   "result": "correct",
+   "ms": 31.6,
+   "model": false,
+   "reply": "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still pending so the case is ready for them. I can't approve, reject, dis"
+  },
+  {
+   "id": "H022",
+   "q": "is customer ko loan milega kya",
+   "expect": "decline",
+   "result": "case",
+   "ms": 47.3,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"is customer ko loan milega kya\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H023",
+   "q": "case banane ka process batao",
+   "expect": "answer",
+   "result": "case",
+   "ms": 50.7,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"case banane ka process batao\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H024",
+   "q": "ltv kitna allowed hai home loan mein",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 20.8,
+   "model": false,
+   "reply": "- Home Loan: LTV (Loan to Value) up to 80% of the property value. These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits. Source: the el"
+  },
+  {
+   "id": "H025",
+   "q": "interest rate kitna chal raha hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 23.9,
+   "model": false,
+   "reply": "- Personal Loan: 14% a year (the rate used for the EMI (Equated Monthly Instalment) estimate). - Home Loan: 8.5% a year (the rate used for the EMI estimate). These are DEMO policy values (PL_DUMMY_V1,"
+  },
+  {
+   "id": "H026",
+   "q": "wat is foir",
+   "expect": "answer",
+   "result": "case",
+   "ms": 50.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"wat is foir\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H027",
+   "q": "documnets required for home lone",
+   "expect": "answer",
+   "result": "case",
+   "ms": 50.4,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"documnets required for home lone\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H028",
+   "q": "what is santion letter",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 19.7,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H029",
+   "q": "how to uplod documents",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 21.7,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H030",
+   "q": "wht is co-aplicant",
+   "expect": "answer",
+   "result": "case",
+   "ms": 48.1,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"wht is co-aplicant\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H031",
+   "q": "minimun income for personal laon",
+   "expect": "answer",
+   "result": "case",
+   "ms": 52.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"minimun income for personal laon\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H032",
+   "q": "what is disbursment",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 21.4,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H033",
+   "q": "how to move case to cpa stage",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 27.9,
+   "model": false,
+   "reply": "1. Fill the application form: Applicant name, Mobile, Date of birth, Address, Product, Loan amount (Rs). 2. Upload the mandatory documents for the product (for Personal Loan: PAN (Permanent Account Nu"
+  },
+  {
+   "id": "H034",
+   "q": "is adhaar mandatory",
+   "expect": "answer",
+   "result": "WRONG",
+   "ms": 32.3,
+   "model": false,
+   "reply": "Mandatory, for every home loan: PAN (Permanent Account Number), Bank Statement and Address Proof. - PAN - satisfied by a PAN card - Bank Statement - satisfied by a bank statement - Address Proof - sat"
+  },
+  {
+   "id": "H035",
+   "q": "what is forclosure",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 24.3,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H036",
+   "q": "emi for 2 lakh at 11% for 24 monts",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 23.1,
+   "model": false,
+   "reply": "EMI (Equated Monthly Instalment) for **₹2,00,000** at 11% a year for 24 months: ₹9,322 a month (total interest ₹23,718, total paid ₹2,23,718). Formula: EMI = P × r × (1+r)^n ÷ ((1+r)^n − 1), r = month"
+  },
+  {
+   "id": "H037",
+   "q": "maximum tenur for personal loan",
+   "expect": "answer",
+   "result": "case",
+   "ms": 50.4,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"maximum tenur for personal loan\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H038",
+   "q": "who aproves the loan",
+   "expect": "answer",
+   "result": "case",
+   "ms": 47.4,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"who aproves the loan\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H039",
+   "q": "what is balnce transfer",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 24.5,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H040",
+   "q": "proces to verify documents",
+   "expect": "answer",
+   "result": "case",
+   "ms": 51.4,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"proces to verify documents\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H041",
+   "q": "my customer wants to close his loan early, what is that called",
+   "expect": "answer",
+   "result": "case",
+   "ms": 35.9,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"my customer wants to close his loan early, what is that called\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest fir"
+  },
+  {
+   "id": "H042",
+   "q": "customer is asking how much he will pay every month for 10 lakh at 10% for 5 years",
+   "expect": "answer",
+   "result": "case",
+   "ms": 52.8,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"customer is asking how much he will pay every month for 10 lakh at 10% for 5 yea\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-"
+  },
+  {
+   "id": "H043",
+   "q": "the customer has no electricity bill, what else can he give for address",
+   "expect": "answer",
+   "result": "case",
+   "ms": 54.7,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"the customer has no electricity bill, what else can he give for address\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (n"
+  },
+  {
+   "id": "H044",
+   "q": "someone else will repay if the borrower can't, what is that person called",
+   "expect": "answer",
+   "result": "refused",
+   "ms": 14.7,
+   "model": false,
+   "reply": "I can help with your own authorised application information, but I can't provide other customers' private data or internal system details."
+  },
+  {
+   "id": "H045",
+   "q": "what happens to the file after I send it to CPA",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 25.8,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H046",
+   "q": "how do I know if a customer can afford the loan",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 26.1,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H047",
+   "q": "the customer wants a lower interest rate from another bank's loan, what do we offer",
+   "expect": "answer",
+   "result": "case",
+   "ms": 53.1,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"the customer wants a lower interest rate from another bank's loan, what do we of\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-"
+  },
+  {
+   "id": "H048",
+   "q": "I need to add the wife as a second borrower, how",
+   "expect": "answer",
+   "result": "case",
+   "ms": 50.9,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"I need to add the wife as a second borrower, how\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is t"
+  },
+  {
+   "id": "H049",
+   "q": "my upload got rejected, now what",
+   "expect": "answer",
+   "result": "case",
+   "ms": 55.3,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"my upload got **rejected**, now what\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole lis"
+  },
+  {
+   "id": "H050",
+   "q": "who checks the property papers",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 28.4,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H051",
+   "q": "who visits the customer's house to verify",
+   "expect": "answer",
+   "result": "case",
+   "ms": 51.9,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"who visits the customer's house to verify\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whol"
+  },
+  {
+   "id": "H052",
+   "q": "how is the house value decided for the loan",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 26.1,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H053",
+   "q": "is there a penalty if the customer pays extra early",
+   "expect": "not_configured",
+   "result": "case",
+   "ms": 51.3,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"is there a penalty if the customer pays extra early\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That i"
+  },
+  {
+   "id": "H054",
+   "q": "what does the bank check before giving money",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 34.8,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H055",
+   "q": "how much of his salary can go to EMIs",
+   "expect": "answer",
+   "result": "case",
+   "ms": 31.4,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"how much of his salary can go to EMIs\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole li"
+  },
+  {
+   "id": "H056",
+   "q": "what if the customer misses an EMI",
+   "expect": "answer",
+   "result": "case",
+   "ms": 47.4,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"what if the customer misses an EMI (Equated Monthly Instalment)\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest fi"
+  },
+  {
+   "id": "H057",
+   "q": "can a retired person get a loan",
+   "expect": "not_configured",
+   "result": "unknown",
+   "ms": 25.5,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H058",
+   "q": "how old must the customer be",
+   "expect": "not_configured",
+   "result": "case",
+   "ms": 48.8,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"how old must the customer be\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H059",
+   "q": "why can't I move my case to CPA",
+   "expect": "case",
+   "result": "correct",
+   "ms": 32.5,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"why can't I move my case to CPA\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H060",
+   "q": "the customer gave a salary slip, is that income proof",
+   "expect": "answer",
+   "result": "case",
+   "ms": 47.7,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"the customer gave a salary slip, is that income proof\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That"
+  },
+  {
+   "id": "H061",
+   "q": "what is FOIR and what is LTV",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 24.6,
+   "model": false,
+   "reply": "What is FOIR (Fixed Obligation to Income Ratio)** FOIR (Fixed Obligation to Income Ratio): the share of monthly income already going to EMIs and other fixed payments. Source: the glossary What is LTV "
+  },
+  {
+   "id": "H062",
+   "q": "foir kya hai aur maximum kitna allowed hai",
+   "expect": "answer",
+   "result": "clarify",
+   "ms": 50.8,
+   "model": false,
+   "reply": "Do you mean: [Explain the process](ask:Explain%20the%20process) · [What are the loan details?](ask:What%20are%20the%20loan%20details?)"
+  },
+  {
+   "id": "H063",
+   "q": "what is a co-applicant and how do I add one",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 54.9,
+   "model": false,
+   "reply": "What is a co-applicant A co-applicant applies for the loan together with the main applicant. A co-applicant's income can be counted for eligibility, and a co-applicant is equally responsible for repay"
+  },
+  {
+   "id": "H064",
+   "q": "minimum and maximum loan amount for personal loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 21.4,
+   "model": false,
+   "reply": "- Personal Loan: loan amount **₹50,000** to **₹10,00,000**. These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits. Source: the eligibil"
+  },
+  {
+   "id": "H065",
+   "q": "what is NACH and what is e-mandate",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 45.0,
+   "model": false,
+   "reply": "What is NACH NACH (National Automated Clearing House, run by NPCI) lets the lender collect each EMI (Equated Monthly Instalment) automatically from the borrower's bank account, under a mandate the bor"
+  },
+  {
+   "id": "H066",
+   "q": "tenure and interest rate for home loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 22.8,
+   "model": false,
+   "reply": "- Home Loan: 8.5% a year (the rate used for the EMI (Equated Monthly Instalment) estimate). These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the r"
+  },
+  {
+   "id": "H067",
+   "q": "what is CKYC and video KYC",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 40.1,
+   "model": false,
+   "reply": "What is CKYC CKYC is the Central KYC (Know Your Customer) Records Registry. What is video KYC Video KYC (V-CIP, video-based customer identification) is KYC done over a live, consent-based video call w"
+  },
+  {
+   "id": "H068",
+   "q": "what is prepayment and foreclosure",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 40.5,
+   "model": false,
+   "reply": "What is prepayment A prepayment (or part payment) is paying back part of the loan principal before it is due. It reduces the outstanding amount, so either the EMI (Equated Monthly Instalment) or the r"
+  },
+  {
+   "id": "H069",
+   "q": "who approves the loan and how long does it take",
+   "expect": "answer",
+   "result": "unknown",
+   "ms": 41.6,
+   "model": false,
+   "reply": "Who approves the loan The credit team approves or rejects a loan, at the Credit stage after CPA. The field officer (FOS (Field Officer Sales)) and this chat never approve, reject or sanction a loan; F"
+  },
+  {
+   "id": "H070",
+   "q": "what is RCU and BOPS",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 19.7,
+   "model": false,
+   "reply": "What is RCU RCU: a later stage that checks the file for risk. Source: the glossary What is BOPS BOPS: a later stage of the loan process."
+  },
+  {
+   "id": "H071",
+   "q": "what is FOIR -> and LTV?",
+   "expect": "answer",
+   "result": "case",
+   "ms": 46.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"and LTV (Loan to Value)?\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H072",
+   "q": "what is the maximum tenure for home loan -> and for personal loan?",
+   "expect": "answer",
+   "result": "case",
+   "ms": 69.9,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"and for personal loan?\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H073",
+   "q": "what is a guarantor -> aur co-applicant?",
+   "expect": "answer",
+   "result": "case",
+   "ms": 56.6,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"aur co-applicant?\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H074",
+   "q": "what is prepayment -> is there a charge for it?",
+   "expect": "not_configured",
+   "result": "case",
+   "ms": 52.5,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"is there a charge for it?\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H075",
+   "q": "EMI for 5 lakh at 12% for 3 years -> and for 5 years?",
+   "expect": "answer",
+   "result": "case",
+   "ms": 55.3,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"and for 5 years?\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H076",
+   "q": "minimum income for personal loan -> home loan ka?",
+   "expect": "answer",
+   "result": "case",
+   "ms": 51.2,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"home loan ka?\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H077",
+   "q": "what is CPA -> what comes after it?",
+   "expect": "answer",
+   "result": "case",
+   "ms": 58.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"what comes after it?\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H078",
+   "q": "what is NACH -> matlab hindi mein samjhao",
+   "expect": "answer",
+   "result": "case",
+   "ms": 53.7,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"matlab hindi mein samjhao\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H079",
+   "q": "show my cases -> top 1",
+   "expect": "list",
+   "result": "correct",
+   "ms": 25.4,
+   "model": false,
+   "reply": "You have 2 cases: 2 with documents **pending**. Showing 1-1 of 2 (newest first). [Show more](action:list_more) Do you want to know about a particular case? [Yes](ask:Yes) · [No](ask:No)"
+  },
+  {
+   "id": "H080",
+   "q": "what is legal verification -> and technical?",
+   "expect": "answer",
+   "result": "case",
+   "ms": 51.8,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"and technical?\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H081",
+   "q": "should I approve this file",
+   "expect": "decline",
+   "result": "correct",
+   "ms": 19.4,
+   "model": false,
+   "reply": "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still **pending** so the case is ready for them. [What is pending?](ask:W"
+  },
+  {
+   "id": "H082",
+   "q": "will Rahul's loan be sanctioned",
+   "expect": "decline",
+   "result": "case",
+   "ms": 55.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"will Rahul's loan be sanctioned\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H083",
+   "q": "reject the case",
+   "expect": "decline",
+   "result": "case",
+   "ms": 34.6,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"reject the case\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "H084",
+   "q": "what is the status of Priya's case",
+   "expect": "case",
+   "result": "answer",
+   "ms": 85.9,
+   "model": false,
+   "reply": "CASE-8E840405C47B · Priya Verma · FOS (Field Officer Sales) PAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Priya Verma's KYC (Know Your Customer) hasn"
+  },
+  {
+   "id": "H085",
+   "q": "which documents are pending",
+   "expect": "case",
+   "result": "clarify",
+   "ms": 14.6,
+   "model": false,
+   "reply": "For which product? [mandatory documents for personal loan](ask:mandatory%20documents%20for%20personal%20loan) · [mandatory documents for home loan](ask:mandatory%20documents%20for%20home%20loan)"
+  },
+  {
+   "id": "H086",
+   "q": "is the KYC done",
+   "expect": "case",
+   "result": "correct",
+   "ms": 53.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"is the KYC (Know Your Customer) done\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole lis"
+  },
+  {
+   "id": "H087",
+   "q": "what is the bounce charge",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 16.3,
+   "model": false,
+   "reply": "No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter."
+  },
+  {
+   "id": "H088",
+   "q": "what is the prepayment penalty",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 15.3,
+   "model": false,
+   "reply": "No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter."
+  },
+  {
+   "id": "H089",
+   "q": "how many days does disbursement take",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 19.9,
+   "model": false,
+   "reply": "No approval time (TAT) is configured in this system. After CPA the case goes through Credit, RCU, BOPS and HOPS before disbursement; your branch can tell you the usual time."
+  },
+  {
+   "id": "H090",
+   "q": "what is the late payment fee",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 17.4,
+   "model": false,
+   "reply": "No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter."
+  },
+  {
+   "id": "H091",
+   "q": "what is MCLR",
+   "expect": "unknown",
+   "result": "correct",
+   "ms": 20.5,
+   "model": false,
+   "reply": "MCLR is not in the knowledge base yet. I've noted it for the team."
+  },
+  {
+   "id": "H092",
+   "q": "what is PMAY subsidy",
+   "expect": "unknown",
+   "result": "correct",
+   "ms": 25.2,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H093",
+   "q": "what is a moratorium",
+   "expect": "unknown",
+   "result": "correct",
+   "ms": 25.3,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H094",
+   "q": "what is a gold loan",
+   "expect": "unknown",
+   "result": "correct",
+   "ms": 24.7,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H095",
+   "q": "what is the repo rate",
+   "expect": "unknown",
+   "result": "refused",
+   "ms": 11.0,
+   "model": false,
+   "reply": "I can explain how a check works in business terms, but I can't share internal code or system files."
+  },
+  {
+   "id": "H096",
+   "q": "what is an NOC",
+   "expect": "unknown",
+   "result": "correct",
+   "ms": 19.8,
+   "model": false,
+   "reply": "NOC is not in the knowledge base yet. I've noted it for the team."
+  },
+  {
+   "id": "H097",
+   "q": "what is a cheque bounce under section 138",
+   "expect": "unknown",
+   "result": "correct",
+   "ms": 31.7,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H098",
+   "q": "what is OVD",
+   "expect": "unknown",
+   "result": "correct",
+   "ms": 20.0,
+   "model": false,
+   "reply": "OVD is not in the knowledge base yet. I've noted it for the team."
+  },
+  {
+   "id": "H099",
+   "q": "what is udyam registration",
+   "expect": "unknown",
+   "result": "correct",
+   "ms": 28.1,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "H100",
+   "q": "what is the stamp duty for home loan",
+   "expect": "unknown",
+   "result": "correct",
+   "ms": 24.2,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  }
+ ]
+}

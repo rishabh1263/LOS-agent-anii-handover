@@ -160,8 +160,11 @@ def test_case_open_is_three_lines_and_at_most_two_links(client, prod):
     md = say(client, f"open {case_id}", chat="o1")["markdown"]
     body = [ln for ln in md.split("\n\n")[0].split("\n") if ln.strip()]
     assert len(body) <= 3 and body[-1].startswith("Next step:")
-    assert len(LINK.findall(md)) <= 2
-    assert "exit_case" not in md and "switch_case" not in md and "action:download" not in md
+    # owner 2026-10-08: plus ONE upload (the next step's document) and the always-there Close
+    links = LINK.findall(md)
+    assert "action:exit_case" in links and len([t for t in links if t.startswith("action:upload")]) == 1
+    assert len([t for t in links if not t.startswith(("action:upload", "action:exit_case"))]) <= 2
+    assert "switch_case" not in md and "action:download" not in md
 
 
 def test_replies_keep_the_link_budget_and_never_repeat(client, prod):
@@ -171,9 +174,10 @@ def test_replies_keep_the_link_budget_and_never_repeat(client, prod):
     seen_before: set[str] = set()
     for message in ["view all cases", "2", "what is pending?", "kyu?", "download excel", "show in UI"]:
         md = say(client, message, chat=chat)["markdown"]
-        assert extra_links(md) <= 3, (message, md)
+        assert extra_links(md.replace("[Close](action:exit_case)", "")) <= 3, (message, md)   # Close: always
         assert " -- " not in md and not re.search(r'(?i)\b(say|type) "', md), (message, md)
-        now = set(LINK.findall(md)) - {t for t in LINK.findall(md) if "open_case" in t}
+        # Open per row, Close and Upload are the actions themselves: shown again whenever they apply (owner 2026-10-08)
+        now = {t for t in LINK.findall(md) if not t.startswith(("action:open_case", "action:exit_case", "action:upload"))}
         assert not (now & seen_before) or message in ("download excel", "show in UI"), (message, now & seen_before)
         seen_before = now
 

@@ -1339,7 +1339,7 @@ chatbot:
              list dikhao, saare cases, all cases, सारे केस, मेरे केस, माझे केस]
       more: [aur dikhao, more, aur, next page, aage dikhao, और दिखाओ]
       open: [kholo, khol do, open, jao, jaana hai, chalo, select, खोलो, उघडा]
-      exit: [bahar aao, bahar, exit, close case, case band karo, band karo, back, बाहर, बाहेर]
+      exit: [bahar aao, bahar, exit, close, close it, close karo, case close karo, close case, close this case, case band karo, band karo, band kar do, back, बाहर, बाहेर]
       switch: [dusra case, doosra case, another case, case badlo, switch case, other case]
       previous: [pehle wala case, pichla case, previous case, last case, wapas pehle wala, pehle wale case]
       case_word: [case, ka case, wala case, file, application]

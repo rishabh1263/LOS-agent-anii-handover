@@ -1,0 +1,1062 @@
+{
+ "summary": {
+  "set": "golden",
+  "label": "before",
+  "total": 116,
+  "correct": 114,
+  "WRONG": 0,
+  "unknown": 0,
+  "clarify": 0,
+  "case": 0,
+  "other_miss": 2,
+  "p50_ms": 43.4,
+  "p95_ms": 97.1,
+  "model_pct": 0.0
+ },
+ "rows": [
+  {
+   "id": "Gter000",
+   "q": "what is FOIR",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 794.8,
+   "model": false,
+   "reply": "FOIR (Fixed Obligation to Income Ratio): the share of monthly income already going to EMIs and other fixed payments. Source: the glossary"
+  },
+  {
+   "id": "Gter001",
+   "q": "FOIR kya hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 36.9,
+   "model": false,
+   "reply": "FOIR (Fixed Obligation to Income Ratio): the share of monthly income already going to EMIs and other fixed payments. Source: the glossary"
+  },
+  {
+   "id": "Gter002",
+   "q": "what is LTV",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 25.5,
+   "model": false,
+   "reply": "LTV (Loan to Value): the loan amount as a share of the property's value. Source: the glossary"
+  },
+  {
+   "id": "Gter003",
+   "q": "LTV ka matlab",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 23.1,
+   "model": false,
+   "reply": "LTV (Loan to Value): the loan amount as a share of the property's value. Source: the glossary"
+  },
+  {
+   "id": "Gter004",
+   "q": "what is EMI",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 23.5,
+   "model": false,
+   "reply": "EMI (Equated Monthly Instalment): the fixed amount paid every month to repay a loan. Source: the glossary"
+  },
+  {
+   "id": "Gter005",
+   "q": "what is CIBIL score",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 109.6,
+   "model": false,
+   "reply": "CIBIL (TransUnion CIBIL (formerly Credit Information Bureau (India) Limited)) (TransUnion CIBIL) is one of India's credit bureaus**. A credit bureau collects how a person has handled loans and credit "
+  },
+  {
+   "id": "Gter006",
+   "q": "cibil score kya hota hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 42.8,
+   "model": false,
+   "reply": "This chatbot does not fetch CIBIL (TransUnion CIBIL (formerly Credit Information Bureau (India) Limited)) scores; the credit check happens at the Credit stage, one of the later stages of this loan pro"
+  },
+  {
+   "id": "Gter007",
+   "q": "what is KYC",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 22.1,
+   "model": false,
+   "reply": "KYC (Know Your Customer): the check that the applicant is who the documents say they are. Source: the glossary"
+  },
+  {
+   "id": "Gter008",
+   "q": "what is OVD",
+   "expect": "unknown",
+   "result": "correct",
+   "ms": 25.0,
+   "model": false,
+   "reply": "OVD is not in the knowledge base yet. I've noted it for the team."
+  },
+  {
+   "id": "Gter009",
+   "q": "what is CKYC",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 26.4,
+   "model": false,
+   "reply": "CKYC is the Central KYC (Know Your Customer) Records Registry."
+  },
+  {
+   "id": "Gter010",
+   "q": "what is video KYC",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 51.9,
+   "model": false,
+   "reply": "Video KYC (V-CIP, video-based customer identification) is KYC (Know Your Customer) done over a live, consent-based video call with the lender's official, where the customer shows the original document"
+  },
+  {
+   "id": "Gter011",
+   "q": "what is NACH",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 47.4,
+   "model": false,
+   "reply": "NACH (National Automated Clearing House, run by NPCI) lets the lender collect each EMI (Equated Monthly Instalment) automatically from the borrower's bank account, under a mandate the borrower signs. "
+  },
+  {
+   "id": "Gter012",
+   "q": "what is e-mandate",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 41.9,
+   "model": false,
+   "reply": "NACH (National Automated Clearing House, run by NPCI) lets the lender collect each EMI (Equated Monthly Instalment) automatically from the borrower's bank account, under a mandate the borrower signs. "
+  },
+  {
+   "id": "Gter013",
+   "q": "what is a co-applicant",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 52.0,
+   "model": false,
+   "reply": "A co-applicant applies for the loan together with the main applicant. A co-applicant's income can be counted for eligibility, and a co-applicant is equally responsible for repaying the loan. A co-appl"
+  },
+  {
+   "id": "Gter014",
+   "q": "what is a guarantor",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 39.0,
+   "model": false,
+   "reply": "A guarantor is not a borrower. A guarantor promises to repay the loan if the borrower does not."
+  },
+  {
+   "id": "Gter015",
+   "q": "difference between co-applicant and guarantor",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 76.5,
+   "model": false,
+   "reply": "A co-applicant borrows together with the applicant and shares the repayment from the start; their income can add to eligibility. A guarantor does not borrow and pays only if the borrower defaults; the"
+  },
+  {
+   "id": "Gter016",
+   "q": "what is sanction letter",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 66.4,
+   "model": false,
+   "reply": "A sanction letter is the lender's written approval of a loan. It states the **approved** amount, the interest rate, the tenure, the EMI (Equated Monthly Instalment) and the conditions to be met before"
+  },
+  {
+   "id": "Gter017",
+   "q": "what is disbursement",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 54.8,
+   "model": false,
+   "reply": "Disbursement is the release of the loan money, to the borrower, or for a home loan usually to the seller or builder. It happens after sanction and after the loan documents are signed. In this system D"
+  },
+  {
+   "id": "Gter018",
+   "q": "what is tenure",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 51.5,
+   "model": false,
+   "reply": "Tenure is the repayment period of the loan, in months or years. A longer tenure means a lower EMI (Equated Monthly Instalment) but more interest paid in total; a shorter tenure means a higher EMI and "
+  },
+  {
+   "id": "Gter019",
+   "q": "what is processing fee",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 54.6,
+   "model": false,
+   "reply": "A processing fee is a one-time charge for processing a loan application, usually a percentage of the loan amount and often deducted from the amount disbursed. The processing fee amount is not configur"
+  },
+  {
+   "id": "Gter020",
+   "q": "what is foreclosure",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 38.3,
+   "model": false,
+   "reply": "Foreclosure (or pre-closure) is repaying the whole outstanding loan early and closing it. Any foreclosure charge depends on the loan's terms in the sanction letter; it is not configured in this system"
+  },
+  {
+   "id": "Gter021",
+   "q": "what is prepayment",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 37.5,
+   "model": false,
+   "reply": "A prepayment (or part payment) is paying back part of the loan principal before it is due. It reduces the outstanding amount, so either the EMI (Equated Monthly Instalment) or the remaining tenure com"
+  },
+  {
+   "id": "Gter022",
+   "q": "what is part payment",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 40.8,
+   "model": false,
+   "reply": "A prepayment (or part payment) is paying back part of the loan principal before it is due. It reduces the outstanding amount, so either the EMI (Equated Monthly Instalment) or the remaining tenure com"
+  },
+  {
+   "id": "Gter023",
+   "q": "what is balance transfer",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 44.5,
+   "model": false,
+   "reply": "A balance transfer (BT) moves an existing loan from another lender to this lender, usually for a lower interest rate or better terms. The new lender pays off the old loan and the customer repays the n"
+  },
+  {
+   "id": "Gter024",
+   "q": "what is top up loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 43.1,
+   "model": false,
+   "reply": "A top-up loan is an extra loan given on top of an existing loan, often to a customer with a good repayment record or together with a balance transfer. It is repaid with or alongside the existing loan."
+  },
+  {
+   "id": "Gter025",
+   "q": "what is loan against property",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 44.1,
+   "model": false,
+   "reply": "A loan against property (LAP) is a secured loan given against a residential or commercial property the borrower already owns; the property is the security. LAP is not one of the products configured in"
+  },
+  {
+   "id": "Gter026",
+   "q": "what is RCU",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 23.2,
+   "model": false,
+   "reply": "RCU: a later stage that checks the file for risk. Source: the glossary"
+  },
+  {
+   "id": "Gter027",
+   "q": "what is field investigation",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 48.2,
+   "model": false,
+   "reply": "A field investigation (FI) is a visit by the lender or its agency to the customer's residence or office to confirm the address and that the customer lives or works there."
+  },
+  {
+   "id": "Gter028",
+   "q": "what is personal discussion",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 33.2,
+   "model": false,
+   "reply": "A personal discussion (PD) is an interview of the customer by the lender to understand their income, business or job, existing loans and the purpose of the loan."
+  },
+  {
+   "id": "Gter029",
+   "q": "what is legal verification",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 41.5,
+   "model": false,
+   "reply": "Legal verification is a lawyer's check of a property's title documents, to confirm the seller or owner has a clear title and that the property can be taken as security."
+  },
+  {
+   "id": "Gter030",
+   "q": "what is technical valuation",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 37.0,
+   "model": false,
+   "reply": "Technical valuation is an inspection of the property by an engineer or valuer, who confirms its condition and estimates its market value. The value is used for the LTV (loan to value)."
+  },
+  {
+   "id": "Gter031",
+   "q": "what is CERSAI",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 30.4,
+   "model": false,
+   "reply": "CERSAI (Central Registry of Securitisation Asset Reconstruction and Security Interest of India) is the registry where a lender records its charge on a property given as security, so the same property "
+  },
+  {
+   "id": "Gter032",
+   "q": "what is ITR",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 20.3,
+   "model": false,
+   "reply": "ITR (Income Tax Return): the yearly income statement filed with the tax department. Source: the glossary"
+  },
+  {
+   "id": "Gter033",
+   "q": "what is form 16",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 31.8,
+   "model": false,
+   "reply": "Form 16 is the certificate an employer gives each employee every year, showing the salary paid and the tax (TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or a"
+  },
+  {
+   "id": "Gter034",
+   "q": "what is net salary",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 35.4,
+   "model": false,
+   "reply": "Net salary (net pay) is the take-home pay after deductions such as tax and provident fund; gross salary is the pay before deductions. This system's eligibility uses the **verified** net pay, not the g"
+  },
+  {
+   "id": "Gter035",
+   "q": "what is BOPS",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 19.3,
+   "model": false,
+   "reply": "BOPS: a later stage of the loan process. Source: the glossary"
+  },
+  {
+   "id": "Gter036",
+   "q": "what is HOPS",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 17.7,
+   "model": false,
+   "reply": "HOPS: a later stage of the loan process. Source: the glossary"
+  },
+  {
+   "id": "Gter037",
+   "q": "what is FOS",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 19.9,
+   "model": false,
+   "reply": "FOS (Field Officer Sales): the first stage, where the field officer collects details and documents. Source: the glossary"
+  },
+  {
+   "id": "Gter038",
+   "q": "what is CPA",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 35.4,
+   "model": false,
+   "reply": "CPA: the stage after FOS (Field Officer Sales), where the completed file is processed further. A case moves from FOS to CPA when every FOS check passes: Application details, Applicant documents, Co-ap"
+  },
+  {
+   "id": "Gter039",
+   "q": "what is credit stage",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 33.4,
+   "model": false,
+   "reply": "The Credit stage comes right after CPA. The credit team assesses the customer's repayment capacity, credit bureau record and the product policy, and decides on the loan."
+  },
+  {
+   "id": "Gcal000",
+   "q": "EMI for 5 lakh at 12% for 3 years",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 28.7,
+   "model": false,
+   "reply": "EMI (Equated Monthly Instalment) for **₹5,00,000** at 12% a year for 36 months: ₹16,607 a month (total interest ₹97,858, total paid ₹5,97,858). Formula: EMI = P × r × (1+r)^n ÷ ((1+r)^n − 1), r = mont"
+  },
+  {
+   "id": "Gcal001",
+   "q": "5 lakh ka emi 12 percent 36 months",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 29.2,
+   "model": false,
+   "reply": "EMI (Equated Monthly Instalment) for **₹5,00,000** at 12% a year for 36 months: ₹16,607 a month (total interest ₹97,858, total paid ₹5,97,858). Formula: EMI = P × r × (1+r)^n ÷ ((1+r)^n − 1), r = mont"
+  },
+  {
+   "id": "Gcal002",
+   "q": "calculate FOIR income 50000 emi 15000",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 60.9,
+   "model": false,
+   "reply": "FOIR (Fixed Obligation to Income Ratio) = **₹15,000** ÷ ₹50,000 × 100 = 30.0%. The configured maximum is 50% (PL_DUMMY_V1, demo values). Indicative only: the system's eligibility check uses the **veri"
+  },
+  {
+   "id": "Gcal003",
+   "q": "LTV for 40 lakh loan on 60 lakh property",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 23.7,
+   "model": false,
+   "reply": "LTV (Loan to Value) = **₹40,00,000** ÷ ₹60,00,000 × 100 = 66.7%. The configured maximum for Home Loan is 80% (HL_DUMMY_V1, demo values). Indicative only: the system's eligibility check uses the **veri"
+  },
+  {
+   "id": "Geli000",
+   "q": "what is the maximum FOIR",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 25.0,
+   "model": false,
+   "reply": "- Personal Loan: FOIR (Fixed Obligation to Income Ratio) up to 50% (above it the case goes to a reviewer). - Home Loan: FOIR up to 50% (above it the case goes to a reviewer). These are DEMO policy val"
+  },
+  {
+   "id": "Geli001",
+   "q": "minimum income required",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 26.7,
+   "model": false,
+   "reply": "- Personal Loan: minimum monthly income **₹25,000,** taken from the **verified** net pay. - Home Loan: minimum monthly income ₹25,000, taken from the verified net pay. These are DEMO policy values (PL"
+  },
+  {
+   "id": "Geli002",
+   "q": "minimum salary for personal loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 26.1,
+   "model": false,
+   "reply": "- Personal Loan: minimum monthly income **₹25,000,** taken from the **verified** net pay. These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, the credit team confirms the rea"
+  },
+  {
+   "id": "Geli003",
+   "q": "which income is used for eligibility",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 26.9,
+   "model": false,
+   "reply": "- Personal Loan: minimum monthly income **₹25,000,** taken from the **verified** net pay. - Home Loan: minimum monthly income ₹25,000, taken from the verified net pay. These are DEMO policy values (PL"
+  },
+  {
+   "id": "Geli004",
+   "q": "minimum cibil score required",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 22.5,
+   "model": false,
+   "reply": "No CIBIL (TransUnion CIBIL (formerly Credit Information Bureau (India) Limited)) score cut-off is configured in this system. The credit check happens at the Credit stage, after CPA; the credit team de"
+  },
+  {
+   "id": "Geli005",
+   "q": "maximum loan amount for personal loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 28.5,
+   "model": false,
+   "reply": "- Personal Loan: loan amount **₹50,000** to **₹10,00,000**. These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits. Source: the eligibil"
+  },
+  {
+   "id": "Geli006",
+   "q": "what is the interest rate",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 30.3,
+   "model": false,
+   "reply": "- Personal Loan: 14% a year (the rate used for the EMI (Equated Monthly Instalment) estimate). - Home Loan: 8.5% a year (the rate used for the EMI estimate). These are DEMO policy values (PL_DUMMY_V1,"
+  },
+  {
+   "id": "Geli007",
+   "q": "maximum tenure for home loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 22.3,
+   "model": false,
+   "reply": "- Home Loan: tenure 12 to 360 months. These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits. Source: the eligibility policy"
+  },
+  {
+   "id": "Geli008",
+   "q": "age limit for loan",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 22.6,
+   "model": false,
+   "reply": "- Personal Loan: not set in the eligibility policy. - Home Loan: not set in the eligibility policy. These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credi"
+  },
+  {
+   "id": "Geli009",
+   "q": "maximum LTV for home loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 21.4,
+   "model": false,
+   "reply": "- Home Loan: LTV (Loan to Value) up to 80% of the property value. These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits. Source: the el"
+  },
+  {
+   "id": "Gdoc000",
+   "q": "documents required for personal loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 30.1,
+   "model": false,
+   "reply": "Documents for Personal Loan: Every co-applicant: Amount-based rules may add documents once the loan amount is entered. Source: the product checklist, co-applicant documents"
+  },
+  {
+   "id": "Gdoc001",
+   "q": "home loan ke liye kya documents chahiye",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 42.2,
+   "model": false,
+   "reply": "Documents for Home Loan: Every co-applicant: Amount-based rules may add documents once the loan amount is entered. Source: the product checklist, co-applicant documents"
+  },
+  {
+   "id": "Gdoc002",
+   "q": "which documents are accepted as address proof",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 49.2,
+   "model": false,
+   "reply": "Driving Licence, Passport or Voter ID can satisfy the Address Proof requirement."
+  },
+  {
+   "id": "Gdoc003",
+   "q": "is aadhaar mandatory",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 63.9,
+   "model": false,
+   "reply": "Mandatory, for every home loan: PAN (Permanent Account Number), Bank Statement and Address Proof. - PAN - satisfied by a PAN card - Bank Statement - satisfied by a bank statement - Address Proof - sat"
+  },
+  {
+   "id": "Gdoc004",
+   "q": "can I use electricity bill as address proof",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 37.4,
+   "model": false,
+   "reply": "No. Electricity Bill is not accepted by this service. Driving Licence, Passport or Voter ID can satisfy the Address Proof requirement."
+  },
+  {
+   "id": "Gdoc005",
+   "q": "how many months bank statement is needed",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 71.8,
+   "model": false,
+   "reply": "The checklist asks for a bank statement; the number of months is not configured in this system. The product policy of the credit team decides the period, check it before collecting the statement."
+  },
+  {
+   "id": "Gdoc006",
+   "q": "documents for co-applicant",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 34.4,
+   "model": false,
+   "reply": "Every co-applicant: Source: the co-applicant checklist"
+  },
+  {
+   "id": "Gdoc007",
+   "q": "is signature mandatory",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 33.4,
+   "model": false,
+   "reply": "Yes. A signature is mandatory for every case created on or after 2026-10-08; a case without it is not **ready for CPA**."
+  },
+  {
+   "id": "Gdoc008",
+   "q": "what does document rejected mean",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 50.1,
+   "model": false,
+   "reply": "The new upload replaces the **rejected** one for that slot; it is **verified** again, and the case moves forward once it passes. The reason the document was rejected is shown in the case, so fix that "
+  },
+  {
+   "id": "Gdoc009",
+   "q": "what does in review mean",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 63.5,
+   "model": false,
+   "reply": "REVIEW means a person has to look at it. REVIEW is not a rejection and it is not a pass."
+  },
+  {
+   "id": "Gdoc010",
+   "q": "why is a document rejected",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 63.5,
+   "model": false,
+   "reply": "The new upload replaces the **rejected** one for that slot; it is **verified** again, and the case moves forward once it passes. The reason the document was rejected is shown in the case, so fix that "
+  },
+  {
+   "id": "Gdoc011",
+   "q": "can I upload a photo of the document",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 85.6,
+   "model": false,
+   "reply": "A photographed document has to be rasterised and read before anything else can happen, and that dominates the time. Uploading several documents in one request is faster than several requests, because "
+  },
+  {
+   "id": "Gpro000",
+   "q": "how to create a new case",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 49.3,
+   "model": false,
+   "reply": "1. Tap Create New Case (top of the home screen, or the button below this chat). 2. Fill in the applicant's details and the loan details, the same form everywhere. 3. Check the summary and tap Confirm."
+  },
+  {
+   "id": "Gpro001",
+   "q": "how do i upload documents",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 67.4,
+   "model": false,
+   "reply": "1. Open the case (tap Open in My cases, or type its number). 2. Tap Upload next to the document that is **pending**, or attach the file in this chat. 3. Choose the party (applicant or co-applicant) if"
+  },
+  {
+   "id": "Gpro002",
+   "q": "how to move case to CPA",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 69.4,
+   "model": false,
+   "reply": "1. Fill the application form: Applicant name, Mobile, Date of birth, Address, Product, Loan amount (Rs). 2. Upload the mandatory documents for the product (for Personal Loan: PAN (Permanent Account Nu"
+  },
+  {
+   "id": "Gpro003",
+   "q": "what happens after CPA",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 71.9,
+   "model": false,
+   "reply": "At CPA the completed file is processed further and handed on. Next the Credit stage assesses the case and makes the credit decision, then RCU checks the file for risk, then BOPS and HOPS, and finally "
+  },
+  {
+   "id": "Gpro004",
+   "q": "what are the stages of a loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 46.4,
+   "model": false,
+   "reply": "Every case moves through these stages, in this order: FOS (Field Officer Sales) (details and documents collected) → CPA → Credit (the credit decision) → RCU (risk check) → BOPS → HOPS → Disbursement**"
+  },
+  {
+   "id": "Gpro005",
+   "q": "loan process kya hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 58.0,
+   "model": false,
+   "reply": "Every case moves through these stages, in this order: FOS (Field Officer Sales) (details and documents collected) → CPA → Credit (the credit decision) → RCU (risk check) → BOPS → HOPS → Disbursement**"
+  },
+  {
+   "id": "Gpro006",
+   "q": "how does KYC work",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 69.8,
+   "model": false,
+   "reply": "KYC (Know Your Customer) is checked for every party (the applicant and each co-applicant) in two ways: A, the application form against the documents (name, date of birth, PAN (Permanent Account Number"
+  },
+  {
+   "id": "Gpro007",
+   "q": "KYC fail ho gaya to kya kare",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 101.3,
+   "model": false,
+   "reply": "The result is pass, review (a person checks) or **failed**. KYC (Know Your Customer) runs once the identity documents are uploaded; a failed KYC must be fixed before the case can move to CPA."
+  },
+  {
+   "id": "Gpro008",
+   "q": "how to add a co-applicant",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 49.1,
+   "model": false,
+   "reply": "Open the case and upload the co-applicant's documents, choosing Co-applicant as the party when asked. The co-applicant's documents and KYC (Know Your Customer) are checked separately from the applican"
+  },
+  {
+   "id": "Gpro009",
+   "q": "who approves the loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 73.9,
+   "model": false,
+   "reply": "The credit team approves or rejects a loan, at the Credit stage after CPA. The field officer (FOS (Field Officer Sales)) and this chat never approve, reject or sanction a loan; FOS makes the case comp"
+  },
+  {
+   "id": "Gpro010",
+   "q": "how long does approval take",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 39.3,
+   "model": false,
+   "reply": "No approval time (TAT) is configured in this system. After CPA the case goes through Credit, RCU, BOPS and HOPS before disbursement; your branch can tell you the usual time."
+  },
+  {
+   "id": "Gpro011",
+   "q": "how to fix a rejected document",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 57.1,
+   "model": false,
+   "reply": "The new upload replaces the **rejected** one for that slot; it is **verified** again, and the case moves forward once it passes. The reason the document was rejected is shown in the case, so fix that "
+  },
+  {
+   "id": "Gpro012",
+   "q": "process to verify documents",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 56.7,
+   "model": false,
+   "reply": "1. Upload the document (in the case or in this chat). 2. The system identifies the document type and the party. 3. Verification checks run: readable, the right type, the expected fields present. 4. Re"
+  },
+  {
+   "id": "Gapp000",
+   "q": "what can you help with",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 111.7,
+   "model": false,
+   "reply": "I can help with your cases, documents, KYC (Know Your Customer) and moving a case to CPA, and answer questions about the process. You have 2 cases: 2 with documents **pending**. [Show my cases](ask:Sh"
+  },
+  {
+   "id": "Gapp001",
+   "q": "how do i download the case list",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 26.4,
+   "model": false,
+   "reply": "I can't export or re-encode data, but I'm happy to answer questions about your application in plain words."
+  },
+  {
+   "id": "Gapp002",
+   "q": "how do i import cases from excel",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 39.2,
+   "model": false,
+   "reply": "1. Prepare an Excel (.xlsx) with columns like Applicant name, Mobile, Date of birth, Address, Product, Loan amount. 2. Upload it with Import on the home screen. 3. Read the row-by-row check: nothing i"
+  },
+  {
+   "id": "Gapp003",
+   "q": "what is my role",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 19.7,
+   "model": false,
+   "reply": "You are signed in as test-subject, role --."
+  },
+  {
+   "id": "Gapp004",
+   "q": "show my cases",
+   "expect": "answer",
+   "result": "list",
+   "ms": 60.2,
+   "model": false,
+   "reply": "You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list. Do you want to know about a particular case? [Yes](ask:Yes) · [No](ask:No) Download: [Excel](ac"
+  },
+  {
+   "id": "Gapp005",
+   "q": "pending cases dikhao",
+   "expect": "answer",
+   "result": "list",
+   "ms": 65.2,
+   "model": false,
+   "reply": "2 of your cases match (**Pending**). Showing 1-2 of 2 (newest first). That is the whole list. Do you want to know about a particular case? [Yes](ask:Yes) · [No](ask:No) Download: [Excel](action:downlo"
+  },
+  {
+   "id": "Gdec000",
+   "q": "will this loan get approved",
+   "expect": "decline",
+   "result": "correct",
+   "ms": 35.0,
+   "model": false,
+   "reply": "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still **pending** so the case is ready for them. [What is pending?](ask:W"
+  },
+  {
+   "id": "Gdec001",
+   "q": "can you approve the loan",
+   "expect": "decline",
+   "result": "correct",
+   "ms": 46.3,
+   "model": false,
+   "reply": "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still pending so the case is ready for them. I can't approve, reject, dis"
+  },
+  {
+   "id": "Gdec002",
+   "q": "should I reject this customer",
+   "expect": "decline",
+   "result": "correct",
+   "ms": 44.9,
+   "model": false,
+   "reply": "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still pending so the case is ready for them. I can't approve, reject, dis"
+  },
+  {
+   "id": "Ghin000",
+   "q": "PAN kaise upload kare",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 433.8,
+   "model": false,
+   "reply": "1. Open the case (tap Open in My cases, or type its number). 2. Tap Upload next to the document that is **pending**, or attach the file in this chat. 3. Choose the party (applicant or co-applicant) if"
+  },
+  {
+   "id": "Ghin001",
+   "q": "documents kaise verify hote hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 65.7,
+   "model": false,
+   "reply": "1. Upload the document (in the case or in this chat). 2. The system identifies the document type and the party. 3. Verification checks run: readable, the right type, the expected fields present. 4. Re"
+  },
+  {
+   "id": "Ghin002",
+   "q": "co-applicant kya hota hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 81.3,
+   "model": false,
+   "reply": "A co-applicant applies for the loan together with the main applicant. A co-applicant's income can be counted for eligibility, and a co-applicant is equally responsible for repaying the loan. A co-appl"
+  },
+  {
+   "id": "Ghin003",
+   "q": "sanction letter kya hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 41.4,
+   "model": false,
+   "reply": "A sanction letter is the lender's written approval of a loan. It states the **approved** amount, the interest rate, the tenure, the EMI (Equated Monthly Instalment) and the conditions to be met before"
+  },
+  {
+   "id": "Ghin004",
+   "q": "loan approve kaun karta hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 64.3,
+   "model": false,
+   "reply": "The credit team approves or rejects a loan, at the Credit stage after CPA. The field officer (FOS (Field Officer Sales)) and this chat never approve, reject or sanction a loan; FOS makes the case comp"
+  },
+  {
+   "id": "Ghin005",
+   "q": "10 lakh ka emi 10% 5 saal",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 45.5,
+   "model": false,
+   "reply": "EMI (Equated Monthly Instalment) for **₹10,00,000** at 10% a year for 60 months: ₹21,247 a month (total interest ₹2,74,823, total paid ₹12,74,823). Formula: EMI = P × r × (1+r)^n ÷ ((1+r)^n − 1), r = "
+  },
+  {
+   "id": "Ghin006",
+   "q": "tenure kya hota hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 50.8,
+   "model": false,
+   "reply": "Tenure is the repayment period of the loan, in months or years. A longer tenure means a lower EMI (Equated Monthly Instalment) but more interest paid in total; a shorter tenure means a higher EMI and "
+  },
+  {
+   "id": "Ghin007",
+   "q": "address proof mein kya chalega",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 48.4,
+   "model": false,
+   "reply": "Driving Licence, Passport or Voter ID can satisfy the Address Proof requirement."
+  },
+  {
+   "id": "Ghin008",
+   "q": "document reject ho gaya to kya kare",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 108.2,
+   "model": false,
+   "reply": "The new upload replaces the **rejected** one for that slot; it is **verified** again, and the case moves forward once it passes. The reason the document was rejected is shown in the case, so fix that "
+  },
+  {
+   "id": "Ghin009",
+   "q": "naya case kaise banaye",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 47.0,
+   "model": false,
+   "reply": "1. Tap Create New Case (top of the home screen, or the button below this chat). 2. Fill in the applicant's details and the loan details, the same form everywhere. 3. Check the summary and tap Confirm."
+  },
+  {
+   "id": "Ghin010",
+   "q": "guarantor aur co-applicant mein kya fark hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 97.1,
+   "model": false,
+   "reply": "A co-applicant borrows together with the applicant and shares the repayment from the start; their income can add to eligibility. A guarantor does not borrow and pays only if the borrower defaults; the"
+  },
+  {
+   "id": "Ghin011",
+   "q": "processing fee kitni hai",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 33.5,
+   "model": false,
+   "reply": "No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter."
+  },
+  {
+   "id": "Ghel000",
+   "q": "what is RCU stage",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 33.4,
+   "model": false,
+   "reply": "RCU: a later stage that checks the file for risk. Source: the glossary"
+  },
+  {
+   "id": "Ghel001",
+   "q": "minimum loan amount for home loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 43.1,
+   "model": false,
+   "reply": "- Home Loan: loan amount **₹5,00,000** to **₹1,00,00,000**. These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits. Source: the eligibil"
+  },
+  {
+   "id": "Ghel002",
+   "q": "EMI 20 lakh 9% 20 years",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 43.6,
+   "model": false,
+   "reply": "EMI (Equated Monthly Instalment) for **₹20,00,000** at 9% a year for 240 months: ₹17,995 a month (total interest ₹23,18,685, total paid ₹43,18,685). Formula: EMI = P × r × (1+r)^n ÷ ((1+r)^n − 1), r ="
+  },
+  {
+   "id": "Ghel003",
+   "q": "can self employed apply",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 46.2,
+   "model": false,
+   "reply": "- Personal Loan: Salaried, Self Employed. - Home Loan: Salaried, Self Employed. These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the "
+  },
+  {
+   "id": "Ghel004",
+   "q": "pan card mandatory hai kya",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 58.3,
+   "model": false,
+   "reply": "Mandatory, for every home loan: PAN (Permanent Account Number), Bank Statement and Address Proof. - PAN - satisfied by a PAN card"
+  },
+  {
+   "id": "Ghel005",
+   "q": "what is the difference between net and gross salary",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 66.6,
+   "model": false,
+   "reply": "Net salary (net pay) is the take-home pay after deductions such as tax and provident fund; gross salary is the pay before deductions. This system's eligibility uses the **verified** net pay, not the g"
+  },
+  {
+   "id": "Ghel006",
+   "q": "kyc kaise hota hai",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 56.3,
+   "model": false,
+   "reply": "KYC (Know Your Customer) is checked for every party (the applicant and each co-applicant) in two ways: A, the application form against the documents (name, date of birth, PAN (Permanent Account Number"
+  },
+  {
+   "id": "Ghel007",
+   "q": "who decides the loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 47.1,
+   "model": false,
+   "reply": "The credit team approves or rejects a loan, at the Credit stage after CPA. The field officer (FOS (Field Officer Sales)) and this chat never approve, reject or sanction a loan; FOS makes the case comp"
+  },
+  {
+   "id": "Ghel008",
+   "q": "foreclosure charges kitne hai",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 29.9,
+   "model": false,
+   "reply": "No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter."
+  },
+  {
+   "id": "Ghel009",
+   "q": "what is a deviation",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 34.5,
+   "model": false,
+   "reply": "4. No query or deviation raised on the case is still open. Both block the move out of the stage (`blocks_forward_move` in a configured policy file, UNCONFIRMED until the business signs it off)."
+  },
+  {
+   "id": "Ghel010",
+   "q": "is rent agreement accepted as address proof",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 36.9,
+   "model": false,
+   "reply": "No. Rent Agreement is not accepted by this service. Driving Licence, Passport or Voter ID can satisfy the Address Proof requirement."
+  },
+  {
+   "id": "Ghel011",
+   "q": "what is EMI bounce",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 44.9,
+   "model": false,
+   "reply": "An **EMI (Equated Monthly Instalment)** bounce** is an EMI that could not be collected on its due date, usually because the account did not have enough money, or the NACH mandate failed. A bounce usua"
+  },
+  {
+   "id": "Ghel012",
+   "q": "loan kitne din mein milega",
+   "expect": "not_configured",
+   "result": "correct",
+   "ms": 25.1,
+   "model": false,
+   "reply": "No approval time (TAT) is configured in this system. After CPA the case goes through Credit, RCU, BOPS and HOPS before disbursement; your branch can tell you the usual time."
+  },
+  {
+   "id": "Gcas000",
+   "q": "kyc status",
+   "expect": "case",
+   "result": "correct",
+   "ms": 58.2,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"kyc status\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "Gcas001",
+   "q": "what is pending",
+   "expect": "case",
+   "result": "correct",
+   "ms": 58.2,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"what is **pending**\" for it. You have 2 cases: 2 with documents pending. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "Gcas002",
+   "q": "loan amount kitna hai",
+   "expect": "case",
+   "result": "correct",
+   "ms": 50.8,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"loan amount kitna hai\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  }
+ ]
+}

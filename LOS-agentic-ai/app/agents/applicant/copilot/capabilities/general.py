@@ -288,13 +288,122 @@ def _log_gap(term: str, kind: str = "terms") -> None:
 
 async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
                  lang: str, case_in_scope: str | None = None) -> dict[str, Any] | None:
+    """
+    FAST LANE FIRST (the rules below, ~20 ms). Only a message they did not understand with confidence -- nothing
+    matched and it is not a clear case question, or "not in the knowledge base" -- takes the SLOW PATH: the LLM
+    rewrites it into one standard English question (semantics/question_rewrite.py, validated: nothing new) and the
+    same rules route THAT. The model never answers. Timeout / model down / low memory -> the fast lane's reply.
+    """
+    if not enabled() or not str(message or "").strip():
+        return None
+    parts = _parts(message)
+    if len(parts) > 1:
+        # "what is FOIR and what is LTV": every part answered by the same pipeline, joined; a part that needs a case
+        # sends the whole message on (the case logic reads it as before)
+        replies = [await answer(p, claims, context, request_id, lang, case_in_scope) for p in parts]
+        if all(r is not None for r in replies):
+            joined = dict(replies[0])
+            joined["answer"] = "\n\n".join(f"**{p[:1].upper() + p[1:]}**\n{r.get('answer') or ''}"
+                                           for p, r in zip(parts, replies))
+            joined["intent"], joined["parts"] = "MULTI_PART", [r.get("intent") for r in replies]
+            joined.pop("tts_text", None)
+            return joined
+    reply = await _fast(message, claims, context, request_id, lang, case_in_scope)
+    state = _state(claims, context)
+    if not _needs_slow_path(message, reply, state, claims, context, case_in_scope):
+        _remember(state, message, reply)
+        return reply
+    from app.agents.applicant.copilot.semantics import question_rewrite
+
+    previous = str((getattr(state, "flow", None) or {}).get("last_general_q") or "") or None
+    rewritten, trace = await question_rewrite.rewrite(message, previous=previous, request_id=request_id, lang=lang)
+    if rewritten:
+        again = await _fast(rewritten, claims, context, request_id, lang, case_in_scope)
+        understood = again is not None and str(again.get("intent")) != "UNKNOWN_TERM"
+        question_rewrite.log(message, rewritten, str(again.get("intent")) if again else "PASSED_ON", trace)
+        if understood:
+            again["understood_as"] = rewritten
+            again["answer"] = _say("understood_as", lang, question=rewritten) + "\n\n" + str(again.get("answer") or "")
+            _remember(state, rewritten, again)
+            return again
+    elif trace.get("status") not in ("DISABLED", "SKIPPED"):
+        question_rewrite.log(message, None, str(trace.get("status")), trace)
+    _remember(state, message, reply)
+    return reply
+
+
+_SPLIT = re.compile(r"\s+(?:and|aur|also|plus|as well as|&)\s+", re.I)
+_LEAD = re.compile(r"^(what is|what are|what's|whats|define|explain|how to|how do i|how does|meaning of)\s+", re.I)
+
+
+def _parts(message: str) -> list[str]:
+    """A two-question message split in two ("X and Y"); each part at least 2 words once the first part's lead
+    ("what is") is lent to a bare second part. Anything else: [message] (one question)."""
+    text = re.sub(r"[?]+", " ", str(message or "")).strip()
+    pieces = [p.strip() for p in _SPLIT.split(text) if p.strip()]
+    if len(pieces) != 2 or re.search(r"\b(between|difference|compare|vs|versus|both|fark|farak)\b", pieces[0], re.I):
+        return [message]                # "difference between net AND gross" is one question
+    lead = _LEAD.match(pieces[0])
+    if lead and not _LEAD.match(pieces[1]) and not _general_question(pieces[1]):
+        pieces[1] = lead.group(0) + pieces[1]
+    if any(len(p.split()) < 2 for p in pieces) or not all(_general_question(p) for p in pieces):
+        return [message]
+    return pieces
+
+
+def _needs_slow_path(message: str, reply: dict[str, Any] | None, state, claims: dict[str, Any],
+                     context: dict[str, Any] | None, case_in_scope: str | None) -> bool:
+    """Not understood with confidence: "not in the knowledge base", or nothing matched and not a clear case question."""
+    if reply is not None:
+        return str(reply.get("intent")) == "UNKNOWN_TERM"
+    if case_in_scope or getattr(state, "active_case_id", None) or _pending(state, claims, context):
+        return False                    # a case is in scope / a question is pending: the case logic reads it
+    said = _plain(message)
+    if len(said.split()) < 2 or re.fullmatch(r"[\d\s.,]+", said):
+        return False                    # "1", "ok", a pick
+    spec = cfg().get("general_question") or {}
+    if any(re.search(p, said) for p in spec.get("case_only") or []):
+        return False
+    rest = " " + said + " "
+    if any(" " + _plain(r) in rest for r in spec.get("case_referents") or []):
+        return False
+    from app.agents.applicant.copilot.capabilities import case_list, workspace
+
+    if any(p.search(message) for p in workspace._ID.values()) or workspace._only_asks_for_the_list(message) \
+            or case_list.understand(message) is not None:
+        return False
+    try:
+        from app.agents.applicant.copilot.semantics import embedding_router
+
+        if embedding_router.enabled():
+            match = embedding_router.bank().match(message)
+            if embedding_router.confident(match) and match.tool not in {"knowledge"}:
+                return False            # the case tools understood it (the fast lane of the case logic)
+    except Exception:  # noqa: BLE001 - no bank: the rewrite decides
+        pass
+    return True
+
+
+def _remember(state, message: str, reply: dict[str, Any] | None) -> None:
+    """The last general question this chat asked (masked, short): context for a follow-up's rewrite."""
+    if reply is None or str(reply.get("intent")) in ("UNKNOWN_TERM", "ACK", "FRUSTRATED", "GENERAL_HELP"):
+        return
+    from app.agents.applicant.copilot.capabilities import workspace
+    from app.security import sensitivity
+
+    flow = dict(getattr(state, "flow", None) or {})
+    flow["last_general_q"] = sensitivity.mask_identifiers(str(message))[:160]
+    state.flow = flow
+    workspace._save(state)
+
+
+async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
+                lang: str, case_in_scope: str | None = None) -> dict[str, Any] | None:
     """The reply when this message needs no case (see the module doc), else None (the message goes on).
 
     `case_in_scope`: a case the REQUEST names (case_id). With a case in scope -- named or opened -- help, frustration
     and "my stage" belong to that case (the case logic answers them); definitions, calculators, policy numbers,
     credit-decision declines and knowledge questions about no case data are still answered here."""
-    if not enabled() or not str(message or "").strip():
-        return None
     from app.security.auth import get_subject
 
     state = _state(claims, context)
@@ -457,7 +566,9 @@ async def _knowledge_candidate(query: str, request_id: str, case_id: str | None,
     except Exception:  # noqa: BLE001 - knowledge unavailable: said as not known, never guessed
         return None
     heading = _heading_of((detail.get("citations") or [""])[0])
-    if detail.get("confident") and str(reply_text or "").strip() and _about(query, f"{reply_text} {heading}"):
+    # a CONFIGURED fact is matched by its own rules (the slot / product it names): the relevance guard is for passages
+    if detail.get("confident") and str(reply_text or "").strip() and (
+            detail.get("authoritative") or _about(query, f"{reply_text} {heading}")):
         return bool(detail.get("authoritative")), _reply(
             request_id, "GENERAL_KNOWLEDGE", reply_text, case_id=case_id, query_type="PROCESS_KNOWLEDGE",
             citations=detail.get("citations") or [])
@@ -512,14 +623,17 @@ def _about(question: str, answer: str) -> bool:
         return True
     said = _flat(answer)
     hits = sum(1 for w in words if f" {w}" in said or f" {w.rstrip('s')}" in said)
-    return hits >= max(1, -(-len(words) * 3 // 5))           # at least 60 %, rounded up
+    # a SHORT question names its subject in every word: "late payment fee" is not answered by a passage on the
+    # processing fee (2 of 3). Longer questions carry filler: 75 %, rounded up.
+    return hits == len(words) if len(words) <= 3 else hits >= -(-len(words) * 3 // 4)
 
 
 _AMOUNT = re.compile(r"(?:rs\.?|inr|₹)?\s*(\d+(?:[.,]\d+)*)\s*(crore|cr|lakh|lakhs|lac|lacs|l|k|thousand|hazar|hazaar)?\b",
                      re.I)
 _RATE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|(?:percent|pct|pc)\b)", re.I)
-_YEARS = re.compile(r"(\d+(?:\.\d+)?)\s*(?:years?|yrs?|saal)\b", re.I)
-_MONTHS = re.compile(r"(\d+)\s*(?:months?|mahine|mahina|mths?|m)\b", re.I)
+# units with their common typos ("24 monts", "3 yeras"): a calculator must not fail on a slip of the thumb
+_YEARS = re.compile(r"(\d+(?:\.\d+)?)\s*(?:years?|yeras?|yaers?|yrs?|yr|saal|sal|varsh)\b", re.I)
+_MONTHS = re.compile(r"(\d+)\s*(?:months?|monts?|mnths?|monhts?|mahine|mahina|mahinon|mths?|m)\b", re.I)
 _SCALE = {"crore": 1e7, "cr": 1e7, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5, "l": 1e5, "k": 1e3,
           "thousand": 1e3, "hazar": 1e3, "hazaar": 1e3}
 
@@ -637,13 +751,33 @@ def _policy_values(kind: str) -> dict[str, Any] | None:
     return None
 
 
-def _policy(text: str, state, lang: str) -> str | None:
-    """A policy number asked ("maximum tenure for home loan"): read from the eligibility policy now, never typed."""
+def _policy(text: str, state, lang: str, only: str | None = None) -> str | None:
+    """A policy number asked ("maximum tenure for home loan"): read from the eligibility policy now, never typed.
+    `only`: answer this one subject (one line of a several-values question)."""
     spec = cfg().get("policy") or {}
     said = _norm(text)
-    subject = next((s for s, words in (spec.get("subjects") or {}).items()
-                    if any(_norm(w) in said for w in words)), None)
+    subjects = [only] if only else [s for s, words in (spec.get("subjects") or {}).items()
+                                    if any(_norm(w) in said for w in words)]
+    if not subjects and not only and _product_of(text):
+        # "loan amount and tenure for personal loan": a PRODUCT named -> its policy, not a case's own data
+        subjects = [s for s, words in (spec.get("bare_words") or {}).items() if any(_norm(w) in said for w in words)]
+    if subjects and not only:
+        # several values asked at once ("tenure and interest rate for home loan"): once one policy topic is named,
+        # a bare topic word counts too (policy.bare_words) -- every value answered, never only the first
+        subjects += [s for s, words in (spec.get("bare_words") or {}).items()
+                     if s not in subjects and any(_norm(w) in said for w in words)]
+    if len(subjects) > 1:
+        lines = [_policy(text, state, lang, only=s) for s in dict.fromkeys(subjects)]
+        lines = [x for x in lines if x]
+        return "\n\n".join(lines) if lines else None
+    subject = subjects[0] if subjects else None
+    if subject is None and any(re.search(p, _plain(text)) for p in spec.get("fee_amount") or []):
+        subject = "fees"                # any fee / charge / penalty AMOUNT: never configured here, never guessed
     if subject is None:
+        return None
+    # a policy NUMBER is the answer only to a question that asks for a value ("maximum tenure", "rate kitna") or a
+    # short one ("home loan tenure"): "a lower interest rate from another bank -- what do we offer?" is not one
+    if len(_plain(text).split()) > 7 and not any(_norm(w) in said for w in spec.get("value_words") or []):
         return None
     texts = spec.get("texts") or {}
     source = _say("source", lang, source=spec.get("source", ""))

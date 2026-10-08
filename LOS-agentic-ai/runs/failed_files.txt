@@ -1,0 +1,9 @@
+tests/integration/test_copilot_grounded.py
+tests/integration/test_copilot_policy_lock.py
+tests/integration/test_copilot_process_questions.py
+tests/integration/test_copilot_rag_truth.py
+tests/integration/test_copilot_routing_contract.py
+tests/integration/test_copilot_security_refinement.py
+tests/integration/test_copilot_stage_awareness.py
+tests/integration/test_eligibility_end_to_end.py
+tests/integration/test_fos_api.py
