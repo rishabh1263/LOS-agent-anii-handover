@@ -87,8 +87,23 @@ def backend() -> str:
     signal (`dense_retriever`, floor 0.80) and case-memory search. The hashing
     embedder is never a default (P@1 0.268 vs 0.537).
     """
-    name = (os.getenv("KNOWLEDGE_BACKEND") or "lexical").strip().lower()
+    # Smart Bot plan section 4 (owner 2026-10-08): dense ON by CONFIG (app/config/knowledge.yaml), BM25 whenever the
+    # embedding model is unreachable (FallbackRetriever); the env still overrides (tests pin "lexical")
+    name = (os.getenv("KNOWLEDGE_BACKEND") or _config().get("backend") or "lexical").strip().lower()
     return name if name in _BACKENDS else "lexical"
+
+
+def _config() -> dict:
+    """app/config/knowledge.yaml (missing file -> {}: the old lexical default)."""
+    from pathlib import Path
+
+    import yaml
+
+    path = Path(__file__).resolve().parents[1] / "config" / "knowledge.yaml"
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return {}
 
 
 def vector_threshold() -> float:
@@ -161,13 +176,19 @@ def get_retriever() -> Retriever:
                     from app.knowledge.embeddings import get_query_embedder, provider_name
 
                     lexical = LexicalRetriever(repository, default_threshold=default_threshold())
+                    _RETRIEVER = lexical            # no real model configured, or it cannot be built: BM25
                     if provider_name() == "ollama":
-                        _RETRIEVER = FallbackRetriever(
-                            EmbeddingRetriever(repository, get_query_embedder(),
-                                               default_threshold=vector_threshold()),
-                            lexical)
-                    else:                  # no real model configured: never hashing
-                        _RETRIEVER = lexical
+                        try:
+                            _RETRIEVER = FallbackRetriever(
+                                EmbeddingRetriever(repository, get_query_embedder(),
+                                                   default_threshold=vector_threshold()),
+                                lexical)
+                        except Exception:  # noqa: BLE001 - a misconfigured embedder never takes the knowledge down
+                            import logging
+
+                            logging.getLogger(__name__).warning(
+                                "dense retriever unavailable (embedder could not be built); answering with BM25",
+                                exc_info=True)
                 elif backend() == "embedding":
                     _RETRIEVER = EmbeddingRetriever(
                         repository, HashingEmbedding(),

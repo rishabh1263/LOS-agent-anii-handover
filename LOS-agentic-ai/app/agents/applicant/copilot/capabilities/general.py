@@ -19,6 +19,7 @@ fallback (the second miss in a row -> the closest FAQ questions + the supervisor
 from __future__ import annotations
 
 import difflib
+import os
 import re
 import threading
 from datetime import date
@@ -26,6 +27,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+import logging
+
+logger_general = logging.getLogger(__name__)
+GENERAL_LLM_STATS: dict[str, int] = {"called": 0, "used": 0, "rejected": 0}
 
 _ROOT = Path(__file__).resolve().parents[4]
 _PATH = _ROOT / "config" / "conversation_general.yaml"
@@ -279,15 +285,14 @@ def _log_gap(term: str, kind: str = "terms") -> None:
         entry["last_seen"] = date.today().isoformat()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("# Terms the chatbot was asked and could not find (general.py). Add them to\n"
-                            "# app/config/glossary.yaml or knowledge/ -- then remove them here.\n"
-                            + yaml.safe_dump(data, sort_keys=True, allow_unicode=True), encoding="utf-8")
+            header = "".join(f"# {line}\n" for line in cfg().get("gaps_file_header") or [])
+            path.write_text(header + yaml.safe_dump(data, sort_keys=True, allow_unicode=True), encoding="utf-8")
         except OSError:
             pass
 
 
 async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
-                 lang: str, case_in_scope: str | None = None) -> dict[str, Any] | None:
+                 lang: str, case_in_scope: str | None = None, meaning_kind: str | None = None) -> dict[str, Any] | None:
     """
     FAST LANE FIRST (the rules below, ~20 ms). Only a message they did not understand with confidence -- nothing
     matched and it is not a clear case question, or "not in the knowledge base" -- takes the SLOW PATH: the LLM
@@ -296,6 +301,8 @@ async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] |
     """
     if not enabled() or not str(message or "").strip():
         return None
+    if meaning_kind == "case":
+        return None                     # understood as a question about the case: the case engine answers it
     parts = _parts(message)
     if len(parts) > 1:
         # "what is FOIR and what is LTV": every part answered by the same pipeline, joined; a part that needs a case
@@ -308,7 +315,7 @@ async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] |
             joined["intent"], joined["parts"] = "MULTI_PART", [r.get("intent") for r in replies]
             joined.pop("tts_text", None)
             return joined
-    reply = await _fast(message, claims, context, request_id, lang, case_in_scope)
+    reply = await _fast(message, claims, context, request_id, lang, case_in_scope, meaning_kind)
     state = _state(claims, context)
     if not _needs_slow_path(message, reply, state, claims, context, case_in_scope):
         _remember(state, message, reply)
@@ -398,7 +405,7 @@ def _remember(state, message: str, reply: dict[str, Any] | None) -> None:
 
 
 async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
-                lang: str, case_in_scope: str | None = None) -> dict[str, Any] | None:
+                lang: str, case_in_scope: str | None = None, meaning_kind: str | None = None) -> dict[str, Any] | None:
     """The reply when this message needs no case (see the module doc), else None (the message goes on).
 
     `case_in_scope`: a case the REQUEST names (case_id). With a case in scope -- named or opened -- help, frustration
@@ -465,16 +472,23 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
             md, spoken = _products_table(product, lang)
             return _reply(request_id, "PRODUCT_CHECKLIST", md, case_id=case_id, tts=spoken,
                           query_type="PROCESS_KNOWLEDGE")
-    if _decision(text):
+    if _decision(text) or meaning_kind == "decision":
         spec = cfg().get("decisions") or {}
         return _reply(request_id, "CREDIT_DECISION_DECLINED", _pick(spec.get("text"), lang), case_id=case_id,
                       block=_asks(_pick(spec.get("suggestions"), lang) or []), query_type="PROCESS_KNOWLEDGE")
     calculated = _calculate(text, lang)
     if calculated is not None:
         return _reply(request_id, "CALCULATOR", calculated, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
-    policy_answer = _policy(text, state, lang)
+    # with a case in scope, "interest rate" / "tenure" means THAT case's value (the case logic); the policy number only
+    # when a product is named ("maximum tenure for home loan")
+    policy_answer = _policy(text, state, lang) if not case_id or _product_of(text) else None
     if policy_answer is not None:
         return _reply(request_id, "POLICY_ANSWER", policy_answer, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
+    if meaning_kind == "policy":
+        # understood as a company VALUE but no configured topic matched: said plainly, never guessed
+        return _reply(request_id, "POLICY_NOT_CONFIGURED", _say_text((cfg().get("policy") or {}).get("texts", {})
+                                                                     .get("generic_not_configured"), lang),
+                      case_id=case_id, query_type="PROCESS_KNOWLEDGE")
     defined = await _definition(text, request_id, lang, case_id)
     if defined is not None:
         return defined
@@ -482,9 +496,11 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
     accepted = _english_shape(text).startswith("which documents are accepted")
     if accepted:
         return await _knowledge(_english_shape(text), request_id, lang, None)
-    if _general_question(text) and not (case_id and _names_case_data(text)):
+    # understood as GENERAL KNOWLEDGE by meaning (semantics/meaning.py): the knowledge base answers it, case open or not
+    if meaning_kind == "knowledge" or (_general_question(text) and not (case_id and _names_case_data(text))):
         # with a case OPEN, "is PAN mandatory?" / "documents required?" is about THAT case: the case logic answers
-        return await _knowledge(text, request_id, lang, case_id)
+        # (unless MEANING said general knowledge: then a miss is "not in the knowledge base", never a case answer)
+        return await _knowledge(text, request_id, lang, None if meaning_kind == "knowledge" else case_id)
     return None
 
 
@@ -551,8 +567,70 @@ async def _knowledge(text: str, request_id: str, lang: str, case_id: str | None)
         return next((reply for authoritative, reply in found if authoritative), found[0][1])
     if case_id:
         return None                 # a case is in scope: nothing general found -- the case logic answers it
+    general = await _general_llm(text, request_id)
+    if general:
+        return _reply(request_id, "GENERAL_LLM", general, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
     _log_gap(_plain(text), kind="questions")
     return _reply(request_id, "UNKNOWN_TERM", _pick(cfg().get("general_unknown"), lang), case_id=case_id)
+
+
+async def _general_llm(question: str, request_id: str) -> str | None:
+    """
+    A GENERAL banking / lending question the knowledge base does not hold (Smart Bot plan section 5, type "general"):
+    the model answers from general knowledge in at most `max_sentences` sentences -- never a company number (limits,
+    rates, fees, TAT: it must say "depends on the lender's policy"), never case data. VALIDATED: no digit, ₹ or % the
+    question did not carry, no first-person company voice, not "unknown" -> else None ("not in the knowledge base").
+    An unknown ALL-CAPS term (FNR, FTNR) is company jargon: never explained by the model.
+    """
+    spec = cfg().get("general_llm") or {}
+    flag = (os.getenv("COPILOT_GENERAL_LLM") or "").strip().lower()
+    if (flag and flag not in {"1", "true", "yes", "on"}) or (not flag and not spec.get("enabled", False)):
+        return None
+    terms = re.findall(r"\b[A-Z]{2,6}\b", str(question))
+    from app.agents.applicant.copilot.answering import style
+
+    if terms and not any(style.defined_term(f"what is {t}") for t in terms):
+        return None                                      # an unknown acronym: "not in the knowledge base", logged
+    from app.llm import availability
+    from app.llm.memory import free_gb
+
+    free = free_gb()
+    if (free is not None and free < float(spec.get("min_free_ram_gb", 2.0))) or not availability.provider_reachable():
+        return None
+    from app.agents.applicant.copilot.answering import realtime
+
+    realtime.hint(request_id, realtime.say_status("understanding", "en"))
+    import asyncio
+
+    import httpx
+
+    from app.agents.los.summary import keep_alive
+    from app.llm.config import ollama_host, ollama_model, with_num_ctx
+
+    body = {"model": str(spec.get("model") or ollama_model()), "stream": False, "keep_alive": keep_alive(),
+            "messages": [{"role": "system", "content": str(spec.get("instructions") or "")},
+                         {"role": "user", "content": str(question)[:300]}],
+            "options": with_num_ctx({"temperature": 0.0, "num_predict": int(spec.get("num_predict", 90))})}
+    timeout = float(spec.get("timeout_seconds", 8.0))
+    GENERAL_LLM_STATS["called"] += 1
+    try:
+        async with httpx.AsyncClient(timeout=timeout + 0.5) as client:
+            response = await asyncio.wait_for(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), timeout)
+            text = str(((response.json() or {}).get("message") or {}).get("content") or "").strip()
+    except Exception:  # noqa: BLE001 - slow / down: "not in the knowledge base"
+        return None
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()][:int(spec.get("max_sentences", 3))]
+    answer = " ".join(sentences).strip()
+    said = str(question)
+    if (not answer or re.search(r"(?i)\bunknown\b|i('m| am) not sure|i don't know|as an ai", answer)
+            or any(d not in said for d in re.findall(r"\d+", answer)) or re.search(r"[₹%]", answer)
+            or re.search(r"(?i)\b(our|we offer|we charge|our bank)\b", answer)):
+        logger_general.info("general_llm rejected: %s", answer[:120])
+        GENERAL_LLM_STATS["rejected"] += 1
+        return None
+    GENERAL_LLM_STATS["used"] += 1
+    logger_general.info("general_llm used (provenance llm_general): %s", _plain(question)[:120])
+    return answer
 
 
 async def _knowledge_candidate(query: str, request_id: str, case_id: str | None,

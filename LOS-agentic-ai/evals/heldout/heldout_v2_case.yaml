@@ -1,0 +1,133 @@
+# HELD-OUT v2 -- CASE & DOCUMENT questions (Smart Bot plan section 9). FROZEN 2026-10-08, written before any tuning of the
+# meaning layer on it; wording deliberately NOT taken from app/config/intent_catalogue.yaml. NEVER tune on it.
+#
+# Every item is asked in its own chat with THIS case open (fixture `kyc_failed`, tests/integration/test_master_6_kyc_ab.py):
+#   Rahul Sharma, Personal Loan, loan amount 5,00,000, mobile 9876543210, born 1990-04-12, 12 MG Road, Pune, stage FOS;
+#   PAN, Driving Licence, Bank Statement uploaded and VERIFIED; KYC FAILED: name on the Bank Statement "ROHIT VERMA"
+#   differs from the form / PAN / DL; Signature not uploaded; no co-applicant; no queries.
+# expect: answer (must = all of / must_any = one of, case-insensitive) | case | clarify | not_available | decline | list
+
+frozen: true
+version: 2
+fixture: kyc_failed
+items:
+  # status
+  - { id: C001, q: "how's this file looking", expect: answer, must_any: ["KYC", "pending", "ready"] }
+  - { id: C002, q: "give me a quick update on this application", expect: answer, must_any: ["KYC", "pending", "ready"] }
+  - { id: C003, q: "where are we with this one", expect: answer, must_any: ["KYC", "pending", "ready", "FOS"] }
+  - { id: C004, q: "is this case moving or not", expect: answer, must_any: ["KYC", "pending", "ready"] }
+  - { id: C005, q: "current position of the loan file", expect: answer, must_any: ["KYC", "pending", "ready", "FOS"] }
+  # pending
+  - { id: C006, q: "what am I still missing here", expect: answer, must: ["Signature"] }
+  - { id: C007, q: "which papers do I still have to get", expect: answer, must: ["Signature"] }
+  - { id: C008, q: "is any document still outstanding", expect: answer, must: ["Signature"] }
+  - { id: C009, q: "remaining documents for this customer", expect: answer, must: ["Signature"] }
+  - { id: C010, q: "tell me what hasn't been uploaded", expect: answer, must: ["Signature"] }
+  - { id: C011, q: "anything left to submit", expect: answer, must: ["Signature"] }
+  - { id: C012, q: "what all is due from the applicant", expect: answer, must_any: ["Signature", "Bank Statement"] }
+  # why stuck / blockers
+  - { id: C013, q: "what's stopping this from going ahead", expect: answer, must_any: ["KYC", "Bank Statement", "Signature"] }
+  - { id: C014, q: "why is this not progressing", expect: answer, must_any: ["KYC", "Bank Statement", "Signature"] }
+  - { id: C015, q: "what is the problem with this case", expect: answer, must_any: ["KYC", "Bank Statement", "Signature"] }
+  - { id: C016, q: "explain the hold up on this file", expect: answer, must_any: ["KYC", "Bank Statement", "Signature"] }
+  - { id: C017, q: "what issue is blocking it", expect: answer, must_any: ["KYC", "Bank Statement", "Signature"] }
+  # next step
+  - { id: C018, q: "what do I have to do now on this", expect: answer, must_any: ["Bank Statement", "Signature", "upload"] }
+  - { id: C019, q: "how should I proceed with this customer", expect: answer, must_any: ["Bank Statement", "Signature", "upload"] }
+  - { id: C020, q: "what's the action item for me", expect: answer, must_any: ["Bank Statement", "Signature", "upload"] }
+  - { id: C021, q: "my next move on this file", expect: answer, must_any: ["Bank Statement", "Signature", "upload"] }
+  # CPA readiness
+  - { id: C022, q: "can this be pushed to CPA today", expect: answer, must: ["CPA"] }
+  - { id: C023, q: "is it good to send to CPA", expect: answer, must: ["CPA"] }
+  - { id: C024, q: "what's needed before CPA handoff", expect: answer, must: ["CPA"] }
+  - { id: C025, q: "is the file complete enough for CPA", expect: answer, must: ["CPA"] }
+  - { id: C026, q: "are all checks passed for CPA", expect: answer, must: ["CPA"] }
+  # KYC / name match
+  - { id: C027, q: "did the kyc go through", expect: answer, must: ["KYC"] }
+  - { id: C028, q: "is the name same on every document", expect: answer, must: ["Bank Statement"] }
+  - { id: C029, q: "any mismatch between documents and form", expect: answer, must: ["Bank Statement"] }
+  - { id: C030, q: "why did the kyc fail", expect: answer, must: ["Bank Statement"] }
+  - { id: C031, q: "which document has a different name", expect: answer, must: ["Bank Statement"] }
+  - { id: C032, q: "are the identity details consistent", expect: answer, must_any: ["Bank Statement", "KYC"] }
+  - { id: C033, q: "kyc result please", expect: answer, must: ["KYC"] }
+  - { id: C034, q: "is there a name problem on this file", expect: answer, must: ["Bank Statement"] }
+  # document status
+  - { id: C035, q: "has the PAN been verified", expect: answer, must: ["PAN"] }
+  - { id: C036, q: "is the bank statement fine", expect: answer, must: ["Bank Statement"] }
+  - { id: C037, q: "did they upload the signature", expect: answer, must: ["Signature"] }
+  - { id: C038, q: "status of driving licence", expect: answer, must: ["Driving Licence"] }
+  - { id: C039, q: "was the PAN accepted", expect: answer, must: ["PAN"] }
+  - { id: C040, q: "is the statement verified or not", expect: answer, must: ["Bank Statement"] }
+  - { id: C041, q: "address proof done?", expect: answer, must_any: ["Address Proof", "Driving Licence"] }
+  - { id: C042, q: "where is the signature", expect: answer, must: ["Signature"] }
+  # rejection reason
+  - { id: C043, q: "what's wrong with the bank statement", expect: answer, must: ["Bank Statement"] }
+  - { id: C044, q: "why is the statement a problem", expect: answer, must: ["Bank Statement"] }
+  # fields
+  - { id: C045, q: "how much has he applied for", expect: answer, must: ["5,00,000"] }
+  - { id: C046, q: "amount requested on this loan", expect: answer, must: ["5,00,000"] }
+  - { id: C047, q: "what is the loan size here", expect: answer, must: ["5,00,000"] }
+  - { id: C048, q: "who's the borrower on this file", expect: answer, must: ["Rahul Sharma"] }
+  - { id: C049, q: "customer's full name", expect: answer, must: ["Rahul Sharma"] }
+  - { id: C050, q: "what product did they take", expect: answer, must: ["Personal Loan"] }
+  - { id: C051, q: "is this a home loan or personal loan", expect: answer, must: ["Personal Loan"] }
+  - { id: C052, q: "applicant's phone", expect: answer, must: ["3210"] }
+  - { id: C053, q: "where does the customer live", expect: answer, must: ["Pune"] }
+  - { id: C054, q: "date of birth on the form", expect: answer, must: ["1990"] }
+  - { id: C055, q: "show me the application details", expect: answer, must_any: ["5,00,000", "Personal Loan", "Rahul Sharma"] }
+  - { id: C056, q: "summary of what was filled in the form", expect: answer, must_any: ["5,00,000", "Personal Loan", "Rahul Sharma"] }
+  # stage & time
+  - { id: C057, q: "which desk is this file at", expect: answer, must: ["FOS"] }
+  - { id: C058, q: "has it reached CPA yet", expect: answer, must_any: ["FOS", "CPA"] }
+  - { id: C059, q: "how many days has this been sitting", expect: answer, must: ["day"] }
+  - { id: C060, q: "for how long is it at this stage", expect: answer, must: ["day"] }
+  - { id: C061, q: "how old is this file", expect: answer, must_any: ["day", "created"] }
+  # history
+  - { id: C062, q: "what has happened so far on this file", expect: answer, must_any: ["created", "Created", "upload", "Upload"] }
+  - { id: C063, q: "show the timeline", expect: answer, must_any: ["created", "Created", "upload", "Upload", "day"] }
+  # queries
+  - { id: C064, q: "any queries raised on this case", expect: answer, must_any: ["quer", "Quer"] }
+  - { id: C065, q: "are there open queries", expect: answer, must_any: ["quer", "Quer"] }
+  # co-applicant (none on this case)
+  - { id: C066, q: "does this case have a co-applicant", expect: answer, must_any: ["co-applicant", "Co-applicant"] }
+  - { id: C067, q: "co-applicant documents pending?", expect: answer, must_any: ["co-applicant", "Co-applicant"] }
+  # customer message / collect
+  - { id: C068, q: "what should I message the customer", expect: answer, must: ["Bank Statement"] }
+  - { id: C069, q: "draft something for the client about what's missing", expect: answer, must_any: ["Bank Statement", "Signature"] }
+  - { id: C070, q: "what do I need to pick up from the customer", expect: answer, must_any: ["Signature", "Bank Statement"] }
+  # eligibility
+  - { id: C071, q: "is the customer eligible for this amount", expect: answer, must_any: ["eligib", "Eligib", "FOIR", "income"] }
+  - { id: C072, q: "what is his FOIR", expect: answer, must_any: ["FOIR", "income", "eligib"] }
+  # follow-ups (turns; judged on the last reply)
+  - { id: C073, turns: ["which documents are still pending", "and the PAN?"], expect: answer, must: ["PAN"] }
+  - { id: C074, turns: ["is the PAN verified", "what about the bank statement"], expect: answer, must: ["Bank Statement"] }
+  - { id: C075, turns: ["what is the kyc status", "why?"], expect: answer, must: ["Bank Statement"] }
+  - { id: C076, turns: ["what's the loan amount", "and the product?"], expect: answer, must: ["Personal Loan"] }
+  - { id: C077, turns: ["show my cases", "what is pending on this case"], expect: answer, must: ["Signature"] }
+  - { id: C078, turns: ["what is pending", "for the co-applicant?"], expect: answer, must_any: ["co-applicant", "Co-applicant"] }
+  - { id: C079, turns: ["status of the signature", "and driving licence"], expect: answer, must: ["Driving Licence"] }
+  - { id: C080, turns: ["is this ready for CPA", "what exactly is missing"], expect: answer, must_any: ["Signature", "Bank Statement"] }
+  # short / one-word
+  - { id: C081, q: "docs", expect: answer, must_any: ["Signature", "PAN", "Bank Statement"] }
+  - { id: C082, q: "kyc", expect: answer, must: ["KYC"] }
+  - { id: C083, q: "amount", expect: answer, must: ["5,00,000"] }
+  - { id: C084, q: "status", expect: answer, must_any: ["KYC", "pending", "ready", "FOS"] }
+  - { id: C085, q: "pending?", expect: answer, must: ["Signature"] }
+  # decisions & writes (never done from a question)
+  - { id: C086, q: "go ahead and approve this", expect: decline }
+  - { id: C087, q: "will credit sanction this file", expect: decline }
+  - { id: C088, q: "reject this application", expect: decline }
+  # general questions with a case open (answered generally, never as case data)
+  - { id: C089, q: "what does FOIR mean", expect: answer, must: ["Fixed Obligation"] }
+  - { id: C090, q: "which documents are accepted for address proof in general", expect: answer, must: ["Passport"] }
+  - { id: C091, q: "what is an EMI", expect: answer, must: ["Equated Monthly"] }
+  - { id: C092, q: "how is KYC done in general", expect: answer, must_any: ["form", "document"] }
+  # not recorded / not available on this case
+  - { id: C093, q: "what is the customer's CIBIL score", expect: not_available }
+  - { id: C094, q: "what is his monthly salary", expect: answer, must_any: ["income", "salary", "not", "recorded"] }
+  - { id: C095, q: "what interest rate did we give him", expect: answer, must_any: ["rate", "not", "%"] }
+  - { id: C096, q: "has the loan been disbursed", expect: answer, must_any: ["FOS", "not", "disburs"] }
+  - { id: C097, q: "who is the co-applicant", expect: answer, must_any: ["co-applicant", "Co-applicant"] }
+  - { id: C098, q: "has the field visit been done", expect: answer, must_any: ["not", "visit", "recorded", "FOS"] }
+  - { id: C099, q: "what did the customer's employer say", expect: not_available }
+  - { id: C100, q: "what's the sanction amount", expect: answer, must_any: ["not", "sanction", "FOS", "5,00,000"] }

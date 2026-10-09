@@ -1,0 +1,57 @@
+# HELD-OUT v2 -- MESSY questions (typos, broken grammar, slang, half sentences, two in one). FROZEN 2026-10-08, before
+# tuning; never tune on it. Same open case as heldout_v2_case.yaml (fixture kyc_failed). English only.
+
+frozen: true
+version: 2
+fixture: kyc_failed
+items:
+  - { id: M001, q: "wats pending on dis", expect: answer, must: ["Signature"] }
+  - { id: M002, q: "docs left??", expect: answer, must_any: ["Signature", "PAN", "Bank Statement"] }
+  - { id: M003, q: "kyc pass or fail", expect: answer, must: ["KYC"] }
+  - { id: M004, q: "y is it stuck yaar", expect: answer, must_any: ["KYC", "Bank Statement", "Signature"] }
+  - { id: M005, q: "loan amt?", expect: answer, must: ["5,00,000"] }
+  - { id: M006, q: "nme on bank statemnt matches or not", expect: answer, must: ["Bank Statement"] }
+  - { id: M007, q: "pan verifed?", expect: answer, must: ["PAN"] }
+  - { id: M008, q: "can send cpa?", expect: answer, must: ["CPA"] }
+  - { id: M009, q: "signture uploaded", expect: answer, must: ["Signature"] }
+  - { id: M010, q: "wat next", expect: answer, must_any: ["Bank Statement", "Signature", "upload"] }
+  - { id: M011, q: "customer name pls", expect: answer, must: ["Rahul Sharma"] }
+  - { id: M012, q: "stage?", expect: answer, must: ["FOS"] }
+  - { id: M013, q: "how many days its pending", expect: answer, must: ["day"] }
+  - { id: M014, q: "statement issue kya", expect: answer, must: ["Bank Statement"] }
+  - { id: M015, q: "the bank one has some problem right", expect: answer, must: ["Bank Statement"] }
+  - { id: M016, q: "ok so what all missing in this file then", expect: answer, must: ["Signature"] }
+  - { id: M017, q: "kyc status and loan amount", expect: answer, must_any: ["KYC", "5,00,000"] }
+  - { id: M018, q: "whats pending and whats the next step", expect: answer, must_any: ["Signature", "Next step"] }
+  - { id: M019, q: "is pan ok and is dl ok", expect: answer, must_any: ["PAN", "Driving Licence"] }
+  - { id: M020, q: "product + amount?", expect: answer, must_any: ["Personal Loan", "5,00,000"] }
+  - { id: M021, q: "plz tell me wat to tell customer", expect: answer, must_any: ["Bank Statement", "Signature"] }
+  - { id: M022, q: "ready 4 cpa or not", expect: answer, must: ["CPA"] }
+  - { id: M023, q: "whr is the file now", expect: answer, must: ["FOS"] }
+  - { id: M024, q: "any qry on this", expect: answer, must_any: ["quer", "Quer"] }
+  - { id: M025, q: "co app docs", expect: answer, must_any: ["co-applicant", "Co-applicant"] }
+  - { id: M026, q: "the mismatch thing.. which doc", expect: answer, must: ["Bank Statement"] }
+  - { id: M027, q: "status update needed asap", expect: answer, must_any: ["KYC", "pending", "ready", "FOS"] }
+  - { id: M028, q: "uploaded docs list", expect: answer, must_any: ["PAN", "Bank Statement", "Driving Licence"] }
+  - { id: M029, q: "has he given everything", expect: answer, must: ["Signature"] }
+  - { id: M030, q: "dob?", expect: answer, must: ["1990"] }
+  - { id: M031, q: "addr of customer", expect: answer, must: ["Pune"] }
+  - { id: M032, q: "emi for 5 lac 12% 3 yr", expect: answer, must: ["16,607"] }
+  - { id: M033, q: "foir means", expect: answer, must: ["Fixed Obligation"] }
+  - { id: M034, q: "wat is ltv n foir", expect: answer, must_any: ["Loan to Value", "Fixed Obligation"] }
+  - { id: M035, q: "approve it pls", expect: decline }
+  - { id: M036, q: "whats cersai", expect: answer, must: ["registry"] }
+  - { id: M037, q: "address proof which all allowed", expect: answer, must: ["Passport"] }
+  - { id: M038, q: "how long approval take usually", expect: not_available }
+  - { id: M039, q: "min cibil needed?", expect: not_available }
+  - { id: M040, q: "processing fee how much", expect: not_available }
+  - { id: M041, q: "max tenure pl", expect: answer, must: ["60"] }
+  - { id: M042, q: "interest rate for hl", expect: answer, must: ["8.5"] }
+  - { id: M043, q: "who decides loan approval", expect: answer, must: ["credit"] }
+  - { id: M044, q: "what happens aftr cpa", expect: answer, must: ["Credit"] }
+  - { id: M045, q: "how to fix rejected doc", expect: answer, must: ["upload"] }
+  - { id: M046, q: "thx", expect: small_talk }
+  - { id: M047, q: "hmm ok", expect: small_talk }
+  - { id: M048, q: "what can u do", expect: small_talk }
+  - { id: M049, q: "whats the weather", expect: out_of_scope }
+  - { id: M050, q: "tell me a joke", expect: out_of_scope }

@@ -1,0 +1,290 @@
+{
+ "summary": {
+  "set": "heldout_v2_vague",
+  "label": "current",
+  "total": 30,
+  "correct": 19,
+  "WRONG": 1,
+  "not_available": 0,
+  "clarify": 2,
+  "case": 4,
+  "other_miss": 4,
+  "correct_pct": 63.3,
+  "p50_ms": 110.3,
+  "p95_ms": 3123.4,
+  "model_pct": 0.0,
+  "min_free_ram_gb": 3.11
+ },
+ "rows": [
+  {
+   "id": "V001",
+   "q": "docs",
+   "expect": "options",
+   "result": "correct",
+   "ms": 1523.9,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC About the documents, do you mean the list that is required, the ones still **pending**, the ones already submitted, or their verification status? You can ask: - [What documents are required?](ask:What%20documents%20are%20r"
+  },
+  {
+   "id": "V002",
+   "q": "kyc",
+   "expect": "options",
+   "result": "correct",
+   "ms": 127.6,
+   "model": false,
+   "reply": "Do you mean: [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) · [Explain the process](ask:Explain%20the%20process) [Close](action:exit_case)"
+  },
+  {
+   "id": "V003",
+   "q": "status",
+   "expect": "options",
+   "result": "correct",
+   "ms": 122.1,
+   "model": false,
+   "reply": "Do you mean: [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) · [What is the case status?](ask:What%20is%20the%20case%20status?) [Close](action:exit_case)"
+  },
+  {
+   "id": "V004",
+   "q": "pending",
+   "expect": "options",
+   "result": "no_options",
+   "ms": 841.8,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC Your KYC (Know Your Customer) verification needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please uplo"
+  },
+  {
+   "id": "V005",
+   "q": "co-applicant",
+   "expect": "options",
+   "result": "correct",
+   "ms": 3123.4,
+   "model": false,
+   "reply": "Do you mean: [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) · [What is pending?](ask:What%20is%20pending?) [Close](action:exit_case)"
+  },
+  {
+   "id": "V006",
+   "q": "pan",
+   "expect": "options",
+   "result": "correct",
+   "ms": 111.8,
+   "model": false,
+   "reply": "Do you mean: [What does the document say?](ask:What%20does%20the%20document%20say?) · [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) [Close](action:exit_case)"
+  },
+  {
+   "id": "V007",
+   "q": "amount",
+   "expect": "options",
+   "result": "correct",
+   "ms": 153.2,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC Which amount do you mean: the loan amount, your declared income, your declared obligations, or the property value? 1. [What is my loan amount?](ask:What%20is%20my%20loan%20amount?) 2. [What income did I declare?](ask:What%"
+  },
+  {
+   "id": "V008",
+   "q": "cpa",
+   "expect": "options",
+   "result": "correct",
+   "ms": 3133.3,
+   "model": false,
+   "reply": "Do you mean: [Explain the process](ask:Explain%20the%20process) · [What is the case status?](ask:What%20is%20the%20case%20status?) [Close](action:exit_case)"
+  },
+  {
+   "id": "V009",
+   "q": "name",
+   "expect": "options",
+   "result": "correct",
+   "ms": 107.8,
+   "model": false,
+   "reply": "Do you mean: [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) · [What does the document say?](ask:What%20does%20the%20document%20say?) [Close](action:exit_case)"
+  },
+  {
+   "id": "V010",
+   "q": "upload",
+   "expect": "options",
+   "result": "no_options",
+   "ms": 112.0,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC Your KYC (Know Your Customer) verification needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please uplo"
+  },
+  {
+   "id": "V011",
+   "q": "case",
+   "expect": "options",
+   "result": "case",
+   "ms": 93.7,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"case\" for it. You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "V012",
+   "q": "top 2",
+   "expect": "options",
+   "result": "correct",
+   "ms": 60.1,
+   "model": false,
+   "reply": "You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list. Do you want to know about a particular case? [Yes](ask:Yes) · [No](ask:No) Download: [Excel](a"
+  },
+  {
+   "id": "V013",
+   "q": "cases",
+   "expect": "options",
+   "result": "case",
+   "ms": 52.0,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"cases\" for it. You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "V014",
+   "q": "help",
+   "expect": "options",
+   "result": "no_options",
+   "ms": 34.8,
+   "model": false,
+   "reply": "You can ask me: - **My cases:** [Show my cases](ask:Show%20my%20cases) · [Which cases have a KYC issue?](ask:KYC%20wale%20cases) · [Which cases are ready for CPA?](ask:ready%20wale%20cases) · [Show my oldest cases](ask:sabse%20purane%20case"
+  },
+  {
+   "id": "V015",
+   "q": "query",
+   "expect": "options",
+   "result": "no_options",
+   "ms": 3169.8,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC I can help with your application details, its status and stage, your documents, and what to do next. Which of these did you mean? 1. [What are my application details?](ask:What%20are%20my%20application%20details?) 2. [What"
+  },
+  {
+   "id": "V016",
+   "q": "documents?",
+   "expect": "options",
+   "result": "correct",
+   "ms": 135.8,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC About the documents, do you mean the list that is required, the ones still **pending**, the ones already submitted, or their verification status? You can ask: - [What documents are required?](ask:What%20documents%20are%20r"
+  },
+  {
+   "id": "V017",
+   "q": "bank statement",
+   "expect": "options",
+   "result": "correct",
+   "ms": 105.5,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC - **Bank Statement** is **verified**. Its issuing authority has not been independently confirmed. You can ask: - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:"
+  },
+  {
+   "id": "V018",
+   "q": "next",
+   "expect": "options",
+   "result": "correct",
+   "ms": 108.8,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC **Next step:** Your next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue. You can ask: - [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for"
+  },
+  {
+   "id": "V019",
+   "q": "signature",
+   "expect": "options",
+   "result": "correct",
+   "ms": 113.3,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC - No Signature document has been uploaded for this case. You can ask: - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) - [Why d"
+  },
+  {
+   "id": "V020",
+   "q": "loan",
+   "expect": "options",
+   "result": "case",
+   "ms": 55.9,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"loan\" for it. You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "V021",
+   "q": "docs -> 1",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 95.2,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC - Sure: 3 required: PAN (Permanent Account Number) — VERIFIED; Address Proof — VERIFIED; Bank Statement — VERIFIED. 1 optional: Signature — MISSING. This list is not final: employment type has not been captured, so the rul"
+  },
+  {
+   "id": "V022",
+   "q": "kyc -> 1",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 159.2,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC Not ready for CPA. KYC is not complete. - Applicant: name on the Bank Statement, differs from the application. - Applicant: name differs between the PAN and the Bank Statement. - Applicant: name differs between the Driving"
+  },
+  {
+   "id": "V023",
+   "q": "top 2 -> 1",
+   "expect": "answer",
+   "result": "WRONG",
+   "ms": 75.0,
+   "model": false,
+   "reply": "CASE-CE1EE0CBEF5B · Priya Verma · FOS PAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Priya Verma's KYC hasn't run yet. Next step: Upload the PAN. [Collect from customer](ask:Collect%20from%2"
+  },
+  {
+   "id": "V024",
+   "q": "case -> 1",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 95.1,
+   "model": false,
+   "reply": "CASE-CE1EE0CBEF5B - Your application has been created. PAN (Permanent Account Number), Address Proof, Bank Statement and 1 more are still **pending**. **Next step:** Want to see which documents are pending? You can ask: - [What is pending o"
+  },
+  {
+   "id": "V025",
+   "q": "status -> 2",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 89.4,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC - Sure: your **PAN** (Permanent Account Number), driving licence and bank statement **passed** document verification. Its issuing authority has not been independently confirmed. You can ask: - [What is pending on this case"
+  },
+  {
+   "id": "V026",
+   "q": "pan -> 1",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 77.6,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC - Here you go: your PAN number isn't available on the application yet. You can ask: - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is pending?](ask:What%20is%20pending?) - [Why is it"
+  },
+  {
+   "id": "V027",
+   "q": "docs -> docs",
+   "expect": "answer",
+   "result": "clarify",
+   "ms": 153.9,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC Just to be sure, which one do you mean: 'What documents are required' or 'Which documents are **pending**' or 'Which documents have been submitted' or 'Are my documents **verified**'? Maybe one of these: [how do i create a"
+  },
+  {
+   "id": "V028",
+   "q": "status -> hmm status",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 100.5,
+   "model": false,
+   "reply": "CASE-2F2B314F0BDC - Here you go: your application has been created. Signature is still **pending**. **Next step:** Want to see which documents are pending? You can ask: - [What is pending on this case?](ask:What%20is%20pending%20on%20this%2"
+  },
+  {
+   "id": "V029",
+   "q": "kyc -> kyc?",
+   "expect": "answer",
+   "result": "clarify",
+   "ms": 134.0,
+   "model": false,
+   "reply": "Do you mean: [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) · [Explain the process](ask:Explain%20the%20process) Maybe one of these: [what is kyc](ask:what%20is%20kyc) · [What does KYC mean?](ask:What%20does%20KYC%20mean?) ·"
+  },
+  {
+   "id": "V030",
+   "q": "case -> case",
+   "expect": "answer",
+   "result": "case",
+   "ms": 66.5,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"case\" for it. You have 2 cases: 1 with a KYC issue, 1 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  }
+ ]
+}

@@ -281,7 +281,7 @@ class EmbeddingRetriever(Retriever):
         if key not in self._vectors:
             chunks = self._repository.chunks(key)
             texts = [f"{c.heading}\n{c.text}" for c in chunks]
-            self._vectors[key] = (chunks, self._provider.embed_all(texts))
+            self._vectors[key] = (chunks, _cached_embed_all(self._provider, texts))
         return self._vectors[key]
 
     def invalidate(self) -> None:
@@ -326,6 +326,39 @@ class EmbeddingRetriever(Retriever):
 # ==========================================================================
 # DENSE FIRST, LEXICAL WHEN THE MODEL IS AWAY
 # ==========================================================================
+
+def _cached_embed_all(provider: EmbeddingProvider, texts: list[str]) -> list[list[float]]:
+    """embed_all with a DISK cache keyed by (provider description, text hash): a restart re-embeds only changed chunks
+    (the whole corpus is ~16 s on CPU). Cache file: runtime/cache/knowledge_vectors.json. Never fails the retrieval --
+    an unreadable cache is ignored and rebuilt."""
+    import hashlib
+    import json
+    from pathlib import Path
+
+    inner = getattr(provider, "_inner", provider)              # the query cache wraps the real provider
+    if type(inner).__name__ == "HashingEmbedding":
+        return provider.embed_all(texts)                        # instant and deterministic: nothing to cache
+    tag = f"{type(inner).__name__}:{getattr(inner, 'model', '')}:{getattr(inner, 'dimensions', '')}"
+    path = Path(__file__).resolve().parents[2] / "runtime" / "cache" / "knowledge_vectors.json"
+    try:
+        cache = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, ValueError):
+        cache = {}
+    keys = [hashlib.sha256((tag + "\x00" + t).encode("utf-8")).hexdigest() for t in texts]
+    missing = [i for i, k in enumerate(keys) if k not in cache]
+    if missing:
+        fresh = provider.embed_all([texts[i] for i in missing])
+        for i, vector in zip(missing, fresh):
+            cache[keys[i]] = vector
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            live = set(keys)
+            path.write_text(json.dumps({k: v for k, v in cache.items() if k in live or len(cache) < 4000}),
+                            encoding="utf-8")
+        except OSError:
+            pass
+    return [cache[k] for k in keys]
+
 
 class FallbackRetriever(Retriever):
     """

@@ -1,0 +1,11 @@
+# THE KNOWLEDGE RETRIEVER (Smart Bot plan section 4, owner 2026-10-08) -- read by app/knowledge/__init__.py:backend and
+# app/knowledge/embeddings.py:provider_name. The environment (KNOWLEDGE_BACKEND / EMBEDDING_PROVIDER) still wins.
+#   backend: vector  -> nomic-embed-text dense retrieval (cosine >= LOS_KNOWLEDGE_VECTOR_MIN_SCORE, 0.53), with BM25 standing
+#                       in whenever the embedding model is unreachable (FallbackRetriever, with a cooldown)
+#   backend: lexical -> BM25 only (the old default)
+# Chunk vectors are cached on disk (runtime/cache/knowledge_vectors.json): a restart re-embeds only changed chunks.
+backend: vector
+embedding_provider: ollama
+# one embedding call (a question, or a batch of new chunks) waits at most this long; OLLAMA_EMBED_TIMEOUT overrides.
+# A model that stops answering makes the turn fall back (BM25 / the rules) instead of holding the officer for minutes.
+embed_timeout_seconds: 8

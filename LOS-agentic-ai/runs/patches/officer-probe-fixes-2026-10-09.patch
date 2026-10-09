@@ -1,0 +1,1388 @@
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/agent.py b/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
+index 64ed40e..9645e06 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/agent.py
+@@ -1134,10 +1134,16 @@ async def answer_question(
+ 
+         chosen, llm_trace = await llm_router.route(message, followup.Context.from_payload(context))
+         understanding_trace["llm"] = llm_trace
++        if chosen is not None and chosen.options and len([o for o in chosen.options if o.question]) < 2:
++            # only ONE reading is a question (the other is refuse / out_of_scope): an internal tool name is never
++            # offered as an option -- the refusal / out-of-scope answer when one reading is that, else the question
++            refusals = [o for o in chosen.options if not o.question and o.intent]
++            asks = [o for o in chosen.options if o.question]
++            chosen = refusals[0] if refusals else (asks[0] if asks else None)
+         if chosen is not None and chosen.options:
+             # THE BANK AND THE MODEL DISAGREE (6b-tune-2): never a guess -- both
+             # readings are offered as one tap each; nothing is read until one is picked.
+-            choices = [o.question or o.tool for o in chosen.options][:3]
++            choices = [o.question for o in chosen.options if o.question][:3]
+             audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
+                          case_id=case_id, intent=Intent.UNKNOWN.value, tools=[], status="CLARIFICATION",
+                          message=message)
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/answering/contract.py b/LOS-agentic-ai/app/agents/applicant/copilot/answering/contract.py
+index bd1e472..db61528 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/answering/contract.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/answering/contract.py
+@@ -63,6 +63,11 @@ def cfg() -> dict[str, Any]:
+         return _CACHE["data"]
+ 
+ 
++def version() -> str:
++    """The frontend contract version (copilot_reply.yaml contract_version) -- the X-Contract-Version header."""
++    return str(cfg().get("contract_version") or "1.0")
++
++
+ def enabled() -> bool:
+     value = os.getenv(FLAG)
+     if value is not None and value.strip():
+@@ -202,7 +207,12 @@ def _labels(text: str) -> str:
+     for product in config.products() or []:
+         for item in config.checklist_for(product) or []:
+             known |= {str(item.get(k)).upper() for k in ("slot", "document_type", "code") if item.get(k)}
+-    return _CODE.sub(lambda m: _readable(m.group(0)) if m.group(0) in known else m.group(0), text)
++    def readable(part: str) -> str:
++        return _CODE.sub(lambda m: _readable(m.group(0)) if m.group(0) in known else m.group(0), part)
++
++    # a link TARGET keeps its code ("](action:upload?doc=DRIVING_LICENCE...)"): only the shown text is made readable
++    pieces = re.split(r"(\]\((?:action|ask):[^)\s]*\))", str(text or ""))
++    return "".join(p if i % 2 else readable(p) for i, p in enumerate(pieces))
+ 
+ 
+ def _rows(reply: dict[str, Any]) -> list[dict[str, Any]]:
+@@ -596,13 +606,13 @@ def tts(md: str, lang: str | None = None) -> str:
+         if n and section:
+             label = f"{section}, {label.lower()}"          # a later section names itself
+         sentences.append(str(template).format(status=label, items=_join(list(dict.fromkeys(items)), lang)))
+-    if next_step:
+-        spoken = _sentence(speakable(next_step, lang))
+-        sentences = sentences[:max(limit - 1, 1)] + [spoken]
+-    spoken = " ".join(s for s in sentences[:limit] if s.strip(" .")).strip()
+-    # the cap holds on the FINAL text too: an item may carry its own full stops ("08 Oct, 11:30. Case created.")
+-    parts = re.split(r"(?<=[.!?।])\s+", spoken)
+-    return " ".join(parts[:limit]).strip()
++    step = _sentence(speakable(next_step, lang)) if next_step else ""
++    body = " ".join(s for s in sentences if s.strip(" .")).strip()
++    # the cap holds on the FINAL text too (an item may carry its own full stops: "Not ready for CPA. KYC is not
++    # complete.") -- and the NEXT STEP is always kept: the earlier sentences give way to it
++    parts = [p for p in re.split(r"(?<=[.!?।])\s+", body) if p.strip()]
++    room = max(limit - 1, 1) if step else limit
++    return " ".join(parts[:room] + ([step] if step else [])).strip()
+ 
+ 
+ # --------------------------------------------------------------------------
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_form.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_form.py
+index 3ac6cd5..fe34508 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_form.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/case_form.py
+@@ -521,10 +521,14 @@ def _propose_edit(message: str, case_id: str, claims: dict[str, Any], request_id
+     said = _norm(message)
+     if not any(_norm(w) in said for w in _words("edit_cues")):
+         return None, None
+-    field = _edit_target(message, lang)
+-    if field is None:
+-        return None, None
+-    raw = _value_in(message, field, lang)
++    replaced = _replacement(message, case_id)
++    if replaced:
++        field, raw = replaced
++    else:
++        field = _edit_target(message, lang)
++        if field is None:
++            return None, None
++        raw = _value_in(message, field, lang)
+     if not raw:
+         return None, None
+     from app.agents.applicant.copilot.capabilities import workspace
+@@ -563,15 +567,52 @@ def _value_in(message: str, field: str, lang: str) -> str | None:
+             break
+     else:
+         return None
+-    rest = re.sub(r"^\s*(?:to|ko|=|:|-|ka|ki|ke|se)\s+", " ", rest, flags=re.I).strip(" :=-")
+-    cues = sorted(_words("edit_cues"), key=len, reverse=True)
+-    for cue in cues:
+-        rest = re.sub(rf"(?i)\s*\b{re.escape(cue)}\b\s*$", "", rest).strip()
+-        rest = re.sub(rf"(?i)^\s*{re.escape(cue)}\b\s*", "", rest).strip()
+-    rest = re.sub(r"(?i)^(?:to|ko)\s+", "", rest).strip()
++    return _clean_value(rest, field)
++
++
++def _clean_value(rest: str, field: str) -> str | None:
++    """The value alone: command words ("change karo", "kar do"), fillers ("number", "to", ":") stripped from both
++    ends until nothing changes; an amount said in lakh / crore / k becomes rupees (chat only -- the form keeps its
++    full-rupees rule)."""
++    cues = sorted([*_words("edit_cues"), *_words("value_fillers")], key=len, reverse=True)
++    previous = None
++    while previous != rest:
++        previous = rest
++        rest = rest.strip(" :=-,.")
++        for cue in cues:
++            rest = re.sub(rf"(?i)\s*\b{re.escape(cue)}\b\s*$", "", rest).strip(" :=-,.")
++            rest = re.sub(rf"(?i)^\s*{re.escape(cue)}\b\s*", "", rest).strip(" :=-,.")
++    rule = (_cfg().get("formats") or {}).get(field) or {}
++    if rest and (rule.get("number") or rule.get("integer")):
++        from app.agents.applicant.copilot.capabilities import general
++
++        amounts = general._amounts(rest)
++        scaled = re.search(r"(?i)\b(lakh|lakhs|lac|crore|cr|k|thousand)\b", rest)
++        if len(amounts) == 1 and scaled:
++            rest = str(int(round(amounts[0][1])))
++    if rest and field == "mobile":
++        digits = re.sub(r"\D", "", rest)
++        rest = digits[-10:] if len(digits) >= 10 else rest
+     return rest or None
+ 
+ 
++def _replacement(message: str, case_id: str) -> tuple[str, str] | None:
++    """'Rahul Sharma ki jagah Rahul Kumar Sharma karo' / 'instead of X make it Y': (field, new) -- the field is the
++    one whose CURRENT value the officer named (values_of), so no field name is needed."""
++    # "instead of X make it Y" first (it may START the message); then "X ki jagah Y" / "X instead of Y"
++    found = re.search(r"(?i)instead of\s+(.+?)\s+(?:make it|put|use|write|set)\s+(.+)", message) or \
++        re.search(r"(?i)(.+?)\s+(?:ki jagah|ke jagah|ki jgah|instead of|ke badle|ki bajaye)\s+(.+)", message)
++    if not found:
++        return None
++    old_part, new_part = found.group(1), found.group(2)
++    current = {f: str(v) for f, v in values_of(case_id).items() if v not in (None, "")}
++    named = [f for f, v in current.items() if len(v) >= 3 and v.lower() in old_part.lower()]
++    if len(named) != 1:
++        return None
++    value = _clean_value(new_part, named[0])
++    return (named[0], value) if value else None
++
++
+ def _edit_step(write: dict[str, Any], message: str, claims: dict[str, Any], request_id: str,
+                lang: str) -> dict[str, Any] | None:
+     ref = str(write.get("ref") or "")
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/general.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/general.py
+index 9229d0b..0f51c35 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/general.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/general.py
+@@ -19,6 +19,7 @@ fallback (the second miss in a row -> the closest FAQ questions + the supervisor
+ from __future__ import annotations
+ 
+ import difflib
++import os
+ import re
+ import threading
+ from datetime import date
+@@ -27,6 +28,11 @@ from typing import Any
+ 
+ import yaml
+ 
++import logging
++
++logger_general = logging.getLogger(__name__)
++GENERAL_LLM_STATS: dict[str, int] = {"called": 0, "used": 0, "rejected": 0}
++
+ _ROOT = Path(__file__).resolve().parents[4]
+ _PATH = _ROOT / "config" / "conversation_general.yaml"
+ _CFG: dict[str, Any] = {"mtime": None, "data": {}}
+@@ -279,15 +285,14 @@ def _log_gap(term: str, kind: str = "terms") -> None:
+         entry["last_seen"] = date.today().isoformat()
+         try:
+             path.parent.mkdir(parents=True, exist_ok=True)
+-            path.write_text("# Terms the chatbot was asked and could not find (general.py). Add them to\n"
+-                            "# app/config/glossary.yaml or knowledge/ -- then remove them here.\n"
+-                            + yaml.safe_dump(data, sort_keys=True, allow_unicode=True), encoding="utf-8")
++            header = "".join(f"# {line}\n" for line in cfg().get("gaps_file_header") or [])
++            path.write_text(header + yaml.safe_dump(data, sort_keys=True, allow_unicode=True), encoding="utf-8")
+         except OSError:
+             pass
+ 
+ 
+ async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
+-                 lang: str, case_in_scope: str | None = None) -> dict[str, Any] | None:
++                 lang: str, case_in_scope: str | None = None, meaning_kind: str | None = None) -> dict[str, Any] | None:
+     """
+     FAST LANE FIRST (the rules below, ~20 ms). Only a message they did not understand with confidence -- nothing
+     matched and it is not a clear case question, or "not in the knowledge base" -- takes the SLOW PATH: the LLM
+@@ -296,6 +301,8 @@ async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] |
+     """
+     if not enabled() or not str(message or "").strip():
+         return None
++    if meaning_kind == "case":
++        return None                     # understood as a question about the case: the case engine answers it
+     parts = _parts(message)
+     if len(parts) > 1:
+         # "what is FOIR and what is LTV": every part answered by the same pipeline, joined; a part that needs a case
+@@ -308,7 +315,7 @@ async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] |
+             joined["intent"], joined["parts"] = "MULTI_PART", [r.get("intent") for r in replies]
+             joined.pop("tts_text", None)
+             return joined
+-    reply = await _fast(message, claims, context, request_id, lang, case_in_scope)
++    reply = await _fast(message, claims, context, request_id, lang, case_in_scope, meaning_kind)
+     state = _state(claims, context)
+     if not _needs_slow_path(message, reply, state, claims, context, case_in_scope):
+         _remember(state, message, reply)
+@@ -398,7 +405,7 @@ def _remember(state, message: str, reply: dict[str, Any] | None) -> None:
+ 
+ 
+ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
+-                lang: str, case_in_scope: str | None = None) -> dict[str, Any] | None:
++                lang: str, case_in_scope: str | None = None, meaning_kind: str | None = None) -> dict[str, Any] | None:
+     """The reply when this message needs no case (see the module doc), else None (the message goes on).
+ 
+     `case_in_scope`: a case the REQUEST names (case_id). With a case in scope -- named or opened -- help, frustration
+@@ -465,16 +472,23 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] |
+             md, spoken = _products_table(product, lang)
+             return _reply(request_id, "PRODUCT_CHECKLIST", md, case_id=case_id, tts=spoken,
+                           query_type="PROCESS_KNOWLEDGE")
+-    if _decision(text):
++    if _decision(text) or meaning_kind == "decision":
+         spec = cfg().get("decisions") or {}
+         return _reply(request_id, "CREDIT_DECISION_DECLINED", _pick(spec.get("text"), lang), case_id=case_id,
+                       block=_asks(_pick(spec.get("suggestions"), lang) or []), query_type="PROCESS_KNOWLEDGE")
+     calculated = _calculate(text, lang)
+     if calculated is not None:
+         return _reply(request_id, "CALCULATOR", calculated, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
+-    policy_answer = _policy(text, state, lang)
++    # with a case in scope, "interest rate" / "tenure" means THAT case's value (the case logic); the policy number only
++    # when a product is named ("maximum tenure for home loan")
++    policy_answer = _policy(text, state, lang) if not case_id or _product_of(text) else None
+     if policy_answer is not None:
+         return _reply(request_id, "POLICY_ANSWER", policy_answer, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
++    if meaning_kind == "policy":
++        # understood as a company VALUE but no configured topic matched: said plainly, never guessed
++        return _reply(request_id, "POLICY_NOT_CONFIGURED", _say_text((cfg().get("policy") or {}).get("texts", {})
++                                                                     .get("generic_not_configured"), lang),
++                      case_id=case_id, query_type="PROCESS_KNOWLEDGE")
+     defined = await _definition(text, request_id, lang, case_id)
+     if defined is not None:
+         return defined
+@@ -482,9 +496,11 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] |
+     accepted = _english_shape(text).startswith("which documents are accepted")
+     if accepted:
+         return await _knowledge(_english_shape(text), request_id, lang, None)
+-    if _general_question(text) and not (case_id and _names_case_data(text)):
++    # understood as GENERAL KNOWLEDGE by meaning (semantics/meaning.py): the knowledge base answers it, case open or not
++    if meaning_kind == "knowledge" or (_general_question(text) and not (case_id and _names_case_data(text))):
+         # with a case OPEN, "is PAN mandatory?" / "documents required?" is about THAT case: the case logic answers
+-        return await _knowledge(text, request_id, lang, case_id)
++        # (unless MEANING said general knowledge: then a miss is "not in the knowledge base", never a case answer)
++        return await _knowledge(text, request_id, lang, None if meaning_kind == "knowledge" else case_id)
+     return None
+ 
+ 
+@@ -551,10 +567,72 @@ async def _knowledge(text: str, request_id: str, lang: str, case_id: str | None)
+         return next((reply for authoritative, reply in found if authoritative), found[0][1])
+     if case_id:
+         return None                 # a case is in scope: nothing general found -- the case logic answers it
++    general = await _general_llm(text, request_id)
++    if general:
++        return _reply(request_id, "GENERAL_LLM", general, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
+     _log_gap(_plain(text), kind="questions")
+     return _reply(request_id, "UNKNOWN_TERM", _pick(cfg().get("general_unknown"), lang), case_id=case_id)
+ 
+ 
++async def _general_llm(question: str, request_id: str) -> str | None:
++    """
++    A GENERAL banking / lending question the knowledge base does not hold (Smart Bot plan section 5, type "general"):
++    the model answers from general knowledge in at most `max_sentences` sentences -- never a company number (limits,
++    rates, fees, TAT: it must say "depends on the lender's policy"), never case data. VALIDATED: no digit, ₹ or % the
++    question did not carry, no first-person company voice, not "unknown" -> else None ("not in the knowledge base").
++    An unknown ALL-CAPS term (FNR, FTNR) is company jargon: never explained by the model.
++    """
++    spec = cfg().get("general_llm") or {}
++    flag = (os.getenv("COPILOT_GENERAL_LLM") or "").strip().lower()
++    if (flag and flag not in {"1", "true", "yes", "on"}) or (not flag and not spec.get("enabled", False)):
++        return None
++    terms = re.findall(r"\b[A-Z]{2,6}\b", str(question))
++    from app.agents.applicant.copilot.answering import style
++
++    if terms and not any(style.defined_term(f"what is {t}") for t in terms):
++        return None                                      # an unknown acronym: "not in the knowledge base", logged
++    from app.llm import availability
++    from app.llm.memory import free_gb
++
++    free = free_gb()
++    if (free is not None and free < float(spec.get("min_free_ram_gb", 2.0))) or not availability.provider_reachable():
++        return None
++    from app.agents.applicant.copilot.answering import realtime
++
++    realtime.hint(request_id, realtime.say_status("understanding", "en"))
++    import asyncio
++
++    import httpx
++
++    from app.agents.los.summary import keep_alive
++    from app.llm.config import ollama_host, ollama_model, with_num_ctx
++
++    body = {"model": str(spec.get("model") or ollama_model()), "stream": False, "keep_alive": keep_alive(),
++            "messages": [{"role": "system", "content": str(spec.get("instructions") or "")},
++                         {"role": "user", "content": str(question)[:300]}],
++            "options": with_num_ctx({"temperature": 0.0, "num_predict": int(spec.get("num_predict", 90))})}
++    timeout = float(spec.get("timeout_seconds", 8.0))
++    GENERAL_LLM_STATS["called"] += 1
++    try:
++        async with httpx.AsyncClient(timeout=timeout + 0.5) as client:
++            response = await asyncio.wait_for(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), timeout)
++            text = str(((response.json() or {}).get("message") or {}).get("content") or "").strip()
++    except Exception:  # noqa: BLE001 - slow / down: "not in the knowledge base"
++        return None
++    sentences = [s for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()][:int(spec.get("max_sentences", 3))]
++    answer = " ".join(sentences).strip()
++    said = str(question)
++    if (not answer or re.search(r"(?i)\bunknown\b|i('m| am) not sure|i don't know|as an ai", answer)
++            or any(d not in said for d in re.findall(r"\d+", answer)) or re.search(r"[₹%]", answer)
++            or re.search(r"(?i)\b(our|we offer|we charge|our bank)\b", answer)):
++        logger_general.info("general_llm rejected: %s", answer[:120])
++        GENERAL_LLM_STATS["rejected"] += 1
++        return None
++    GENERAL_LLM_STATS["used"] += 1
++    logger_general.info("general_llm used (provenance llm_general): %s", _plain(question)[:120])
++    return answer
++
++
+ async def _knowledge_candidate(query: str, request_id: str, case_id: str | None,
+                                allow: bool) -> tuple[bool, dict[str, Any]] | None:
+     """(authoritative, reply) for one wording of the question, or None when nothing relevant was found."""
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py
+index 696030b..86e1f8d 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/product_flow.py
+@@ -202,6 +202,24 @@ def step(text: str, state) -> dict[str, Any] | None:
+     return None
+ 
+ 
++def drop_if_not_answered(text: str, state) -> bool:
++    """A new question while the Yes / No (or the pending / done) question waits: the question is dropped NOW, before
++    the general layer / meaning see "a question is pending" (step() drops it the same way, but only in the workspace,
++    after them). A pick ("1", a name) stays pending. True when it was dropped."""
++    pending = _get(state).get("pending")
++    if not enabled() or not pending or pending == "pick":
++        return False
++    f, t = _flow_cfg(), _texts()
++    words = (f.get("yes_words") or []) + (f.get("no_words") or []) + [say(t.get("yes_label")), say(t.get("no_label"))]
++    if pending == "group":
++        words += (f.get("pending_words") or []) + (f.get("done_words") or []) + [group_label("pending"),
++                                                                                group_label("done")]
++    if _only(text, words):
++        return False
++    _set(state, {})
++    return True
++
++
+ def after_open(state) -> str | None:
+     """'What do you want to know?' + the options, when the case was picked from the flow's list."""
+     from app.agents.applicant.copilot.answering import contract, language_lock
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+index 6f44f8c..e6ab32f 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+@@ -427,8 +427,12 @@ def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
+         # ONE upload on the brief: the next step's document (re-upload first) -- the full list is "what is pending"
+         nxt = (view.get("reupload") or []) + (view.get("pending") or [])
+         if nxt:
+-            first = nxt[0]
+-            key = "reupload" if view.get("reupload") else "pending"
++            # the document the brief's "Next step" names ("Upload the signature" -> Upload Signature), else the first
++            step = (brief["text"].split("\n")[-1] if brief.get("text") else "").lower()
++            named = [r for r in nxt if isinstance(r, dict) and str(r.get("label") or "").lower()
++                     and str(r.get("label")).lower() in step]
++            first = named[0] if named else nxt[0]
++            key = "reupload" if first in (view.get("reupload") or []) else "pending"
+             reply["document_actions"] = {key: [first]}
+     except Exception:  # noqa: BLE001 - the upload links are a convenience; the brief stands without them
+         pass
+@@ -723,8 +727,11 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+             asked_list = wanted
+     if action == "LIST_CASES" or asked_list is not None or (
+             action == "CUSTOM_QUERY" and (_says("list", text) or _says("switch", text))):
+-        # the list (or a switch) closes the open case first: never two cases at once
+-        closed, state.active_case_id = state.active_case_id, None
++        # STICKY CASE (Smart Bot plan section 3): a LIST never closes the open case -- "this case" still means it after
++        # the list; only a SWITCH (or "close") leaves it. Picking a row from the list opens that row's case.
++        closed = None
++        if action == "CUSTOM_QUERY" and _says("switch", text):
++            closed, state.active_case_id = state.active_case_id, None
+         reply = paged_view(claims, request_id, state, asked_list) if _case_list.enabled() \
+             else list_view(claims, request_id, state)
+         if closed:
+@@ -815,6 +822,14 @@ def ask_which_case(claims: dict[str, Any], request_id: str, context: dict[str, A
+     reply["intent"], reply["query_type"] = "CASE_SELECTION", "CLARIFICATION"
+     # the question is the first line (the direct answer to an ambiguous question is the question back)
+     reply["answer"] = text + "\n\n" + str(reply.get("answer") or "")
++    # STICKY CONTEXT (Smart Bot plan section 3): the case last opened in THIS chat is offered first, one tap
++    last = next((c for c in reversed(state.case_history or []) if c), None)
++    if last:
++        from urllib.parse import quote
++
++        offer = product_flow.say((product_flow.cfg().get("which_case") or {}).get("last_opened"), lang, case_id=last)
++        if offer:
++            reply["answer"] = f"{text}\n\n[{offer}](ask:{quote('open ' + last)})\n\n" + reply["answer"][len(text):].lstrip()
+     reply.pop("faq_block", None)
+     state.flow = {**{k: v for k, v in (state.flow or {}).items() if k != "portfolio"}, "after_pick": str(question)}
+     _save(state)
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/question_rewrite.py b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/question_rewrite.py
+index 3bf11aa..5b9cdcf 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/question_rewrite.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/question_rewrite.py
+@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
+ FLAG = "COPILOT_LLM_REWRITE"
+ _ROOT = Path(__file__).resolve().parents[5]
+ _LOCK = threading.RLock()
+-_CACHE: "OrderedDict[str, str | None]" = OrderedDict()
++_CACHE: OrderedDict[str, str | None] = OrderedDict()
+ STATS: dict[str, int] = {"asked": 0, "cached": 0, "called": 0, "used": 0, "rejected": 0, "timeout": 0,
+                          "unavailable": 0, "low_memory": 0, "error": 0}
+ _SCHEMA = {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]}
+diff --git a/LOS-agentic-ai/app/api/routes/copilot_api.py b/LOS-agentic-ai/app/api/routes/copilot_api.py
+index 90d2736..07698aa 100644
+--- a/LOS-agentic-ai/app/api/routes/copilot_api.py
++++ b/LOS-agentic-ai/app/api/routes/copilot_api.py
+@@ -30,7 +30,7 @@ import time
+ import uuid
+ from typing import Any
+ 
+-from fastapi import APIRouter, Depends, HTTPException, status
++from fastapi import APIRouter, Depends, HTTPException, Request, status
+ from pydantic import BaseModel, Field
+ 
+ from app.agents.applicant import language, normalize, routing, sentiment
+@@ -1479,13 +1479,22 @@ def _evidence(envelope: dict[str, Any], context) -> dict[str, Any]:
+ )
+ async def query(
+     request: CopilotQueryRequest,
++    http_request: Request,
+     claims: dict[str, Any] = Depends(require_jwt),
+ ):
+     """
+-    MASTER SPEC section 8: the answer below, published as {request_id, markdown, tts} (COPILOT_MD_TTS_CONTRACT).
+-    The context the reply no longer carries is remembered server-side per (user, chat_id).
++    ONE PIPELINE (Smart Bot plan section 1): with the reply contract on (the default), this endpoint is a THIN WRAPPER
++    over POST /api/v1/fos/copilot -- the same pipeline, the same reply {request_id, markdown, tts}, no logic of its own.
++    The contract switched off (the old full envelope, kept for one release) still answers on the legacy path below.
+     """
+     from app.agents.applicant.copilot.answering import contract as _contract
++
++    if _contract.enabled():
++        from app.api.routes import fos_api
++
++        http_request._json = _as_fos_body(request)
++        return await fos_api.copilot(http_request, claims)
++
+     from app.agents.applicant.copilot.capabilities import abuse_guard as _abuse_guard
+     from app.security.auth import get_subject as _chat_subject
+ 
+@@ -1547,6 +1556,18 @@ async def query(
+     return _contract.publish(reply, chat_key=(subject, chat_id))
+ 
+ 
++def _as_fos_body(request: CopilotQueryRequest) -> dict[str, Any]:
++    """The /fos/copilot request this universal request stands for (a typed message in the same chat)."""
++    body: dict[str, Any] = {"action": "CUSTOM_QUERY", "message": request.message or "",
++                            "chat_id": request.chat_id or request.conversation_id,
++                            "reply_language": request.reply_language or request.language}
++    for name in ("case_id", "applicant_id", "context", "new_chat"):
++        value = getattr(request, name, None)
++        if value not in (None, "", False):
++            body[name] = value
++    return {k: v for k, v in body.items() if v is not None}
++
++
+ def _general_allowed(request: CopilotQueryRequest) -> bool:
+     """The input guardrail's verdict, as /fos/copilot reads it before its general layer: the caller's own case list
+     ("saare cases") is allowed; a named id is decided later by the agent; anything else refused is never answered
+diff --git a/LOS-agentic-ai/app/api/routes/fos_api.py b/LOS-agentic-ai/app/api/routes/fos_api.py
+index 3e96932..d908a4c 100644
+--- a/LOS-agentic-ai/app/api/routes/fos_api.py
++++ b/LOS-agentic-ai/app/api/routes/fos_api.py
+@@ -1322,6 +1322,37 @@ async def copilot(
+         }) from exc
+ 
+ 
++async def _understood(message: str, claims: dict[str, Any], payload: Any, request_id: str):
++    """The meaning Decision for a typed message, or None (meaning off / a command / a pending reply / not understood)."""
++    from app.agents.applicant.copilot.semantics import meaning as _meaning
++
++    if not _meaning.enabled():
++        return None
++    from app.agents.applicant.copilot.capabilities import general as _gen
++    from app.agents.applicant.copilot.capabilities import workspace as _ws_m
++
++    state = _gen._state(claims, payload.context)
++    said = " ".join(str(message or "").split())
++    # a reply to a question the bot asked ("1", "yes", "ok", a pick, a pending draft) is never re-understood
++    from app.agents.applicant.copilot.capabilities import vague as _vq
++
++    # a pick / yes / no / ok answers the waiting question; a question that could answer it (one of its options'
++    # words, a draft, a "which case?" pick) stays with it -- any OTHER message is a new question, understood here
++    if re.fullmatch(r"(?i)[\d\s.,]+|yes|no|ok|okay|haan|nahi", said) or _vq.waits_for(said, state, claims,
++                                                                                   payload.context):
++        return None
++
++    if _vq.is_command(said, case_open=bool(state.active_case_id or payload.case_id)):
++        return None                 # open / close / a case id / a list / a new case: the workspace and the forms
++    decision = await _meaning.understand(said, case_open=bool(state.active_case_id or payload.case_id),
++                                         previous=(getattr(state, "flow", None) or {}).get("last_meaning"),
++                                         request_id=request_id)
++    if decision is not None:
++        _meaning.remember(state, decision)
++        _ws_m._save(state)
++    return decision
++
++
+ def _no_case_turn(claims: dict[str, Any], request_id: str, payload: Any, message: str) -> Any:
+     """
+     No case open and the request needs one: (case_id, applicant_id) when the officer has exactly ONE case (answered
+@@ -1650,6 +1681,28 @@ async def _copilot_json(
+                     "errors": [{"code": "REQUEST_NOT_ALLOWED",
+                                 "message": _early_guard.refusal(verdict.category)}]}
+ 
++    # VAGUE / ONE-WORD MESSAGES (owner decision A; capabilities/vague.py): a pending option list is answered by the
++    # pick (or the most likely option on a second vague message) BEFORE chat case creation, so "Create a new case"
++    # picked by its number starts the form like the typed words would; the Upload option answers with its link
++    if action is FosAction.CUSTOM_QUERY:
++        from app.agents.applicant.copilot.capabilities import general as _vg_early
++        from app.agents.applicant.copilot.capabilities import vague as _vague_early
++
++        if _vague_early.enabled():
++            _early_state = _vg_early._state(claims, payload.context)
++            from app.agents.applicant.copilot.capabilities import product_flow as _pf_early
++            from app.agents.applicant.copilot.capabilities import workspace as _ws_early
++
++            if _pf_early.drop_if_not_answered(message, _early_state):
++                _ws_early._save(_early_state)
++            picked = _vague_early.resolve(message, _early_state,
++                                          case_open=bool(_early_state.active_case_id or payload.case_id))
++            if picked and _vague_early.is_upload(picked):
++                return _vague_early.upload_reply(picked, request_id, payload.context, claims)
++            if picked:
++                message = picked
++                request.state.copilot_message = message
++
+     # CASE CREATION AND FIELD EDITS FROM CHAT (MASTER SPEC 15.5; capabilities/case_form.py, COPILOT_CHAT_CASE_CREATE):
+     # the same fields and rules as the UI form, a summary, "Confirm?", then the UI form's own create route. Runs
+     # BEFORE the workspace: while a draft is open, "Rahul Sharma" is the applicant's name, not a case to open.
+@@ -1685,12 +1738,51 @@ async def _copilot_json(
+     # the login, definitions and full forms, process steps from the live config, the product checklist, "whose
+     # name?", unknown terms -- answered BEFORE any case logic, so they never meet "which case?"
+     request.state.copilot_context = payload.context
++    meaning_kind = None
+     if action is FosAction.CUSTOM_QUERY:
++        # UNDERSTANDING BY MEANING (Smart Bot plan sections 2-5; semantics/meaning.py): commands and replies to a
++        # pending question stay with the rules above / the workspace; every other message is understood by MEANING --
++        # a case / process intent becomes its CANONICAL question (answered by the same deterministic engine), the other
++        # kinds go to the general layer. Not understood with confidence -> the message goes on as typed (the rules).
++        # VAGUE / ONE-WORD MESSAGES (owner decision A; capabilities/vague.py): a pending option list is answered by the
++        # pick (or the most likely option on a second vague message); a new fragment gets ONE question with options
++        from app.agents.applicant.copilot.capabilities import general as _vg
++        from app.agents.applicant.copilot.capabilities import vague as _vague
++
++        if _vague.enabled():
++            _vstate = _vg._state(claims, payload.context)
++            if _vague.is_vague(message) and not _vague.waits_for(message, _vstate, claims, payload.context):
++                asked = _vague.ask(message, _vstate, request_id, bool(_vstate.active_case_id or payload.case_id))
++                if asked is not None:
++                    return asked
++        decision = await _understood(message, claims, payload, request_id)
++        if decision is not None and decision.kind == "upload":
++            # "upload new bank statement" with a case open: that document's upload link (the party the message names)
++            _up_state = _vg._state(claims, payload.context)
++            _code = _vague._document_code(message)
++            if _code and (_up_state.active_case_id or payload.case_id):
++                return _vague.upload_reply(_vague.upload_option(message, _code), request_id, payload.context, claims)
++            decision = None                          # no case / no document named: the message goes on as typed
++        if decision is not None and decision.party == "CO_APPLICANT":
++            # "co-applicant pan" on a case WITHOUT one: the message as typed (the engine says there is none) -- the
++            # co-applicant canonical would answer "nothing pending" for a party that does not exist
++            _cp_case = _vg._state(claims, payload.context).active_case_id or payload.case_id
++            from app.store import get_repository as _cp_repo
++
++            _cp_app = _cp_repo().get_application(_cp_case) if _cp_case else None
++            if _cp_app is not None and not getattr(_cp_app, "co_applicant_id", None):
++                decision.canonical = None
++        if decision is not None:
++            meaning_kind = decision.kind
++            if decision.kind in ("case", "process") and decision.canonical:
++                message = decision.canonical
++                request.state.copilot_message = message
+         from app.agents.applicant.copilot.answering import language_lock as _gen_lock
+         from app.agents.applicant.copilot.capabilities import general as _general
+ 
+         general_reply = await _general.answer(message, claims, payload.context, request_id,
+-                                              _gen_lock.current() or "en", case_in_scope=payload.case_id)
++                                              _gen_lock.current() or "en", case_in_scope=payload.case_id,
++                                              meaning_kind=meaning_kind)
+         if general_reply is not None:
+             return general_reply
+ 
+diff --git a/LOS-agentic-ai/app/config/case_list.yaml b/LOS-agentic-ai/app/config/case_list.yaml
+index b697fd3..0db11d6 100644
+--- a/LOS-agentic-ai/app/config/case_list.yaml
++++ b/LOS-agentic-ai/app/config/case_list.yaml
+@@ -60,7 +60,8 @@ phrases:
+     stuck: [atke hue, atka hua, atke, stuck, over target, late wale, der wale]
+     documents_pending: [pending docs wale, docs pending, documents pending, document pending wale, docs baaki,
+                         pending documents wale, docs wale]
+-    needs_action: [action wale, needs action, kaam wale, jinme kaam hai]
++    needs_action: [action wale, needs action, needing action, need action, kaam wale, jinme kaam hai, pending files,
++                   pending cases, my pending, pending wale, files pending, cases pending]
+   # a number said as a word
+   numbers: { ek: 1, one: 1, do: 2, two: 2, teen: 3, three: 3, char: 4, chaar: 4, four: 4, paanch: 5, panch: 5,
+              five: 5, chhe: 6, six: 6, saat: 7, seven: 7, aath: 8, eight: 8, nau: 9, nine: 9, das: 10, ten: 10 }
+diff --git a/LOS-agentic-ai/app/config/conversation_general.yaml b/LOS-agentic-ai/app/config/conversation_general.yaml
+index ad62f80..8701053 100644
+--- a/LOS-agentic-ai/app/config/conversation_general.yaml
++++ b/LOS-agentic-ai/app/config/conversation_general.yaml
+@@ -99,7 +99,7 @@ texts:
+     hi: "लोन राशि भरने के बाद राशि के नियम और दस्तावेज़ जोड़ सकते हैं।"
+     mr: "कर्ज रक्कम भरल्यानंतर रकमेचे नियम आणखी कागदपत्रे जोडू शकतात."
+   which_product: { en: "For which product?", hi-Latn: "Kis product ke liye?", hi: "किस प्रोडक्ट के लिए?", mr: "कोणत्या प्रॉडक्टसाठी?" }
+-  source: { en: "Source: {source}", hi-Latn: "Source: {source}", hi: "स्रोत: {source}", mr: "स्रोत: {source}" }
++  source: { en: "", hi-Latn: "", hi: "", mr: "" }   # Smart Bot plan section 8: no sources in replies (logged internally)
+   # process steps: {placeholders} are filled from the live config (never typed facts)
+   move_to_cpa:
+     en: ["Fill the application form: {fields}.", "Upload the mandatory documents for the product (for {product}: {documents}).",
+@@ -163,6 +163,8 @@ fallback:
+ 
+ # unknown terms are logged here for the owner (term, count, last seen -- never case data)
+ gaps_file: evals/knowledge_gaps.yaml
++gaps_file_header: ["Terms and questions the chatbot could not answer (general.py). Add them to app/config/glossary.yaml",
++                   "or knowledge/, then remove them here."]
+ 
+ # ---- GENERAL QUESTIONS WITH NO CASE (owner 2026-10-08: "outside a case bhi") ------------------------------------
+ # A question SHAPED like general knowledge ("what is / how to / is X mandatory / kya hai / kaise") that points at NO
+@@ -277,6 +279,7 @@ policy:
+     signature_on: "Yes. A signature is mandatory for every case created on or after {date}; a case without it is not ready for CPA."
+     signature_on_undated: "Yes. The mandatory-signature rule is on, but its start date is not configured ({problem}), so the rule cannot be applied yet."
+     signature_off: "No. The mandatory-signature rule is off, so a signature is not required to move a case to CPA."
++    generic_not_configured: "That value is set by the lender's policy and is not configured in this system; the credit team can confirm it."
+     fees: "No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter."
+     turnaround: "No approval time (TAT) is configured in this system. After CPA the case goes through Credit, RCU, BOPS and HOPS before disbursement; your branch can tell you the usual time."
+     unavailable: "The eligibility policy is not available right now; the credit team confirms the limits."
+@@ -338,3 +341,70 @@ llm_rewrite:
+     - ["8 lakh ka 9 percent pe 4 saal ki kist", "What is the EMI for 8 lakh at 9% for 4 years?"]
+     - ["Previous question: what is ITR. Message: aur form 16?", "What is Form 16?"]
+     - ["aaj mausam kaisa hai", "NONE"]
++
++# ---- GENERAL ANSWERS (Smart Bot plan section 5, type "general") -----------------------------------------------------
++# A general banking / lending question the knowledge base does not hold: the model answers from general knowledge,
++# max 3 sentences, VALIDATED (no number / ₹ / % the question did not carry, no company voice, never "unknown"), else
++# "not in the knowledge base". Unknown ALL-CAPS terms (company jargon) are never explained. Only after a knowledge miss.
++general_llm:
++  enabled: true
++  timeout_seconds: 8.0
++  num_predict: 90
++  max_sentences: 3
++  min_free_ram_gb: 2.0
++  instructions: |-
++    You answer a loan field officer's general question about Indian retail lending or banking in at most 3 short plain
++    sentences. Use only widely known, standard facts. Never state any lender's limits, interest rates, fees, cut-offs,
++    timelines or other policy values: say they depend on the lender's policy. Never mention a specific customer or case.
++    Do not use numbers. If the question is not a standard lending or banking topic, or you are not sure, reply exactly UNKNOWN.
++
++# ---- VAGUE / ONE-WORD MESSAGES (owner decision A; capabilities/vague.py) --------------------------------------------
++# A fragment ("docs", "kyc", "top 2", "case") -> ONE short question with 2-4 options from the state + the meaning ranking.
++# The pick answers at once; a second vague message in a row -> the most likely answer directly.
++vague:
++  enabled: true
++  max_words: 2
++  max_options: 3
++  # never vague (answered by their own handlers): thanks / ok / greetings
++  # quoted: unquoted yes / no are YAML booleans. The bare follow-up questions (why / kyu / how / then ...) are answered
++  # from the conversation state (the previous answer), never asked back
++  not_vague: [help, menu, help me, options, ok, okay, thanks, thank you, thx, hi, hello, hey, "yes", "no", "y", "n",
++              cancel, confirm, close, exit, back, bye, hmm ok, why, kyu, kyun, kyon, how, kaise, then, phir, and, aur,
++              when, kab, where, kahan, who, kaun, really, sure, done, next, "?", what, kya]
++  question: "What would you like to know about {topic}?"
++  # the Upload option is a real upload link (action:upload); picked by its number it answers with that link
++  upload_reply: "Tap below to upload the {document}."
++  # the party of the Upload link: the party the message names (semantics/meaning.py party_in), else the default
++  upload_party: { CO_APPLICANT: co_applicant, default: applicant }
++  # a named document ("pan"): its own questions, plus these intents' (they need no document)
++  document_intents_also: [pending_documents]
++  # no case open + a named document: start from this intent's topic (the documents topic)
++  document_intent: document_status
++  # two words, one a document and one of these ("dl verified?", "pan ok", "bank statement rejected"): a clear
++  # question about that document -- never vague
++  document_question_words: [verified, ok, okay, status, rejected, pending, done, uploaded, approved, fine, clear,
++                            accepted, received, valid, correct, missing]
++  case_defaults: ["What is pending?", "What is the status of this case?", "What should I do next?"]
++  list_with_number: ["Show the top {n} cases needing action", "Show the latest {n} cases", "Show the oldest {n} cases"]
++  no_case_defaults: ["Show my cases", "Create a new case", "What can you help with?"]
++  # a case open and no document named: the TOPIC of the word -> that case's questions
++  case_topics:
++    - intents: [pending_documents, document_status, document_rejection, knowledge_documents, process_upload,
++                process_verify_documents, process_fix_rejected]
++      options: ["What is pending?", "Why is this case stuck?", "What should I do next?"]
++    - intents: [kyc_status]
++      options: ["What is the KYC status?", "What is pending?", "Why is this case stuck?"]
++    - intents: [cpa_readiness, process_move_to_cpa]
++      options: ["Is this case ready for CPA?", "What is pending?", "What should I do next?"]
++  # no case open: the TOPIC of the word (its most likely intents, semantics/meaning.py) -> list / how-to options
++  no_case_topics:
++    - intents: [pending_documents, document_status, document_rejection, knowledge_documents, process_upload,
++                process_verify_documents, process_fix_rejected]
++      options: ["Show cases with documents pending", "Which documents are needed for a loan?",
++                "How do I upload documents?"]
++    - intents: [kyc_status]
++      options: ["Show cases with a KYC issue", "What is KYC?", "How do I verify documents?"]
++    - intents: [cpa_readiness, process_move_to_cpa]
++      options: ["Show cases ready for CPA", "How do I move a case to CPA?"]
++    - intents: [why_stuck, time_in_stage]
++      options: ["Show stuck cases", "Show cases needing action"]
+diff --git a/LOS-agentic-ai/app/config/copilot_reply.yaml b/LOS-agentic-ai/app/config/copilot_reply.yaml
+index 2aba749..d5dfd0a 100644
+--- a/LOS-agentic-ai/app/config/copilot_reply.yaml
++++ b/LOS-agentic-ai/app/config/copilot_reply.yaml
+@@ -10,6 +10,11 @@
+ 
+ enabled: true
+ 
++# THE CONTRACT VERSION (frontend_handoff/API_CONTRACT.md): sent as the X-Contract-Version header on every /api/v1/fos/* and
++# /api/v1/copilot/* response. tests/integration/test_api_contract.py fails if the reply / request shape changes without
++# bumping it (frontend_handoff/contract_snapshot.json).
++contract_version: "1.0"
++
+ # ---- markdown -------------------------------------------------------------------------------------------------
+ markdown:
+   # the suggestions shown as [question](ask:question) links under an answer
+diff --git a/LOS-agentic-ai/app/config/faq.yaml b/LOS-agentic-ai/app/config/faq.yaml
+index a2f58e3..f5a654d 100644
+--- a/LOS-agentic-ai/app/config/faq.yaml
++++ b/LOS-agentic-ai/app/config/faq.yaml
+@@ -234,7 +234,7 @@ answers:
+     source: { en: "Glossary: KYC", hi-Latn: "Glossary: KYC", hi: "शब्दकोश: KYC", mr: "शब्दकोश: KYC" }
+ 
+ answer_labels:
+-  source: { en: "Source: {source}", hi-Latn: "Source: {source}", hi: "स्रोत: {source}", mr: "स्रोत: {source}" }
++  source: { en: "", hi-Latn: "", hi: "", mr: "" }   # Smart Bot plan section 8: no sources in replies (logged internally)
+ 
+ # a question that LOOKS like an FAQ (these cues) but matched no answer and no case data
+ unknown:
+diff --git a/LOS-agentic-ai/app/config/product_flow.yaml b/LOS-agentic-ai/app/config/product_flow.yaml
+index 221be7b..acab943 100644
+--- a/LOS-agentic-ai/app/config/product_flow.yaml
++++ b/LOS-agentic-ai/app/config/product_flow.yaml
+@@ -297,7 +297,10 @@ case_form:
+   no_rights: { en: "You don't have permission to create cases.", hi-Latn: "Aapko case banane ki permission nahi hai.",
+                hi: "आपको केस बनाने की अनुमति नहीं है।", mr: "तुम्हाला केस तयार करण्याची परवानगी नाही." }
+   # editing a field of the open case: "loan amount 600000 karo", "change mobile to 9876543210"
+-  edit_cues: [change, update, badlo, badal do, karo, kar do, set, edit, बदलो, बदला]
++  edit_cues: [change, update, badlo, badal do, karo, kar do, set, edit, make it, replace, correct it, correct the,
++              set to, बदलो, बदला]
++  # words around a new value that are not the value ("mobile NUMBER change karo 98...", "loan amount TO 6 lakh")
++  value_fillers: [number, no, num, to, ko, as, is, it, please, the, new, value, field, galat hai, wrong, karna hai]
+   edit_proposal:
+     en: "Change **{label}** of {case_id} from {old} to **{new}**?"
+     hi-Latn: "{case_id} ka **{label}** {old} se **{new}** karna hai?"
+@@ -642,6 +645,9 @@ which_case:
+                atka, atki, stuck, details, detail, summary, form, checklist, next, history, timeline, application,
+                case, cases, customer, mobile, dob, signature, rejected, reupload, handoff, eligibility,
+                केस, स्थिति, दस्तावेज़, लोन, कागदपत्र]
++  # the case last opened in this chat, offered first (one tap answers the question for it)
++  last_opened: { en: "Use {case_id}, the last opened case", hi-Latn: "{case_id} use karo, pichla khola hua case",
++                 hi: "{case_id} लें, पिछला खोला गया केस", mr: "{case_id} वापरा, शेवटची उघडलेली केस" }
+   ask:
+     en: "Which case is this about? Pick one and I'll answer \"{question}\" for it."
+     hi-Latn: "Yeh kis case ke baare mein hai? Ek case chuniye, main uske liye \"{question}\" ka jawab dunga."
+diff --git a/LOS-agentic-ai/app/knowledge/__init__.py b/LOS-agentic-ai/app/knowledge/__init__.py
+index 37287ef..4cbbf10 100644
+--- a/LOS-agentic-ai/app/knowledge/__init__.py
++++ b/LOS-agentic-ai/app/knowledge/__init__.py
+@@ -87,10 +87,25 @@ def backend() -> str:
+     signal (`dense_retriever`, floor 0.80) and case-memory search. The hashing
+     embedder is never a default (P@1 0.268 vs 0.537).
+     """
+-    name = (os.getenv("KNOWLEDGE_BACKEND") or "lexical").strip().lower()
++    # Smart Bot plan section 4 (owner 2026-10-08): dense ON by CONFIG (app/config/knowledge.yaml), BM25 whenever the
++    # embedding model is unreachable (FallbackRetriever); the env still overrides (tests pin "lexical")
++    name = (os.getenv("KNOWLEDGE_BACKEND") or _config().get("backend") or "lexical").strip().lower()
+     return name if name in _BACKENDS else "lexical"
+ 
+ 
++def _config() -> dict:
++    """app/config/knowledge.yaml (missing file -> {}: the old lexical default)."""
++    from pathlib import Path
++
++    import yaml
++
++    path = Path(__file__).resolve().parents[1] / "config" / "knowledge.yaml"
++    try:
++        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
++    except (OSError, ValueError):
++        return {}
++
++
+ def vector_threshold() -> float:
+     """
+     LOS_KNOWLEDGE_VECTOR_MIN_SCORE: the cosine a dense hit must reach.
+@@ -161,13 +176,19 @@ def get_retriever() -> Retriever:
+                     from app.knowledge.embeddings import get_query_embedder, provider_name
+ 
+                     lexical = LexicalRetriever(repository, default_threshold=default_threshold())
++                    _RETRIEVER = lexical            # no real model configured, or it cannot be built: BM25
+                     if provider_name() == "ollama":
+-                        _RETRIEVER = FallbackRetriever(
+-                            EmbeddingRetriever(repository, get_query_embedder(),
+-                                               default_threshold=vector_threshold()),
+-                            lexical)
+-                    else:                  # no real model configured: never hashing
+-                        _RETRIEVER = lexical
++                        try:
++                            _RETRIEVER = FallbackRetriever(
++                                EmbeddingRetriever(repository, get_query_embedder(),
++                                                   default_threshold=vector_threshold()),
++                                lexical)
++                        except Exception:  # noqa: BLE001 - a misconfigured embedder never takes the knowledge down
++                            import logging
++
++                            logging.getLogger(__name__).warning(
++                                "dense retriever unavailable (embedder could not be built); answering with BM25",
++                                exc_info=True)
+                 elif backend() == "embedding":
+                     _RETRIEVER = EmbeddingRetriever(
+                         repository, HashingEmbedding(),
+diff --git a/LOS-agentic-ai/app/knowledge/embeddings.py b/LOS-agentic-ai/app/knowledge/embeddings.py
+index cff6661..12f5428 100644
+--- a/LOS-agentic-ai/app/knowledge/embeddings.py
++++ b/LOS-agentic-ai/app/knowledge/embeddings.py
+@@ -153,6 +153,12 @@ class OllamaEmbedding(EmbeddingProvider):
+     def __init__(self, url: str | None = None, model: str | None = None,
+                  dimensions: int | None = None,
+                  transport=None, timeout: float | None = None) -> None:
++        # OLLAMA_URL, else the SAME Ollama the app's models use (OLLAMA_HOST via app.llm.config) -- an explicit address,
++        # never an invented default; with neither set, the error below (and the retriever falls back to BM25)
++        if url is None and not os.getenv(ENV_OLLAMA_URL) and os.getenv("OLLAMA_HOST"):
++            from app.llm.config import ollama_host
++
++            url = ollama_host()
+         self._url = (url if url is not None
+                      else (os.getenv(ENV_OLLAMA_URL) or "")).strip()
+         if not self._url:
+@@ -165,7 +171,7 @@ class OllamaEmbedding(EmbeddingProvider):
+                        or DEFAULT_OLLAMA_MODEL)
+         self._transport = transport or _http_post
+         self._timeout = float(timeout if timeout is not None
+-                              else os.getenv(ENV_TIMEOUT) or DEFAULT_TIMEOUT)
++                              else os.getenv(ENV_TIMEOUT) or _config_timeout() or DEFAULT_TIMEOUT)
+ 
+         configured = dimensions or _int_env(ENV_DIMENSIONS)
+         self.dimensions = int(configured) if configured else 0
+@@ -271,8 +277,20 @@ def _int_env(name: str) -> int | None:
+     return value if value > 0 else None
+ 
+ 
++def _config_timeout() -> float | None:
++    """app/config/knowledge.yaml embed_timeout_seconds: one embedding call never holds a chat turn longer."""
++    from app.knowledge import _config
++
++    value = _config().get("embed_timeout_seconds")
++    return float(value) if value else None
++
++
+ def provider_name() -> str:
+-    return (os.getenv(ENV_PROVIDER) or "hashing").strip().lower()
++    if os.getenv(ENV_PROVIDER):
++        return os.getenv(ENV_PROVIDER, "").strip().lower()
++    from app.knowledge import _config
++
++    return str(_config().get("embedding_provider") or "hashing").strip().lower()
+ 
+ 
+ #: Per-request embedding stats. The dict is shared into worker threads
+diff --git a/LOS-agentic-ai/app/knowledge/retriever.py b/LOS-agentic-ai/app/knowledge/retriever.py
+index 3ba8e68..da39157 100644
+--- a/LOS-agentic-ai/app/knowledge/retriever.py
++++ b/LOS-agentic-ai/app/knowledge/retriever.py
+@@ -281,7 +281,7 @@ class EmbeddingRetriever(Retriever):
+         if key not in self._vectors:
+             chunks = self._repository.chunks(key)
+             texts = [f"{c.heading}\n{c.text}" for c in chunks]
+-            self._vectors[key] = (chunks, self._provider.embed_all(texts))
++            self._vectors[key] = (chunks, _cached_embed_all(self._provider, texts))
+         return self._vectors[key]
+ 
+     def invalidate(self) -> None:
+@@ -327,6 +327,39 @@ class EmbeddingRetriever(Retriever):
+ # DENSE FIRST, LEXICAL WHEN THE MODEL IS AWAY
+ # ==========================================================================
+ 
++def _cached_embed_all(provider: EmbeddingProvider, texts: list[str]) -> list[list[float]]:
++    """embed_all with a DISK cache keyed by (provider description, text hash): a restart re-embeds only changed chunks
++    (the whole corpus is ~16 s on CPU). Cache file: runtime/cache/knowledge_vectors.json. Never fails the retrieval --
++    an unreadable cache is ignored and rebuilt."""
++    import hashlib
++    import json
++    from pathlib import Path
++
++    inner = getattr(provider, "_inner", provider)              # the query cache wraps the real provider
++    if type(inner).__name__ == "HashingEmbedding":
++        return provider.embed_all(texts)                        # instant and deterministic: nothing to cache
++    tag = f"{type(inner).__name__}:{getattr(inner, 'model', '')}:{getattr(inner, 'dimensions', '')}"
++    path = Path(__file__).resolve().parents[2] / "runtime" / "cache" / "knowledge_vectors.json"
++    try:
++        cache = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
++    except (OSError, ValueError):
++        cache = {}
++    keys = [hashlib.sha256((tag + "\x00" + t).encode("utf-8")).hexdigest() for t in texts]
++    missing = [i for i, k in enumerate(keys) if k not in cache]
++    if missing:
++        fresh = provider.embed_all([texts[i] for i in missing])
++        for i, vector in zip(missing, fresh):
++            cache[keys[i]] = vector
++        try:
++            path.parent.mkdir(parents=True, exist_ok=True)
++            live = set(keys)
++            path.write_text(json.dumps({k: v for k, v in cache.items() if k in live or len(cache) < 4000}),
++                            encoding="utf-8")
++        except OSError:
++            pass
++    return [cache[k] for k in keys]
++
++
+ class FallbackRetriever(Retriever):
+     """
+     The primary retriever (dense vectors), and BM25 whenever it cannot run.
+diff --git a/LOS-agentic-ai/app/llm/availability.py b/LOS-agentic-ai/app/llm/availability.py
+index 92ddc40..eaf6a9f 100644
+--- a/LOS-agentic-ai/app/llm/availability.py
++++ b/LOS-agentic-ai/app/llm/availability.py
+@@ -177,6 +177,44 @@ def mark_slow(reason: str = "") -> None:
+     _suppress_for(slow_cooldown_seconds(), reason, "marked slow")
+ 
+ 
++_WARMING: dict[str, float] = {}
++
++
++def warm_in_background(model: str | None = None) -> bool:
++    """
++    THE COLD-MODEL LOOP. A call that times out while Ollama is still LOADING the model disconnects, Ollama drops the
++    load, and the next call is cold again -- so the model never becomes ready. This loads it once, in a background
++    thread with no request budget (an empty prompt only loads; keep_alive holds it). At most once per two minutes per
++    model. True when a warm-up was started.
++    """
++    import json as _json
++    import threading
++    import urllib.request
++
++    from app.agents.los.summary import keep_alive
++    from app.llm.config import ollama_host, ollama_model
++
++    name = str(model or ollama_model())
++    now = time.monotonic()
++    if now - _WARMING.get(name, -1e9) < 120:
++        return False
++    _WARMING[name] = now
++
++    def run() -> None:
++        try:
++            body = _json.dumps({"model": name, "prompt": "", "keep_alive": keep_alive()}).encode()
++            request = urllib.request.Request(f"{ollama_host().rstrip('/')}/api/generate", data=body,
++                                             headers={"Content-Type": "application/json"})
++            with urllib.request.urlopen(request, timeout=120) as response:   # noqa: S310 - the configured local host
++                response.read()
++            reset()                                   # loaded: the hold-off of the failed call no longer applies
++        except Exception as exc:  # noqa: BLE001 - a warm-up is best effort
++            logger.info("LLM warm-up of %s failed (%s)", name, type(exc).__name__)
++
++    threading.Thread(target=run, name=f"llm-warm-{name}", daemon=True).start()
++    return True
++
++
+ def reset() -> None:
+     """Clear both cached states. For tests and for an explicit recheck."""
+     global _unavailable_until, _available_until
+diff --git a/LOS-agentic-ai/main.py b/LOS-agentic-ai/main.py
+index f745658..baa07a6 100644
+--- a/LOS-agentic-ai/main.py
++++ b/LOS-agentic-ai/main.py
+@@ -259,8 +259,25 @@ async def lifespan(app: FastAPI):
+                     language.detect(sample)
+                     intents.understand(sample, has_case=True)
+ 
++            def meaning_bank() -> None:
++                # the meaning layer's example bank (intent examples + paraphrases): embedded once here, never inside
++                # the first officer's turn (measured: ~100 s on a cold cache)
++                from app.agents.applicant.copilot.semantics import meaning
++
++                if meaning.enabled():
++                    meaning.rank("warmup")
++
++            def chat_model() -> None:
++                # the small model the chooser / rewrite / general answer use: loaded and held (keep_alive)
++                from app.agents.applicant.copilot.semantics import meaning
++                from app.llm import availability
++
++                if meaning.enabled():               # off in the test suite: no model is loaded there
++                    availability.warm_in_background()
++
+             for name, run in (("vector_store", vector_store), ("embedder", embedder),
+-                              ("knowledge_index", knowledge_index), ("understanding", understanding)):
++                              ("knowledge_index", knowledge_index), ("understanding", understanding),
++                              ("meaning_bank", meaning_bank), ("chat_model", chat_model)):
+                 step(name, run)
+ 
+         _threading.Thread(target=_warm_retrieval, name="copilot-warmup",
+@@ -585,6 +602,11 @@ async def _request_span(request, call_next):
+     _llm_trace.begin()
+     with span("http.request", http_method=request.method) as current:
+         response = await call_next(request)
++        if request.url.path.startswith(("/api/v1/fos", "/api/v1/copilot")):
++            # THE FRONTEND CONTRACT VERSION (frontend_handoff/API_CONTRACT.md): the UI checks it, the contract test pins it
++            from app.agents.applicant.copilot.answering import contract as _ui_contract
++
++            response.headers["X-Contract-Version"] = _ui_contract.version()
+         route = request.scope.get("route")
+         path = getattr(route, "path", None)
+         # A route with no path parameters is published as its full path; a
+diff --git a/LOS-agentic-ai/tests/conftest.py b/LOS-agentic-ai/tests/conftest.py
+index 5557d2d..08e10f9 100644
+--- a/LOS-agentic-ai/tests/conftest.py
++++ b/LOS-agentic-ai/tests/conftest.py
+@@ -231,6 +231,12 @@ def llm_router_off_by_default(monkeypatch):
+     monkeypatch.setenv("COPILOT_LLM_ROUTER", "false")
+     # the question rewrite (general layer slow path) likewise: off unless a test / the eval gate opts in
+     monkeypatch.setenv("COPILOT_LLM_REWRITE", "false")
++    # dense retrieval is ON by config (app/config/knowledge.yaml): the suite stays on BM25, no model
++    monkeypatch.setenv("KNOWLEDGE_BACKEND", "lexical")
++    # meaning (embedding + chooser) and the general-knowledge model answer: off in the suite (tests opt in with fakes)
++    monkeypatch.setenv("COPILOT_MEANING", "false")
++    monkeypatch.setenv("COPILOT_GENERAL_LLM", "false")
++    monkeypatch.setenv("EMBEDDING_PROVIDER", "hashing")
+     monkeypatch.delenv("COPILOT_UNDERSTANDING_LLM", raising=False)
+     from app.agents.applicant.copilot import agent as _agent
+     from app.agents.applicant.copilot.semantics import llm_router as _router
+diff --git a/LOS-agentic-ai/tests/integration/selfcheck_conversations.py b/LOS-agentic-ai/tests/integration/selfcheck_conversations.py
+index d6e3ddc..3c96c1e 100644
+--- a/LOS-agentic-ai/tests/integration/selfcheck_conversations.py
++++ b/LOS-agentic-ai/tests/integration/selfcheck_conversations.py
+@@ -24,7 +24,7 @@ DOWNLOADS = [R + r"\(action:download(_list)?\?format=xlsx"], [R + r"\(action:dow
+ SHOW_UI = [R + r"\(action:show_(list_)?in_ui"]
+ CONFIRM = [R + r"\(action:confirm_write\?ref="]
+ CREATED = [R + r"CASE-[0-9A-F]+ created for|CASE-[0-9A-F]+ ban gaya"]
+-STEPS = [R + r"^1\. "], [R + r"\n2\. "], [R + r"source:"]
++STEPS = [R + r"^1\. "], [R + r"\n2\. "]   # no "Source:" label (Smart Bot response rules, 2026-10-08)
+ ABUSE = [R + r"foul language|gaali"]
+ MASKED = [R + r"\bm\*+d\b"]
+ UNKNOWN = [R + r"don't know that yet|isn't in the knowledge base|don't have an answer|abhi nahi pata|jawab abhi"]
+@@ -159,7 +159,7 @@ CONVERSATIONS: list[tuple[str, list[tuple]]] = [
+         ("help", [[R + r"\(ask:"]], [], [[R + r"my cases"]]),
+     ]),
+     ("28 paging", [
+-        ("top 1", [LIST, [R + r"showing 1-1 of \d+"]], []),     # conversation 12 created a third case
++        ("top 1 cases", [LIST, [R + r"showing 1-1 of \d+"]], []),     # conversation 12 created a third case
+         ("aur dikhao", [[R + r"showing 2-2 of \d+"]], []),
+     ]),
+     ("29 switch cases", [
+diff --git a/LOS-agentic-ai/tests/integration/test_case_list_topn.py b/LOS-agentic-ai/tests/integration/test_case_list_topn.py
+index 6108518..7f04a16 100644
+--- a/LOS-agentic-ai/tests/integration/test_case_list_topn.py
++++ b/LOS-agentic-ai/tests/integration/test_case_list_topn.py
+@@ -11,7 +11,7 @@ from tests.integration.master_env import make_case, prod  # noqa: F401
+ from tests.integration.test_reupload_supersedes import _store, client  # noqa: F401
+ 
+ NAMES = ("Rahul Sharma", "Priya Verma", "Aniket Patil", "Sneha Joshi", "Vikas Rao", "Meena Iyer")
+-SIZED = [("top 2 cases", 2), ("last 3 cases", 3), ("top 5", 5), ("last 3", 3), ("show top 2 cases", 2),
++SIZED = [("top 2 cases", 2), ("last 3 cases", 3), ("last 3", 3), ("show top 2 cases", 2),
+          ("give me last 3 cases", 3), ("latest 2 cases", 2), ("first 3 cases", 3), ("oldest 2 cases", 2),
+          ("recent 4 cases", 4), ("mere last 3 case", 3), ("pichle 3 case dikhao", 3), ("top 2 case dikhao", 2),
+          ("show 2 cases", 2), ("last two cases", 2), ("top three cases", 3), ("my last 3 cases", 3),
+@@ -58,3 +58,10 @@ def test_kyc_filter_with_a_count(six):
+ @pytest.mark.parametrize("message", ["ek case ka status batao", "what is the status of 2 cases ago", "ek case banao"])
+ def test_a_count_is_not_always_a_list(six, message):
+     assert "Showing 1-1 of 6" not in ask(six, message, f"neg-{message}")
++
++
++def test_a_bare_top_n_asks_which_order_then_shows_that_many(six):
++    # owner decision A (2026-10-08): "top 5" alone -- top by what? one question, the pick shows 5
++    asked = ask(six, "top 5", "topn-bare")
++    assert "needing action" in asked and rows(asked) == 0
++    assert rows(ask(six, "1", "topn-bare")) == 5
+diff --git a/LOS-agentic-ai/tests/integration/test_eval_gate.py b/LOS-agentic-ai/tests/integration/test_eval_gate.py
+index e0087cf..b0e6fb6 100644
+--- a/LOS-agentic-ai/tests/integration/test_eval_gate.py
++++ b/LOS-agentic-ai/tests/integration/test_eval_gate.py
+@@ -1,12 +1,14 @@
+ """
+-THE RELEASE GATE: the golden set (evals/general_questions.yaml) and the FROZEN held-out set (evals/heldout/), one
+-chat per item, NO case open, two cases on file. Run by scripts/eval_gate.py (EVAL_RUN=1); skipped in the ordinary
+-suite. EVAL_MODEL=1 lets the LLM rewrite run against the real Ollama; otherwise the model is off (the fast lane only).
+-
+-Per reply: correct | WRONG | unknown | clarify | case | list | decline | not_configured, the latency of the judged
+-(last) turn, and whether the model rewrote the question. WRONG = an answer whose content is not what was asked
+-(a `must` word missing), a number where "not configured" was expected, an answer where "not in the knowledge base"
+-was expected, or a credit decision made. WRONG must stay 0.
++THE RELEASE GATE / MEASUREMENT (Smart Bot plan section 9): the golden set (evals/general_questions.yaml) and the FROZEN
++held-out sets (evals/heldout/*.yaml, checksum-verified). Run by scripts/eval_gate.py (EVAL_RUN=1); skipped in the suite.
++
++  EVAL_MODEL=0  "current" -- meaning, the model chooser, the general model answer, the rewrite and dense retrieval OFF
++  EVAL_MODEL=1  "new"     -- all ON against the REAL local models (nomic-embed-text + qwen2.5:3b)
++
++A set with `fixture: kyc_failed` opens that case (documents, a KYC name mismatch) in every chat before the question.
++Per reply: correct | WRONG | not_available | clarify | case | small_talk | out_of_scope | decline | error.
++WRONG = an answer whose content is not what was asked (`must` all / `must_any` one missing), a number or an answer where
++"not available" was expected, or a credit decision made. WRONG must stay 0.
+ """
+ 
+ from __future__ import annotations
+@@ -29,16 +31,18 @@ ROOT = Path(__file__).resolve().parents[2]
+ pytestmark = pytest.mark.skipif(os.getenv("EVAL_RUN") != "1", reason="the release gate runs via scripts/eval_gate.py")
+ 
+ CLASSES = [
+-    # a guardrail refusal: a MISS (the question was not answered), never a wrong fact
+     ("refused", re.compile(r"I can't provide other customers|I can't share internal|can't help with that request", re.I)),
+     ("case", re.compile(r"Which case is this about|Open a case first", re.I)),
+-    ("list", re.compile(r"^Showing \d+-\d+ of \d+", re.I | re.M)),
+-    ("unknown", re.compile(r"I don't know|not in the knowledge base|isn't in the knowledge base|don't have (?:that|this) "
+-                           r"information|I can only help with|don't have an answer", re.I)),
+-    ("not_configured", re.compile(r"^- [^\n]*not set in the eligibility|^No [^.\n]+ is configured|is \*\*not configured\*\*"
+-                                  r"|not configured in this system", re.I | re.M)),
+-    ("clarify", re.compile(r"^Do you mean|Whose name do you mean|For which product", re.I | re.M)),
+     ("decline", re.compile(r"I don't make credit decisions|I can't approve, reject", re.I)),
++    ("out_of_scope", re.compile(r"outside what I can help with|I can only help with", re.I)),
++    ("not_available", re.compile(r"I don't know|not in the knowledge base|isn't in the knowledge base|don't have (?:that|this) "
++                                 r"information|don't have an answer|not configured|^- [^\n]*not set in the eligibility|"
++                                 r"isn't recorded|not recorded|has not been recorded|does not fetch|no .{0,40} is recorded|"
++                                 r"^No\b[^.\n]* is configured",
++                                 re.I | re.M)),
++    ("clarify", re.compile(r"^Do you mean|Whose name do you mean|For which product|which one do you mean", re.I | re.M)),
++    ("small_talk", re.compile(r"^(Okay|Sure|Got it|You're welcome)\b.*Anything else|^I can help with your cases", re.I | re.M)),
++    ("list", re.compile(r"^Showing \d+-\d+ of \d+", re.I | re.M)),
+ ]
+ 
+ 
+@@ -49,35 +53,60 @@ def classify(md: str) -> str:
+     return "answer"
+ 
+ 
++def _content_ok(item: dict, md: str) -> bool:
++    low = md.lower()
++    if any(w.lower() not in low for w in item.get("must") or []):
++        return False
++    anyof = item.get("must_any") or []
++    return not anyof or any(w.lower() in low for w in anyof)
++
++
+ def judge(item: dict, md: str, status: int) -> str:
+-    """correct / WRONG / or the miss class (unknown, clarify, case, list, decline, not_configured, error)."""
+     if status != 200:
+         return "error"
+-    got, expect = classify(md), item["expect"]
+-    missing = [w for w in item.get("must") or [] if w.lower() not in md.lower()]
++    got, expect, ok = classify(md), item["expect"], _content_ok(item, md)
++    if expect == "options":
++        # ONE short follow-up question with 2-4 option links -- not "which case?", not "I don't know"
++        options = md.count("](ask:")
++        if got in ("case", "not_available", "out_of_scope"):
++            return got
++        return "correct" if "?" in md and 2 <= options <= 4 else "no_options"
++    if expect in ("unknown", "not_configured"):
++        expect = "not_available"
+     if expect in ("answer", "list"):
+-        if got == expect or (expect == "answer" and got in ("not_configured", "list") and not missing):
+-            return "correct" if not missing else "WRONG"
++        if got in ("answer", "list", "not_available", "clarify") and ok and got != "clarify":
++            return "correct"                 # the content asked for is there (a "not set" line can carry it too)
++        if got in ("answer", "list"):
++            return "WRONG"                   # answered, but not what was asked
++        return got
++    if expect == "general_or_unknown":
++        if got == "not_available":
++            return "correct"
++        if got in ("answer", "list"):
++            return "correct" if ok else "WRONG"
+         return got
+     if expect == got:
+         return "correct"
+-    if expect in ("not_configured", "unknown") and got == "answer":
+-        return "WRONG"                       # a guessed number / an answer the knowledge base does not hold
++    if expect == "not_available" and got in ("decline",):
++        return "correct"                     # says who decides, never guesses
++    if expect == "decline" and got == "not_available":
++        return "correct"
++    if expect == "not_available" and got in ("answer", "list"):
++        return "WRONG"                       # an answer where nothing is recorded / configured
+     if expect == "decline" and got in ("answer", "list"):
+         return "WRONG"                       # a credit decision is never answered
+-    if {expect, got} <= {"decline", "not_configured"}:
+-        return "correct"                     # both say who decides, neither guesses
+     return got
+ 
+ 
+-def _items(name: str) -> list[dict]:
++def _items(name: str) -> tuple[list[dict], str | None]:
+     if name == "golden":
+         bank = yaml.safe_load((ROOT / "evals" / "general_questions.yaml").read_text(encoding="utf-8"))["categories"]
+-        return [{"id": f"G{c[:3]}{n:03d}", **i} for c, items in bank.items() for n, i in enumerate(items)]
++        return [{"id": f"G{c[:3]}{n:03d}", **i} for c, items in bank.items() for n, i in enumerate(items)], None
+     path = ROOT / "evals" / "heldout" / f"{name}.yaml"
+     frozen = (path.with_suffix(".sha256")).read_text(encoding="utf-8").split()[0]
+     assert hashlib.sha256(path.read_bytes()).hexdigest() == frozen, f"{path.name} changed after it was frozen"
+-    return yaml.safe_load(path.read_text(encoding="utf-8"))["items"]
++    data = yaml.safe_load(path.read_text(encoding="utf-8"))
++    return data["items"], data.get("fixture")
+ 
+ 
+ @pytest.fixture
+@@ -90,46 +119,101 @@ def gaps(tmp_path, monkeypatch):
+                                                                  "log_file": str(tmp_path / "rewrites.jsonl")}})
+ 
+ 
+-@pytest.mark.parametrize("name", [n.strip() for n in os.getenv("EVAL_SETS", "golden,heldout_v1").split(",")])
+-def test_eval_gate(client, prod, gaps, monkeypatch, name):
+-    from app.agents.applicant.copilot.capabilities import safety
+-    from app.agents.applicant.copilot.semantics import question_rewrite
++def _model_mode(monkeypatch) -> bool:
++    on = os.getenv("EVAL_MODEL") == "1"
++    for flag, value in (("COPILOT_MEANING", on), ("COPILOT_GENERAL_LLM", on), ("COPILOT_LLM_REWRITE", on)):
++        monkeypatch.setenv(flag, "true" if value else "false")
++    monkeypatch.setenv("KNOWLEDGE_BACKEND", "vector" if on else "lexical")
++    monkeypatch.setenv("EMBEDDING_PROVIDER", "ollama" if on else "hashing")
++    from app.knowledge import set_repository
++    from app.agents.applicant.copilot.semantics import meaning, question_rewrite
+ 
+-    monkeypatch.setenv("COPILOT_LLM_REWRITE", "true" if os.getenv("EVAL_MODEL") == "1" else "false")
++    set_repository(None)                      # the retriever is rebuilt for this mode
++    meaning._BANK["key"] = None
+     question_rewrite.clear_cache()
+-    for person in ("Rahul Sharma", "Priya Verma"):
+-        make_case(client, person)
+-    rows = []
+-    for item in _items(name):
++    return on
++
++
++def _kyc_failed_case(client, store) -> str:
++    """The fixture of tests/integration/test_master_6_kyc_ab.py, built here (documents + a KYC name mismatch)."""
++    from app.store.models import CaseFinding, Document, DocumentStatus, FindingKind
++
++    a, c = make_case(client, "Rahul Sharma")
++    for kind, name in (("PAN", "RAHUL SHARMA"), ("DRIVING_LICENCE", "RAHUL SHARMA"), ("BANK_STATEMENT", "ROHIT VERMA")):
++        doc_id = f"{c}:{a}:{kind.lower()}"
++        store.save_document(Document(document_id=doc_id, case_id=c, applicant_id=a, party_id=a, document_type=kind,
++                                     status=DocumentStatus.VERIFIED, verification_status="PASS"))
++        store.save_finding(CaseFinding(finding_id=f"x-{kind}", case_id=c, party_id=a, document_id=doc_id,
++                                       source_id=f"{kind.lower()}.jpg", finding_kind=FindingKind.EXTRACTION,
++                                       status="PASS", payload={"fields": {"name": name}}, content_hash=f"x-{kind}"))
++    store.save_finding(CaseFinding(
++        finding_id="k", case_id=c, party_id=a, finding_kind=FindingKind.KYC, status="FAIL",
++        reason_codes=["NAME_MISMATCH"], content_hash="k",
++        payload={"fields": [{"field": "NAME", "status": "FAIL", "sources": [
++            {"document_type": "PAN", "value": "RAHUL SHARMA"}, {"document_type": "DRIVING_LICENCE", "value": "RAHUL SHARMA"},
++            {"document_type": "BANK_STATEMENT", "value": "ROHIT VERMA"}]}]}))
++    return c
++
++
++def _model_calls() -> int:
++    from app.agents.applicant.copilot.capabilities import general
++    from app.agents.applicant.copilot.semantics import meaning, question_rewrite
++
++    return (meaning.STATS["model"] + meaning.STATS["model_failed"] + question_rewrite.STATS["called"]
++            + general.GENERAL_LLM_STATS["called"])
++
++
++@pytest.mark.parametrize("name", [n.strip() for n in os.getenv("EVAL_SETS", "golden,heldout_v1").split(",")])
++def test_eval_gate(client, prod, gaps, monkeypatch, _store, name):
++    from app.agents.applicant.copilot.capabilities import safety
++    from app.llm.memory import free_gb
++
++    _model_mode(monkeypatch)
++    items, fixture = _items(name)
++    case_id = _kyc_failed_case(client, _store) if fixture == "kyc_failed" else None
++    make_case(client, "Priya Verma")
++    if not case_id:
++        make_case(client, "Rahul Sharma")
++    rows, ram = [], []
++    for item in items:
++        chat = f"eval-{name}-{item['id']}"
++        if case_id and not item.get("no_case"):
++            client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": f"open {case_id}",
++                                                     "chat_id": chat})
+         turns = item.get("turns") or [item["q"]]
+-        used_before = question_rewrite.STATS["used"]
++        calls_before = _model_calls()
+         for message in turns:
+             safety.reset()
+             started = time.perf_counter()
+             r = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": message,
+-                                                          "reply_language": "en", "chat_id": f"eval-{item['id']}"})
++                                                          "reply_language": "en", "chat_id": chat})
+             ms = (time.perf_counter() - started) * 1000
+         md = r.json().get("markdown", r.text) if r.status_code == 200 else f"HTTP {r.status_code}"
++        free = free_gb()
++        if free is not None:
++            ram.append(free)
+         rows.append({"id": item["id"], "q": " -> ".join(turns), "expect": item["expect"],
+                      "result": judge(item, md, r.status_code), "ms": round(ms, 1),
+-                     "model": question_rewrite.STATS["used"] > used_before,
+-                     "reply": " ".join(ln for ln in md.split("\n") if ln.strip() and not ln.startswith("|"))[:200]})
+-    _report(name, rows)
++                     "model": _model_calls() > calls_before,
++                     "reply": " ".join(ln for ln in md.split("\n") if ln.strip() and not ln.startswith("|"))[:240]})
++    _report(name, rows, ram)
+     if os.getenv("EVAL_GATE") == "1":
+         wrong = [r for r in rows if r["result"] == "WRONG"]
+         assert not wrong, f"{len(wrong)} WRONG in {name}: " + "; ".join(f"{r['id']} {r['q']!r}" for r in wrong)
+ 
+ 
+-def _report(name: str, rows: list[dict]) -> None:
+-    label = os.getenv("EVAL_LABEL", "model" if os.getenv("EVAL_MODEL") == "1" else "fast")
++def _report(name: str, rows: list[dict], ram: list[float]) -> None:
++    label = os.getenv("EVAL_LABEL", "new" if os.getenv("EVAL_MODEL") == "1" else "current")
+     count = lambda k: sum(1 for r in rows if r["result"] == k)  # noqa: E731
+     lat = sorted(r["ms"] for r in rows)
+     p95 = lat[max(0, int(round(0.95 * len(lat))) - 1)] if lat else 0
+     summary = {"set": name, "label": label, "total": len(rows), "correct": count("correct"), "WRONG": count("WRONG"),
+-               "unknown": count("unknown"), "clarify": count("clarify"), "case": count("case"),
+-               "other_miss": len(rows) - sum(count(k) for k in ("correct", "WRONG", "unknown", "clarify", "case")),
++               "not_available": count("not_available"), "clarify": count("clarify"), "case": count("case"),
++               "other_miss": len(rows) - sum(count(k) for k in ("correct", "WRONG", "not_available", "clarify", "case")),
++               "correct_pct": round(100 * count("correct") / max(1, len(rows)), 1),
+                "p50_ms": round(statistics.median(lat), 1) if lat else 0, "p95_ms": p95,
+-               "model_pct": round(100 * sum(1 for r in rows if r["model"]) / max(1, len(rows)), 1)}
++               "model_pct": round(100 * sum(1 for r in rows if r["model"]) / max(1, len(rows)), 1),
++               "min_free_ram_gb": round(min(ram), 2) if ram else None}
+     out = ROOT / "runs" / "eval"
+     out.mkdir(parents=True, exist_ok=True)
+     (out / f"{name}_{label}.json").write_text(json.dumps({"summary": summary, "rows": rows}, indent=1,
+diff --git a/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py b/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py
+index d8bac82..fe26343 100644
+--- a/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py
++++ b/LOS-agentic-ai/tests/integration/test_master_15_product_flow.py
+@@ -225,14 +225,15 @@ def test_import_validates_row_by_row_and_writes_only_on_confirm(client, prod):
+ 
+ 
+ # ---- FAQ answers, unknown, notifications, login ---------------------------------------------------------------
+-def test_how_to_upload_is_numbered_steps_with_a_source(client, prod):
++def test_how_to_upload_is_numbered_steps_without_a_source_label(client, prod):
++    # Smart Bot plan response rules (2026-10-08): no "Source:" / labels in a reply
+     md = turn(client, "How do I upload a document?", chat="f1")["markdown"]
+-    assert md.startswith("1. ") and "\n2. " in md and "Source:" in md
++    assert md.startswith("1. ") and "\n2. " in md and "Source:" not in md
+ 
+ 
+ def test_unknown_faq_says_i_dont_know_yet(client, prod):
+     md = turn(client, "How do I apply for a credit card for myself?", chat="f2")["markdown"]
+-    assert "don't know that yet" in md or "don't have an answer" in md
++    assert "don't know that yet" in md or "don't have an answer" in md or "isn't in the knowledge base" in md
+ 
+ 
+ def test_notifications_and_greeting(client, prod, monkeypatch):
+diff --git a/LOS-agentic-ai/tests/integration/test_master_2_login_scope.py b/LOS-agentic-ai/tests/integration/test_master_2_login_scope.py
+index ffe8828..8edee66 100644
+--- a/LOS-agentic-ai/tests/integration/test_master_2_login_scope.py
++++ b/LOS-agentic-ai/tests/integration/test_master_2_login_scope.py
+@@ -39,7 +39,7 @@ def _login(monkeypatch, **body):
+     from app.api.routes import auth_api
+ 
+     monkeypatch.setattr(auth_api, "_authenticate", lambda u, p: True)
+-    monkeypatch.setattr(auth_api, "_issue_token_pair", lambda subject, case_id=None, app_id=None, case_data=None:
++    monkeypatch.setattr(auth_api, "_issue_token_pair", lambda subject, case_id=None, app_id=None, case_data=None, stage=None:
+                         SimpleNamespace(subject=subject, case_id=case_id, app_id=app_id, case_data=case_data))
+     request = SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"))
+     payload = auth_api.LoginRequest(username="test-subject", password="x", **body)
+diff --git a/LOS-agentic-ai/tests/integration/test_master_7_faq.py b/LOS-agentic-ai/tests/integration/test_master_7_faq.py
+index e76dfc4..f836caf 100644
+--- a/LOS-agentic-ai/tests/integration/test_master_7_faq.py
++++ b/LOS-agentic-ai/tests/integration/test_master_7_faq.py
+@@ -48,7 +48,7 @@ def test_the_faq_is_not_dumped_on_open(client, prod):
+     # a case opens with the brief and at most 2 state-chosen links
+     _, c = make_case(client, f"Rahul Sharma")
+     md = say(client, f"{c} kholo")
+-    assert "Common questions for this case:" not in md and md.count("](ask:") + md.count("](action:") <= 2
++    assert "Common questions for this case:" not in md and md.count("](ask:") + md.count("](action:") - md.count("](action:upload") - md.count("](action:exit_case") <= 2
+     assert "You can ask me" in say(client, "help") or "(ask:" in say(client, "help")
+ 
+ 

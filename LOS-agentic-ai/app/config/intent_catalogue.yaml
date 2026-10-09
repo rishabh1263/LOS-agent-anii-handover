@@ -1,0 +1,263 @@
+# THE INTENT CATALOGUE (Smart Bot plan section 4, owner 2026-10-08) -- read by
+# app/agents/applicant/copilot/semantics/meaning.py.
+#
+# UNDERSTANDING BY MEANING, NOT KEYWORDS. Every message (that is not a command) is embedded (nomic-embed-text) and compared
+# with these intents' examples (+ the reviewed paraphrases in intent_paraphrases.yaml). The best intents go to the
+# decision step; a confident one is executed at once, an ambiguous one is decided by the model (small prompt, JSON).
+#
+# kind:
+#   case       -- about the open case; answered from the case's records by the deterministic engine via `canonical`
+#   knowledge  -- general LOS / banking: the knowledge base (dense RAG + BM25), then the general fallback
+#   process    -- how-to steps (configured answers); `canonical` is the question those answers are keyed on
+#   policy     -- a company value (limit, rate, fee, TAT): the configured policy, or "not configured"
+#   decision   -- a credit decision asked: declined with who decides
+#   calculator -- EMI / FOIR / LTV arithmetic on the numbers typed
+#   small_talk -- greetings, thanks, help
+#   command    -- handled by the command rules (list / open / close / download / upload / confirm / raise query / move /
+#                 create / edit): the message is passed on UNCHANGED, never rewritten
+#   out_of_scope
+#
+# canonical: the question the deterministic engine is known to answer correctly for this intent ({document} / {party}
+# filled from the message; an intent whose slot is missing falls back to `canonical_without_slot`). No canonical: the
+# message goes on as typed, routed to its kind.
+# The model never writes a case answer; it only CHOOSES among these.
+
+enabled: true                       # env COPILOT_MEANING overrides; off -> today's rules answer everything
+
+entities:
+  co_applicant_words: [co-applicant, co applicant, coapplicant, co-borrower, co borrower, second applicant, joint applicant]
+  followup_fillers: [and, what, about, the, for, of, how, is, its, it, same, too, also, then, his, her, their, status]
+
+model:                              # the CHOOSER (never an answer writer): small prompt, JSON {"i": id}
+  timeout_seconds: 4.0
+  num_predict: 20
+  min_free_ram_gb: 2.0
+  instructions: >-
+    You read one message a loan field officer typed into a loan-application assistant and choose what it asks.
+    Choose exactly one id from the CANDIDATES, or "none" if none of them fits. Never answer the message.
+    Reply only JSON {"i": "<id or none>"}.
+
+intents:
+  # ---------------------------------------------------------------- case
+  case_status:
+    kind: case
+    description: The overall status of the open case or application.
+    canonical: "What is the status of this case?"
+    examples: [what is the status of this case, case status, where does this case stand, status update please,
+               what's happening with this application, how is the case doing, any update on this file,
+               current status of the application, is anything happening on this case, give me the case status]
+  pending_documents:
+    kind: case
+    party_aware: true
+    description: Which documents or items are still pending, missing or not uploaded on the case.
+    canonical: "What is pending?"
+    canonical_party: "What is pending for the co-applicant?"
+    examples: [what is pending, which documents are pending, what is missing, what's left to upload, what do I still need,
+               docs, documents, pending docs, which papers are still required from the customer, anything missing on this file,
+               what documents are still needed, what is not uploaded yet, what else do I need to collect]
+  why_stuck:
+    kind: case
+    description: Why the case is blocked, held or not moving forward.
+    canonical: "Why is this case stuck?"
+    examples: [why is this case stuck, why is it stuck, why is the case on hold, what is blocking this case, why isn't it moving,
+               why can't this go ahead, what's holding this up, reason for the delay on this file, why is it not progressing]
+  next_step:
+    kind: case
+    description: What the officer should do next on the case.
+    canonical: "What should I do next?"
+    examples: [what should I do next, next step, what now, what do I do now, what's my next action, how do I proceed,
+               what is the next thing to do on this case, what action is needed from me]
+  cpa_readiness:
+    kind: case
+    description: Whether the case is ready to move to CPA, and what is needed for that.
+    canonical: "Is this case ready for CPA?"
+    examples: [is this case ready for CPA, can I move this to CPA, what is needed to move to CPA, can this go to CPA now,
+               is the file complete for CPA, what's left before CPA, is it ready for handoff, CPA readiness]
+  kyc_status:
+    kind: case
+    party_aware: true
+    description: KYC result of the case, including whether names, dates of birth and other details match across the form and the documents.
+    canonical: "What is the KYC status?"
+    examples: [what is the KYC status, kyc status, did KYC pass, is the KYC done, does the name match on all documents,
+               do the documents match the form, is there any mismatch in the documents, why did KYC fail,
+               is the date of birth same everywhere, are the details consistent across documents, kyc result]
+  document_status:
+    kind: case
+    party_aware: true
+    needs: document
+    description: The status of one named document (uploaded, verified, rejected, in review) on the case.
+    canonical: "What is the status of the {document}?"
+    canonical_without_slot: "What is pending?"
+    examples: [is the PAN uploaded, has the bank statement been verified, what is the status of the address proof,
+               did the salary slip pass verification, is the ITR ok, PAN status, was the driving licence accepted,
+               has the customer uploaded the passport, is the signature verified]
+  document_rejection:
+    kind: case
+    needs: document
+    description: Why a named document was rejected or failed verification.
+    canonical: "Why was the {document} rejected?"
+    canonical_without_slot: "Why is this case stuck?"
+    examples: [why was the PAN rejected, why did the bank statement fail, what is wrong with the address proof,
+               why is the salary slip not accepted, reason the document was rejected]
+  loan_amount:
+    kind: case
+    description: The loan amount applied for on the case.
+    canonical: "What is the loan amount?"
+    examples: [what's the loan amount, loan amount, how much loan did they apply for, how much is the customer borrowing,
+               applied amount, what amount is on the application]
+  applicant_name:
+    kind: case
+    description: The name of the applicant on the case.
+    canonical: "What is the applicant's name?"
+    examples: [what is the applicant's name, who is the applicant, customer name, whose case is this, name of the borrower]
+  applicant_contact:
+    kind: case
+    description: The applicant's mobile number, email or address on the case.
+    # no canonical: the engine answers the field asked ("mobile no" -> the mobile), never the whole details block
+    examples: [what is the mobile number, customer phone number, what's the address on the application, email of the applicant,
+               contact details of the customer, date of birth of the applicant]
+  application_details:
+    kind: case
+    description: The details recorded on the application form (product, amount, tenure, employment and personal details).
+    canonical: "What are the application details?"
+    examples: [application details, show the application, what product is this, what are the loan details, what did they apply for,
+               employment type of the customer, tenure on the application, summary of the application]
+  case_stage:
+    kind: case
+    description: Which stage the case is in.
+    canonical: "Which stage is this case in?"
+    examples: [which stage is this case in, what stage is it at, where is the file now, is it still at FOS, current stage]
+  time_in_stage:
+    kind: case
+    description: How long the case has been in its current stage, or how long it has taken so far.
+    canonical: "How long has this case been in this stage?"
+    examples: [how long has this case been in this stage, how many days at FOS, since when is it pending, how old is this case,
+               how long has it been waiting, days in stage]
+  case_history:
+    kind: case
+    description: What has happened on the case so far (timeline, events, uploads).
+    canonical: "What happened on this case?"
+    examples: [what happened on this case, case history, timeline of this case, what changed recently, show the activity]
+  query_status:
+    kind: case
+    description: The queries raised on the case and their status.
+    canonical: "query status"
+    examples: [query status, what queries are open, show the queries, did the customer reply to the query, status of my query]
+  eligibility:
+    kind: case
+    description: The eligibility result of the case (affordability, FOIR, income checks).
+    canonical: "What is the eligibility status?"
+    examples: [is the customer eligible, eligibility status, does the income qualify, what is the FOIR on this case,
+               can the customer afford this loan]
+  customer_message:
+    kind: case
+    description: Draft a message to send the customer about what they must provide.
+    canonical: "Draft a message to the customer"
+    examples: [draft a message to the customer, what should I tell the customer, write a message for the customer,
+               message for the client about missing documents]
+  collect_from_customer:
+    kind: case
+    description: The list of everything to collect from the customer.
+    canonical: "Collect from customer"
+    examples: [collect from customer, what do I need to collect from the customer, what should the customer give,
+               list of things to get from the customer]
+
+  # ---------------------------------------------------------------- process (how-to, configured answers)
+  process_move_to_cpa:
+    kind: process
+    description: The general steps to move a case from FOS to CPA (not about one case).
+    canonical: "how to move to cpa"
+    examples: [how do I move a case to CPA, what are the steps to send a file to CPA, process for CPA handoff]
+  process_verify_documents:
+    kind: process
+    description: How documents are verified in general.
+    canonical: "process to verify documents"
+    examples: [how are documents verified, how does verification work, document verification process]
+  process_create_case:
+    kind: process
+    description: How to create a new case.
+    canonical: "how do i create a case"
+    examples: [how do I create a case, how to add a new application, steps to open a new file]
+  process_upload:
+    kind: process
+    description: How to upload documents.
+    canonical: "how do i upload documents"
+    examples: [how do I upload documents, how to upload a file, where do I attach the documents]
+  upload_document:
+    kind: upload
+    needs: document
+    description: The officer wants to upload (or re-upload) a named document on the open case now.
+    examples: [upload new bank statement, re-upload the PAN, i want to upload the address proof, attach the salary slip,
+               upload correct bank statement, reupload driving licence, let me upload the signature, add the ITR now,
+               upload pan card again, submit new address proof]
+  process_fix_rejected:
+    kind: process
+    description: How to fix a rejected document in general.
+    canonical: "how to fix a rejected document"
+    examples: [how do I fix a rejected document, what to do when a document is rejected, document got rejected what now]
+  process_stages:
+    kind: process
+    description: The stages a loan goes through, who approves and what happens after CPA.
+    canonical: "what are the stages of a loan"
+    examples: [what are the stages of a loan, what happens after CPA, who approves the loan, loan process flow,
+               what happens after I submit the file]
+
+  # ---------------------------------------------------------------- knowledge
+  knowledge_term:
+    kind: knowledge
+    description: The meaning of a lending, banking, KYC or document term, or a general question about how lending works.
+    examples: [what is FOIR, what does LTV mean, explain MCLR, what is a co-applicant, meaning of moratorium,
+               difference between a guarantor and a co-applicant, what is CKYC, what is a sanction letter,
+               what is NACH, how does a balance transfer work, what is an equitable mortgage, what is DPD]
+  knowledge_documents:
+    kind: knowledge
+    description: Which documents are needed or accepted in general (not for one case).
+    examples: [which documents are accepted as address proof, documents required for a home loan, is aadhaar mandatory,
+               can I use an electricity bill as address proof, what documents does a co-applicant need]
+
+  # ---------------------------------------------------------------- policy, decision, calculator
+  policy_value:
+    kind: policy
+    description: A company limit or value - maximum or minimum loan, tenure, interest rate, LTV, FOIR limit, minimum income, age limit, fees, CIBIL cut-off, approval time.
+    examples: [what is the maximum loan amount, minimum income required, what is the interest rate, maximum tenure for home loan,
+               what is the processing fee, minimum cibil score required, how long does approval take, age limit for a loan]
+  credit_decision:
+    kind: decision
+    description: Asking the bot to approve, reject or predict a credit decision.
+    examples: [will this loan get approved, approve this loan, should I reject this customer, will the customer get the loan,
+               can you sanction it]
+  calculator:
+    kind: calculator
+    description: Calculate an EMI, FOIR or LTV from numbers in the message.
+    examples: [EMI for 5 lakh at 12% for 3 years, calculate FOIR income 50000 emi 15000, LTV for 40 lakh loan on 60 lakh property]
+
+  # ---------------------------------------------------------------- conversation
+  small_talk:
+    kind: small_talk
+    description: Greetings, thanks, acknowledgements, asking what the bot can do.
+    examples: [hi, hello, thanks, thank you, ok, okay, what can you help with, who are you, good morning]
+  out_of_scope:
+    kind: out_of_scope
+    description: Anything not about loans, cases, documents or banking.
+    examples: [what is the weather today, who won the cricket match, tell me a joke, book a movie ticket, write me a poem]
+
+  # ---------------------------------------------------------------- commands (passed on unchanged)
+  command:
+    kind: command
+    description: An instruction to the app - list, open, close, switch case, download, upload, confirm, cancel, raise a query, move to CPA, create a case, change a field.
+    examples: [show my cases, open case 2, close, switch case, download excel, upload the PAN, confirm, cancel,
+               raise a query address mismatch, move to CPA, create a new case, change the loan amount to 600000,
+               top 5 cases, last 3 cases, "1", "yes", "no"]
+
+# DECISION THRESHOLDS (cosine on nomic-embed-text, measured on the golden set; recalibrate when the model changes)
+decide:
+  accept: 0.78        # top intent at least this AND ahead of the next by `margin` -> executed, no model
+  margin: 0.04
+  floor: 0.55         # below this for every intent: not understood -> the model decides (or the old rules on fallback)
+  model_candidates: 3 # intents shown to the model
+  # NO CASE OPEN: a general reading (knowledge / process / policy) within `margin` of a case reading wins -- "which
+  # docs needed for home loan" with no case is the product checklist, not "what is pending on which case?"
+  prefer_general_without_case: true
+  general_kinds: [knowledge, process, policy]
+  # a CLEAR LEAD is accepted without the model too: "which papers r still missing" (0.76, next 0.62) is pending
+  accept_with_lead: { score: 0.72, margin: 0.10 }

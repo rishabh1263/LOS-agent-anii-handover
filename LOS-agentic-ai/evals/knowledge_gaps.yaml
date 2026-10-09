@@ -1,12 +1,12 @@
-# Terms the chatbot was asked and could not find (general.py). Add them to
-# app/config/glossary.yaml or knowledge/ -- then remove them here.
+# Terms and questions the chatbot could not answer (general.py). Add them to app/config/glossary.yaml
+# or knowledge/, then remove them here.
 questions:
   ab mujhe kya karna hai:
     count: 4
     last_seen: '2026-10-08'
   how do i apply for a credit card for myself:
-    count: 4
-    last_seen: '2026-10-08'
+    count: 22
+    last_seen: '2026-10-09'
   how do you know that:
     count: 2
     last_seen: '2026-10-08'
@@ -22,6 +22,9 @@ questions:
   what do i need now:
     count: 2
     last_seen: '2026-10-08'
+  what does cpa verify:
+    count: 1
+    last_seen: '2026-10-09'
   what does hops cover:
     count: 8
     last_seen: '2026-10-08'
@@ -59,3 +62,6 @@ terms:
   FNR:
     count: 2
     last_seen: '2026-10-08'
+  ID:
+    count: 2
+    last_seen: '2026-10-09'

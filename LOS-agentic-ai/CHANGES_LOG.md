@@ -1613,3 +1613,87 @@ Patch: `runs/patches/general-layer-and-general-questions.patch` (new files whole
 - In progress: related regression rerun (runs/related_fast.log, -n 2, OCR e2e file split out); the earlier
   run was killed by its own 50-min cap with failures unread.
 - Next: read runs/related_fast.log failures -> fix; live 14-message HTTP transcript (uvicorn :8010); TSX steps.
+
+## SMART BOT PLAN (2026-10-08 night) -- steps 1-4 (in progress)
+Patch: `runs/patches/smart-bot-steps-1-4.patch`. Audit first: docs/CHATBOT_AUDIT.md.
+- **Measured before building** (this CPU, qwen2.5:3b): reads ~100 tok/s, writes ~14 tok/s; a facts+passages prompt
+  (~2 400 tok) = ~25 s. So the model only CHOOSES from a short list; understanding is nomic embeddings (~0.1 s).
+- **Housekeeping**: case_form chat edits finished (lakh amounts, "X ki jagah Y", "instead of X make it Y", clean values;
+  test_chat_edit_values); 264 leftover test DBs dropped on the test Postgres; probe files deleted.
+- **1 One pipeline**: /copilot/query = thin wrapper over /fos/copilot when the contract is on (default); legacy envelope
+  path kept only for contract-off (one release). /fos/action already used the same pipeline. test_one_pipeline.
+- **2 Sticky context**: a list never closes the open case (only switch / close); "which case?" offers the last opened
+  case of the chat first (one tap answers the question). test_sticky_context.
+- **3 Knowledge**: knowledge/fos/los_glossary.md (244 entries, 11 "Owner review"); dense retrieval ON by CONFIG
+  (app/config/knowledge.yaml: vector + ollama), BM25 fallback, and BM25 when the embedder cannot be built (was: every
+  knowledge answer failed); embedder uses OLLAMA_HOST when OLLAMA_URL is unset; chunk vectors cached on disk
+  (runtime/cache/knowledge_vectors.json). Tests pinned lexical.
+- **4 Meaning**: app/config/intent_catalogue.yaml (33 intents: kind, description, canonical, examples),
+  semantics/meaning.py (embed -> nearest intents -> entities -> follow-up -> clear winner or Qwen chooser -> canonical),
+  wired in fos_api before the general layer (commands / pending replies never rewritten); general layer takes
+  meaning_kind; "general" model answer for banking questions not in the KB (validated, no numbers/company values);
+  replies carry no "Source:" lines. Paraphrase bank generated (scripts/generate_paraphrases.py, meaning-reviewed).
+- Fixes found on the way: tts lost "Next step" when the first line had 2 sentences; policy numbers answered a case's own
+  value with a case open; login test stub; old FAQ link count.
+- Held-out v2 frozen (case 100 / messy 50 / general 50, checksums). Current pipeline: case 66%, messy 64%, general
+  64%; WRONG 32 / 14 / 5.
+
+## HANDOFF 2026-10-08 ~23:30
+- Done: steps 1-3, meaning layer + catalogue + tests (test_meaning 7, test_one_pipeline 2, test_sticky_context 2,
+  test_chat_edit_values 6), eval gate v2 (current baseline measured).
+- In progress: paraphrase generation (runs/paraphrase_gen.log -> app/config/intent_paraphrases.yaml).
+- Next: measure "new" (EVAL_MODEL=1, real models) on golden + v2 sets; fix biggest failure classes (never tune on
+  held-out); unload models; related tests + core suite; final report with 20 examples.
+
+## 2026-10-09 -- addendum B6 (generated types) + one-word follow-ups tested and fixed
+- **B6**: openapi-typescript 7.13.0 added as a frontend devDependency (owner approved; `--legacy-peer-deps`: it declares a
+  TS 5 peer, the app has TS 6 -- generation + strict tsc pass). `npm run gen:api` -> src/runtime/chatbot/api/
+  api-types.d.ts; copy in frontend_handoff/api-types.d.ts; API_CONTRACT.md section 6 updated.
+- **One-word probe** (real nomic embeddings, meaning ON): docs / case / kyc / pan / top 2, with and without a case open,
+  pick by number, second vague message. Bugs found and fixed:
+  - "open CASE-..." (2 words) was asked as vague -> the case never opened. Ids / open / close / switch / more are commands.
+  - a picked option ("Show the top 2 cases needing action", "Create a new case") went to the meaning layer and became
+    a case question ("Which case is this about?"). `vague.is_command` now keeps commands, ids, new case, queries and
+    case lists away from meaning; the pick is resolved BEFORE chat case creation, so "2" = Create a new case starts
+    the form.
+  - "top 2" with a case open offered case questions -> now the list orders (needing action / latest / oldest).
+  - "Upload the PAN" was an ask: link answered "No PAN uploaded" -> it is a real `action:upload` link; picked by number
+    it replies with that link.
+  - "docs" / "kyc" offered loose nearest intents -> TOPIC options from config (`vague.case_topics`,
+    `vague.no_case_topics`): docs with no case = documents-pending cases / documents needed / how to upload.
+  - "docs" then "kyc" answered the docs option -> a different vague word answers ITS most likely option.
+  - "help" / "menu" are never vague (help menu).
+- Meaning chooser prompt moved to intent_catalogue.yaml `model.instructions` (nothing-hardcoded test).
+- Tests: test_vague_messages 8 (4 new), test_case_list_topn (bare "top 5" now asks, pick shows 5); stale "Source:"
+  expectations removed (test_master_15, selfcheck), selfcheck "top 1" -> "top 1 cases".
+- Open (pre-existing, golden general coverage 6/127): OVD now in the glossary (golden expects unknown), "balance
+  transfer" judge wording, "what happens after CPA", "document reject ho gaya to kya kare", "another lender ... take
+  over his loan" -> case.
+
+## 2026-10-09 (later) -- real-officer probe (production flags, real Qwen + nomic) and the fixes it found
+Probe: 38 messages typed like an officer (typos, short forms, Hinglish) on a KYC-failed case + no-case turns.
+- **Nothing fixed in code** (owner): upload party from the message (config `vague.upload_party`), language from the
+  chat, document intents / topic intents / first-N words / thresholds from config (no code fallbacks).
+- Old router leaked an internal tool name as an option ("Which of these did you mean? ... out_of_scope") -> a reading
+  without a question is never offered; refusal / out-of-scope answered as that.
+- A list's Yes / No question blocked every next message (general layer / meaning / vague skipped) -> dropped early
+  when the message is not its answer (product_flow.drop_if_not_answered); a waiting yes / no question no longer
+  blocks the follow-up options or meaning (vague.waits_for: only a draft, a "which case?" pick, or a message naming
+  one of the options waits).
+- Upload links lost their code (`doc=Driving Licence`): contract._labels rewrote codes inside link TARGETS -> only
+  the shown text is made readable (all replies).
+- Case-open card: the upload button now matches the "Next step" document (was the first re-upload).
+- Meaning: follow-up only when the message is just the new slot ("upload new bank statement" / "dl verified?" were
+  inherited as the previous intent); short forms through the normaliser ("bank stmt"); no case open -> a close
+  general reading wins (`prefer_general_without_case`, "which docs needed for home loan" = product checklist); a
+  clear lead accepted without the model (`accept_with_lead`); new intent `upload_document` -> the upload link;
+  `applicant_contact` answers the field asked (no canonical); co-applicant named on a case without one -> as typed.
+- Speed / hangs: one probe turn hung 71 min (Ollama stalled or the laptop slept); embedding call timeout now
+  config `knowledge.yaml embed_timeout_seconds: 8` (was 60 s per call); cold-model loop fixed
+  (availability.warm_in_background: a timed-out call on a cold model loads it once in the background); startup warms
+  the meaning example bank and the chat model (only when meaning is on).
+- YAML trap: unquoted yes / no in `vague.not_vague` were booleans -> "yes" was treated as vague; quoted. Bare
+  follow-up words (why / kyu / kaise / then ...) are never vague.
+- Final probe: p50 0.3 s, p95 4.4 s, max 8.4 s (Qwen warm). Known, not fixed: the KYC fixture lacks
+  failed_checks so the gate says "no KYC result" (fixture, not product); "bank statement rejected or what" says
+  verified without adding the KYC name mismatch; some customer-voice templates ("You applied for").

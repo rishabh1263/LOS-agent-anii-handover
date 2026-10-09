@@ -1,0 +1,59 @@
+# HELD-OUT v2 -- GENERAL LOS / banking questions (incl. terms NOT in the knowledge pack). FROZEN 2026-10-08, before
+# tuning; never tune on it. Asked with NO case open (two cases on file). English only.
+# expect general_or_unknown: a correct general answer (must keywords) OR an honest "not in the knowledge base" -- never a
+# made-up or company-specific answer.
+
+frozen: true
+version: 2
+items:
+  - { id: G001, q: "what does a sanction letter contain", expect: answer, must_any: ["amount", "rate", "tenure"] }
+  - { id: G002, q: "difference between fixed and floating interest", expect: answer, must_any: ["benchmark", "change", "same"] }
+  - { id: G003, q: "what is a balance transfer and why do people do it", expect: answer, must_any: ["lower", "another lender"] }
+  - { id: G004, q: "explain pre-EMI", expect: answer, must_any: ["interest", "disburs"] }
+  - { id: G005, q: "what is an encumbrance certificate", expect: answer, must_any: ["charge", "transactions", "registered"] }
+  - { id: G006, q: "why is a co-applicant added to a home loan", expect: answer, must_any: ["income", "eligib", "co-own"] }
+  - { id: G007, q: "what happens when a loan becomes an NPA", expect: answer, must_any: ["90", "overdue"] }
+  - { id: G008, q: "what is SMA-1", expect: answer, must_any: ["31", "overdue"] }
+  - { id: G009, q: "how does a credit score get calculated", expect: general_or_unknown, must_any: ["repayment", "history", "credit"] }
+  - { id: G010, q: "what lowers a CIBIL score", expect: general_or_unknown, must_any: ["late", "miss", "utilisation", "enquir", "default"] }
+  - { id: G011, q: "what is the role of a DSA", expect: answer, must_any: ["sourc", "agent"] }
+  - { id: G012, q: "what is hypothecation", expect: answer, must_any: ["movable", "vehicle"] }
+  - { id: G013, q: "explain equitable mortgage in simple words", expect: answer, must_any: ["title deeds", "deposit"] }
+  - { id: G014, q: "what is a tripartite agreement in home loans", expect: answer, must_any: ["builder", "buyer"] }
+  - { id: G015, q: "what is an OC for a flat", expect: answer, must_any: ["occupancy", "occupy"] }
+  - { id: G016, q: "why do lenders ask for 6 months bank statement", expect: general_or_unknown, must_any: ["income", "repay", "obligation", "transactions"] }
+  - { id: G017, q: "what is Form 26AS used for", expect: answer, must_any: ["tax"] }
+  - { id: G018, q: "what is the difference between gross and net salary", expect: answer, must_any: ["deduction"] }
+  - { id: G019, q: "what is a KFS", expect: answer, must_any: ["key fact", "summary"] }
+  - { id: G020, q: "what is APR on a loan", expect: answer, must_any: ["cost", "fees"] }
+  - { id: G021, q: "explain e-NACH", expect: answer, must_any: ["mandate", "debit"] }
+  - { id: G022, q: "what is a PDC", expect: answer, must_any: ["cheque"] }
+  - { id: G023, q: "what is the repo rate and how does it affect EMIs", expect: answer, must_any: ["RBI", "Reserve Bank"] }
+  - { id: G024, q: "what is MCLR", expect: answer, must_any: ["cost of funds", "benchmark"] }
+  - { id: G025, q: "explain video KYC", expect: answer, must_any: ["video"] }
+  - { id: G026, q: "what is CKYC number", expect: answer, must_any: ["14", "identifier", "registry"] }
+  - { id: G027, q: "what is a PEP in KYC", expect: answer, must_any: ["politically", "public"] }
+  - { id: G028, q: "what is a legal opinion on property", expect: answer, must_any: ["title", "lawyer"] }
+  - { id: G029, q: "what does technical valuation check", expect: answer, must_any: ["value", "condition"] }
+  - { id: G030, q: "what is RCU check", expect: answer, must_any: ["fraud", "risk", "sample"] }
+  - { id: G031, q: "what is a top-up loan", expect: answer, must_any: ["existing", "additional", "extra"] }
+  - { id: G032, q: "what is loan against property", expect: answer, must_any: ["property", "secured"] }
+  - { id: G033, q: "what are penal charges", expect: answer, must_any: ["late", "non-compliance", "charges"] }
+  - { id: G034, q: "when must the lender return property papers after closure", expect: answer, must_any: ["30", "return"] }
+  - { id: G035, q: "what is Udyam registration", expect: answer, must_any: ["MSME", "enterprise"] }
+  - { id: G036, q: "what is GSTR-3B", expect: answer, must_any: ["GST", "return"] }
+  - { id: G037, q: "what is an Account Aggregator", expect: answer, must_any: ["consent", "share"] }
+  - { id: G038, q: "what is a write-off on a credit report", expect: answer, must_any: ["unrecoverable", "still owes", "books"] }
+  - { id: G039, q: "what is a guarantor's liability", expect: answer, must_any: ["repay", "default"] }
+  - { id: G040, q: "what is DPD 30", expect: answer, must_any: ["30", "late", "overdue"] }
+  # NOT in the knowledge pack (honest "not in the knowledge base" or a correct general answer; never invented policy)
+  - { id: G041, q: "what is a demand promissory note", expect: general_or_unknown, must_any: ["promise", "pay"] }
+  - { id: G042, q: "what is a negative lien", expect: general_or_unknown, must_any: ["not", "sell", "lien"] }
+  - { id: G043, q: "what is FNR", expect: not_available }
+  - { id: G044, q: "what is FTNR in our process", expect: not_available }
+  - { id: G045, q: "what is the company's maximum LTV for LAP", expect: not_available }
+  - { id: G046, q: "how many days does our credit team take", expect: not_available }
+  - { id: G047, q: "what is a loan origination system", expect: general_or_unknown, must_any: ["application", "process", "loan"] }
+  - { id: G048, q: "what is a bureau pull", expect: general_or_unknown, must_any: ["credit", "report", "bureau"] }
+  - { id: G049, q: "what is the stamp duty on a home loan agreement", expect: not_available }
+  - { id: G050, q: "what is a step-up EMI", expect: general_or_unknown, must_any: ["increase", "lower", "rise"] }

@@ -177,6 +177,44 @@ def mark_slow(reason: str = "") -> None:
     _suppress_for(slow_cooldown_seconds(), reason, "marked slow")
 
 
+_WARMING: dict[str, float] = {}
+
+
+def warm_in_background(model: str | None = None) -> bool:
+    """
+    THE COLD-MODEL LOOP. A call that times out while Ollama is still LOADING the model disconnects, Ollama drops the
+    load, and the next call is cold again -- so the model never becomes ready. This loads it once, in a background
+    thread with no request budget (an empty prompt only loads; keep_alive holds it). At most once per two minutes per
+    model. True when a warm-up was started.
+    """
+    import json as _json
+    import threading
+    import urllib.request
+
+    from app.agents.los.summary import keep_alive
+    from app.llm.config import ollama_host, ollama_model
+
+    name = str(model or ollama_model())
+    now = time.monotonic()
+    if now - _WARMING.get(name, -1e9) < 120:
+        return False
+    _WARMING[name] = now
+
+    def run() -> None:
+        try:
+            body = _json.dumps({"model": name, "prompt": "", "keep_alive": keep_alive()}).encode()
+            request = urllib.request.Request(f"{ollama_host().rstrip('/')}/api/generate", data=body,
+                                             headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(request, timeout=120) as response:   # noqa: S310 - the configured local host
+                response.read()
+            reset()                                   # loaded: the hold-off of the failed call no longer applies
+        except Exception as exc:  # noqa: BLE001 - a warm-up is best effort
+            logger.info("LLM warm-up of %s failed (%s)", name, type(exc).__name__)
+
+    threading.Thread(target=run, name=f"llm-warm-{name}", daemon=True).start()
+    return True
+
+
 def reset() -> None:
     """Clear both cached states. For tests and for an explicit recheck."""
     global _unavailable_until, _available_until

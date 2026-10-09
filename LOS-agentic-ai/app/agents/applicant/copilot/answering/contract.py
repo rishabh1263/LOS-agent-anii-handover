@@ -63,6 +63,11 @@ def cfg() -> dict[str, Any]:
         return _CACHE["data"]
 
 
+def version() -> str:
+    """The frontend contract version (copilot_reply.yaml contract_version) -- the X-Contract-Version header."""
+    return str(cfg().get("contract_version") or "1.0")
+
+
 def enabled() -> bool:
     value = os.getenv(FLAG)
     if value is not None and value.strip():
@@ -202,7 +207,12 @@ def _labels(text: str) -> str:
     for product in config.products() or []:
         for item in config.checklist_for(product) or []:
             known |= {str(item.get(k)).upper() for k in ("slot", "document_type", "code") if item.get(k)}
-    return _CODE.sub(lambda m: _readable(m.group(0)) if m.group(0) in known else m.group(0), text)
+    def readable(part: str) -> str:
+        return _CODE.sub(lambda m: _readable(m.group(0)) if m.group(0) in known else m.group(0), part)
+
+    # a link TARGET keeps its code ("](action:upload?doc=DRIVING_LICENCE...)"): only the shown text is made readable
+    pieces = re.split(r"(\]\((?:action|ask):[^)\s]*\))", str(text or ""))
+    return "".join(p if i % 2 else readable(p) for i, p in enumerate(pieces))
 
 
 def _rows(reply: dict[str, Any]) -> list[dict[str, Any]]:
@@ -596,13 +606,13 @@ def tts(md: str, lang: str | None = None) -> str:
         if n and section:
             label = f"{section}, {label.lower()}"          # a later section names itself
         sentences.append(str(template).format(status=label, items=_join(list(dict.fromkeys(items)), lang)))
-    if next_step:
-        spoken = _sentence(speakable(next_step, lang))
-        sentences = sentences[:max(limit - 1, 1)] + [spoken]
-    spoken = " ".join(s for s in sentences[:limit] if s.strip(" .")).strip()
-    # the cap holds on the FINAL text too: an item may carry its own full stops ("08 Oct, 11:30. Case created.")
-    parts = re.split(r"(?<=[.!?।])\s+", spoken)
-    return " ".join(parts[:limit]).strip()
+    step = _sentence(speakable(next_step, lang)) if next_step else ""
+    body = " ".join(s for s in sentences if s.strip(" .")).strip()
+    # the cap holds on the FINAL text too (an item may carry its own full stops: "Not ready for CPA. KYC is not
+    # complete.") -- and the NEXT STEP is always kept: the earlier sentences give way to it
+    parts = [p for p in re.split(r"(?<=[.!?।])\s+", body) if p.strip()]
+    room = max(limit - 1, 1) if step else limit
+    return " ".join(parts[:room] + ([step] if step else [])).strip()
 
 
 # --------------------------------------------------------------------------

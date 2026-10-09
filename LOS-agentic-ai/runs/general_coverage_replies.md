@@ -2,37 +2,26 @@
 
 FOIR (Fixed Obligation to Income Ratio): the share of monthly income already going to EMIs and other fixed payments.
 
-Source: the glossary
-
 ### FOIR kya hai  (terms, expect answer, got answer)
 
 FOIR (Fixed Obligation to Income Ratio): the share of monthly income already going to EMIs and other fixed payments.
-
-Source: the glossary
 
 ### what is LTV  (terms, expect answer, got answer)
 
 LTV (Loan to Value): the loan amount as a share of the property's value.
 
-Source: the glossary
-
 ### LTV ka matlab  (terms, expect answer, got answer)
 
 LTV (Loan to Value): the loan amount as a share of the property's value.
-
-Source: the glossary
 
 ### what is EMI  (terms, expect answer, got answer)
 
 EMI (Equated Monthly Instalment): the fixed amount paid every month to repay a loan.
 
-Source: the glossary
-
 ### what is CIBIL score  (terms, expect answer, got answer)
 
-CIBIL (TransUnion CIBIL (formerly Credit Information Bureau (India) Limited)) (TransUnion CIBIL) is one of India's credit bureaus**. A credit bureau
-collects how a person has handled loans and credit cards, repayments, delays,
-defaults, open accounts and recent loan enquiries, from banks and lenders.
+CIBIL (TransUnion CIBIL (formerly Credit Information Bureau (India) Limited)) score: The credit score produced by TransUnion CIBIL, one of India's credit bureaus; ranges from 300 to 900.
+Example: "CIBIL 780" in a credit report.
 
 ### cibil score kya hota hai  (terms, expect answer, got answer)
 
@@ -42,15 +31,13 @@ This chatbot does not fetch CIBIL (TransUnion CIBIL (formerly Credit Information
 
 KYC (Know Your Customer): the check that the applicant is who the documents say they are.
 
-Source: the glossary
+### what is OVD  (terms, expect unknown, got answer)
 
-### what is OVD  (terms, expect unknown, got unknown)
-
-OVD is not in the knowledge base yet. I've noted it for the team.
+Deemed OVD: A document accepted for address only, for a limited time, when the OVD does not show the current address: for example a utility bill not older than two months or a property tax receipt. Owner review: the borrower must later submit an OVD with the current address.
 
 ### what is CKYC  (terms, expect answer, got answer)
 
-CKYC is the Central KYC (Know Your Customer) Records Registry.
+CKYC (Central KYC (Know Your Customer)): India's central registry of KYC records (CKYCR), run by CERSAI; a customer's KYC is stored once and reused by regulated lenders through a KYC identifier. Example: a lender fetches a customer's record from CKYCR.
 
 ### what is video KYC  (terms, expect answer, got answer)
 
@@ -58,11 +45,11 @@ Video KYC (V-CIP, video-based customer identification) is KYC (Know Your Custome
 
 ### what is NACH  (terms, expect answer, got answer)
 
-NACH (National Automated Clearing House, run by NPCI) lets the lender collect each EMI (Equated Monthly Instalment) automatically from the borrower's bank account, under a mandate the borrower signs. An e-mandate (e-NACH) is the same mandate given digitally, through net banking, a debit card or Aadhaar.
+e-NACH: A NACH mandate registered digitally, through net banking, debit card or Aadhaar. Example: e-NACH set up during onboarding.
 
 ### what is e-mandate  (terms, expect answer, got answer)
 
-NACH (National Automated Clearing House, run by NPCI) lets the lender collect each EMI (Equated Monthly Instalment) automatically from the borrower's bank account, under a mandate the borrower signs. An e-mandate (e-NACH) is the same mandate given digitally, through net banking, a debit card or Aadhaar.
+e-mandate: A digital authorisation for recurring debits, such as e-NACH or UPI AutoPay. Example: EMI (Equated Monthly Instalment) e-mandate on the salary account.
 
 ### what is a co-applicant  (terms, expect answer, got answer)
 
@@ -78,11 +65,13 @@ A co-applicant borrows together with the applicant and shares the repayment from
 
 ### what is sanction letter  (terms, expect answer, got answer)
 
-A sanction letter is the lender's written approval of a loan. It states the **approved** amount, the interest rate, the tenure, the EMI (Equated Monthly Instalment) and the conditions to be met before disbursement.
+Sanction letter: The written approval of a loan: amount, interest rate, tenure, EMI (Equated Monthly Instalment), fees and conditions to be met before disbursement. Example: the customer signs and returns the sanction letter to accept the offer.
 
 ### what is disbursement  (terms, expect answer, got answer)
 
-Disbursement is the release of the loan money, to the borrower, or for a home loan usually to the seller or builder. It happens after sanction and after the loan documents are signed. In this system DISBURSEMENT is the last stage: FOS (Field Officer Sales), CPA, CREDIT, RCU, BOPS, HOPS, then DISBURSEMENT.
+Disbursement is the release of the loan money, to the borrower, or for a home loan usually to the seller or
+builder. It happens after sanction and after the loan documents are signed. In this system DISBURSEMENT is the
+last stage: FOS (Field Officer Sales), CPA, CREDIT, RCU, BOPS, HOPS, then DISBURSEMENT.
 
 ### what is tenure  (terms, expect answer, got answer)
 
@@ -90,49 +79,52 @@ Tenure is the repayment period of the loan, in months or years. A longer tenure 
 
 ### what is processing fee  (terms, expect answer, got answer)
 
-A processing fee is a one-time charge for processing a loan application, usually a percentage of the loan amount and often deducted from the amount disbursed. The processing fee amount is not configured in this system; it is stated in the sanction letter.
+A processing fee is a one-time charge for processing a loan application, usually a percentage of the loan
+amount and often deducted from the amount disbursed. The processing fee amount is not configured in this
+system; it is stated in the sanction letter.
 
 ### what is foreclosure  (terms, expect answer, got answer)
 
-Foreclosure (or pre-closure) is repaying the whole outstanding loan early and closing it. Any foreclosure charge depends on the loan's terms in the sanction letter; it is not configured in this system.
+Foreclosure (or pre-closure) is repaying the whole outstanding loan early and closing it. Any foreclosure
+charge depends on the loan's terms in the sanction letter; it is not configured in this system.
 
 ### what is prepayment  (terms, expect answer, got answer)
 
-A prepayment (or part payment) is paying back part of the loan principal before it is due. It reduces the outstanding amount, so either the EMI (Equated Monthly Instalment) or the remaining tenure comes down.
+Part prepayment: A prepayment of only part of the outstanding principal; the loan continues. Example: a **₹50,000** part prepayment, then the EMI (Equated Monthly Instalment) is recalculated.
 
 ### what is part payment  (terms, expect answer, got answer)
 
 A prepayment (or part payment) is paying back part of the loan principal before it is due. It reduces the outstanding amount, so either the EMI (Equated Monthly Instalment) or the remaining tenure comes down.
 
-### what is balance transfer  (terms, expect answer, got answer)
+### what is balance transfer  (terms, expect answer, got wrong_content (missing another lender))
 
-A balance transfer (BT) moves an existing loan from another lender to this lender, usually for a lower interest rate or better terms. The new lender pays off the old loan and the customer repays the new lender.
+Balance transfer: Moving an existing loan from one lender to another, usually for a lower interest rate or better terms; the new lender pays off the old loan. Example: transferring a home loan to a lender offering a lower rate.
 
 ### what is top up loan  (terms, expect answer, got answer)
 
-A top-up loan is an extra loan given on top of an existing loan, often to a customer with a good repayment record or together with a balance transfer. It is repaid with or alongside the existing loan.
+A top-up loan is an extra loan given on top of an existing loan, often to a customer with a good repayment
+record or together with a balance transfer. It is repaid with or alongside the existing loan.
 
 ### what is loan against property  (terms, expect answer, got answer)
 
-A loan against property (LAP) is a secured loan given against a residential or commercial property the borrower already owns; the property is the security. LAP is not one of the products configured in this system, the configured products are Personal Loan and Home Loan.
+LAP (Loan Against Property): A secured loan against a residential or commercial property the borrower owns, for any legitimate purpose. Example: LAP for business expansion.
 
 ### what is RCU  (terms, expect answer, got answer)
 
 RCU: a later stage that checks the file for risk.
 
-Source: the glossary
-
 ### what is field investigation  (terms, expect answer, got answer)
 
-A field investigation (FI) is a visit by the lender or its agency to the customer's residence or office to confirm the address and that the customer lives or works there.
+Field investigation: A visit by the lender or its agency to the customer's home or office to verify details.
 
 ### what is personal discussion  (terms, expect answer, got answer)
 
-A personal discussion (PD) is an interview of the customer by the lender to understand their income, business or job, existing loans and the purpose of the loan.
+PD (Personal Discussion): An interview of the customer by the lender to understand income, business, obligations and the loan's purpose. Example: PD at the business premises.
 
 ### what is legal verification  (terms, expect answer, got answer)
 
-Legal verification is a lawyer's check of a property's title documents, to confirm the seller or owner has a clear title and that the property can be taken as security.
+Legal verification is a lawyer's check of a property's title documents, to confirm the seller or owner has a
+clear title and that the property can be taken as security.
 
 ### what is technical valuation  (terms, expect answer, got answer)
 
@@ -140,17 +132,16 @@ Technical valuation is an inspection of the property by an engineer or valuer, w
 
 ### what is CERSAI  (terms, expect answer, got answer)
 
-CERSAI (Central Registry of Securitisation Asset Reconstruction and Security Interest of India) is the registry where a lender records its charge on a property given as security, so the same property cannot be pledged to two lenders without it showing. It also holds the Central KYC (Know Your Customer) records.
+CERSAI: Central Registry of Securitisation Asset Reconstruction and Security Interest of India: where lenders register charges on assets given as security, so the same asset cannot be secretly pledged twice. It also hosts the Central KYC (Know Your Customer) registry. Example: a home loan's mortgage registered with CERSAI.
 
 ### what is ITR  (terms, expect answer, got answer)
 
 ITR (Income Tax Return): the yearly income statement filed with the tax department.
 
-Source: the glossary
-
 ### what is form 16  (terms, expect answer, got answer)
 
-Form 16 is the certificate an employer gives each employee every year, showing the salary paid and the tax (TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or an ITR (Income Tax Return).
+Form 16 is the certificate an employer gives each employee every year, showing the salary paid and the tax
+(TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or an ITR (Income Tax Return).
 
 ### what is net salary  (terms, expect answer, got answer)
 
@@ -160,27 +151,19 @@ Net salary (net pay) is the take-home pay after deductions such as tax and provi
 
 BOPS: a later stage of the loan process.
 
-Source: the glossary
-
 ### what is HOPS  (terms, expect answer, got answer)
 
 HOPS: a later stage of the loan process.
 
-Source: the glossary
-
 ### what is FOS  (terms, expect answer, got answer)
 
 FOS (Field Officer Sales): the first stage, where the field officer collects details and documents.
-
-Source: the glossary
 
 ### what is CPA  (terms, expect answer, got answer)
 
 CPA: the stage after FOS (Field Officer Sales), where the completed file is processed further.
 
 A case moves from FOS to CPA when every FOS check passes: Application details, Applicant documents, Co-applicant documents, Signature.
-
-Source: the glossary, the FOS stage gate
 
 ### what is credit stage  (terms, expect answer, got answer)
 
@@ -224,7 +207,6 @@ Indicative only: the system's eligibility check uses the **verified** figures.
 - Home Loan: FOIR up to 50% (above it the case goes to a reviewer).
 
 These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### minimum income required  (eligibility_policy, expect answer, got answer)
 
@@ -232,14 +214,12 @@ Source: the eligibility policy
 - Home Loan: minimum monthly income ₹25,000, taken from the verified net pay.
 
 These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### minimum salary for personal loan  (eligibility_policy, expect answer, got answer)
 
 - Personal Loan: minimum monthly income **₹25,000,** taken from the **verified** net pay.
 
 These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### which income is used for eligibility  (eligibility_policy, expect answer, got answer)
 
@@ -247,7 +227,6 @@ Source: the eligibility policy
 - Home Loan: minimum monthly income ₹25,000, taken from the verified net pay.
 
 These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### minimum cibil score required  (eligibility_policy, expect not_configured, got not_configured)
 
@@ -258,7 +237,6 @@ No CIBIL (TransUnion CIBIL (formerly Credit Information Bureau (India) Limited))
 - Personal Loan: loan amount **₹50,000** to **₹10,00,000**.
 
 These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### what is the interest rate  (eligibility_policy, expect answer, got answer)
 
@@ -266,14 +244,12 @@ Source: the eligibility policy
 - Home Loan: 8.5% a year (the rate used for the EMI estimate).
 
 These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### maximum tenure for home loan  (eligibility_policy, expect answer, got answer)
 
 - Home Loan: tenure 12 to 360 months.
 
 These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### age limit for loan  (eligibility_policy, expect not_configured, got not_configured)
 
@@ -281,14 +257,12 @@ Source: the eligibility policy
 - Home Loan: not set in the eligibility policy.
 
 These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### maximum LTV for home loan  (eligibility_policy, expect answer, got answer)
 
 - Home Loan: LTV (Loan to Value) up to 80% of the property value.
 
 These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### documents required for personal loan  (documents, expect answer, got answer)
 
@@ -310,7 +284,6 @@ Every co-applicant:
 | Employment Proof | Required | Salary Slip, Employment Letter, Offer Letter, Employee ID, Business Registration, GST (Goods and Services Tax) Certificate, ITR (Income Tax Return) |
 
 Amount-based rules may add documents once the loan amount is entered.
-Source: the product checklist, co-applicant documents
 
 ### home loan ke liye kya documents chahiye  (documents, expect answer, got answer)
 
@@ -335,7 +308,6 @@ Every co-applicant:
 | Employment Proof | Required | Salary Slip, Employment Letter, Offer Letter, Employee ID, Business Registration, GST (Goods and Services Tax) Certificate, ITR |
 
 Amount-based rules may add documents once the loan amount is entered.
-Source: the product checklist, co-applicant documents
 
 ### which documents are accepted as address proof  (documents, expect answer, got answer)
 
@@ -343,15 +315,8 @@ Driving Licence, Passport or Voter ID can satisfy the Address Proof requirement.
 
 ### is aadhaar mandatory  (documents, expect answer, got answer)
 
-Mandatory, for every home loan: PAN (Permanent Account Number), Bank Statement and Address Proof.
-
-- PAN - satisfied by a PAN card
-- Bank Statement - satisfied by a bank statement
-- Address Proof - satisfied by a driving licence, a passport or a voter ID
-
-Optional: ITR (Income Tax Return), Salary Slip, Employment Proof and SIGNATURE. An optional
-document is shown on the checklist when collected but never blocks the
-handoff to CPA.
+Offline Aadhaar verification: Verifying identity from a digitally signed Aadhaar XML or QR code without sharing the full Aadhaar number.
+Example: the customer shares the Aadhaar XML file.
 
 ### can I use electricity bill as address proof  (documents, expect answer, got answer)
 
@@ -370,8 +335,6 @@ Every co-applicant:
 | PAN (Permanent Account Number) | Required | PAN |
 | Address Proof | Required | Aadhaar, Passport, Driving Licence, Voter ID, Utility Bill |
 | Employment Proof | Required | Salary Slip, Employment Letter, Offer Letter, Employee ID, Business Registration, GST (Goods and Services Tax) Certificate, ITR (Income Tax Return) |
-
-Source: the co-applicant checklist
 
 ### is signature mandatory  (documents, expect answer, got answer)
 
@@ -400,16 +363,12 @@ A photographed document has to be rasterised and read before anything else can h
 3. Check the summary and tap Confirm.
 4. Upload the documents the case asks for.
 
-Source: FOS (Field Officer Sales) guide: Creating a case
-
 ### how do i upload documents  (process, expect answer, got answer)
 
 1. Open the case (tap Open in My cases, or type its number).
 2. Tap Upload next to the document that is **pending**, or attach the file in this chat.
 3. Choose the party (applicant or co-applicant) if asked.
 4. Wait for the check. I will tell you here if the document is **verified** or needs a re-upload.
-
-Source: FOS (Field Officer Sales) guide: Uploading documents
 
 ### how to move case to CPA  (process, expect answer, got answer)
 
@@ -418,13 +377,9 @@ Source: FOS (Field Officer Sales) guide: Uploading documents
 3. Wait for verification; a **rejected** document must be uploaded again.
 4. When every FOS (Field Officer Sales) check passes (Application details, Applicant documents, Co-applicant documents, Signature), open the case and tap Move to CPA, then Confirm.
 
-Source: the FOS stage gate, the product checklist, the KYC (Know Your Customer) policy
+### what happens after CPA  (process, expect answer, got wrong_content (missing Credit, RCU))
 
-### what happens after CPA  (process, expect answer, got answer)
-
-At CPA the completed file is processed further and handed on. Next the Credit stage assesses the case and makes
-the credit decision, then RCU checks the file for risk, then BOPS and HOPS, and finally the loan is
-disbursed. FOS (Field Officer Sales) does not take part in these later stages.
+CPA: The stage after FOS (Field Officer Sales) in this system, where the completed file is processed further. Example: a case moves from FOS to CPA when every FOS check passes.
 
 ### what are the stages of a loan  (process, expect answer, got answer)
 
@@ -468,8 +423,6 @@ The new upload replaces the **rejected** one for that slot; it is **verified** a
 4. Result: **verified**, in review (a person checks), or **rejected** (upload again).
 5. KYC (Know Your Customer) then cross-checks the verified documents against the form.
 
-Source: the LOS document flow, the verification guidelines
-
 ### what can you help with  (app_help, expect answer, got answer)
 
 I can help with your cases, documents, KYC (Know Your Customer) and moving a case to CPA, and answer questions about the process.
@@ -489,8 +442,6 @@ I can't export or re-encode data, but I'm happy to answer questions about your a
 3. Read the row-by-row check: nothing is saved yet.
 4. Tap Confirm to create the cases from the valid rows.
 
-Source: FOS (Field Officer Sales) guide: Importing cases
-
 ### what is my role  (app_help, expect answer, got answer)
 
 You are signed in as test-subject, role --.
@@ -501,8 +452,8 @@ You have 2 cases: 2 with documents **pending**.
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-484AC47D492C | Priya V. (APP-B6784EEF1EF3) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-484AC47D492C) |
-| 2 | CASE-F18E11CB6409 | Rahul S. (APP-742910E19EDF) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-F18E11CB6409) |
+| 1 | CASE-6CE73AD69915 | Priya V. (APP-E8A46BE2BCBC) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-6CE73AD69915) |
+| 2 | CASE-38EF9F162951 | Rahul S. (APP-1794059087FA) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-38EF9F162951) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.
@@ -514,12 +465,12 @@ Download: [Excel](action:download_list?format=xlsx&q=all) · [Doc](action:downlo
 
 ### pending cases dikhao  (app_help, expect answer, got answer)
 
-2 of your cases match (**Pending**).
+2 of your cases match (needs action).
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-484AC47D492C | Priya V. (APP-B6784EEF1EF3) | FOS (Field Officer Sales) | Created · 4 docs **pending** | [Open](action:open_case?id=CASE-484AC47D492C) |
-| 2 | CASE-F18E11CB6409 | Rahul S. (APP-742910E19EDF) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-F18E11CB6409) |
+| 1 | CASE-6CE73AD69915 | Priya V. (APP-E8A46BE2BCBC) | FOS (Field Officer Sales) | Created · 4 docs **pending** | [Open](action:open_case?id=CASE-6CE73AD69915) |
+| 2 | CASE-38EF9F162951 | Rahul S. (APP-1794059087FA) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-38EF9F162951) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.
@@ -527,7 +478,7 @@ That is the whole list.
 Do you want to know about a particular case?
 [Yes](ask:Yes) · [No](ask:No)
 
-Download: [Excel](action:download_list?format=xlsx&q=group:pending) · [Doc](action:download_list?format=docx&q=group:pending) · [PDF](action:download_list?format=pdf&q=group:pending) · [Show in UI](action:show_list_in_ui?q=group:pending)
+Download: [Excel](action:download_list?format=xlsx&q=filter:needs_action) · [Doc](action:download_list?format=docx&q=filter:needs_action) · [PDF](action:download_list?format=pdf&q=filter:needs_action) · [Show in UI](action:show_list_in_ui?q=filter:needs_action)
 
 ### will this loan get approved  (decisions, expect decline, got decline)
 
@@ -558,8 +509,6 @@ I can't approve, reject, disburse or skip a check from chat, a person does that.
 3. Choose the party (applicant or co-applicant) if asked.
 4. Wait for the check. I will tell you here if the document is **verified** or needs a re-upload.
 
-Source: FOS (Field Officer Sales) guide: Uploading documents
-
 ### documents kaise verify hote hai  (hinglish, expect answer, got answer)
 
 1. Upload the document (in the case or in this chat).
@@ -568,15 +517,13 @@ Source: FOS (Field Officer Sales) guide: Uploading documents
 4. Result: **verified**, in review (a person checks), or **rejected** (upload again).
 5. KYC (Know Your Customer) then cross-checks the verified documents against the form.
 
-Source: the LOS document flow, the verification guidelines
-
 ### co-applicant kya hota hai  (hinglish, expect answer, got answer)
 
 A co-applicant applies for the loan together with the main applicant. A co-applicant's income can be counted for eligibility, and a co-applicant is equally responsible for repaying the loan. A co-applicant is usually a spouse or a close family member; for a property loan, every co-owner of the property is normally a co-applicant. In this system a co-applicant has their own documents and their own KYC (Know Your Customer).
 
 ### sanction letter kya hai  (hinglish, expect answer, got answer)
 
-A sanction letter is the lender's written approval of a loan. It states the **approved** amount, the interest rate, the tenure, the EMI (Equated Monthly Instalment) and the conditions to be met before disbursement.
+Sanction letter: The written approval of a loan: amount, interest rate, tenure, EMI (Equated Monthly Instalment), fees and conditions to be met before disbursement. Example: the customer signs and returns the sanction letter to accept the offer.
 
 ### loan approve kaun karta hai  (hinglish, expect answer, got answer)
 
@@ -598,9 +545,9 @@ Tenure is the repayment period of the loan, in months or years. A longer tenure 
 
 Driving Licence, Passport or Voter ID can satisfy the Address Proof requirement.
 
-### document reject ho gaya to kya kare  (hinglish, expect answer, got answer)
+### document reject ho gaya to kya kare  (hinglish, expect answer, got unknown)
 
-The new upload replaces the **rejected** one for that slot; it is **verified** again, and the case moves forward once it passes. The reason the document was rejected is shown in the case, so fix that first (wrong document type, unreadable, cropped, details not matching the form).
+That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team.
 
 ### naya case kaise banaye  (hinglish, expect answer, got answer)
 
@@ -608,8 +555,6 @@ The new upload replaces the **rejected** one for that slot; it is **verified** a
 2. Fill in the applicant's details and the loan details, the same form everywhere.
 3. Check the summary and tap Confirm.
 4. Upload the documents the case asks for.
-
-Source: FOS (Field Officer Sales) guide: Creating a case
 
 ### guarantor aur co-applicant mein kya fark hai  (hinglish, expect answer, got answer)
 
@@ -623,14 +568,11 @@ No fee or charge amount (processing fee, prepayment or foreclosure charges) is c
 
 RCU: a later stage that checks the file for risk.
 
-Source: the glossary
-
 ### minimum loan amount for home loan  (held_out_2, expect answer, got answer)
 
 - Home Loan: loan amount **₹5,00,000** to **₹1,00,00,000**.
 
 These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### EMI 20 lakh 9% 20 years  (held_out_2, expect answer, got answer)
 
@@ -646,7 +588,6 @@ Indicative only: the system's eligibility check uses the **verified** figures.
 - Home Loan: Salaried, Self Employed.
 
 These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 ### pan card mandatory hai kya  (held_out_2, expect answer, got answer)
 
@@ -670,7 +611,7 @@ No fee or charge amount (processing fee, prepayment or foreclosure charges) is c
 
 ### what is a deviation  (held_out_2, expect answer, got answer)
 
-4. No query or deviation raised on the case is still open. Both block the move out of the stage (`blocks_forward_move` in a configured policy file, UNCONFIRMED until the business signs it off).
+Deviation: An **approved** exception to a credit policy rule, such as a higher FOIR (Fixed Obligation to Income Ratio) than the policy allows, approved by an authority. Example: a deviation for age approved by the credit head.
 
 ### is rent agreement accepted as address proof  (held_out_2, expect answer, got answer)
 
@@ -689,26 +630,25 @@ No approval time (TAT) is configured in this system. After CPA the case goes thr
 What is ITR (Income Tax Return)**
 ITR (Income Tax Return): the yearly income statement filed with the tax department.
 
-Source: the glossary
-
 What is Form 16
-Form 16 is the certificate an employer gives each employee every year, showing the salary paid and the tax (TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or an ITR.
+Form 16 is the certificate an employer gives each employee every year, showing the salary paid and the tax
+(TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or an ITR.
 
 ### what is NACH and CERSAI  (classes_2, expect answer, got answer)
 
 What is NACH
-NACH (National Automated Clearing House, run by NPCI) lets the lender collect each EMI (Equated Monthly Instalment) automatically from the borrower's bank account, under a mandate the borrower signs. An e-mandate (e-NACH) is the same mandate given digitally, through net banking, a debit card or Aadhaar.
+e-NACH: A NACH mandate registered digitally, through net banking, debit card or Aadhaar. Example: e-NACH set up during onboarding.
 
 What is CERSAI
-CERSAI (Central Registry of Securitisation Asset Reconstruction and Security Interest of India) is the registry where a lender records its charge on a property given as security, so the same property cannot be pledged to two lenders without it showing. It also holds the Central KYC (Know Your Customer) records.
+CERSAI: Central Registry of Securitisation Asset Reconstruction and Security Interest of India: where lenders register charges on assets given as security, so the same asset cannot be secretly pledged twice. It also hosts the Central KYC (Know Your Customer) registry. Example: a home loan's mortgage registered with CERSAI.
 
-### explain top up loan and balance transfer  (classes_2, expect answer, got answer)
+### explain top up loan and balance transfer  (classes_2, expect answer, got wrong_content (missing another lender))
 
 Explain top up loan
-A top-up loan is an extra loan given on top of an existing loan, often to a customer with a good repayment record or together with a balance transfer. It is repaid with or alongside the existing loan.
+Top-up loan: An additional loan given on top of an existing loan, usually to a borrower with a good repayment record. Example: a top-up on a home loan for renovation.
 
 Explain balance transfer
-A balance transfer (BT) moves an existing loan from another lender to this lender, usually for a lower interest rate or better terms. The new lender pays off the old loan and the customer repays the new lender.
+Balance transfer: Moving an existing loan from one lender to another, usually for a lower interest rate or better terms; the new lender pays off the old loan. Example: transferring a home loan to a lender offering a lower rate.
 
 ### how much is the foreclosure charge  (classes_2, expect not_configured, got not_configured)
 
@@ -746,8 +686,8 @@ You have 2 cases: 2 with documents **pending**.
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-484AC47D492C | Priya V. (APP-B6784EEF1EF3) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-484AC47D492C) |
-| 2 | CASE-F18E11CB6409 | Rahul S. (APP-742910E19EDF) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-F18E11CB6409) |
+| 1 | CASE-6CE73AD69915 | Priya V. (APP-E8A46BE2BCBC) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-6CE73AD69915) |
+| 2 | CASE-38EF9F162951 | Rahul S. (APP-1794059087FA) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-38EF9F162951) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.
@@ -757,7 +697,6 @@ That is the whole list.
 - Personal Loan: tenure 6 to 60 months.
 
 These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 - Personal Loan: loan amount **₹50,000** to **₹10,00,000**.
 
@@ -766,7 +705,6 @@ Source: the eligibility policy
 - Home Loan: 8.5% a year (the rate used for the EMI (Equated Monthly Instalment) estimate).
 
 These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
-Source: the eligibility policy
 
 - Home Loan: LTV (Loan to Value) up to 80% of the property value.
 
@@ -778,8 +716,8 @@ You have 2 cases: 2 with documents **pending**.
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-484AC47D492C | Priya V. (APP-B6784EEF1EF3) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-484AC47D492C) |
-| 2 | CASE-F18E11CB6409 | Rahul S. (APP-742910E19EDF) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-F18E11CB6409) |
+| 1 | CASE-6CE73AD69915 | Priya V. (APP-E8A46BE2BCBC) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-6CE73AD69915) |
+| 2 | CASE-38EF9F162951 | Rahul S. (APP-1794059087FA) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-38EF9F162951) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.
@@ -792,8 +730,8 @@ You have 2 cases: 2 with documents pending.
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-484AC47D492C | Priya V. (APP-B6784EEF1EF3) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-484AC47D492C) |
-| 2 | CASE-F18E11CB6409 | Rahul S. (APP-742910E19EDF) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-F18E11CB6409) |
+| 1 | CASE-6CE73AD69915 | Priya V. (APP-E8A46BE2BCBC) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-6CE73AD69915) |
+| 2 | CASE-38EF9F162951 | Rahul S. (APP-1794059087FA) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-38EF9F162951) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.
@@ -806,8 +744,8 @@ You have 2 cases: 2 with documents **pending**.
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-484AC47D492C | Priya V. (APP-B6784EEF1EF3) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-484AC47D492C) |
-| 2 | CASE-F18E11CB6409 | Rahul S. (APP-742910E19EDF) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-F18E11CB6409) |
+| 1 | CASE-6CE73AD69915 | Priya V. (APP-E8A46BE2BCBC) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-6CE73AD69915) |
+| 2 | CASE-38EF9F162951 | Rahul S. (APP-1794059087FA) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-38EF9F162951) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.

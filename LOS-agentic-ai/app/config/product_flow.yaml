@@ -297,7 +297,10 @@ case_form:
   no_rights: { en: "You don't have permission to create cases.", hi-Latn: "Aapko case banane ki permission nahi hai.",
                hi: "आपको केस बनाने की अनुमति नहीं है।", mr: "तुम्हाला केस तयार करण्याची परवानगी नाही." }
   # editing a field of the open case: "loan amount 600000 karo", "change mobile to 9876543210"
-  edit_cues: [change, update, badlo, badal do, karo, kar do, set, edit, बदलो, बदला]
+  edit_cues: [change, update, badlo, badal do, karo, kar do, set, edit, make it, replace, correct it, correct the,
+              set to, बदलो, बदला]
+  # words around a new value that are not the value ("mobile NUMBER change karo 98...", "loan amount TO 6 lakh")
+  value_fillers: [number, no, num, to, ko, as, is, it, please, the, new, value, field, galat hai, wrong, karna hai]
   edit_proposal:
     en: "Change **{label}** of {case_id} from {old} to **{new}**?"
     hi-Latn: "{case_id} ka **{label}** {old} se **{new}** karna hai?"
@@ -642,6 +645,9 @@ which_case:
                atka, atki, stuck, details, detail, summary, form, checklist, next, history, timeline, application,
                case, cases, customer, mobile, dob, signature, rejected, reupload, handoff, eligibility,
                केस, स्थिति, दस्तावेज़, लोन, कागदपत्र]
+  # the case last opened in this chat, offered first (one tap answers the question for it)
+  last_opened: { en: "Use {case_id}, the last opened case", hi-Latn: "{case_id} use karo, pichla khola hua case",
+                 hi: "{case_id} लें, पिछला खोला गया केस", mr: "{case_id} वापरा, शेवटची उघडलेली केस" }
   ask:
     en: "Which case is this about? Pick one and I'll answer \"{question}\" for it."
     hi-Latn: "Yeh kis case ke baare mein hai? Ek case chuniye, main uske liye \"{question}\" ka jawab dunga."

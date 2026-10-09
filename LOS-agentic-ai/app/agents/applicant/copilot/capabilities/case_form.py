@@ -521,10 +521,14 @@ def _propose_edit(message: str, case_id: str, claims: dict[str, Any], request_id
     said = _norm(message)
     if not any(_norm(w) in said for w in _words("edit_cues")):
         return None, None
-    field = _edit_target(message, lang)
-    if field is None:
-        return None, None
-    raw = _value_in(message, field, lang)
+    replaced = _replacement(message, case_id)
+    if replaced:
+        field, raw = replaced
+    else:
+        field = _edit_target(message, lang)
+        if field is None:
+            return None, None
+        raw = _value_in(message, field, lang)
     if not raw:
         return None, None
     from app.agents.applicant.copilot.capabilities import workspace
@@ -563,13 +567,50 @@ def _value_in(message: str, field: str, lang: str) -> str | None:
             break
     else:
         return None
-    rest = re.sub(r"^\s*(?:to|ko|=|:|-|ka|ki|ke|se)\s+", " ", rest, flags=re.I).strip(" :=-")
-    cues = sorted(_words("edit_cues"), key=len, reverse=True)
-    for cue in cues:
-        rest = re.sub(rf"(?i)\s*\b{re.escape(cue)}\b\s*$", "", rest).strip()
-        rest = re.sub(rf"(?i)^\s*{re.escape(cue)}\b\s*", "", rest).strip()
-    rest = re.sub(r"(?i)^(?:to|ko)\s+", "", rest).strip()
+    return _clean_value(rest, field)
+
+
+def _clean_value(rest: str, field: str) -> str | None:
+    """The value alone: command words ("change karo", "kar do"), fillers ("number", "to", ":") stripped from both
+    ends until nothing changes; an amount said in lakh / crore / k becomes rupees (chat only -- the form keeps its
+    full-rupees rule)."""
+    cues = sorted([*_words("edit_cues"), *_words("value_fillers")], key=len, reverse=True)
+    previous = None
+    while previous != rest:
+        previous = rest
+        rest = rest.strip(" :=-,.")
+        for cue in cues:
+            rest = re.sub(rf"(?i)\s*\b{re.escape(cue)}\b\s*$", "", rest).strip(" :=-,.")
+            rest = re.sub(rf"(?i)^\s*{re.escape(cue)}\b\s*", "", rest).strip(" :=-,.")
+    rule = (_cfg().get("formats") or {}).get(field) or {}
+    if rest and (rule.get("number") or rule.get("integer")):
+        from app.agents.applicant.copilot.capabilities import general
+
+        amounts = general._amounts(rest)
+        scaled = re.search(r"(?i)\b(lakh|lakhs|lac|crore|cr|k|thousand)\b", rest)
+        if len(amounts) == 1 and scaled:
+            rest = str(int(round(amounts[0][1])))
+    if rest and field == "mobile":
+        digits = re.sub(r"\D", "", rest)
+        rest = digits[-10:] if len(digits) >= 10 else rest
     return rest or None
+
+
+def _replacement(message: str, case_id: str) -> tuple[str, str] | None:
+    """'Rahul Sharma ki jagah Rahul Kumar Sharma karo' / 'instead of X make it Y': (field, new) -- the field is the
+    one whose CURRENT value the officer named (values_of), so no field name is needed."""
+    # "instead of X make it Y" first (it may START the message); then "X ki jagah Y" / "X instead of Y"
+    found = re.search(r"(?i)instead of\s+(.+?)\s+(?:make it|put|use|write|set)\s+(.+)", message) or \
+        re.search(r"(?i)(.+?)\s+(?:ki jagah|ke jagah|ki jgah|instead of|ke badle|ki bajaye)\s+(.+)", message)
+    if not found:
+        return None
+    old_part, new_part = found.group(1), found.group(2)
+    current = {f: str(v) for f, v in values_of(case_id).items() if v not in (None, "")}
+    named = [f for f, v in current.items() if len(v) >= 3 and v.lower() in old_part.lower()]
+    if len(named) != 1:
+        return None
+    value = _clean_value(new_part, named[0])
+    return (named[0], value) if value else None
 
 
 def _edit_step(write: dict[str, Any], message: str, claims: dict[str, Any], request_id: str,

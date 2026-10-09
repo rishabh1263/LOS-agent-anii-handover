@@ -24,7 +24,7 @@ DOWNLOADS = [R + r"\(action:download(_list)?\?format=xlsx"], [R + r"\(action:dow
 SHOW_UI = [R + r"\(action:show_(list_)?in_ui"]
 CONFIRM = [R + r"\(action:confirm_write\?ref="]
 CREATED = [R + r"CASE-[0-9A-F]+ created for|CASE-[0-9A-F]+ ban gaya"]
-STEPS = [R + r"^1\. "], [R + r"\n2\. "], [R + r"source:"]
+STEPS = [R + r"^1\. "], [R + r"\n2\. "]   # no "Source:" label (Smart Bot response rules, 2026-10-08)
 ABUSE = [R + r"foul language|gaali"]
 MASKED = [R + r"\bm\*+d\b"]
 UNKNOWN = [R + r"don't know that yet|isn't in the knowledge base|don't have an answer|abhi nahi pata|jawab abhi"]
@@ -159,7 +159,7 @@ CONVERSATIONS: list[tuple[str, list[tuple]]] = [
         ("help", [[R + r"\(ask:"]], [], [[R + r"my cases"]]),
     ]),
     ("28 paging", [
-        ("top 1", [LIST, [R + r"showing 1-1 of \d+"]], []),     # conversation 12 created a third case
+        ("top 1 cases", [LIST, [R + r"showing 1-1 of \d+"]], []),     # conversation 12 created a third case
         ("aur dikhao", [[R + r"showing 2-2 of \d+"]], []),
     ]),
     ("29 switch cases", [

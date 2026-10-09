@@ -1322,6 +1322,37 @@ async def copilot(
         }) from exc
 
 
+async def _understood(message: str, claims: dict[str, Any], payload: Any, request_id: str):
+    """The meaning Decision for a typed message, or None (meaning off / a command / a pending reply / not understood)."""
+    from app.agents.applicant.copilot.semantics import meaning as _meaning
+
+    if not _meaning.enabled():
+        return None
+    from app.agents.applicant.copilot.capabilities import general as _gen
+    from app.agents.applicant.copilot.capabilities import workspace as _ws_m
+
+    state = _gen._state(claims, payload.context)
+    said = " ".join(str(message or "").split())
+    # a reply to a question the bot asked ("1", "yes", "ok", a pick, a pending draft) is never re-understood
+    from app.agents.applicant.copilot.capabilities import vague as _vq
+
+    # a pick / yes / no / ok answers the waiting question; a question that could answer it (one of its options'
+    # words, a draft, a "which case?" pick) stays with it -- any OTHER message is a new question, understood here
+    if re.fullmatch(r"(?i)[\d\s.,]+|yes|no|ok|okay|haan|nahi", said) or _vq.waits_for(said, state, claims,
+                                                                                   payload.context):
+        return None
+
+    if _vq.is_command(said, case_open=bool(state.active_case_id or payload.case_id)):
+        return None                 # open / close / a case id / a list / a new case: the workspace and the forms
+    decision = await _meaning.understand(said, case_open=bool(state.active_case_id or payload.case_id),
+                                         previous=(getattr(state, "flow", None) or {}).get("last_meaning"),
+                                         request_id=request_id)
+    if decision is not None:
+        _meaning.remember(state, decision)
+        _ws_m._save(state)
+    return decision
+
+
 def _no_case_turn(claims: dict[str, Any], request_id: str, payload: Any, message: str) -> Any:
     """
     No case open and the request needs one: (case_id, applicant_id) when the officer has exactly ONE case (answered
@@ -1650,6 +1681,28 @@ async def _copilot_json(
                     "errors": [{"code": "REQUEST_NOT_ALLOWED",
                                 "message": _early_guard.refusal(verdict.category)}]}
 
+    # VAGUE / ONE-WORD MESSAGES (owner decision A; capabilities/vague.py): a pending option list is answered by the
+    # pick (or the most likely option on a second vague message) BEFORE chat case creation, so "Create a new case"
+    # picked by its number starts the form like the typed words would; the Upload option answers with its link
+    if action is FosAction.CUSTOM_QUERY:
+        from app.agents.applicant.copilot.capabilities import general as _vg_early
+        from app.agents.applicant.copilot.capabilities import vague as _vague_early
+
+        if _vague_early.enabled():
+            _early_state = _vg_early._state(claims, payload.context)
+            from app.agents.applicant.copilot.capabilities import product_flow as _pf_early
+            from app.agents.applicant.copilot.capabilities import workspace as _ws_early
+
+            if _pf_early.drop_if_not_answered(message, _early_state):
+                _ws_early._save(_early_state)
+            picked = _vague_early.resolve(message, _early_state,
+                                          case_open=bool(_early_state.active_case_id or payload.case_id))
+            if picked and _vague_early.is_upload(picked):
+                return _vague_early.upload_reply(picked, request_id, payload.context, claims)
+            if picked:
+                message = picked
+                request.state.copilot_message = message
+
     # CASE CREATION AND FIELD EDITS FROM CHAT (MASTER SPEC 15.5; capabilities/case_form.py, COPILOT_CHAT_CASE_CREATE):
     # the same fields and rules as the UI form, a summary, "Confirm?", then the UI form's own create route. Runs
     # BEFORE the workspace: while a draft is open, "Rahul Sharma" is the applicant's name, not a case to open.
@@ -1685,12 +1738,51 @@ async def _copilot_json(
     # the login, definitions and full forms, process steps from the live config, the product checklist, "whose
     # name?", unknown terms -- answered BEFORE any case logic, so they never meet "which case?"
     request.state.copilot_context = payload.context
+    meaning_kind = None
     if action is FosAction.CUSTOM_QUERY:
+        # UNDERSTANDING BY MEANING (Smart Bot plan sections 2-5; semantics/meaning.py): commands and replies to a
+        # pending question stay with the rules above / the workspace; every other message is understood by MEANING --
+        # a case / process intent becomes its CANONICAL question (answered by the same deterministic engine), the other
+        # kinds go to the general layer. Not understood with confidence -> the message goes on as typed (the rules).
+        # VAGUE / ONE-WORD MESSAGES (owner decision A; capabilities/vague.py): a pending option list is answered by the
+        # pick (or the most likely option on a second vague message); a new fragment gets ONE question with options
+        from app.agents.applicant.copilot.capabilities import general as _vg
+        from app.agents.applicant.copilot.capabilities import vague as _vague
+
+        if _vague.enabled():
+            _vstate = _vg._state(claims, payload.context)
+            if _vague.is_vague(message) and not _vague.waits_for(message, _vstate, claims, payload.context):
+                asked = _vague.ask(message, _vstate, request_id, bool(_vstate.active_case_id or payload.case_id))
+                if asked is not None:
+                    return asked
+        decision = await _understood(message, claims, payload, request_id)
+        if decision is not None and decision.kind == "upload":
+            # "upload new bank statement" with a case open: that document's upload link (the party the message names)
+            _up_state = _vg._state(claims, payload.context)
+            _code = _vague._document_code(message)
+            if _code and (_up_state.active_case_id or payload.case_id):
+                return _vague.upload_reply(_vague.upload_option(message, _code), request_id, payload.context, claims)
+            decision = None                          # no case / no document named: the message goes on as typed
+        if decision is not None and decision.party == "CO_APPLICANT":
+            # "co-applicant pan" on a case WITHOUT one: the message as typed (the engine says there is none) -- the
+            # co-applicant canonical would answer "nothing pending" for a party that does not exist
+            _cp_case = _vg._state(claims, payload.context).active_case_id or payload.case_id
+            from app.store import get_repository as _cp_repo
+
+            _cp_app = _cp_repo().get_application(_cp_case) if _cp_case else None
+            if _cp_app is not None and not getattr(_cp_app, "co_applicant_id", None):
+                decision.canonical = None
+        if decision is not None:
+            meaning_kind = decision.kind
+            if decision.kind in ("case", "process") and decision.canonical:
+                message = decision.canonical
+                request.state.copilot_message = message
         from app.agents.applicant.copilot.answering import language_lock as _gen_lock
         from app.agents.applicant.copilot.capabilities import general as _general
 
         general_reply = await _general.answer(message, claims, payload.context, request_id,
-                                              _gen_lock.current() or "en", case_in_scope=payload.case_id)
+                                              _gen_lock.current() or "en", case_in_scope=payload.case_id,
+                                              meaning_kind=meaning_kind)
         if general_reply is not None:
             return general_reply
 

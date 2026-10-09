@@ -259,8 +259,25 @@ async def lifespan(app: FastAPI):
                     language.detect(sample)
                     intents.understand(sample, has_case=True)
 
+            def meaning_bank() -> None:
+                # the meaning layer's example bank (intent examples + paraphrases): embedded once here, never inside
+                # the first officer's turn (measured: ~100 s on a cold cache)
+                from app.agents.applicant.copilot.semantics import meaning
+
+                if meaning.enabled():
+                    meaning.rank("warmup")
+
+            def chat_model() -> None:
+                # the small model the chooser / rewrite / general answer use: loaded and held (keep_alive)
+                from app.agents.applicant.copilot.semantics import meaning
+                from app.llm import availability
+
+                if meaning.enabled():               # off in the test suite: no model is loaded there
+                    availability.warm_in_background()
+
             for name, run in (("vector_store", vector_store), ("embedder", embedder),
-                              ("knowledge_index", knowledge_index), ("understanding", understanding)):
+                              ("knowledge_index", knowledge_index), ("understanding", understanding),
+                              ("meaning_bank", meaning_bank), ("chat_model", chat_model)):
                 step(name, run)
 
         _threading.Thread(target=_warm_retrieval, name="copilot-warmup",
@@ -585,6 +602,11 @@ async def _request_span(request, call_next):
     _llm_trace.begin()
     with span("http.request", http_method=request.method) as current:
         response = await call_next(request)
+        if request.url.path.startswith(("/api/v1/fos", "/api/v1/copilot")):
+            # THE FRONTEND CONTRACT VERSION (frontend_handoff/API_CONTRACT.md): the UI checks it, the contract test pins it
+            from app.agents.applicant.copilot.answering import contract as _ui_contract
+
+            response.headers["X-Contract-Version"] = _ui_contract.version()
         route = request.scope.get("route")
         path = getattr(route, "path", None)
         # A route with no path parameters is published as its full path; a

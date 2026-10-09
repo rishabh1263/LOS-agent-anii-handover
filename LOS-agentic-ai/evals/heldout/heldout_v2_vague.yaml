@@ -1,0 +1,44 @@
+# HELD-OUT v2 -- VAGUE / ONE-WORD messages (owner decision A, 2026-10-08). FROZEN before the vague-message handling was
+# built; never tune on it. Fixture kyc_failed (case open) unless `no_case: true` (no case open, two cases on file).
+# expect:
+#   options      -- ONE short follow-up question with 2-4 option links (ask:) -- never "Which case is this about" for a
+#                   message that is not about one case, never "I don't know"
+#   answer       -- a direct answer (the pick / a second vague message: the most likely answers shown) -- must / must_any
+# Never the same question twice in a row (judged on the last reply of `turns`).
+
+frozen: true
+version: 2
+fixture: kyc_failed
+items:
+  - { id: V001, q: "docs", expect: options }
+  - { id: V002, q: "kyc", expect: options }
+  - { id: V003, q: "status", expect: options }
+  - { id: V004, q: "pending", expect: options }
+  - { id: V005, q: "co-applicant", expect: options }
+  - { id: V006, q: "pan", expect: options }
+  - { id: V007, q: "amount", expect: options }
+  - { id: V008, q: "cpa", expect: options }
+  - { id: V009, q: "name", expect: options }
+  - { id: V010, q: "upload", expect: options }
+  - { id: V011, q: "case", expect: options, no_case: true }
+  - { id: V012, q: "top 2", expect: options, no_case: true }
+  - { id: V013, q: "cases", expect: options, no_case: true }
+  - { id: V014, q: "help", expect: options, no_case: true }
+  - { id: V015, q: "query", expect: options }
+  - { id: V016, q: "documents?", expect: options }
+  - { id: V017, q: "bank statement", expect: options }
+  - { id: V018, q: "next", expect: options }
+  - { id: V019, q: "signature", expect: options }
+  - { id: V020, q: "loan", expect: options, no_case: true }
+  # the pick answers at once (number / words), no second question
+  - { id: V021, turns: ["docs", "1"], expect: answer, must_any: ["Signature", "PAN", "Bank Statement"] }
+  - { id: V022, turns: ["kyc", "1"], expect: answer, must_any: ["KYC", "Bank Statement"] }
+  - { id: V023, turns: ["top 2", "1"], expect: answer, must: ["Showing 1-2"], no_case: true }
+  - { id: V024, turns: ["case", "1"], expect: answer, must_any: ["Showing", "CASE-"], no_case: true }
+  - { id: V025, turns: ["status", "2"], expect: answer, must_any: ["KYC", "pending", "Signature", "ready", "CPA"] }
+  - { id: V026, turns: ["pan", "1"], expect: answer, must: ["PAN"] }
+  # a second vague message in a row: the most likely answers directly, never the same question again
+  - { id: V027, turns: ["docs", "docs"], expect: answer, must_any: ["Signature", "PAN", "Bank Statement"] }
+  - { id: V028, turns: ["status", "hmm status"], expect: answer, must_any: ["KYC", "pending", "Signature", "ready"] }
+  - { id: V029, turns: ["kyc", "kyc?"], expect: answer, must_any: ["KYC", "Bank Statement"] }
+  - { id: V030, turns: ["case", "case"], expect: answer, must_any: ["Showing", "CASE-"], no_case: true }

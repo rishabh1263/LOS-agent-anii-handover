@@ -60,7 +60,8 @@ phrases:
     stuck: [atke hue, atka hua, atke, stuck, over target, late wale, der wale]
     documents_pending: [pending docs wale, docs pending, documents pending, document pending wale, docs baaki,
                         pending documents wale, docs wale]
-    needs_action: [action wale, needs action, kaam wale, jinme kaam hai]
+    needs_action: [action wale, needs action, needing action, need action, kaam wale, jinme kaam hai, pending files,
+                   pending cases, my pending, pending wale, files pending, cases pending]
   # a number said as a word
   numbers: { ek: 1, one: 1, do: 2, two: 2, teen: 3, three: 3, char: 4, chaar: 4, four: 4, paanch: 5, panch: 5,
              five: 5, chhe: 6, six: 6, saat: 7, seven: 7, aath: 8, eight: 8, nau: 9, nine: 9, das: 10, ten: 10 }
