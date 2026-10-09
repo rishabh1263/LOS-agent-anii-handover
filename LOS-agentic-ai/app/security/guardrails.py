@@ -37,6 +37,7 @@ written to the log it was kept out of; only the category and rule name are.
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 from dataclasses import dataclass
@@ -321,6 +322,51 @@ def check_input(message: str, *, allowed_ids: tuple[str | None, ...] = ()) -> Ve
     return ALLOWED
 
 
+@functools.lru_cache(maxsize=1)
+def _terms_config() -> tuple[re.Pattern[str] | None, str | None]:
+    """app/config/guardrails.yaml system_terms -> one whole-word pattern (config, never a word list in code)."""
+    import yaml
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "config" / "guardrails.yaml"
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None, None
+    terms = sorted({" ".join(str(t).split()) for t in data.get("system_terms") or [] if str(t).strip()},
+                   key=len, reverse=True)
+    if not terms:
+        return None, None
+    words = "|".join(r"\s+".join(re.escape(w) for w in t.split()) for t in terms)
+    reply = " ".join(str(data.get("system_terms_reply") or "").split()) or None
+    return re.compile(rf"(?<![\w/.-])({words})(?![\w-])", _I), reply
+
+
+@functools.lru_cache(maxsize=1)
+def _bulk_fields() -> re.Pattern[str] | None:
+    """app/config/guardrails.yaml bulk_protected_fields -> one whole-word pattern."""
+    import yaml
+    from pathlib import Path
+
+    try:
+        data = yaml.safe_load((Path(__file__).resolve().parents[1] / "config" / "guardrails.yaml")
+                              .read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    fields = sorted({" ".join(str(t).split()) for t in data.get("bulk_protected_fields") or [] if str(t).strip()},
+                    key=len, reverse=True)
+    if not fields:
+        return None
+    words = "|".join(r"\s+".join(re.escape(w) for w in f.split()) for f in fields)
+    return re.compile(r"(?<![\w-])(" + words + r")(?![\w-])", _I)
+
+
+def names_protected_field(text: str) -> bool:
+    """A bulk request naming an identity field (config bulk_protected_fields) stays refused even for an officer."""
+    pattern = _bulk_fields()
+    return bool(pattern and pattern.search(str(text or "")))
+
+
 def _check_system_request(text: str) -> Verdict:
     """A request for the system's own code, files, secrets, prompts or tools."""
     for category, rules in _INPUT_ALWAYS:
@@ -332,7 +378,26 @@ def _check_system_request(text: str) -> Verdict:
             for name, pattern in rules:
                 if pattern.search(text):
                     return _blocked("input", category, name)
+    # LAST, so a specific rule keeps its category ("api key" -> SECRET_LEAK, "source code" -> CODE_LEAK)
+    terms, _ = _terms_config()
+    if terms is not None and (terms.search(text) or terms.search(_squeezed(text))):
+        return _blocked("input", Category.INTERNAL_SYSTEM_LEAK, "system_terms")
+    # A WHOLE MESSAGE SPELLED LETTER BY LETTER ("w h a t i s t h e a p i") hides its words: any system term inside
+    # the joined letters is the same request
+    tokens = text.split()
+    if terms is not None and len(tokens) >= 4 and all(len(t) == 1 and t.isalpha() for t in tokens):
+        joined = "".join(tokens).lower()
+        words = [w.replace(" ", "") for w in re.findall(r"[a-z ]+", terms.pattern.lower())]
+        if any(len(w) >= 3 and w in joined for w in words):
+            return _blocked("input", Category.INTERNAL_SYSTEM_LEAK, "system_terms")
     return ALLOWED
+
+
+def _squeezed(text: str) -> str:
+    """'A.P.I' / 'a p i' / 'w h a t i s t h e a p i' -> letters joined, so a spelled-out term is the same term."""
+    joined = re.sub(r"\b([A-Za-z])[.\s]+(?=[A-Za-z]\b)", r"\1", text)
+    joined = re.sub(r"\b([A-Za-z])\.(?=\s|$)", r"\1", joined)
+    return joined + " " + re.sub(r"[^A-Za-z]", "", text)
 
 
 # ==========================================================================
@@ -595,8 +660,12 @@ _REFUSALS = {
 }
 
 
-def refusal(category: Category | None) -> str:
+def refusal(category: Category | None, rule: str | None = None) -> str:
     """The deterministic answer to a blocked request."""
+    if rule == "system_terms":
+        reply = _terms_config()[1]
+        if reply:
+            return reply
     return _REFUSALS.get(category, SAFE_FALLBACK)
 
 
@@ -608,4 +677,4 @@ def _blocked(stage: str, category: Category, rule: str) -> Verdict:
 
 __all__ = ["ALLOWED", "Category", "NEUTRALISED", "SAFE_FALLBACK",
            "UNTRUSTED_NOTICE", "Verdict", "check_input", "check_output",
-           "neutralise", "published", "refusal", "untrusted"]
+           "names_protected_field", "neutralise", "published", "refusal", "untrusted"]

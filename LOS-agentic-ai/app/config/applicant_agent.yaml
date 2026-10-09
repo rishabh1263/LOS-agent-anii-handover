@@ -114,13 +114,13 @@ documents:
         reason: >-
           A bank statement evidences the applicant's banking relationship and
           is passed to the credit stage for assessment.
-    optional:
       - slot: SIGNATURE
         accepts: [SIGNATURE]
         reason: >-
-          A photo of the applicant's signature for the application record. It is
+          Mandatory for every product (owner 2026-10-09). A photo of the applicant's signature for the application record. It is
           checked by the signature service; without a reference specimen it is
           REVIEW, never PASS.
+    optional: []
 
   # `reason` is what the Copilot says when asked WHY a document is needed --
   # what the document is used for in this process, never a lending rule.
@@ -142,6 +142,13 @@ documents:
         reason: >-
           An officially valid document evidencing the applicant's address. Any
           one of the accepted types satisfies the requirement.
+      # Mandatory for every product (owner 2026-10-09), as for Personal Loan; verified on its own by the
+      # signature service (REVIEW without a specimen), never matched against the other documents
+      - slot: SIGNATURE
+        accepts: [SIGNATURE]
+        reason: >-
+          Mandatory for every product. A photo of the applicant's signature for the application record. It is
+          checked by the signature service; without a reference specimen it is REVIEW, never PASS.
     optional:
       - slot: ITR
         accepts: [ITR]
@@ -152,14 +159,6 @@ documents:
       - slot: EMPLOYMENT_PROOF
         accepts: [EMPLOYMENT_PROOF]
         reason: Employment proof evidences the applicant's current employer.
-      # As for Personal Loan: a photo of the applicant's signature for the
-      # record, verified by the signature service (REVIEW without a specimen).
-      - slot: SIGNATURE
-        accepts: [SIGNATURE]
-        reason: >-
-          A photo of the applicant's signature for the application record. It is
-          checked by the signature service; without a reference specimen it is
-          REVIEW, never PASS.
 
 # The FOS-stage taxonomy. Naming a type here makes it selectable on upload and
 # renderable in a dropdown; it does NOT make it required anywhere. A product
@@ -1060,6 +1059,27 @@ chatbot:
       state_rejected: "rejected at verification"
       state_review: "under review"
       state_verified: "verified"
+      # "why is it stuck" / "how long till approval" (2026-10-09 human test): the SAME items, compact
+      why_heading: "{case_id} is stuck at {stage} because:"
+      why_kyc: "KYC failed: {fields} do not match across the documents"
+      why_kyc_review: "KYC needs a reviewer: {fields}"
+      why_kyc_pending: "KYC not complete: {fields}"
+      why_missing: "Not uploaded: {items}"
+      why_rejected: "Rejected, upload again: {items}"
+      why_review: "Under review: {items}"
+      why_fields: "Details to record: {items}"
+      why_ready: "{case_id} is not stuck: every {stage} check has passed. A person must confirm the move to CPA."
+      approval_line: "There is no fixed approval time. {case_id} has been {days} day(s) in {stage} (target {target} day(s)). It can go to CPA once {count} item(s) are cleared; the credit decision is taken after CPA."
+      review_some: "Under review on {case_id}: {items}."
+      review_none: "Nothing is under review on {case_id}. Still to clear: {count} item(s)."
+      approval_ready: "There is no fixed approval time. {case_id} is ready for CPA; the credit decision is taken after CPA."
+    # questions answered from this report in short form (whole phrase, lower case, as typed)
+    why_phrases: [why is it stuck, why is this case stuck, why is the case stuck, why stuck, why is it pending, kyun atka hai,
+                  ye kyun atka hai, kya issue hai, what is blocking, what's blocking, why isn't it moving, why is it on hold]
+    review_phrases: [which documents are under review, what is under review, documents under review, kya review me hai,
+                     which documents are being verified, what is being verified, review me kya hai]
+    approval_phrases: [how long till approval, how long for approval, when will it be approved, approval kab, approval kab hoga,
+                       how long will approval take, kitne din me approve, time to approval, when will the loan be approved]
     # a question about what THIS case needs to reach the next stage ("CPA ke liye kya chahiye") -> the report.
     # The next stage named + one cue (whole words, as typed or normalised); a definition ("CPA kya hai") never.
     question:
@@ -1248,6 +1268,8 @@ chatbot:
   document_actions:
     review_needs_reupload: true
     kyc_status_line: true
+    # with a KYC issue, also list EVERY other KYC field and its result (owner 2026-10-09: not only the name)
+    kyc_all_fields: true
 
   # 6f VERIFY / UPLOAD DIAGNOSE (COPILOT_VERIFY_DIAGNOSE, default off; CHATBOT_SPEC section 4).
   # "verify karna hai" / "kya upload karu" never asks "which document?": the case is diagnosed

@@ -231,6 +231,7 @@ def test_a_complete_case_is_ready_for_cpa(_store):
         ("PAN", "PASS", []),
         ("BANK_STATEMENT", "PASS", []),
         ("DRIVING_LICENCE", "PASS", []),
+        ("SIGNATURE", "PASS", []),          # mandatory for every product (owner 2026-10-09)
     ])
     documents = _store.list_documents(application.case_id)
 
@@ -303,6 +304,7 @@ def test_missing_applicant_information_blocks_before_documents(_store):
     applicant, application = seed(_store, address=None, documents=[
         ("PAN", "PASS", []), ("BANK_STATEMENT", "PASS", []),
         ("DRIVING_LICENCE", "PASS", []),
+        ("SIGNATURE", "PASS", []),          # mandatory for every product (owner 2026-10-09)
     ])
     documents = _store.list_documents(application.case_id)
 
@@ -326,6 +328,7 @@ def test_the_stage_follows_the_records(_store):
     applicant, application = seed(_store, documents=[
         ("PAN", "PASS", []), ("BANK_STATEMENT", "PASS", []),
         ("DRIVING_LICENCE", "PASS", []),
+        ("SIGNATURE", "PASS", []),          # mandatory for every product (owner 2026-10-09)
     ])
     documents = _store.list_documents(application.case_id)
     readiness = workflow.readiness(applicant, application, documents)

@@ -5,8 +5,8 @@ import {
   formatChatAnswer,
   ChatApiError,
   type ChatApiConfig,
-  isDocumentRelatedQuery,
   queryFosCopilot,
+  uploadFromAction,
   uploadFosDocuments,
   mapUploadResults,
 } from '../api'
@@ -332,10 +332,10 @@ export function useChatbot(context: ChatbotContext = {}) {
          * (returns checklist, actions, pending_items — needed for upload CTA).
          * General chat → POST /api/v1/copilot/query.
          */
-        const useFosCopilot =
-          isDocumentRelatedQuery(content) &&
-          Boolean(ctx.caseId?.trim()) &&
-          Boolean(ctx.applicantId?.trim())
+        // EVERY message goes to the officer chatbot (/fos/copilot, one chat_id per conversation): it keeps the open
+        // case, answers with markdown whose ask: / action: links are rendered as buttons (ChatMarkdown).
+        // VITE_CHAT_LEGACY_QUERY=true keeps the old /copilot/query route for general chat.
+        const useFosCopilot = import.meta.env.VITE_CHAT_LEGACY_QUERY !== 'true'
 
         let answer: string
         let meta: {
@@ -348,10 +348,12 @@ export function useChatbot(context: ChatbotContext = {}) {
         if (useFosCopilot) {
           const fosRes = await queryFosCopilot(
             {
-              applicant_id: ctx.applicantId!.trim(),
-              case_id: ctx.caseId!.trim(),
+              applicant_id: ctx.applicantId?.trim(),
+              case_id: ctx.caseId?.trim(),
               action: 'CUSTOM_QUERY',
               message: content,
+              chat_id: convId,
+              reply_language: 'en',
             },
             ctx.accessToken,
             ac.signal,
@@ -367,7 +369,7 @@ export function useChatbot(context: ChatbotContext = {}) {
           }
 
           const decision = getUploadTargets(fosRes)
-          answer = (fosRes.answer || '').trim() || 'No answer returned for this question.'
+          answer = (fosRes.markdown || fosRes.answer || '').trim() || 'No answer returned for this question.'
           meta = {
             suggestedQuestions: settingsRef.current.showSuggestedQuestions
               ? fosRes.suggested_questions
@@ -940,7 +942,48 @@ export function useChatbot(context: ChatbotContext = {}) {
     [activeId],
   )
 
+  /** An action link answered with a chat reply (open_case, list_more, confirm ...): appended as the bot's turn */
+  const appendAssistant = useCallback(
+    (markdown: string) => {
+      if (!markdown?.trim() || !activeId) return
+      const msg: ChatMessage = { id: uid('msg'), role: 'assistant', content: markdown.trim(), timestamp: Date.now() }
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeId ? { ...c, updatedAt: Date.now(), messages: [...c.messages, msg] } : c)),
+      )
+    },
+    [activeId],
+  )
+
+  /** An Upload button: pick file(s), POST them to the action's `post_to` (carries the chat id), show the reply */
+  const uploadForAction = useCallback(
+    (target: { post_to: string; document_type: string | null }) => {
+      const picker = document.createElement('input')
+      picker.type = 'file'
+      picker.multiple = true
+      picker.accept = 'image/*,application/pdf'
+      picker.onchange = async () => {
+        const files = Array.from(picker.files ?? [])
+        if (!files.length) return
+        setStatus('thinking')
+        try {
+          const res = await uploadFromAction(target.post_to, files, target.document_type,
+                                             contextRef.current.accessToken)
+          appendAssistant(res.markdown || res.answer || 'Uploaded.')
+        } catch (err) {
+          appendAssistant(err instanceof ChatApiError ? err.message : 'The upload could not be completed.')
+        } finally {
+          setStatus('online')
+        }
+      }
+      picker.click()
+    },
+    [appendAssistant],
+  )
+
   return {
+    appendAssistant,
+    uploadForAction,
+    accessToken: context.accessToken,
     mode,
     setMode,
     open,

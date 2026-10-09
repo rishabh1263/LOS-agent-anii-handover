@@ -88,7 +88,7 @@ def _reply(request_id: str, intent: str, answer: str, *, block: str = "", case_i
 
     answer, _verdict = guardrails.published(answer)
     out = {"request_id": request_id, "intent": intent, "answer": answer, "case_id": case_id,
-           "category": "KNOWLEDGE_ONLY", "query_type": "CONVERSATION", "response_source": "GENERAL",
+           "category": extra.pop("category", "KNOWLEDGE_ONLY"), "query_type": "CONVERSATION", "response_source": "GENERAL",
            "documents": [], "actions": [], "errors": [], "tools_invoked": [], "suggested_questions": [],
            "no_case_links": True, **extra}
     if block:
@@ -402,7 +402,8 @@ def _needs_slow_path(message: str, reply: dict[str, Any] | None, state, claims: 
 
 def _remember(state, message: str, reply: dict[str, Any] | None) -> None:
     """The last general question this chat asked (masked, short): context for a follow-up's rewrite."""
-    if reply is None or str(reply.get("intent")) in ("UNKNOWN_TERM", "ACK", "FRUSTRATED", "GENERAL_HELP"):
+    if reply is None or str(reply.get("intent")) in ("UNKNOWN_TERM", "ACK", "THANKS", "ACKNOWLEDGEMENT", "FRUSTRATED",
+                                                       "GENERAL_HELP"):
         return
     from app.agents.applicant.copilot.capabilities import workspace
     from app.security import sensitivity
@@ -437,8 +438,12 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
                       block=_asks(_suggestions(state, lang, 3)), case_id=case_id,
                       tts=_say("help", lang) + " " + _summary(claims, lang))
     if _only(text, "ack") and not _pending(state, claims, context):
-        return _reply(request_id, "ACK", _say("ack", lang, seed) + " " + _say("ack_next", lang),
-                      block=_asks(_suggestions(state, lang, 2)), case_id=case_id)
+        # the small-talk contract: THANKS / ACKNOWLEDGEMENT, a CONVERSATION answer that read nothing
+        # (config phrases.thanks names the thank-yous among the ack words)
+        kind = "THANKS" if _only(text, "thanks") else "ACKNOWLEDGEMENT"
+        return _reply(request_id, kind, _say("ack", lang, seed) + " " + _say("ack_next", lang),
+                      block=_asks(_suggestions(state, lang, 2)), case_id=case_id, category="CONVERSATION",
+                      answer_basis={"composition": {"called": False}, "source": "SMALL_TALK"})
     if _has(text, "role"):
         role = str(claims.get("role") or " ".join(claims.get("roles") or []) or "--")
         return _reply(request_id, "LOGIN_ROLE", _say("role", lang, user=get_subject(claims), role=role),
@@ -463,7 +468,8 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
             md, spoken = _process(topic, state, lang)
             return _reply(request_id, "PROCESS_ANSWER", md, case_id=case_id, tts=spoken,
                           query_type="PROCESS_KNOWLEDGE")
-    if _has(text, "product_documents") and _has(text, "co_applicant") and not _product_of(text):
+    if _has(text, "product_documents") and _has(text, "co_applicant") and not _product_of(text)             and not _has(text, "case_document_state"):
+        # "which documents of the co-applicant are PENDING" asks about the case's co-applicant, not the product list
         md, spoken = _coapp_table(lang)
         return _reply(request_id, "PRODUCT_CHECKLIST", md, case_id=case_id, tts=spoken, query_type="PROCESS_KNOWLEDGE")
     # "which documents are accepted as ADDRESS PROOF" asks about one document: the knowledge path answers it
@@ -510,6 +516,11 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
     accepted = _english_shape(text).startswith("which documents are accepted")
     if accepted:
         return await _knowledge(_english_shape(text), request_id, lang, None)
+    # "is signature mandatory" / "do i need bank statement" / "aadhaar instead of pan": the product checklist answers
+    # (config general_question.requirement_shapes / substitute_shapes), case open or not -- never a glossary passage
+    rule = _requirement_answer(text, lang)
+    if rule is not None:
+        return _reply(request_id, "DOCUMENT_REQUIREMENT", rule, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
     in_case = case_id or case_in_scope
     terms = (os.getenv("COPILOT_TERMS_KNOWLEDGE") or "").strip().lower()
     if in_case and terms in {"0", "false", "no", "off"}:
@@ -525,6 +536,91 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         # (unless MEANING said general knowledge: then a miss is "not in the knowledge base", never a case answer)
         return await _knowledge(text, request_id, lang, None if meaning_kind == "knowledge" else case_id)
     return None
+
+
+def _document_slots(text: str) -> list[tuple[int, str]]:
+    """(position, slot) for every configured document the message names, by its readable name or an accepted type."""
+    from app.agents.applicant import config
+
+    said = " " + _plain(text) + " "
+    names: dict[str, str] = {}
+    entries = [e for product in config.products() or [] for e in config.checklist_for(product) or []]
+    for e in entries + list(config.co_applicant_documents() or []):
+        names[_plain(_readable(e.get("slot")))] = str(e.get("slot"))
+        for a in e.get("accepts") or []:
+            names.setdefault(_plain(_readable(a)), str(a))
+    for alias, slot in ((cfg().get("general_question") or {}).get("document_aliases") or {}).items():
+        names[_plain(alias)] = str(slot)
+    found = []
+    for name, slot in sorted(names.items(), key=lambda kv: -len(kv[0])):
+        at = said.find(" " + name + " ") if name else -1
+        if at >= 0 and not any(s == slot for _, s in found):
+            found.append((at, slot))
+            said = said[:at] + " " + "#" * len(name) + said[at + len(name) + 1:]   # "pan" never again inside "pan card"
+    return sorted(found)
+
+
+def _requirement_answer(text: str, lang: str) -> str | None:
+    """'Is X mandatory?' -> required / optional per configured product; 'X instead of Y?' -> what Y's slot accepts."""
+    from app.agents.applicant import config
+
+    spec = cfg().get("general_question") or {}
+    plain = _plain(text)
+    slots = _document_slots(text)
+    if not slots:
+        return None
+    products = [p for p in config.products() or [] if str(p).lower() != "default"]
+    texts = cfg().get("texts") or {}
+    if len(slots) >= 2 and any(re.search(p, plain) for p in spec.get("substitute_shapes") or []):
+        offered, wanted = slots[0][1], slots[1][1]
+        if any(re.search(p, plain) for p in spec.get("substitute_shapes_reversed") or []):
+            offered, wanted = wanted, offered            # "aadhaar ki jagah voter id": voter id is the one offered
+        entries = [e for product in products for e in config.checklist_for(product) or []]
+        for e in entries + list(config.co_applicant_documents() or []):
+            accepts = [str(a) for a in e.get("accepts") or []]
+            if wanted in accepts or str(e.get("slot")) == wanted:
+                key = "substitute_yes" if offered in accepts else "substitute_no"
+                return product_flow_say(texts.get(key), lang, document=_readable(offered),
+                                        slot=_readable(e.get("slot")),
+                                        accepted=", ".join(_readable(a) for a in accepts))
+        return None
+    if len(slots) != 1 or not any(re.search(p, plain) for p in spec.get("requirement_shapes") or []):
+        return None
+    if any(re.search(p, plain) for p in spec.get("requirement_not_shapes") or []):
+        return None
+    slot = slots[0][1]
+    coapp = list(config.co_applicant_documents() or [])
+    required, optional = [], []
+    for product in products:
+        for e in config.checklist_for(product) or []:
+            if slot == str(e.get("slot")) or slot in [str(a) for a in e.get("accepts") or []]:
+                (required if e.get("mandatory", True) else optional).append(_readable(product))
+                break
+    if not required and not optional:
+        # an ACCEPTED TYPE, not a slot ("is aadhaar mandatory"): never mandatory by itself, one option for a slot
+        options = sorted({_readable(e.get("slot")) + (" (co-applicant)" if e in coapp else "")
+                          for e in [x for p in products for x in config.checklist_for(p) or []] + coapp
+                          if slot in [str(a) for a in e.get("accepts") or []]})
+        if options:
+            return product_flow_say(texts.get("requirement_accepted"), lang, document=_readable(slot),
+                                    slots=", ".join(options))
+        return product_flow_say(texts.get("requirement_none"), lang, document=_readable(slot))
+    if required and not optional and len(required) == len(products):
+        return product_flow_say(texts.get("requirement_all"), lang, document=_readable(slot))
+    parts = []
+    if required:
+        parts.append(product_flow_say(texts.get("requirement_some"), lang, document=_readable(slot),
+                                      products=", ".join(required)))
+    if optional:
+        parts.append(product_flow_say(texts.get("requirement_optional"), lang, document=_readable(slot),
+                                      products=", ".join(optional)))
+    return " ".join(parts)
+
+
+def product_flow_say(value: Any, lang: str, **values: Any) -> str:
+    from app.agents.applicant.copilot.capabilities import product_flow
+
+    return product_flow.say(value, lang, 0, **values)
 
 
 def _case_question_not_definition(text: str, meaning_kind: str | None) -> bool:
@@ -569,6 +665,12 @@ def _general_question(text: str) -> bool:
     said = _plain(text)
     if not said or any(re.search(p, said) for p in spec.get("case_only") or []):
         return False
+    # a GENERAL topic named outright ("another lender ... take over his loan" = balance transfer) wins over a referent
+    # word ("his"): config general_question.general_override_shapes
+    if any(re.search(p, said) for p in spec.get("general_override_shapes") or []):
+        from app.agents.applicant.copilot.capabilities import workspace
+
+        return not any(pattern.search(text) for pattern in workspace._ID.values())
     # the English question words are dropped first: "what IS LOAN against property" is not Hindi "is loan" (this loan)
     rest = " " + re.sub(r"^(what|whats|what s|how|why|where|which) (is|are|s)\b", "", said).strip() + " "
     # a referent is matched as a word PREFIX: "my case" also covers "my cases"

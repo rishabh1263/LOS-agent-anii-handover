@@ -1,0 +1,29 @@
+CASE-94277ACD085D
+KYC (Know Your Customer) needs attention:
+• **Name** mismatch: **Bank Statement** shows "ROHIT VERMA", PAN (Permanent Account Number) shows "RISHABH SINGH"
+Other checks: Date of birth matches · PAN number matches · Father's name not found on the documents
+Please upload the correct documents:
+- Bank Statement
+- PAN
+Still pending:
+- Signature
+
+**Next step:** Clear these to move the case to CPA.
+
+[Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)
+
+- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)
+- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)
+
+[Close](action:exit_case)
+
+----- new case
+CASE-B6E13A820D85 · Amit Rao · FOS
+PAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Amit Rao's KYC (Know Your Customer) hasn't run yet.
+Next step: Upload the PAN.
+
+[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)
+
+[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Address Proof](action:upload?doc=ADDRESS_PROOF&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)
+
+[Close](action:exit_case)

@@ -243,6 +243,13 @@ export function ChatPanel({ api }: ChatPanelProps) {
                         quickActions={quickActions}
                         onQuickAction={(label) => void sendMessage(label)}
                         status={status}
+                        links={{
+                          token: api.accessToken,
+                          chatId: api.activeId ?? undefined,
+                          onReply: api.appendAssistant,
+                          onUpload: api.uploadForAction,
+                          onOpenUi: (route) => window.location.assign(route),
+                        }}
                       />
                     </div>
 

@@ -8,3 +8,10 @@
 {"at": "2026-10-09T05:41:01+00:00", "original": "Priya Verma", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 2641.8}
 {"at": "2026-10-09T07:16:30+00:00", "original": "Rahul Sharma ka case kholo", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1515.8}
 {"at": "2026-10-09T07:16:41+00:00", "original": "Priya Verma", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1522.9}
+{"at": "2026-10-09T11:52:18+00:00", "original": "what is API", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1486.9}
+{"at": "2026-10-09T11:52:28+00:00", "original": "what is the api name", "rewrite": "What is the API name?", "result": "UNKNOWN_TERM", "status": "REWRITTEN", "ms": 1186.9}
+{"at": "2026-10-09T12:02:46+00:00", "original": "export all customers to excel with aadhaar", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1564.4}
+{"at": "2026-10-09T12:03:42+00:00", "original": "can i upload aadhaar instead of pan", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1511.1}
+{"at": "2026-10-09T12:08:22+00:00", "original": "can i upload aadhaar instead of pan", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1529.2}
+{"at": "2026-10-09T12:56:21+00:00", "original": "w h a t   i s   t h e   a p i", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1512.9}
+{"at": "2026-10-09T12:56:45+00:00", "original": "what is the capital of france", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1517.9}

@@ -43,7 +43,10 @@ def extra_links(md: str) -> int:
             continue
         if re.search(r"\]\(ask:(Yes|No|Pending|Done)\)", ln) or "confirm_write" in ln:
             continue                                    # the flow question's answer options
-        items += 1 if ln.startswith("Download:") else len(found) - (1 if "show_in_ui" in ln and ln.startswith("Download:") else 0)
+        found = [t for t in found if not t.startswith("action:upload")]   # Upload buttons: outside the budget
+        if not found:
+            continue                                    # (owner 2026-10-09, link_policy.pending_uploads_on)
+        items += 1 if ln.startswith("Download:") else len(found)
     return items
 
 
@@ -160,9 +163,10 @@ def test_case_open_is_three_lines_and_at_most_two_links(client, prod):
     md = say(client, f"open {case_id}", chat="o1")["markdown"]
     body = [ln for ln in md.split("\n\n")[0].split("\n") if ln.strip()]
     assert len(body) <= 3 and body[-1].startswith("Next step:")
-    # owner 2026-10-08: plus ONE upload (the next step's document) and the always-there Close
+    # owner 2026-10-09: an Upload button for EVERY pending document (outside the link budget) + the Close
     links = LINK.findall(md)
-    assert "action:exit_case" in links and len([t for t in links if t.startswith("action:upload")]) == 1
+    uploads = [t for t in links if t.startswith("action:upload")]
+    assert "action:exit_case" in links and uploads and len(uploads) == len(set(uploads))
     assert len([t for t in links if not t.startswith(("action:upload", "action:exit_case"))]) <= 2
     assert "switch_case" not in md and "action:download" not in md
 
@@ -273,7 +277,8 @@ def test_the_owner_transcript(client, prod):
     asked = say(client, "Application status", chat="owner-2", new_chat=True)["markdown"]
     assert asked.startswith("Which case is this about?")
     answered = say(client, "1", chat="owner-2")["markdown"]
-    assert "Which case" not in answered and "Signature" in answered.replace("1 more", "Signature")
+    # "and N more" folds the tail (SIGNATURE mandatory for every product since 2026-10-09: 2 more)
+    assert "Which case" not in answered and "Signature" in re.sub(r"\b\d+ more\b", "Signature", answered)
     abuse = say(client, "madarchod what is my kyc status", chat="owner-2")
     assert "**m*******d**" in abuse["markdown"] and "madarchod" not in abuse["tts"] and "KYC" not in abuse["markdown"]
     kyc = say(client, "KYC status", chat="owner-2")["markdown"]

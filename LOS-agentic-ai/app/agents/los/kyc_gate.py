@@ -127,6 +127,11 @@ def evaluate(case_id: str, repository: Any = None) -> dict[str, Any]:
     parties = []
     for party_id, role in _parties(case_id, repository).items():
         finding = latest.get(party_id)
+        if finding is None and role == "PRIMARY_APPLICANT":
+            # A CASE-LEVEL KYC RESULT (recorded with no party_id, 2026-10-09: "is my case ready" said "KYC has not
+            # run" beside a KYC table of mismatches) is the primary applicant's -- its own recorded checks, nothing
+            # assumed; a party-specific result always wins
+            finding = latest.get("")
         payload = dict(getattr(finding, "payload", None) or {}) if finding is not None else {}
         if finding is None:
             checks = [{"check": c, "label": _LABEL.get(c, c.lower()), "status": NOT_READY,

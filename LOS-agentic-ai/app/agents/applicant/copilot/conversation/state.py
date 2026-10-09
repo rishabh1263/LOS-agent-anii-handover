@@ -1353,6 +1353,20 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
         # THE DOCUMENT THE CONVERSATION IS ABOUT: "kyun fail hua?" / "why did
         # it fail?" / "iska score?" right after a PAN answer are about that
         # PAN -- for the party the conversation is on.
+        several = [d for d in dict.fromkeys(state.last_documents or []) if d]
+        if len(several) > 1 and not _SELF_WORDS.search(text):
+            from app.agents.applicant.copilot.semantics import semantic_frame as _pframes
+            from app.agents.applicant.copilot.conversation.followup import _display as _pdisplay
+
+            if not _pframes._document_type(text) \
+                    and re.search(r"\b(that|it|this|iska|uska|ye|yeh)\b", text, re.I) \
+                    and re.search(r"\b(pending|missing|baaki|baki|rejected|reject\w*|fail\w*)\b", text, re.I):
+                # "why is that pending?" after an answer about TWO documents: which one is never guessed --
+                # asked, naming both (the first document named is not necessarily the pending one)
+                names = [_pdisplay(d) for d in several[:3]]
+                return Reading(ASKED, text, reply=f"Which one do you mean: the {' or the '.join(names)}?",
+                               options=[f"Why is the {n} pending?" for n in names],
+                               note="a pointer at one of several documents")
         if state.last_document and last_intent in ("DOCUMENT_VERIFICATION", "DOCUMENTS_UPLOADED",
                                                    "DOCUMENT_DETAILS") and not _SELF_WORDS.search(text):
             from app.agents.applicant.copilot.semantics import semantic_frame as _dframes

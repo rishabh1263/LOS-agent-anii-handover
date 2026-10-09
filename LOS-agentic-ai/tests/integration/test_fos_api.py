@@ -195,7 +195,8 @@ def test_the_checklist_is_initialised_from_the_product(client):
 def test_optional_slots_appear_but_are_not_required(client):
     body = client.post("/api/v1/fos/applicants", json={
         "applicant": {"full_name": "Optional Test"},
-        "application": {"product": "PERSONAL_LOAN"},
+        # HOME_LOAN: Personal Loan has no optional slot since SIGNATURE became mandatory (owner 2026-10-09)
+        "application": {"product": "HOME_LOAN"},
     }).json()
 
     optional = [e for e in body["checklist"] if not e["mandatory"]]
@@ -312,7 +313,8 @@ def test_a_missing_document_is_pending_and_blocks_readiness(client, case, _store
 
 def test_readiness_flips_when_everything_is_satisfied(client, case, _store):
     applicant_id, case_id = case
-    for doc_type in ("PAN", "BANK_STATEMENT", "DRIVING_LICENCE"):
+    # SIGNATURE is mandatory for every product (owner 2026-10-09)
+    for doc_type in ("PAN", "BANK_STATEMENT", "DRIVING_LICENCE", "SIGNATURE"):
         verify(_store, case_id, applicant_id, doc_type, "PASS")
 
     body = ask(client, applicant_id, case_id, "CHECK_CPA_READINESS").json()
@@ -322,10 +324,10 @@ def test_readiness_flips_when_everything_is_satisfied(client, case, _store):
 
 def test_an_optional_document_never_blocks(client, case, _store):
     applicant_id, case_id = case
-    for doc_type in ("PAN", "BANK_STATEMENT", "PASSPORT"):
+    for doc_type in ("PAN", "BANK_STATEMENT", "PASSPORT", "SIGNATURE"):
         verify(_store, case_id, applicant_id, doc_type, "PASS")
 
-    # SALARY_SLIP and PHOTO are configured optional and are absent.
+    # SALARY_SLIP is configured optional and is absent (SIGNATURE mandatory since 2026-10-09).
     body = ask(client, applicant_id, case_id, "CHECK_CPA_READINESS").json()
     assert body["readiness"]["status"] == "READY_FOR_CPA"
 

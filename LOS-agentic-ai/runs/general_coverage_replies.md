@@ -31,13 +31,13 @@ This chatbot does not fetch CIBIL (TransUnion CIBIL (formerly Credit Information
 
 KYC (Know Your Customer): the check that the applicant is who the documents say they are.
 
-### what is OVD  (terms, expect unknown, got answer)
+### what is OVD  (terms, expect unknown, got unknown)
 
-Deemed OVD: A document accepted for address only, for a limited time, when the OVD does not show the current address: for example a utility bill not older than two months or a property tax receipt. Owner review: the borrower must later submit an OVD with the current address.
+OVD is not in the knowledge base yet. I've noted it for the team.
 
 ### what is CKYC  (terms, expect answer, got answer)
 
-CKYC (Central KYC (Know Your Customer)): India's central registry of KYC records (CKYCR), run by CERSAI; a customer's KYC is stored once and reused by regulated lenders through a KYC identifier. Example: a lender fetches a customer's record from CKYCR.
+CKYC is the Central KYC (Know Your Customer) Records Registry.
 
 ### what is video KYC  (terms, expect answer, got answer)
 
@@ -69,9 +69,7 @@ Sanction letter: The written approval of a loan: amount, interest rate, tenure, 
 
 ### what is disbursement  (terms, expect answer, got answer)
 
-Disbursement is the release of the loan money, to the borrower, or for a home loan usually to the seller or
-builder. It happens after sanction and after the loan documents are signed. In this system DISBURSEMENT is the
-last stage: FOS (Field Officer Sales), CPA, CREDIT, RCU, BOPS, HOPS, then DISBURSEMENT.
+Disbursement is the release of the loan money, to the borrower, or for a home loan usually to the seller or builder. It happens after sanction and after the loan documents are signed. In this system DISBURSEMENT is the last stage: FOS (Field Officer Sales), CPA, CREDIT, RCU, BOPS, HOPS, then DISBURSEMENT.
 
 ### what is tenure  (terms, expect answer, got answer)
 
@@ -85,8 +83,7 @@ system; it is stated in the sanction letter.
 
 ### what is foreclosure  (terms, expect answer, got answer)
 
-Foreclosure (or pre-closure) is repaying the whole outstanding loan early and closing it. Any foreclosure
-charge depends on the loan's terms in the sanction letter; it is not configured in this system.
+Foreclosure (or pre-closure) is repaying the whole outstanding loan early and closing it. Any foreclosure charge depends on the loan's terms in the sanction letter; it is not configured in this system.
 
 ### what is prepayment  (terms, expect answer, got answer)
 
@@ -96,9 +93,9 @@ Part prepayment: A prepayment of only part of the outstanding principal; the loa
 
 A prepayment (or part payment) is paying back part of the loan principal before it is due. It reduces the outstanding amount, so either the EMI (Equated Monthly Instalment) or the remaining tenure comes down.
 
-### what is balance transfer  (terms, expect answer, got wrong_content (missing another lender))
+### what is balance transfer  (terms, expect answer, got answer)
 
-Balance transfer: Moving an existing loan from one lender to another, usually for a lower interest rate or better terms; the new lender pays off the old loan. Example: transferring a home loan to a lender offering a lower rate.
+Balance transfer: Moving an existing loan to another lender, usually for a lower interest rate or better terms; the new lender pays off the old loan. Example: transferring a home loan to a lender offering a lower rate.
 
 ### what is top up loan  (terms, expect answer, got answer)
 
@@ -123,8 +120,7 @@ PD (Personal Discussion): An interview of the customer by the lender to understa
 
 ### what is legal verification  (terms, expect answer, got answer)
 
-Legal verification is a lawyer's check of a property's title documents, to confirm the seller or owner has a
-clear title and that the property can be taken as security.
+Legal verification is a lawyer's check of a property's title documents, to confirm the seller or owner has a clear title and that the property can be taken as security.
 
 ### what is technical valuation  (terms, expect answer, got answer)
 
@@ -132,7 +128,7 @@ Technical valuation is an inspection of the property by an engineer or valuer, w
 
 ### what is CERSAI  (terms, expect answer, got answer)
 
-CERSAI: Central Registry of Securitisation Asset Reconstruction and Security Interest of India: where lenders register charges on assets given as security, so the same asset cannot be secretly pledged twice. It also hosts the Central KYC (Know Your Customer) registry. Example: a home loan's mortgage registered with CERSAI.
+CERSAI (Central Registry of Securitisation Asset Reconstruction and Security Interest of India) is the registry where a lender records its charge on a property given as security, so the same property cannot be pledged to two lenders without it showing. It also holds the Central KYC (Know Your Customer) records.
 
 ### what is ITR  (terms, expect answer, got answer)
 
@@ -140,8 +136,7 @@ ITR (Income Tax Return): the yearly income statement filed with the tax departme
 
 ### what is form 16  (terms, expect answer, got answer)
 
-Form 16 is the certificate an employer gives each employee every year, showing the salary paid and the tax
-(TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or an ITR (Income Tax Return).
+Form 16 is the certificate an employer gives each employee every year, showing the salary paid and the tax (TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or an ITR (Income Tax Return).
 
 ### what is net salary  (terms, expect answer, got answer)
 
@@ -273,7 +268,7 @@ Documents for Personal Loan:
 | PAN (Permanent Account Number) | Required | PAN |
 | Address Proof | Required | Driving Licence, Passport, Voter ID |
 | Bank Statement | Required | Bank Statement |
-| Signature | Optional | Signature |
+| Signature | Required | Signature |
 
 Every co-applicant:
 
@@ -294,10 +289,10 @@ Documents for Home Loan:
 | PAN (Permanent Account Number) | Required | PAN |
 | Bank Statement | Required | Bank Statement |
 | Address Proof | Required | Driving Licence, Passport, Voter ID |
+| Signature | Required | Signature |
 | ITR (Income Tax Return) | Optional | ITR |
 | Salary Slip | Optional | Salary Slip |
 | Employment Proof | Optional | Employment Proof |
-| Signature | Optional | Signature |
 
 Every co-applicant:
 
@@ -315,8 +310,7 @@ Driving Licence, Passport or Voter ID can satisfy the Address Proof requirement.
 
 ### is aadhaar mandatory  (documents, expect answer, got answer)
 
-Offline Aadhaar verification: Verifying identity from a digitally signed Aadhaar XML or QR code without sharing the full Aadhaar number.
-Example: the customer shares the Aadhaar XML file.
+Aadhaar is not mandatory by itself. It is one accepted option for: Address Proof (co-applicant).
 
 ### can I use electricity bill as address proof  (documents, expect answer, got answer)
 
@@ -373,13 +367,13 @@ A photographed document has to be rasterised and read before anything else can h
 ### how to move case to CPA  (process, expect answer, got answer)
 
 1. Fill the application form: Applicant name, Mobile, Date of birth, Address, Product, Loan amount (Rs).
-2. Upload the mandatory documents for the product (for Personal Loan: PAN (Permanent Account Number), Address Proof, Bank Statement).
+2. Upload the mandatory documents for the product (for Personal Loan: PAN (Permanent Account Number), Address Proof, Bank Statement, Signature).
 3. Wait for verification; a **rejected** document must be uploaded again.
 4. When every FOS (Field Officer Sales) check passes (Application details, Applicant documents, Co-applicant documents, Signature), open the case and tap Move to CPA, then Confirm.
 
-### what happens after CPA  (process, expect answer, got wrong_content (missing Credit, RCU))
+### what happens after CPA  (process, expect answer, got answer)
 
-CPA: The stage after FOS (Field Officer Sales) in this system, where the completed file is processed further. Example: a case moves from FOS to CPA when every FOS check passes.
+After CPA the file goes to the Credit stage, which assesses the case and makes the credit decision, then RCU checks the file for risk, then BOPS and HOPS, and finally the loan is disbursed. At CPA itself the completed file is processed further and handed on.
 
 ### what are the stages of a loan  (process, expect answer, got answer)
 
@@ -395,9 +389,7 @@ KYC (Know Your Customer) is checked for every party (the applicant and each co-a
 
 ### KYC fail ho gaya to kya kare  (process, expect answer, got answer)
 
-A **failed** KYC (Know Your Customer) means the documents do not match the application form, or do not match each other. Open the case to
-see which detail did not match, then ask the customer to upload correct documents that match the application form.
-KYC runs again on the new documents. A case with a failed KYC is not **ready for CPA**.
+KYC (Know Your Customer) is checked for every party (the applicant and each co-applicant) in two ways: A, the application form against the documents (name, date of birth, PAN (Permanent Account Number), address match what was declared), and B, the documents against each other (the same person on every document). KYC runs once the identity documents are uploaded; a **failed** KYC must be fixed before the case can move to CPA.
 
 ### how to add a co-applicant  (process, expect answer, got answer)
 
@@ -452,8 +444,8 @@ You have 2 cases: 2 with documents **pending**.
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-03E0D6A48E9C | Priya V. (APP-ACEF0E9C88A6) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-03E0D6A48E9C) |
-| 2 | CASE-EA2C64C2FA7B | Rahul S. (APP-49149935DC94) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-EA2C64C2FA7B) |
+| 1 | CASE-1E6CDF8C7C27 | Priya V. (APP-5BB27AF95567) | FOS (Field Officer Sales) | Created · 5 docs pending | [Open](action:open_case?id=CASE-1E6CDF8C7C27) |
+| 2 | CASE-83062A9CBFCD | Rahul S. (APP-CF3EB8F50D0D) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-83062A9CBFCD) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.
@@ -469,8 +461,8 @@ Download: [Excel](action:download_list?format=xlsx&q=all) · [Doc](action:downlo
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-03E0D6A48E9C | Priya V. (APP-ACEF0E9C88A6) | FOS (Field Officer Sales) | Created · 4 docs **pending** | [Open](action:open_case?id=CASE-03E0D6A48E9C) |
-| 2 | CASE-EA2C64C2FA7B | Rahul S. (APP-49149935DC94) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-EA2C64C2FA7B) |
+| 1 | CASE-1E6CDF8C7C27 | Priya V. (APP-5BB27AF95567) | FOS (Field Officer Sales) | Created · 5 docs **pending** | [Open](action:open_case?id=CASE-1E6CDF8C7C27) |
+| 2 | CASE-83062A9CBFCD | Rahul S. (APP-CF3EB8F50D0D) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-83062A9CBFCD) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.
@@ -545,9 +537,9 @@ Tenure is the repayment period of the loan, in months or years. A longer tenure 
 
 Driving Licence, Passport or Voter ID can satisfy the Address Proof requirement.
 
-### document reject ho gaya to kya kare  (hinglish, expect answer, got unknown)
+### document reject ho gaya to kya kare  (hinglish, expect answer, got answer)
 
-That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team.
+The new upload replaces the **rejected** one for that slot; it is **verified** again, and the case moves forward once it passes. The reason the document was rejected is shown in the case, so fix that first (wrong document type, unreadable, cropped, details not matching the form).
 
 ### naya case kaise banaye  (hinglish, expect answer, got answer)
 
@@ -591,7 +583,7 @@ These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lendi
 
 ### pan card mandatory hai kya  (held_out_2, expect answer, got answer)
 
-Mandatory, for every home loan: PAN (Permanent Account Number), Bank Statement and Address Proof. - PAN - satisfied by a PAN card
+Yes, PAN (Permanent Account Number) is mandatory for every loan product.
 
 ### what is the difference between net and gross salary  (held_out_2, expect answer, got answer)
 
@@ -631,8 +623,7 @@ What is ITR (Income Tax Return)**
 ITR (Income Tax Return): the yearly income statement filed with the tax department.
 
 What is Form 16
-Form 16 is the certificate an employer gives each employee every year, showing the salary paid and the tax
-(TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or an ITR.
+Form 16 is the certificate an employer gives each employee every year, showing the salary paid and the tax (TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or an ITR.
 
 ### what is NACH and CERSAI  (classes_2, expect answer, got answer)
 
@@ -640,15 +631,15 @@ What is NACH
 e-NACH: A NACH mandate registered digitally, through net banking, debit card or Aadhaar. Example: e-NACH set up during onboarding.
 
 What is CERSAI
-CERSAI: Central Registry of Securitisation Asset Reconstruction and Security Interest of India: where lenders register charges on assets given as security, so the same asset cannot be secretly pledged twice. It also hosts the Central KYC (Know Your Customer) registry. Example: a home loan's mortgage registered with CERSAI.
+CERSAI (Central Registry of Securitisation Asset Reconstruction and Security Interest of India) is the registry where a lender records its charge on a property given as security, so the same property cannot be pledged to two lenders without it showing. It also holds the Central KYC (Know Your Customer) records.
 
-### explain top up loan and balance transfer  (classes_2, expect answer, got wrong_content (missing another lender))
+### explain top up loan and balance transfer  (classes_2, expect answer, got answer)
 
 Explain top up loan
 Top-up loan: An additional loan given on top of an existing loan, usually to a borrower with a good repayment record. Example: a top-up on a home loan for renovation.
 
 Explain balance transfer
-Balance transfer: Moving an existing loan from one lender to another, usually for a lower interest rate or better terms; the new lender pays off the old loan. Example: transferring a home loan to a lender offering a lower rate.
+Balance transfer: Moving an existing loan to another lender, usually for a lower interest rate or better terms; the new lender pays off the old loan. Example: transferring a home loan to a lender offering a lower rate.
 
 ### how much is the foreclosure charge  (classes_2, expect not_configured, got not_configured)
 
@@ -678,19 +669,9 @@ Indicative only: the system's eligibility check uses the **verified** figures.
 
 No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter.
 
-### my customer says another lender gives a better rate, can we take over his loan  (classes_2, expect answer, got case)
+### my customer says another lender gives a better rate, can we take over his loan  (classes_2, expect answer, got answer)
 
-Which case is this about? Pick one and I'll answer "my customer says another lender gives a better rate, can we take over his loan" for it.
-
-You have 2 cases: 2 with documents **pending**.
-
-| # | Case | Applicant | Stage | Status | |
-|---|---|---|---|---|---|
-| 1 | CASE-03E0D6A48E9C | Priya V. (APP-ACEF0E9C88A6) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-03E0D6A48E9C) |
-| 2 | CASE-EA2C64C2FA7B | Rahul S. (APP-49149935DC94) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-EA2C64C2FA7B) |
-
-Showing 1-2 of 2 (newest first).
-That is the whole list.
+Balance transfer: Moving an existing loan to another lender, usually for a lower interest rate or better terms; the new lender pays off the old loan. Example: transferring a home loan to a lender offering a lower rate.
 
 ### loan amount and tenure for personal loan  (multi_value, expect answer, got answer)
 
@@ -716,8 +697,8 @@ You have 2 cases: 2 with documents **pending**.
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-03E0D6A48E9C | Priya V. (APP-ACEF0E9C88A6) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-03E0D6A48E9C) |
-| 2 | CASE-EA2C64C2FA7B | Rahul S. (APP-49149935DC94) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-EA2C64C2FA7B) |
+| 1 | CASE-1E6CDF8C7C27 | Priya V. (APP-5BB27AF95567) | FOS (Field Officer Sales) | Created · 5 docs pending | [Open](action:open_case?id=CASE-1E6CDF8C7C27) |
+| 2 | CASE-83062A9CBFCD | Rahul S. (APP-CF3EB8F50D0D) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-83062A9CBFCD) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.
@@ -730,8 +711,8 @@ You have 2 cases: 2 with documents pending.
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-03E0D6A48E9C | Priya V. (APP-ACEF0E9C88A6) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-03E0D6A48E9C) |
-| 2 | CASE-EA2C64C2FA7B | Rahul S. (APP-49149935DC94) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-EA2C64C2FA7B) |
+| 1 | CASE-1E6CDF8C7C27 | Priya V. (APP-5BB27AF95567) | FOS (Field Officer Sales) | Created · 5 docs pending | [Open](action:open_case?id=CASE-1E6CDF8C7C27) |
+| 2 | CASE-83062A9CBFCD | Rahul S. (APP-CF3EB8F50D0D) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-83062A9CBFCD) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.
@@ -744,8 +725,8 @@ You have 2 cases: 2 with documents **pending**.
 
 | # | Case | Applicant | Stage | Status | |
 |---|---|---|---|---|---|
-| 1 | CASE-03E0D6A48E9C | Priya V. (APP-ACEF0E9C88A6) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-03E0D6A48E9C) |
-| 2 | CASE-EA2C64C2FA7B | Rahul S. (APP-49149935DC94) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-EA2C64C2FA7B) |
+| 1 | CASE-1E6CDF8C7C27 | Priya V. (APP-5BB27AF95567) | FOS (Field Officer Sales) | Created · 5 docs pending | [Open](action:open_case?id=CASE-1E6CDF8C7C27) |
+| 2 | CASE-83062A9CBFCD | Rahul S. (APP-CF3EB8F50D0D) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-83062A9CBFCD) |
 
 Showing 1-2 of 2 (newest first).
 That is the whole list.
