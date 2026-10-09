@@ -190,7 +190,7 @@ general_question:
                    this loan, is loan, iska, iski, iske, uska, uski, uske, inka, unka, his, her, their, this file,
                    is applicant, this applicant, customer ka, applicant ka]
   # with a case in scope: a VALUE of that case, never a definition ("what is the CIBIL score" -> routed downstream)
-  case_value_patterns: ['\bthe (\w+ )?(score|amount|income|salary|emi|limit|tenure|rate|value|balance)\b']
+  case_value_patterns: ['\b(the|my|mera|meri|mere|his|her|their|this|iska|uska|customer s|applicant s) (\w+ )?(score|amount|income|salary|emi|limit|tenure|rate|value|balance)\b', '\b(score|amount|income|salary|emi) (kitna|kitni|kya) (hai|h)\b']
   # questions about a case's own data even without "this": the ordinary pipeline asks which case
   case_only: ['^(what is|whats) (pending|missing|the status|status|the stage|my status|left|baaki)\b',
               '\b(status|pending|baaki|baki) (kya|hai|batao)', '^(loan amount|kyc status|stage|status)\b',

@@ -98,6 +98,15 @@ def _check_outcome(check: str, payload: dict[str, Any]) -> dict[str, Any]:
                    reason="the documents disagree" if status == BLOCKED else "needs a reviewer's check")
     elif check in missing:
         out.update(reason="could not be checked from the uploaded documents")
+    else:
+        # NO SUMMARY for this check but the KYC record carries the FIELD results: a failed / under-review field is
+        # said as such ("KYC failed: the documents disagree"), never "no KYC result recorded". FAIL-CLOSED: a field
+        # result can only BLOCK or ask for review here -- a check never passes without the KYC agent's own summary.
+        field_status, values = _field_detail(payload, check)
+        if field_status == "FAIL":
+            out.update(status=BLOCKED, values=values, reason="the documents disagree")
+        elif field_status in ("REVIEW", "MISMATCH", "PARTIAL"):
+            out.update(status=REVIEW, values=values, reason="needs a reviewer's check")
     return out
 
 

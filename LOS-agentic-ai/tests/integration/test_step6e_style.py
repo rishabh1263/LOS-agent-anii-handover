@@ -18,10 +18,10 @@ SNAPSHOTS = [
     # (intent, answer in, styled answer out)
     ("APPLICATION_STATUS", "Your application LN1023 is in FOS stage. Waiting on 2 documents.",
      "📍 Your application LN1023 is in **FOS (Field Officer Sales)** stage. Waiting on 2 documents.\n\n"
-     "👉 Want to see which documents are **pending**?"),
+     "👉 Ask \"what is pending\" to see the documents."),
     ("APPLICATION_STATUS", "Aapka application LN1023 FOS stage mein hai. 2 documents baaki hain.",
      "📍 Aapka application LN1023 **FOS (Field Officer Sales)** stage mein hai. 2 documents baaki hain.\n\n"
-     "👉 Want to see which documents are **pending**?"),
+     "👉 Ask \"what is pending\" to see the documents."),
     ("DOCUMENTS_PENDING", "Still pending:\n- Bank Statement",
      "⏳ Still pending:\n- Bank Statement\n\n👉 Upload these to move the case to **CPA**."),
     ("KYC_RESULT", "KYC verification failed. Name: PAN shows \"Rahul Kumar Sharma\", DL shows \"Rahul Sharma\".",

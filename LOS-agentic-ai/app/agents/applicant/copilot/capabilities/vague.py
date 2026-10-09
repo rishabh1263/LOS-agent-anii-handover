@@ -51,8 +51,11 @@ def is_command(message: str, case_open: bool = False) -> bool:
     nouns = (case_list.cfg().get("phrases") or {}).get("case_nouns") or {}
     plural = {str(w).lower() for w in nouns.get("plural") or []}
     said = set(_words(text))
-    return bool(said & plural) or (not case_open and bool(said & {str(w).lower() for w in nouns.get("singular") or []})
-                                   and bool(wanted.filter or wanted.sort or wanted.size))
+    verbs = {str(w).lower() for w in (case_list.cfg().get("phrases") or {}).get("list_verbs") or []}
+    singular = {str(w).lower() for w in nouns.get("singular") or []}
+    if said & singular and not said & plural and not said & verbs and not wanted.size and not wanted.sort:
+        return False                       # "is my case ready?": ONE case -- a question, not the list
+    return bool(said & plural) or bool(said & verbs) or (not case_open and bool(wanted.filter or wanted.sort or wanted.size))
 
 
 _KNOWN: dict[str, Any] = {}

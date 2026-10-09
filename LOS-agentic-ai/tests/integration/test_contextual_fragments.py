@@ -38,7 +38,10 @@ def test_docs_after_pending_documents_answers_the_pending_list(client, prod, fak
     md = say(client, "docs", "frag-pend")
     assert ASKED not in md
     assert "pending" in md.lower() and "PAN" in md                 # the case's own pending documents, read again
-    assert first.split("\n")[0] == md.split("\n")[0]                # the same answer the question gave
+    def body(text):
+        return [ln for ln in text.split("\n") if ln.strip() and not ln.startswith("CASE-")]
+
+    assert body(first)[0] == body(md)[0]                           # the same answer (the case line shows on change)
 
 
 def test_docs_after_a_verification_question_answers_that_documents_status(client, prod, fake):

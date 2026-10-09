@@ -506,15 +506,19 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
     values = (cfg().get("general_question") or {}).get("case_value_patterns") or []
     if case_id and any(re.search(p, _plain(text)) for p in values):
         return None
-    if case_id and _case_question_not_definition(text, meaning_kind):
-        return None                      # "is any document still outstanding" -- that case's data, not the glossary
-    defined = await _definition(text, request_id, lang, case_id)
-    if defined is not None:
-        return defined
     # "address proof mein kya de sakte hai" = WHICH DOCUMENTS ARE ACCEPTED: the configured list, case open or not
     accepted = _english_shape(text).startswith("which documents are accepted")
     if accepted:
         return await _knowledge(_english_shape(text), request_id, lang, None)
+    in_case = case_id or case_in_scope
+    terms = (os.getenv("COPILOT_TERMS_KNOWLEDGE") or "").strip().lower()
+    if in_case and terms in {"0", "false", "no", "off"}:
+        return None                      # definitions with a case open are off (COPILOT_TERMS_KNOWLEDGE=false)
+    if in_case and _case_question_not_definition(text, meaning_kind):
+        return None                      # "is any document still outstanding" -- that case's data, not the glossary
+    defined = await _definition(text, request_id, lang, case_id)
+    if defined is not None:
+        return defined
     # understood as GENERAL KNOWLEDGE by meaning (semantics/meaning.py): the knowledge base answers it, case open or not
     if meaning_kind == "knowledge" or (_general_question(text) and not (case_id and _names_case_data(text))):
         # with a case OPEN, "is PAN mandatory?" / "documents required?" is about THAT case: the case logic answers

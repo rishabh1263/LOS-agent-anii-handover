@@ -38,14 +38,17 @@ def ask(client, applicant_id, message, case_id=None):
 def test_no_case_id_flag_off_is_unchanged(client):
     a, _ = open_case(client)
     r = ask(client, a, "status batao")
-    assert r.status_code == 200 and not r.json()["answer"].startswith("For application")
+    assert r.status_code == 200 and not r.json()["answer"].startswith(_ := "For application")
 
 
 def test_no_case_id_with_one_case_answers_for_it_and_names_it(client, monkeypatch):
     monkeypatch.setenv("COPILOT_SINGLE_CASE_RESOLVE", "true")
     a, c = open_case(client)
     body = ask(client, a, "status batao").json()
-    assert body["answer"].startswith(f"For application {c}:"), body["answer"]
+    from app.agents.applicant.copilot.answering import contract
+
+    prefix = str((contract.cfg().get("style") or {}).get("resolved_case_prefix") or "{case_id}: ").format(case_id=c)
+    assert body["answer"].startswith(prefix), body["answer"]           # the case is named (wording: config)
     assert body.get("case_resolved_from_applicant") is True and body.get("case_id") == c
 
 
@@ -72,7 +75,8 @@ def test_no_case_id_for_someone_elses_applicant_is_refused(client, monkeypatch, 
 
 
 # ---- quick win 3: lending-term definitions ----------------------------------------------
-def test_cibil_definition_flag_off_is_unchanged(client):
+def test_cibil_definition_flag_off_is_unchanged(client, monkeypatch):
+    monkeypatch.setenv("COPILOT_TERMS_KNOWLEDGE", "false")      # the flag this test is about, set explicitly
     a, c = open_case(client)
     body = ask(client, a, "CIBIL kya hai?", c).json()
     assert body["intent"] == "OUT_OF_SCOPE"
@@ -84,7 +88,8 @@ def test_a_lending_term_definition_is_answered_from_knowledge(client, monkeypatc
     monkeypatch.setenv("COPILOT_TERMS_KNOWLEDGE", "true")
     a, c = open_case(client)
     body = ask(client, a, question, c).json()
-    assert body["intent"] == "FOS_KNOWLEDGE", body
+    # the general layer (2026-10-08) answers a definition before the agent: DEFINITION, same content
+    assert body["intent"] in ("FOS_KNOWLEDGE", "DEFINITION"), body
     assert expect in body["answer"].lower(), body["answer"]
 
 
