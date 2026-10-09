@@ -243,6 +243,21 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
                 _co.fill_verified_names(case_id, repository)
         except Exception as exc:  # noqa: BLE001 - observational, like the case memory itself
             logger.warning("co-applicant verified-name fill failed for %s: %s", case_id, type(exc).__name__)
+        # THE APPLICANT TOO (owner 2026-10-09: "PAN and bank statement name match -> store that name"): an applicant
+        # with NO name gets the PAN spelling of a PASSED KYC name check -- the same rule as a co-applicant; a name the
+        # FOS typed is never overwritten here
+        try:
+            from app.agents.los import co_applicants as _co_name
+
+            applicant_now = repository.get_applicant(applicant_id)
+            if applicant_now is not None and not (applicant_now.full_name or "").strip():
+                verified = _co_name.verified_name(case_id, applicant_id, repository)
+                if verified:
+                    applicant_now.full_name = verified
+                    repository.save_applicant(applicant_now)
+                    logger.info("applicant name filled from a passed KYC name check for %s", case_id)
+        except Exception as exc:  # noqa: BLE001 - a convenience: the KYC result stands without it
+            logger.warning("applicant verified-name fill failed for %s: %s", case_id, type(exc).__name__)
 
     _queue_unread(repository, result, case_id, applicant_id)
 

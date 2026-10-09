@@ -30,7 +30,7 @@
 # ===========================================================================
 
 policy_id: PERSONAL_LOAN_FOS_DOCUMENTS
-policy_version: "0.1.1-DEMO"   # 0.1.1: optional PHOTO replaced by SIGNATURE (signature photo)
+policy_version: "0.1.2-DEMO"   # 0.1.2: SIGNATURE mandatory for every product (owner 2026-10-09); 0.1.1: PHOTO -> SIGNATURE
 product: PERSONAL_LOAN
 
 #: UNCONFIRMED until a lender signs the matrix off. Carried into every
@@ -66,13 +66,13 @@ base:
       reason: >-
         A bank statement evidences the applicant's banking relationship and
         is passed to the credit stage for assessment.
-  optional:
     - slot: SIGNATURE
       accepts: [SIGNATURE]
       reason: >-
-        A photo of the applicant's signature for the application record. It is
+        Mandatory for every product (owner 2026-10-09). A photo of the applicant's signature for the application record. It is
         checked by the signature service; without a reference specimen it is
         REVIEW, never PASS.
+  optional: []
 
 # ---------------------------------------------------------------------------
 # AMOUNT BANDS — PLACEHOLDER STRUCTURE

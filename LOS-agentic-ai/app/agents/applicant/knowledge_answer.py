@@ -88,11 +88,45 @@ class _Admissible:
         result = self._inner.retrieve(query, stage, limit=limit + 8, threshold=threshold)
         kept = [h for h in result.hits
                 if in_effect(h.chunk.metadata or {}) and applies(h.chunk.metadata or {}, self._wanted)]
+        kept = _definitions_last(kept, query)
         if kept == list(result.hits[:limit]) and len(result.hits) <= limit:
             return result
         top = kept[:limit]
         return replace(result, hits=top, confident=bool(result.confident and top
                                                         and top[0].score >= result.threshold))
+
+
+def _definitions_last(hits: list, query: str) -> list:
+    """
+    THE GLOSSARY ANSWERS DEFINITIONS (2026-10-09): its ~200 one-line entries flooded every other question ("what
+    happens after CPA" got the glossary's CPA line, not the handbook's steps). A passage from a definition source
+    (knowledge.yaml definition_sources) weighs definition_source_weight unless the question is definition-shaped
+    (definition_shapes) -- then it competes at full weight.
+    """
+    import re
+    from dataclasses import replace
+
+    from app.knowledge import _config as _knowledge_cfg
+
+    cfg = _knowledge_cfg()
+    said = " ".join(str(query or "").lower().split())
+
+    def plain(text: str) -> str:
+        return " ".join(re.sub(r"[^a-z0-9 ]", " ", str(text or "").lower()).split())
+
+    # A HANDBOOK HEADING THAT IS THE QUESTION ITSELF ("What happens after CPA?") is that question's answer: first
+    exact = [h for h in hits if plain(h.chunk.heading) == plain(query)]
+    if exact:
+        hits = exact + [h for h in hits if h not in exact]
+    sources = {str(s) for s in cfg.get("definition_sources") or []}
+    if not sources or not hits:
+        return hits
+    if any(re.search(p, said) for p in cfg.get("definition_shapes") or []):
+        return hits
+    weight = float(cfg.get("definition_source_weight") or 1.0)
+    weighed = [replace(h, score=round(h.score * weight, 4)) if h.chunk.source in sources else h for h in hits]
+    first = [h for h in weighed if plain(h.chunk.heading) == plain(query)]
+    return first + sorted([h for h in weighed if h not in first], key=lambda h: h.score, reverse=True)
 
 
 def _retrieve(question: str, *, limit: int = 3, wanted: str | None = None):

@@ -67,7 +67,9 @@ def test_case_questions_are_routed(client, opened, message, intent):
         assert body["intent"] == intent, (message, body["intent"], body["answer"])
     else:
         assert body["intent"] not in ("KYC_RESULT", "UNKNOWN"), body["answer"]
-    assert body["answer"].startswith(f"📍 {opened[1]}")
+    # answered for the OPENED case; the "📍 CASE-x" line is only shown when the case changes (config
+    # case_workspace.case_header: on_change, owner 2026-10-09), so the case is read from the envelope
+    assert body["case_id"] == opened[1], (message, body.get("case_id"))
 
 
 def test_a_passed_kyc_gets_no_fix_the_mismatch_step(client, opened, _store):

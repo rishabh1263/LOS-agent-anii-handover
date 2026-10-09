@@ -1757,3 +1757,77 @@ single-chat Hinglish conversation, real Qwen + nomic, production flags, in-proce
   COPILOT_TERMS_KNOWLEDGE=false with a case in scope; accepted-documents branch restored before the glossary gate.
 - Tests updated for intended wording changes (resolved-case prefix from config, style snapshots, case line on change,
   "did not pass" for a rejected document); the CIBIL flag-off test now sets the flag it tests.
+
+## 2026-10-09 (evening) -- KYC all fields, signature mandatory, guardrail system terms, speed, CPA readiness
+- KYC, every field (owner: "only name is showing"): the document action view lists every other KYC field with its
+  result ("Other checks: Date of birth matches · PAN number matches · Father's name not found on the documents"),
+  config chatbot.document_actions.kyc_all_fields (answering/document_actions.py build + render).
+- SIGNATURE mandatory for every product (applicant_agent.yaml documents, policies/personal_loan.yaml 0.1.2-DEMO).
+- Applicant name filled from a PASSED KYC name check when the applicant has none (store/ingest.py:_persist); a typed
+  name is never overwritten.
+- "which documents of the co-applicant are pending" -> the case's state, not the product checklist (general._fast).
+- A request naming a party (co_applicant_id / party_id) goes through the party authorization first: no meaning
+  rewrite, no vague follow-up before it (fos_api._understood, _copilot_json).
+- GUARDRAIL (owner: "what is api" answered with a world-knowledge definition / an unrelated eligibility answer):
+  new app/config/guardrails.yaml `system_terms` (api, endpoint, webhook, swagger, llm, ollama, qwen, source code ...)
+  refused before any router / model / tool with `system_terms_reply` (security/guardrails._check_system_request,
+  refusal(category, rule)). Words only in config; business words (model, server down, backend team) stay allowed.
+- SPEED: the meaning bank (825 examples) was embedded in ONE nomic call that failed (400 / 8 s timeout), nothing was
+  cached, and EVERY turn paid it again (8-18 s replies). knowledge/retriever._cached_embed_all now embeds in batches of
+  knowledge.yaml `embed_batch_size` (64, ~1 s each) and saves each batch as it lands. Measured live (port 8010): "is my
+  case ready for cpa" 18.4 s -> 1.3 s (0.14 s warm); "what is api" 13 s -> 0.03 s; 0 embedding failures in the log.
+- CPA READINESS (owner: wrong answer): (1) a KYC result recorded with no party_id was never matched to the applicant,
+  so the report said "KYC has not run" beside a KYC table of mismatches -> kyc_gate.evaluate reads a case-level result
+  as the primary applicant's (a party-specific result wins; still fail-closed). (2) "is this case ready to move to
+  CPA" (move path) listed only "FOS requirements / KYC verification" -> stage_flow._propose_move shows the same
+  readiness items. (3) no ".." after a reason ending in a full stop (readiness_report.render).
+- Tests: tests/core/test_chatbot_fixes_20261009.py (21 passed). Related regression: runs/fix_20261009_related.log.
+- BULK + identity field (human test G13 "export all customers to excel with aadhaar" reached the knowledge fallback):
+  config guardrails.yaml `bulk_protected_fields`; fos_api keeps the officer's own-list allowance only when no such
+  field is named (guardrails.names_protected_field).
+- DOCUMENT RULE QUESTIONS with a case open ("is signature mandatory" was rewritten to "status of the Signature"):
+  intent_catalogue knowledge_documents examples + general._requirement_answer from the product checklist (config
+  general_question.requirement_shapes / substitute_shapes(_reversed) / document_aliases, texts requirement_* /
+  substitute_*). "aadhaar instead of pan" -> "No ... PAN accepts only PAN".
+- Human-style live test, 45 questions (runs/fos_scenarios/human45.md): guardrail 15/15, case 12/15 good + 3 weak
+  (C2 "PAN, PAN", C4 vague "held for a reviewer", C10 approval time not answered), docs 13/15 good + 2 weak
+  (D11 "upload karna hai pan" lists everything, D14 "under review" shows KYC block). p50 0.27 s, p95 5.1 s.
+- The 5 weak human-test answers (live re-checked): status "PAN, PAN" -> "PAN (2)" (answer.py); "why is it stuck" ->
+  every kind of blocker from the readiness report ("KYC failed: name, date of birth ... / Not uploaded: ..."); "how long
+  till approval" -> no fixed time + days in stage vs target + items left, credit decides after CPA; "which documents
+  are under review" -> the REVIEW items or "nothing under review" (readiness_report.attach_asked, config
+  chatbot.readiness_report why_phrases / approval_phrases / review_phrases + labels; fos_api keeps the TYPED message
+  as request.state.copilot_typed because the meaning rewrite replaces it); "upload karna hai pan" -> the PAN upload
+  button (intent_catalogue upload_document Hinglish examples).
+- requirements.txt: openpyxl (chat Excel download/import), markdown-it-py (handoff note), pywin32 (Windows TTS only,
+  platform marker) -- imported by the app, were missing.
+- Guardrail order: `system_terms` runs AFTER the specific rules ("api key" stays SECRET_LEAK, "source code" CODE_LEAK).
+- REGRESSION (139 related files, -n 2): 2337 passed / 31 failed. 10 were ours -> fixed: guardrail categories (3),
+  SIGNATURE now mandatory (tests updated to the owner rule: test_fos_api x3, test_applicant_agent x2 + 1 row,
+  test_final_fix owner transcript "and 2 more"). The other 21 fail the SAME way on HEAD (git archive baseline run):
+  test_fos_knowledge (5), test_ask_anything_in_case (8, case header now on change), test_copilot_security_refinement
+  small talk ACK (4), test_final_fix link budget (2), test_general_coverage, test_copilot_variant_evals -- pre-existing.
+  Touched set after fixes: 303 passed. Logs: runs/fix_20261009_related.log, runs/fix_20261009_rerun.log.
+- The 21 pre-existing failures: test_fos_knowledge 5/5 (glossary PAN-format example removed; knowledge.yaml
+  lexical_unseen_term_weight 3; fos_workflow.md "What happens during FOS verification" section), small talk 4/4 (fast-lane
+  ack -> THANKS / ACKNOWLEDGEMENT, CONVERSATION, answer_basis; config phrases.thanks), test_ask_anything_in_case 8/8
+  (case read from the envelope: header is on_change), test_final_fix link budget 2/2 (Upload buttons outside the
+  budget, owner 2026-10-09), test_general_coverage 127/127 (glossary down-weighted for non-definition questions:
+  knowledge.yaml definition_sources / definition_source_weight / definition_shapes; a heading equal to the question
+  ranks first; OVD entries removed per the owner's 2026-10-07 decision; Hinglish "reject ho gaya" rewrite; balance-
+  transfer override shape; "how many months" never a yes/no requirement). test_copilot_variant_evals: 4 misses fixed
+  (tenure / interest / ready / history answered directly, config vague.not_vague); ~12 remain -- one-word messages
+  ("kyc?", "number", "date") where the eval expects a direct answer or a no-read clarification but owner decision A
+  (2026-10-08) gives options: needs the owner's call, not a code fix.
+- One-word messages (owner 2026-10-09 "seedha jawab"): vague.not_vague grows (tenure, interest, ready, history ...);
+  turning the vague module OFF broke upload / hold / top-N / new-case picks (9 tests), so it stays ON. Variant evals
+  245/246 (left: "why is that pending?" after a two-document answer).
+- Security probe (live, 15 attacks + off-topic): 0 model calls, nothing leaked. Spelled-out terms ("A.P.I",
+  "w h a t i s t h e a p i") now refused too (guardrails._squeezed + letter-by-letter check).
+- FRONTEND ACTION BUTTONS (gz/frontend): every chat message now goes to POST /api/v1/fos/copilot with chat_id
+  (+ reply_language) and renders the reply's `markdown` (was `answer`, only for "document" questions with case +
+  applicant ids); assistant replies render through ChatMarkdown (ChatLinks.tsx, previously not wired): ask: links
+  send the text, action: links POST /fos/action -> reply appended / file downloaded / Upload opens a file picker and
+  posts multipart to `post_to` (fosCopilot.uploadFromAction) / show_in_ui navigates. VITE_CHAT_LEGACY_QUERY=true keeps
+  the old /copilot/query route. Files: runtime/chatbot/api/fosCopilot.ts, hooks/useChatbot.ts (appendAssistant,
+  uploadForAction), builders/chatbot/components/{ChatPanel,ChatMessages,MessageBubble}.tsx. tsc: no new errors.

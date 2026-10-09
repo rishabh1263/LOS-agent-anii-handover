@@ -211,12 +211,14 @@ intents:
     description: The officer wants to upload (or re-upload) a named document on the open case now.
     examples: [upload new bank statement, re-upload the PAN, i want to upload the address proof, attach the salary slip,
                upload correct bank statement, reupload driving licence, let me upload the signature, add the ITR now,
-               upload pan card again, submit new address proof]
+               upload pan card again, submit new address proof, upload karna hai pan, pan upload karna hai, pan upload karo,
+               mujhe bank statement upload karna hai, signature upload karna hai, address proof upload karna hai]
   process_fix_rejected:
     kind: process
     description: How to fix a rejected document in general.
     canonical: "how to fix a rejected document"
-    examples: [how do I fix a rejected document, what to do when a document is rejected, document got rejected what now]
+    examples: [how do I fix a rejected document, what to do when a document is rejected, document got rejected what now,
+               document reject ho gaya to kya kare, document reject hua kya karu, reject ho gaya ab kya karna hai]
   process_stages:
     kind: process
     description: The stages a loan goes through, who approves and what happens after CPA.
@@ -230,12 +232,19 @@ intents:
     description: The meaning of a lending, banking, KYC or document term, or a general question about how lending works.
     examples: [what is FOIR, what does LTV mean, explain MCLR, what is a co-applicant, meaning of moratorium,
                difference between a guarantor and a co-applicant, what is CKYC, what is a sanction letter,
-               what is NACH, how does a balance transfer work, what is an equitable mortgage, what is DPD]
+               what is NACH, how does a balance transfer work, what is an equitable mortgage, what is DPD,
+               another lender gives a better rate can we take over the loan, customer wants to move his loan from another bank]
   knowledge_documents:
     kind: knowledge
     description: Which documents are needed or accepted in general (not for one case).
+    # 2026-10-09 human test: with a case open these were rewritten to "What is the status of the Signature?" -- a RULE
+    # question ("is X mandatory", "how many months", "X instead of Y") is knowledge, the case answer is a different ask
     examples: [which documents are accepted as address proof, documents required for a home loan, is aadhaar mandatory,
-               can I use an electricity bill as address proof, what documents does a co-applicant need]
+               can I use an electricity bill as address proof, what documents does a co-applicant need,
+               is signature mandatory, is the signature required, is bank statement compulsory, do i need a bank statement,
+               how many months bank statement, how many months of bank statement are needed, kitne mahine ka statement chahiye,
+               can i upload aadhaar instead of pan, can voter id be used instead of passport, is pan mandatory for a loan,
+               is salary slip required, which address proof is valid]
 
   # ---------------------------------------------------------------- policy, decision, calculator
   policy_value:

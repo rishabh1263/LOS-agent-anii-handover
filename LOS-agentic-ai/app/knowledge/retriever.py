@@ -222,11 +222,17 @@ class LexicalRetriever(Retriever):
         # nothing to the numerator. The normalised score then reads as "how
         # much of what was asked does this passage actually cover", which is
         # the question a threshold needs answered.
+        # A term the corpus has NEVER seen weighs `lexical_unseen_term_weight` (knowledge.yaml) times its idf: with a
+        # large glossary, "capital of France" covered "capital" (Working capital) and scored 0.45 -- confident. A
+        # question naming something the corpus does not know at all is mostly NOT covered.
+        from app.knowledge import _config as _knowledge_cfg
+
+        unseen_weight = float(_knowledge_cfg().get("lexical_unseen_term_weight") or 1.0)
         ceiling = 0.0
         for term in set(terms):
             seen_in = document_frequency.get(term, 0)
             idf = math.log(1 + (total - seen_in + 0.5) / (seen_in + 0.5))
-            ceiling += idf * (_K1 + 1) / (1 + _K1 * (1 - _B))
+            ceiling += idf * (_K1 + 1) / (1 + _K1 * (1 - _B)) * (unseen_weight if not seen_in else 1.0)
         ceiling = ceiling or 1.0
 
         hits = [
@@ -346,10 +352,9 @@ def _cached_embed_all(provider: EmbeddingProvider, texts: list[str]) -> list[lis
         cache = {}
     keys = [hashlib.sha256((tag + "\x00" + t).encode("utf-8")).hexdigest() for t in texts]
     missing = [i for i, k in enumerate(keys) if k not in cache]
-    if missing:
-        fresh = provider.embed_all([texts[i] for i in missing])
-        for i, vector in zip(missing, fresh):
-            cache[keys[i]] = vector
+    from app.knowledge import _config as _knowledge_cfg
+
+    def _save() -> None:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             live = set(keys)
@@ -357,6 +362,18 @@ def _cached_embed_all(provider: EmbeddingProvider, texts: list[str]) -> list[lis
                             encoding="utf-8")
         except OSError:
             pass
+
+    # IN BATCHES, SAVED AS THEY LAND (2026-10-09): one request for 800+ texts was refused / timed out, nothing was
+    # cached, and EVERY chat turn paid the timeout again. A failed batch keeps what the earlier batches embedded.
+    size = max(1, int(_knowledge_cfg().get("embed_batch_size") or 64))
+    try:
+        for start in range(0, len(missing), size):
+            part = missing[start:start + size]
+            for i, vector in zip(part, provider.embed_all([texts[i] for i in part])):
+                cache[keys[i]] = vector
+    finally:
+        if missing:
+            _save()
     return [cache[k] for k in keys]
 
 

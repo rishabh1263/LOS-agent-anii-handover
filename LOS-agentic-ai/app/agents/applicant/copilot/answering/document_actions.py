@@ -41,6 +41,12 @@ _EN = {
     "docact_upload": "Upload",
     "docact_being_verified": "being verified",
     "docact_kyc_status_heading": "KYC:",
+    "docact_kyc_other_checks": "Other checks: {checks}",
+    "docact_kyc_field_PASS": "{field} matches",
+    "docact_kyc_field_FAIL": "{field} does not match",
+    "docact_kyc_field_REVIEW": "{field} needs a review",
+    "docact_kyc_field_PARTIAL": "{field} needs a review",
+    "docact_kyc_field_MISSING": "{field} not found on the documents",
     "docact_kyc_status_REVIEW": "KYC needs review",
     "docact_kyc_status_FAIL": "KYC failed",
 }
@@ -149,6 +155,7 @@ def build(case_id: str, *, party: str | None = None, repository: Any = None) -> 
     # KYC: every failed / reviewed identity field, with the values the record kept
     kyc_issues: list[dict[str, Any]] = []
     kyc_status: list[dict[str, Any]] = []
+    kyc_fields: list[dict[str, Any]] = []          # EVERY KYC field with its result (config kyc_all_fields)
     try:
         findings = repository.get_current_findings(case_id, kind="KYC") or []
     except Exception:  # noqa: BLE001 - unreadable KYC: no KYC rows, never invented ones
@@ -164,6 +171,8 @@ def build(case_id: str, *, party: str | None = None, repository: Any = None) -> 
         for field in (getattr(finding, "payload", None) or {}).get("fields") or []:
             name = str((field or {}).get("field") or "").upper()
             status = str((field or {}).get("status") or "").upper()
+            if name in _KYC_FIELDS:
+                kyc_fields.append({"party": role, "field": name, "status": status or "MISSING"})
             if name not in _KYC_FIELDS or status not in ("FAIL", "REVIEW", "PARTIAL"):
                 continue
             sources = [s for s in field.get("sources") or [] if isinstance(s, dict) and s.get("document_type")]
@@ -226,7 +235,7 @@ def build(case_id: str, *, party: str | None = None, repository: Any = None) -> 
     pending = [r for r in pending if (r["party"], str(r["document_type"]).upper()) not in listed]
 
     out = {"reupload": keep(reupload), "pending": keep(pending), "under_review": keep(under_review),
-           "kyc_issues": keep(kyc_issues), "kyc_status": keep(kyc_status)}
+           "kyc_issues": keep(kyc_issues), "kyc_status": keep(kyc_status), "kyc_fields": keep(kyc_fields)}
     for row in out["reupload"] + out["pending"]:
         row["action"] = {"type": "UPLOAD_DOCUMENT", "document_type": row["document_type"], "party": row["party"],
                          "label": f"Upload {row['label']}"}
@@ -265,6 +274,18 @@ def render(view: dict[str, Any], language: str | None = None) -> dict[str, Any]:
                 docs = " / ".join(v["label"] for v in i["values"][:3])
                 lines.append("• " + _t("docact_mismatch_check", language, field=field, documents=docs))
             emphasis.append(label)                       # the word as shown, so step 5 can bold it
+        if _policy().get("kyc_all_fields", False):
+            # EVERY OTHER KYC FIELD with its result (owner 2026-10-09: "only name is showing"), from the same record
+            shown_fields = {(i["party"], i["field"]) for i in issues[:4]}
+            others = []
+            for f in view.get("kyc_fields") or []:
+                if (f["party"], f["field"]) in shown_fields:
+                    continue
+                key = f"docact_kyc_field_{f['status']}" if f["status"] in ("PASS", "FAIL", "REVIEW", "PARTIAL")                     else "docact_kyc_field_MISSING"
+                label = _field_label(f["field"], language)
+                others.append(_t(key, language, field=label))
+            if others:
+                lines.append(_t("docact_kyc_other_checks", language, checks=" · ".join(dict.fromkeys(others))))
     upload = _t("docact_upload", language)
     if view["reupload"]:
         lines.append(_t("docact_reupload_heading", language))

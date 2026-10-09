@@ -143,6 +143,15 @@ pdf2image>=1.17,<2
 #                             alone. LANGUAGE_DETECTOR=off disables it.
 lingua-language-detector>=2.0,<3
 
+# ── Chat downloads and handoff note (2026-10-09: imported by the app, were missing here) ──
+# openpyxl      -- the chat's Excel download / import (copilot/capabilities/exports.py, importer.py); without it
+#                  the frontend's "Download: Excel" link fails
+# markdown-it-py -- the CPA handoff note rendered to HTML (copilot/answering/handoff_note.py)
+# pywin32       -- local Windows SAPI text-to-speech only (app/tts/local_server.py); never installed elsewhere
+openpyxl>=3.1,<4
+markdown-it-py>=3.0,<5
+pywin32>=306; sys_platform == "win32"
+
 # ── REMOVED, with the reason ─────────────────────────────────────────────────
 #
 # agent-framework          -> replaced by agent-framework-core +

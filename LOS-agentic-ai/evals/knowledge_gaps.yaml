@@ -4,8 +4,14 @@ questions:
   ab mujhe kya karna hai:
     count: 4
     last_seen: '2026-10-08'
+  can i upload aadhaar instead of pan:
+    count: 2
+    last_seen: '2026-10-09'
+  export all customers to excel with aadhaar:
+    count: 1
+    last_seen: '2026-10-09'
   how do i apply for a credit card for myself:
-    count: 27
+    count: 32
     last_seen: '2026-10-09'
   how do you know that:
     count: 2
@@ -46,6 +52,12 @@ questions:
   what is still processing:
     count: 2
     last_seen: '2026-10-08'
+  what is the api name:
+    count: 2
+    last_seen: '2026-10-09'
+  what is the capital of france:
+    count: 1
+    last_seen: '2026-10-09'
   what is the file path of my pan document:
     count: 2
     last_seen: '2026-10-08'
@@ -59,6 +71,9 @@ questions:
     count: 2
     last_seen: '2026-10-08'
 terms:
+  API:
+    count: 1
+    last_seen: '2026-10-09'
   FNR:
     count: 2
     last_seen: '2026-10-08'

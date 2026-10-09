@@ -114,7 +114,7 @@ Top-up loan: An additional loan given on top of an existing loan, usually to a b
 Example: a top-up on a home loan for renovation.
 
 ## Balance transfer
-Balance transfer: Moving an existing loan from one lender to another, usually for a lower interest rate or better terms; the new lender
+Balance transfer: Moving an existing loan to another lender, usually for a lower interest rate or better terms; the new lender
 pays off the old loan.
 Example: transferring a home loan to a lender offering a lower rate.
 
@@ -393,18 +393,6 @@ Example: a lender fetches a customer's record from CKYCR.
 KIN (KYC Identification Number): The 14-digit number the Central KYC registry gives a customer's KYC record.
 Example: quoting the KIN lets a lender fetch the record.
 
-## OVD (Officially Valid Document)
-OVD (Officially Valid Document): A document accepted for identity and address proof under RBI's KYC rules: passport, driving licence, voter ID, proof of
-possession of Aadhaar, NREGA job card, and letter of the National Population Register. A lender's own product checklist
-decides which of them it accepts for a slot.
-Example: a passport used as address proof.
-
-## Deemed OVD
-Deemed OVD: A document accepted for address only, for a limited time, when the OVD does not show the current address: for example a
-utility bill not older than two months or a property tax receipt. **Owner review:** the borrower must later submit an OVD
-with the current address.
-Example: an electricity bill used until the updated OVD is given.
-
 ## e-KYC
 e-KYC: KYC done electronically, for example through Aadhaar OTP authentication.
 Example: Aadhaar OTP e-KYC during online onboarding.
@@ -431,7 +419,7 @@ Example: a re-KYC request after an address change.
 
 ## PAN (Permanent Account Number)
 PAN (Permanent Account Number): The 10-character tax identification number issued by the Income Tax Department; needed for most loans.
-Example: ABCDE1234F.
+Example: five letters, four digits and a final letter, printed on the PAN card.
 
 ## Form 60
 Form 60: A declaration filed by a person who does not have a PAN, in place of PAN for certain transactions.

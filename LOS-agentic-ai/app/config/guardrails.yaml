@@ -1,0 +1,47 @@
+# GUARDRAIL TERMS (owner 2026-10-09: "what is api" was answered -- once as a world-knowledge definition, once with an
+# unrelated case answer). Read by app/security/guardrails.py:_check_system_request, BEFORE any router / model / tool.
+#
+# system_terms: words that only ever name the system behind the chatbot, never a loan, a document or a process. A
+# message that NAMES one of them (whole word, any case, any position) is refused as INTERNAL_SYSTEM_LEAK with the
+# reply below -- no world-knowledge definition, no case answer. Add a word here, never a regex in code.
+# Keep out words an officer uses for the business ("model" = car model, "server down" = an outage report, "link").
+system_terms:
+  - api
+  - apis
+  - endpoint
+  - endpoints
+  - webhook
+  - webhooks
+  - swagger
+  - openapi
+  - source code
+  - codebase
+  - llm
+  - ollama
+  - qwen
+  - nomic
+  - embedding model
+  - language model
+
+# what the officer sees; {term} is never echoed back
+system_terms_reply: >-
+  I can't share details of the systems behind this assistant. I can help with your cases, documents, KYC and the
+  steps to move a case to CPA.
+
+# BULK + IDENTITY FIELD (2026-10-09: "export all customers to excel with aadhaar" reached the knowledge fallback). An
+# officer's "all my cases" list is allowed (fos_api, own list, scoped by the grants); the SAME bulk request that names
+# one of these fields is refused as BULK_DATA -- a list never carries every customer's identity numbers.
+bulk_protected_fields:
+  - aadhaar
+  - aadhar
+  - pan number
+  - pan numbers
+  - pan card numbers
+  - mobile number
+  - mobile numbers
+  - phone number
+  - phone numbers
+  - account number
+  - account numbers
+  - date of birth
+  - dob

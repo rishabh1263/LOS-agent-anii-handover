@@ -60,6 +60,6 @@ co-applicant's documents and KYC are checked separately from the applicant's.
 
 ## What happens after CPA?
 
-At CPA the completed file is processed further and handed on. Next the **Credit** stage assesses the case and makes
-the credit decision, then **RCU** checks the file for risk, then **BOPS** and **HOPS**, and finally the loan is
-**disbursed**. FOS does not take part in these later stages.
+After CPA the file goes to the **Credit** stage, which assesses the case and makes the credit decision, then **RCU**
+checks the file for risk, then **BOPS** and **HOPS**, and finally the loan is **disbursed**. At CPA itself the
+completed file is processed further and handed on. FOS does not take part in these later stages.

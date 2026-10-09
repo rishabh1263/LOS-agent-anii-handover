@@ -749,7 +749,7 @@ async def answer_question(
             intent=GUARDRAIL_BLOCKED,
             category=routing.QueryCategory.UNSUPPORTED.value,
             query_type=QueryType.CLARIFICATION.value,
-            answer=guardrails.refusal(screened.category),
+            answer=guardrails.refusal(screened.category, getattr(screened, "rule", None)),
             guardrail={"stage": "input", "action": "BLOCKED",
                        "category": screened.category.value},
             errors=[{"code": "REQUEST_NOT_ALLOWED",

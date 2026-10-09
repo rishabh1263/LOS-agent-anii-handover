@@ -23,6 +23,14 @@ documents, and hands the case to the CPA desk once the file is complete.
 - Making sure each document is readable and is the document it claims to be
 - Handing a complete file to CPA
 
+## What happens during FOS verification
+
+During FOS verification each uploaded document is checked: is it readable,
+is it the document type it claims to be, and do its details match. Then KYC
+compares the name, date of birth, PAN number, address and father's name across
+the documents and the application. When every mandatory document is verified,
+the signature is on file and KYC has passed, the case is ready to hand to CPA.
+
 ## What the FOS stage is NOT responsible for
 
 The FOS stage does not decide anything about the loan. It does not assess

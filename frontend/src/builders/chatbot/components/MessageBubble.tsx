@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { ChatMarkdown } from './ChatLinks'
+import type { ChatLinkContext } from './ChatMessages'
 import { Check, Copy, Pencil, RefreshCw, Volume2, VolumeX, X } from 'lucide-react'
 import type { ChatMessage, ChatUploadResult } from '../../../runtime/chatbot'
 import { formatTime } from '../../../runtime/chatbot'
@@ -25,6 +27,8 @@ interface MessageBubbleProps {
     }>
   }>
   onPersistUploadResults?: (messageId: string, results: ChatUploadResult[]) => void
+  /** ask: / action: links of the bot's reply rendered as working buttons */
+  links?: ChatLinkContext
 }
 
 function ActionBtn({
@@ -165,6 +169,7 @@ export function MessageBubble({
   onRegenerate,
   onEdit,
   onSuggested,
+  links,
   onUploadDocuments,
   onPersistUploadResults,
 }: MessageBubbleProps) {
@@ -316,7 +321,21 @@ export function MessageBubble({
           ) : (
             <div className="min-w-0 space-y-0.5 break-words [overflow-wrap:anywhere]">
               {message.content ? (
-                renderContent(message.content)
+                !isUser && links && !message.isStreaming ? (
+                  <ChatMarkdown
+                    markdown={message.content}
+                    token={links.token}
+                    chatId={links.chatId}
+                    lang="en"
+                    onAsk={(q) => onSuggested?.(q)}
+                    onReply={(reply) => links.onReply(reply.markdown)}
+                    onUpload={(target) => links.onUpload(target)}
+                    onOpenUi={(route) => links.onOpenUi?.(route)}
+                    onError={(msg) => links.onReply(msg)}
+                  />
+                ) : (
+                  renderContent(message.content)
+                )
               ) : message.isStreaming ? (
                 <TypingDots />
               ) : null}

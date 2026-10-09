@@ -26,6 +26,16 @@ interface ChatMessagesProps {
   quickActions: { id: string; label: string; icon: string }[]
   onQuickAction: (label: string) => void
   status: string
+  /** The reply links' context: ask: / action: buttons (ChatMarkdown) */
+  links?: ChatLinkContext
+}
+
+export interface ChatLinkContext {
+  token?: string
+  chatId?: string
+  onReply: (markdown: string) => void
+  onUpload: (target: { post_to: string; document_type: string | null }) => void
+  onOpenUi?: (route: string) => void
 }
 
 const messageEnter = {
@@ -48,6 +58,7 @@ export function ChatMessages({
   quickActions,
   onQuickAction,
   status,
+  links,
 }: ChatMessagesProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -106,6 +117,7 @@ export function ChatMessages({
             onSuggested,
             onUploadDocuments,
             onPersistUploadResults,
+            links,
           }
 
           if (reduceMotion || !isRecent) {

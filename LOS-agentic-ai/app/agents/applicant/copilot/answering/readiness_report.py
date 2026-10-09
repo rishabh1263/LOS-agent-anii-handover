@@ -185,12 +185,12 @@ def render(report: dict[str, Any]) -> str:
             for whose, items in by_party.items():
                 if len(items) > 1 and len({(i["status"], i["reason"]) for i in items}) == 1:
                     fix = f" Fix: {items[0]['fix']}." if items[0].get("fix") else ""
-                    lines.append(f"- {whose}: **{items[0]['status']}** -- {items[0]['reason']}.{fix}")
+                    lines.append(f"- {whose}: **{items[0]['status']}** -- {items[0]['reason'].rstrip('.')}.{fix}")
                     folded += items
             failing = [i for i in failing if i not in folded]
         for i in failing:
             fix = f" Fix: {i['fix']}." if i.get("fix") else ""
-            lines.append(f"- {i['label']}: **{i['status']}** -- {i['reason']}.{fix}".replace(" -- .", "."))
+            lines.append(f"- {i['label']}: **{i['status']}** -- {i['reason'].rstrip('.')}.{fix}".replace(" -- .", "."))
         if passed:
             lines.append(_label("passed_line", items=", ".join(passed)))
     if report.get("next_fix"):
@@ -220,4 +220,82 @@ def attach(published: dict[str, Any]) -> dict[str, Any]:
     return published
 
 
-__all__ = ["FLAG", "attach", "build", "enabled", "render"]
+def _asks(message: str, key: str) -> bool:
+    said = " " + " ".join("".join(c if c.isalnum() or c in "' " else " " for c in str(message or "").lower()).split()) + " "
+    return any(" " + " ".join(str(p).lower().split()) + " " in said for p in _cfg().get(key) or [])
+
+
+def why_stuck(report: dict[str, Any], stage: str) -> str:
+    """'CASE-x is stuck at FOS because:' + one line per kind of blocker (same items as the report) + the next step."""
+    case_id = report.get("case_id")
+    if report.get("ready"):
+        return _label("why_ready", case_id=case_id, stage=stage)
+    items = [i for g in report.get("groups") or [] if g.get("counted") for i in g["items"] if i["status"] != PASS]
+
+    def names(kinds: tuple[str, ...]) -> str:
+        return ", ".join(dict.fromkeys(i["label"].split(": ", 1)[-1] for i in items if i["kind"] in kinds))
+
+    lines = [_label("why_heading", case_id=case_id, stage=stage)]
+    for kinds, key in ((("KYC_FAILED",), "why_kyc"), (("KYC_REVIEW",), "why_kyc_review"),
+                       (("DOCUMENT_FAILED",), "why_rejected"), (("DOCUMENT_PENDING",), "why_missing"),
+                       (("DOCUMENT_REVIEW",), "why_review"), (("FIELD_PENDING",), "why_fields"),
+                       (("KYC_PENDING",), "why_kyc_pending")):
+        found = names(kinds)
+        if found:
+            lines.append("- " + _label(key, fields=found, items=found))
+    others = [i["label"] for i in items if i["kind"] == "GATE"]
+    lines += [f"- {o}" for o in others]
+    if report.get("next_fix"):
+        lines += ["", "👉 " + _label("next_step", fix=report["next_fix"])]
+    return "\n".join(lines)
+
+
+def approval_time(report: dict[str, Any], stage: str, days: Any, target: Any) -> str:
+    case_id = report.get("case_id")
+    if report.get("ready"):
+        return _label("approval_ready", case_id=case_id)
+    count = int(report.get("total", 0)) - int(report.get("passed", 0))
+    return _label("approval_line", case_id=case_id, stage=stage, days=days if days is not None else "?",
+                  target=target if target is not None else "-", count=count)
+
+
+def attach_asked(published: dict[str, Any], message: str) -> dict[str, Any]:
+    """'why is it stuck' / 'how long till approval' on an open case: answered from this report (config phrases)."""
+    if not isinstance(published, dict) or not enabled() or not published.get("case_id"):
+        return published
+    why, approval = _asks(message, "why_phrases"), _asks(message, "approval_phrases")
+    review = _asks(message, "review_phrases")
+    if not (why or approval or review):
+        return published
+    case_id = published["case_id"]
+    try:
+        report = build(case_id)
+    except Exception:  # noqa: BLE001 - the engine's own answer stands
+        return published
+    if not report.get("groups"):
+        return published
+    from app.agents.applicant.copilot.capabilities import timeline
+
+    try:
+        clock = timeline.build(case_id)
+    except Exception:  # noqa: BLE001
+        clock = {}
+    stage = str(clock.get("stage") or "FOS")
+    if review:
+        under = [i["label"] for g in report["groups"] for i in g["items"] if i["status"] == REVIEW]
+        text = (_label("review_some", case_id=case_id, items=", ".join(under)) if under else
+                _label("review_none", case_id=case_id, count=int(report.get("total", 0)) - int(report.get("passed", 0))))
+    elif why:
+        text = why_stuck(report, stage)
+    else:
+        text = approval_time(report, stage, clock.get("days_in_stage"), clock.get("target_days"))
+    from app.agents.applicant.copilot.answering.counts import keep_case_header
+
+    published["answer"] = keep_case_header(published.get("answer"), text, case_id)
+    published.pop("answer_markdown", None)
+    published["intent"] = "UNDER_REVIEW" if review else "WHY_STUCK" if why else "APPROVAL_TIME"
+    published["readiness_report"] = report
+    return published
+
+
+__all__ = ["FLAG", "approval_time", "attach", "attach_asked", "build", "enabled", "render", "why_stuck"]

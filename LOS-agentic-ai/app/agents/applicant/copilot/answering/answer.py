@@ -519,10 +519,11 @@ def _summary_text(view: dict[str, Any]) -> str:
         # WHOSE document, on a two-party case: "PAN, Bank Statement, PAN" named
         # the co-applicant's PAN as if it were a second one of the applicant's
         two_party = len({str(d.get("party_role") or "PRIMARY_APPLICANT") for d in documents}) > 1
-        lines.append("Completed: "
-                     + ", ".join(_readable(d.get("document_type"))
-                                 + (" (co-applicant)" if two_party and d.get("party_role") == "CO_APPLICANT" else "")
-                                 for d in verified) + ".")
+        # ONE NAME PER DOCUMENT TYPE: two verified PANs read "PAN (2)", never "PAN, PAN" (2026-10-09 human test)
+        named = [_readable(d.get("document_type"))
+                 + (" (co-applicant)" if two_party and d.get("party_role") == "CO_APPLICANT" else "") for d in verified]
+        lines.append("Completed: " + ", ".join(n + (f" ({named.count(n)})" if named.count(n) > 1 else "")
+                                               for n in dict.fromkeys(named)) + ".")
 
     outstanding = [b["detail"] for b in (readiness.get("blocking_items") or [])]
     lines.append("Pending: " + " ".join(outstanding) if outstanding

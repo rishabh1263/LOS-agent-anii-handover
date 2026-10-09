@@ -14,14 +14,21 @@ import type { FosUploadResponse } from '../utils/uploadTargets'
 const FOS_BASE = apiUrl(PATHS.fos)
 
 export interface FosCopilotRequest {
-  applicant_id: string
-  case_id: string
+  /** Optional: the chat's open case (session workspace) is used when omitted */
+  applicant_id?: string
+  case_id?: string
   action?: string
   message?: string
   context?: Record<string, unknown>
+  /** One id per chat: the server keeps the open case, pending questions and history under it */
+  chat_id?: string
+  reply_language?: string
 }
 
 export type FosCopilotResponse = FosUploadResponse & {
+  /** THE reply to render (links: ask: / action:) -- MASTER SPEC contract */
+  markdown?: string
+  tts?: string
   answer?: string | null
   conversation_id?: string
   suggested_questions?: string[]
@@ -92,13 +99,15 @@ export async function queryFosCopilot(
   const headers: HeadersInit = { 'Content-Type': 'application/json' }
   if (token?.trim()) headers.Authorization = `Bearer ${token.trim()}`
 
-  const body = {
-    applicant_id: payload.applicant_id,
-    case_id: payload.case_id,
+  const body: Record<string, unknown> = {
     action: payload.action || 'CUSTOM_QUERY',
     message: payload.message || '',
     context: payload.context || {},
   }
+  if (payload.applicant_id?.trim()) body.applicant_id = payload.applicant_id.trim()
+  if (payload.case_id?.trim()) body.case_id = payload.case_id.trim()
+  if (payload.chat_id) body.chat_id = payload.chat_id
+  if (payload.reply_language) body.reply_language = payload.reply_language
 
   const res = await fetch(url, {
     method: 'POST',
@@ -299,4 +308,36 @@ export function mapUploadResults(
       detectedType: d.document_type,
     }
   })
+}
+
+
+/**
+ * The Upload button of a reply (`action:upload` -> {post_to}): a multipart UPLOAD_DOCUMENT to `post_to`, which
+ * already carries the chat id, so the file is filed on the chat's open case. Returns the reply to append.
+ */
+export async function uploadFromAction(
+  postTo: string,
+  files: File[],
+  documentType: string | null,
+  token?: string,
+): Promise<FosCopilotResponse> {
+  const form = new FormData()
+  form.append('action', 'UPLOAD_DOCUMENT')
+  files.forEach((f) => {
+    form.append('files', f)
+    if (documentType) form.append('document_types', documentType)
+  })
+  const headers: HeadersInit = {}
+  if (token?.trim()) headers.Authorization = `Bearer ${token.trim()}`
+  const url = /^https?:/i.test(postTo) ? postTo : apiUrl(postTo)
+  const res = await fetch(url, { method: 'POST', headers, body: form })
+  const text = await res.text()
+  let parsed: unknown
+  try {
+    parsed = text ? JSON.parse(text) : {}
+  } catch {
+    parsed = { message: text || 'Invalid response' }
+  }
+  if (!res.ok) throw new ChatApiError(res.status, parsed as ChatApiErrorBody)
+  return parsed as FosCopilotResponse
 }

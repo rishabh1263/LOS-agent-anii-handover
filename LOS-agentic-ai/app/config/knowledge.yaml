@@ -9,3 +9,14 @@ embedding_provider: ollama
 # one embedding call (a question, or a batch of new chunks) waits at most this long; OLLAMA_EMBED_TIMEOUT overrides.
 # A model that stops answering makes the turn fall back (BM25 / the rules) instead of holding the officer for minutes.
 embed_timeout_seconds: 8
+# texts per embedding request when a bank / corpus is embedded; each batch is cached as it lands (64 = ~1 s on CPU)
+embed_batch_size: 64
+# BM25 (lexical fallback): a question word the corpus has never seen counts this many times in the score's ceiling,
+# so "capital of France" (only "capital" known) is not a confident match (2026-10-09; 1.0 = the old behaviour)
+lexical_unseen_term_weight: 3
+# DEFINITION SOURCES (knowledge_answer._definitions_last): the glossary answers "what is X"; for any other question its
+# passages weigh definition_source_weight so the handbook's own steps win ("what happens after CPA")
+definition_sources: [los_glossary.md]
+definition_source_weight: 0.7
+definition_shapes: ['^(what|whats|what''s) (is|are|does) (an? |the )?[a-z0-9 -]{1,30}\??$', '\bmean(s|ing)?\b', '\bfull form\b',
+                    '^define\b', '\bstand(s)? for\b', '\b(kya|kise) (hai|hota|kehte)\b', '^explain\b']

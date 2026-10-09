@@ -11,6 +11,8 @@ phrases:
          kya madad kar sakte ho, tum kya kar sakte ho, aap kya kar sakte ho, क्या मदद कर सकते हो]
   ack: ["ok", "okay", "ok thanks", "thanks", "thank you", "got it", "hmm", "accha", "acha", "theek hai", "thik hai",
         "fine", "cool", "ठीक है", "धन्यवाद"]
+  # the thank-yous among the ack words: answered as small-talk THANKS (the rest is ACKNOWLEDGEMENT)
+  thanks: ["thanks", "thank you", "ok thanks", "thank you so much", "thanks a lot", "shukriya", "dhanyavad", "धन्यवाद"]
   frustrated: [why you are not answering, why are you not answering, why you not answering, not answering me,
                you are not helping, not helpful, useless bot, bekar, kuch samajh nahi aa raha, jawab nahi de raha,
                wrong answer, galat jawab, samjha nahi, you don't understand, you dont understand]
@@ -94,6 +96,20 @@ texts:
   optional: { en: "Optional", hi-Latn: "Optional", hi: "वैकल्पिक", mr: "पर्यायी" }
   coapp_optional: { en: "Co-applicant documents are not mandatory while the co-applicant rule is off.",
                     hi-Latn: "Co-applicant rule band hai, isliye yeh documents abhi zaroori nahi." }
+  # document rule answers (general._requirement_answer), from the product checklist
+  requirement_all: { en: "Yes, **{document}** is mandatory for every loan product.",
+                     hi-Latn: "Haan, **{document}** har loan product ke liye zaroori hai." }
+  requirement_some: { en: "**{document}** is mandatory for: {products}.",
+                      hi-Latn: "**{document}** in products ke liye zaroori hai: {products}." }
+  requirement_optional: { en: "**{document}** is optional for: {products}.", hi-Latn: "**{document}** in products ke liye optional hai: {products}." }
+  requirement_accepted: { en: "**{document}** is not mandatory by itself. It is one accepted option for: {slots}.",
+                          hi-Latn: "**{document}** khud zaroori nahi. Yeh in ke liye ek accepted option hai: {slots}." }
+  requirement_none: { en: "**{document}** is not on any product's document checklist.",
+                      hi-Latn: "**{document}** kisi product ki document list mein nahi hai." }
+  substitute_yes: { en: "Yes. **{document}** is accepted for the {slot} requirement (accepted: {accepted}).",
+                    hi-Latn: "Haan. **{document}** {slot} ke liye chalega (accepted: {accepted})." }
+  substitute_no: { en: "No. **{document}** cannot replace it: the {slot} requirement accepts only {accepted}.",
+                   hi-Latn: "Nahi. **{document}** nahi chalega: {slot} ke liye sirf {accepted} chalta hai." }
   coapp_heading: { en: "Every co-applicant:", hi-Latn: "Har co-applicant:", hi: "हर सह-आवेदक:", mr: "प्रत्येक सह-अर्जदार:" }
   products_note:
     en: "Amount-based rules may add documents once the loan amount is entered."
@@ -185,6 +201,8 @@ general_question:
            '\b(kya )?(fark|farak|difference) (hai|kya hai)$', '\b(kitna|kitni|kitne) (hai|hota hai|hoti hai|lagta hai|lagti hai)$']
   # ... and name NO case: these words mean "this case / this customer" (the case logic answers those)
   # with a case open, only these shapes get a glossary / knowledge answer (else the case logic answers)
+  # a general TOPIC named outright wins over a case referent word ("can we take over HIS loan from another lender")
+  general_override_shapes: ['\b(another|other|different) (lender|bank)\b.*\b(take over|takeover|transfer|move|shift)\b']
   definition_shapes: ['^(what|whats|what s) (is|are|does|do) (an? |the )?[a-z]', '\bmean(s|ing)?\b', '\bfull form\b', '^define\b', '^explain (what|the term|a |an )', '\bstand for\b', '\b(kya|kise) (hai|hota|kehte)\b', '\bdifference between\b']
   case_referents: [the customer, the applicant, the borrower, the file, this one, here, this case, is case, iss case, the case, my case, mera case, meri case, this customer, is customer,
                    this loan, is loan, iska, iski, iske, uska, uski, uske, inka, unka, his, her, their, this file,
@@ -197,6 +215,20 @@ general_question:
               '\b(my|mera|meri|mere) (\w+ )?(status|eligibility|documents?|docs|kyc|loan|application|pending|emi)\b',
               '\b(docs|documents?) (are|is) (pending|missing|baaki|rejected|uploaded)\b',
               '^(what|which|show|list|kaunse|konse)\b.*\b(pending|missing|rejected) (docs|documents?)\b']
+  # DOCUMENT RULE QUESTIONS (2026-10-09 human test): answered from the product checklist, case open or not
+  # (general._requirement_answer). One named document + a requirement shape -> required / optional per product;
+  # two named documents + a substitute shape -> whether the first is accepted in the second's slot.
+  requirement_shapes: ['\b(mandatory|required|compulsory|necessary|needed|zaroori|zaruri|jaruri|chahiye)\b',
+                       '^(do|does) (i|we|you|the customer|customer|the applicant) (need|have to)\b', '^is .+ (needed|a must)$']
+  # a COUNT / DURATION question is never a yes/no requirement ("how many months bank statement is needed")
+  requirement_not_shapes: ['\bhow (many|much|long|old)\b', '\b(kitne|kitna|kitni)\b', '\bmonths?\b', '\bdays?\b', '\byears?\b']
+  substitute_shapes: ['\binstead of\b', '\bin place of\b', '\bki jagah\b', '\bke badle\b', '\breplace\b']
+  # Hindi order: "<wanted> ki jagah <offered>"
+  substitute_shapes_reversed: ['\bki jagah\b', '\bke badle\b']
+  # extra spoken names for a configured slot / accepted type (the readable names are matched already)
+  document_aliases: { pan card: PAN, aadhaar card: AADHAAR, aadhar: AADHAAR, aadhar card: AADHAAR, dl: DRIVING_LICENCE,
+                      driving license: DRIVING_LICENCE, voter card: VOTER_ID, statement: BANK_STATEMENT,
+                      sign: SIGNATURE, signature photo: SIGNATURE, salary slips: SALARY_SLIP, payslip: SALARY_SLIP }
   # the words a question is NOT about -- what is left must appear in the answer, or it is not shown (relevance guard)
   filler: [what, whats, is, are, the, a, an, of, for, to, does, do, did, how, mean, means, meaning, define, explain,
            difference, between, and, or, kya, hai, hain, hota, hoti, hote, ka, ki, ke, matlab, me, mein, can, could,
@@ -206,7 +238,7 @@ general_question:
   # HINGLISH QUESTION SHAPES -> the handbook's English, for the knowledge SEARCH only (the reply stays in the user's
   # language; the original wording is searched first). [pattern, replacement], applied in order, lower case.
   retrieval_rewrites:
-    - ['^(.+?) (fail|reject)(?:ed)? (?:ho gaya|ho gya|ho gayi|ho gyi|hua|hui)(?: to| toh)? (?:kya kare|kya karu|kya karein|kya karna hai|ab kya)$', 'what to do if \1 \2s']
+    - ['^(.+?) (fail|reject)(?:ed)? (?:ho gaya|ho gya|ho gayi|ho gyi|hua|hui)(?: to| toh)? (?:kya kare|kya karu|kya karein|kya karna hai|ab kya)$', 'how do i fix a \2ed \1']
     - ['^(.+?) kaise (?:hota|hoti|hote|chalta|chalti|kaam karta|kaam karti) (?:hai|hain)$', 'how does \1 work']
     - ['^(.+?) kaise (.+?)(?: kare| karu| karein| karte hai| karte hain| hota hai| hote hai| hote hain| hoga)?$', 'how to \2 \1']
     - ['^(.+?) (?:mandatory|zaroori|zaruri|required|compulsory|jaruri) (?:hai|he|h)(?: kya)?$', 'is \1 mandatory']
@@ -216,6 +248,7 @@ general_question:
     - ['^(.+?) (?:mein|me|ke liye|ke liy) (?:kya|kya kya|kaunsa|kaunse|konsa|konse) (?:chalega|chalta hai|chalti hai|de sakte hai|de sakte hain|de sakta hai|de sakte|dena hai|dena hota hai|dein|lagta hai|accept hota hai)$', 'which documents are accepted as \1']
     - ['^(?:loan )?(approve|reject|sanction|decide) kaun (?:karta|karti|karte) (?:hai|hain)$', 'who \1s the loan']
     - ['\bloan (?:ka )?process\b', 'stages of a loan']
+    - ['^.*\b(?:another|other|different) (?:lender|bank)\b.*\b(?:take over|takeover|transfer|move|shift)\b.*$', 'what is a balance transfer']
   # the knowledge pipeline may phrase with the model (grounded + checked, agent._knowledge_reply)
   allow_model: false        # handbook text as written: no model call (fast; owner 2026-10-08 "make it faster")
 
@@ -385,7 +418,9 @@ vague:
   # from the conversation state (the previous answer), never asked back
   not_vague: [help, menu, help me, options, ok, okay, thanks, thank you, thx, hi, hello, hey, "yes", "no", "y", "n",
               cancel, confirm, close, exit, back, bye, hmm ok, why, kyu, kyun, kyon, how, kaise, then, phir, and, aur,
-              when, kab, where, kahan, who, kaun, really, sure, done, next, "?", what, kya]
+              when, kab, where, kahan, who, kaun, really, sure, done, next, "?", what, kya,
+              # ONE clear meaning on an open case: answered directly, never an options question (variant evals)
+              tenure, interest, interest rate, ready, history, timeline, loan amount, emi]
   question: "What would you like to know about {topic}?"
   # the Upload option is a real upload link (action:upload); picked by its number it answers with that link
   upload_reply: "Tap below to upload the {document}."

@@ -230,6 +230,17 @@ def _propose_move(case_id: str, claims: dict[str, Any], request_id: str, lang: s
     evaluated = gate(case_id)
     if evaluated.get("status") != "PASS":
         blockers = [f"- {c.get('label')}" for c in evaluated.get("blockers") or [] if c.get("label")]
+        from app.agents.applicant.copilot.answering import readiness_report
+
+        if readiness_report.enabled():
+            # THE SAME ITEMS AS "is my case ready" (owner 2026-10-09: two phrasings gave two answers, this one only
+            # "FOS requirements / KYC verification"): every failing item with its reason and fix
+            try:
+                report = readiness_report.build(case_id)
+                if report.get("groups") and not report.get("ready"):
+                    blockers = [readiness_report.render(report).split("\n", 1)[-1].strip()]
+            except Exception:  # noqa: BLE001 - the gate's own labels stand
+                pass
         listed = problems(case_id, lang)
         answer = "\n".join([_say("not_ready", lang, case_id=case_id, there=there), *blockers])
         from app.agents.applicant.copilot.answering import contract

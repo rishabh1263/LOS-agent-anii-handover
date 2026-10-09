@@ -1271,6 +1271,9 @@ async def copilot(
             from app.agents.applicant.copilot.capabilities import timeline as _timeline
 
             published = _timeline.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
+            # "why is it stuck" / "how long till approval": the readiness items, compact (config phrases)
+            published = _readiness_report.attach_asked(published, " ".join(
+                {str(getattr(request.state, k, "") or "") for k in ("copilot_typed", "copilot_message")}))
             # THE CPA HANDOFF NOTE, only for a ready case (FOS plan 7.1; shared with /copilot/query)
             from app.agents.applicant.copilot.answering import handoff_note as _handoff_note
 
@@ -1342,6 +1345,8 @@ async def _understood(message: str, claims: dict[str, Any], payload: Any, reques
 
     if not _meaning.enabled():
         return None
+    if getattr(payload, "co_applicant_id", None) or getattr(payload, "party_id", None):
+        return None                 # a named party: its authorization decides first, never a rewrite
     from app.agents.applicant.copilot.capabilities import general as _gen
     from app.agents.applicant.copilot.capabilities import workspace as _ws_m
 
@@ -1672,6 +1677,7 @@ async def _copilot_json(
     else:
         message = _ACTION_PHRASE[action]
     request.state.copilot_message = message if action is FosAction.CUSTOM_QUERY else ""   # post-steps read it
+    request.state.copilot_typed = request.state.copilot_message      # as TYPED, before any meaning rewrite
 
     # THE ABUSE RULE, FIRST (MASTER SPEC sections 16 / 19; capabilities/abuse_guard.py): a message with foul
     # language is never answered in any part -- no case read, no tool, no model, no pending intent stored
@@ -1711,7 +1717,8 @@ async def _copilot_json(
 
         verdict = _early_guard.check_input(message, allowed_ids=(payload.case_id, payload.applicant_id))
         others = _scope_list.names_other_people(message)
-        if not verdict.allowed and verdict.category is _early_guard.Category.BULK_DATA and not others:
+        if (not verdict.allowed and verdict.category is _early_guard.Category.BULK_DATA and not others
+                and not _early_guard.names_protected_field(message)):
             # "saare cases" / "list all case": the caller's OWN list (section 2) -- scoped by the grants
             verdict = _early_guard.Verdict(True)
         elif (not verdict.allowed and verdict.category is _early_guard.Category.CROSS_CUSTOMER_DATA and not others
@@ -1737,12 +1744,12 @@ async def _copilot_json(
                 _found.last_refusal = verdict.category.value
                 _refusal_state.STORE.put(_found)
             return {"request_id": request_id, "intent": GUARDRAIL_BLOCKED, "case_id": None, "applicant_id": None,
-                    "answer": _early_guard.refusal(verdict.category), "category": "UNSUPPORTED",
+                    "answer": _early_guard.refusal(verdict.category, verdict.rule), "category": "UNSUPPORTED",
                     "query_type": "CLARIFICATION", "response_source": "GUARDRAIL", "documents": [], "actions": [],
                     "tools_invoked": [], "suggested_questions": [],
                     "guardrail": {"stage": "input", "action": "BLOCKED", "category": verdict.category.value},
                     "errors": [{"code": "REQUEST_NOT_ALLOWED",
-                                "message": _early_guard.refusal(verdict.category)}]}
+                                "message": _early_guard.refusal(verdict.category, verdict.rule)}]}
 
     # VAGUE / ONE-WORD MESSAGES (owner decision A; capabilities/vague.py): a pending option list is answered by the
     # pick (or the most likely option on a second vague message) BEFORE chat case creation, so "Create a new case"
@@ -1825,7 +1832,11 @@ async def _copilot_json(
 
         if _vague.enabled():
             _vstate = _vg._state(claims, payload.context)
-            if (_vague.is_vague(message) and not _vague.waits_for(message, _vstate, claims, payload.context)
+            names_party = bool(getattr(payload, "co_applicant_id", None) or getattr(payload, "party_id", None))
+            # a request that NAMES a party (co_applicant_id / party_id) goes through the party authorization first:
+            # never answered by a follow-up question before that check can refuse it
+            if (not names_party and _vague.is_vague(message)
+                    and not _vague.waits_for(message, _vstate, claims, payload.context)
                     and not _vague.names_a_case(message, claims)):
                 _open = bool(_vstate.active_case_id or payload.case_id)
                 read = _vague.contextual(message, _vstate, _open)
