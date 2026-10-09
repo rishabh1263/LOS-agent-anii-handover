@@ -172,3 +172,42 @@ def test_status_names_a_document_type_once():
 
     src = open(answer.__file__, encoding="utf-8").read()
     assert "named.count(n)" in src                     # "PAN (2)", never "PAN, PAN"
+
+
+def test_a_passed_name_keeps_its_values_for_the_record():
+    from app.store import ingest
+
+    kept = ingest._kyc_field({"field": "NAME", "status": "PASS", "sources": [
+        {"document_type": "PAN", "value": "RISHABH SINGH"}, {"document_type": "BANK_STATEMENT", "value": "RISHABH SINGH"}]})
+    assert [s["value"] for s in kept["sources"]] == ["RISHABH SINGH", "RISHABH SINGH"]
+    dob = ingest._kyc_field({"field": "DATE_OF_BIRTH", "status": "PASS", "sources": [
+        {"document_type": "PAN", "value": "1990-01-01"}]})
+    assert "value" not in dob["sources"][0]                  # only the NAME keeps values on a pass
+
+
+def _name_repo(form_name):
+    finding = SimpleNamespace(party_id=None, status="PASS", reason_codes=[], payload={"fields": [
+        {"field": "NAME", "status": "PASS", "sources": [{"document_type": "PAN", "value": "RISHABH SINGH"},
+                                                        {"document_type": "BANK_STATEMENT", "value": "RISHABH SINGH"}]}]})
+    return SimpleNamespace(
+        get_current_findings=lambda case_id, kind=None: [finding] if kind in (None, "KYC") else [],
+        list_documents=lambda case_id: [],
+        get_application=lambda case_id: SimpleNamespace(applicant_id="APP-1", co_applicant_id=None, product="PERSONAL_LOAN"),
+        get_applicant=lambda applicant_id: SimpleNamespace(full_name=form_name))
+
+
+def test_a_case_level_passed_name_is_the_primary_applicants():
+    from app.agents.los import co_applicants
+
+    assert co_applicants.verified_name("CASE-1", "APP-1", _name_repo(None), primary=True) == "RISHABH SINGH"
+    assert co_applicants.verified_name("CASE-1", "APP-1", _name_repo(None)) is None   # a named party: its own only
+
+
+@pytest.mark.parametrize("form, said", [("Rishabh Singh", "Saved on the application"),
+                                        ("E2E Applicant", 'form says "E2E Applicant"')])
+def test_the_reply_names_the_verified_name(monkeypatch, form, said):
+    from app.agents.applicant.copilot.answering import document_actions
+
+    view = document_actions.build("CASE-1", repository=_name_repo(form))
+    text = document_actions.render(view, "en")["answer"]
+    assert "Name verified: **RISHABH SINGH** (matches on PAN, Bank Statement)" in text and said in text

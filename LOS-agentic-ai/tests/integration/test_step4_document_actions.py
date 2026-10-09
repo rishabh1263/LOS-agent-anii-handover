@@ -35,7 +35,9 @@ def mismatch_case(client):
     return a, c
 
 
-def test_flag_off_the_answer_is_unchanged(client, mismatch_case):
+def test_flag_off_the_answer_is_unchanged(client, mismatch_case, monkeypatch):
+    # the Phase 3 flags ship ON (config): OFF is set here, as the test's own subject
+    monkeypatch.setenv(document_actions.FLAG, "false")
     body = ask(client, *mismatch_case, "what is pending?")
     assert "Please upload the correct documents" not in body["answer"]
     assert "document_actions" not in body["presentation"]
@@ -50,7 +52,8 @@ def test_only_documents_needing_action_with_exact_mismatch_values(client, mismat
     assert "📄 PAN [Upload]" in answer and "📄 Driving Licence [Upload]" in answer
     assert "Still pending:" in answer and "Bank Statement" in answer
     view = body["presentation"]["document_actions"]
-    assert {r["document_type"] for r in view["pending"]} == {"BANK_STATEMENT"}
+    # SIGNATURE is mandatory for every product (owner 2026-10-09), so it is pending beside the bank statement
+    assert {r["document_type"] for r in view["pending"]} == {"BANK_STATEMENT", "SIGNATURE"}
     assert all(r["action"]["type"] == "UPLOAD_DOCUMENT" for r in view["reupload"] + view["pending"])
     assert view["emphasis"] and view["emphasis"][0] == "Name"
 

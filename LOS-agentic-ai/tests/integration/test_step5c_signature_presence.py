@@ -169,8 +169,11 @@ def test_a_missing_or_bad_activation_date_is_reported(monkeypatch, raw):
 
 
 def test_the_shipped_config_has_no_activation_date():
+    # the owner switched the signature rule on 2026-10-08 (applicant_agent.yaml activation_date): cases created
+    # before it are grandfathered, so the shipped date is exactly that day
     agent_config.reload()
-    assert agent_config.signature_activation()[0] is None
+    activated = agent_config.signature_activation()[0]
+    assert activated is not None and activated.date().isoformat() == "2026-10-08"
 
 
 # ---- readiness ---------------------------------------------------------------------------------

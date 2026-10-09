@@ -251,7 +251,7 @@ def _persist(result: dict[str, Any]) -> dict[str, Any] | None:
 
             applicant_now = repository.get_applicant(applicant_id)
             if applicant_now is not None and not (applicant_now.full_name or "").strip():
-                verified = _co_name.verified_name(case_id, applicant_id, repository)
+                verified = _co_name.verified_name(case_id, applicant_id, repository, primary=True)
                 if verified:
                     applicant_now.full_name = verified
                     repository.save_applicant(applicant_now)
@@ -338,7 +338,11 @@ def _kyc_field(field: dict) -> dict:
     """
     kept = {k: field[k] for k in _KYC_FIELD_KEYS if k in field}
 
-    if str(field.get("status") or "").upper() == "FAIL":
+    # A PASSED NAME keeps its values too (owner 2026-10-09: "PAN and bank statement name match -> store that name"):
+    # the verified name is what fills the applicant / co-applicant record and what the chatbot names as verified
+    keep_values = str(field.get("status") or "").upper() == "FAIL" or (
+        str(field.get("field") or "").upper() == "NAME" and str(field.get("status") or "").upper() == "PASS")
+    if keep_values:
         sources = [
             {k: s[k] for k in _KYC_SOURCE_KEYS if s.get(k) is not None}
             for s in (field.get("sources") or [])

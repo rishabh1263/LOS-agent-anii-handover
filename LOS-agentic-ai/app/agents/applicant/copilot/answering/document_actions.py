@@ -43,6 +43,10 @@ _EN = {
     "docact_kyc_status_heading": "KYC:",
     "docact_kyc_other_checks": "Other checks: {checks}",
     "docact_kyc_field_PASS": "{field} matches",
+    "docact_kyc_name_verified": "✅ Name verified: **{name}** (matches on {documents}).",
+    "docact_kyc_name_verified_saved": "✅ Name verified: **{name}** (matches on {documents}). Saved on the application.",
+    "docact_kyc_name_verified_differs": "✅ Name verified: **{name}** (matches on {documents}). The application form says "
+                                        "\"{form}\" -- correct the form if it is wrong.",
     "docact_kyc_field_FAIL": "{field} does not match",
     "docact_kyc_field_REVIEW": "{field} needs a review",
     "docact_kyc_field_PARTIAL": "{field} needs a review",
@@ -172,7 +176,22 @@ def build(case_id: str, *, party: str | None = None, repository: Any = None) -> 
             name = str((field or {}).get("field") or "").upper()
             status = str((field or {}).get("status") or "").upper()
             if name in _KYC_FIELDS:
-                kyc_fields.append({"party": role, "field": name, "status": status or "MISSING"})
+                row = {"party": role, "field": name, "status": status or "MISSING"}
+                if name == "NAME" and status == "PASS":
+                    # THE VERIFIED NAME and the documents it matched on (PAN spelling first), for "Name matches: X"
+                    srcs = [s for s in field.get("sources") or [] if isinstance(s, dict) and s.get("document_type")]
+                    pan = [s for s in srcs if str(s.get("document_type")).upper() == "PAN" and s.get("value")]
+                    valued = pan or [s for s in srcs if s.get("value")]
+                    row["value"] = str(valued[0]["value"]).strip() if valued else None
+                    row["documents"] = list(dict.fromkeys(_readable(s["document_type"]) for s in srcs))
+                    if role == "PRIMARY_APPLICANT":
+                        try:                         # the name on the record, to say "saved" only when it is
+                            application = repository.get_application(case_id)
+                            person = repository.get_applicant(application.applicant_id) if application else None
+                            row["on_form"] = str(getattr(person, "full_name", "") or "").strip() or None
+                        except Exception:  # noqa: BLE001 - unknown: neither "saved" nor "differs" is claimed
+                            row["on_form"] = None
+                kyc_fields.append(row)
             if name not in _KYC_FIELDS or status not in ("FAIL", "REVIEW", "PARTIAL"):
                 continue
             sources = [s for s in field.get("sources") or [] if isinstance(s, dict) and s.get("document_type")]
@@ -286,6 +305,17 @@ def render(view: dict[str, Any], language: str | None = None) -> dict[str, Any]:
                 others.append(_t(key, language, field=label))
             if others:
                 lines.append(_t("docact_kyc_other_checks", language, checks=" · ".join(dict.fromkeys(others))))
+    # THE VERIFIED NAME, said whenever KYC passed the name check (owner 2026-10-09): the name and the documents it
+    # matched on -- this is the name stored on the record
+    for f in view.get("kyc_fields") or []:
+        if f["field"] == "NAME" and f["status"] == "PASS" and f.get("value"):
+            whose = f"{_ROLE_LABEL.get(f['party'], f['party'])}: " if two else ""
+            on_form = f.get("on_form")
+            same = bool(on_form) and " ".join(on_form.upper().split()) == " ".join(f["value"].upper().split())
+            key = ("docact_kyc_name_verified_saved" if same else
+                   "docact_kyc_name_verified_differs" if on_form else "docact_kyc_name_verified")
+            lines.append(whose + _t(key, language, name=f["value"], form=on_form or "",
+                                    documents=", ".join(f.get("documents") or []) or "-"))
     upload = _t("docact_upload", language)
     if view["reupload"]:
         lines.append(_t("docact_reupload_heading", language))

@@ -1831,3 +1831,12 @@ single-chat Hinglish conversation, real Qwen + nomic, production flags, in-proce
   posts multipart to `post_to` (fosCopilot.uploadFromAction) / show_in_ui navigates. VITE_CHAT_LEGACY_QUERY=true keeps
   the old /copilot/query route. Files: runtime/chatbot/api/fosCopilot.ts, hooks/useChatbot.ts (appendAssistant,
   uploadForAction), builders/chatbot/components/{ChatPanel,ChatMessages,MessageBubble}.tsx. tsc: no new errors.
+- VERIFIED NAME (owner: "PAN and bank statement name match -> store it, cross-check, mention"): KYC already compares
+  the name across PAN / Bank Statement / DL / Voter ID / Passport / Salary slip / ITR (kyc_policies.yaml). Two bugs
+  kept the name from ever being stored: (1) ingest kept field VALUES only for a FAILED field -> a PASSED NAME now keeps
+  its values (ingest._kyc_field); (2) verified_name looked for the applicant's party_id but the KYC record is
+  case-level -> `primary=True` reads it (co_applicants.verified_name). The applicant with no name is filled; a typed
+  name is never overwritten. Reply (document_actions): "✅ Name verified: **X** (matches on PAN, Bank Statement).
+  Saved on the application." -- or "The application form says "Y" -- correct the form if it is wrong." when they
+  differ. Applies to KYC runs from now on (older records never kept the passed values).
+- Tests updated to owner rules: step4 pending incl. SIGNATURE; step5c activation date 2026-10-08.
