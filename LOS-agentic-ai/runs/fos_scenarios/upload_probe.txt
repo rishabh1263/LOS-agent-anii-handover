@@ -1,0 +1,42 @@
+
+## typed 'open CASE-2D3A65220526' -> 200
+CASE-2D3A65220526 · Rahul Sharma · FOS (Field Officer Sales)
+PAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Rahul Sharma's KYC (Know Your Customer) hasn't run yet.
+Next step: Upload the PAN.
+
+[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)
+
+[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Address Proof](action:upload?doc=ADDRESS_PROOF&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)
+
+[Close](action:exit_case)
+
+UPLOAD LINKS ON OPEN: ['action:upload?doc=PAN&party=applicant', 'action:upload?doc=ADDRESS_PROOF&party=applicant', 'action:upload?doc=BANK_STATEMENT&party=applicant', 'action:upload?doc=SIGNATURE&party=applicant']
+
+## tap action:upload?doc=PAN&party=applicant -> 200 {'type': 'upload', 'document_type': 'PAN', 'party': 'applicant', 'post_to': '/api/v1/fos/copilot?chat_id=up'}
+
+## multipart upload PAN -> 200
+This looks like the applicant's PAN. Filed under Applicant > PAN. It needs a review.
+PAN uploaded; it needs a review. The signature caption could not be read on this document. This could not be established as a PAN card: too little of what a PAN card prints was found. It needs to be reviewed. It did not pass verification, so no details were read and KYC was not run.
+
+- [Why is the PAN under review?](ask:Why%20is%20the%20PAN%20under%20review?)
+- [What can be used as address proof?](ask:What%20can%20be%20used%20as%20address%20proof?)
+
+[Close](action:exit_case)
+
+## typed 'what is pending' -> 200
+CASE-2D3A65220526
+Please upload the correct documents:
+- **PAN** (Permanent Account Number) — The signature caption could not be read on this document.
+Still pending:
+- **Address Proof**
+- Bank Statement
+- Signature
+
+**Next step:** Clear these to move the case to CPA.
+
+[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Address Proof](action:upload?doc=ADDRESS_PROOF&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)
+
+- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)
+- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)
+
+[Close](action:exit_case)

@@ -1,0 +1,9 @@
+This looks like the applicant's PAN. Filed under Applicant > PAN. It needs a review.
+PAN uploaded; it needs a review. The signature caption could not be read on this document. This could not be established as a PAN card: too little of what a PAN card prints was found. It needs to be reviewed. It did not pass verification, so no details were read and KYC was not run.
+
+[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Address Proof](action:upload?doc=ADDRESS_PROOF&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)
+
+- [Why is the PAN under review?](ask:Why%20is%20the%20PAN%20under%20review?)
+- [What can be used as address proof?](ask:What%20can%20be%20used%20as%20address%20proof?)
+
+[Close](action:exit_case)

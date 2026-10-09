@@ -660,6 +660,8 @@ which_case:
 # pending, not run, failed or in review.
 case_brief:
   max_suggestions: 2
+  # Upload buttons on the opened case: every pending / re-upload document (0 = all), re-uploads first
+  upload_links: 0
   # the documents KYC reads, per party: when these are pending, KYC "has not run BECAUSE they are not uploaded"
   kyc_documents: [PAN, AADHAAR, AADHAR, PASSPORT, VOTER_ID, DRIVING_LICENCE, ADDRESS_PROOF]
   texts:
@@ -725,6 +727,12 @@ link_policy:
   # ... but not on these replies (the case was just closed / a list is shown)
   always_on_case_not_on: [CASE_LIST, CASE_EXITED, EXIT_CASE, WORKSPACE_EXIT, CASE_CLOSED]
   no_repeat: true              # a link shown in the previous reply of the chat is not shown again
+  # UPLOAD buttons are the actions themselves (owner 2026-10-09: "if anything is pending it should give upload"): one
+  # per pending / re-upload document, outside the max_items budget; never for a document the system could not identify
+  uploads_outside_budget: true
+  never_upload: [UNKNOWN, UNIDENTIFIED]
+  # these replies always end with the Upload buttons of every document still pending / to re-upload
+  pending_uploads_on: [UPLOAD_DOCUMENT, DOCUMENTS_UPLOADED]
   download_label: { en: "Download:", hi-Latn: "Download:", hi: "डाउनलोड:", mr: "डाउनलोड:" }
 
 # ---- the frontend's routes for the UI actions (FINAL FIX D): POST /api/v1/fos/action answers show_in_ui /

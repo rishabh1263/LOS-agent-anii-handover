@@ -141,7 +141,7 @@ intents:
     kind: case
     description: What has happened on the case so far (timeline, events, uploads).
     canonical: "What happened on this case?"
-    examples: [what happened on this case, case history, timeline of this case, what changed recently, show the activity]
+    examples: [what has happened so far, show the timeline, history of this file, activity on this case, what all happened on this application, what happened on this case, case history, timeline of this case, what changed recently, show the activity]
   query_status:
     kind: case
     description: The queries raised on the case and their status.
@@ -246,7 +246,7 @@ intents:
   credit_decision:
     kind: decision
     description: Asking the bot to approve, reject or predict a credit decision.
-    examples: [will this loan get approved, approve this loan, should I reject this customer, will the customer get the loan,
+    examples: [approve it, approve this case, will credit sanction this, reject this application, should I reject this, can you approve the loan, sanction it, will this get approved, will this loan get approved, approve this loan, should I reject this customer, will the customer get the loan,
                can you sanction it]
   calculator:
     kind: calculator
@@ -283,3 +283,5 @@ decide:
   general_kinds: [knowledge, process, policy]
   # a CLEAR LEAD is accepted without the model too: "which papers r still missing" (0.76, next 0.62) is pending
   accept_with_lead: { score: 0.72, margin: 0.10 }
+  # case open, the model could not choose: the best case reading when at least this (else the old rules)
+  fallback_accept: 0.70

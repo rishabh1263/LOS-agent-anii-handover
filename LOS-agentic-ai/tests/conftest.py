@@ -236,6 +236,7 @@ def llm_router_off_by_default(monkeypatch):
     # meaning (embedding + chooser) and the general-knowledge model answer: off in the suite (tests opt in with fakes)
     monkeypatch.setenv("COPILOT_MEANING", "false")
     monkeypatch.setenv("COPILOT_GENERAL_LLM", "false")
+    monkeypatch.setenv("COPILOT_POLISH", "false")         # the reply polish calls the model: off in the suite
     monkeypatch.setenv("EMBEDDING_PROVIDER", "hashing")
     monkeypatch.delenv("COPILOT_UNDERSTANDING_LLM", raising=False)
     from app.agents.applicant.copilot import agent as _agent

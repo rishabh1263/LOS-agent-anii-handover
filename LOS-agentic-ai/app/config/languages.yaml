@@ -1004,6 +1004,7 @@ templates:
     mr: "सह-अर्जदार"
   # Documents that need action (answering/document_actions.py; COPILOT_DOCUMENT_ACTIONS)
   docact_kyc_heading:
+    en: "KYC needs attention:"          # the officer's voice (2026-10-09), not "Your KYC ..."
     hi: "आपके KYC सत्यापन पर ध्यान देना ज़रूरी है:"
     hi-Latn: "Aapke KYC verification par dhyan dena zaroori hai:"
     mr: "तुमच्या KYC पडताळणीकडे लक्ष देणे आवश्यक आहे:"

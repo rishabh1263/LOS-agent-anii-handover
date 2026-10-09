@@ -1239,7 +1239,10 @@ async def copilot(
             # INSIDE AN OPENED CASE (6-MVP): the "📍 CASE-xxx" line goes first, after every rewrite above
             from app.agents.applicant.copilot.capabilities import workspace as _ws_header
 
-            published = _ws_header.in_case_header(published)
+            from app.agents.applicant.copilot.capabilities import general as _hdr_general
+
+            published = _ws_header.in_case_header(
+                published, _hdr_general._state(claims, getattr(request.state, "copilot_context", None)))
             # THE 1-2 KEY WORDS, BOLD (COPILOT_EMPHASIS, default off; answering/emphasis.py):
             # emphasis + answer_markdown + clean answer_plain; `answer` itself unchanged
             from app.agents.applicant.copilot.answering import emphasis as _emphasis
@@ -1300,7 +1303,11 @@ async def copilot(
 
             published = _stage_note.stage_move_note(published,
                                                     str(getattr(request.state, "copilot_message", "") or ""))
-            return _published_reply(request, _professional.apply(_sensitivity.mask_payload(published)))
+            # REPLY POLISH (answering/polish.py): the model may REWORD the prose answer -- checked, else unchanged
+            from app.agents.applicant.copilot.answering import polish as _polish
+
+            published = await _polish.apply(_professional.apply(_sensitivity.mask_payload(published)))
+            return _published_reply(request, published)
         return _published_reply(request, published)
     except HTTPException:
         raise
@@ -1421,7 +1428,24 @@ def _attach_next_step_upload(reply: dict[str, Any]) -> None:
     Upload link of the document the answer names (the case's own document actions; re-upload rows first), the same
     rule as the case brief. Nothing is added when the answer names no actionable document.
     """
-    if str(reply.get("intent") or "") != "NEXT_ACTION" or reply.get("document_actions") or not reply.get("case_id"):
+    from app.agents.applicant.copilot.capabilities import product_flow as _pu_flow
+
+    intent = str(reply.get("intent") or "")
+    every = {str(i) for i in (_pu_flow.cfg().get("link_policy") or {}).get("pending_uploads_on") or []}
+    if intent in every and reply.get("case_id") and not reply.get("document_actions"):
+        # after an upload (config link_policy.pending_uploads_on): what is STILL pending / needs a re-upload, each as
+        # its Upload button -- the officer goes straight on to the next document
+        try:
+            from app.agents.applicant.copilot.answering import document_actions as _pu_da
+
+            view = _pu_da.build(str(reply["case_id"]))
+        except Exception:  # noqa: BLE001 - the buttons are a convenience; the answer stands without them
+            return
+        if view.get("reupload") or view.get("pending"):
+            reply["document_actions"] = {"reupload": list(view.get("reupload") or []),
+                                         "pending": list(view.get("pending") or [])}
+        return
+    if intent != "NEXT_ACTION" or reply.get("document_actions") or not reply.get("case_id"):
         return
     try:
         from app.agents.applicant.copilot.answering import document_actions as _next_da
@@ -1838,7 +1862,11 @@ async def _copilot_json(
 
             _cp_app = _cp_repo().get_application(_cp_case) if _cp_case else None
             if _cp_app is not None and not getattr(_cp_app, "co_applicant_id", None):
-                decision.canonical = None
+                from app.agents.applicant.copilot.capabilities import general as _cp_general
+
+                return _cp_general._reply(request_id, "NO_CO_APPLICANT", _cp_general._say_text(
+                    (_cp_general.cfg().get("texts") or {}).get("no_co_applicant"), "en", case_id=_cp_case),
+                    case_id=_cp_case, query_type="CONVERSATION")
         if decision is not None and decision.kind == "list" and decision.canonical:
             # "kis applicant par pehle kaam karu": the case list's own priority order -- the workspace answers it
             message = decision.canonical
@@ -2042,7 +2070,10 @@ async def _copilot_json(
     if picked is not None and isinstance(result, dict):
         # THE CASE ANSWERED FOR IS NAMED, since the user did not name it
         result["case_resolved_from_applicant"] = True
-        result["answer"] = f"For application {case_id}: {str(result.get('answer') or '').lstrip()}"
+        from app.agents.applicant.copilot.answering import contract as _named_contract
+
+        prefix = str((_named_contract.cfg().get("style") or {}).get("resolved_case_prefix") or "{case_id}: ")
+        result["answer"] = prefix.format(case_id=case_id) + str(result.get("answer") or "").lstrip()
     if ws_turn is not None:
         result = _ws.decorate(result, ws_turn)
     return result

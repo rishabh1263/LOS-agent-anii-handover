@@ -139,3 +139,41 @@ def test_the_next_step_carries_its_upload_link(client, prod):
     say(client, f"open {c1}")
     md = say(client, "what should I do next?")
     assert "Next step" in md and "(action:upload?doc=" in md
+
+
+# ---- upload actions (owner 2026-10-09: "after opening a case it should allow upload; pending -> upload action") ----
+def test_an_opened_case_offers_an_upload_button_for_every_pending_document(client, prod):
+    import re
+
+    _, c1 = make_case(client, "Rahul Sharma")
+    md = say(client, f"open {c1}", chat="up-open")
+    docs = re.findall(r"\(action:upload\?doc=([A-Z_]+)", md)
+    assert {"PAN", "ADDRESS_PROOF", "BANK_STATEMENT", "SIGNATURE"} <= set(docs), md
+
+
+def test_the_upload_link_and_the_upload_itself_work_and_the_reply_offers_whats_left(client, prod):
+    import re
+    from pathlib import Path
+
+    _, c1 = make_case(client, "Rahul Sharma")
+    md = say(client, f"open {c1}", chat="up-flow")
+    href = re.search(r"\((action:upload\?doc=PAN[^)]*)\)", md).group(1)
+    tapped = client.post("/api/v1/fos/action", json={"href": href, "chat_id": "up-flow"}).json()
+    assert tapped["type"] == "upload" and tapped["document_type"] == "PAN"
+    image = (Path(__file__).resolve().parents[2] / "samples" / "documents" / "pandemo.png").read_bytes()
+    r = client.post(tapped["post_to"], data={"action": "UPLOAD_DOCUMENT", "chat_id": "up-flow", "document_types": "PAN"},
+                    files={"files": ("pandemo.png", image, "image/png")})
+    assert r.status_code == 200
+    after = r.json()["markdown"]
+    assert "PAN" in after and "(action:upload?doc=SIGNATURE" in after     # what is still pending, as buttons
+
+
+def test_no_upload_button_for_an_unidentified_document(client, prod):
+    import io
+
+    _, c1 = make_case(client, "Rahul Sharma")
+    say(client, f"open {c1}", chat="up-unk")
+    client.post("/api/v1/fos/copilot?chat_id=up-unk", data={"action": "UPLOAD_DOCUMENT", "chat_id": "up-unk"},
+                files={"files": ("x.png", io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"0" * 64), "image/png")})
+    md = say(client, "what is pending", chat="up-unk")
+    assert "doc=UNKNOWN" not in md and "(action:upload?doc=PAN" in md

@@ -263,9 +263,12 @@ def _action_links(reply: dict[str, Any], lang: str) -> list[str]:
             out.append(link("new_case", lang))
     da = reply.get("document_actions") if isinstance(reply.get("document_actions"), dict) else {}
     party_of = {"PRIMARY_APPLICANT": "applicant", "APPLICANT": "applicant", "CO_APPLICANT": "co_applicant"}
+    never_upload = {str(d).upper() for d in _policy().get("never_upload") or []}
     for row in (da.get("reupload") or []) + (da.get("pending") or []):
         if isinstance(row, dict) and (row.get("document_type") or row.get("slot")):
             doc = row.get("document_type") or row.get("slot")
+            if str(doc).upper() in never_upload:
+                continue                         # "Upload Unidentified document" is not an action
             out.append(link("upload", lang, doc=doc, party=party_of.get(str(row.get("party") or "").upper(),
                                                                            "applicant"),
                             doc_label=row.get("label") or doc))
@@ -389,12 +392,21 @@ def _render(reply: dict[str, Any], previous: set[str] | None = None) -> tuple[st
             repeat_ok or not all(t in shown_before for t in targets))
 
     budget = int(policy.get("max_items", 3))     # the flow question's own options (faq_block) are its answers
-    items = [i for i in dict.fromkeys([ln for ln in _action_links(reply, lang) if ln not in text]
-                                      + _case_items(reply, lang)) if fresh(i)][:max(budget, 0)]
+    candidates = [i for i in dict.fromkeys([ln for ln in _action_links(reply, lang) if ln not in text]
+                                           + _case_items(reply, lang)) if fresh(i)]
+    if policy.get("uploads_outside_budget"):
+        # UPLOAD buttons are the actions themselves: every one shown, outside the budget (they count as one item)
+        uploads = [i for i in candidates if "(action:upload?" in i]
+        others = [i for i in candidates if "(action:upload?" not in i][:max(budget, 0)]
+        items = uploads + others
+        used = len(others) + (1 if uploads else 0)
+    else:
+        items = candidates[:max(budget, 0)]
+        used = len(items)
     if items:
         label = str(_pick((cfg().get("markdown") or {}).get("actions_label") or "", lang) or "")
         blocks.append(((label + "\n") if label else "") + " · ".join(items))
-    budget -= len(items)
+    budget -= used
     if not options and not faq_block and budget > 0:
         limit = min(int((cfg().get("markdown") or {}).get("max_suggestions", 3)), budget)
         asked = [q for q in reply.get("suggested_questions") or [] if isinstance(q, str) and q.strip()]
