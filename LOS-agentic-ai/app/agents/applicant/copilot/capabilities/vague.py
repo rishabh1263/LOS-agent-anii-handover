@@ -55,6 +55,24 @@ def is_command(message: str, case_open: bool = False) -> bool:
                                    and bool(wanted.filter or wanted.sort or wanted.size))
 
 
+_KNOWN: dict[str, Any] = {}
+
+
+def _known_words() -> set[str]:
+    """Every word of the intent examples / paraphrases, the document aliases and the vague config (cached)."""
+    from app.agents.applicant.copilot.semantics import meaning
+
+    cat, para = meaning.catalogue(), meaning._load("intent_paraphrases.yaml")
+    key = (id(cat), id(para))
+    if _KNOWN.get("key") != key:
+        texts = [str(e) for spec in (cat.get("intents") or {}).values() for e in spec.get("examples") or []]
+        texts += [str(e) for items in (para.get("paraphrases") or {}).values() for e in items or []]
+        texts += [alias for alias, _ in meaning._documents()]
+        texts += [str(w) for w in _cfg().get("known_words") or []]
+        _KNOWN.update(key=key, words={w for t in texts for w in _words(t)})
+    return _KNOWN["words"]
+
+
 def is_vague(message: str) -> bool:
     """A fragment: at most `max_words` words, not a pick / yes / no / greeting / thanks (config `not_vague`)."""
     words = _words(message)
@@ -80,7 +98,9 @@ def is_vague(message: str) -> bool:
     if wanted is not None and not wanted.sort and _NUMBER.search(said):
         return True                                  # "top 2": top by what? -- needing action / latest / oldest
     if len(words) == 1:
-        return True
+        # a ONE word the system knows (an intent example's word, a document alias, a configured phrase); gibberish
+        # ("asdfghjkl") is not vague -- the "didn't understand" clarification answers it
+        return words[0] in _known_words()
     from app.agents.applicant.copilot.semantics import meaning
 
     asked = {str(w).lower() for w in _cfg().get("document_question_words") or []}
@@ -93,6 +113,17 @@ def is_vague(message: str) -> bool:
         return False
     accept = float((meaning.catalogue().get("decide") or {})["accept"])
     return bool(ranked) and ranked[0][1] < accept
+
+
+def names_a_case(message: str, claims) -> bool:
+    """ "Priya Verma" / "Rahul": the applicant name of one of the caller's OWN cases -- the workspace selects it."""
+    from app.agents.applicant.copilot.capabilities import workspace
+
+    try:
+        found = workspace._by_name(message, workspace.my_cases(claims))
+    except Exception:  # noqa: BLE001 - no case list: not a name
+        return False
+    return bool(found.application or found.candidates)
 
 
 def waits_for(message: str, state, claims, context) -> bool:
@@ -259,6 +290,56 @@ def _no_case_options(message: str) -> list[str]:
     return [str(t) for t in _cfg().get("no_case_defaults") or []][:4]
 
 
+def contextual(message: str, state, case_open: bool) -> str | None:
+    """
+    A FRAGMENT READ IN CONTEXT (owner 2026-10-09; config `vague.contextual`): the one interpretation the conversation
+    supports, as the question to answer for the OPEN case (its data is read fresh by the engine, never taken from the
+    conversation), or None -> the follow-up question with options.
+      1. the previous question of this chat (meaning's last_meaning) is one of the fragment's readings -- in the
+         fragment's topic (config case_topics) or among its top-ranked intents: that question again, with its
+         document / party ("docs" after "what is pending" -> pending; after "is PAN verified" -> the PAN's status;
+         after a switch -> the same question for the applicant now open);
+      2. "upload" with a document in context -> that document's upload option;
+      3. the fragment alone has ONE clear reading (meaning's accept_with_lead) -> that question.
+    No case open: None (what to do is asked).
+    """
+    spec = _cfg().get("contextual") or {}
+    if not spec.get("enabled") or not case_open:
+        return None
+    from app.agents.applicant.copilot.semantics import meaning
+
+    try:
+        ranked = meaning.rank(message)
+    except Exception:  # noqa: BLE001 - no embedding model: no reading -> the options
+        return None
+    if not ranked:
+        return None
+    intents = meaning.catalogue().get("intents") or {}
+    case_like = [(n, sc) for n, sc in ranked if (intents.get(n) or {}).get("kind") in ("case", "upload")]
+    top_names = [n for n, _ in case_like[:int(spec.get("previous_in_top", 3))]]
+    previous = (getattr(state, "flow", None) or {}).get("last_meaning") or {}
+    prev_intent = previous.get("intent")
+    if "upload_document" in top_names and previous.get("document"):
+        code = _document_code(previous.get("document") or "")
+        if code:
+            return upload_option(previous.get("document") or "", code)
+    topic = next((t.get("intents") or [] for t in _cfg().get("case_topics") or []
+                  if top_names and top_names[0] in (t.get("intents") or [])), [])
+    if prev_intent and (prev_intent in topic or prev_intent in top_names):
+        return meaning._canonical(intents.get(prev_intent) or {}, previous.get("party"), previous.get("document"))
+    lead = (meaning.catalogue().get("decide") or {}).get("accept_with_lead") or {}
+    in_wide_topic = any(case_like and case_like[0][0] in (t.get("intents") or []) and len(t.get("intents") or []) > 1
+                        for t in _cfg().get("case_topics") or [])
+    if lead and case_like and not in_wide_topic:
+        # ONE reading on its own ("kyc", "next"); a topic word with several readings ("docs": pending / uploaded /
+        # verified) is asked unless the conversation chose one above
+        best, score = case_like[0]
+        second = case_like[1][1] if len(case_like) > 1 else 0.0
+        if score >= float(lead["score"]) and score - second >= float(lead["margin"]):
+            return meaning._canonical(intents.get(best) or {}, meaning.party_in(message), meaning.document_in(message))
+    return None
+
+
 def ask(message: str, state, request_id: str, case_open: bool) -> dict[str, Any] | None:
     """The follow-up question with its options (and the options remembered on the chat), or None (< 2 options)."""
     options = _case_options(message) if case_open else _no_case_options(message)
@@ -309,5 +390,5 @@ def resolve(message: str, state, case_open: bool = False) -> str | None:
     return None
 
 
-__all__ = ["ask", "enabled", "is_command", "is_upload", "is_vague", "resolve", "upload_option", "upload_reply",
+__all__ = ["ask", "contextual", "enabled", "is_command", "is_upload", "is_vague", "resolve", "upload_option", "upload_reply",
            "waits_for"]

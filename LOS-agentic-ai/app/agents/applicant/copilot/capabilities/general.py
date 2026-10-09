@@ -489,6 +489,11 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         return _reply(request_id, "POLICY_NOT_CONFIGURED", _say_text((cfg().get("policy") or {}).get("texts", {})
                                                                      .get("generic_not_configured"), lang),
                       case_id=case_id, query_type="PROCESS_KNOWLEDGE")
+    # with a case in scope, "what is THE cibil score" asks for that case's VALUE (the case logic routes it), never the
+    # glossary's definition of CIBIL; "what is CIBIL" stays a definition (config general_question.case_value_patterns)
+    values = (cfg().get("general_question") or {}).get("case_value_patterns") or []
+    if case_id and any(re.search(p, _plain(text)) for p in values):
+        return None
     defined = await _definition(text, request_id, lang, case_id)
     if defined is not None:
         return defined
@@ -574,6 +579,17 @@ async def _knowledge(text: str, request_id: str, lang: str, case_id: str | None)
     return _reply(request_id, "UNKNOWN_TERM", _pick(cfg().get("general_unknown"), lang), case_id=case_id)
 
 
+def _poor_general_answer(answer: str, question: str, spec: dict[str, Any]) -> bool:
+    """Too short, or mostly the question's own words said back ("Policy mein kya requirement hai, depend ke liye
+    lender."): never shown (config general_llm.min_words / max_echo)."""
+    words = re.findall(r"[a-z]+", answer.lower())
+    asked = set(re.findall(r"[a-z]+", question.lower()))
+    if len(words) < int(spec.get("min_words", 8)):
+        return True
+    echo = sum(1 for w in words if w in asked) / max(1, len(words))
+    return echo > float(spec.get("max_echo", 0.4))
+
+
 async def _general_llm(question: str, request_id: str) -> str | None:
     """
     A GENERAL banking / lending question the knowledge base does not hold (Smart Bot plan section 5, type "general"):
@@ -624,7 +640,8 @@ async def _general_llm(question: str, request_id: str) -> str | None:
     said = str(question)
     if (not answer or re.search(r"(?i)\bunknown\b|i('m| am) not sure|i don't know|as an ai", answer)
             or any(d not in said for d in re.findall(r"\d+", answer)) or re.search(r"[₹%]", answer)
-            or re.search(r"(?i)\b(our|we offer|we charge|our bank)\b", answer)):
+            or re.search(r"(?i)\b(our|we offer|we charge|our bank)\b", answer)
+            or _poor_general_answer(answer, said, spec)):
         logger_general.info("general_llm rejected: %s", answer[:120])
         GENERAL_LLM_STATS["rejected"] += 1
         return None

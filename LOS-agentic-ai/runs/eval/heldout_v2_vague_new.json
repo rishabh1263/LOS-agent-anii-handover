@@ -1,0 +1,290 @@
+{
+ "summary": {
+  "set": "heldout_v2_vague",
+  "label": "new",
+  "total": 30,
+  "correct": 28,
+  "WRONG": 0,
+  "not_available": 0,
+  "clarify": 0,
+  "case": 0,
+  "other_miss": 2,
+  "correct_pct": 93.3,
+  "p50_ms": 8227.8,
+  "p95_ms": 9342.2,
+  "model_pct": 0.0,
+  "min_free_ram_gb": 4.79
+ },
+ "rows": [
+  {
+   "id": "V001",
+   "q": "docs",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8218.5,
+   "model": false,
+   "reply": "What would you like to know about docs? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V002",
+   "q": "kyc",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8120.8,
+   "model": false,
+   "reply": "What would you like to know about kyc? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V003",
+   "q": "status",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8229.3,
+   "model": false,
+   "reply": "What would you like to know about status? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V004",
+   "q": "pending",
+   "expect": "options",
+   "result": "correct",
+   "ms": 4281.3,
+   "model": false,
+   "reply": "What would you like to know about **pending**? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V005",
+   "q": "co-applicant",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8222.4,
+   "model": false,
+   "reply": "What would you like to know about co-applicant? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V006",
+   "q": "pan",
+   "expect": "options",
+   "result": "no_options",
+   "ms": 8226.4,
+   "model": false,
+   "reply": "What would you like to know about pan? 1. [Upload PAN (Permanent Account Number)](action:upload?doc=PAN&party=applicant) 2. [What is pending?](ask:What%20is%20pending%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V007",
+   "q": "amount",
+   "expect": "options",
+   "result": "correct",
+   "ms": 7133.1,
+   "model": false,
+   "reply": "What would you like to know about amount? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V008",
+   "q": "cpa",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8249.0,
+   "model": false,
+   "reply": "What would you like to know about cpa? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V009",
+   "q": "name",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8276.1,
+   "model": false,
+   "reply": "What would you like to know about name? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V010",
+   "q": "upload",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8241.6,
+   "model": false,
+   "reply": "What would you like to know about upload? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V011",
+   "q": "case",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8270.7,
+   "model": false,
+   "reply": "What would you like to know about case? 1. [Show my cases](ask:Show%20my%20cases) 2. [Create a new case](ask:Create%20a%20new%20case) 3. [What can you help with?](ask:What%20can%20you%20help%20with%3F)"
+  },
+  {
+   "id": "V012",
+   "q": "top 2",
+   "expect": "options",
+   "result": "correct",
+   "ms": 34.2,
+   "model": false,
+   "reply": "What would you like to know about top 2? 1. [Show the top 2 cases needing action](ask:Show%20the%20top%202%20cases%20needing%20action) 2. [Show the latest 2 cases](ask:Show%20the%20latest%202%20cases) 3. [Show the oldest 2 cases](ask:Show%2"
+  },
+  {
+   "id": "V013",
+   "q": "cases",
+   "expect": "options",
+   "result": "correct",
+   "ms": 6565.5,
+   "model": false,
+   "reply": "What would you like to know about cases? 1. [Show my cases](ask:Show%20my%20cases) 2. [Create a new case](ask:Create%20a%20new%20case) 3. [What can you help with?](ask:What%20can%20you%20help%20with%3F)"
+  },
+  {
+   "id": "V014",
+   "q": "help",
+   "expect": "options",
+   "result": "no_options",
+   "ms": 8216.4,
+   "model": false,
+   "reply": "You can ask me: - **My cases:** [Show my cases](ask:Show%20my%20cases) · [Which cases have a KYC issue?](ask:KYC%20wale%20cases) · [Which cases are ready for CPA?](ask:ready%20wale%20cases) · [Show my oldest cases](ask:sabse%20purane%20case"
+  },
+  {
+   "id": "V015",
+   "q": "query",
+   "expect": "options",
+   "result": "correct",
+   "ms": 6519.1,
+   "model": false,
+   "reply": "What would you like to know about query? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V016",
+   "q": "documents?",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8248.2,
+   "model": false,
+   "reply": "What would you like to know about documents? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V017",
+   "q": "bank statement",
+   "expect": "options",
+   "result": "correct",
+   "ms": 17907.9,
+   "model": false,
+   "reply": "CASE-78D88E7DDADE - Bank statement: A record of all transactions in a bank account over a period; used to check income, obligations and banking habits. Example: the last 6 months' statement of the salary account. **Next step:** Check your s"
+  },
+  {
+   "id": "V018",
+   "q": "next",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8304.8,
+   "model": false,
+   "reply": "CASE-78D88E7DDADE **Next step:** Your next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue. [Upload Signature](action:upload?doc=SIGNATURE&party=applicant) You can ask: - "
+  },
+  {
+   "id": "V019",
+   "q": "signature",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8240.1,
+   "model": false,
+   "reply": "What would you like to know about signature? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) [Close](action:exit_case)"
+  },
+  {
+   "id": "V020",
+   "q": "loan",
+   "expect": "options",
+   "result": "correct",
+   "ms": 8236.4,
+   "model": false,
+   "reply": "What would you like to know about loan? 1. [Show my cases](ask:Show%20my%20cases) 2. [Create a new case](ask:Create%20a%20new%20case) 3. [What can you help with?](ask:What%20can%20you%20help%20with%3F)"
+  },
+  {
+   "id": "V021",
+   "q": "docs -> 1",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 6291.3,
+   "model": false,
+   "reply": "CASE-78D88E7DDADE Your KYC (Know Your Customer) verification needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please uplo"
+  },
+  {
+   "id": "V022",
+   "q": "kyc -> 1",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 8339.3,
+   "model": false,
+   "reply": "CASE-78D88E7DDADE Your KYC (Know Your Customer) verification needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please uplo"
+  },
+  {
+   "id": "V023",
+   "q": "top 2 -> 1",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 61.8,
+   "model": false,
+   "reply": "2 of your cases match (needs action). Showing 1-2 of 2 (newest first). That is the whole list. Do you want to know about a particular case? [Yes](ask:Yes) · [No](ask:No) Download: [Excel](action:download_list?format=xlsx&q=filter:needs_acti"
+  },
+  {
+   "id": "V024",
+   "q": "case -> 1",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 41.6,
+   "model": false,
+   "reply": "You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list. Do you want to know about a particular case? [Yes](ask:Yes) · [No](ask:No) Download: [Excel](a"
+  },
+  {
+   "id": "V025",
+   "q": "status -> 2",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 9342.2,
+   "model": false,
+   "reply": "CASE-78D88E7DDADE - For application CASE-78D88E7DDADE: Rahul Sharma — the application is at Basic Document Verification. Completed: **PAN** (Permanent Account Number), Driving Licence, Bank Statement. **Pending**: Signature has not been upl"
+  },
+  {
+   "id": "V026",
+   "q": "pan -> 1",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 29.6,
+   "model": false,
+   "reply": "Tap below to upload the PAN (Permanent Account Number). [Upload PAN](action:upload?doc=PAN&party=applicant) [Close](action:exit_case)"
+  },
+  {
+   "id": "V027",
+   "q": "docs -> docs",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 8399.4,
+   "model": false,
+   "reply": "CASE-78D88E7DDADE Your KYC (Know Your Customer) verification needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please uplo"
+  },
+  {
+   "id": "V028",
+   "q": "status -> hmm status",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 25882.9,
+   "model": false,
+   "reply": "CASE-78D88E7DDADE - Your application has been created. Signature is still **pending**. **Next step:** Want to see which documents are pending? You can ask: - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [Wh"
+  },
+  {
+   "id": "V029",
+   "q": "kyc -> kyc?",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 8379.2,
+   "model": false,
+   "reply": "CASE-78D88E7DDADE Your KYC (Know Your Customer) verification needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please uplo"
+  },
+  {
+   "id": "V030",
+   "q": "case -> case",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 69.9,
+   "model": false,
+   "reply": "You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list. Do you want to know about a particular case? [Yes](ask:Yes) · [No](ask:No) Download: [Excel](a"
+  }
+ ]
+}

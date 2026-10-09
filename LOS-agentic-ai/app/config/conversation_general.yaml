@@ -185,6 +185,8 @@ general_question:
   case_referents: [this case, is case, iss case, the case, my case, mera case, meri case, this customer, is customer,
                    this loan, is loan, iska, iski, iske, uska, uski, uske, inka, unka, his, her, their, this file,
                    is applicant, this applicant, customer ka, applicant ka]
+  # with a case in scope: a VALUE of that case, never a definition ("what is the CIBIL score" -> routed downstream)
+  case_value_patterns: ['\bthe (\w+ )?(score|amount|income|salary|emi|limit|tenure|rate|value|balance)\b']
   # questions about a case's own data even without "this": the ordinary pipeline asks which case
   case_only: ['^(what is|whats) (pending|missing|the status|status|the stage|my status|left|baaki)\b',
               '\b(status|pending|baaki|baki) (kya|hai|batao)', '^(loan amount|kyc status|stage|status)\b',
@@ -348,6 +350,8 @@ llm_rewrite:
 # "not in the knowledge base". Unknown ALL-CAPS terms (company jargon) are never explained. Only after a knowledge miss.
 general_llm:
   enabled: true
+  min_words: 8          # a shorter model answer is never shown
+  max_echo: 0.4          # more than this share of the answer's words taken from the question: never shown
   timeout_seconds: 8.0
   num_predict: 90
   max_sentences: 3
@@ -387,6 +391,10 @@ vague:
   case_defaults: ["What is pending?", "What is the status of this case?", "What should I do next?"]
   list_with_number: ["Show the top {n} cases needing action", "Show the latest {n} cases", "Show the oldest {n} cases"]
   no_case_defaults: ["Show my cases", "Create a new case", "What can you help with?"]
+  # a fragment READ IN CONTEXT (capabilities/vague.py contextual): the previous question of the chat when it is one
+  # of the fragment's readings (in its topic, or among its `previous_in_top` ranked case intents); else ONE clear
+  # reading alone (intent_catalogue decide.accept_with_lead); else the options below
+  contextual: { enabled: true, previous_in_top: 3 }
   # a case open and no document named: the TOPIC of the word -> that case's questions
   case_topics:
     - intents: [pending_documents, document_status, document_rejection, knowledge_documents, process_upload,
@@ -408,3 +416,15 @@ vague:
       options: ["Show cases ready for CPA", "How do I move a case to CPA?"]
     - intents: [why_stuck, time_in_stage]
       options: ["Show stuck cases", "Show cases needing action"]
+
+# ---- CONVERSATION CONTROL (capabilities/control.py; meanings hold_action / ambiguous_action in intent_catalogue) ----
+control:
+  # what a "hold" drops from the chat: the draft write / move waiting for Confirm, a pending pick or option list
+  held_keys: [write, after_pick, vague, portfolio]
+  hold_dropped: "Okay, I have not done anything. The pending change was dropped, so nothing was written. Tell me when you want to continue."
+  hold_nothing: "Okay, I won't take any action. Nothing was pending, so nothing has changed. Ask me anything about the case."
+  which_action: "What should I do? Pick one:"
+  # only actions this system really performs from chat (collect = the customer list / message, upload link, the gated
+  # move, the readiness check); never a decision
+  action_options: ["Collect from customer", "What is pending?", "Is this case ready for CPA?", "Move to CPA"]
+  action_options_no_case: ["Show the top 5 cases needing action", "Create a new case"]
