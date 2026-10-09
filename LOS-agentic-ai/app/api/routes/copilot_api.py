@@ -30,7 +30,7 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.agents.applicant import language, normalize, routing, sentiment
@@ -1479,13 +1479,22 @@ def _evidence(envelope: dict[str, Any], context) -> dict[str, Any]:
 )
 async def query(
     request: CopilotQueryRequest,
+    http_request: Request,
     claims: dict[str, Any] = Depends(require_jwt),
 ):
     """
-    MASTER SPEC section 8: the answer below, published as {request_id, markdown, tts} (COPILOT_MD_TTS_CONTRACT).
-    The context the reply no longer carries is remembered server-side per (user, chat_id).
+    ONE PIPELINE (Smart Bot plan section 1): with the reply contract on (the default), this endpoint is a THIN WRAPPER
+    over POST /api/v1/fos/copilot -- the same pipeline, the same reply {request_id, markdown, tts}, no logic of its own.
+    The contract switched off (the old full envelope, kept for one release) still answers on the legacy path below.
     """
     from app.agents.applicant.copilot.answering import contract as _contract
+
+    if _contract.enabled():
+        from app.api.routes import fos_api
+
+        http_request._json = _as_fos_body(request)
+        return await fos_api.copilot(http_request, claims)
+
     from app.agents.applicant.copilot.capabilities import abuse_guard as _abuse_guard
     from app.security.auth import get_subject as _chat_subject
 
@@ -1545,6 +1554,18 @@ async def query(
     if isinstance(reply, dict) and isinstance(reply.get("context"), dict):
         _contract.remember(subject, chat_id, reply["context"])
     return _contract.publish(reply, chat_key=(subject, chat_id))
+
+
+def _as_fos_body(request: CopilotQueryRequest) -> dict[str, Any]:
+    """The /fos/copilot request this universal request stands for (a typed message in the same chat)."""
+    body: dict[str, Any] = {"action": "CUSTOM_QUERY", "message": request.message or "",
+                            "chat_id": request.chat_id or request.conversation_id,
+                            "reply_language": request.reply_language or request.language}
+    for name in ("case_id", "applicant_id", "context", "new_chat"):
+        value = getattr(request, name, None)
+        if value not in (None, "", False):
+            body[name] = value
+    return {k: v for k, v in body.items() if v is not None}
 
 
 def _general_allowed(request: CopilotQueryRequest) -> bool:

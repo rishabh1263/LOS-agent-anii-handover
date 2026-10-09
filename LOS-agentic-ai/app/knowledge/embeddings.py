@@ -153,6 +153,12 @@ class OllamaEmbedding(EmbeddingProvider):
     def __init__(self, url: str | None = None, model: str | None = None,
                  dimensions: int | None = None,
                  transport=None, timeout: float | None = None) -> None:
+        # OLLAMA_URL, else the SAME Ollama the app's models use (OLLAMA_HOST via app.llm.config) -- an explicit address,
+        # never an invented default; with neither set, the error below (and the retriever falls back to BM25)
+        if url is None and not os.getenv(ENV_OLLAMA_URL) and os.getenv("OLLAMA_HOST"):
+            from app.llm.config import ollama_host
+
+            url = ollama_host()
         self._url = (url if url is not None
                      else (os.getenv(ENV_OLLAMA_URL) or "")).strip()
         if not self._url:
@@ -165,7 +171,7 @@ class OllamaEmbedding(EmbeddingProvider):
                        or DEFAULT_OLLAMA_MODEL)
         self._transport = transport or _http_post
         self._timeout = float(timeout if timeout is not None
-                              else os.getenv(ENV_TIMEOUT) or DEFAULT_TIMEOUT)
+                              else os.getenv(ENV_TIMEOUT) or _config_timeout() or DEFAULT_TIMEOUT)
 
         configured = dimensions or _int_env(ENV_DIMENSIONS)
         self.dimensions = int(configured) if configured else 0
@@ -271,8 +277,20 @@ def _int_env(name: str) -> int | None:
     return value if value > 0 else None
 
 
+def _config_timeout() -> float | None:
+    """app/config/knowledge.yaml embed_timeout_seconds: one embedding call never holds a chat turn longer."""
+    from app.knowledge import _config
+
+    value = _config().get("embed_timeout_seconds")
+    return float(value) if value else None
+
+
 def provider_name() -> str:
-    return (os.getenv(ENV_PROVIDER) or "hashing").strip().lower()
+    if os.getenv(ENV_PROVIDER):
+        return os.getenv(ENV_PROVIDER, "").strip().lower()
+    from app.knowledge import _config
+
+    return str(_config().get("embedding_provider") or "hashing").strip().lower()
 
 
 #: Per-request embedding stats. The dict is shared into worker threads

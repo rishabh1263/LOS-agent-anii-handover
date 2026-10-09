@@ -225,14 +225,15 @@ def test_import_validates_row_by_row_and_writes_only_on_confirm(client, prod):
 
 
 # ---- FAQ answers, unknown, notifications, login ---------------------------------------------------------------
-def test_how_to_upload_is_numbered_steps_with_a_source(client, prod):
+def test_how_to_upload_is_numbered_steps_without_a_source_label(client, prod):
+    # Smart Bot plan response rules (2026-10-08): no "Source:" / labels in a reply
     md = turn(client, "How do I upload a document?", chat="f1")["markdown"]
-    assert md.startswith("1. ") and "\n2. " in md and "Source:" in md
+    assert md.startswith("1. ") and "\n2. " in md and "Source:" not in md
 
 
 def test_unknown_faq_says_i_dont_know_yet(client, prod):
     md = turn(client, "How do I apply for a credit card for myself?", chat="f2")["markdown"]
-    assert "don't know that yet" in md or "don't have an answer" in md
+    assert "don't know that yet" in md or "don't have an answer" in md or "isn't in the knowledge base" in md
 
 
 def test_notifications_and_greeting(client, prod, monkeypatch):

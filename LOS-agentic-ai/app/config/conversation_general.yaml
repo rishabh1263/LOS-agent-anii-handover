@@ -21,6 +21,9 @@ phrases:
                       kaunse documents, documents for, document list, checklist for, kya documents chahiye,
                       documents chahiye]
   co_applicant: [co-applicant, co applicant, coapplicant, co-applicants, co applicants]
+  # a document question about a CASE's state: the case logic answers it (never the product checklist)
+  case_document_state: [baaki, baki, pending, missing, uploaded, upload hua, upload hue, verify hua, verified, reject,
+                        rejected, atka, atke, bacha, bache, remaining, left, abhi tak]
   # a question about ONE named document is not a request for the product checklist
   one_document: [address proof, id proof, identity proof, income proof, bank statement, salary slip, signature, aadhaar,
                  aadhar, pan, passport, voter, driving licence, driving license, photo, form 16, itr, accepted as]
@@ -96,7 +99,7 @@ texts:
     hi: "लोन राशि भरने के बाद राशि के नियम और दस्तावेज़ जोड़ सकते हैं।"
     mr: "कर्ज रक्कम भरल्यानंतर रकमेचे नियम आणखी कागदपत्रे जोडू शकतात."
   which_product: { en: "For which product?", hi-Latn: "Kis product ke liye?", hi: "किस प्रोडक्ट के लिए?", mr: "कोणत्या प्रॉडक्टसाठी?" }
-  source: { en: "Source: {source}", hi-Latn: "Source: {source}", hi: "स्रोत: {source}", mr: "स्रोत: {source}" }
+  source: { en: "", hi-Latn: "", hi: "", mr: "" }   # Smart Bot plan section 8: no sources in replies (logged internally)
   # process steps: {placeholders} are filled from the live config (never typed facts)
   move_to_cpa:
     en: ["Fill the application form: {fields}.", "Upload the mandatory documents for the product (for {product}: {documents}).",
@@ -160,6 +163,8 @@ fallback:
 
 # unknown terms are logged here for the owner (term, count, last seen -- never case data)
 gaps_file: evals/knowledge_gaps.yaml
+gaps_file_header: ["Terms and questions the chatbot could not answer (general.py). Add them to app/config/glossary.yaml",
+                   "or knowledge/, then remove them here."]
 
 # ---- GENERAL QUESTIONS WITH NO CASE (owner 2026-10-08: "outside a case bhi") ------------------------------------
 # A question SHAPED like general knowledge ("what is / how to / is X mandatory / kya hai / kaise") that points at NO
@@ -202,7 +207,7 @@ general_question:
     - ['^(.+?) (?:kya hai|kya hota hai|kya hoti hai|kya hote hai|kya hote hain|ka matlab|matlab)$', 'what is \1']
     - ['^(.+?) kaun (?:karta|karti|deta|deti|decide karta|decide karti) hai$', 'who \1']
     - ['^(.+?) aur (.+?) (?:mein|me|main) (?:kya )?(?:fark|farak|difference)(?: hai| kya hai)?$', 'difference between \1 and \2']
-    - ['^(.+?) (?:mein|me) (?:kya|kya kya) (?:chalega|chalta hai|chalti hai)$', 'which documents are accepted as \1']
+    - ['^(.+?) (?:mein|me|ke liye|ke liy) (?:kya|kya kya|kaunsa|kaunse|konsa|konse) (?:chalega|chalta hai|chalti hai|de sakte hai|de sakte hain|de sakta hai|de sakte|dena hai|dena hota hai|dein|lagta hai|accept hota hai)$', 'which documents are accepted as \1']
     - ['^(?:loan )?(approve|reject|sanction|decide) kaun (?:karta|karti|karte) (?:hai|hain)$', 'who \1s the loan']
     - ['\bloan (?:ka )?process\b', 'stages of a loan']
   # the knowledge pipeline may phrase with the model (grounded + checked, agent._knowledge_reply)
@@ -274,6 +279,7 @@ policy:
     signature_on: "Yes. A signature is mandatory for every case created on or after {date}; a case without it is not ready for CPA."
     signature_on_undated: "Yes. The mandatory-signature rule is on, but its start date is not configured ({problem}), so the rule cannot be applied yet."
     signature_off: "No. The mandatory-signature rule is off, so a signature is not required to move a case to CPA."
+    generic_not_configured: "That value is set by the lender's policy and is not configured in this system; the credit team can confirm it."
     fees: "No fee or charge amount (processing fee, prepayment or foreclosure charges) is configured in this system. The amounts are stated in the customer's sanction letter."
     turnaround: "No approval time (TAT) is configured in this system. After CPA the case goes through Credit, RCU, BOPS and HOPS before disbursement; your branch can tell you the usual time."
     unavailable: "The eligibility policy is not available right now; the credit team confirms the limits."
@@ -335,3 +341,70 @@ llm_rewrite:
     - ["8 lakh ka 9 percent pe 4 saal ki kist", "What is the EMI for 8 lakh at 9% for 4 years?"]
     - ["Previous question: what is ITR. Message: aur form 16?", "What is Form 16?"]
     - ["aaj mausam kaisa hai", "NONE"]
+
+# ---- GENERAL ANSWERS (Smart Bot plan section 5, type "general") -----------------------------------------------------
+# A general banking / lending question the knowledge base does not hold: the model answers from general knowledge,
+# max 3 sentences, VALIDATED (no number / ₹ / % the question did not carry, no company voice, never "unknown"), else
+# "not in the knowledge base". Unknown ALL-CAPS terms (company jargon) are never explained. Only after a knowledge miss.
+general_llm:
+  enabled: true
+  timeout_seconds: 8.0
+  num_predict: 90
+  max_sentences: 3
+  min_free_ram_gb: 2.0
+  instructions: |-
+    You answer a loan field officer's general question about Indian retail lending or banking in at most 3 short plain
+    sentences. Use only widely known, standard facts. Never state any lender's limits, interest rates, fees, cut-offs,
+    timelines or other policy values: say they depend on the lender's policy. Never mention a specific customer or case.
+    Do not use numbers. If the question is not a standard lending or banking topic, or you are not sure, reply exactly UNKNOWN.
+
+# ---- VAGUE / ONE-WORD MESSAGES (owner decision A; capabilities/vague.py) --------------------------------------------
+# A fragment ("docs", "kyc", "top 2", "case") -> ONE short question with 2-4 options from the state + the meaning ranking.
+# The pick answers at once; a second vague message in a row -> the most likely answer directly.
+vague:
+  enabled: true
+  max_words: 2
+  max_options: 3
+  # never vague (answered by their own handlers): thanks / ok / greetings
+  # quoted: unquoted yes / no are YAML booleans. The bare follow-up questions (why / kyu / how / then ...) are answered
+  # from the conversation state (the previous answer), never asked back
+  not_vague: [help, menu, help me, options, ok, okay, thanks, thank you, thx, hi, hello, hey, "yes", "no", "y", "n",
+              cancel, confirm, close, exit, back, bye, hmm ok, why, kyu, kyun, kyon, how, kaise, then, phir, and, aur,
+              when, kab, where, kahan, who, kaun, really, sure, done, next, "?", what, kya]
+  question: "What would you like to know about {topic}?"
+  # the Upload option is a real upload link (action:upload); picked by its number it answers with that link
+  upload_reply: "Tap below to upload the {document}."
+  # the party of the Upload link: the party the message names (semantics/meaning.py party_in), else the default
+  upload_party: { CO_APPLICANT: co_applicant, default: applicant }
+  # a named document ("pan"): its own questions, plus these intents' (they need no document)
+  document_intents_also: [pending_documents]
+  # no case open + a named document: start from this intent's topic (the documents topic)
+  document_intent: document_status
+  # two words, one a document and one of these ("dl verified?", "pan ok", "bank statement rejected"): a clear
+  # question about that document -- never vague
+  document_question_words: [verified, ok, okay, status, rejected, pending, done, uploaded, approved, fine, clear,
+                            accepted, received, valid, correct, missing]
+  case_defaults: ["What is pending?", "What is the status of this case?", "What should I do next?"]
+  list_with_number: ["Show the top {n} cases needing action", "Show the latest {n} cases", "Show the oldest {n} cases"]
+  no_case_defaults: ["Show my cases", "Create a new case", "What can you help with?"]
+  # a case open and no document named: the TOPIC of the word -> that case's questions
+  case_topics:
+    - intents: [pending_documents, document_status, document_rejection, knowledge_documents, process_upload,
+                process_verify_documents, process_fix_rejected]
+      options: ["What is pending?", "Why is this case stuck?", "What should I do next?"]
+    - intents: [kyc_status]
+      options: ["What is the KYC status?", "What is pending?", "Why is this case stuck?"]
+    - intents: [cpa_readiness, process_move_to_cpa]
+      options: ["Is this case ready for CPA?", "What is pending?", "What should I do next?"]
+  # no case open: the TOPIC of the word (its most likely intents, semantics/meaning.py) -> list / how-to options
+  no_case_topics:
+    - intents: [pending_documents, document_status, document_rejection, knowledge_documents, process_upload,
+                process_verify_documents, process_fix_rejected]
+      options: ["Show cases with documents pending", "Which documents are needed for a loan?",
+                "How do I upload documents?"]
+    - intents: [kyc_status]
+      options: ["Show cases with a KYC issue", "What is KYC?", "How do I verify documents?"]
+    - intents: [cpa_readiness, process_move_to_cpa]
+      options: ["Show cases ready for CPA", "How do I move a case to CPA?"]
+    - intents: [why_stuck, time_in_stage]
+      options: ["Show stuck cases", "Show cases needing action"]

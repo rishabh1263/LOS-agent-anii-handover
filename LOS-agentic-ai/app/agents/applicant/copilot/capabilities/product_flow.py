@@ -202,6 +202,24 @@ def step(text: str, state) -> dict[str, Any] | None:
     return None
 
 
+def drop_if_not_answered(text: str, state) -> bool:
+    """A new question while the Yes / No (or the pending / done) question waits: the question is dropped NOW, before
+    the general layer / meaning see "a question is pending" (step() drops it the same way, but only in the workspace,
+    after them). A pick ("1", a name) stays pending. True when it was dropped."""
+    pending = _get(state).get("pending")
+    if not enabled() or not pending or pending == "pick":
+        return False
+    f, t = _flow_cfg(), _texts()
+    words = (f.get("yes_words") or []) + (f.get("no_words") or []) + [say(t.get("yes_label")), say(t.get("no_label"))]
+    if pending == "group":
+        words += (f.get("pending_words") or []) + (f.get("done_words") or []) + [group_label("pending"),
+                                                                                group_label("done")]
+    if _only(text, words):
+        return False
+    _set(state, {})
+    return True
+
+
 def after_open(state) -> str | None:
     """'What do you want to know?' + the options, when the case was picked from the flow's list."""
     from app.agents.applicant.copilot.answering import contract, language_lock

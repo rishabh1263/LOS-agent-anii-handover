@@ -231,6 +231,12 @@ def llm_router_off_by_default(monkeypatch):
     monkeypatch.setenv("COPILOT_LLM_ROUTER", "false")
     # the question rewrite (general layer slow path) likewise: off unless a test / the eval gate opts in
     monkeypatch.setenv("COPILOT_LLM_REWRITE", "false")
+    # dense retrieval is ON by config (app/config/knowledge.yaml): the suite stays on BM25, no model
+    monkeypatch.setenv("KNOWLEDGE_BACKEND", "lexical")
+    # meaning (embedding + chooser) and the general-knowledge model answer: off in the suite (tests opt in with fakes)
+    monkeypatch.setenv("COPILOT_MEANING", "false")
+    monkeypatch.setenv("COPILOT_GENERAL_LLM", "false")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "hashing")
     monkeypatch.delenv("COPILOT_UNDERSTANDING_LLM", raising=False)
     from app.agents.applicant.copilot import agent as _agent
     from app.agents.applicant.copilot.semantics import llm_router as _router

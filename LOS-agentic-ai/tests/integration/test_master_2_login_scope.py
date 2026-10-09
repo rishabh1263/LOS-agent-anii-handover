@@ -39,7 +39,7 @@ def _login(monkeypatch, **body):
     from app.api.routes import auth_api
 
     monkeypatch.setattr(auth_api, "_authenticate", lambda u, p: True)
-    monkeypatch.setattr(auth_api, "_issue_token_pair", lambda subject, case_id=None, app_id=None, case_data=None:
+    monkeypatch.setattr(auth_api, "_issue_token_pair", lambda subject, case_id=None, app_id=None, case_data=None, stage=None:
                         SimpleNamespace(subject=subject, case_id=case_id, app_id=app_id, case_data=case_data))
     request = SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"))
     payload = auth_api.LoginRequest(username="test-subject", password="x", **body)

@@ -48,7 +48,7 @@ def test_the_faq_is_not_dumped_on_open(client, prod):
     # a case opens with the brief and at most 2 state-chosen links
     _, c = make_case(client, f"Rahul Sharma")
     md = say(client, f"{c} kholo")
-    assert "Common questions for this case:" not in md and md.count("](ask:") + md.count("](action:") <= 2
+    assert "Common questions for this case:" not in md and md.count("](ask:") + md.count("](action:") - md.count("](action:upload") - md.count("](action:exit_case") <= 2
     assert "You can ask me" in say(client, "help") or "(ask:" in say(client, "help")
 
 

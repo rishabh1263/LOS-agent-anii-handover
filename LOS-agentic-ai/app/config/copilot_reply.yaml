@@ -10,6 +10,11 @@
 
 enabled: true
 
+# THE CONTRACT VERSION (frontend_handoff/API_CONTRACT.md): sent as the X-Contract-Version header on every /api/v1/fos/* and
+# /api/v1/copilot/* response. tests/integration/test_api_contract.py fails if the reply / request shape changes without
+# bumping it (frontend_handoff/contract_snapshot.json).
+contract_version: "1.0"
+
 # ---- markdown -------------------------------------------------------------------------------------------------
 markdown:
   # the suggestions shown as [question](ask:question) links under an answer

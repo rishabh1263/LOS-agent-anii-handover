@@ -1,0 +1,470 @@
+{
+ "summary": {
+  "set": "heldout_v2_general",
+  "label": "current",
+  "total": 50,
+  "correct": 32,
+  "WRONG": 5,
+  "not_available": 9,
+  "clarify": 0,
+  "case": 2,
+  "other_miss": 2,
+  "correct_pct": 64.0,
+  "p50_ms": 63.3,
+  "p95_ms": 135.3,
+  "model_pct": 0.0,
+  "min_free_ram_gb": 3.85
+ },
+ "rows": [
+  {
+   "id": "G001",
+   "q": "what does a sanction letter contain",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 211.1,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G002",
+   "q": "difference between fixed and floating interest",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 122.0,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G003",
+   "q": "what is a balance transfer and why do people do it",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 97.6,
+   "model": false,
+   "reply": "What is a balance transfer A balance transfer (BT) moves an existing loan from another lender to this lender, usually for a lower interest rate or better terms. The new lender pays off the old loan and the customer repays the new lender. Wh"
+  },
+  {
+   "id": "G004",
+   "q": "explain pre-EMI",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 63.3,
+   "model": false,
+   "reply": "Interest-only payments on the amount disbursed so far, paid until the full loan is disbursed and full EMIs begin. Example: pre-EMI paid during construction of a flat."
+  },
+  {
+   "id": "G005",
+   "q": "what is an encumbrance certificate",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 78.9,
+   "model": false,
+   "reply": "A certificate from the sub-registrar listing registered transactions on a property, showing whether it carries a loan or other charge. Example: an EC for the last 13 years."
+  },
+  {
+   "id": "G006",
+   "q": "why is a co-applicant added to a home loan",
+   "expect": "answer",
+   "result": "WRONG",
+   "ms": 77.6,
+   "model": false,
+   "reply": "Example: a spouse added as co-applicant to a home loan."
+  },
+  {
+   "id": "G007",
+   "q": "what happens when a loan becomes an NPA",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 77.2,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G008",
+   "q": "what is SMA-1",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 48.1,
+   "model": false,
+   "reply": "RBI's classification of loans showing early stress: SMA-0 (overdue 1 to 30 days), SMA-1 (31 to 60), SMA-2 (61 to 90). Example: an account 45 days overdue is SMA-1."
+  },
+  {
+   "id": "G009",
+   "q": "how does a credit score get calculated",
+   "expect": "general_or_unknown",
+   "result": "correct",
+   "ms": 66.7,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G010",
+   "q": "what lowers a CIBIL score",
+   "expect": "general_or_unknown",
+   "result": "out_of_scope",
+   "ms": 120.2,
+   "model": false,
+   "reply": "That's outside what I can help with. I can help with your cases, documents, KYC (Know Your Customer) and CPA. [My cases](ask:My%20cases)"
+  },
+  {
+   "id": "G011",
+   "q": "what is the role of a DSA",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 65.2,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G012",
+   "q": "what is hypothecation",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 53.7,
+   "model": false,
+   "reply": "Security over movable assets that stay with the borrower, such as a vehicle; the lender can take them on default. Example: a car loan with the car hypothecated to the lender."
+  },
+  {
+   "id": "G013",
+   "q": "explain equitable mortgage in simple words",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 84.0,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G014",
+   "q": "what is a tripartite agreement in home loans",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 63.3,
+   "model": false,
+   "reply": "An agreement between the buyer, the builder and the lender for a loan on an under-construction property. Example: signed for a home loan on a new project."
+  },
+  {
+   "id": "G015",
+   "q": "what is an OC for a flat",
+   "expect": "answer",
+   "result": "WRONG",
+   "ms": 47.8,
+   "model": false,
+   "reply": "Example: required before moving into a new flat."
+  },
+  {
+   "id": "G016",
+   "q": "why do lenders ask for 6 months bank statement",
+   "expect": "general_or_unknown",
+   "result": "case",
+   "ms": 165.9,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"why do lenders ask for 6 months bank statement\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "G017",
+   "q": "what is Form 26AS used for",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 66.9,
+   "model": false,
+   "reply": "A statement from the Income Tax Department showing tax deducted and paid against a PAN (Permanent Account Number). Example: used to cross-check declared income."
+  },
+  {
+   "id": "G018",
+   "q": "what is the difference between gross and net salary",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 50.6,
+   "model": false,
+   "reply": "Net salary (net pay) is the take-home pay after deductions such as tax and provident fund; gross salary is the pay before deductions. This system's eligibility uses the **verified** net pay, not the gross salary."
+  },
+  {
+   "id": "G019",
+   "q": "what is a KFS",
+   "expect": "answer",
+   "result": "WRONG",
+   "ms": 36.6,
+   "model": false,
+   "reply": "Example: the KFS shows the annual percentage rate and all charges."
+  },
+  {
+   "id": "G020",
+   "q": "what is APR on a loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 45.5,
+   "model": false,
+   "reply": "The total yearly cost of a loan including interest and fees, expressed as a percentage; shown in the Key Fact Statement. Example: a 12% interest rate with fees may have an APR of 12.8%."
+  },
+  {
+   "id": "G021",
+   "q": "explain e-NACH",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 43.4,
+   "model": false,
+   "reply": "A NACH mandate registered digitally, through net banking, debit card or Aadhaar. Example: e-NACH set up during onboarding."
+  },
+  {
+   "id": "G022",
+   "q": "what is a PDC",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 27.7,
+   "model": false,
+   "reply": "A cheque dated in the future, given in advance for EMIs or as security. Example: security PDCs collected at disbursement."
+  },
+  {
+   "id": "G023",
+   "q": "what is the repo rate and how does it affect EMIs",
+   "expect": "answer",
+   "result": "refused",
+   "ms": 13.0,
+   "model": false,
+   "reply": "I can explain how a check works in business terms, but I can't share internal code or system files."
+  },
+  {
+   "id": "G024",
+   "q": "what is MCLR",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 34.3,
+   "model": false,
+   "reply": "An internal benchmark rate banks use to price floating-rate loans, based on their own cost of funds; reset periodically. Example: a loan priced at 1-year MCLR plus a spread."
+  },
+  {
+   "id": "G025",
+   "q": "explain video KYC",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 84.3,
+   "model": false,
+   "reply": "Video KYC (V-CIP, video-based customer identification) is KYC (Know Your Customer) done over a live, consent-based video call with the lender's official, where the customer shows the original documents. It is a way to complete KYC without a"
+  },
+  {
+   "id": "G026",
+   "q": "what is CKYC number",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 79.7,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G027",
+   "q": "what is a PEP in KYC",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 71.5,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G028",
+   "q": "what is a legal opinion on property",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 67.9,
+   "model": false,
+   "reply": "A lawyer's report on whether a property's title is clear and can be taken as security. Valuation report A valuer's report estimating a property's market value and condition."
+  },
+  {
+   "id": "G029",
+   "q": "what does technical valuation check",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 72.3,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G030",
+   "q": "what is RCU check",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 38.6,
+   "model": false,
+   "reply": "RCU: a later stage that checks the file for risk."
+  },
+  {
+   "id": "G031",
+   "q": "what is a top-up loan",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 59.0,
+   "model": false,
+   "reply": "A top-up loan is an extra loan given on top of an existing loan, often to a customer with a good repayment record or together with a balance transfer. It is repaid with or alongside the existing loan."
+  },
+  {
+   "id": "G032",
+   "q": "what is loan against property",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 62.7,
+   "model": false,
+   "reply": "A loan against property (LAP) is a secured loan given against a residential or commercial property the borrower already owns; the property is the security. LAP is not one of the products configured in this system, the configured products ar"
+  },
+  {
+   "id": "G033",
+   "q": "what are penal charges",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 73.4,
+   "model": false,
+   "reply": "Owner review: RBI requires these as fixed \"penal charges\", not added to the interest rate. Example: penal charges for a delayed EMI (Equated Monthly Instalment)."
+  },
+  {
+   "id": "G034",
+   "q": "when must the lender return property papers after closure",
+   "expect": "answer",
+   "result": "case",
+   "ms": 135.3,
+   "model": false,
+   "reply": "Which case is this about? Pick one and I'll answer \"when must the lender return property papers after closure\" for it. You have 2 cases: 2 with documents **pending**. Showing 1-2 of 2 (newest first). That is the whole list."
+  },
+  {
+   "id": "G035",
+   "q": "what is Udyam registration",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 69.4,
+   "model": false,
+   "reply": "The government registration of a micro, small or medium enterprise (MSME), with an Udyam number. Example: Udyam certificate as business proof."
+  },
+  {
+   "id": "G036",
+   "q": "what is GSTR-3B",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 35.2,
+   "model": false,
+   "reply": "The monthly or quarterly GST (Goods and Services Tax) summary return of sales, purchases and tax paid. Example: last 12 months' GSTR-3B for a business loan."
+  },
+  {
+   "id": "G037",
+   "q": "what is an Account Aggregator",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 53.7,
+   "model": false,
+   "reply": "Example: bank statements shared through an Account Aggregator."
+  },
+  {
+   "id": "G038",
+   "q": "what is a write-off on a credit report",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 70.7,
+   "model": false,
+   "reply": "Removing a loan from the lender's books as unrecoverable; the borrower still owes the money and it shows on the credit report. Example: a credit report showing \"written off\" hurts future borrowing."
+  },
+  {
+   "id": "G039",
+   "q": "what is a guarantor's liability",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 61.8,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G040",
+   "q": "what is DPD 30",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 45.3,
+   "model": false,
+   "reply": "How many days a payment is overdue; credit reports show DPD month by month. Example: \"30 DPD\" means the EMI (Equated Monthly Instalment) is 30 days late."
+  },
+  {
+   "id": "G041",
+   "q": "what is a demand promissory note",
+   "expect": "general_or_unknown",
+   "result": "correct",
+   "ms": 65.8,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G042",
+   "q": "what is a negative lien",
+   "expect": "general_or_unknown",
+   "result": "correct",
+   "ms": 53.4,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G043",
+   "q": "what is FNR",
+   "expect": "not_available",
+   "result": "correct",
+   "ms": 39.1,
+   "model": false,
+   "reply": "FNR is not in the knowledge base yet. I've noted it for the team."
+  },
+  {
+   "id": "G044",
+   "q": "what is FTNR in our process",
+   "expect": "not_available",
+   "result": "correct",
+   "ms": 66.6,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G045",
+   "q": "what is the company's maximum LTV for LAP",
+   "expect": "not_available",
+   "result": "WRONG",
+   "ms": 45.6,
+   "model": false,
+   "reply": "- Personal Loan: LTV (Loan to Value) does not apply (no property is taken as security). - Home Loan: LTV up to 80% of the property value. These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit "
+  },
+  {
+   "id": "G046",
+   "q": "how many days does our credit team take",
+   "expect": "not_available",
+   "result": "WRONG",
+   "ms": 41.2,
+   "model": false,
+   "reply": "No approval time (TAT) is configured in this system. After CPA the case goes through Credit, RCU, BOPS and HOPS before disbursement; your branch can tell you the usual time."
+  },
+  {
+   "id": "G047",
+   "q": "what is a loan origination system",
+   "expect": "general_or_unknown",
+   "result": "correct",
+   "ms": 55.0,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G048",
+   "q": "what is a bureau pull",
+   "expect": "general_or_unknown",
+   "result": "correct",
+   "ms": 58.1,
+   "model": false,
+   "reply": "Example: a lender pulls a report from a bureau before sanction."
+  },
+  {
+   "id": "G049",
+   "q": "what is the stamp duty on a home loan agreement",
+   "expect": "not_available",
+   "result": "correct",
+   "ms": 80.7,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "id": "G050",
+   "q": "what is a step-up EMI",
+   "expect": "general_or_unknown",
+   "result": "correct",
+   "ms": 47.0,
+   "model": false,
+   "reply": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  }
+ ]
+}

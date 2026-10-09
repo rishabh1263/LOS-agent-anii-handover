@@ -234,7 +234,7 @@ answers:
     source: { en: "Glossary: KYC", hi-Latn: "Glossary: KYC", hi: "शब्दकोश: KYC", mr: "शब्दकोश: KYC" }
 
 answer_labels:
-  source: { en: "Source: {source}", hi-Latn: "Source: {source}", hi: "स्रोत: {source}", mr: "स्रोत: {source}" }
+  source: { en: "", hi-Latn: "", hi: "", mr: "" }   # Smart Bot plan section 8: no sources in replies (logged internally)
 
 # a question that LOOKS like an FAQ (these cues) but matched no answer and no case data
 unknown:

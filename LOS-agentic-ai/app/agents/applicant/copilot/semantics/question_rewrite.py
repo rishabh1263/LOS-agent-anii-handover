@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 FLAG = "COPILOT_LLM_REWRITE"
 _ROOT = Path(__file__).resolve().parents[5]
 _LOCK = threading.RLock()
-_CACHE: "OrderedDict[str, str | None]" = OrderedDict()
+_CACHE: OrderedDict[str, str | None] = OrderedDict()
 STATS: dict[str, int] = {"asked": 0, "cached": 0, "called": 0, "used": 0, "rejected": 0, "timeout": 0,
                          "unavailable": 0, "low_memory": 0, "error": 0}
 _SCHEMA = {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]}

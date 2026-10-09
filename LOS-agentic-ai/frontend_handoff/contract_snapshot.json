@@ -1,0 +1,55 @@
+{
+ "action_result_types": [
+  "copy",
+  "open_ui",
+  "reply",
+  "upload"
+ ],
+ "contract_version": "1.0",
+ "error_keys": [
+  "code",
+  "message",
+  "request_id",
+  "retryable"
+ ],
+ "paths": {
+  "/api/v1/auth/login": [
+   "post"
+  ],
+  "/api/v1/auth/refresh": [
+   "post"
+  ],
+  "/api/v1/fos/action": [
+   "post"
+  ],
+  "/api/v1/fos/copilot": [
+   "post"
+  ],
+  "/api/v1/fos/copilot/stop": [
+   "post"
+  ],
+  "/api/v1/fos/copilot/stream": [
+   "post"
+  ]
+ },
+ "reply_keys": [
+  "markdown",
+  "request_id",
+  "tts"
+ ],
+ "request_schemas": {
+  "ActionRequest": "0256ea5a348dc02f",
+  "CopilotRequest": "89f8f0e06b6c07b9",
+  "LoginRequest": "7d0156747363dde1",
+  "RefreshRequest": "f55d91561a02d287",
+  "_ChatRef": "f3a004b883dc0883"
+ },
+ "sse_events": [
+  "cancelled",
+  "delta",
+  "error",
+  "final",
+  "status",
+  "typing"
+ ]
+}

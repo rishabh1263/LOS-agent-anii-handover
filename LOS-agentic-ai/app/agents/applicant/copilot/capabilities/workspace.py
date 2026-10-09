@@ -427,8 +427,12 @@ def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
         # ONE upload on the brief: the next step's document (re-upload first) -- the full list is "what is pending"
         nxt = (view.get("reupload") or []) + (view.get("pending") or [])
         if nxt:
-            first = nxt[0]
-            key = "reupload" if view.get("reupload") else "pending"
+            # the document the brief's "Next step" names ("Upload the signature" -> Upload Signature), else the first
+            step = (brief["text"].split("\n")[-1] if brief.get("text") else "").lower()
+            named = [r for r in nxt if isinstance(r, dict) and str(r.get("label") or "").lower()
+                     and str(r.get("label")).lower() in step]
+            first = named[0] if named else nxt[0]
+            key = "reupload" if first in (view.get("reupload") or []) else "pending"
             reply["document_actions"] = {key: [first]}
     except Exception:  # noqa: BLE001 - the upload links are a convenience; the brief stands without them
         pass
@@ -714,13 +718,20 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
     asked_list = None
     if action == "CUSTOM_QUERY" and _case_list.enabled() and not any(p.search(text) for p in _ID.values()):
         wanted = _case_list.understand(text)
-        nouns = {_norm(w) for w in (_cfg().get("list_rule") or {}).get("case_nouns") or []}
-        if wanted is not None and (not state.active_case_id or nouns & set(_norm(text).split())):
+        # with a case OPEN, a list needs the PLURAL ("atke hue cases") or a list verb ("dikhao", "show"): "case kahan
+        # atka hua hai" is about the open case -- never a "stuck cases" list that closes it (owner 2026-10-08)
+        _, plural = _case_list._case_nouns()
+        verbs = {_norm(v).strip() for v in (_case_list.cfg().get("phrases") or {}).get("list_verbs") or []}
+        words = set(_norm(text).split())
+        if wanted is not None and (not state.active_case_id or words & plural or words & verbs):
             asked_list = wanted
     if action == "LIST_CASES" or asked_list is not None or (
             action == "CUSTOM_QUERY" and (_says("list", text) or _says("switch", text))):
-        # the list (or a switch) closes the open case first: never two cases at once
-        closed, state.active_case_id = state.active_case_id, None
+        # STICKY CASE (Smart Bot plan section 3): a LIST never closes the open case -- "this case" still means it after
+        # the list; only a SWITCH (or "close") leaves it. Picking a row from the list opens that row's case.
+        closed = None
+        if action == "CUSTOM_QUERY" and _says("switch", text):
+            closed, state.active_case_id = state.active_case_id, None
         reply = paged_view(claims, request_id, state, asked_list) if _case_list.enabled() \
             else list_view(claims, request_id, state)
         if closed:
@@ -811,6 +822,14 @@ def ask_which_case(claims: dict[str, Any], request_id: str, context: dict[str, A
     reply["intent"], reply["query_type"] = "CASE_SELECTION", "CLARIFICATION"
     # the question is the first line (the direct answer to an ambiguous question is the question back)
     reply["answer"] = text + "\n\n" + str(reply.get("answer") or "")
+    # STICKY CONTEXT (Smart Bot plan section 3): the case last opened in THIS chat is offered first, one tap
+    last = next((c for c in reversed(state.case_history or []) if c), None)
+    if last:
+        from urllib.parse import quote
+
+        offer = product_flow.say((product_flow.cfg().get("which_case") or {}).get("last_opened"), lang, case_id=last)
+        if offer:
+            reply["answer"] = f"{text}\n\n[{offer}](ask:{quote('open ' + last)})\n\n" + reply["answer"][len(text):].lstrip()
     reply.pop("faq_block", None)
     state.flow = {**{k: v for k, v in (state.flow or {}).items() if k != "portfolio"}, "after_pick": str(question)}
     _save(state)

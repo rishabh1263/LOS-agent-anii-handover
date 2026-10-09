@@ -1134,10 +1134,16 @@ async def answer_question(
 
         chosen, llm_trace = await llm_router.route(message, followup.Context.from_payload(context))
         understanding_trace["llm"] = llm_trace
+        if chosen is not None and chosen.options and len([o for o in chosen.options if o.question]) < 2:
+            # only ONE reading is a question (the other is refuse / out_of_scope): an internal tool name is never
+            # offered as an option -- the refusal / out-of-scope answer when one reading is that, else the question
+            refusals = [o for o in chosen.options if not o.question and o.intent]
+            asks = [o for o in chosen.options if o.question]
+            chosen = refusals[0] if refusals else (asks[0] if asks else None)
         if chosen is not None and chosen.options:
             # THE BANK AND THE MODEL DISAGREE (6b-tune-2): never a guess -- both
             # readings are offered as one tap each; nothing is read until one is picked.
-            choices = [o.question or o.tool for o in chosen.options][:3]
+            choices = [o.question for o in chosen.options if o.question][:3]
             audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
                          case_id=case_id, intent=Intent.UNKNOWN.value, tools=[], status="CLARIFICATION",
                          message=message)

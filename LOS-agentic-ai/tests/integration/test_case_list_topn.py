@@ -11,7 +11,7 @@ from tests.integration.master_env import make_case, prod  # noqa: F401
 from tests.integration.test_reupload_supersedes import _store, client  # noqa: F401
 
 NAMES = ("Rahul Sharma", "Priya Verma", "Aniket Patil", "Sneha Joshi", "Vikas Rao", "Meena Iyer")
-SIZED = [("top 2 cases", 2), ("last 3 cases", 3), ("top 5", 5), ("last 3", 3), ("show top 2 cases", 2),
+SIZED = [("top 2 cases", 2), ("last 3 cases", 3), ("last 3", 3), ("show top 2 cases", 2),
          ("give me last 3 cases", 3), ("latest 2 cases", 2), ("first 3 cases", 3), ("oldest 2 cases", 2),
          ("recent 4 cases", 4), ("mere last 3 case", 3), ("pichle 3 case dikhao", 3), ("top 2 case dikhao", 2),
          ("show 2 cases", 2), ("last two cases", 2), ("top three cases", 3), ("my last 3 cases", 3),
@@ -58,3 +58,10 @@ def test_kyc_filter_with_a_count(six):
 @pytest.mark.parametrize("message", ["ek case ka status batao", "what is the status of 2 cases ago", "ek case banao"])
 def test_a_count_is_not_always_a_list(six, message):
     assert "Showing 1-1 of 6" not in ask(six, message, f"neg-{message}")
+
+
+def test_a_bare_top_n_asks_which_order_then_shows_that_many(six):
+    # owner decision A (2026-10-08): "top 5" alone -- top by what? one question, the pick shows 5
+    asked = ask(six, "top 5", "topn-bare")
+    assert "needing action" in asked and rows(asked) == 0
+    assert rows(ask(six, "1", "topn-bare")) == 5
