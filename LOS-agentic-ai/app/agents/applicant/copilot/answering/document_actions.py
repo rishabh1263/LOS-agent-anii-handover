@@ -59,11 +59,18 @@ def enabled() -> bool:
 
 def _t(key: str, language: str | None, **values: Any) -> str:
     """The template in the reply's language, else English -- values inserted as given."""
-    said = None
-    if language and language != "en":
-        from app.agents.applicant import language as languages
+    from app.agents.applicant import language as languages
 
-        said = languages.localized(key, language, **values)
+    # English too is read from languages.yaml when it carries an `en` line (the officer wording is config); the
+    # defaults above only when it does not
+    said = languages.localized(key, language, **values) if language and language != "en" else None
+    if not said:
+        english = ((languages._load().get("templates") or {}).get(key) or {}).get("en")
+        if english:
+            try:
+                said = str(english).format(**values)
+            except (KeyError, IndexError, ValueError):
+                said = None
     return said or _EN[key].format(**values)
 
 

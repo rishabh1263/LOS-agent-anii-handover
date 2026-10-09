@@ -1,0 +1,560 @@
+{
+ "summary": {
+  "set": "heldout_v3_case",
+  "label": "after",
+  "total": 60,
+  "correct": 54,
+  "WRONG": 4,
+  "not_available": 2,
+  "clarify": 0,
+  "case": 0,
+  "other_miss": 0,
+  "correct_pct": 90.0,
+  "p50_ms": 363.7,
+  "p95_ms": 4246.2,
+  "model_pct": 28.3,
+  "min_free_ram_gb": 3.96
+ },
+ "rows": [
+  {
+   "id": "V301",
+   "q": "quick status on this one please",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 2621.1,
+   "model": false,
+   "reply": "CASE-6920396C4496 - Rahul Sharma — the application is at Basic Document Verification. Completed: **PAN** (Permanent Account Number), Driving Licence, Bank Statement. **Pending**: Signature has not been uploaded. Next action: Collect and upl"
+  },
+  {
+   "id": "V302",
+   "q": "where does this application stand right now",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 4245.7,
+   "model": true,
+   "reply": "CASE-6920396C4496 - Rahul Sharma — the application is at Basic Document Verification. Completed: **PAN** (Permanent Account Number), Driving Licence, Bank Statement. **Pending**: Signature has not been uploaded. Next action: Collect and upl"
+  },
+  {
+   "id": "V303",
+   "q": "is everything fine with this case",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 4246.2,
+   "model": true,
+   "reply": "CASE-6920396C4496 CPA readiness: 4 of 5 checks passed. **Signature** - Signature: **PENDING**. Signature has not been uploaded.. Fix: Upload the signature. **KYC** (advisory, not required for CPA while the KYC rule is off) - Applicant: **PE"
+  },
+  {
+   "id": "V304",
+   "q": "overall health of this file?",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 4270.2,
+   "model": true,
+   "reply": "CASE-6920396C4496 - Your application has been created. Signature is still **pending**. **Next step:** Ask \"what is pending\" to see the documents. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What should "
+  },
+  {
+   "id": "V305",
+   "q": "update me on rahul's application",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 120.6,
+   "model": false,
+   "reply": "CASE-6920396C4496 - Your application has been created. Signature is still **pending**. **Next step:** Ask \"what is pending\" to see the documents. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What should "
+  },
+  {
+   "id": "V306",
+   "q": "what docs are we still waiting on",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 763.0,
+   "model": false,
+   "reply": "CASE-6920396C4496 KYC (Know Your Customer) needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please upload the correct doc"
+  },
+  {
+   "id": "V307",
+   "q": "is the signature in yet",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 389.9,
+   "model": false,
+   "reply": "CASE-6920396C4496 - No Signature document has been uploaded for this case. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) [Close](action:exit_c"
+  },
+  {
+   "id": "V308",
+   "q": "list whatever is outstanding",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 324.0,
+   "model": false,
+   "reply": "CASE-6920396C4496 KYC (Know Your Customer) needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please upload the correct doc"
+  },
+  {
+   "id": "V309",
+   "q": "which uploads are missing",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 309.0,
+   "model": false,
+   "reply": "CASE-6920396C4496 KYC (Know Your Customer) needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please upload the correct doc"
+  },
+  {
+   "id": "V310",
+   "q": "do we have all the documents",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 2275.6,
+   "model": true,
+   "reply": "CASE-6920396C4496 **Next step:** Your next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue. [Upload Signature](action:upload?doc=SIGNATURE&party=applicant) - [Is this case"
+  },
+  {
+   "id": "V311",
+   "q": "anything the customer still owes us",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 2104.1,
+   "model": true,
+   "reply": "CASE-6920396C4496 KYC (Know Your Customer) needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please upload the correct doc"
+  },
+  {
+   "id": "V312",
+   "q": "why can't this move forward",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 200.6,
+   "model": false,
+   "reply": "CASE-6920396C4496 The records show your application is held because the details across documents disagree, so the case is held for a reviewer; and the signature is still outstanding, so the case is **not ready** for handoff. Your next step "
+  },
+  {
+   "id": "V313",
+   "q": "what went wrong here",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 2117.4,
+   "model": true,
+   "reply": "CASE-6920396C4496 Your application has recorded findings. The name on the PAN (Permanent Account Number), RAHUL SHARMA, does not match the bank account holder name, ROHIT VERMA. - [What is pending on this case?](ask:What%20is%20pending%20on"
+  },
+  {
+   "id": "V314",
+   "q": "reason this case is held",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 327.8,
+   "model": false,
+   "reply": "CASE-6920396C4496 The records show your application is held because the details across documents disagree, so the case is held for a reviewer; and the signature is still outstanding, so the case is **not ready** for handoff. Your next step "
+  },
+  {
+   "id": "V315",
+   "q": "who or what is blocking this",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 292.9,
+   "model": false,
+   "reply": "CASE-6920396C4496 The records show your application is held because the details across documents disagree, so the case is held for a reviewer; and the signature is still outstanding, so the case is **not ready** for handoff. Your next step "
+  },
+  {
+   "id": "V316",
+   "q": "is there a red flag on this file",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 2069.1,
+   "model": true,
+   "reply": "CASE-6920396C4496 KYC (Know Your Customer) needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please upload the correct doc"
+  },
+  {
+   "id": "V317",
+   "q": "tell me the very next thing I should do",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 316.7,
+   "model": false,
+   "reply": "CASE-6920396C4496 **Next step:** Your next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue. [Upload Signature](action:upload?doc=SIGNATURE&party=applicant) - [Is this case"
+  },
+  {
+   "id": "V318",
+   "q": "what's my to-do on this",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 260.2,
+   "model": false,
+   "reply": "CASE-6920396C4496 **Next step:** Your next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue. [Upload Signature](action:upload?doc=SIGNATURE&party=applicant) - [Is this case"
+  },
+  {
+   "id": "V319",
+   "q": "how do I unblock it",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 6660.3,
+   "model": true,
+   "reply": "I don't have an answer for that yet. I can help with your cases, documents, KYC and CPA. - [Why is it stuck?](ask:Why%20is%20it%20stuck?) - [Co-applicant](ask:Co-applicant) [Close](action:exit_case)"
+  },
+  {
+   "id": "V320",
+   "q": "steps to finish my part on this case",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 3385.3,
+   "model": true,
+   "reply": "CASE-6920396C4496 **Next step:** Your next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue. [Upload Signature](action:upload?doc=SIGNATURE&party=applicant) - [Is this case"
+  },
+  {
+   "id": "V321",
+   "q": "good to go for CPA?",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 2594.5,
+   "model": true,
+   "reply": "CASE-6920396C4496 CPA readiness: 4 of 5 checks passed. **Signature** - Signature: **PENDING**. Signature has not been uploaded.. Fix: Upload the signature. **KYC** (advisory, not required for CPA while the KYC rule is off) - Applicant: **PE"
+  },
+  {
+   "id": "V322",
+   "q": "can I hand this over to the next team",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 2109.3,
+   "model": true,
+   "reply": "Okay, I won't take any action. Nothing was **pending**, so nothing has changed. Ask me anything about the case. [Close](action:exit_case)"
+  },
+  {
+   "id": "V323",
+   "q": "how far is this from CPA",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 2346.9,
+   "model": true,
+   "reply": "CASE-6920396C4496 CPA readiness: 4 of 5 checks passed. **Signature** - Signature: **PENDING**. Signature has not been uploaded.. Fix: Upload the signature. **KYC** (advisory, not required for CPA while the KYC rule is off) - Applicant: **PE"
+  },
+  {
+   "id": "V324",
+   "q": "what does CPA still need from me",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 2133.3,
+   "model": true,
+   "reply": "CASE-6920396C4496 KYC (Know Your Customer) needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please upload the correct doc"
+  },
+  {
+   "id": "V325",
+   "q": "did KYC clear",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 343.8,
+   "model": false,
+   "reply": "CASE-6920396C4496 Not ready for CPA. KYC is not complete. - Applicant: name on the Bank Statement, differs from the application. - Applicant: name differs between the PAN and the Bank Statement. - Applicant: name differs between the Driving"
+  },
+  {
+   "id": "V326",
+   "q": "what is the KYC verdict",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 360.2,
+   "model": false,
+   "reply": "CASE-6920396C4496 Not ready for CPA. KYC is not complete. - Applicant: name on the Bank Statement, differs from the application. - Applicant: name differs between the PAN and the Bank Statement. - Applicant: name differs between the Driving"
+  },
+  {
+   "id": "V327",
+   "q": "why did KYC fail",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 327.8,
+   "model": false,
+   "reply": "CASE-6920396C4496 Not ready for CPA. KYC is not complete. - Applicant: name on the Bank Statement, differs from the application. - Applicant: name differs between the PAN and the Bank Statement. - Applicant: name differs between the Driving"
+  },
+  {
+   "id": "V328",
+   "q": "which document's name doesn't match",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 366.7,
+   "model": false,
+   "reply": "CASE-6920396C4496 Not ready for CPA. KYC is not complete. - Applicant: name on the Bank Statement, differs from the application. - Applicant: name differs between the PAN and the Bank Statement. - Applicant: name differs between the Driving"
+  },
+  {
+   "id": "V329",
+   "q": "whose name is on the bank statement",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 2112.4,
+   "model": true,
+   "reply": "CASE-6920396C4496 - **Bank Statement** is **verified**. Its issuing authority has not been independently confirmed. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20t"
+  },
+  {
+   "id": "V330",
+   "q": "is the PAN okay",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 285.5,
+   "model": false,
+   "reply": "CASE-6920396C4496 - **PAN** (Permanent Account Number) is **verified**. Its issuing authority has not been independently confirmed. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](a"
+  },
+  {
+   "id": "V331",
+   "q": "status of the driving license",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 415.1,
+   "model": false,
+   "reply": "CASE-6920396C4496 - Driving licence: The licence to drive issued by the transport authority; accepted as identity and address proof. Example: driving licence with the current address. **Next step:** Check your status or **pending** document"
+  },
+  {
+   "id": "V332",
+   "q": "was the bank statement accepted",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 360.7,
+   "model": false,
+   "reply": "CASE-6920396C4496 - **Bank Statement** is **verified**. Its issuing authority has not been independently confirmed. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20t"
+  },
+  {
+   "id": "V333",
+   "q": "has the signature been verified",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 341.2,
+   "model": false,
+   "reply": "CASE-6920396C4496 - No Signature document has been uploaded for this case. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) [Close](action:exit_c"
+  },
+  {
+   "id": "V334",
+   "q": "any document rejected?",
+   "expect": "answer",
+   "result": "WRONG",
+   "ms": 1965.5,
+   "model": true,
+   "reply": "CASE-6920396C4496 The records show your application is held because the details across documents disagree, so the case is held for a reviewer; and the signature is still outstanding, so the case is **not ready** for handoff. Your next step "
+  },
+  {
+   "id": "V335",
+   "q": "loan amount on this file",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 276.8,
+   "model": false,
+   "reply": "CASE-6920396C4496 - Your application records show a loan amount of **₹5,00,000**. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) [Close](action"
+  },
+  {
+   "id": "V336",
+   "q": "how much is the customer asking for",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 307.7,
+   "model": false,
+   "reply": "CASE-6920396C4496 - Your application records show a loan amount of **₹5,00,000**. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) [Close](action"
+  },
+  {
+   "id": "V337",
+   "q": "customer's phone number",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 269.8,
+   "model": false,
+   "reply": "CASE-6920396C4496 - The mobile number on your application is 9876543210. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) [Close](action:exit_cas"
+  },
+  {
+   "id": "V338",
+   "q": "who is the borrower",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 405.6,
+   "model": false,
+   "reply": "CASE-6920396C4496 - The name on your application is Rahul Sharma. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) [Close](action:exit_case)"
+  },
+  {
+   "id": "V339",
+   "q": "which product is this",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 375.9,
+   "model": false,
+   "reply": "CASE-6920396C4496 - Application details on record: case ID: CASE-6920396C4496; applicant ID: APP-1113D3020F28; product: Personal Loan; loan amount: **₹5,00,000**. Not recorded: employment type, tenure, interest rate, declared monthly income"
+  },
+  {
+   "id": "V340",
+   "q": "what stage is the case at",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 330.7,
+   "model": false,
+   "reply": "CASE-6920396C4496 - Your application is in the FOS (Field Officer Sales) stage, at Application Created. **Next step:** Ask \"what is **pending**\" for this stage. - [Why does the checklist depend on the employment type?](ask:Why%20does%20the%"
+  },
+  {
+   "id": "V341",
+   "q": "how many days has it been at FOS",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 434.3,
+   "model": false,
+   "reply": "CASE-6920396C4496 0 day(s) in FOS. Within the FOS target of 3 day(s). - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) [Close](action:exit_case)"
+  },
+  {
+   "id": "V342",
+   "q": "is there a co-borrower",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 250.9,
+   "model": false,
+   "reply": "There is no co-applicant on CASE-6920396C4496, so nothing is **pending** for one. [Close](action:exit_case)"
+  },
+  {
+   "id": "V343",
+   "q": "write a message to the customer for what's pending",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 3486.2,
+   "model": false,
+   "reply": "CASE-6920396C4496 A message for the customer (not sent, copy or edit it): > Hello, for your loan application please share: Signature. Thank you. [Copy message](action:copy?ref=draft-1) - [What are my application details?](ask:What%20are%20m"
+  },
+  {
+   "id": "V344",
+   "q": "what should I ask the customer for",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 269.2,
+   "model": false,
+   "reply": "CASE-6920396C4496 KYC (Know Your Customer) needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\" Please upload the correct doc"
+  },
+  {
+   "id": "V345",
+   "q": "any queries raised on this case",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 3063.7,
+   "model": true,
+   "reply": "CASE-6920396C4496 - Rahul Sharma — the application is at Basic Document Verification. Completed: **PAN** (Permanent Account Number), Driving Licence, Bank Statement. **Pending**: Signature has not been uploaded. Next action: Collect and upl"
+  },
+  {
+   "id": "V346",
+   "q": "I want to upload a fresh bank statement",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 183.4,
+   "model": false,
+   "reply": "Tap below to upload the Bank Statement. [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) [Close](action:exit_case)"
+  },
+  {
+   "id": "V347",
+   "q": "let me add the signature now",
+   "expect": "answer",
+   "result": "not_available",
+   "ms": 2465.5,
+   "model": false,
+   "reply": "CASE-6920396C4496 This is not recorded on the case. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [Why is it stuck?](ask:Why%20is%20it%20stuck?) [Close](action:exit_case)"
+  },
+  {
+   "id": "V348",
+   "q": "wats pendng",
+   "expect": "answer",
+   "result": "WRONG",
+   "ms": 306.3,
+   "model": false,
+   "reply": "What would you like to know about wats pendng? 1. [What is pending?](ask:What%20is%20pending%3F) 2. [Why is this case stuck?](ask:Why%20is%20this%20case%20stuck%3F) 3. [What should I do next?](ask:What%20should%20I%20do%20next%3F) [Close](a"
+  },
+  {
+   "id": "V349",
+   "q": "kyc stauts?",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 291.8,
+   "model": false,
+   "reply": "What would you like to know about kyc stauts? 1. [What is the KYC status?](ask:What%20is%20the%20KYC%20status%3F) 2. [What is pending?](ask:What%20is%20pending%3F) 3. [Why is this case stuck?](ask:Why%20is%20this%20case%20stuck%3F) [Close]("
+  },
+  {
+   "id": "V350",
+   "q": "bank stmt ok?",
+   "expect": "answer",
+   "result": "WRONG",
+   "ms": 4558.6,
+   "model": false,
+   "reply": "CASE-6920396C4496 yes - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [Why is it stuck?](ask:Why%20is%20it%20stuck?) [Close](action:exit_case)"
+  },
+  {
+   "id": "V351",
+   "q": "nxt step pls",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 1889.4,
+   "model": true,
+   "reply": "CASE-6920396C4496 **Next step:** Your next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue. [Upload Signature](action:upload?doc=SIGNATURE&party=applicant) - [Is this case"
+  },
+  {
+   "id": "V352",
+   "q": "y is it stuck",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 258.6,
+   "model": false,
+   "reply": "CASE-6920396C4496 The records show your application is held because the details across documents disagree, so the case is held for a reviewer; and the signature is still outstanding, so the case is **not ready** for handoff. Your next step "
+  },
+  {
+   "id": "V353",
+   "q": "cpa ready??",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 307.8,
+   "model": false,
+   "reply": "CASE-6920396C4496 CPA readiness: 4 of 5 checks passed. **Signature** - Signature: **PENDING**. Signature has not been uploaded.. Fix: Upload the signature. **KYC** (advisory, not required for CPA while the KYC rule is off) - Applicant: **PE"
+  },
+  {
+   "id": "V354",
+   "q": "dl verifed",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 328.4,
+   "model": false,
+   "reply": "What would you like to know about dl verifed? 1. [What is the status of the Driving Licence?](ask:What%20is%20the%20status%20of%20the%20Driving%20Licence%3F) 2. [What is pending?](ask:What%20is%20pending%3F) 3. [Why was the Driving Licence "
+  },
+  {
+   "id": "V355",
+   "q": "will this loan get approved",
+   "expect": "not_available",
+   "result": "correct",
+   "ms": 180.8,
+   "model": false,
+   "reply": "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still **pending** so the case is ready for them. [What is pending?](ask:What%20is%20pending?) · [Show my cases](a"
+  },
+  {
+   "id": "V356",
+   "q": "should I reject this customer",
+   "expect": "not_available",
+   "result": "correct",
+   "ms": 282.6,
+   "model": false,
+   "reply": "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still pending so the case is ready for them. I can't approve, reject, disburse or skip a check from chat, a perso"
+  },
+  {
+   "id": "V357",
+   "q": "what's the interest rate the customer will get",
+   "expect": "not_available",
+   "result": "WRONG",
+   "ms": 2354.5,
+   "model": false,
+   "reply": "CASE-6920396C4496 - I don't have your interest rate recorded on this application yet. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) [Close](ac"
+  },
+  {
+   "id": "V358",
+   "q": "book me a cab to the branch",
+   "expect": "decline",
+   "result": "correct",
+   "ms": 2833.7,
+   "model": false,
+   "reply": "CASE-6920396C4496 This is not recorded on the case. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [Why is it stuck?](ask:Why%20is%20it%20stuck?) [Close](action:exit_case)"
+  },
+  {
+   "id": "V359",
+   "q": "what does FOIR stand for",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 155.0,
+   "model": false,
+   "reply": "FOIR (Fixed Obligation to Income Ratio): the share of monthly income already going to EMIs and other fixed payments. [Close](action:exit_case)"
+  },
+  {
+   "id": "V360",
+   "q": "explain what a name mismatch in KYC means",
+   "expect": "answer",
+   "result": "correct",
+   "ms": 254.1,
+   "model": false,
+   "reply": "CASE-6920396C4496 Not ready for CPA. KYC is not complete. - Applicant: name on the Bank Statement, differs from the application. - Applicant: name differs between the PAN and the Bank Statement. - Applicant: name differs between the Driving"
+  }
+ ]
+}

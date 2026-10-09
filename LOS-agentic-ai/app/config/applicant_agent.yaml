@@ -1306,8 +1306,8 @@ chatbot:
       CASE_LIST: "📂"
     # ONE next step when the answer ends with neither 👉 nor a question
     next_step:
-      APPLICATION_STATUS: "Want to see which documents are **pending**?"
-      APPLICATION_STAGE: "Want to see what is **pending** at this stage?"
+      APPLICATION_STATUS: "Ask \"what is pending\" to see the documents."
+      APPLICATION_STAGE: "Ask \"what is pending\" for this stage."
       DOCUMENTS_PENDING: "Upload these to move the case to **CPA**."
       DOCUMENTS_MISSING: "Upload these to move the case to **CPA**."
       PENDING_ITEMS: "Clear these to move the case to **CPA**."
@@ -1330,6 +1330,9 @@ chatbot:
       completed: { statuses: [READY_FOR_CPA], stages_past: FOS }   # FOS work done
       rejected: { statuses: [REJECTED], stages: [REJECTED] }       # none exist today
       # pending = everything else (in FOS, not ready)
+    # the "CASE-xxx" line on answers inside an open case: on_change = only when the case changed (a conversation, not
+    # a form); always = every answer (the earlier behaviour)
+    case_header: on_change
     # the list shows "Rahul S."; the opened case shows the full name
     name_in_list: first_name_last_initial
     # name matching inside the caller's own cases ("Priya ka case")

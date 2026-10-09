@@ -440,8 +440,14 @@ def open_view(application: Any, request_id: str, state) -> dict[str, Any]:
             named = [r for r in nxt if isinstance(r, dict) and str(r.get("label") or "").lower()
                      and str(r.get("label")).lower() in step]
             first = named[0] if named else nxt[0]
-            key = "reupload" if first in (view.get("reupload") or []) else "pending"
-            reply["document_actions"] = {key: [first]}
+            # every pending / re-upload document gets its Upload button (config case_brief.upload_links, 0 = all);
+            # the next step's document first
+            limit = int(case_brief._cfg().get("upload_links", 0) or 0)
+            ordered = [first] + [r for r in nxt if r is not first]
+            chosen = ordered[:limit] if limit else ordered
+            reupload = view.get("reupload") or []
+            reply["document_actions"] = {"reupload": [r for r in chosen if r in reupload],
+                                         "pending": [r for r in chosen if r not in reupload]}
     except Exception:  # noqa: BLE001 - the upload links are a convenience; the brief stands without them
         pass
     limit = int(case_brief._cfg().get("max_suggestions", 2))
@@ -874,11 +880,21 @@ def decorate(result: dict[str, Any], turn: Turn) -> dict[str, Any]:
     return result
 
 
-def in_case_header(published: dict[str, Any]) -> dict[str, Any]:
+def in_case_header(published: dict[str, Any], state=None) -> dict[str, Any]:
     """The "📍 CASE-xxx" first line of an answer given inside an opened case (applied last by the route)."""
     case_id = published.pop("workspace_in_case", None) if isinstance(published, dict) else None
-    if case_id:
-        published["answer"] = _label("in_case", case_id=case_id) + "\n" + str(published.get("answer") or "")
+    if not case_id:
+        return published
+    # only when the case CHANGED since this chat last showed it (config case_workspace.case_header: always /
+    # on_change): the same id on every turn reads like a form, not a conversation
+    if state is not None and str(_cfg().get("case_header") or "always") == "on_change":
+        flow = dict(getattr(state, "flow", None) or {})
+        if flow.get("header_case") == case_id:
+            return published
+        flow["header_case"] = case_id
+        state.flow = flow
+        _save(state)
+    published["answer"] = _label("in_case", case_id=case_id) + "\n" + str(published.get("answer") or "")
     return published
 
 

@@ -18,9 +18,9 @@ contract_version: "1.0"
 # ---- markdown -------------------------------------------------------------------------------------------------
 markdown:
   # the suggestions shown as [question](ask:question) links under an answer
-  max_suggestions: 3
+  max_suggestions: 2    # 2026-10-09: fewer suggestion items -- a conversation, not a menu
   # the label of the link block under the answer, per language (empty = no label line)
-  suggestions_label: { en: "You can ask:", hi-Latn: "Aap pooch sakte hain:", hi: "आप पूछ सकते हैं:",
+  suggestions_label: { en: "", hi-Latn: "Aap pooch sakte hain:", hi: "आप पूछ सकते हैं:",
                        mr: "तुम्ही विचारू शकता:" }
   actions_label: { en: "", hi-Latn: "", hi: "", mr: "" }
   # a clarification's options: a numbered list of ask: links
@@ -265,3 +265,35 @@ greeting:
                mr: "सध्या तुमच्या {total} केसपैकी कोणत्याही केसवर काम बाकी नाही." }
   no_cases: { en: "You have no cases yet.", hi-Latn: "Abhi aapke paas koi case nahi hai.",
               hi: "अभी आपके पास कोई केस नहीं है।", mr: "तुमच्याकडे अजून कोणतीही केस नाही." }
+
+# ---- reply style (2026-10-09, owner: "feel like a real conversation") ------------------------------------------
+style:
+  # the case named in an answer the officer did not tie to a case (their only case)
+  resolved_case_prefix: "{case_id}: "
+
+# ---- REPLY POLISH (answering/polish.py): the model REWORDS a prose answer, never adds or decides -------------------
+# used only when every check passes (numbers / ids / document names kept, nothing new, not longer); else the engine's
+# own words. Env COPILOT_POLISH overrides `enabled`.
+polish:
+  enabled: true
+  min_chars: 80            # shorter answers are already short
+  timeout_seconds: 4.0     # slower -> the original (the officer never waits longer than this for wording)
+  num_predict: 120
+  min_free_ram_gb: 2.0
+  max_growth: 1.05         # a rewrite longer than this x the original is not used
+  min_ratio: 0.4           # nor one that drops most of it
+  # ONLY these explanatory answers are reworded (an allowlist: a reworded disclaimer once changed its meaning --
+  # "has not been independently confirmed" -> "needs to be confirmed next"); everything else keeps the engine's words
+  only_intents: [NEXT_ACTION, CASE_HISTORY, APPLICATION_STATUS, FULL_SUMMARY, APPLICATION_STAGE, STAGE_TIME]
+  # answers whose wording is the contract (a refusal, a confirm question, the KYC tables ...) are never reworded
+  never_intents: [GUARDRAIL_BLOCKED, WHICH_ACTION, VAGUE_OPTIONS, HOLD_ACTION, VAGUE_UPLOAD, CASE_OPENED, CASE_LIST,
+                  FAQ, FAQ_ANSWER, CALCULATOR, STAGE_MOVE_REFUSED, STAGE_MOVED, UPDATE_CASE_FORM]
+  forbidden: ['\bas an ai\b', '\bI am (an|a) (ai|assistant|language model)\b', '\b(our|we) (bank|offer|charge)\b']
+  # a DECISION word the engine did not write is never added by a rewording
+  no_new_words: [approved, approve, approval, sanctioned, rejected, reject, guaranteed, guarantee, eligible, fraud]
+  instructions: >-
+    You reword ONE message that a loan-processing assistant is sending to a field officer. Write it as a helpful
+    colleague would say it: plain English, short sentences, the direct answer first, then what to do next. Keep every
+    fact exactly: every number, amount, date, name, document name and ID must appear unchanged. Do not add any fact,
+    reason, promise or advice that is not in the message. Do not mention that you are rewriting. Keep "Next step:"
+    if it is there. Reply with the reworded message only.

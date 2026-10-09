@@ -29,7 +29,7 @@ def _production(monkeypatch):
         if flag != "LOS_LOGIN_SELF_GRANT_LEGACY":
             monkeypatch.setenv(flag, "true")
     for name in ("LOS_STAGE_GATE_IN_SERVICE", "LOS_FOS_CPA_KYC_RULE", "COPILOT_LLM_ROUTER", "COPILOT_MEANING",
-                 "COPILOT_GENERAL_LLM", "COPILOT_LLM_REWRITE"):
+                 "COPILOT_GENERAL_LLM", "COPILOT_LLM_REWRITE", "COPILOT_POLISH"):
         monkeypatch.setenv(name, "true")
     monkeypatch.delenv("KNOWLEDGE_BACKEND", raising=False)
     monkeypatch.setenv("EMBEDDING_PROVIDER", "ollama")

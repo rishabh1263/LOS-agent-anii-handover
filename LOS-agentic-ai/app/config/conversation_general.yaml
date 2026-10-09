@@ -47,6 +47,8 @@ processes:
     phrases: [what is cpa, cpa kya hai, cpa meaning, what does cpa mean, what is cpa stage]
 
 texts:
+  # a co-applicant asked about on a case that has none (fos_api, meaning party CO_APPLICANT)
+  no_co_applicant: "There is no co-applicant on {case_id}, so nothing is pending for one."
   help:
     en: "I can help with your cases, documents, KYC and moving a case to CPA, and answer questions about the process."
     hi-Latn: "Main aapke cases, documents, KYC aur case ko CPA bhejne mein madad kar sakta hoon, aur process ke sawalon ka jawab de sakta hoon."
@@ -182,7 +184,9 @@ general_question:
            '\bkaun (karta|karti|deta|deti|karte) (hai|hain)$', '\b(kya|kya kya) (chalega|chalta hai|chalti hai|lagega|lagta hai)$',
            '\b(kya )?(fark|farak|difference) (hai|kya hai)$', '\b(kitna|kitni|kitne) (hai|hota hai|hoti hai|lagta hai|lagti hai)$']
   # ... and name NO case: these words mean "this case / this customer" (the case logic answers those)
-  case_referents: [this case, is case, iss case, the case, my case, mera case, meri case, this customer, is customer,
+  # with a case open, only these shapes get a glossary / knowledge answer (else the case logic answers)
+  definition_shapes: ['^(what|whats|what s) (is|are|does|do) (an? |the )?[a-z]', '\bmean(s|ing)?\b', '\bfull form\b', '^define\b', '^explain (what|the term|a |an )', '\bstand for\b', '\b(kya|kise) (hai|hota|kehte)\b', '\bdifference between\b']
+  case_referents: [the customer, the applicant, the borrower, the file, this one, here, this case, is case, iss case, the case, my case, mera case, meri case, this customer, is customer,
                    this loan, is loan, iska, iski, iske, uska, uski, uske, inka, unka, his, her, their, this file,
                    is applicant, this applicant, customer ka, applicant ka]
   # with a case in scope: a VALUE of that case, never a definition ("what is the CIBIL score" -> routed downstream)
@@ -231,6 +235,13 @@ decisions:
 # ---- POLICY NUMBERS: read from the eligibility policy NOW (eligibility_policy.yaml via policy.get_policy) ----------
 # Never a typed number. A demo policy is SAID to be demo; a criterion the policy does not set is said "not set".
 policy:
+  # short forms officers type for the CONFIGURED products (app/config products); whole words only
+  product_aliases:
+    PERSONAL_LOAN: [pl, personal loans]
+    HOME_LOAN: [hl, housing loan, home loans]
+  # products with NO configuration here: a policy number asked for one is "not configured", never another product's
+  unconfigured_products: [lap, loan against property, car loan, auto loan, gold loan, business loan, two wheeler loan,
+                          education loan, credit card, mortgage loan]
   # once ONE policy topic is named, these bare words name more topics in the same question ("tenure and interest rate")
   bare_words:
     tenure: [tenure, tenor, kitne saal, kitne mahine]

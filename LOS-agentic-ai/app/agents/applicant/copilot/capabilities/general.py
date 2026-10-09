@@ -181,13 +181,22 @@ def _product_of(text: str) -> str | None:
     from app.agents.applicant import config
 
     said = _norm(text)
+    aliases = (cfg().get("policy") or {}).get("product_aliases") or {}
     for product in config.products() or []:
         name = str(product)
         if name.lower() == "default":
             continue
         if _norm(name.replace("_", " ")) in said or _norm(name) in said:
             return name
+        if any(_norm(a) in said for a in aliases.get(name) or []):
+            return name                          # "max tenure pl" / "interest rate for hl" (config policy.product_aliases)
     return None
+
+
+def _unconfigured_product(text: str) -> bool:
+    """A product this lender has no configuration for ("LAP", "car loan"): its numbers are never another product's."""
+    said = _norm(text)
+    return any(_norm(p) in said for p in (cfg().get("policy") or {}).get("unconfigured_products") or [])
 
 
 def _readable(value: Any) -> str:
@@ -481,7 +490,10 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         return _reply(request_id, "CALCULATOR", calculated, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
     # with a case in scope, "interest rate" / "tenure" means THAT case's value (the case logic); the policy number only
     # when a product is named ("maximum tenure for home loan")
-    policy_answer = _policy(text, state, lang) if not case_id or _product_of(text) else None
+    unconfigured = _unconfigured_product(text) and not _product_of(text)
+    policy_answer = _policy(text, state, lang) if not case_id or _product_of(text) or unconfigured else None
+    if policy_answer is not None and unconfigured:
+        policy_answer = _say_text((cfg().get("policy") or {}).get("texts", {}).get("generic_not_configured"), lang)
     if policy_answer is not None:
         return _reply(request_id, "POLICY_ANSWER", policy_answer, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
     if meaning_kind == "policy":
@@ -494,6 +506,8 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
     values = (cfg().get("general_question") or {}).get("case_value_patterns") or []
     if case_id and any(re.search(p, _plain(text)) for p in values):
         return None
+    if case_id and _case_question_not_definition(text, meaning_kind):
+        return None                      # "is any document still outstanding" -- that case's data, not the glossary
     defined = await _definition(text, request_id, lang, case_id)
     if defined is not None:
         return defined
@@ -507,6 +521,21 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         # (unless MEANING said general knowledge: then a miss is "not in the knowledge base", never a case answer)
         return await _knowledge(text, request_id, lang, None if meaning_kind == "knowledge" else case_id)
     return None
+
+
+def _case_question_not_definition(text: str, meaning_kind: str | None) -> bool:
+    """
+    With a case OPEN: a question that points at the case ("this file", "the customer") is never a glossary answer;
+    otherwise a glossary / knowledge answer only for a DEFINITION-shaped question ("what is FOIR", "meaning of LTV")
+    or one meaning read as knowledge (config general_question.case_referents / definition_shapes).
+    """
+    spec = cfg().get("general_question") or {}
+    said = " " + _plain(text) + " "
+    if any(" " + _plain(r) + " " in said for r in spec.get("case_referents") or []):
+        return True
+    if meaning_kind == "knowledge":
+        return False
+    return not any(re.search(p, _plain(text)) for p in spec.get("definition_shapes") or [])
 
 
 def _names_case_data(text: str) -> bool:

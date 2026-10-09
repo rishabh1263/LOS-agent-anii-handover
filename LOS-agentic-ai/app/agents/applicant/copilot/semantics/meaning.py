@@ -304,6 +304,11 @@ async def understand(message: str, *, case_open: bool, previous: dict[str, Any] 
         return None
     chosen = await _model_choice(message, ranked[:int(cfg.get("model_candidates", 3))], case_open, previous,
                                  request_id, generator)
+    fallback = cfg.get("fallback_accept")
+    if chosen is None and fallback is not None and case_open and kind(top) in ("case", "process")             and score >= float(fallback):
+        # the model could not choose (or is down) but the best CASE reading is strong: that reading, never the
+        # generic "which of these?" menu with a case open (config decide.fallback_accept)
+        chosen = top
     if chosen is None:
         STATS["none"] += 1
         return None
