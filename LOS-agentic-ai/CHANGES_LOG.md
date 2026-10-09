@@ -1726,3 +1726,34 @@ single-chat Hinglish conversation, real Qwen + nomic, production flags, in-proce
 - Tests: test_contextual_fragments.py (7). Chatbot integration: 736 passed / 4 failed -> 3 fixed (116 re-run pass),
   test_general_coverage pre-existing. Held-out (real models): case 66->76, messy 32->33, general 32->38, vague 19->28;
   WRONG 23 / 14 / 4 / 0 remain. Report: docs/FOS_COPILOT_ENGINEERING_REPORT.md.
+
+## 2026-10-09 (late) -- natural replies, wrong-answer classes, upload actions
+- Style (config): the CASE-xxx line only when the case changes (case_workspace.case_header: on_change); max 2
+  suggestions, no "You can ask:" label; "For application X:" prefix -> config style.resolved_case_prefix; officer voice
+  for the KYC heading via languages.yaml `en` (document_actions._t now reads English from config); odd "Want to see
+  which documents" next steps reworded in config.
+- REPLY POLISH (new answering/polish.py, config copilot_reply.yaml polish): Qwen REWORDS prose answers of an
+  allowlist of intents only; used only when numbers / ids / document names are kept, nothing new, not longer, no new
+  decision word; else the engine's words. Off in the suite (COPILOT_POLISH). A reworded disclaimer once changed its
+  meaning -> allowlist, not denylist.
+- Wrong-answer classes (v2 held-out failures): glossary never answers a case question with a case open
+  (general_question.case_referents + definition_shapes); product short forms (policy.product_aliases: pl, hl) and
+  unconfigured products (LAP, car loan ...) -> "not configured"; meaning fallback_accept 0.70 with a case open
+  instead of the generic menu; decision / history examples; "no co-applicant on CASE-x" answered directly.
+- NEW frozen held-out v3 (60 English, written before the fixes): 54 correct / 4 WRONG / 2 not available; p50 0.36 s,
+  p95 4.2 s. (v2 is no longer unseen after its failures were studied.)
+- Upload actions (owner): the opened case shows an Upload button for EVERY pending / re-upload document; the reply
+  after an upload ends with the buttons of what is still pending (link_policy.pending_uploads_on); upload buttons
+  outside the link budget; never "Upload Unidentified document" (never_upload). Verified with a real sample PAN:
+  tap -> /fos/action {type: upload} -> multipart -> filed under Applicant > PAN.
+- FRONTEND finding: gz/frontend and gz/Backup chat code read the OLD reply (`answer`, structured upload fields) and
+  never render action: links; ChatLinks.tsx is not wired in. The chat screen the owner tests with is elsewhere --
+  waiting for its location.
+- "is my case ready" (owner): the KYC gate now reads the KYC record's FIELD results when the check summary is missing
+  (fail-closed: a field can only block / ask for review, never pass) -> "name FAILED, the documents disagree" instead
+  of "no KYC result recorded"; with no case open "is my case ready" asks which case (a singular case question with no
+  count / order / list verb is never the "ready for CPA" list); "ready hai kya" -> readiness (catalogue example).
+- Case-value pattern also covers "my / mera / this customer's ... score"; general definitions respect
+  COPILOT_TERMS_KNOWLEDGE=false with a case in scope; accepted-documents branch restored before the glossary gate.
+- Tests updated for intended wording changes (resolved-case prefix from config, style snapshots, case line on change,
+  "did not pass" for a rejected document); the CIBIL flag-off test now sets the flag it tests.

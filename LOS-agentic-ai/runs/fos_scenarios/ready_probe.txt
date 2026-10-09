@@ -1,0 +1,87 @@
+
+### [open] 'open CASE-8380D301D6D0' (0.1s) meaning=-
+CASE-8380D301D6D0 · Rahul Sharma · FOS (Field Officer Sales)
+Applicant: name **did not pass**: the documents disagree.
+Next step: Upload the signature.
+
+[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)
+
+[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)
+
+[Close](action:exit_case)
+
+### [open] 'is my case ready' (1.8s) meaning=cpa_readiness/embedding
+CASE-8380D301D6D0
+CPA readiness: 4 of 10 checks passed.
+
+**Signature**
+- Signature: **PENDING**. Signature has not been uploaded.. Fix: Upload the signature.
+
+**KYC**
+- Applicant: name: **FAILED**, the documents disagree. Fix: Upload a correct document so the name matches.
+- Applicant: date of birth: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.
+- Applicant: address: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.
+- Applicant: PAN number: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.
+- Applicant: father's name: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.
+
+**Next step:** Upload the signature.
+
+- [What should I do next?](ask:What%20should%20I%20do%20next?)
+- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)
+
+[Close](action:exit_case)
+
+### [open] 'ready hai kya' (0.2s) meaning=cpa_readiness/embedding
+CPA readiness: 4 of 10 checks passed.
+
+**Signature**
+- Signature: **PENDING**. Signature has not been uploaded.. Fix: Upload the signature.
+
+**KYC**
+- Applicant: name: **FAILED**, the documents disagree. Fix: Upload a correct document so the name matches.
+- Applicant: date of birth: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.
+- Applicant: address: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.
+- Applicant: PAN number: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.
+- Applicant: father's name: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.
+
+**Next step:** Upload the signature.
+
+- [Why does the checklist depend on the employment type?](ask:Why%20does%20the%20checklist%20depend%20on%20the%20employment%20type?)
+- [What is pending?](ask:What%20is%20pending?)
+
+[Close](action:exit_case)
+
+### [nocase] 'is my case ready' (0.1s) meaning=cpa_readiness/embedding
+Which case is this about? Pick one and I'll answer "Is this case **ready for CPA**?" for it.
+
+You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**.
+
+| # | Case | Applicant | Stage | Status | |
+|---|---|---|---|---|---|
+| 1 | CASE-A5D27A753135 | Priya V. (APP-F8598F11873D) | FOS (Field Officer Sales) | Created · 4 docs pending | [Open](action:open_case?id=CASE-A5D27A753135) |
+| 2 | CASE-8380D301D6D0 | Rahul S. (APP-F1E076A6695F) | FOS | Created · KYC issue | [Open](action:open_case?id=CASE-8380D301D6D0) |
+
+Showing 1-2 of 2 (newest first).
+That is the whole list.
+
+### [nocase] '1' (0.1s) meaning=-
+CASE-A5D27A753135
+CPA readiness: 1 of 10 checks passed.
+
+**Applicant documents**
+- PAN: **PENDING**, not uploaded yet. Fix: Upload the PAN.
+- Address Proof: **PENDING**, not uploaded yet. Fix: Upload the Address Proof.
+- Bank Statement: **PENDING**, not uploaded yet. Fix: Upload the Bank Statement.
+
+**Signature**
+- Signature: **PENDING**. Signature has not been uploaded.. Fix: Upload the signature.
+
+**KYC**
+- Applicant: **PENDING**. KYC has not run for this party. Fix: Upload the identity documents so KYC can run.
+
+**Next step:** Upload the PAN.
+
+- [What should I do next?](ask:What%20should%20I%20do%20next?)
+- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)
+
+[Close](action:exit_case)

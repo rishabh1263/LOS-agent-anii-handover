@@ -43,7 +43,7 @@ def test_bare_follow_ups_use_the_state(client, prod, _store, caplog):
     _seed(_store, a, c)
     say(client, f"{c} kholo")
     first = say(client, "driving licence ka status kya hai?")
-    assert "reject" in first.lower(), first
+    assert "reject" in first.lower() or "did not pass" in first.lower(), first   # the status, as either answer says it
     with caplog.at_level(logging.INFO, logger="app.agents.applicant.copilot.answering.contract"):
         why = say(client, "kyu?")
     assert "unreadable" in why.lower() or "read" in why.lower(), why

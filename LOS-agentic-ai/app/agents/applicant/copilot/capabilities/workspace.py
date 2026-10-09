@@ -748,10 +748,14 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
         wanted = _case_list.understand(text)
         # with a case OPEN, a list needs the PLURAL ("atke hue cases") or a list verb ("dikhao", "show"): "case kahan
         # atka hua hai" is about the open case -- never a "stuck cases" list that closes it (owner 2026-10-08)
-        _, plural = _case_list._case_nouns()
+        singular, plural = _case_list._case_nouns()
         verbs = {_norm(v).strip() for v in (_case_list.cfg().get("phrases") or {}).get("list_verbs") or []}
         words = set(_norm(text).split())
-        if wanted is not None and (not state.active_case_id or words & plural or words & verbs):
+        # "is my case ready?" names ONE case (singular noun, no list verb): a question about a case, never the
+        # "ready for CPA cases" list -- with or without a case open (owner 2026-10-09)
+        one_case = (wanted is not None and bool(words & singular) and not words & plural and not words & verbs
+                    and not wanted.size and not wanted.sort)   # "last 3 case" / "last case" stay lists
+        if wanted is not None and not one_case and (not state.active_case_id or words & plural or words & verbs):
             asked_list = wanted
     if action == "LIST_CASES" or asked_list is not None or (
             action == "CUSTOM_QUERY" and (_says("list", text) or _says("switch", text))):

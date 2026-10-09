@@ -75,7 +75,7 @@ intents:
     kind: case
     description: Whether the case is ready to move to CPA, and what is needed for that.
     canonical: "Is this case ready for CPA?"
-    examples: [kya is case ko next stage par bhej sakte hain, next stage pe bhej sakte hai kya, can this go to the next stage, kya ye CPA ke liye ready hai, policy mein exactly kya requirement hai, next stage ke liye kya requirement hai, what is required to move this case, is this case ready for CPA, can I move this to CPA, what is needed to move to CPA, can this go to CPA now,
+    examples: [ready hai kya, case ready hai, is my case ready, is it ready, kya is case ko next stage par bhej sakte hain, next stage pe bhej sakte hai kya, can this go to the next stage, kya ye CPA ke liye ready hai, policy mein exactly kya requirement hai, next stage ke liye kya requirement hai, what is required to move this case, is this case ready for CPA, can I move this to CPA, what is needed to move to CPA, can this go to CPA now,
                is the file complete for CPA, what's left before CPA, is it ready for handoff, CPA readiness]
   kyc_status:
     kind: case
