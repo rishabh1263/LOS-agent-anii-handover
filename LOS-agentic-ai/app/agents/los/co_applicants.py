@@ -206,13 +206,16 @@ def fill_verified_names(case_id: str, repository=None) -> int:
     return filled
 
 
-def verified_name(case_id: str, party_id: str, repository=None) -> str | None:
-    """The name a PASSED KYC NAME check reports for this party, or None."""
+def verified_name(case_id: str, party_id: str, repository=None, *, primary: bool = False) -> str | None:
+    """The name a PASSED KYC NAME check reports for this party, or None. `primary`: the case's primary applicant,
+    whose KYC result may be recorded case-level (no party_id) -- read as theirs when they have none of their own."""
     try:
         findings = _repo(repository).get_current_findings(case_id, kind="KYC") or []
     except Exception:  # noqa: BLE001 - no readable KYC: nothing is verified
         return None
     mine = [f for f in findings if getattr(f, "party_id", None) == party_id]
+    if not mine and primary:
+        mine = [f for f in findings if not getattr(f, "party_id", None)]
     # THE LATEST KYC RESULT decides: an older REVIEW does not hide a newer PASS, and a
     # newer REVIEW withdraws an older PASS
     mine.sort(key=lambda f: str(getattr(f, "updated_at", None) or getattr(f, "created_at", None) or ""),
