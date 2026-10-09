@@ -106,6 +106,14 @@ def _asks_beyond_the_id(text: str) -> bool:
     return bool([w for w in plain.split() if w not in _noise() and w not in _list_words()])
 
 
+def _asks_beyond_the_name(text: str, application: Any) -> bool:
+    """ "Priya ka pending kya hai" asks something; "Priya Verma" / "Priya wala case" only names the applicant."""
+    name = set(_name(application.applicant_id, short=False).lower().split())
+    rest = [w for w in _norm(text).split() if w not in name and w not in _noise() and w not in _list_words()
+            and difflib.get_close_matches(w, list(name), n=1, cutoff=0.84) == []]
+    return bool(rest)
+
+
 def _only_asks_for_the_list(text: str) -> bool:
     """
     FOS plan 1.2: "all case ka list", "sab case dikhao", "mere kitne case hai", "give a list of case" -- a case
@@ -653,6 +661,20 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
         if closed:
             reply["answer"] = _label("closed", case_id=closed) + "\n\n" + reply["answer"]
         return done(reply)
+    if action == "CUSTOM_QUERY" and state.active_case_id and not _says("open", text):
+        # "Priya ka pending kya hai?" with Rahul's case open: the NAMED applicant is another of the caller's OWN
+        # cases -- switch to it (one match only) and answer THERE; the bare name opens it. Never the open case's
+        # answer for a different person (and never a refusal for the officer's own applicant).
+        named = _by_name(text, my_cases(claims))
+        target = named.application
+        if target is not None and target.case_id != state.active_case_id:
+            if not _asks_beyond_the_name(text, target):
+                return opened(target)
+            state.active_case_id = target.case_id
+            history = [c for c in (state.case_history or []) if c != target.case_id]
+            state.case_history = (history + [target.case_id])[-10:]
+            _save(state)
+            return Turn(case_id=target.case_id, applicant_id=target.applicant_id, in_case=target.case_id)
     if action == "CUSTOM_QUERY" and _says("other_case", text) and _asks_more_than_the_switch(text):
         # "dusre case ka details do" (FOS plan 1.3): the question is about ANOTHER of the caller's cases --
         # one other case: switch to it and answer there; several: ask which (never the open case's answer)

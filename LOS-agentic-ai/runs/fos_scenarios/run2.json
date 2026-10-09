@@ -1,0 +1,413 @@
+{
+ "turns": [
+  {
+   "n": 1,
+   "scenario": "A",
+   "chat": "fos-scenario-g",
+   "officer": "Bhai, aaj FOS mein kaafi applications pending hain. Pehle batao kis applicant par kaam karna chahiye?",
+   "status": 200,
+   "ms": 2545,
+   "meaning": "work_queue/embedding/0.90",
+   "audit": [],
+   "bot": "3 of your cases match (needs action).\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-34F6F6104A28 | Amit R. (APP-1BB66BF19375) | FOS (Field Officer Sales) | Created · 4 docs **pending** | [Open](action:open_case?id=CASE-34F6F6104A28) |\n| 2 | CASE-A1EF9C057531 | Priya V. (APP-991A2229CB80) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-A1EF9C057531) |\n| 3 | CASE-98367C4E5300 | Rahul S. (APP-49E82EA3D0BE) | FOS | Created · KYC (Know Your Customer) issue | [Open](action:open_case?id=CASE-98367C4E5300) |\n\nShowing 1-3 of 3 (newest first).\nThat is the whole list.\n\nDo you want to know about a particular case?\n[Yes](ask:Yes) · [No](ask:No)\n\nDownload: [Excel](action:download_list?format=xlsx&q=filter:needs_action) · [Doc](action:download_list?format=docx&q=filter:needs_action) · [PDF](action:download_list?format=pdf&q=filter:needs_action) · [Show in UI](action:show_list_in_ui?q=filter:needs_action)"
+  },
+  {
+   "n": 2,
+   "scenario": "B",
+   "chat": "fos-scenario-g",
+   "officer": "Rahul Sharma ka case kholo",
+   "status": 200,
+   "ms": 4022,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-98367C4E5300 · Rahul Sharma · FOS\n**Pending**: Signature.\nNext step: Upload the signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 3,
+   "scenario": "B",
+   "chat": "fos-scenario-g",
+   "officer": "Is applicant ka status batao.",
+   "status": 200,
+   "ms": 5950,
+   "meaning": "case_status/embedding/0.99",
+   "audit": [
+    "FULL_SUMMARY:OK:applicant.360"
+   ],
+   "bot": "CASE-98367C4E5300\n- Rahul Sharma — the application is at Basic Document Verification. Completed: **PAN** (Permanent Account Number), Driving Licence, Bank Statement. **Pending**: Signature has not been uploaded. Next action: Collect and upload the missing document: Signature. CPA readiness: Not ready — 1 item(s) blocking.\n\nDownload: [Excel](action:download?format=xlsx&case=CASE-98367C4E5300) · [Doc](action:download?format=docx&case=CASE-98367C4E5300) · [PDF](action:download?format=pdf&case=CASE-98367C4E5300) · [Show in UI](action:show_in_ui?case=CASE-98367C4E5300)\n\nYou can ask:\n- [Why does the checklist depend on the employment type?](ask:Why%20does%20the%20checklist%20depend%20on%20the%20employment%20type?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 4,
+   "scenario": "B",
+   "chat": "fos-scenario-g",
+   "officer": "Kya pending hai?",
+   "status": 200,
+   "ms": 3914,
+   "meaning": "pending_documents/embedding/0.97",
+   "audit": [
+    "PENDING_ITEMS:OK:workflow.pending_items,documents.checklist"
+   ],
+   "bot": "CASE-98367C4E5300\nYour KYC (Know Your Customer) verification needs attention:\n• **Name** mismatch: **PAN** shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pending:\n- Signature\n\n**Next step:** Clear these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 5,
+   "scenario": "B",
+   "chat": "fos-scenario-g",
+   "officer": "Ye pending kyun hai?",
+   "status": 200,
+   "ms": 2781,
+   "meaning": "why_stuck/embedding/0.98",
+   "audit": [
+    "CASE_HISTORY:OK:application.get,workflow.pending_items,workflow.next_action"
+   ],
+   "bot": "CASE-98367C4E5300\nThe records show the application is held because the details across documents disagree, so the case is held for a reviewer; and the signature is still outstanding, so the case is **not ready** for handoff. The next step is to collect and upload the signature.\n\nYou can ask:\n- [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?)\n- [What is pending?](ask:What%20is%20pending?)\n- [Why is it stuck?](ask:Why%20is%20it%20stuck?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 6,
+   "scenario": "B",
+   "chat": "fos-scenario-g",
+   "officer": "Ab mujhe kya karna chahiye?",
+   "status": 200,
+   "ms": 3245,
+   "meaning": "next_step/embedding/0.98",
+   "audit": [
+    "NEXT_ACTION:OK:workflow.next_action,documents.checklist"
+   ],
+   "bot": "CASE-98367C4E5300\n**Next step:** The next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue.\n\nYou can ask:\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n- [Why does the checklist depend on the employment type?](ask:Why%20does%20the%20checklist%20depend%20on%20the%20employment%20type?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 7,
+   "scenario": "B",
+   "chat": "fos-scenario-g",
+   "officer": "Iske liye document chahiye ya sirf clarification?",
+   "status": 200,
+   "ms": 2518,
+   "meaning": "pending_documents/embedding/0.99",
+   "audit": [
+    "PENDING_ITEMS:OK:workflow.pending_items,documents.checklist"
+   ],
+   "bot": "CASE-98367C4E5300\nYour KYC verification needs attention:\n• **Name** mismatch: **PAN** shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pending:\n- Signature\n\n**Next step:** Clear these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 8,
+   "scenario": "B",
+   "chat": "fos-scenario-g",
+   "officer": "Agar document already upload hai toh?",
+   "status": 200,
+   "ms": 6614,
+   "meaning": null,
+   "audit": [
+    "FOS_KNOWLEDGE:NO_KNOWLEDGE:knowledge.fos"
+   ],
+   "bot": "CASE-98367C4E5300\n- I don't have enough information in the FOS (Field Officer Sales) knowledge base to answer that.\n\n**Next step:** Check your status or **pending** documents?\n\nYou can ask:\n- [What is pending?](ask:What%20is%20pending?)\n- [Why is it stuck?](ask:Why%20is%20it%20stuck?)\n- [Co-applicant](ask:Co-applicant)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 9,
+   "scenario": "C",
+   "chat": "fos-scenario-g",
+   "officer": "Ek minute, doosre applicant ka status dekhna hai.",
+   "status": 200,
+   "ms": 225,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-98367C4E5300 closed.\n\nYou have 3 cases: 1 with a KYC issue, 2 with documents **pending**.\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-34F6F6104A28 | Amit R. (APP-1BB66BF19375) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-34F6F6104A28) |\n| 2 | CASE-A1EF9C057531 | Priya V. (APP-991A2229CB80) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-A1EF9C057531) |\n| 3 | CASE-98367C4E5300 | Rahul S. (APP-49E82EA3D0BE) | FOS | Created · KYC issue | [Open](action:open_case?id=CASE-98367C4E5300) |\n\nShowing 1-3 of 3 (newest first).\nThat is the whole list.\n\nDo you want to know about a particular case?\n[Yes](ask:Yes) · [No](ask:No)\n\nDownload: [Excel](action:download_list?format=xlsx&q=all) · [Doc](action:download_list?format=docx&q=all) · [PDF](action:download_list?format=pdf&q=all) · [Show in UI](action:show_list_in_ui?q=all)"
+  },
+  {
+   "n": 10,
+   "scenario": "C",
+   "chat": "fos-scenario-g",
+   "officer": "Priya Verma",
+   "status": 200,
+   "ms": 3691,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-A1EF9C057531 · Priya Verma · FOS\nPAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Priya Verma's KYC hasn't run yet.\nNext step: Upload the PAN.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=applicant)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 11,
+   "scenario": "C",
+   "chat": "fos-scenario-g",
+   "officer": "Iska kya scene hai?",
+   "status": 200,
+   "ms": 2586,
+   "meaning": "case_status/embedding/0.98",
+   "audit": [
+    "FULL_SUMMARY:OK:applicant.360"
+   ],
+   "bot": "CASE-A1EF9C057531\n- Priya Verma — the application is at Application Created. **Pending**: PAN (Permanent Account Number) has not been uploaded. Address Proof has not been uploaded. Bank Statement has not been uploaded. Signature has not been uploaded. Next action: Collect and upload the missing document: PAN. CPA readiness: Not ready — 4 item(s) blocking.\n\nDownload: [Excel](action:download?format=xlsx&case=CASE-A1EF9C057531) · [Doc](action:download?format=docx&case=CASE-A1EF9C057531) · [PDF](action:download?format=pdf&case=CASE-A1EF9C057531) · [Show in UI](action:show_in_ui?case=CASE-A1EF9C057531)\n\nYou can ask:\n- [Why is PAN required for this application?](ask:Why%20is%20PAN%20required%20for%20this%20application?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 12,
+   "scenario": "C",
+   "chat": "fos-scenario-g",
+   "officer": "Achha, ab pehle wale par wapas chalo.",
+   "status": 200,
+   "ms": 323,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-98367C4E5300 · Rahul Sharma · FOS\n**Pending**: Signature.\nNext step: Upload the signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 13,
+   "scenario": "C",
+   "chat": "fos-scenario-g",
+   "officer": "Uska pending point kya tha?",
+   "status": 200,
+   "ms": 2778,
+   "meaning": "pending_documents/embedding/0.98",
+   "audit": [
+    "PENDING_ITEMS:OK:workflow.pending_items,documents.checklist"
+   ],
+   "bot": "CASE-98367C4E5300\nYour KYC (Know Your Customer) verification needs attention:\n• **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pending:\n- Signature\n\n**Next step:** Clear these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 14,
+   "scenario": "C",
+   "chat": "fos-scenario-g",
+   "officer": "Kya uska status change hua?",
+   "status": 200,
+   "ms": 6658,
+   "meaning": null,
+   "audit": [
+    "APPLICATION_STATUS:OK:application.get,documents.checklist"
+   ],
+   "bot": "CASE-98367C4E5300\n- The application has been created. Signature is still **pending**.\n\n**Next step:** Want to see which documents are pending?\n\nYou can ask:\n- [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?)\n- [What should I do next?](ask:What%20should%20I%20do%20next?)\n- [Why does the checklist depend on the employment type?](ask:Why%20does%20the%20checklist%20depend%20on%20the%20employment%20type?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 15,
+   "scenario": "D",
+   "chat": "fos-scenario-g",
+   "officer": "Nahi, mera matlab bank statement se tha.",
+   "status": 200,
+   "ms": 1510,
+   "meaning": "document_status/followup/1.00",
+   "audit": [
+    "DOCUMENT_VERIFICATION:OK:documents.verification,documents.checklist"
+   ],
+   "bot": "CASE-98367C4E5300\n- **Bank Statement** is **verified**. Its issuing authority has not been independently confirmed.\n\nYou can ask:\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n- [What is pending?](ask:What%20is%20pending?)\n- [Why is it stuck?](ask:Why%20is%20it%20stuck?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 16,
+   "scenario": "D",
+   "chat": "fos-scenario-g",
+   "officer": "Usko process kar do.",
+   "status": 200,
+   "ms": 2335,
+   "meaning": "ambiguous_action/embedding/0.99",
+   "audit": [],
+   "bot": "What should I do? Pick one:\n\n1. [Collect from customer](ask:Collect%20from%20customer)\n2. [What is pending?](ask:What%20is%20pending%3F)\n3. [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA%3F)\n4. [Move to CPA](ask:Move%20to%20CPA)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 17,
+   "scenario": "D",
+   "chat": "fos-scenario-g",
+   "officer": "Ruko, abhi action mat lena.",
+   "status": 200,
+   "ms": 3095,
+   "meaning": "hold_action/embedding/0.97",
+   "audit": [],
+   "bot": "Okay, I won't take any action. Nothing was **pending**, so nothing has changed. Ask me anything about the case.\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 18,
+   "scenario": "D",
+   "chat": "fos-scenario-g",
+   "officer": "Pehle sirf batao kya issue hai.",
+   "status": 200,
+   "ms": 3020,
+   "meaning": "why_stuck/embedding/0.99",
+   "audit": [
+    "CASE_HISTORY:OK:application.get,workflow.pending_items,workflow.next_action"
+   ],
+   "bot": "CASE-98367C4E5300\nThe records show the application is held because the details across documents disagree, so the case is held for a reviewer; and the signature is still outstanding, so the case is **not ready** for handoff. The next step is to collect and upload the signature.\n\nYou can ask:\n- [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?)\n- [What is pending?](ask:What%20is%20pending?)\n- [Why is it stuck?](ask:Why%20is%20it%20stuck?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 19,
+   "scenario": "E",
+   "chat": "fos-scenario-g",
+   "officer": "Is applicant ke pending FOS checks complete karne ke liye next step le lo.",
+   "status": 200,
+   "ms": 2445,
+   "meaning": "next_step/embedding/0.85",
+   "audit": [
+    "NEXT_ACTION:OK:workflow.next_action,documents.checklist"
+   ],
+   "bot": "CASE-98367C4E5300\n**Next step:** The next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue.\n\nYou can ask:\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n- [Why does the checklist depend on the employment type?](ask:Why%20does%20the%20checklist%20depend%20on%20the%20employment%20type?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 20,
+   "scenario": "E",
+   "chat": "fos-scenario-g",
+   "officer": "loan amount 6 lakh karo",
+   "status": 200,
+   "ms": 188,
+   "meaning": null,
+   "audit": [],
+   "bot": "Change Loan amount (Rs) of CASE-98367C4E5300 from 500000 to 600000?\n\n[Confirm](action:confirm_write?ref=edit-96ff06) · [Cancel](action:cancel_write?ref=edit-96ff06)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 21,
+   "scenario": "E",
+   "chat": "fos-scenario-g",
+   "officer": "confirm",
+   "status": 200,
+   "ms": 2335,
+   "meaning": "command/embedding/1.00",
+   "audit": [
+    "UPDATE_CASE_FORM:OK:application.update"
+   ],
+   "bot": "Updated Loan amount (Rs) of CASE-98367C4E5300 to 600000.\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 22,
+   "scenario": "D/E-hold",
+   "chat": "fos-scenario-g",
+   "officer": "loan amount 7 lakh karo",
+   "status": 200,
+   "ms": 155,
+   "meaning": null,
+   "audit": [],
+   "bot": "Change Loan amount (Rs) of CASE-98367C4E5300 from 600000 to 700000?\n\n[Confirm](action:confirm_write?ref=edit-38cd0c) · [Cancel](action:cancel_write?ref=edit-38cd0c)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 23,
+   "scenario": "D/E-hold",
+   "chat": "fos-scenario-g",
+   "officer": "Ruko, abhi action mat lena.",
+   "status": 200,
+   "ms": 1959,
+   "meaning": "hold_action/embedding/0.97",
+   "audit": [],
+   "bot": "Okay, I have not done anything. The **pending** change was dropped, so nothing was written. Tell me when you want to continue.\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 24,
+   "scenario": "C-isolation",
+   "chat": "fos-scenario-g",
+   "officer": "Priya ka pending kya hai?",
+   "status": 200,
+   "ms": 796,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-98367C4E5300\nI can help with the customer's own authorised application information, but I can't provide other customers' private data or internal system details.\n\nYou can ask:\n- [What is pending?](ask:What%20is%20pending?)\n- [Why is it stuck?](ask:Why%20is%20it%20stuck?)\n- [Co-applicant](ask:Co-applicant)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 25,
+   "scenario": "E/F",
+   "chat": "fos-scenario-g",
+   "officer": "Kya is case ko next stage par bhej sakte hain?",
+   "status": 200,
+   "ms": 258237,
+   "meaning": "cpa_readiness/embedding/0.99",
+   "audit": [
+    "READINESS:OK:workflow.readiness,documents.checklist"
+   ],
+   "bot": "CASE-98367C4E5300\nCPA readiness: 4 of 11 checks passed.\n\n**Applicant documents**\n- Income Proof: **PENDING**, not uploaded yet. Fix: Upload the Income Proof.\nPassed: PAN, Address Proof, Bank Statement.\n\n**Signature**\n- Signature: **PENDING**. Signature has not been uploaded.. Fix: Upload the signature.\n\n**KYC**\n- Applicant: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n\n**Next step:** Upload the Income Proof.\n\nYou can ask:\n- [What should I do next?](ask:What%20should%20I%20do%20next?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n- [What can be used as income proof?](ask:What%20can%20be%20used%20as%20income%20proof?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 26,
+   "scenario": "E",
+   "chat": "fos-scenario-g",
+   "officer": "CPA pe move kar do",
+   "status": 200,
+   "ms": 870,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-98367C4E5300 can't move to CPA yet, these need to be fixed first:\n- FOS (Field Officer Sales) requirements\n- KYC (Know Your Customer) verification\n\n[Collect from customer](ask:Collect%20from%20customer)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 27,
+   "scenario": "F",
+   "chat": "fos-scenario-g",
+   "officer": "Agar ye document missing hai toh ab kya karna hoga?",
+   "status": 200,
+   "ms": 3486,
+   "meaning": "next_step/embedding/0.99",
+   "audit": [
+    "NEXT_ACTION:OK:workflow.next_action,documents.checklist"
+   ],
+   "bot": "CASE-98367C4E5300\n**Next step:** The next step is to collect and upload the missing document: Income Proof. Also, wait for a reviewer to check the recorded issue.\n\nYou can ask:\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n- [What can be used as income proof?](ask:What%20can%20be%20used%20as%20income%20proof?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 28,
+   "scenario": "F",
+   "chat": "fos-scenario-g",
+   "officer": "Policy mein exactly kya requirement hai?",
+   "status": 200,
+   "ms": 6878,
+   "meaning": "cpa_readiness/embedding/0.98",
+   "audit": [
+    "READINESS:OK:workflow.readiness,documents.checklist"
+   ],
+   "bot": "CASE-98367C4E5300\nCPA readiness: 4 of 11 checks passed.\n\n**Applicant documents**\n- Income Proof: **PENDING**, not uploaded yet. Fix: Upload the Income Proof.\nPassed: PAN, Address Proof, Bank Statement.\n\n**Signature**\n- Signature: **PENDING**. Signature has not been uploaded.. Fix: Upload the signature.\n\n**KYC**\n- Applicant: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n\n**Next step:** Upload the Income Proof.\n\nYou can ask:\n- [What should I do next?](ask:What%20should%20I%20do%20next?)\n- [Why is income proof required for this application?](ask:Why%20is%20income%20proof%20required%20for%20this%20application?)\n- [What is pending?](ask:What%20is%20pending?)\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 29,
+   "scenario": "D",
+   "chat": "fos-scenario-g",
+   "officer": "Actually, abhi us task ko chhod do.",
+   "status": 200,
+   "ms": 4436,
+   "meaning": "hold_action/embedding/0.98",
+   "audit": [],
+   "bot": "Okay, I won't take any action. Nothing was **pending**, so nothing has changed. Ask me anything about the case.\n\n[Close](action:exit_case)"
+  },
+  {
+   "n": 30,
+   "scenario": "D",
+   "chat": "fos-scenario-g",
+   "officer": "Maine galat applicant select kiya.",
+   "status": 200,
+   "ms": 137,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-98367C4E5300 closed.\n\nYou have 3 cases: 1 with a KYC issue, 2 with documents **pending**.\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-98367C4E5300 | Rahul S. (APP-49E82EA3D0BE) | FOS | Created · KYC issue | [Open](action:open_case?id=CASE-98367C4E5300) |\n| 2 | CASE-34F6F6104A28 | Amit R. (APP-1BB66BF19375) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-34F6F6104A28) |\n| 3 | CASE-A1EF9C057531 | Priya V. (APP-991A2229CB80) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-A1EF9C057531) |\n\nShowing 1-3 of 3 (newest first).\nThat is the whole list.\n\nDo you want to know about a particular case?\n[Yes](ask:Yes) · [No](ask:No)\n\nDownload: [Excel](action:download_list?format=xlsx&q=all) · [Doc](action:download_list?format=docx&q=all) · [PDF](action:download_list?format=pdf&q=all) · [Show in UI](action:show_list_in_ui?q=all)"
+  },
+  {
+   "n": 31,
+   "scenario": "G",
+   "chat": "fos-scenario-g",
+   "officer": "Jo tumne bataya, uska next step kya hai?",
+   "status": 200,
+   "ms": 8493,
+   "meaning": "next_step/embedding/0.98",
+   "audit": [],
+   "bot": "Which case is this about? Pick one and I'll answer \"What should I do next?\" for it.\n\n[Use CASE-98367C4E5300, the last opened case](ask:open%20CASE-98367C4E5300)\n\nYou have 3 cases: 1 with a KYC issue, 2 with documents **pending**.\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-98367C4E5300 | Rahul S. (APP-49E82EA3D0BE) | FOS | Created · KYC issue | [Open](action:open_case?id=CASE-98367C4E5300) |\n| 2 | CASE-34F6F6104A28 | Amit R. (APP-1BB66BF19375) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-34F6F6104A28) |\n| 3 | CASE-A1EF9C057531 | Priya V. (APP-991A2229CB80) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-A1EF9C057531) |\n\nShowing 1-3 of 3 (newest first).\nThat is the whole list."
+  },
+  {
+   "n": 32,
+   "scenario": "G",
+   "chat": "fos-scenario-g",
+   "officer": "Abhi tak kya kya pending hai, ek summary do.",
+   "status": 200,
+   "ms": 996,
+   "meaning": null,
+   "audit": [],
+   "bot": "Which case is this about? Pick one and I'll answer \"Abhi tak kya kya **pending** hai, ek summary do.\" for it.\n\n[Use CASE-98367C4E5300, the last opened case](ask:open%20CASE-98367C4E5300)\n\nYou have 3 cases: 1 with a KYC issue, 2 with documents pending.\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-98367C4E5300 | Rahul S. (APP-49E82EA3D0BE) | FOS | Created · KYC issue | [Open](action:open_case?id=CASE-98367C4E5300) |\n| 2 | CASE-34F6F6104A28 | Amit R. (APP-1BB66BF19375) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-34F6F6104A28) |\n| 3 | CASE-A1EF9C057531 | Priya V. (APP-991A2229CB80) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-A1EF9C057531) |\n\nShowing 1-3 of 3 (newest first).\nThat is the whole list."
+  },
+  {
+   "n": 33,
+   "scenario": "H-resume",
+   "chat": "fos-scenario-g",
+   "officer": "Hum kis applicant par the? Uska kya pending tha?",
+   "status": 200,
+   "ms": 2623,
+   "meaning": null,
+   "audit": [],
+   "bot": "Which case is this about? Pick one and I'll answer \"Hum kis applicant par the? Uska kya **pending** tha?\" for it.\n\n[Use CASE-98367C4E5300, the last opened case](ask:open%20CASE-98367C4E5300)\n\nYou have 3 cases: 1 with a KYC issue, 2 with documents pending.\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-98367C4E5300 | Rahul S. (APP-49E82EA3D0BE) | FOS | Created · KYC issue | [Open](action:open_case?id=CASE-98367C4E5300) |\n| 2 | CASE-34F6F6104A28 | Amit R. (APP-1BB66BF19375) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-34F6F6104A28) |\n| 3 | CASE-A1EF9C057531 | Priya V. (APP-991A2229CB80) | FOS | Created · 4 docs pending | [Open](action:open_case?id=CASE-A1EF9C057531) |\n\nShowing 1-3 of 3 (newest first).\nThat is the whole list."
+  },
+  {
+   "n": 34,
+   "scenario": "H-other-officer",
+   "status": 200,
+   "bot": "Aapka abhi koi case nahi hai.\n\n[Create New Case](action:new_case)"
+  }
+ ],
+ "evidence": {
+  "amount_after_confirm": "600000",
+  "amount_after_hold": "600000",
+  "loan_amount_after": "600000",
+  "stage_after": "FOS",
+  "case_1": "CASE-98367C4E5300",
+  "case_2": "CASE-A1EF9C057531"
+ }
+}

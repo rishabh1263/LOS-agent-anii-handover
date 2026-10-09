@@ -1,0 +1,6 @@
+
+=== pan verifed?: 0.5s
+
+=== wat next: 2.0s
+
+=== foir means: 0.1s

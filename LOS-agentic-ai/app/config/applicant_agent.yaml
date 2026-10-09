@@ -1340,8 +1340,12 @@ chatbot:
       more: [aur dikhao, more, aur, next page, aage dikhao, और दिखाओ]
       open: [kholo, khol do, open, jao, jaana hai, chalo, select, खोलो, उघडा]
       exit: [bahar aao, bahar, exit, close, close it, close karo, case close karo, close case, close this case, case band karo, band karo, band kar do, back, बाहर, बाहेर]
-      switch: [dusra case, doosra case, another case, case badlo, switch case, other case]
-      previous: [pehle wala case, pichla case, previous case, last case, wapas pehle wala, pehle wale case]
+      switch: [dusra case, doosra case, another case, case badlo, switch case, other case, doosre applicant,
+               dusre applicant, doosra applicant, dusra applicant, another applicant, other applicant, galat applicant,
+               galat case, wrong applicant, wrong case, applicant badlo, dusre customer, doosre customer]
+      previous: [pehle wala case, pichla case, previous case, last case, wapas pehle wala, pehle wale case,
+                 pehle wale par, pehle wale pe, pehle wale applicant, pichle applicant, previous applicant,
+                 go back to the previous case, back to the previous case, pehle wale par wapas, wapas pehle wale]
       case_word: [case, ka case, wala case, file, application]
       # MASTER SPEC section 2: "is applicant ke case dikhao" -- every case of the OPEN case's applicant (in scope)
       this_applicant: [is applicant ke case, is applicant ke cases, iss applicant ke case, iss applicant ke cases,

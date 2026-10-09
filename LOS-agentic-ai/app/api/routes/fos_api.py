@@ -1322,6 +1322,13 @@ async def copilot(
         }) from exc
 
 
+def _switches_case(message: str) -> bool:
+    """The workspace's own switch / back phrases (applicant_agent.yaml case_workspace.phrases)."""
+    from app.agents.applicant.copilot.capabilities import workspace as _sw
+
+    return _sw.enabled() and any(_sw._says(k, message) for k in ("switch", "previous"))
+
+
 async def _understood(message: str, claims: dict[str, Any], payload: Any, request_id: str):
     """The meaning Decision for a typed message, or None (meaning off / a command / a pending reply / not understood)."""
     from app.agents.applicant.copilot.semantics import meaning as _meaning
@@ -1344,6 +1351,8 @@ async def _understood(message: str, claims: dict[str, Any], payload: Any, reques
 
     if _vq.is_command(said, case_open=bool(state.active_case_id or payload.case_id)):
         return None                 # open / close / a case id / a list / a new case: the workspace and the forms
+    if _vq.names_a_case(said, claims):
+        return None                 # "Priya ka pending": the NAMED applicant's case -- a canonical would drop the name
     decision = await _meaning.understand(said, case_open=bool(state.active_case_id or payload.case_id),
                                          previous=(getattr(state, "flow", None) or {}).get("last_meaning"),
                                          request_id=request_id)
@@ -1406,12 +1415,36 @@ def move_case_stage(confirmed: dict[str, Any], request_id: str) -> dict[str, Any
             "answer": _mv_flow.moved_text(case_id, here, there, lang)}
 
 
+def _attach_next_step_upload(reply: dict[str, Any]) -> None:
+    """
+    "Ab kya karna hai?" -> "Next step: collect and upload the Signature": the step is offered as its action -- the
+    Upload link of the document the answer names (the case's own document actions; re-upload rows first), the same
+    rule as the case brief. Nothing is added when the answer names no actionable document.
+    """
+    if str(reply.get("intent") or "") != "NEXT_ACTION" or reply.get("document_actions") or not reply.get("case_id"):
+        return
+    try:
+        from app.agents.applicant.copilot.answering import document_actions as _next_da
+
+        view = _next_da.build(str(reply["case_id"]))
+    except Exception:  # noqa: BLE001 - the link is a convenience; the answer stands without it
+        return
+    said = str(reply.get("answer") or "").lower()
+    for key in ("reupload", "pending"):
+        for row in view.get(key) or []:
+            label = str((row or {}).get("label") or "").lower()
+            if label and label in said:
+                reply["document_actions"] = {key: [row]}
+                return
+
+
 def _published_reply(request: Request, reply: Any) -> Any:
     """MASTER SPEC section 8: remember the chat's context server-side, then publish {request_id, markdown, tts}."""
     from app.agents.applicant.copilot.answering import contract as _contract
 
     if not _contract.enabled() or not isinstance(reply, dict):
         return reply
+    _attach_next_step_upload(reply)
     key = getattr(request.state, "chat_key", None)
     if key and isinstance(reply.get("context"), dict):
         _contract.remember(key[0], key[1], reply["context"])
@@ -1657,6 +1690,12 @@ async def _copilot_json(
         if not verdict.allowed and verdict.category is _early_guard.Category.BULK_DATA and not others:
             # "saare cases" / "list all case": the caller's OWN list (section 2) -- scoped by the grants
             verdict = _early_guard.Verdict(True)
+        elif (not verdict.allowed and verdict.category is _early_guard.Category.CROSS_CUSTOMER_DATA and not others
+              and _switches_case(message)):
+            # an OFFICER's "doosre applicant ka status" / "pehle wale applicant par chalo" is ANOTHER OF THEIR OWN
+            # cases: the workspace's switch / back (the "which case?" pick lists only the caller's own cases, and
+            # every case read is authorised per case). A customer never reaches this route.
+            verdict = _early_guard.Verdict(True)
         elif verdict.allowed and others:
             # "show cases of other officers": never answered with anyone's list (section 17.2)
             verdict = _early_guard.Verdict(False, _early_guard.Category.BULK_DATA, "other_people")
@@ -1695,6 +1734,17 @@ async def _copilot_json(
 
             if _pf_early.drop_if_not_answered(message, _early_state):
                 _ws_early._save(_early_state)
+            # "ruko, abhi action mat lena" WHILE a draft / move waits for Confirm: dropped before the form sees it
+            if (_early_state.flow or {}).get("write") and not re.fullmatch(r"(?i)[\d\s.,]+", message.strip()):
+                from app.agents.applicant.copilot.semantics import meaning as _hold_meaning
+
+                if _hold_meaning.enabled():
+                    _held = await _hold_meaning.understand(" ".join(message.split()), case_open=True, previous=None,
+                                                           request_id=request_id)
+                    if _held is not None and _held.kind == "control":
+                        from app.agents.applicant.copilot.capabilities import control as _control_early
+
+                        return _control_early.hold(_early_state, request_id)
             picked = _vague_early.resolve(message, _early_state,
                                           case_open=bool(_early_state.active_case_id or payload.case_id))
             if picked and _vague_early.is_upload(picked):
@@ -1751,11 +1801,28 @@ async def _copilot_json(
 
         if _vague.enabled():
             _vstate = _vg._state(claims, payload.context)
-            if _vague.is_vague(message) and not _vague.waits_for(message, _vstate, claims, payload.context):
-                asked = _vague.ask(message, _vstate, request_id, bool(_vstate.active_case_id or payload.case_id))
-                if asked is not None:
-                    return asked
+            if (_vague.is_vague(message) and not _vague.waits_for(message, _vstate, claims, payload.context)
+                    and not _vague.names_a_case(message, claims)):
+                _open = bool(_vstate.active_case_id or payload.case_id)
+                read = _vague.contextual(message, _vstate, _open)
+                if read and _vague.is_upload(read):
+                    return _vague.upload_reply(read, request_id, payload.context, claims)
+                if read:
+                    message = read                     # the one reading the conversation supports: answered now
+                    request.state.copilot_message = message
+                else:
+                    asked = _vague.ask(message, _vstate, request_id, _open)
+                    if asked is not None:
+                        return asked
         decision = await _understood(message, claims, payload, request_id)
+        if decision is not None and decision.kind in ("control", "clarify_action"):
+            # "ruko, abhi action mat lena" -> nothing pending is written; "usko process kar do" -> which action?
+            from app.agents.applicant.copilot.capabilities import control as _control
+
+            _ctl_state = _vg._state(claims, payload.context)
+            if decision.kind == "control":
+                return _control.hold(_ctl_state, request_id)
+            return _control.ask_which_action(_ctl_state, request_id)
         if decision is not None and decision.kind == "upload":
             # "upload new bank statement" with a case open: that document's upload link (the party the message names)
             _up_state = _vg._state(claims, payload.context)
@@ -1772,6 +1839,11 @@ async def _copilot_json(
             _cp_app = _cp_repo().get_application(_cp_case) if _cp_case else None
             if _cp_app is not None and not getattr(_cp_app, "co_applicant_id", None):
                 decision.canonical = None
+        if decision is not None and decision.kind == "list" and decision.canonical:
+            # "kis applicant par pehle kaam karu": the case list's own priority order -- the workspace answers it
+            message = decision.canonical
+            request.state.copilot_message = message
+            decision = None
         if decision is not None:
             meaning_kind = decision.kind
             if decision.kind in ("case", "process") and decision.canonical:

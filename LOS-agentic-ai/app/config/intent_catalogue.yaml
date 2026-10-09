@@ -26,7 +26,11 @@ enabled: true                       # env COPILOT_MEANING overrides; off -> toda
 
 entities:
   co_applicant_words: [co-applicant, co applicant, coapplicant, co-borrower, co borrower, second applicant, joint applicant]
-  followup_fillers: [and, what, about, the, for, of, how, is, its, it, same, too, also, then, his, her, their, status]
+  # CORRECTIONS count as a follow-up too ("nahi, mera matlab bank statement se tha" = the previous question, that
+  # document): the correction words are fillers around the new slot
+  followup_fillers: [and, what, about, the, for, of, how, is, its, it, same, too, also, then, his, her, their, status,
+                     nahi, nahin, no, not, mera, meri, matlab, i, meant, mean, actually, sorry, se, tha, thi, the, ki,
+                     ka, ke, baat, kar, raha, rahi, hoon, hu, was, talking, wala, wali, uska, uski, iska, iski, my, me]
 
 model:                              # the CHOOSER (never an answer writer): small prompt, JSON {"i": id}
   timeout_seconds: 4.0
@@ -43,7 +47,7 @@ intents:
     kind: case
     description: The overall status of the open case or application.
     canonical: "What is the status of this case?"
-    examples: [what is the status of this case, case status, where does this case stand, status update please,
+    examples: [is applicant ka status batao, iska status kya hai, is case ka status, applicant ka status kya hai, iska kya scene hai, kya scene hai is case ka, status batao, is file ka status, what is the status of this case, case status, where does this case stand, status update please,
                what's happening with this application, how is the case doing, any update on this file,
                current status of the application, is anything happening on this case, give me the case status]
   pending_documents:
@@ -52,26 +56,26 @@ intents:
     description: Which documents or items are still pending, missing or not uploaded on the case.
     canonical: "What is pending?"
     canonical_party: "What is pending for the co-applicant?"
-    examples: [what is pending, which documents are pending, what is missing, what's left to upload, what do I still need,
+    examples: [agar document already upload hai toh, documents upload ho gaye hain toh, what if the documents are already uploaded, sab upload ho chuka hai, kya pending hai, aur kya pending hai, uska pending point kya tha, kya kya pending hai, iske liye document chahiye ya sirf clarification, what is pending, which documents are pending, what is missing, what's left to upload, what do I still need,
                docs, documents, pending docs, which papers are still required from the customer, anything missing on this file,
                what documents are still needed, what is not uploaded yet, what else do I need to collect]
   why_stuck:
     kind: case
     description: Why the case is blocked, held or not moving forward.
     canonical: "Why is this case stuck?"
-    examples: [why is this case stuck, why is it stuck, why is the case on hold, what is blocking this case, why isn't it moving,
+    examples: [ye pending kyun hai, pending kyun hai, kya issue hai, pehle sirf batao kya issue hai, problem kya hai is case mein, ye kyun atka hai, why is it pending, what is the issue, why is this case stuck, why is it stuck, why is the case on hold, what is blocking this case, why isn't it moving,
                why can't this go ahead, what's holding this up, reason for the delay on this file, why is it not progressing]
   next_step:
     kind: case
     description: What the officer should do next on the case.
     canonical: "What should I do next?"
-    examples: [what should I do next, next step, what now, what do I do now, what's my next action, how do I proceed,
+    examples: [ab mujhe kya karna chahiye, agar ye document missing hai toh ab kya karna hoga, aage kya karna hai, jo tumne bataya uska next step kya hai, pending checks complete karne ke liye next step, what should I do if a document is missing, what should I do next, next step, what now, what do I do now, what's my next action, how do I proceed,
                what is the next thing to do on this case, what action is needed from me]
   cpa_readiness:
     kind: case
     description: Whether the case is ready to move to CPA, and what is needed for that.
     canonical: "Is this case ready for CPA?"
-    examples: [is this case ready for CPA, can I move this to CPA, what is needed to move to CPA, can this go to CPA now,
+    examples: [kya is case ko next stage par bhej sakte hain, next stage pe bhej sakte hai kya, can this go to the next stage, kya ye CPA ke liye ready hai, policy mein exactly kya requirement hai, next stage ke liye kya requirement hai, what is required to move this case, is this case ready for CPA, can I move this to CPA, what is needed to move to CPA, can this go to CPA now,
                is the file complete for CPA, what's left before CPA, is it ready for handoff, CPA readiness]
   kyc_status:
     kind: case
@@ -183,6 +187,24 @@ intents:
     description: How to upload documents.
     canonical: "how do i upload documents"
     examples: [how do I upload documents, how to upload a file, where do I attach the documents]
+  work_queue:
+    kind: list
+    description: Which of the officer's cases to work on first; the cases that need action, in priority order.
+    # the case list's own "needs action" order (case_list.yaml sorts.needs_action): KYC issues, then documents, ...
+    canonical: "Show the top 5 cases needing action"
+    examples: [pehle batao kis applicant par kaam karna chahiye, kis case par pehle kaam karu, which case should I work on first,
+               what should I work on today, aaj kya kaam hai, kaunse cases pending hain, which applicant needs attention,
+               mere pending kaam batao, priority wale cases, sabse urgent case kaunsa hai]
+  hold_action:
+    kind: control
+    description: The officer says NOT to act now, to wait, or to drop the task being prepared.
+    examples: [ruko abhi action mat lena, abhi kuch mat karo, wait don't do anything yet, hold on do not take any action,
+               actually abhi us task ko chhod do, leave that task for now, rehne do, abhi mat karo, cancel that, stop]
+  ambiguous_action:
+    kind: clarify_action
+    description: The officer asks to do or process something without saying which action.
+    examples: [usko process kar do, process it, isko aage badhao, kar do, do it, handle this, isko complete kar do,
+               jo karna hai kar do, process this case]
   upload_document:
     kind: upload
     needs: document

@@ -1,0 +1,524 @@
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/general.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/general.py
+index 0f51c35..bb7232a 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/general.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/general.py
+@@ -489,6 +489,11 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] |
+         return _reply(request_id, "POLICY_NOT_CONFIGURED", _say_text((cfg().get("policy") or {}).get("texts", {})
+                                                                      .get("generic_not_configured"), lang),
+                       case_id=case_id, query_type="PROCESS_KNOWLEDGE")
++    # with a case in scope, "what is THE cibil score" asks for that case's VALUE (the case logic routes it), never the
++    # glossary's definition of CIBIL; "what is CIBIL" stays a definition (config general_question.case_value_patterns)
++    values = (cfg().get("general_question") or {}).get("case_value_patterns") or []
++    if case_id and any(re.search(p, _plain(text)) for p in values):
++        return None
+     defined = await _definition(text, request_id, lang, case_id)
+     if defined is not None:
+         return defined
+@@ -574,6 +579,17 @@ async def _knowledge(text: str, request_id: str, lang: str, case_id: str | None)
+     return _reply(request_id, "UNKNOWN_TERM", _pick(cfg().get("general_unknown"), lang), case_id=case_id)
+ 
+ 
++def _poor_general_answer(answer: str, question: str, spec: dict[str, Any]) -> bool:
++    """Too short, or mostly the question's own words said back ("Policy mein kya requirement hai, depend ke liye
++    lender."): never shown (config general_llm.min_words / max_echo)."""
++    words = re.findall(r"[a-z]+", answer.lower())
++    asked = set(re.findall(r"[a-z]+", question.lower()))
++    if len(words) < int(spec.get("min_words", 8)):
++        return True
++    echo = sum(1 for w in words if w in asked) / max(1, len(words))
++    return echo > float(spec.get("max_echo", 0.4))
++
++
+ async def _general_llm(question: str, request_id: str) -> str | None:
+     """
+     A GENERAL banking / lending question the knowledge base does not hold (Smart Bot plan section 5, type "general"):
+@@ -624,7 +640,8 @@ async def _general_llm(question: str, request_id: str) -> str | None:
+     said = str(question)
+     if (not answer or re.search(r"(?i)\bunknown\b|i('m| am) not sure|i don't know|as an ai", answer)
+             or any(d not in said for d in re.findall(r"\d+", answer)) or re.search(r"[₹%]", answer)
+-            or re.search(r"(?i)\b(our|we offer|we charge|our bank)\b", answer)):
++            or re.search(r"(?i)\b(our|we offer|we charge|our bank)\b", answer)
++            or _poor_general_answer(answer, said, spec)):
+         logger_general.info("general_llm rejected: %s", answer[:120])
+         GENERAL_LLM_STATS["rejected"] += 1
+         return None
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/vague.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/vague.py
+index 831e70d..b34a861 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/vague.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/vague.py
+@@ -55,6 +55,24 @@ def is_command(message: str, case_open: bool = False) -> bool:
+                                    and bool(wanted.filter or wanted.sort or wanted.size))
+ 
+ 
++_KNOWN: dict[str, Any] = {}
++
++
++def _known_words() -> set[str]:
++    """Every word of the intent examples / paraphrases, the document aliases and the vague config (cached)."""
++    from app.agents.applicant.copilot.semantics import meaning
++
++    cat, para = meaning.catalogue(), meaning._load("intent_paraphrases.yaml")
++    key = (id(cat), id(para))
++    if _KNOWN.get("key") != key:
++        texts = [str(e) for spec in (cat.get("intents") or {}).values() for e in spec.get("examples") or []]
++        texts += [str(e) for items in (para.get("paraphrases") or {}).values() for e in items or []]
++        texts += [alias for alias, _ in meaning._documents()]
++        texts += [str(w) for w in _cfg().get("known_words") or []]
++        _KNOWN.update(key=key, words={w for t in texts for w in _words(t)})
++    return _KNOWN["words"]
++
++
+ def is_vague(message: str) -> bool:
+     """A fragment: at most `max_words` words, not a pick / yes / no / greeting / thanks (config `not_vague`)."""
+     words = _words(message)
+@@ -80,7 +98,9 @@ def is_vague(message: str) -> bool:
+     if wanted is not None and not wanted.sort and _NUMBER.search(said):
+         return True                                  # "top 2": top by what? -- needing action / latest / oldest
+     if len(words) == 1:
+-        return True
++        # a ONE word the system knows (an intent example's word, a document alias, a configured phrase); gibberish
++        # ("asdfghjkl") is not vague -- the "didn't understand" clarification answers it
++        return words[0] in _known_words()
+     from app.agents.applicant.copilot.semantics import meaning
+ 
+     asked = {str(w).lower() for w in _cfg().get("document_question_words") or []}
+@@ -95,6 +115,17 @@ def is_vague(message: str) -> bool:
+     return bool(ranked) and ranked[0][1] < accept
+ 
+ 
++def names_a_case(message: str, claims) -> bool:
++    """ "Priya Verma" / "Rahul": the applicant name of one of the caller's OWN cases -- the workspace selects it."""
++    from app.agents.applicant.copilot.capabilities import workspace
++
++    try:
++        found = workspace._by_name(message, workspace.my_cases(claims))
++    except Exception:  # noqa: BLE001 - no case list: not a name
++        return False
++    return bool(found.application or found.candidates)
++
++
+ def waits_for(message: str, state, claims, context) -> bool:
+     """Whether a question the chat is waiting on could take THIS word as its answer: a draft / write proposal or a
+     "which case?" pick always; the agent's clarification only when the word is one of its options' words. A yes / no
+@@ -259,6 +290,56 @@ def _no_case_options(message: str) -> list[str]:
+     return [str(t) for t in _cfg().get("no_case_defaults") or []][:4]
+ 
+ 
++def contextual(message: str, state, case_open: bool) -> str | None:
++    """
++    A FRAGMENT READ IN CONTEXT (owner 2026-10-09; config `vague.contextual`): the one interpretation the conversation
++    supports, as the question to answer for the OPEN case (its data is read fresh by the engine, never taken from the
++    conversation), or None -> the follow-up question with options.
++      1. the previous question of this chat (meaning's last_meaning) is one of the fragment's readings -- in the
++         fragment's topic (config case_topics) or among its top-ranked intents: that question again, with its
++         document / party ("docs" after "what is pending" -> pending; after "is PAN verified" -> the PAN's status;
++         after a switch -> the same question for the applicant now open);
++      2. "upload" with a document in context -> that document's upload option;
++      3. the fragment alone has ONE clear reading (meaning's accept_with_lead) -> that question.
++    No case open: None (what to do is asked).
++    """
++    spec = _cfg().get("contextual") or {}
++    if not spec.get("enabled") or not case_open:
++        return None
++    from app.agents.applicant.copilot.semantics import meaning
++
++    try:
++        ranked = meaning.rank(message)
++    except Exception:  # noqa: BLE001 - no embedding model: no reading -> the options
++        return None
++    if not ranked:
++        return None
++    intents = meaning.catalogue().get("intents") or {}
++    case_like = [(n, sc) for n, sc in ranked if (intents.get(n) or {}).get("kind") in ("case", "upload")]
++    top_names = [n for n, _ in case_like[:int(spec.get("previous_in_top", 3))]]
++    previous = (getattr(state, "flow", None) or {}).get("last_meaning") or {}
++    prev_intent = previous.get("intent")
++    if "upload_document" in top_names and previous.get("document"):
++        code = _document_code(previous.get("document") or "")
++        if code:
++            return upload_option(previous.get("document") or "", code)
++    topic = next((t.get("intents") or [] for t in _cfg().get("case_topics") or []
++                  if top_names and top_names[0] in (t.get("intents") or [])), [])
++    if prev_intent and (prev_intent in topic or prev_intent in top_names):
++        return meaning._canonical(intents.get(prev_intent) or {}, previous.get("party"), previous.get("document"))
++    lead = (meaning.catalogue().get("decide") or {}).get("accept_with_lead") or {}
++    in_wide_topic = any(case_like and case_like[0][0] in (t.get("intents") or []) and len(t.get("intents") or []) > 1
++                        for t in _cfg().get("case_topics") or [])
++    if lead and case_like and not in_wide_topic:
++        # ONE reading on its own ("kyc", "next"); a topic word with several readings ("docs": pending / uploaded /
++        # verified) is asked unless the conversation chose one above
++        best, score = case_like[0]
++        second = case_like[1][1] if len(case_like) > 1 else 0.0
++        if score >= float(lead["score"]) and score - second >= float(lead["margin"]):
++            return meaning._canonical(intents.get(best) or {}, meaning.party_in(message), meaning.document_in(message))
++    return None
++
++
+ def ask(message: str, state, request_id: str, case_open: bool) -> dict[str, Any] | None:
+     """The follow-up question with its options (and the options remembered on the chat), or None (< 2 options)."""
+     options = _case_options(message) if case_open else _no_case_options(message)
+@@ -309,5 +390,5 @@ def resolve(message: str, state, case_open: bool = False) -> str | None:
+     return None
+ 
+ 
+-__all__ = ["ask", "enabled", "is_command", "is_upload", "is_vague", "resolve", "upload_option", "upload_reply",
++__all__ = ["ask", "contextual", "enabled", "is_command", "is_upload", "is_vague", "resolve", "upload_option", "upload_reply",
+            "waits_for"]
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+index e6ab32f..b739e4e 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/capabilities/workspace.py
+@@ -106,6 +106,14 @@ def _asks_beyond_the_id(text: str) -> bool:
+     return bool([w for w in plain.split() if w not in _noise() and w not in _list_words()])
+ 
+ 
++def _asks_beyond_the_name(text: str, application: Any) -> bool:
++    """ "Priya ka pending kya hai" asks something; "Priya Verma" / "Priya wala case" only names the applicant."""
++    name = set(_name(application.applicant_id, short=False).lower().split())
++    rest = [w for w in _norm(text).split() if w not in name and w not in _noise() and w not in _list_words()
++            and difflib.get_close_matches(w, list(name), n=1, cutoff=0.84) == []]
++    return bool(rest)
++
++
+ def _only_asks_for_the_list(text: str) -> bool:
+     """
+     FOS plan 1.2: "all case ka list", "sab case dikhao", "mere kitne case hai", "give a list of case" -- a case
+@@ -653,6 +661,20 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
+         if closed:
+             reply["answer"] = _label("closed", case_id=closed) + "\n\n" + reply["answer"]
+         return done(reply)
++    if action == "CUSTOM_QUERY" and state.active_case_id and not _says("open", text):
++        # "Priya ka pending kya hai?" with Rahul's case open: the NAMED applicant is another of the caller's OWN
++        # cases -- switch to it (one match only) and answer THERE; the bare name opens it. Never the open case's
++        # answer for a different person (and never a refusal for the officer's own applicant).
++        named = _by_name(text, my_cases(claims))
++        target = named.application
++        if target is not None and target.case_id != state.active_case_id:
++            if not _asks_beyond_the_name(text, target):
++                return opened(target)
++            state.active_case_id = target.case_id
++            history = [c for c in (state.case_history or []) if c != target.case_id]
++            state.case_history = (history + [target.case_id])[-10:]
++            _save(state)
++            return Turn(case_id=target.case_id, applicant_id=target.applicant_id, in_case=target.case_id)
+     if action == "CUSTOM_QUERY" and _says("other_case", text) and _asks_more_than_the_switch(text):
+         # "dusre case ka details do" (FOS plan 1.3): the question is about ANOTHER of the caller's cases --
+         # one other case: switch to it and answer there; several: ask which (never the open case's answer)
+diff --git a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/meaning.py b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/meaning.py
+index c8b5636..fa4868a 100644
+--- a/LOS-agentic-ai/app/agents/applicant/copilot/semantics/meaning.py
++++ b/LOS-agentic-ai/app/agents/applicant/copilot/semantics/meaning.py
+@@ -59,12 +59,22 @@ class Decision:
+ # config
+ # --------------------------------------------------------------------------
+ 
++_LOADED: dict[str, tuple[float, dict[str, Any]]] = {}
++
++
+ def _load(name: str) -> dict[str, Any]:
++    """A config file, parsed once per change (its mtime): the paraphrase bank is ~0.2 s of YAML per parse."""
+     import yaml
+ 
+     path = _ROOT / "app" / "config" / name
+     try:
+-        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
++        mtime = path.stat().st_mtime
++        cached = _LOADED.get(name)
++        if cached and cached[0] == mtime:
++            return cached[1]
++        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
++        _LOADED[name] = (mtime, data)
++        return data
+     except (OSError, ValueError):
+         return {}
+ 
+diff --git a/LOS-agentic-ai/app/api/routes/fos_api.py b/LOS-agentic-ai/app/api/routes/fos_api.py
+index d908a4c..9f00bc0 100644
+--- a/LOS-agentic-ai/app/api/routes/fos_api.py
++++ b/LOS-agentic-ai/app/api/routes/fos_api.py
+@@ -1322,6 +1322,13 @@ async def copilot(
+         }) from exc
+ 
+ 
++def _switches_case(message: str) -> bool:
++    """The workspace's own switch / back phrases (applicant_agent.yaml case_workspace.phrases)."""
++    from app.agents.applicant.copilot.capabilities import workspace as _sw
++
++    return _sw.enabled() and any(_sw._says(k, message) for k in ("switch", "previous"))
++
++
+ async def _understood(message: str, claims: dict[str, Any], payload: Any, request_id: str):
+     """The meaning Decision for a typed message, or None (meaning off / a command / a pending reply / not understood)."""
+     from app.agents.applicant.copilot.semantics import meaning as _meaning
+@@ -1344,6 +1351,8 @@ async def _understood(message: str, claims: dict[str, Any], payload: Any, reques
+ 
+     if _vq.is_command(said, case_open=bool(state.active_case_id or payload.case_id)):
+         return None                 # open / close / a case id / a list / a new case: the workspace and the forms
++    if _vq.names_a_case(said, claims):
++        return None                 # "Priya ka pending": the NAMED applicant's case -- a canonical would drop the name
+     decision = await _meaning.understand(said, case_open=bool(state.active_case_id or payload.case_id),
+                                          previous=(getattr(state, "flow", None) or {}).get("last_meaning"),
+                                          request_id=request_id)
+@@ -1406,12 +1415,36 @@ def move_case_stage(confirmed: dict[str, Any], request_id: str) -> dict[str, Any
+             "answer": _mv_flow.moved_text(case_id, here, there, lang)}
+ 
+ 
++def _attach_next_step_upload(reply: dict[str, Any]) -> None:
++    """
++    "Ab kya karna hai?" -> "Next step: collect and upload the Signature": the step is offered as its action -- the
++    Upload link of the document the answer names (the case's own document actions; re-upload rows first), the same
++    rule as the case brief. Nothing is added when the answer names no actionable document.
++    """
++    if str(reply.get("intent") or "") != "NEXT_ACTION" or reply.get("document_actions") or not reply.get("case_id"):
++        return
++    try:
++        from app.agents.applicant.copilot.answering import document_actions as _next_da
++
++        view = _next_da.build(str(reply["case_id"]))
++    except Exception:  # noqa: BLE001 - the link is a convenience; the answer stands without it
++        return
++    said = str(reply.get("answer") or "").lower()
++    for key in ("reupload", "pending"):
++        for row in view.get(key) or []:
++            label = str((row or {}).get("label") or "").lower()
++            if label and label in said:
++                reply["document_actions"] = {key: [row]}
++                return
++
++
+ def _published_reply(request: Request, reply: Any) -> Any:
+     """MASTER SPEC section 8: remember the chat's context server-side, then publish {request_id, markdown, tts}."""
+     from app.agents.applicant.copilot.answering import contract as _contract
+ 
+     if not _contract.enabled() or not isinstance(reply, dict):
+         return reply
++    _attach_next_step_upload(reply)
+     key = getattr(request.state, "chat_key", None)
+     if key and isinstance(reply.get("context"), dict):
+         _contract.remember(key[0], key[1], reply["context"])
+@@ -1657,6 +1690,12 @@ async def _copilot_json(
+         if not verdict.allowed and verdict.category is _early_guard.Category.BULK_DATA and not others:
+             # "saare cases" / "list all case": the caller's OWN list (section 2) -- scoped by the grants
+             verdict = _early_guard.Verdict(True)
++        elif (not verdict.allowed and verdict.category is _early_guard.Category.CROSS_CUSTOMER_DATA and not others
++              and _switches_case(message)):
++            # an OFFICER's "doosre applicant ka status" / "pehle wale applicant par chalo" is ANOTHER OF THEIR OWN
++            # cases: the workspace's switch / back (the "which case?" pick lists only the caller's own cases, and
++            # every case read is authorised per case). A customer never reaches this route.
++            verdict = _early_guard.Verdict(True)
+         elif verdict.allowed and others:
+             # "show cases of other officers": never answered with anyone's list (section 17.2)
+             verdict = _early_guard.Verdict(False, _early_guard.Category.BULK_DATA, "other_people")
+@@ -1695,6 +1734,17 @@ async def _copilot_json(
+ 
+             if _pf_early.drop_if_not_answered(message, _early_state):
+                 _ws_early._save(_early_state)
++            # "ruko, abhi action mat lena" WHILE a draft / move waits for Confirm: dropped before the form sees it
++            if (_early_state.flow or {}).get("write") and not re.fullmatch(r"(?i)[\d\s.,]+", message.strip()):
++                from app.agents.applicant.copilot.semantics import meaning as _hold_meaning
++
++                if _hold_meaning.enabled():
++                    _held = await _hold_meaning.understand(" ".join(message.split()), case_open=True, previous=None,
++                                                           request_id=request_id)
++                    if _held is not None and _held.kind == "control":
++                        from app.agents.applicant.copilot.capabilities import control as _control_early
++
++                        return _control_early.hold(_early_state, request_id)
+             picked = _vague_early.resolve(message, _early_state,
+                                           case_open=bool(_early_state.active_case_id or payload.case_id))
+             if picked and _vague_early.is_upload(picked):
+@@ -1751,11 +1801,28 @@ async def _copilot_json(
+ 
+         if _vague.enabled():
+             _vstate = _vg._state(claims, payload.context)
+-            if _vague.is_vague(message) and not _vague.waits_for(message, _vstate, claims, payload.context):
+-                asked = _vague.ask(message, _vstate, request_id, bool(_vstate.active_case_id or payload.case_id))
+-                if asked is not None:
+-                    return asked
++            if (_vague.is_vague(message) and not _vague.waits_for(message, _vstate, claims, payload.context)
++                    and not _vague.names_a_case(message, claims)):
++                _open = bool(_vstate.active_case_id or payload.case_id)
++                read = _vague.contextual(message, _vstate, _open)
++                if read and _vague.is_upload(read):
++                    return _vague.upload_reply(read, request_id, payload.context, claims)
++                if read:
++                    message = read                     # the one reading the conversation supports: answered now
++                    request.state.copilot_message = message
++                else:
++                    asked = _vague.ask(message, _vstate, request_id, _open)
++                    if asked is not None:
++                        return asked
+         decision = await _understood(message, claims, payload, request_id)
++        if decision is not None and decision.kind in ("control", "clarify_action"):
++            # "ruko, abhi action mat lena" -> nothing pending is written; "usko process kar do" -> which action?
++            from app.agents.applicant.copilot.capabilities import control as _control
++
++            _ctl_state = _vg._state(claims, payload.context)
++            if decision.kind == "control":
++                return _control.hold(_ctl_state, request_id)
++            return _control.ask_which_action(_ctl_state, request_id)
+         if decision is not None and decision.kind == "upload":
+             # "upload new bank statement" with a case open: that document's upload link (the party the message names)
+             _up_state = _vg._state(claims, payload.context)
+@@ -1772,6 +1839,11 @@ async def _copilot_json(
+             _cp_app = _cp_repo().get_application(_cp_case) if _cp_case else None
+             if _cp_app is not None and not getattr(_cp_app, "co_applicant_id", None):
+                 decision.canonical = None
++        if decision is not None and decision.kind == "list" and decision.canonical:
++            # "kis applicant par pehle kaam karu": the case list's own priority order -- the workspace answers it
++            message = decision.canonical
++            request.state.copilot_message = message
++            decision = None
+         if decision is not None:
+             meaning_kind = decision.kind
+             if decision.kind in ("case", "process") and decision.canonical:
+diff --git a/LOS-agentic-ai/app/config/applicant_agent.yaml b/LOS-agentic-ai/app/config/applicant_agent.yaml
+index 4f36f7c..337cdf8 100644
+--- a/LOS-agentic-ai/app/config/applicant_agent.yaml
++++ b/LOS-agentic-ai/app/config/applicant_agent.yaml
+@@ -1340,8 +1340,12 @@ chatbot:
+       more: [aur dikhao, more, aur, next page, aage dikhao, और दिखाओ]
+       open: [kholo, khol do, open, jao, jaana hai, chalo, select, खोलो, उघडा]
+       exit: [bahar aao, bahar, exit, close, close it, close karo, case close karo, close case, close this case, case band karo, band karo, band kar do, back, बाहर, बाहेर]
+-      switch: [dusra case, doosra case, another case, case badlo, switch case, other case]
+-      previous: [pehle wala case, pichla case, previous case, last case, wapas pehle wala, pehle wale case]
++      switch: [dusra case, doosra case, another case, case badlo, switch case, other case, doosre applicant,
++               dusre applicant, doosra applicant, dusra applicant, another applicant, other applicant, galat applicant,
++               galat case, wrong applicant, wrong case, applicant badlo, dusre customer, doosre customer]
++      previous: [pehle wala case, pichla case, previous case, last case, wapas pehle wala, pehle wale case,
++                 pehle wale par, pehle wale pe, pehle wale applicant, pichle applicant, previous applicant,
++                 go back to the previous case, back to the previous case, pehle wale par wapas, wapas pehle wale]
+       case_word: [case, ka case, wala case, file, application]
+       # MASTER SPEC section 2: "is applicant ke case dikhao" -- every case of the OPEN case's applicant (in scope)
+       this_applicant: [is applicant ke case, is applicant ke cases, iss applicant ke case, iss applicant ke cases,
+diff --git a/LOS-agentic-ai/app/config/conversation_general.yaml b/LOS-agentic-ai/app/config/conversation_general.yaml
+index 8701053..c792ac7 100644
+--- a/LOS-agentic-ai/app/config/conversation_general.yaml
++++ b/LOS-agentic-ai/app/config/conversation_general.yaml
+@@ -185,6 +185,8 @@ general_question:
+   case_referents: [this case, is case, iss case, the case, my case, mera case, meri case, this customer, is customer,
+                    this loan, is loan, iska, iski, iske, uska, uski, uske, inka, unka, his, her, their, this file,
+                    is applicant, this applicant, customer ka, applicant ka]
++  # with a case in scope: a VALUE of that case, never a definition ("what is the CIBIL score" -> routed downstream)
++  case_value_patterns: ['\bthe (\w+ )?(score|amount|income|salary|emi|limit|tenure|rate|value|balance)\b']
+   # questions about a case's own data even without "this": the ordinary pipeline asks which case
+   case_only: ['^(what is|whats) (pending|missing|the status|status|the stage|my status|left|baaki)\b',
+               '\b(status|pending|baaki|baki) (kya|hai|batao)', '^(loan amount|kyc status|stage|status)\b',
+@@ -348,6 +350,8 @@ llm_rewrite:
+ # "not in the knowledge base". Unknown ALL-CAPS terms (company jargon) are never explained. Only after a knowledge miss.
+ general_llm:
+   enabled: true
++  min_words: 8          # a shorter model answer is never shown
++  max_echo: 0.4          # more than this share of the answer's words taken from the question: never shown
+   timeout_seconds: 8.0
+   num_predict: 90
+   max_sentences: 3
+@@ -387,6 +391,10 @@ vague:
+   case_defaults: ["What is pending?", "What is the status of this case?", "What should I do next?"]
+   list_with_number: ["Show the top {n} cases needing action", "Show the latest {n} cases", "Show the oldest {n} cases"]
+   no_case_defaults: ["Show my cases", "Create a new case", "What can you help with?"]
++  # a fragment READ IN CONTEXT (capabilities/vague.py contextual): the previous question of the chat when it is one
++  # of the fragment's readings (in its topic, or among its `previous_in_top` ranked case intents); else ONE clear
++  # reading alone (intent_catalogue decide.accept_with_lead); else the options below
++  contextual: { enabled: true, previous_in_top: 3 }
+   # a case open and no document named: the TOPIC of the word -> that case's questions
+   case_topics:
+     - intents: [pending_documents, document_status, document_rejection, knowledge_documents, process_upload,
+@@ -408,3 +416,15 @@ vague:
+       options: ["Show cases ready for CPA", "How do I move a case to CPA?"]
+     - intents: [why_stuck, time_in_stage]
+       options: ["Show stuck cases", "Show cases needing action"]
++
++# ---- CONVERSATION CONTROL (capabilities/control.py; meanings hold_action / ambiguous_action in intent_catalogue) ----
++control:
++  # what a "hold" drops from the chat: the draft write / move waiting for Confirm, a pending pick or option list
++  held_keys: [write, after_pick, vague, portfolio]
++  hold_dropped: "Okay, I have not done anything. The pending change was dropped, so nothing was written. Tell me when you want to continue."
++  hold_nothing: "Okay, I won't take any action. Nothing was pending, so nothing has changed. Ask me anything about the case."
++  which_action: "What should I do? Pick one:"
++  # only actions this system really performs from chat (collect = the customer list / message, upload link, the gated
++  # move, the readiness check); never a decision
++  action_options: ["Collect from customer", "What is pending?", "Is this case ready for CPA?", "Move to CPA"]
++  action_options_no_case: ["Show the top 5 cases needing action", "Create a new case"]
+diff --git a/LOS-agentic-ai/app/config/intent_catalogue.yaml b/LOS-agentic-ai/app/config/intent_catalogue.yaml
+index 8a6fe90..ac4b3bf 100644
+--- a/LOS-agentic-ai/app/config/intent_catalogue.yaml
++++ b/LOS-agentic-ai/app/config/intent_catalogue.yaml
+@@ -26,7 +26,11 @@ enabled: true                       # env COPILOT_MEANING overrides; off -> toda
+ 
+ entities:
+   co_applicant_words: [co-applicant, co applicant, coapplicant, co-borrower, co borrower, second applicant, joint applicant]
+-  followup_fillers: [and, what, about, the, for, of, how, is, its, it, same, too, also, then, his, her, their, status]
++  # CORRECTIONS count as a follow-up too ("nahi, mera matlab bank statement se tha" = the previous question, that
++  # document): the correction words are fillers around the new slot
++  followup_fillers: [and, what, about, the, for, of, how, is, its, it, same, too, also, then, his, her, their, status,
++                     nahi, nahin, no, not, mera, meri, matlab, i, meant, mean, actually, sorry, se, tha, thi, the, ki,
++                     ka, ke, baat, kar, raha, rahi, hoon, hu, was, talking, wala, wali, uska, uski, iska, iski, my, me]
+ 
+ model:                              # the CHOOSER (never an answer writer): small prompt, JSON {"i": id}
+   timeout_seconds: 4.0
+@@ -43,7 +47,7 @@ intents:
+     kind: case
+     description: The overall status of the open case or application.
+     canonical: "What is the status of this case?"
+-    examples: [what is the status of this case, case status, where does this case stand, status update please,
++    examples: [is applicant ka status batao, iska status kya hai, is case ka status, applicant ka status kya hai, iska kya scene hai, kya scene hai is case ka, status batao, is file ka status, what is the status of this case, case status, where does this case stand, status update please,
+                what's happening with this application, how is the case doing, any update on this file,
+                current status of the application, is anything happening on this case, give me the case status]
+   pending_documents:
+@@ -52,26 +56,26 @@ intents:
+     description: Which documents or items are still pending, missing or not uploaded on the case.
+     canonical: "What is pending?"
+     canonical_party: "What is pending for the co-applicant?"
+-    examples: [what is pending, which documents are pending, what is missing, what's left to upload, what do I still need,
++    examples: [agar document already upload hai toh, documents upload ho gaye hain toh, what if the documents are already uploaded, sab upload ho chuka hai, kya pending hai, aur kya pending hai, uska pending point kya tha, kya kya pending hai, iske liye document chahiye ya sirf clarification, what is pending, which documents are pending, what is missing, what's left to upload, what do I still need,
+                docs, documents, pending docs, which papers are still required from the customer, anything missing on this file,
+                what documents are still needed, what is not uploaded yet, what else do I need to collect]
+   why_stuck:
+     kind: case
+     description: Why the case is blocked, held or not moving forward.
+     canonical: "Why is this case stuck?"
+-    examples: [why is this case stuck, why is it stuck, why is the case on hold, what is blocking this case, why isn't it moving,
++    examples: [ye pending kyun hai, pending kyun hai, kya issue hai, pehle sirf batao kya issue hai, problem kya hai is case mein, ye kyun atka hai, why is it pending, what is the issue, why is this case stuck, why is it stuck, why is the case on hold, what is blocking this case, why isn't it moving,
+                why can't this go ahead, what's holding this up, reason for the delay on this file, why is it not progressing]
+   next_step:
+     kind: case
+     description: What the officer should do next on the case.
+     canonical: "What should I do next?"
+-    examples: [what should I do next, next step, what now, what do I do now, what's my next action, how do I proceed,
++    examples: [ab mujhe kya karna chahiye, agar ye document missing hai toh ab kya karna hoga, aage kya karna hai, jo tumne bataya uska next step kya hai, pending checks complete karne ke liye next step, what should I do if a document is missing, what should I do next, next step, what now, what do I do now, what's my next action, how do I proceed,
+                what is the next thing to do on this case, what action is needed from me]
+   cpa_readiness:
+     kind: case
+     description: Whether the case is ready to move to CPA, and what is needed for that.
+     canonical: "Is this case ready for CPA?"
+-    examples: [is this case ready for CPA, can I move this to CPA, what is needed to move to CPA, can this go to CPA now,
++    examples: [kya is case ko next stage par bhej sakte hain, next stage pe bhej sakte hai kya, can this go to the next stage, kya ye CPA ke liye ready hai, policy mein exactly kya requirement hai, next stage ke liye kya requirement hai, what is required to move this case, is this case ready for CPA, can I move this to CPA, what is needed to move to CPA, can this go to CPA now,
+                is the file complete for CPA, what's left before CPA, is it ready for handoff, CPA readiness]
+   kyc_status:
+     kind: case
+@@ -183,6 +187,24 @@ intents:
+     description: How to upload documents.
+     canonical: "how do i upload documents"
+     examples: [how do I upload documents, how to upload a file, where do I attach the documents]
++  work_queue:
++    kind: list
++    description: Which of the officer's cases to work on first; the cases that need action, in priority order.
++    # the case list's own "needs action" order (case_list.yaml sorts.needs_action): KYC issues, then documents, ...
++    canonical: "Show the top 5 cases needing action"
++    examples: [pehle batao kis applicant par kaam karna chahiye, kis case par pehle kaam karu, which case should I work on first,
++               what should I work on today, aaj kya kaam hai, kaunse cases pending hain, which applicant needs attention,
++               mere pending kaam batao, priority wale cases, sabse urgent case kaunsa hai]
++  hold_action:
++    kind: control
++    description: The officer says NOT to act now, to wait, or to drop the task being prepared.
++    examples: [ruko abhi action mat lena, abhi kuch mat karo, wait don't do anything yet, hold on do not take any action,
++               actually abhi us task ko chhod do, leave that task for now, rehne do, abhi mat karo, cancel that, stop]
++  ambiguous_action:
++    kind: clarify_action
++    description: The officer asks to do or process something without saying which action.
++    examples: [usko process kar do, process it, isko aage badhao, kar do, do it, handle this, isko complete kar do,
++               jo karna hai kar do, process this case]
+   upload_document:
+     kind: upload
+     needs: document

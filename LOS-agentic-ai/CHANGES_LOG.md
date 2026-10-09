@@ -1697,3 +1697,32 @@ Probe: 38 messages typed like an officer (typos, short forms, Hinglish) on a KYC
 - Final probe: p50 0.3 s, p95 4.4 s, max 8.4 s (Qwen warm). Known, not fixed: the KYC fixture lacks
   failed_checks so the gate says "no KYC result" (fixture, not product); "bank statement rejected or what" says
   verified without adding the KYC name mismatch; some customer-voice templates ("You applied for").
+
+## 2026-10-09 (afternoon) -- directive "zero-hardcoding conversational foundation": FOS scenarios A-H
+Report: docs/FOS_COPILOT_ENGINEERING_REPORT.md. Transcripts: runs/fos_scenarios/run1..run4.{md,json} (35-turn
+single-chat Hinglish conversation, real Qwen + nomic, production flags, in-process app, test PostgreSQL).
+- run1 -> run4: wrong 16 -> 0 (6 partial); p50 2.3 s -> 0.96 s; p95 5.0 s.
+- Officer switch: "doosre applicant" was refused by request_policy cross_17 (customer rule) -> the workspace's own
+  switch / back phrases pass to the own-case picker; "pehle wale par wapas chalo", "galat applicant" phrases.
+- A name of an own case: selects it (bare) or switches and answers there ("Priya ka pending" with Rahul open ->
+  Priya only); meaning never rewrites a message naming a case (would drop the name).
+- New: capabilities/control.py -- hold ("ruko, abhi action mat lena": a pending draft is dropped, nothing written,
+  verified against the store) and "which action?" ("usko process kar do": supported actions only, config).
+- Meaning: Hinglish examples (status / why / readiness / next step / pending), corrections as follow-ups, intents
+  work_queue / hold_action / ambiguous_action; config loads cached by mtime (0.23 s -> 0 per call).
+- General model answer: rejected when short or echoing the question (general_llm.min_words / max_echo).
+- Next-step answers carry the named document's Upload link.
+- Tests: test_fos_conversation_foundation.py (17 passed); test_live_fos_scenarios.py (opt-in LOS_LIVE_LLM_TESTS=1,
+  asserts: no write after hold, no move of a not-ready case, no other applicant's data, nothing for another officer).
+- Not done: document-status answer does not add the KYC mismatch; replies English only; LangGraph not on the chat
+  path; .NET not in this checkout; baseline = current working tree (no pre-change snapshot).
+
+## 2026-10-09 (evening) -- contextual fragments + final numbers
+- vague.contextual(): "docs" / "status" / "upload" / "next" read with the conversation (previous question in the
+  fragment's readings -> answered again for the open case; one clear reading -> answered; else one question; new
+  chat -> what to do). Gibberish is never vague (known words only). Config vague.contextual.
+- "what is the CIBIL score" with a case open -> a case value (routed downstream), not the glossary definition
+  (config general_question.case_value_patterns).
+- Tests: test_contextual_fragments.py (7). Chatbot integration: 736 passed / 4 failed -> 3 fixed (116 re-run pass),
+  test_general_coverage pre-existing. Held-out (real models): case 66->76, messy 32->33, general 32->38, vague 19->28;
+  WRONG 23 / 14 / 4 / 0 remain. Report: docs/FOS_COPILOT_ENGINEERING_REPORT.md.

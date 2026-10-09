@@ -59,12 +59,22 @@ class Decision:
 # config
 # --------------------------------------------------------------------------
 
+_LOADED: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
 def _load(name: str) -> dict[str, Any]:
+    """A config file, parsed once per change (its mtime): the paraphrase bank is ~0.2 s of YAML per parse."""
     import yaml
 
     path = _ROOT / "app" / "config" / name
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        mtime = path.stat().st_mtime
+        cached = _LOADED.get(name)
+        if cached and cached[0] == mtime:
+            return cached[1]
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        _LOADED[name] = (mtime, data)
+        return data
     except (OSError, ValueError):
         return {}
 
