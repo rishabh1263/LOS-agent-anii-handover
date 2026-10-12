@@ -46,6 +46,32 @@ def kind_of(message: str) -> str | None:
     return None
 
 
+def _from_list(text: str, listed: list[str] | None) -> list[str]:
+    """
+    "compare the first two" / "compare the top 3" / "compare the first and the third" -> those rows of the list this
+    chat was last shown (case_list.yaml phrases.ordinals / numbers), in that order; [] when no list or no reference.
+    """
+    if not listed:
+        return []
+    from app.agents.applicant.copilot.capabilities import case_list
+
+    phrases = case_list.cfg().get("phrases") or {}
+    numbers = {str(k).lower(): int(v) for k, v in (phrases.get("numbers") or {}).items()}
+    count = re.search(r"\b(?:first|top|pehle|upar ke)\s+(\d+|" + "|".join(map(re.escape, numbers)) + r")\b", text)
+    if count:
+        n = int(count.group(1)) if count.group(1).isdigit() else numbers[count.group(1)]
+        return list(listed[:n]) if n >= 2 else []
+    places = {"first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3, "fourth": 4, "4th": 4,
+              "fifth": 5, "5th": 5, "last": -1}
+    picked = []
+    for m in re.finditer(r"\b(" + "|".join(places) + r")\b", text):
+        n = places[m.group(1)]
+        index = n - 1 if n > 0 else len(listed) + n
+        if 0 <= index < len(listed) and listed[index] not in picked:
+            picked.append(listed[index])
+    return picked if len(picked) >= 2 else []
+
+
 def _say(key: str, lang: str, **values: Any) -> str:
     from app.agents.applicant.copilot.capabilities import product_flow
 
@@ -97,8 +123,10 @@ def _line(row: dict[str, Any], m: dict[str, Any], lang: str) -> str:
         + " " + contract.link("open_case", lang, id=row["case_id"])
 
 
-def answer(message: str, claims: dict[str, Any], request_id: str, lang: str = "en") -> dict[str, Any] | None:
-    """The insight reply, or None when the message asks for none."""
+def answer(message: str, claims: dict[str, Any], request_id: str, lang: str = "en",
+           listed: list[str] | None = None) -> dict[str, Any] | None:
+    """The insight reply, or None when the message asks for none. `listed`: the ids of the list this chat was last
+    shown (state), so "compare the first two" compares THOSE rows -- never a model-made id."""
     kind = kind_of(message)
     if kind is None:
         return None
@@ -152,7 +180,7 @@ def answer(message: str, claims: dict[str, Any], request_id: str, lang: str = "e
         if unknown:
             lines.append(_say("amount_unknown", lang, n=unknown))
     else:                                       # COMPARE
-        named = list(dict.fromkeys(m.upper() for m in _CASE_ID.findall(str(message or ""))))
+        named = list(dict.fromkeys(m.upper() for m in _CASE_ID.findall(str(message or "")))) or _from_list(text, listed)
         if named:
             mine = {r["case_id"]: r for r in rows}
             for case_id in named:

@@ -1826,8 +1826,14 @@ async def _copilot_json(
     if action is FosAction.CUSTOM_QUERY:
         from app.agents.applicant.copilot.capabilities import case_insights as _insights
 
-        _insight = _insights.answer(message, claims, request_id, payload.response_language or "en")
+        from app.agents.applicant.copilot.capabilities import general as _ins_general
+
+        # the ids of the list this chat was last shown: "compare the first two" compares THOSE rows
+        _ins_listed = list(getattr(_ins_general._state(claims, payload.context), "listed_case_ids", None) or [])
+        _insight = _insights.answer(message, claims, request_id, payload.response_language or "en",
+                                    listed=_ins_listed)
         if _insight is not None:
+            _ins_general.moved_on(claims, payload.context)       # a new topic: an older "which one?" is stale
             return _insight
 
     # VAGUE / ONE-WORD MESSAGES (owner decision A; capabilities/vague.py): a pending option list is answered by the
@@ -1931,6 +1937,12 @@ async def _copilot_json(
                 # else: A BARE WORD AFTER AN ANSWER ("What stage am I in?" -> "documents") is settled by that answer
                 # -- the conversation-state short-query resolver reads it in context ("documents" = which documents
                 # are required) -- never asked back with options (owner 2026-10-09: one word is answered, not asked)
+        # "TELL ME MORE" ON AN OPEN CASE (owner 2026-10-12): the more detailed reading of the topic just answered
+        # (conversation_general.yaml more_detail) -- a canonical question the same engine answers for the open case
+        _more = _vg._more_detail(message, _vg._state(claims, payload.context), payload.case_id, claims, payload.context)
+        if _more:
+            message = _more
+            request.state.copilot_message = message
         decision = await _understood(message, claims, payload, request_id)
         if decision is not None and decision.kind in ("control", "clarify_action"):
             # "ruko, abhi action mat lena" -> nothing pending is written; "usko process kar do" -> which action?
@@ -1983,6 +1995,8 @@ async def _copilot_json(
             message, claims, payload.context, request_id, _gen_lock.current() or "en", case_in_scope=payload.case_id,
             meaning_kind=meaning_kind)
         if general_reply is not None:
+            if str(general_reply.get("intent") or "") not in ("THANKS", "ACKNOWLEDGEMENT"):
+                _general.moved_on(claims, payload.context)       # a new topic: an older "which one?" is stale
             return general_reply
 
     # "verify karna hai" / "kya upload karu" (6f, COPILOT_VERIFY_DIAGNOSE): never "which document?" --

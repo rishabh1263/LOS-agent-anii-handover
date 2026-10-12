@@ -116,6 +116,60 @@ def _asked(state) -> bool:
                                        or getattr(state, "pending_options", None)))
 
 
+def _more_detail(message: str, state, case_in_scope: str | None = None, claims: dict[str, Any] | None = None,
+                 context: dict[str, Any] | None = None) -> str | None:
+    """
+    "tell me more" / "aur batao" with a case open -> the canonical question of the more detailed topic for what was just
+    answered (config more_detail.after[last meaning intent], else more_detail.default); None otherwise. When the
+    ENGINE answered the last turn it elaborates its own answer (conversation state) -- this applies only after another
+    layer answered (moved_on cleared the engine's last answer) or when there is no engine answer at all.
+    """
+    spec = cfg().get("more_detail") or {}
+    if not (getattr(state, "active_case_id", None) or case_in_scope):
+        return None
+    said = _plain(message)
+    if not any(said == _plain(p) for p in spec.get("phrases") or []):
+        return None
+    conversation_id = (context or {}).get("conversation_id") if isinstance(context, dict) else None
+    if conversation_id and claims is not None:
+        from app.agents.applicant.copilot.capabilities import workspace
+        from app.agents.applicant.copilot.conversation import state as conv
+
+        engine = conv.STORE.get(workspace._subject(claims), conversation_id)
+        if engine is not None and getattr(engine, "last_answer_reference", None):
+            return None                               # the engine's own follow-up reading answers it
+    from app.agents.applicant.copilot.semantics import meaning
+
+    last = ((getattr(state, "flow", None) or {}).get("last_meaning") or {}).get("intent")
+    target = (spec.get("after") or {}).get(last) or spec.get("default")
+    canonical = ((meaning.catalogue().get("intents") or {}).get(target) or {}).get("canonical")
+    return str(canonical) if canonical and "{" not in str(canonical) else None
+
+
+def moved_on(claims: dict[str, Any], context: dict[str, Any] | None) -> None:
+    """
+    THE OFFICER MOVED ON (owner directive 2026-10-12): a turn answered OUTSIDE the engine (this layer, case insights)
+    after the engine asked "which one do you mean?" leaves that question stale -- "ok" two turns later answered the old
+    co-applicant question. The chat's pending clarification is dropped; nothing else in the conversation changes.
+    """
+    conversation_id = (context or {}).get("conversation_id") if isinstance(context, dict) else None
+    if not conversation_id:
+        return
+    from app.agents.applicant.copilot.capabilities import workspace
+    from app.agents.applicant.copilot.conversation import state as conv
+
+    try:
+        found = conv.STORE.get(workspace._subject(claims), conversation_id)
+        if found is not None and (getattr(found, "pending_clarification", None) is not None
+                                  or getattr(found, "last_answer_reference", None) is not None):
+            # the engine's own last answer is no longer the last thing said: "tell me more" is not about it
+            found.pending_clarification = None
+            found.last_answer_reference = None
+            conv.STORE.put(found)
+    except Exception:  # noqa: BLE001 - never fails the answer already given
+        logger_general.warning("general: could not drop a stale clarification", exc_info=True)
+
+
 def _pending(state, claims: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> bool:
     """A question this chat is waiting on -- "ok" / "haan" / "2" answer it, never small talk.
 
@@ -443,12 +497,14 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         # the small-talk contract: THANKS / ACKNOWLEDGEMENT, a CONVERSATION answer that read nothing
         # (config phrases.thanks names the thank-yous among the ack words)
         kind = "THANKS" if _only(text, "thanks") else "ACKNOWLEDGEMENT"
+        outcome = "NEGATION" if _only(text, "negation") else "ACKNOWLEDGEMENT"
         return _reply(request_id, kind, _say("ack", lang, seed) + " " + _say("ack_next", lang),
                       block=_asks(_suggestions(state, lang, 2)), case_id=case_id, category="CONVERSATION",
                       answer_basis={"composition": {"called": False}, "source": "SMALL_TALK"},
                       # the turn's conversation outcome, as the conversation-state layer names it: an acknowledgement
                       # of the previous answer -- nothing read, nothing resolved (conversation eval o3)
-                      understanding={"conversation": {"outcome": "ACKNOWLEDGEMENT", "turn_type": "ACKNOWLEDGEMENT"}})
+                      # a bare "no" / "nahi" keeps the conversation-state contract's NEGATION (evals h5)
+                      understanding={"conversation": {"outcome": outcome, "turn_type": outcome}})
     if _has(text, "role"):
         role = str(claims.get("role") or " ".join(claims.get("roles") or []) or "--")
         return _reply(request_id, "LOGIN_ROLE", _say("role", lang, user=get_subject(claims), role=role),

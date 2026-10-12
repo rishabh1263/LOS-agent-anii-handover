@@ -351,20 +351,32 @@ def _field_columns(lang: str) -> list[str]:
     return list(cols) if isinstance(cols, list) else ["Field", "Value"]
 
 
-def _edit_target(text: str, lang: str) -> str | None:
-    """'Edit Mobile' / 'mobile badlo' -> the field the officer wants to change (labels in every language)."""
+def _field_names(field: str, lang: str | None = None) -> set[str]:
+    """Every name of a field: its key, its labels (all languages, without the "(Rs)" part) and its config aliases."""
     from app.agents.applicant.copilot.answering import language_lock
 
+    names = {field.replace("_", " ")}
+    raw = (_cfg().get("labels") or {}).get(field) or {}
+    names |= {re.sub(r"\(.*?\)", "", str(v)).strip().lower() for v in (raw.values() if isinstance(raw, dict) else [raw])}
+    if raw and lang:
+        names.add(re.sub(r"\(.*?\)", "", str(language_lock.pick(raw, lang))).strip().lower())
+    names |= {str(a).strip().lower() for a in ((_cfg().get("aliases") or {}).get(field) or [])}
+    return {n for n in names if n}
+
+
+def _edit_target(text: str, lang: str) -> str | None:
+    """
+    'Edit Mobile' / 'mobile badlo' / 'change the name to ...' -> the field the officer wants to change: the field whose
+    name (label or alias, case_form.aliases) is said FIRST -- "change address to near the loan office" is the address.
+    """
     said = _norm(text)
+    best: tuple[int, int, str] | None = None
     for field in _cfg().get("order") or []:
-        names = {field.replace("_", " ")}
-        raw = (_cfg().get("labels") or {}).get(field) or {}
-        names |= {re.sub(r"\(.*?\)", "", str(v)).strip().lower() for v in (raw.values() if isinstance(raw, dict)
-                                                                          else [raw])}
-        names |= {re.sub(r"\(.*?\)", "", str(language_lock.pick(raw, lang))).strip().lower()} if raw else set()
-        if any(n and _norm(n) in said for n in names):
-            return field
-    return None
+        for name in _field_names(field, lang):
+            at = said.find(_norm(name))
+            if at >= 0 and (best is None or (at, -len(name)) < (best[0], best[1])):
+                best = (at, -len(name), field)
+    return best[2] if best else None
 
 
 def _stage_flow():
@@ -428,7 +440,11 @@ async def chat_turn(action: str, message: str, claims: dict[str, Any], request_i
     if button and (write is None or str(write.get("ref") or "").lower() != button.group(2).lower()):
         return _reply(request_id, _say("write_gone", lang))
     reply = None
-    if write and write.get("kind") == "create" and (write.get("parked") or wants_new_case):
+    if write and write.get("kind") == "create" and not wants_new_case and _asks_draft_status(message, state):
+        # "what is pending?" with this draft unfinished and no case open: the DRAFT's status (the officer's other
+        # case is never answered silently in its place); the draft stays as it was (parked or not)
+        reply = _reply(request_id, _draft_status(write, lang))
+    elif write and write.get("kind") == "create" and (write.get("parked") or wants_new_case):
         ref = str(write.get("ref") or "draft")
         decisive = _only(message, [*_words("confirm_words"), "confirm"], ref) \
             or _only(message, [*_words("cancel_words"), "cancel"], ref)
@@ -535,9 +551,21 @@ async def _create_step(write: dict[str, Any], message: str, claims: dict[str, An
             return await _create_now(write, claims, request_id, lang, create, state)
         target = _edit_target(message, lang)
         if target:
+            # "change the name to Rahul Sharma" / "name galat hai, Rahul Sharma karo": the value said WITH the edit is
+            # taken (same check as typed alone) and the summary shown again; no value -> asked for it
+            inline = _inline_edit(write, message, target, lang)
+            if inline is not None:
+                return _reply(request_id, inline)
             write["field"], write["editing"] = target, True
             return _reply(request_id, _ask(target, lang))
         return _reply(request_id, _summary(values, lang, ref))
+    other = _edit_target(message, lang) if _says_edit(message) else None
+    if other and other != field and other in values:
+        # "name galat hai, Rahul Sharma karo" while the address is asked: that field is corrected, then the same
+        # question again (an edit cue is required -- an address that contains "name" is still an address)
+        inline = _inline_edit(write, message, other, lang, then=field)
+        if inline is not None:
+            return _reply(request_id, inline)
     if _only(message, _words("skip_words")) and field not in (_cfg().get("required") or []):
         values.pop(field, None)
         value, why = None, None
@@ -551,6 +579,53 @@ async def _create_step(write: dict[str, Any], message: str, claims: dict[str, An
     if write["field"]:
         return _reply(request_id, _ask(write["field"], lang))
     return _reply(request_id, _summary(values, lang, ref))
+
+
+def _asks_draft_status(message: str, state) -> bool:
+    """A status / pending question that names no case, asked with no case open (case_form.draft_status_shapes)."""
+    from app.agents.applicant.copilot.capabilities import workspace
+
+    if getattr(state, "active_case_id", None) or any(p.search(str(message)) for p in workspace._ID.values()):
+        return False
+    said = _norm(message).strip()
+    if len(said.split()) > 6:
+        return False                                  # a longer question is about something else
+    return any(re.search(p, said) for p in _cfg().get("draft_status_shapes") or [])
+
+
+def _draft_status(write: dict[str, Any], lang: str) -> str:
+    """What the unfinished draft still needs (the required fields not yet given), in the form's own labels."""
+    values = write.get("values") or {}
+    still = [label(f, lang) for f in (_cfg().get("order") or [])
+             if f in (_cfg().get("required") or []) and values.get(f) in (None, "")]
+    name = values.get("full_name")
+    for_name = _say("draft_for_name", lang, name=name) if name else ""
+    return _say("draft_status", lang, for_name=for_name,
+                fields=", ".join(still) if still else _say("draft_ready", lang))
+
+
+def _says_edit(message: str) -> bool:
+    """An edit cue or a correction word is said (case_form.edit_cues / value_fillers' correction words)."""
+    said = _norm(message)
+    cues = [*_words("edit_cues"), "galat", "wrong", "should be", "sahi", "correct", "hona chahiye", "actually"]
+    return any(_norm(c) in said for c in cues)
+
+
+def _inline_edit(write: dict[str, Any], message: str, field: str, lang: str, then: str | None = None) -> str | None:
+    """
+    The value said with an edit, checked like a typed one and stored in the draft; the reply (the summary again, or
+    the question that was pending). None when the message carries no value for that field. Nothing is written.
+    """
+    raw = _value_in(message, field, lang)
+    if not raw:
+        return None
+    value, why = check(field, raw, lang)
+    if why:
+        return _say("invalid", lang, label=label(field, lang), why=why) + "\n\n" + _ask(field, lang)
+    write.setdefault("values", {})[field] = value
+    if then:
+        return _ask(then, lang)
+    return _summary(write["values"], lang, str(write.get("ref") or "draft"))
 
 
 async def _create_now(write: dict[str, Any], claims: dict[str, Any], request_id: str, lang: str, create: Creator,
@@ -623,10 +698,7 @@ def _value_in(message: str, field: str, lang: str) -> str | None:
     """The new value: what follows the field's name (and "to" / "ko" / ":"), without the trailing command word."""
     text = " ".join(str(message).split())
     low = text.lower()
-    raw = (_cfg().get("labels") or {}).get(field) or {}
-    names = sorted({field.replace("_", " ")} | {re.sub(r"\(.*?\)", "", str(v)).strip().lower()
-                                                 for v in (raw.values() if isinstance(raw, dict) else [raw])},
-                   key=len, reverse=True)
+    names = sorted(_field_names(field, lang), key=len, reverse=True)
     for name in names:
         at = low.find(name)
         if name and at >= 0:

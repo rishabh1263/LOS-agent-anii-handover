@@ -284,10 +284,16 @@ def is_greeting(text: str) -> bool:
 
 
 def greeting(claims: dict[str, Any], lang: str, seed: int = 0) -> str:
-    """Short: hello + what needs attention across the caller's cases (the case list's own counts)."""
+    """
+    Short. A GREETING READS NO CASE DATA unless configured (copilot_reply.yaml greeting.case_summary, default false,
+    owner 2026-10-12): the social reply only -- the counts / notifications are a separate request. With
+    `case_summary: true`: hello + what needs attention across the caller's cases (the case list's own counts).
+    """
+    g = _cfg().get("greeting") or {}
+    if not g.get("case_summary", False):
+        return _say(g.get("plain"), lang, seed)
     from app.agents.applicant.copilot.capabilities import case_list
 
-    g = _cfg().get("greeting") or {}
     page = case_list.run(claims, case_list.ListQuery(size=1, with_counts=True))
     if page.all_total == 0:
         attention = _say(g.get("no_cases"), lang)

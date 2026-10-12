@@ -106,6 +106,8 @@ def test_changes_since_the_last_look_on_open_and_pushed(client, prod, _store):
 
 
 def test_hi_on_a_new_chat_is_a_short_greeting_with_what_needs_attention(client, prod):
+    # CHANGED DELIBERATELY (owner directive 2026-10-12): a greeting reads NO case data -- the attention counts moved
+    # to "show my cases" / GET /api/v1/fos/notifications (copilot_reply.yaml greeting.case_summary: false)
     make_case(client, "Rahul Sharma")
     md = say(client, "hi")
-    assert md.startswith(("Hello.", "Good to see you.")) and "need action" in md and "(ask:" in md, md
+    assert md.startswith(("Hello!", "Hi!")) and "need action" not in md and "(ask:" in md, md
