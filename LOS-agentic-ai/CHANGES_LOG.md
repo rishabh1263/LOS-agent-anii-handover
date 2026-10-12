@@ -2088,3 +2088,20 @@ NOT FIXED: "tell me more" inside a case still gets the out-of-scope line (pre-ex
     insights -- moved_on now also clears the engine's stale last answer), conversation_general.yaml more_detail maps
     the last meaning intent to its more detailed topic (pending -> CPA readiness, stage -> history, name -> details);
     when the engine answered last, its own follow-up reading still answers (evals v1). 
+
+## 2026-10-12 (late night) -- the four audit fixes (post-regression root-cause investigation)
+1. PORTFOLIO QUESTIONS: intent_catalogue.yaml portfolio_pending / portfolio_count / portfolio_kyc /
+   portfolio_kyc_count (kind list; canonicals the case list / case insights already answer). fos_api's list branch
+   tries case insights first (a count from the caller's own rows), then the workspace list. case_list.yaml count
+   shape gains "kitni". Before: "which files are still waiting on something" / "count my files that still need
+   paperwork" -> meaning pending_documents -> "Which case is this about?".
+2. SMALL TALK: meaning's small_talk reading -> workspace.greeting_reply (the same reply as a typed "hi", no case data);
+   ack / thanks / no / help keep the general layer's answers (NEGATION kept). Before: out of scope.
+3. HANDBOOK PARAPHRASE: meaning.nearest_example -> general._knowledge tries it as a third RETRIEVAL wording for a
+   knowledge reading (the answer is still the cited handbook passage; nothing found -> "don't have an answer").
+   Before: "how long a statement history do we need" -> "don't have an answer" while the plain question was answered.
+4. DIAGNOSTICS: app/observability/turn_diagnostics.py, COPILOT_TURN_DIAGNOSTICS (default off, never in production):
+   published["diagnostics"] = layer that answered (marked at each return in fos_api), intent, query type, meaning
+   reading, tool names, cited handbook files, planner status, case_in_scope -- no text, no ids.
+TESTS: tests/integration/test_audit_fixes_20261012.py (18, offline, reading given); tests/integration/
+test_live_audit_paraphrases.py (opt-in live, unseen paraphrases read by the real embeddings + adapter).

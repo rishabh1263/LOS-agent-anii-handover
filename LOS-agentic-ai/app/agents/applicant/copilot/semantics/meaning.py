@@ -187,6 +187,54 @@ def rank(message: str, embedder=None) -> list[tuple[str, float]]:
     return sorted(best.items(), key=lambda kv: kv[1], reverse=True)
 
 
+def plural_scope(message: str, decision: "Decision | None") -> "Decision | None":
+    """
+    PLURAL SCOPE (decide.plural_scope; live audit 2026-10-12): a case reading -- or no reading -- of a message whose
+    subject is the officer's CASES (a plural noun) with a status cue is the PORTFOLIO question: the list, or the count
+    when a count word is said; KYC words pick the KYC variants. None: the reading stands. Never with a case / applicant
+    id in the message (that names one case). The answer is the deterministic list / insights over the caller's own rows.
+    """
+    spec = _decide_cfg().get("plural_scope") or {}
+    if not spec or (decision is not None and decision.kind != "case"):
+        return None
+    said = " " + re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", _normalised(message).lower())).strip() + " "
+    hit = lambda key: any(re.search(p, said) for p in spec.get(key) or [])          # noqa: E731
+    if not (hit("nouns") and hit("status_cues")) or re.search(r"\b(case|app|coapp)-[0-9a-f]{4,}\b", said):
+        return None
+    kyc = hit("kyc_words")
+    which = ("kyc_" if kyc else "") + ("count" if hit("count_words") else "list")
+    name = (spec.get("intents") or {}).get(which)
+    intent = (catalogue().get("intents") or {}).get(name) or {}
+    if intent.get("kind") != "list" or not intent.get("canonical"):
+        return None
+    return Decision(kind="list", intent=str(name), canonical=str(intent["canonical"]), decided_by="plural_scope",
+                    score=getattr(decision, "score", 0.0) or 0.0)
+
+
+def nearest_example(message: str, intent: str, embedder=None) -> str | None:
+    """
+    The catalogue example of `intent` closest to the message (the same embeddings + adapter as `rank`), or None. Used
+    ONLY as an extra RETRIEVAL wording for a knowledge question ("how long a statement history do we need" -> "how many
+    months of bank statement are needed"): the answer is still the handbook passage it finds, with its citation.
+    """
+    embedder = embedder or _embedder()
+    if embedder is None or not _clean(message):
+        return None
+    try:
+        names, vectors, texts = _bank(embedder)
+        query = _adapted(embedder.embed(_clean(message)))
+    except Exception:  # noqa: BLE001 - the embedding model down: no extra wording
+        return None
+    best, best_text = -1.0, None
+    for name, vec, text in zip(names, vectors, texts):
+        if name != intent:
+            continue
+        score = sum(a * b for a, b in zip(query, vec))
+        if score > best:
+            best, best_text = score, text
+    return best_text
+
+
 def _clean(message: str) -> str:
     return re.sub(r"\s+", " ", str(message or "")).strip()[:300]
 

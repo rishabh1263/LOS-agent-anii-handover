@@ -279,8 +279,23 @@ def is_greeting(text: str) -> bool:
     words = re.sub(r"[^\w\sऀ-ॿ]", " ", str(text or "").lower()).split()
     phrases = {" ".join(str(p).lower().split()) for p in (_cfg().get("greeting") or {}).get("phrases") or []}
     joined = " ".join(words)
-    return bool(words) and len(words) <= 3 and (joined in phrases or all(w in phrases or w in {"ji", "sir", "bhai"}
-                                                                          for w in words))
+    if bool(words) and len(words) <= 3 and (joined in phrases or all(w in phrases or w in {"ji", "sir", "bhai"}
+                                                                      for w in words)):
+        return True
+    # A GREETING + SOCIAL WORDS ("hello ji kaise ho", "hi there, how are you"; live audit 2026-10-12): a greeting
+    # phrase first, then only configured social words (greeting.social) -- anything else is a question, not a hello
+    social = sorted({" ".join(str(p).lower().split()) for p in (_cfg().get("greeting") or {}).get("social") or []}
+                    | set(phrases), key=len, reverse=True)          # "hey there, GOOD EVENING": a second greeting too
+    lead = next((p for p in sorted(phrases, key=len, reverse=True) if joined == p or joined.startswith(p + " ")), None)
+    if not lead or len(words) > 7:
+        return False
+    rest = joined[len(lead):].strip()
+    while rest:
+        nxt = next((s for s in social if rest == s or rest.startswith(s + " ")), None)
+        if nxt is None:
+            return False
+        rest = rest[len(nxt):].strip()
+    return True
 
 
 def greeting(claims: dict[str, Any], lang: str, seed: int = 0) -> str:

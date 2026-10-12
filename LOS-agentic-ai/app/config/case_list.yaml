@@ -186,7 +186,7 @@ insights:
     amount_low: ['\b(least|lowest|smallest|minimum|min|kam|sabse kam|sabse chhota)\b']
     # ...and only when it is about the officer's CASES ("max loan amount for personal loan" is policy)
     amount_needs: ['\b(case|cases|file|files|application|applications|applicant|applicants|customer|customers|kis|kiska|kiske|which one)\b']
-    count: ['\bhow many\b.*\b(cases?|files?|applications?)\b','\bkitne\b.*\b(cases?|files?)\b',
+    count: ['\bhow many\b.*\b(cases?|files?|applications?)\b','\b(kitne|kitni)\b.*\b(cases?|files?|applications?)\b',
             '\bnumber of\b.*\b(cases?|files?|applications?)\b', '\bcount\b.*\b(cases?|files?)\b']
   texts:
     count: { en: "{n} of your {total} cases: {what}.", hi-Latn: "Aapke {total} mein se {n} cases: {what}." }

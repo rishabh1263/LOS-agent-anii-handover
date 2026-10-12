@@ -253,6 +253,9 @@ changes:
 # `case_summary: true` restores the old section-11 greeting (counts + notifications).
 greeting:
   case_summary: false
+  # words that may FOLLOW a greeting phrase and keep it a greeting ("hello ji kaise ho", "hi there, how are you")
+  social: [ji, sir, madam, maam, bhai, there, team, everyone, all, again, kaise ho, kaise hain, kaise hai, kya haal hai,
+           kya haal, how are you, how r u, how are u, how is it going, hope you are well, good, aap, aap kaise ho]
   phrases: [hi, hello, hey, namaste, namaskar, good morning, good afternoon, good evening, gm, hii, helo, नमस्ते,
             नमस्कार]
   text:

@@ -282,6 +282,39 @@ intents:
     examples: [pehle batao kis applicant par kaam karna chahiye, kis case par pehle kaam karu, which case should I work on first,
                what should I work on today, aaj kya kaam hai, kaunse cases pending hain, which applicant needs attention,
                mere pending kaam batao, priority wale cases, sabse urgent case kaunsa hai]
+  # PORTFOLIO QUESTIONS (2026-10-12 audit, root cause #1): about the officer's CASES, plural -- a list or a count over
+  # the caller's own cases, answered by the deterministic case list / case insights (case_list.yaml filters), never
+  # one case's "what is pending?" with "which case?". The canonical is a question those handlers already answer.
+  # PLURAL SCOPE (live audit 2026-10-12): the embeddings put "which files are still waiting on something" next to ONE
+  # case's "what is pending?" (0.858) -- a single-case reading cannot answer a question whose subject is the CASES.
+  # A case reading (or none) on a message that names cases in the plural AND a status cue is answered as the
+  # portfolio list / count (decide.plural_scope; fos_api._plural_scope).
+  portfolio_pending:
+    kind: list
+    description: A list of the officer's cases that still have something pending (documents or other work), plural.
+    canonical: "show pending cases"
+    examples: [show all my pending files, list the cases that are not complete yet, which of my applications are incomplete,
+               mere adhure cases dikhao, kaun kaun se case adhure hain, cases where documents are still due,
+               show me files that are not done, saare pending applications dikhao, list incomplete applications]
+  portfolio_count:
+    kind: list
+    description: HOW MANY of the officer's cases have documents still pending -- a number over the cases, plural.
+    canonical: "how many cases have documents pending?"
+    examples: [how many of my cases are incomplete, number of files with missing documents, total applications awaiting documents,
+               kitne cases mein documents baaki hain, kitne applications adhure hain, how many files still lack documents,
+               count of cases with pending paperwork, kitne case pending hain]
+  portfolio_kyc:
+    kind: list
+    description: Which of the officer's cases have a KYC problem (mismatch, failed or pending KYC), plural.
+    canonical: "which cases have a KYC issue?"
+    examples: [list cases with kyc problems, which applications failed kyc, kyc mismatch wale cases dikhao,
+               show files with identity check issues, kin cases mein kyc ki dikkat hai, applications stuck on kyc]
+  portfolio_kyc_count:
+    kind: list
+    description: HOW MANY of the officer's cases have a KYC problem -- a number over the cases.
+    canonical: "how many cases have a KYC issue?"
+    examples: [how many applications have kyc problems, number of cases with kyc mismatch, kitne cases mein kyc issue hai,
+               count of files failing kyc, total kyc problem cases]
   hold_action:
     kind: control
     description: The officer says NOT to act now, to wait, or to drop the task being prepared.
@@ -381,6 +414,15 @@ decide:
   accept_with_lead: { score: 0.72, margin: 0.10 }
   # case open, the model could not choose: the best case reading when at least this (else the old rules)
   fallback_accept: 0.70
+  # PLURAL SCOPE: a message about the officer's CASES (plural noun) with a status cue -> the portfolio intent (count
+  # words -> the count). KYC words pick the KYC variants. Never with a case id or a named person in the message.
+  plural_scope:
+    nouns: ['\b(cases|files|applications|applicants|customers|loans)\b']
+    status_cues: ['\b(pending|waiting|wait|incomplete|unfinished|not finished|aren t finished|not done|not complete)\b',
+                  '\b(paperwork|missing|stuck|atki|atke|atka|adhure|adhura|baaki|baki|due|outstanding|kyc|need|needs|lack)\b']
+    count_words: ['\b(how many|count|number of|total|kitne|kitni|kitna)\b']
+    kyc_words: ['\bkyc\b', '\bidentity check\b']
+    intents: {list: portfolio_pending, count: portfolio_count, kyc_list: portfolio_kyc, kyc_count: portfolio_kyc_count}
   # CLOSE CALL, DECIDED INTERNALLY (2026-10-12, meaning._clarify): two CLOSE readings of a confusable pair, neither
   # ahead by `margin` -> the previous turn's reading continues, else BOTH are answered (no buttons). A pair is
   # added here only from measured confusions (evals / router misses); never a clear lead.
