@@ -375,10 +375,11 @@ calculators:
 
 # ---- A GENERAL QUESTION THE KNOWLEDGE BASE CANNOT ANSWER: said plainly, logged for the owner ------------------------
 general_unknown:
-  en: "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
-  hi-Latn: "Yeh abhi knowledge base mein nahi hai, isliye main andaza nahi lagaunga. Maine sawal team ke liye note kar liya hai."
-  hi: "यह अभी ज्ञान-आधार में नहीं है, इसलिए मैं अनुमान नहीं लगाऊँगा। मैंने सवाल टीम के लिए नोट कर लिया है।"
-  mr: "हे अजून ज्ञान-आधारात नाही, म्हणून मी अंदाज लावणार नाही. मी प्रश्न टीमसाठी नोंदवला आहे."
+  # short and professional (owner 2026-10-12); "don't have an answer" is the abstention the evals detect
+  en: "Sorry, I don't have an answer to that yet. I can help with your cases, documents, KYC and the loan process."
+  hi-Latn: "Maaf kijiye, iska jawab abhi mere paas nahi hai. Main aapke cases, documents, KYC aur loan process mein madad kar sakta hoon."
+  hi: "क्षमा करें, इसका उत्तर अभी मेरे पास नहीं है। मैं आपके केस, दस्तावेज़, KYC और लोन प्रक्रिया में मदद कर सकता हूँ।"
+  mr: "क्षमस्व, याचे उत्तर सध्या माझ्याकडे नाही. मी तुमचे केस, कागदपत्रे, KYC आणि कर्ज प्रक्रियेत मदत करू शकतो."
 
 # ---- THE QUESTION REWRITE (owner 2026-10-08, step 1; semantics/question_rewrite.py) -------------------------------
 # SLOW PATH ONLY: when the rules do not understand a message with confidence, Qwen rewrites it into ONE standard English

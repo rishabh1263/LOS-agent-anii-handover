@@ -522,8 +522,8 @@ def render(page: ListPage, lang: str, seed: int = 0, closing: list[str] | None =
     offer = _format().get("show_table")
     if not as_table and page.rows and offer:
         links.append(contract.ask(language_lock.pick(offer, lang)))
-    else:
-        lines.append(_say("end", lang, seed))
+    elif as_table or not page.has_more:
+        lines.append(_say("end", lang, seed))            # no button: "that is the whole list" only at the end
     if closing is None:
         links += [contract.ask(o) for o in options[1:]]     # with the flow's question: only "Show more"
     # a `closing` (even empty) replaces the follow-up line; its own lines are placed by the caller

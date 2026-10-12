@@ -62,7 +62,8 @@ def _ids(md):
     return list(dict.fromkeys(re.findall(r"CASE-[0-9A-F]+", md)))
 
 
-ABSTAIN = ("don't have enough information", "not in the knowledge base", "isn't in the knowledge base")
+ABSTAIN = ("don't have enough information", "not in the knowledge base", "isn't in the knowledge base",
+           "don't have an answer")   # the general-unknown wording (owner 2026-10-12)
 
 
 def _abstains(md, ctx):

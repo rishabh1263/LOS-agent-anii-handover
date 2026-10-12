@@ -157,7 +157,9 @@ _EXPORT = _rx(
     r"\b(return|give|send|show|output|print|export|convert|format|dump|put|provide|list|"
     r"display|share|write|render|generate|create|make)\b[^?]{0,40}\b(as|in|into|to|using)\s+"
     r"(an?\s+)?(csv|json|xml|excel|xlsx|xls|spreadsheet|sql|yaml|base64|base\s*64|hex|"
-    r"hexadecimal|binary|bytes|image|picture|png|jpe?g|photo|dataframe|table)\b",
+    # NOT "table" (owner 2026-10-12): "show my cases as a table" is the chat's own markdown table of the caller's
+    # cases, not an export -- it was refused as DATA_EXPORT. A database / whole-table dump stays refused (_BULK).
+    r"hexadecimal|binary|bytes|image|picture|png|jpe?g|photo|dataframe)\b",
     r"\b(csv|json|xml|excel|spreadsheet)\s+(file|format|export|dump|output|of)\b",
     # an export verb on data
     rf"\b(export|dump|download|extract|scrape|backup|back\s+up|exfiltrate)\b[^?]{{0,40}}\b"

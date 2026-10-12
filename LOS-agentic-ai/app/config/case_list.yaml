@@ -143,7 +143,7 @@ labels:
     mr: ["आणखी दाखवा", "KYC वाले", "तयार केस", "सर्वात जुने"]
 
 # THE CASE TABLE ONLY ON REQUEST (owner 2026-10-10). A list is answered as a short list -- one line per case with its
-# Open button -- and a "Show as a table" option; the markdown table only when the officer asks for one.
+# Open button; the markdown table only when the officer asks for one (no "Show as a table" button).
 #   default            summary | table
 #   table_phrases      words that ask for the table ("show me the table", "in a table", "tabular")
 #   no_table_phrases   words that refuse it ("don't show the table", "just summarize")
@@ -152,7 +152,8 @@ format:
   table_phrases: [table, tabular, as a table, in a table, show the table, show me the table, table format, grid]
   no_table_phrases: [no table, without table, without the table, don't show the table, dont show the table,
                      do not show the table, just summarize, just summarise, only summary, summary only]
-  show_table: { en: "Show as a table", hi-Latn: "Table mein dikhao" }
+  # the "Show as a table" button was REMOVED (owner 2026-10-12): typing "show as a table" still shows the table
+  show_table: null
 
 # ---- CASE INSIGHTS (capabilities/case_insights.py, 2026-10-11): count / rank / compare across the caller's OWN cases
 insights:
@@ -174,7 +175,15 @@ insights:
               '\b(rank|sort|order|arrange)\b.*\b(cases?|files?|applications?)\b.*\b(pending|missing|documents?|outstanding)\b',
               '\b(documents?|docs)\b.*\b(pending|missing)\b.*\b(more|most)\b',
               '\bsabse zyada\b.*\b(pending|baaki)\b']
-    count: ['\bhow many\b.*\b(cases?|files?|applications?)\b', '\bkitne\b.*\b(cases?|files?)\b',
+    # RANKED BY THE RECORDED LOAN AMOUNT (owner 2026-10-12: "whitch case have more loan value" asked "which case?")
+    amount: ['\b(more|most|max|maximum|highest|largest|biggest|bigger|higher|top|zyada|jyada|sabse bada|sabse zyada)\b.*\b(loan|amount|value|ticket|lakh)\b',
+             '\b(loan|amount|value|ticket)\b.*\b(more|most|max|maximum|highest|largest|biggest|zyada|jyada)\b',
+             '\b(least|lowest|smallest|minimum|min|kam|sabse kam|sabse chhota)\b.*\b(loan|amount|value|ticket)\b',
+             '\b(sort|rank|order|arrange)\b.*\b(cases?|files?)\b.*\b(loan|amount|value)\b']
+    amount_low: ['\b(least|lowest|smallest|minimum|min|kam|sabse kam|sabse chhota)\b']
+    # ...and only when it is about the officer's CASES ("max loan amount for personal loan" is policy)
+    amount_needs: ['\b(case|cases|file|files|application|applications|applicant|applicants|customer|customers|kis|kiska|kiske|which one)\b']
+    count: ['\bhow many\b.*\b(cases?|files?|applications?)\b','\bkitne\b.*\b(cases?|files?)\b',
             '\bnumber of\b.*\b(cases?|files?|applications?)\b', '\bcount\b.*\b(cases?|files?)\b']
   texts:
     count: { en: "{n} of your {total} cases: {what}.", hi-Latn: "Aapke {total} mein se {n} cases: {what}." }
@@ -185,6 +194,12 @@ insights:
     none_pending: { en: "No documents are pending on any of your cases.",
                     hi-Latn: "Aapke kisi case par koi document baaki nahi hai." }
     compare: { en: "Your {n} cases side by side:", hi-Latn: "Aapke {n} cases saath mein:" }
+    highest_amount: { en: "Your cases by loan amount, highest first:", hi-Latn: "Aapke cases loan amount ke hisaab se, sabse zyada pehle:" }
+    lowest_amount: { en: "Your cases by loan amount, lowest first:", hi-Latn: "Aapke cases loan amount ke hisaab se, sabse kam pehle:" }
+    amount_row: { en: "- {name} · {case_id} · {amount} · {stage}", hi-Latn: "- {name} · {case_id} · {amount} · {stage}" }
+    amount_unknown: { en: "{n} case(s) have no loan amount recorded, so they are not ranked.",
+                      hi-Latn: "{n} case(s) mein loan amount record nahi hai, isliye unhe rank nahi kiya." }
+    no_amounts: { en: "None of your cases has a loan amount recorded yet.", hi-Latn: "Aapke kisi case mein abhi loan amount record nahi hai." }
     row: { en: "- {name} · {case_id} · {stage} · {status} · pending {pending} ({documents}) · {kyc}",
            hi-Latn: "- {name} · {case_id} · {stage} · {status} · baaki {pending} ({documents}) · {kyc}" }
     nothing: { en: "nothing", hi-Latn: "kuch nahi" }
