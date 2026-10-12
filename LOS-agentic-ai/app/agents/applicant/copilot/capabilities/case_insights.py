@@ -140,7 +140,12 @@ def answer(message: str, claims: dict[str, Any], request_id: str, lang: str = "e
     text = " ".join(str(message or "").lower().split())
     if kind == COUNT:
         filters = (case_list.cfg().get("phrases") or {}).get("filter") or {}
-        key = next((k for k, phrases in filters.items() if case_list._has(text, phrases)), None)
+        from app.agents.applicant import normalize
+
+        # as typed, then normalised ("kitni files ATKI hain" -> "stuck": the configured filter words are English)
+        plain = " ".join(normalize.normalise(text).text.lower().split())
+        key = next((k for t in dict.fromkeys([text, plain]) for k, phrases in filters.items()
+                    if case_list._has(t, phrases)), None)
         if key is None:
             return None                         # "how many cases" alone: the list answers it (its own count line)
         rule = (case_list.cfg().get("filters") or {}).get(key) or {}

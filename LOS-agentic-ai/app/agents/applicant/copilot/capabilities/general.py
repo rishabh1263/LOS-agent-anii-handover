@@ -355,7 +355,8 @@ def _log_gap(term: str, kind: str = "terms") -> None:
 
 
 async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
-                 lang: str, case_in_scope: str | None = None, meaning_kind: str | None = None) -> dict[str, Any] | None:
+                 lang: str, case_in_scope: str | None = None, meaning_kind: str | None = None,
+                 knowledge_hint: str | None = None) -> dict[str, Any] | None:
     """
     FAST LANE FIRST (the rules below, ~20 ms). Only a message they did not understand with confidence -- nothing
     matched and it is not a clear case question, or "not in the knowledge base" -- takes the SLOW PATH: the LLM
@@ -380,7 +381,7 @@ async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] |
             joined["intent"], joined["parts"] = "MULTI_PART", [r.get("intent") for r in replies]
             joined.pop("tts_text", None)
             return joined
-    reply = await _fast(message, claims, context, request_id, lang, case_in_scope, meaning_kind)
+    reply = await _fast(message, claims, context, request_id, lang, case_in_scope, meaning_kind, knowledge_hint)
     state = _state(claims, context)
     if not _needs_slow_path(message, reply, state, claims, context, case_in_scope):
         _remember(state, message, reply)
@@ -471,7 +472,8 @@ def _remember(state, message: str, reply: dict[str, Any] | None) -> None:
 
 
 async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
-                lang: str, case_in_scope: str | None = None, meaning_kind: str | None = None) -> dict[str, Any] | None:
+                lang: str, case_in_scope: str | None = None, meaning_kind: str | None = None,
+                knowledge_hint: str | None = None) -> dict[str, Any] | None:
     """The reply when this message needs no case (see the module doc), else None (the message goes on).
 
     `case_in_scope`: a case the REQUEST names (case_id). With a case in scope -- named or opened -- help, frustration
@@ -603,7 +605,8 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
     if meaning_kind == "knowledge" or (_general_question(text) and not (case_id and _names_case_data(text)))             or (not case_id and _handbook_answers_without_a_case(text)):
         # with a case OPEN, "is PAN mandatory?" / "documents required?" is about THAT case: the case logic answers
         # (unless MEANING said general knowledge: then a miss is "not in the knowledge base", never a case answer)
-        return await _knowledge(text, request_id, lang, None if meaning_kind == "knowledge" else case_id)
+        return await _knowledge(text, request_id, lang, None if meaning_kind == "knowledge" else case_id,
+                                hint=knowledge_hint if meaning_kind == "knowledge" else None)
     return None
 
 
@@ -827,7 +830,8 @@ def _general_question(text: str) -> bool:
     return any(re.search(p, said) for p in spec.get("shapes") or [])
 
 
-async def _knowledge(text: str, request_id: str, lang: str, case_id: str | None) -> dict[str, Any] | None:
+async def _knowledge(text: str, request_id: str, lang: str, case_id: str | None,
+                     hint: str | None = None) -> dict[str, Any] | None:
     """The knowledge pipeline: a configured FAQ answer, then configured facts + the handbook (a model only
     phrases, checked)."""
     from app.agents.applicant.copilot.capabilities import faq
@@ -839,7 +843,9 @@ async def _knowledge(text: str, request_id: str, lang: str, case_id: str | None)
     # as typed, then the English shape (when a rewrite applies). A CONFIGURED FACT from either wins; otherwise the
     # first accepted handbook answer ("address proof mein kya chalega" -> the configured accepted list)
     found: list[tuple[bool, dict[str, Any]]] = []
-    for query in dict.fromkeys([text, _english_shape(text)]):
+    # ...and, for a paraphrase the handbook does not match as worded, the closest catalogue example of the knowledge
+    # intent meaning chose (audit root cause #3) -- a retrieval wording only; the answer is the passage it finds
+    for query in dict.fromkeys([q for q in (text, _english_shape(text), hint) if q]):
         answer = await _knowledge_candidate(query, request_id, case_id, allow)
         if answer is not None:
             found.append(answer)

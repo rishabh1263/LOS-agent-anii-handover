@@ -1531,6 +1531,13 @@ def _attach_next_step_upload(reply: dict[str, Any]) -> None:
                 return
 
 
+def _turn_layer(request: Request, layer: str) -> None:
+    """The layer that answered this turn (observability/turn_diagnostics.py; recorded only, never shown by default)."""
+    from app.observability import turn_diagnostics as _td
+
+    _td.mark(request, layer)
+
+
 def _published_reply(request: Request, reply: Any) -> Any:
     """MASTER SPEC section 8: remember the chat's context server-side, then publish {request_id, markdown, tts}."""
     from app.agents.applicant.copilot.answering import contract as _contract
@@ -1542,6 +1549,11 @@ def _published_reply(request: Request, reply: Any) -> Any:
     if key and isinstance(reply.get("context"), dict):
         _contract.remember(key[0], key[1], reply["context"])
     published = _contract.publish(reply, chat_key=key)
+    from app.observability import turn_diagnostics as _td
+
+    if _td.enabled() and isinstance(published, dict):
+        # OPT-IN, NEVER IN PRODUCTION: which layer answered and why -- codes and names only, no text, no ids
+        published["diagnostics"] = _td.summary(reply, request)
     from app.agents.applicant.copilot.answering import realtime as _realtime
 
     if key:
@@ -1834,6 +1846,7 @@ async def _copilot_json(
                                     listed=_ins_listed)
         if _insight is not None:
             _ins_general.moved_on(claims, payload.context)       # a new topic: an older "which one?" is stale
+            _turn_layer(request, "case_insights")
             return _insight
 
     # VAGUE / ONE-WORD MESSAGES (owner decision A; capabilities/vague.py): a pending option list is answered by the
@@ -1905,6 +1918,7 @@ async def _copilot_json(
     # name?", unknown terms -- answered BEFORE any case logic, so they never meet "which case?"
     request.state.copilot_context = payload.context
     meaning_kind = None
+    _knowledge_hint = None
     if action is FosAction.CUSTOM_QUERY:
         # UNDERSTANDING BY MEANING (Smart Bot plan sections 2-5; semantics/meaning.py): commands and replies to a
         # pending question stay with the rules above / the workspace; every other message is understood by MEANING --
@@ -1933,6 +1947,7 @@ async def _copilot_json(
                 elif not _answered_before(claims, payload.context):
                     asked = _vague.ask(message, _vstate, request_id, _open)
                     if asked is not None:
+                        _turn_layer(request, "vague")
                         return asked
                 # else: A BARE WORD AFTER AN ANSWER ("What stage am I in?" -> "documents") is settled by that answer
                 # -- the conversation-state short-query resolver reads it in context ("documents" = which documents
@@ -1944,6 +1959,15 @@ async def _copilot_json(
             message = _more
             request.state.copilot_message = message
         decision = await _understood(message, claims, payload, request_id)
+        if action is FosAction.CUSTOM_QUERY:
+            # PLURAL SCOPE: "which files are still waiting on something" is about the CASES, never one case's pending
+            from app.agents.applicant.copilot.capabilities import case_list as _ps_list
+            from app.agents.applicant.copilot.semantics import meaning as _ps_meaning
+
+            # a list the case list already reads ("show top 3 pending cases": size / filter / order) keeps its own words
+            if _ps_list.understand(message) is None:
+                decision = _ps_meaning.plural_scope(message, decision) or decision
+        request.state.meaning_decision = decision                 # the diagnostics' semantic reading
         if decision is not None and decision.kind in ("control", "clarify_action"):
             # "ruko, abhi action mat lena" -> nothing pending is written; "usko process kar do" -> which action?
             from app.agents.applicant.copilot.capabilities import control as _control
@@ -1972,13 +1996,43 @@ async def _copilot_json(
                 return _cp_general._reply(request_id, "NO_CO_APPLICANT", _cp_general._say_text(
                     (_cp_general.cfg().get("texts") or {}).get("no_co_applicant"), "en", case_id=_cp_case),
                     case_id=_cp_case, query_type="CONVERSATION")
+        if decision is not None and decision.kind == "small_talk":
+            # MEANING READ A GREETING the phrase list does not hold ("hey there, good evening"; audit root cause #2):
+            # the same greeting reply as a typed "hi" -- no case data. Thanks / ok / no / help keep the general layer's
+            # own answers (acknowledgement, NEGATION, the help line); a pending question is never answered by a hello.
+            _st_state = _vg._state(claims, payload.context)
+            if not (_vg._only(message, "ack") or _vg._has(message, "help") or _vg._only(message, "help")
+                    or _vg._pending(_st_state, claims, payload.context)):
+                from app.agents.applicant.copilot.capabilities import workspace as _st_ws
+
+                _vg.moved_on(claims, payload.context)
+                _turn_layer(request, "greeting(meaning)")
+                return _st_ws.greeting_reply(claims, request_id, _st_state)
         if decision is not None and decision.kind == "list" and decision.canonical:
             # "kis applicant par pehle kaam karu": the case list's own priority order -- the workspace answers it
             message = decision.canonical
             request.state.copilot_message = message
+            # a PORTFOLIO COUNT ("kitne cases mein documents baaki hain" -> "how many cases have documents pending?"):
+            # the case insights count it from the caller's own rows -- the same deterministic answer as typed
+            from app.agents.applicant.copilot.capabilities import case_insights as _pf_insights
+            from app.agents.applicant.copilot.capabilities import general as _pf_general
+
+            _pf_state = _pf_general._state(claims, payload.context)
+            _portfolio = _pf_insights.answer(message, claims, request_id, payload.response_language or "en",
+                                             listed=list(getattr(_pf_state, "listed_case_ids", None) or []))
+            if _portfolio is not None:
+                _pf_general.moved_on(claims, payload.context)
+                _turn_layer(request, "case_insights(meaning)")
+                return _portfolio
             decision = None
         if decision is not None:
             meaning_kind = decision.kind
+            if decision.kind == "knowledge":
+                from app.agents.applicant.copilot.semantics import meaning as _kn_meaning
+
+                import asyncio as _kn_asyncio
+
+                _knowledge_hint = await _kn_asyncio.to_thread(_kn_meaning.nearest_example, message, decision.intent)
             if decision.kind in ("case", "process") and decision.canonical:
                 message = decision.canonical
                 request.state.copilot_message = message
@@ -1993,10 +2047,11 @@ async def _copilot_json(
                      and _cl_table.ordinal_pick(message, getattr(_ord_state, "listed_case_ids", None) or []))
         general_reply = None if (_cl_table.only_asks_for_the_table(message) or _ord_pick) else await _general.answer(
             message, claims, payload.context, request_id, _gen_lock.current() or "en", case_in_scope=payload.case_id,
-            meaning_kind=meaning_kind)
+            meaning_kind=meaning_kind, knowledge_hint=_knowledge_hint)
         if general_reply is not None:
             if str(general_reply.get("intent") or "") not in ("THANKS", "ACKNOWLEDGEMENT"):
                 _general.moved_on(claims, payload.context)       # a new topic: an older "which one?" is stale
+            _turn_layer(request, "general")
             return general_reply
 
     # "verify karna hai" / "kya upload karu" (6f, COPILOT_VERIFY_DIAGNOSE): never "which document?" --
@@ -2028,6 +2083,7 @@ async def _copilot_json(
         except _ws_access.AccessDenied as exc:
             raise _ws_access.http_denied(exc, request_id) from None
         if ws_turn.reply is not None:
+            _turn_layer(request, "workspace")
             return ws_turn.reply
         if ws_turn.case_id:
             case_id = ws_turn.case_id
@@ -2047,6 +2103,7 @@ async def _copilot_json(
                 if formed is not None and formed.get("execute_move"):
                     return move_case_stage(formed, request_id)
                 if formed is not None:
+                    _turn_layer(request, "case_form")
                     return formed
         if not case_id and not payload.applicant_id:
             from app.agents.applicant.copilot.answering import language_lock as _nc_lock

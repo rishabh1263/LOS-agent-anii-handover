@@ -313,6 +313,29 @@ def _main_blocker(application: Any) -> str | None:
 # replies
 # --------------------------------------------------------------------------
 
+def greeting_reply(claims: dict[str, Any], request_id: str, state) -> dict[str, Any]:
+    """
+    THE greeting reply (typed greeting phrases here; meaning's `small_talk` reading in fos_api -- one behaviour): a
+    short social line + the options for where the officer is. Reads no case data unless greeting.case_summary is on.
+    """
+    from app.agents.applicant.copilot.answering import language_lock
+    from app.agents.applicant.copilot.answering import realtime as _realtime
+    from app.agents.applicant.copilot.capabilities import faq as _faq
+
+    plain = not ((_realtime._cfg().get("greeting") or {}).get("case_summary", False))
+    lang = language_lock.current() or "en"
+    reply = _base(request_id, "GREETING", _realtime.greeting(claims, lang, seed=getattr(state, "turn_id", 0) or 0),
+                  query_type="CONVERSATION",
+                  # the trace says what really ran: no tool unless the greeting read the case list
+                  tools_invoked=[] if plain else ["application.list"])
+    if _faq.enabled():
+        # the options for where the officer is: the open case's own, else the no-case ones
+        shown = _faq.render(_faq.items(getattr(state, "active_case_id", None), lang,
+                                       int(_faq.cfg().get("max_items_on_greeting", 4))), lang).split("\n")
+        reply["faq_block"] = "\n".join(shown[1:])
+    return reply
+
+
 def _from_last_list(state) -> bool:
     """The open case is a row of the list this chat was last shown (a reference may point back into that list)."""
     active = str(getattr(state, "active_case_id", None) or "").upper()
@@ -603,7 +626,14 @@ def _by_name(text: str, cases: list[Any]) -> Selection:
     from app.agents.applicant.copilot.capabilities import vague as _vocabulary
 
     domain = _vocabulary._domain_words()
-    words = [w for w in _norm(text).split() if w not in _noise() and len(w) >= 3 and w not in domain]
+    # AN ORDINAL OR A NUMBER NAMES NOBODY ("what about the second ONE?" matched an applicant "... One"): the case list's
+    # ordinal / number words (case_list.yaml phrases.ordinals / numbers) are never matched against names
+    from app.agents.applicant.copilot.capabilities import case_list as _ord_words
+
+    _phr = _ord_words.cfg().get("phrases") or {}
+    counting = {w for k in list(_phr.get("ordinals") or {}) + list(_phr.get("numbers") or {}) for w in _norm(k).split()}
+    words = [w for w in _norm(text).split()
+             if w not in _noise() and len(w) >= 3 and w not in domain and w not in counting]
     if not words:
         return Selection()
     threshold = float(_cfg().get("name_match_threshold", 0.84))
@@ -790,20 +820,8 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
     _greets_plainly = not ((_realtime._cfg().get("greeting") or {}).get("case_summary", False))
     if action == "CUSTOM_QUERY" and _contract.enabled() and (not state.active_case_id or _greets_plainly) \
             and _realtime.is_greeting(text):
-        # MASTER SPEC section 11: a short greeting with what needs attention, then the FAQ (section 7)
-        from app.agents.applicant.copilot.answering import language_lock
-
-        lang = language_lock.current() or "en"
-        reply = _base(request_id, "GREETING", _realtime.greeting(claims, lang, seed=state.turn_id or 0),
-                      query_type="CONVERSATION",
-                      # the trace says what really ran: no tool unless the greeting read the case list
-                      tools_invoked=[] if _greets_plainly else ["application.list"])
-        if _faq.enabled():
-            # the options for where the officer is: the open case's own, else the no-case ones
-            shown = _faq.render(_faq.items(state.active_case_id, lang, int(_faq.cfg().get("max_items_on_greeting", 4))),
-                                lang).split("\n")
-            reply["faq_block"] = "\n".join(shown[1:])
-        return done(reply)
+        # MASTER SPEC section 11: a short greeting, then the FAQ (section 7)
+        return done(greeting_reply(claims, request_id, state))
     if action == "CUSTOM_QUERY" and _faq.enabled() and _faq.asks_for_faq(text):
         # MASTER SPEC section 7: "help" / "kya pooch sakta hoon" -- the FAQ for this state (the open case or none)
         from app.agents.applicant.copilot.answering import language_lock
