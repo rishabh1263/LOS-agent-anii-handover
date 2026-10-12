@@ -10,8 +10,15 @@ phrases:
   help: [what can you help with, what can you do, how can you help, what do you do, help me, kya kar sakte ho,
          kya madad kar sakte ho, tum kya kar sakte ho, aap kya kar sakte ho, क्या मदद कर सकते हो]
   ack: ["ok", "okay", "ok thanks", "thanks", "thank you", "got it", "hmm", "accha", "acha", "theek hai", "thik hai",
-        "fine", "cool", "ठीक है", "धन्यवाद"]
+        "fine", "cool", "ठीक है", "धन्यवाद",
+        # A BARE YES / NO WITH NOTHING ASKED (owner directive 2026-10-12: "haan" got the out-of-scope line, "nahi" got
+        # "what would you like to know about nahi?"): an acknowledgement that reads nothing. With a question PENDING
+        # (general._pending) the same word answers that question, as before.
+        "yes", "no", "yeah", "yep", "nope", "haan", "han", "haa", "ha", "haan ji", "ji", "ji haan", "nahi", "nahin",
+        "nai", "na", "nahi ji", "हाँ", "हां", "नहीं"]
   # the thank-yous among the ack words: answered as small-talk THANKS (the rest is ACKNOWLEDGEMENT)
+  # the bare NO among the ack words: the turn's conversation outcome is NEGATION (evals/copilot/conversations.py h5)
+  negation: ["no", "nope", "nahi", "nahin", "nai", "na", "nahi ji", "नहीं"]
   thanks: ["thanks", "thank you", "ok thanks", "thank you so much", "thanks a lot", "shukriya", "dhanyavad", "धन्यवाद"]
   frustrated: [why you are not answering, why are you not answering, why you not answering, not answering me,
                you are not helping, not helpful, useless bot, bekar, kuch samajh nahi aa raha, jawab nahi de raha,
@@ -448,6 +455,7 @@ vague:
   # quoted: unquoted yes / no are YAML booleans. The bare follow-up questions (why / kyu / how / then ...) are answered
   # from the conversation state (the previous answer), never asked back
   not_vague: [help, menu, help me, options, ok, okay, thanks, thank you, thx, hi, hello, hey, "yes", "no", "y", "n",
+              haan, han, haa, ha, haan ji, ji, ji haan, nahi, nahin, nai, na, nahi ji, yeah, yep, nope, हाँ, हां, नहीं,
               cancel, confirm, close, exit, back, bye, hmm ok, why, kyu, kyun, kyon, how, kaise, then, phir, and, aur,
               when, kab, where, kahan, who, kaun, really, sure, done, next, "?", what, kya,
               # ONE clear meaning on an open case: answered directly, never an options question (variant evals)
@@ -535,3 +543,24 @@ control:
   # move, the readiness check); never a decision
   action_options: ["Collect from customer", "What is pending?", "Is this case ready for CPA?", "Move to CPA"]
   action_options_no_case: ["Show the top 5 cases needing action", "Create a new case"]
+
+# ---- "TELL ME MORE" ON AN OPEN CASE (owner 2026-10-12: it got "outside what I can help with") ------------------------
+# the more detailed reading of the topic just answered (meaning's last case intent -> a catalogue intent whose canonical
+# question the engine answers); no topic known -> `default`. Only with a case open; the engine reads the case as always.
+more_detail:
+  phrases: [tell me more, more details, more detail, more info, aur batao, aur bataiye, detail me batao, details me batao,
+            explain more, elaborate, in detail, details please, poori detail, full details, aur detail]
+  after:
+    case_status: cpa_readiness
+    pending_documents: cpa_readiness
+    why_stuck: cpa_readiness
+    next_step: cpa_readiness
+    kyc_status: cpa_readiness
+    document_status: cpa_readiness
+    cpa_readiness: case_history
+    case_stage: case_history
+    time_in_stage: case_history
+    loan_amount: application_details
+    applicant_name: application_details
+    uploaded_documents: pending_documents
+  default: application_details

@@ -1432,14 +1432,20 @@ chatbot:
       list: [mere cases, mere case, my cases, my case list, kaunse cases, kaun se cases, cases dikhao, case list,
              list dikhao, saare cases, all cases, सारे केस, मेरे केस, माझे केस]
       more: [aur dikhao, more, aur, next page, aage dikhao, और दिखाओ]
-      open: [kholo, khol do, open, jao, jaana hai, chalo, select, खोलो, उघडा]
+      # "switch to Amit" / "change to CASE-..." / "go to Priya Verma" OPEN that case (owner 2026-10-12: it switched but
+      # answered "outside what I can help with"); never "move to" (the CPA move). "go to CPA" names a STAGE and is
+      # never a case open (workspace._names_a_stage)
+      open: [kholo, khol do, open, jao, jaana hai, chalo, select, switch to, change to, go to, खोलो, उघडा]
       exit: [bahar aao, bahar, exit, close, close it, close karo, case close karo, close case, close this case, case band karo, band karo, band kar do, back, बाहर, बाहेर]
       # "back to the case: what is pending?" RETURNS to the open case -- never a close (audit 2026-10-11)
       stay: [back to the case, back to this case, back to the file, back to this file, wapas case par,
              wapas is case par, case par wapas]
       switch: [dusra case, doosra case, another case, case badlo, switch case, other case, doosre applicant,
                dusre applicant, doosra applicant, dusra applicant, another applicant, other applicant, galat applicant,
-               galat case, wrong applicant, wrong case, applicant badlo, dusre customer, doosre customer]
+               galat case, wrong applicant, wrong case, applicant badlo, dusre customer, doosre customer,
+               # "change case" stayed on the open case (owner 2026-10-12)
+               change case, change the case, case change, case change karo, case change kar do, change applicant,
+               change the applicant, case badal do, case badlna hai]
       # "the other applicant" (English, Sprint 4): with exactly ONE other case it OPENS that case; a bare switch
       # ("dusra case") still lists (FOS plan 1.2)
       the_other: [the other applicant, the other customer, the other borrower]

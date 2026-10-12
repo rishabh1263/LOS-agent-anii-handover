@@ -313,6 +313,35 @@ def _main_blocker(application: Any) -> str | None:
 # replies
 # --------------------------------------------------------------------------
 
+def _from_last_list(state) -> bool:
+    """The open case is a row of the list this chat was last shown (a reference may point back into that list)."""
+    active = str(getattr(state, "active_case_id", None) or "").upper()
+    return bool(active) and active in {str(c).upper() for c in (getattr(state, "listed_case_ids", None) or [])}
+
+
+def _names_a_stage(text: str) -> bool:
+    """The message names a LOS stage (stage_lifecycle.yaml stages: FOS, CPA, CREDIT, ...)."""
+    from pathlib import Path
+
+    import yaml
+
+    try:
+        path = Path(__file__).resolve().parents[4] / "config" / "stage_lifecycle.yaml"
+        stages = {str(s).lower() for s in (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("stages") or {}}
+    except Exception:  # noqa: BLE001 - no stage list: nothing is a stage
+        return False
+    return bool(set(_norm(text).split()) & stages)
+
+
+def _counted_page(text: str) -> bool:
+    """A paging request that names a count or the cases ("next two", "next 2 cases"), not a bare "more"."""
+    from app.agents.applicant.copilot.capabilities import case_list as _cl
+
+    numbers = {str(k).lower() for k in ((_cl.cfg().get("phrases") or {}).get("numbers") or {})}
+    words = set(_norm(text).split())
+    return bool(words & (numbers | {"case", "cases", "files"})) or bool(re.search(r"\d", text))
+
+
 def _base(request_id: str, intent: str, answer: str, **extra: Any) -> dict[str, Any]:
     return {"request_id": request_id, "intent": intent, "answer": answer, "category": "CASE_ONLY",
             "query_type": "CASE_FACT", "response_source": "STRUCTURED", "documents": [], "actions": [],
@@ -578,16 +607,21 @@ def _by_name(text: str, cases: list[Any]) -> Selection:
     if not words:
         return Selection()
     threshold = float(_cfg().get("name_match_threshold", 0.84))
+    # MORE OF THE NAME MATCHED WINS (owner 2026-10-12): "go to Priya Mbvkdlw" asked "which one?" between two Priyas --
+    # the score was the single best word, so the first name alone tied every Priya. Now: how many said words match a
+    # part of the name, then how closely; "switch to Priya" alone still asks among the Priyas.
     scored = []
     for application in cases:
         full = _name(application.applicant_id, short=False).lower().split()
-        best = max((difflib.SequenceMatcher(None, w, n).ratio() for w in words for n in full), default=0.0)
-        if best >= threshold:
-            scored.append((best, application))
+        per_word = [max((difflib.SequenceMatcher(None, w, n).ratio() for n in full), default=0.0) for w in words]
+        matched = [r for r in per_word if r >= threshold]
+        if matched:
+            scored.append(((len(matched), sum(matched) / len(matched)), application))
     if not scored:
         return Selection()
-    top = max(s for s, _ in scored)
-    hits = [a for s, a in scored if s >= top - 0.02]
+    top_count = max(s[0] for s, _ in scored)
+    top_mean = max(s[1] for s, _ in scored if s[0] == top_count)
+    hits = [a for s, a in scored if s[0] == top_count and s[1] >= top_mean - 0.02]
     return Selection(hits[0]) if len(hits) == 1 else Selection(candidates=hits)
 
 
@@ -667,7 +701,9 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
         # "why is the FIRST ONE pending?" right after a list: that row's case, re-authorized, and the question asked
         # for it (case_list.yaml phrases.ordinals); never another officer's case -- the row ids are the caller's own
         picked = _flow_list.ordinal_pick(text, state.listed_case_ids or [])
-        if picked and not state.active_case_id:
+        # ...also while a case FROM THAT LIST is open ("why is the first one pending?" opened it; "what about the second
+        # one?" is the list's second row -- owner directive 2026-10-12): the reference is the previous result set
+        if picked and (not state.active_case_id or _from_last_list(state)):
             from app.store import get_repository
 
             authorize(claims, picked[0])
@@ -749,15 +785,23 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
     from app.agents.applicant.copilot.answering import contract as _contract
     from app.agents.applicant.copilot.answering import realtime as _realtime
 
-    if action == "CUSTOM_QUERY" and _contract.enabled() and not state.active_case_id and _realtime.is_greeting(text):
+    # a greeting is a greeting with a case open too ("Hii" inside a case was read as a case question and asked "which
+    # one?") -- safe because it reads no case data unless greeting.case_summary is on (then: no case open only)
+    _greets_plainly = not ((_realtime._cfg().get("greeting") or {}).get("case_summary", False))
+    if action == "CUSTOM_QUERY" and _contract.enabled() and (not state.active_case_id or _greets_plainly) \
+            and _realtime.is_greeting(text):
         # MASTER SPEC section 11: a short greeting with what needs attention, then the FAQ (section 7)
         from app.agents.applicant.copilot.answering import language_lock
 
         lang = language_lock.current() or "en"
         reply = _base(request_id, "GREETING", _realtime.greeting(claims, lang, seed=state.turn_id or 0),
-                      query_type="CONVERSATION")
+                      query_type="CONVERSATION",
+                      # the trace says what really ran: no tool unless the greeting read the case list
+                      tools_invoked=[] if _greets_plainly else ["application.list"])
         if _faq.enabled():
-            shown = _faq.render(_faq.items(None, lang, int(_faq.cfg().get("max_items_on_greeting", 4))), lang).split("\n")
+            # the options for where the officer is: the open case's own, else the no-case ones
+            shown = _faq.render(_faq.items(state.active_case_id, lang, int(_faq.cfg().get("max_items_on_greeting", 4))),
+                                lang).split("\n")
             reply["faq_block"] = "\n".join(shown[1:])
         return done(reply)
     if action == "CUSTOM_QUERY" and _faq.enabled() and _faq.asks_for_faq(text):
@@ -828,6 +872,11 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
             and (((_says("more", text) or _case_list._has(text, (_case_list.cfg().get("phrases") or {}).get("next")))
                   and len(_norm(text).split()) <= 3) or _case_list.only_pages_the_list(text)):
         return done(_list(claims, request_id, state, text, more=True))
+    if action == "CUSTOM_QUERY" and _case_list.enabled() and state.list_query and _from_last_list(state) \
+            and _case_list.only_pages_the_list(text) and _counted_page(text):
+        # A CASE FROM THE LIST IS OPEN and the officer pages THE LIST with a count ("show the next two"): the list's
+        # next rows (its own filter / sort). A bare "more" inside a case stays about the last answer.
+        return done(_list(claims, request_id, state, text, more=True))
     # "aur dikhao" pages the LIST only while no case is open: inside a case, "tell me more" is about the last answer
     if action == "CUSTOM_QUERY" and state.listed_case_ids and not state.active_case_id \
             and _says("more", text) and len(_norm(text).split()) <= 3:
@@ -872,7 +921,9 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
                 return opened(chosen.application)
             if chosen.candidates:
                 return done(which_view(chosen.candidates, request_id, state))
-            if names_a_case or _says("open", text):
+            if names_a_case or (_says("open", text) and not _names_a_stage(text)):
+                # "switch to CPA stage" / "jao CPA" names a STAGE, not a case: never "I can't find that applicant" --
+                # the message goes on to the stage / process logic
                 return done(not_found_view(request_id, chosen.named))
             if person:
                 # a named person who is not among the caller's cases: the same neutral line (section 2)

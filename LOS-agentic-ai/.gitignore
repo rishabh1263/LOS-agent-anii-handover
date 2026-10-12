@@ -194,6 +194,12 @@ models/
 model/
 checkpoints/
 weights/
+# THE MEANING ADAPTER IS APP CONFIG, NOT A TRAINED-MODEL DUMP (2026-10-12): small (~2.3 MB), read at runtime by
+# semantics/meaning.py -- without it every other machine silently runs the plain embeddings. Only these two files.
+!app/models/
+app/models/*
+!app/models/meaning_adapter.npy
+!app/models/meaning_adapter.json
 
 # =========================================================
 # OCR / ML CACHE

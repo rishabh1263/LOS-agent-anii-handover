@@ -264,6 +264,17 @@ case_form:
                  batao, dikhao, kholo, give, can, could, please, plz, क्या, कैसे, मेरे, दिखाओ]
   escape_any: [cases, case, kyc, faq, download, pdf, excel, status, pending]
   resume_words: [continue, continue case, resume, resume case, aage badho, jaari rakho, case continue karo]
+  # "what is pending?" with an UNFINISHED new case and no case open (owner 2026-10-12: it silently answered for the
+  # officer's only other case, with no case id): the draft's own status -- nothing is created, nothing else is read
+  draft_status_shapes: ['\b(pending|baaki|baki|bacha|remaining|left|missing|status)\b', '\bkya (bacha|reh gaya|rehta)\b']
+  draft_status:
+    en: "The new case{for_name} is not created yet. Still needed: {fields}. Say **continue** to fill them in, or **cancel**."
+    hi-Latn: "Naya case{for_name} abhi bana nahi hai. Abhi chahiye: {fields}. Bharne ke liye **continue** likhein, ya **cancel**."
+    hi: "नया केस{for_name} अभी बना नहीं है। अभी चाहिए: {fields}। भरने के लिए **continue** लिखें, या **cancel**।"
+    mr: "नवीन केस{for_name} अजून तयार झाली नाही. अजून हवे: {fields}. भरण्यासाठी **continue** लिहा, किंवा **cancel**."
+  draft_for_name: { en: " for {name}", hi-Latn: " ({name})", hi: " ({name})", mr: " ({name})" }
+  draft_ready: { en: "all details are in -- only your Confirm", hi-Latn: "sab details aa gayi -- sirf Confirm baaki",
+                 hi: "सब विवरण आ गए -- सिर्फ़ Confirm बाकी", mr: "सर्व तपशील आले -- फक्त Confirm बाकी" }
   resume:
     en: "Let's continue the new case."
     hi-Latn: "Chaliye naya case aage badhate hain."
@@ -319,11 +330,23 @@ case_form:
   or_form: { en: "Or open the form:", hi-Latn: "Ya form kholiye:", hi: "या फ़ॉर्म खोलें:", mr: "किंवा फॉर्म उघडा:" }
   no_rights: { en: "You don't have permission to create cases.", hi-Latn: "Aapko case banane ki permission nahi hai.",
                hi: "आपको केस बनाने की अनुमति नहीं है।", mr: "तुम्हाला केस तयार करण्याची परवानगी नाही." }
+  # OTHER NAMES of a field, besides its labels (owner 2026-10-12: "change the name to Rahul Sharma" on the create
+  # summary was ignored and the case was created with the misspelt name). Longest name wins.
+  aliases:
+    full_name: [name, naam, applicant name, customer name, applicant ka naam, customer ka naam, borrower name]
+    mobile: [phone, phone number, mobile number, mobile no, contact number]
+    date_of_birth: [dob, birth date, birthday, janam tithi, janm tithi, janam din]
+    address: [pata, residential address, current address]
+    loan_amount: [amount, loan, loan value]
+    employment_type: [employment, job type, naukri]
+    tenure_months: [tenure, months]
+    email: [email id, mail, e-mail]
   # editing a field of the open case: "loan amount 600000 karo", "change mobile to 9876543210"
   edit_cues: [change, update, badlo, badal do, karo, kar do, set, edit, make it, replace, correct it, correct the,
               set to, बदलो, बदला]
   # words around a new value that are not the value ("mobile NUMBER change karo 98...", "loan amount TO 6 lakh")
-  value_fillers: [number, no, num, to, ko, as, is, it, please, the, new, value, field, galat hai, wrong, karna hai]
+  value_fillers: [number, no, num, to, ko, as, is, it, please, the, new, value, field, galat hai, wrong, karna hai,
+                  galat, is wrong, should be, sahi, sahi hai, correct, correct is, hona chahiye, actually]
   edit_proposal:
     en: "Change **{label}** of {case_id} from {old} to **{new}**?"
     hi-Latn: "{case_id} ka **{label}** {old} se **{new}** karna hai?"

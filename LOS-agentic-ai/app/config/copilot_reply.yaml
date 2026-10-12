@@ -246,8 +246,13 @@ changes:
     PROCESSING: { en: "being verified", hi-Latn: "verify ho raha hai", hi: "सत्यापन जारी", mr: "पडताळणी सुरू" }
     SUPERSEDED: { en: "replaced", hi-Latn: "badla gaya", hi: "बदला गया", mr: "बदलले" }
 
-# ---- greeting on a new chat (section 11: short, with what needs attention) ---------------------------------------
+# ---- greeting on a new chat -------------------------------------------------------------------------------------
+# A GREETING READS NO CASE DATA (owner directive 2026-10-12: "Hii" answered with the case counts and the pending
+# list). `case_summary: false` -> a short social reply + what the Copilot can do (the FAQ options); the attention
+# counts and notifications stay available on request ("show my cases") and on GET /api/v1/fos/notifications.
+# `case_summary: true` restores the old section-11 greeting (counts + notifications).
 greeting:
+  case_summary: false
   phrases: [hi, hello, hey, namaste, namaskar, good morning, good afternoon, good evening, gm, hii, helo, नमस्ते,
             नमस्कार]
   text:
@@ -255,6 +260,12 @@ greeting:
     hi-Latn: ["Namaste. {attention}", "Hello ji. {attention}"]
     hi: ["नमस्ते। {attention}"]
     mr: ["नमस्कार. {attention}"]
+  # the greeting when case_summary is off: no number, no case
+  plain:
+    en: ["Hello! How can I help you today?", "Hi! What would you like to check today?"]
+    hi-Latn: ["Namaste! Aaj main aapki kya madad kar sakta hoon?", "Hello ji! Aaj kya check karna hai?"]
+    hi: ["नमस्ते! आज मैं आपकी क्या मदद कर सकता हूँ?"]
+    mr: ["नमस्कार! आज मी तुमची काय मदत करू शकतो?"]
   attention: { en: "{n} of your {total} cases need action ({parts}).",
                hi-Latn: "Aapke {total} cases mein se {n} par kaam baaki hai ({parts}).",
                hi: "आपके {total} केसों में से {n} पर काम बाकी है ({parts})।",

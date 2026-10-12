@@ -2043,3 +2043,48 @@ test_documents_named_once.py, test_fallback_planner.py.
   deviation pick offered far-off options ('BT for loan' for 'low cibil score') -> filler words ignored
   (queries.yaml match_ignore_words) and only options near the best shown (pick_min_share 0.6).
   NOT changed (pre-existing, noted): the case voice says 'your application' / 'your name' to the officer.
+
+## 2026-10-12 (night) -- directive "generic conversational intelligence repair": greeting, acknowledgements, references
+ROOT CAUSES (traced, reproduced through /api/v1/fos/copilot with synthetic cases):
+- "Hii" -> greeting + case counts: workspace.handle -> realtime.greeting ran case_list.run + product_flow.notifications
+  on every greeting (old MASTER SPEC section-11 greeting). FIX: copilot_reply.yaml greeting.case_summary: false -> a
+  social reply + the capability options, no case read (spied in tests); the counts stay on "show my cases" and
+  GET /api/v1/fos/notifications. A greeting inside an open case is a greeting too (was read as a case question and
+  asked "which one?"); the reply's tools_invoked now says [] (it claimed application.list).
+- "haan" / "nahi" with nothing asked -> out-of-scope line / "what would you like to know about nahi?": yes/no words
+  were not acknowledgements and the vague layer ran first. FIX: conversation_general.yaml phrases.ack + not_vague;
+  with a question pending (general._pending) the same word still answers it.
+- "what about the second one?" after "why is the first one pending?" -> out of scope: workspace's ordinal pick ran
+  only with NO case open. FIX: also while the open case is a row of the last list (workspace._from_last_list).
+- "show the next two" with that case open -> the case's "next step". FIX: a counted paging request pages the last list
+  (workspace._counted_page); a bare "more" inside a case is unchanged.
+- "compare the first two" -> the list again. FIX: case_insights._from_list resolves ordinals against the chat's
+  listed_case_ids (state, never model text); case_list.yaml insights.shapes.compare gains the ordinal shape.
+- "ok" two turns after the engine asked "which one do you mean?" answered that stale question: the topic in between
+  was answered by the general layer, which the engine never saw. FIX: general.moved_on drops the chat's pending
+  clarification whenever the general layer (not an ack) or case insights answers.
+TESTS: tests/integration/test_greeting_no_retrieval.py, tests/integration/test_followup_references.py (22 passed).
+CHANGED ASSERTIONS (review): test_master_11_realtime greeting (no "need action"), test_master_15_product_flow
+greeting (notifications not in the greeting; still on GET /notifications).
+NOT FIXED: "tell me more" inside a case still gets the out-of-scope line (pre-existing; needs a "last answer" topic).
+- LATER THE SAME NIGHT (owner reports + directive):
+  * CASE SWITCH: "change case" / "case change karo" stayed on the open case; "switch to Amit" / "change to CASE-..." /
+    "go to Priya Verma" switched but answered "outside what I can help with" -> applicant_agent.yaml case_workspace
+    phrases.switch / phrases.open; a STAGE is never a case ("go to CPA" -> not "I can't find that applicant";
+    workspace._names_a_stage). Name match: more matched words win (workspace._by_name) -- "go to Priya Mbvkdlw" asked
+    "which one?" among every Priya.
+  * CREATE FORM: an edit typed on the summary or mid-form ("change the name to ...", "name galat hai, ... karo",
+    "mobile number should be ...") was ignored and the case was created with the old value -> case_form._inline_edit
+    (same check as typed), product_flow.yaml case_form.aliases / value_fillers.
+  * "what is pending" HALFWAY THROUGH A NEW CASE answered the officer's only other case (no id shown) -> the draft's
+    status ("not created yet. Still needed: ..."), case_form._asks_draft_status.
+  * A bare "no"/"nahi" keeps the conversation-state outcome NEGATION (evals h5).
+  * .gitignore: app/models/meaning_adapter.{npy,json} are no longer ignored (they were never committed: other
+    machines silently ran without the adapter).
+  TESTS: test_case_switch_and_create_edit.py (16), name/switch suites 89 passed, case-form suites 216 passed,
+  conversation evals 17 passed (124 conversations). Chatbot regression (102 files, no OCR suites, BEFORE the switch /
+  create / name fixes): 2374 passed, 1 failed (h5, fixed since).
+  * "TELL ME MORE" on an open case got "outside what I can help with": when ANOTHER layer answered last (general /
+    insights -- moved_on now also clears the engine's stale last answer), conversation_general.yaml more_detail maps
+    the last meaning intent to its more detailed topic (pending -> CPA readiness, stage -> history, name -> details);
+    when the engine answered last, its own follow-up reading still answers (evals v1). 

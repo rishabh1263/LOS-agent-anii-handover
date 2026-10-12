@@ -1,0 +1,92 @@
+{
+ "trained": "2026-10-12 13:34",
+ "embedding_model": "nomic-embed-text",
+ "examples": 1026,
+ "intents": 38,
+ "lambda": 0.001,
+ "loo_knn_baseline": 0.823,
+ "loo_knn_adapter": 0.923,
+ "heldout_e": {
+  "baseline": {
+   "top1": "51/60",
+   "top3": "59/60",
+   "median_margin": 0.085,
+   "misses": [
+    {
+     "q": "customer ko call karna hai number do",
+     "want": "applicant_contact",
+     "got": "collect_from_customer",
+     "score": 0.837
+    },
+    {
+     "q": "kis stage par atka hai ye case",
+     "want": "case_stage",
+     "got": "cpa_readiness",
+     "score": 0.853
+    },
+    {
+     "q": "how is this file doing overall",
+     "want": "case_status",
+     "got": "case_stage",
+     "score": 0.687
+    },
+    {
+     "q": "koi update hai is case ka",
+     "want": "case_status",
+     "got": "why_stuck",
+     "score": 0.762
+    },
+    {
+     "q": "where are we on this application",
+     "want": "case_status",
+     "got": "applicant_contact",
+     "score": 0.731
+    },
+    {
+     "q": "list the missing papers",
+     "want": "pending_documents",
+     "got": "customer_message",
+     "score": 0.855
+    },
+    {
+     "q": "can I send this to CPA today",
+     "want": "cpa_readiness",
+     "got": "process_move_to_cpa",
+     "score": 0.807
+    },
+    {
+     "q": "kya kya upload ho chuka hai",
+     "want": "uploaded_documents",
+     "got": "pending_documents",
+     "score": 0.923
+    },
+    {
+     "q": "is case mein ab tak kya kya hua",
+     "want": "case_history",
+     "got": "why_stuck",
+     "score": 0.874
+    }
+   ]
+  },
+  "adapter": {
+   "top1": "58/60",
+   "top3": "60/60",
+   "median_margin": 0.137,
+   "misses": [
+    {
+     "q": "where are we on this application",
+     "want": "case_status",
+     "got": "applicant_contact",
+     "score": 0.808
+    },
+    {
+     "q": "kaunse kagaz abhi tak nahi aaye",
+     "want": "pending_documents",
+     "got": "next_step",
+     "score": 0.868
+    }
+   ]
+  }
+ },
+ "seconds": 82.5
+}

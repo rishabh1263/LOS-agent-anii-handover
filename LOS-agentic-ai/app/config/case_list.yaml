@@ -166,7 +166,10 @@ insights:
     compare: ['\bcompare\b.*\b(cases?|applicants?|applications?|files?|case-[0-9a-f]{6,}|these|them|both)\b',
               '\b(cases?|applicants?|applications?)\b.*\bcompare\b', '\bdifference between\b.*\bcases?\b',
               '\bcases?\b.*\bvs\.?\b', '\b(cases?|applicants?)\b.*\btulna\b', '\btulna\b.*\b(cases?|applicants?)\b',
-              '\bside by side\b']
+              '\bside by side\b',
+              # rows of the list just shown ("compare the first two", "compare the 1st and 3rd") -- resolved against
+              # that list's ids (case_insights._from_list), never a guess
+              '\bcompare\b.*\b(first|second|third|fourth|fifth|top|last|1st|2nd|3rd|4th|5th)\b']
     closest: ['\b(closest|nearest|most ready|readiest)\b.*\b(cpa|ready|move)\b', '\bsabse (kareeb|paas|qareeb)\b.*\bcpa\b',
               '\bcpa\b.*\b(closest|nearest|sabse paas|sabse kareeb)\b',
               '\b(fewest|least|minimum|kam se kam)\b.*\b(blockers?|blocking|items? left|issues|pending)\b']

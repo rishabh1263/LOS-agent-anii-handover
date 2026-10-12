@@ -250,7 +250,9 @@ def test_notifications_and_greeting(client, prod, monkeypatch):
     case_list.clear_cache()
     items = client.get("/api/v1/fos/notifications").json()["items"]
     assert items and "pending for 9 days" in items[0]["text"]
-    assert "pending for 9 days" in turn(client, "hi", chat="g1", new_chat=True)["markdown"].replace("**", "")
+    # CHANGED DELIBERATELY (owner directive 2026-10-12): the notifications stay on GET /notifications (above); a
+    # greeting reads no case data any more (copilot_reply.yaml greeting.case_summary: false)
+    assert "pending for 9 days" not in turn(client, "hi", chat="g1", new_chat=True)["markdown"].replace("**", "")
 
 
 def test_login_takes_username_password_and_stage(monkeypatch):
