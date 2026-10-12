@@ -5,6 +5,7 @@ CASE INSIGHTS -- COUNT, RANK and COMPARE across the officer's OWN cases (2026-10
     "which of my cases is closest to CPA?"          -> CLOSEST (fewest blockers first)
     "which case has more documents pending?"        -> PENDING (most pending documents first)
     "compare CASE-A and CASE-B" / "compare my cases" -> COMPARE (side by side)
+    "which case has the highest loan amount?"       -> AMOUNT  (by the recorded loan amount; "lowest" reverses)
 
 DETERMINISTIC AND AUTHORISED. The rows are the case list's own (`case_list._owned` over the caller's granted cases:
 a case the caller may not open is never counted, ranked or named); a case named in a comparison is authorised again
@@ -17,7 +18,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-COUNT, CLOSEST, PENDING, COMPARE = "COUNT", "CLOSEST", "PENDING", "COMPARE"
+COUNT, CLOSEST, PENDING, COMPARE, AMOUNT = "COUNT", "CLOSEST", "PENDING", "COMPARE", "AMOUNT"
 _CASE_ID = re.compile(r"\bCASE-[0-9A-F]{6,}\b", re.I)
 
 
@@ -37,8 +38,10 @@ def kind_of(message: str) -> str | None:
         return None
     text = " ".join(str(message or "").lower().split())
     shapes = _cfg().get("shapes") or {}
-    for kind in (COMPARE, CLOSEST, PENDING, COUNT):
+    for kind in (COMPARE, CLOSEST, PENDING, AMOUNT, COUNT):
         if any(re.search(p, text) for p in shapes.get(kind.lower()) or []):
+            if kind == AMOUNT and not any(re.search(p, text) for p in shapes.get("amount_needs") or []):
+                continue                    # "max loan amount for personal loan" is a policy question, not a ranking
             return kind
     return None
 
@@ -57,7 +60,15 @@ def _rows(claims: dict[str, Any]) -> list[dict[str, Any]]:
     subject = case_list._subject(claims)
     limit = int(_cfg().get("max_cases", 200))
     apps = case_list._owned(claims, get_repository().list_granted_cases(subject, limit=limit))
-    return list(case_list._rows_for(subject, apps).values())
+    amounts = {a.case_id: getattr(a, "loan_amount", None) for a in apps}
+    # the recorded loan amount rides along (AMOUNT ranking); the cached row itself is never changed
+    return [{**row, "loan_amount": amounts.get(case_id)} for case_id, row in case_list._rows_for(subject, apps).items()]
+
+
+def _amount(row: dict[str, Any]) -> float | None:
+    """The recorded loan amount as a number, or None when it is not a plain number (never guessed)."""
+    raw = re.sub(r"[,\s₹]|rs\.?|inr", "", str(row.get("loan_amount") or ""), flags=re.I)
+    return float(raw) if re.fullmatch(r"\d+(\.\d+)?", raw) else None
 
 
 def _metrics(row: dict[str, Any]) -> dict[str, Any]:
@@ -91,6 +102,7 @@ def answer(message: str, claims: dict[str, Any], request_id: str, lang: str = "e
     kind = kind_of(message)
     if kind is None:
         return None
+    from app.agents.applicant.copilot.answering import contract
     from app.agents.applicant.copilot.capabilities import case_list, general, workspace
     from app.security import access
 
@@ -120,6 +132,25 @@ def answer(message: str, claims: dict[str, Any], request_id: str, lang: str = "e
             ranked = sorted(known, key=lambda rm: (-rm[1]["pending"], rm[0]["case_id"]))
             head = "most_pending" if ranked and ranked[0][1]["pending"] else "none_pending"
         lines = [_say(head, lang)] + [_line(r, m, lang) for r, m in ranked[: int(_cfg().get("max_listed", 5))]]
+    elif kind == AMOUNT:
+        # BY THE RECORDED LOAN AMOUNT, highest first ("lowest / smallest / kam" reverses); a case whose amount is not a
+        # plain number is left out and said so -- never ranked on a guess
+        from app.agents.applicant.copilot.answering import profile
+
+        known = [(r, _amount(r)) for r in rows]
+        ranked_rows = [(r, a) for r, a in known if a is not None]
+        low = any(re.search(p, text) for p in (_cfg().get("shapes") or {}).get("amount_low") or [])
+        ranked_rows.sort(key=lambda ra: (ra[1] if low else -ra[1], ra[0]["case_id"]))
+        if not ranked_rows:
+            return general._reply(request_id, "CASE_INSIGHT", _say("no_amounts", lang), category="CASE_ONLY")
+        lines = [_say("lowest_amount" if low else "highest_amount", lang)]
+        for r, a in ranked_rows[: int(_cfg().get("max_listed", 5))]:
+            lines.append(_say("amount_row", lang, name=r.get("applicant_full_name") or r.get("applicant_name"),
+                              case_id=r["case_id"], amount=profile._rupees(str(r.get("loan_amount"))) or "--",
+                              stage=r.get("stage") or "--") + " " + contract.link("open_case", lang, id=r["case_id"]))
+        unknown = len(known) - len(ranked_rows)
+        if unknown:
+            lines.append(_say("amount_unknown", lang, n=unknown))
     else:                                       # COMPARE
         named = list(dict.fromkeys(m.upper() for m in _CASE_ID.findall(str(message or ""))))
         if named:
@@ -139,7 +170,9 @@ def answer(message: str, claims: dict[str, Any], request_id: str, lang: str = "e
     reply = general._reply(request_id, "CASE_INSIGHT", "\n".join(lines), category="CASE_ONLY")
     reply.update(query_type="CASE_INSIGHT", response_source="STRUCTURED", tools_invoked=["case.list", "documents.get"],
                  insight={"kind": kind})
+    if kind == AMOUNT:
+        reply["tools_invoked"] = ["case.list"]
     return reply
 
 
-__all__ = ["CLOSEST", "COMPARE", "COUNT", "PENDING", "answer", "enabled", "kind_of"]
+__all__ = ["AMOUNT", "CLOSEST", "COMPARE", "COUNT", "PENDING", "answer", "enabled", "kind_of"]

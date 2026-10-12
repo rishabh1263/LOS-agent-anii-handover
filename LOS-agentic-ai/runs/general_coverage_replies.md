@@ -451,12 +451,11 @@ You are signed in as test-subject, role --.
 
 You have 2 cases: 2 with documents **pending**.
 
-1. Priya V. · CASE-50D00F0FAD90 · Created · 4 docs pending · [Open](action:open_case?id=CASE-50D00F0FAD90)
-2. Rahul S. · CASE-D4D6011101AB · Created · 4 docs pending · [Open](action:open_case?id=CASE-D4D6011101AB)
+1. Priya V. · CASE-393D13502CE4 · Created · 4 docs pending · [Open](action:open_case?id=CASE-393D13502CE4)
+2. Rahul S. · CASE-54BFBABF4140 · Created · 4 docs pending · [Open](action:open_case?id=CASE-54BFBABF4140)
 
 Showing 1-2 of 2 (newest first).
-
-[Show as a table](ask:Show%20as%20a%20table)
+That is the whole list.
 
 Do you want to know about a particular case?
 [Yes](ask:Yes) · [No](ask:No)
@@ -467,12 +466,11 @@ Download: [Excel](action:download_list?format=xlsx&q=all) · [Doc](action:downlo
 
 2 of your cases match (needs action).
 
-1. Priya V. · CASE-50D00F0FAD90 · Created · 4 docs **pending** · [Open](action:open_case?id=CASE-50D00F0FAD90)
-2. Rahul S. · CASE-D4D6011101AB · Created · 4 docs pending · [Open](action:open_case?id=CASE-D4D6011101AB)
+1. Priya V. · CASE-393D13502CE4 · Created · 4 docs **pending** · [Open](action:open_case?id=CASE-393D13502CE4)
+2. Rahul S. · CASE-54BFBABF4140 · Created · 4 docs pending · [Open](action:open_case?id=CASE-54BFBABF4140)
 
 Showing 1-2 of 2 (newest first).
-
-[Show as a table](ask:Show%20as%20a%20table)
+That is the whole list.
 
 Do you want to know about a particular case?
 [Yes](ask:Yes) · [No](ask:No)
@@ -708,12 +706,11 @@ Which case is this about? Pick one and I'll answer "kyc status" for it.
 
 You have 2 cases: 2 with documents **pending**.
 
-1. Priya V. · CASE-50D00F0FAD90 · Created · 4 docs pending · [Open](action:open_case?id=CASE-50D00F0FAD90)
-2. Rahul S. · CASE-D4D6011101AB · Created · 4 docs pending · [Open](action:open_case?id=CASE-D4D6011101AB)
+1. Priya V. · CASE-393D13502CE4 · Created · 4 docs pending · [Open](action:open_case?id=CASE-393D13502CE4)
+2. Rahul S. · CASE-54BFBABF4140 · Created · 4 docs pending · [Open](action:open_case?id=CASE-54BFBABF4140)
 
 Showing 1-2 of 2 (newest first).
-
-[Show as a table](ask:Show%20as%20a%20table)
+That is the whole list.
 
 ### what is pending  (case_questions, expect case, got case)
 
@@ -721,12 +718,11 @@ Which case is this about? Pick one and I'll answer "what is **pending**" for it.
 
 You have 2 cases: 2 with documents pending.
 
-1. Priya V. · CASE-50D00F0FAD90 · Created · 4 docs pending · [Open](action:open_case?id=CASE-50D00F0FAD90)
-2. Rahul S. · CASE-D4D6011101AB · Created · 4 docs pending · [Open](action:open_case?id=CASE-D4D6011101AB)
+1. Priya V. · CASE-393D13502CE4 · Created · 4 docs pending · [Open](action:open_case?id=CASE-393D13502CE4)
+2. Rahul S. · CASE-54BFBABF4140 · Created · 4 docs pending · [Open](action:open_case?id=CASE-54BFBABF4140)
 
 Showing 1-2 of 2 (newest first).
-
-[Show as a table](ask:Show%20as%20a%20table)
+That is the whole list.
 
 ### loan amount kitna hai  (case_questions, expect case, got case)
 
@@ -734,9 +730,8 @@ Which case is this about? Pick one and I'll answer "loan amount kitna hai" for i
 
 You have 2 cases: 2 with documents **pending**.
 
-1. Priya V. · CASE-50D00F0FAD90 · Created · 4 docs pending · [Open](action:open_case?id=CASE-50D00F0FAD90)
-2. Rahul S. · CASE-D4D6011101AB · Created · 4 docs pending · [Open](action:open_case?id=CASE-D4D6011101AB)
+1. Priya V. · CASE-393D13502CE4 · Created · 4 docs pending · [Open](action:open_case?id=CASE-393D13502CE4)
+2. Rahul S. · CASE-54BFBABF4140 · Created · 4 docs pending · [Open](action:open_case?id=CASE-54BFBABF4140)
 
 Showing 1-2 of 2 (newest first).
-
-[Show as a table](ask:Show%20as%20a%20table)
+That is the whole list.

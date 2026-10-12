@@ -54,7 +54,8 @@ def test_no_list_shown_no_pick():
 
 
 def test_the_short_list_offers_the_table():
+    # CHANGED DELIBERATELY (owner 2026-10-12): the "Show as a table" BUTTON is removed; typing it still asks for
+    # the same list as a table
     spec = case_list.cfg().get("format") or {}
-    assert spec.get("default") == "summary" and (spec.get("show_table") or {}).get("en")
-    # the offer itself is a format-only request, so tapping it shows the same list as a table
-    assert case_list.only_asks_for_the_table(spec["show_table"]["en"])
+    assert spec.get("default") == "summary" and not spec.get("show_table")
+    assert case_list.only_asks_for_the_table("Show as a table")
