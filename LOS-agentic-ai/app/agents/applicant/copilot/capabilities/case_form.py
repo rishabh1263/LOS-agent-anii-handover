@@ -16,12 +16,12 @@ The pending write lives in the workspace's conversation record (`state.flow["wri
 
 from __future__ import annotations
 
-import dataclasses
 import os
 import re
+import threading
 import time
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any, Awaitable, Callable
 
 FLAG = "COPILOT_CHAT_CASE_CREATE"
@@ -188,33 +188,73 @@ def missing(case_id: str) -> list[str]:
     return [f for f in _cfg().get("required") or [] if values.get(f) in (None, "")]
 
 
+#: subject -> when that user last logged out (this process). A pending Confirm proposed BEFORE it belongs to the
+#: old session and is dropped: logging out ends what was waiting for a click (2026-10-10, master prompt §4).
+_LOGGED_OUT: dict[str, float] = {}
+_LOGGED_OUT_LOCK = threading.Lock()
+
+
+def end_session(subject: str) -> None:
+    """The user logged out: every write still waiting for their Confirm is void from now on."""
+    if subject:
+        with _LOGGED_OUT_LOCK:
+            _LOGGED_OUT[str(subject)] = time.time()
+
+
+def _from_an_ended_session(subject: str, write: dict[str, Any]) -> bool:
+    ended = _LOGGED_OUT.get(str(subject or ""))
+    if not ended:
+        return False
+    proposed = float(write.get("expires", 0)) - float(_cfg().get("draft_ttl_seconds", 1800))
+    return proposed < ended
+
+
+def _session_id(claims: dict[str, Any] | None) -> str | None:
+    """The OIDC session id of the token (`sid`), when the identity provider issues one."""
+    value = (claims or {}).get("sid")
+    return str(value) if value else None
+
+
 def editable(case_id: str) -> bool:
     from app.agents.applicant.copilot.capabilities import workspace
 
     return str(workspace._stage(case_id) or "").upper() in {s.upper() for s in _cfg().get("editable_stages") or []}
 
 
-def save(case_id: str, changes: dict[str, Any], claims: dict[str, Any], request_id: str, channel: str) -> None:
-    """Write already-validated changes to the case (the caller has authorized it), audit + activity log."""
+def save(case_id: str, changes: dict[str, Any], claims: dict[str, Any], request_id: str, channel: str,
+         expected: dict[str, Any] | None = None) -> dict[str, Any]:
+    """
+    Write already-validated changes to the case (the caller has authorized it), audit + activity log.
+
+    ONE TRANSACTION, ONLY THE CHANGED COLUMNS (repository.update_case_fields, 2026-10-10): two edits of different
+    fields no longer overwrite each other, half an edit is never left behind, a value that already holds (a
+    duplicate request) writes and logs nothing, and `expected` -- what the editor was shown -- refuses the write
+    (outcome STALE) when someone changed that field since. Returns the repository's outcome.
+    """
     from app.agents.applicant import audit
     from app.security.auth import get_subject
     from app.store import get_repository
 
     repo = get_repository()
-    application = repo.get_application(case_id)
-    applicant = repo.get_applicant(application.applicant_id)
-    now = datetime.now(timezone.utc)
     to_applicant = {k: v for k, v in changes.items() if k in APPLICANT_FIELDS}
     to_application = {k: (str(v) if v is not None else None) for k, v in changes.items() if k in APPLICATION_FIELDS}
-    if to_applicant:
-        repo.save_applicant(dataclasses.replace(applicant, **to_applicant, updated_at=now))
-    if to_application:
-        repo.save_application(dataclasses.replace(application, **to_application, updated_at=now))
+    result = repo.update_case_fields(case_id, to_applicant, to_application, expected=expected)
+    if result["outcome"] != "SAVED":
+        return result
+    # THE READ-BACK IS LIVE: this request's read memo and every officer's cached list row forget the old values
+    from app.agents.applicant.copilot.capabilities import case_list
+    from app.store import request_cache
+
+    request_cache.invalidate()
+    case_list.forget_case(case_id)
+    changed = sorted(result["changed"])
     subject = str(get_subject(claims) or "")
-    audit.record(request_id=request_id, subject=subject, applicant_id=application.applicant_id, case_id=case_id,
-                 intent="UPDATE_CASE_FORM", tools=["application.update"], write=True, confirmed=True, status="OK",
-                 detail=f"channel={channel} fields={','.join(sorted(changes))}")
-    activity(case_id, "FORM_UPDATED", f"{', '.join(sorted(changes))} updated by {subject} ({channel})")
+    application = repo.get_application(case_id)
+    audit.record(request_id=request_id, subject=subject, applicant_id=getattr(application, "applicant_id", None),
+                 case_id=case_id, intent="UPDATE_CASE_FORM", tools=["application.update"], write=True,
+                 confirmed=True, status="OK", detail=f"channel={channel} fields={','.join(changed)}")
+    activity(case_id, "FORM_UPDATED", f"{', '.join(changed)} updated by {subject} ({channel})")
+    return result
 
 
 def activity(case_id: str, kind: str, summary: str, party_id: str | None = None) -> None:
@@ -225,6 +265,9 @@ def activity(case_id: str, kind: str, summary: str, party_id: str | None = None)
     from app.store.models import CaseEvent
 
     try:
+        from app.agents.applicant.copilot.capabilities import case_list
+
+        case_list.forget_case(case_id)                      # every logged case write: no stale list row
         get_repository().record_event(CaseEvent(event_id=f"evt_{uuid.uuid4().hex}", case_id=case_id, event_type=kind,
                                                 party_id=party_id,
                                                 summary=abuse_guard.mask_text(sensitivity.mask_identifiers(summary))))
@@ -336,7 +379,8 @@ def _escapes(message: str, write: dict[str, Any]) -> bool:
     or naming cases / KYC / downloads (product_flow.yaml case_form.escape_*). Confirm / Cancel / Edit never escape.
     """
     ref = str(write.get("ref") or "draft")
-    if any(_only(message, _words(k), ref) for k in ("confirm_words", "cancel_words")) \
+    if any(_only(message, _words(k), ref) for k in ("confirm_words", "cancel_words", "soft_confirm_words",
+                                                     "soft_cancel_words")) \
             or _only(message, ["confirm", "cancel"], ref) \
             or any(_norm(w) in _norm(message) for w in _words("edit_words")):
         return False
@@ -371,6 +415,18 @@ async def chat_turn(action: str, message: str, claims: dict[str, Any], request_i
     write = flow.get("write") if isinstance(flow.get("write"), dict) else None
     if write and float(write.get("expires", 0)) < time.time():
         write = None
+    if write and _from_an_ended_session(workspace._subject(claims), write):
+        write = None                                         # proposed before the user logged out: never executed
+    if write and write.get("sid") and _session_id(claims) and write["sid"] != _session_id(claims):
+        # PROPOSED IN ANOTHER LOGIN SESSION (the identity provider's `sid` claim): an external IdP's logout never
+        # reaches this service, but the next login carries a new session id -- the old Confirm is void
+        write = None
+    # A CONFIRM / CANCEL BUTTON WHOSE CHANGE IS GONE (dropped, expired, done): said plainly -- nothing was written
+    # -- rather than answered as a question
+    button = re.fullmatch(r"\s*(confirm|cancel)\s+((?:edit|move|customer|free|stage|reply|resolve)-[0-9a-f]{6})\s*", str(message or ""),
+                          re.I)
+    if button and (write is None or str(write.get("ref") or "").lower() != button.group(2).lower()):
+        return _reply(request_id, _say("write_gone", lang))
     reply = None
     if write and write.get("kind") == "create" and (write.get("parked") or wants_new_case):
         ref = str(write.get("ref") or "draft")
@@ -390,6 +446,15 @@ async def chat_turn(action: str, message: str, claims: dict[str, Any], request_i
         write["parked"] = True                              # a question / command: answered as usual, nothing lost
     elif write and write.get("kind") == "create":
         reply = await _create_step(write, message, claims, request_id, lang, create, state)
+    elif write and write.get("kind") == "edit" and _only(message, _words("status_words")):
+        # "Is it done?" before Confirm: not saved -- said so, and the same Confirm / Cancel offered again
+        from app.agents.applicant.copilot.answering import contract
+
+        ref = str(write.get("ref") or "")
+        reply = _reply(request_id, _say("edit_waiting", lang, label=label(write["field"], lang),
+                                        new=shown(write["field"], write.get("value")))
+                       + "\n\n" + contract.link("confirm_write", lang, ref=ref) + " · "
+                       + contract.link("cancel_write", lang, ref=ref), case_id=write.get("case_id"))
     elif write and write.get("kind") == "edit":
         reply = _edit_step(write, message, claims, request_id, lang)
         if reply is None:
@@ -420,6 +485,8 @@ async def chat_turn(action: str, message: str, claims: dict[str, Any], request_i
             reply, write = _propose_edit(message, state.active_case_id, claims, request_id, lang)
     if reply is None and write is None and not flow.get("write"):
         return None
+    if write and not write.get("done") and _session_id(claims):
+        write.setdefault("sid", _session_id(claims))         # the login session the proposal belongs to
     flow["write"] = write if write and not write.get("done") else None
     if flow["write"] is None:
         flow.pop("write")
@@ -547,7 +614,7 @@ def _propose_edit(message: str, case_id: str, claims: dict[str, Any], request_id
                   old=shown(field, old) if old not in (None, "") else _say("empty", lang),
                   new=shown(field, value)) + "\n\n" + \
         contract.link("confirm_write", lang, ref=ref) + " · " + contract.link("cancel_write", lang, ref=ref)
-    write = {"kind": "edit", "case_id": case_id, "field": field, "value": value, "ref": ref,
+    write = {"kind": "edit", "case_id": case_id, "field": field, "value": value, "ref": ref, "old": old,
              "expires": time.time() + float(_cfg().get("draft_ttl_seconds", 1800))}
     return _reply(request_id, answer, case_id=case_id), write
 
@@ -617,10 +684,11 @@ def _edit_step(write: dict[str, Any], message: str, claims: dict[str, Any], requ
                lang: str) -> dict[str, Any] | None:
     ref = str(write.get("ref") or "")
     case_id = str(write.get("case_id") or "")
-    if _only(message, _words("cancel_words"), ref) or _only(message, ["cancel"], ref):
+    if _only(message, [*_words("cancel_words"), *_words("soft_cancel_words"), "cancel"], ref):
         write["done"] = True
         return _reply(request_id, _say("edit_cancelled", lang), case_id=case_id)
-    if not (_only(message, _words("confirm_words"), ref) or _only(message, ["confirm"], ref)):
+    # a plain yes answers THIS field-edit question (reversible, old -> new shown); config soft_confirm_words
+    if not _only(message, [*_words("confirm_words"), *_words("soft_confirm_words"), "confirm"], ref):
         return None
     from app.agents.applicant.copilot.capabilities import workspace
 
@@ -633,8 +701,23 @@ def _edit_step(write: dict[str, Any], message: str, claims: dict[str, Any], requ
     if why:
         write["done"] = True
         return _reply(request_id, _say("invalid", lang, label=label(field, lang), why=why), case_id=case_id)
-    save(case_id, {field: value}, claims, request_id, "chat")
+    # THE VALUE THE PROPOSAL SHOWED must still be the stored one: another officer's edit in between is not
+    # overwritten blindly (repository STALE); the officer is told and asked again
+    result = save(case_id, {field: value}, claims, request_id, "chat",
+                  expected={field: write.get("old")} if "old" in write else None)
     write["done"] = True
+    if result.get("outcome") == "STALE":
+        now = result["current"].get(field)
+        return _reply(request_id, _say("edit_stale", lang, label=label(field, lang),
+                                       current=shown(field, now) if now not in (None, "") else _say("empty", lang)),
+                      case_id=case_id)
+    from app.store.repository import same_value
+
+    stored = values_of(case_id).get(field)                     # READ BACK: the claim is the store's, not the call's
+    if not same_value(stored, value):
+        return _reply(request_id, _say("edit_unverified", lang, label=label(field, lang), case_id=case_id,
+                                       current=shown(field, stored) if stored not in (None, "") else _say("empty", lang)),
+                      case_id=case_id)
     left = missing(case_id)
     answer = _say("edited", lang, label=label(field, lang), case_id=case_id, new=shown(field, value))
     if left:

@@ -50,7 +50,8 @@ product policy of the credit team decides the period -- check it before collecti
 
 KYC is checked for every party (the applicant and each co-applicant) in two ways: **A** -- the application form
 against the documents (name, date of birth, PAN, address match what was declared), and **B** -- the documents
-against each other (the same person on every document). The result is pass, review (a person checks) or failed.
+against each other (the same person on every document: cross-document consistency). The result is pass, review (a
+person checks) or failed.
 KYC runs once the identity documents are uploaded; a failed KYC must be fixed before the case can move to CPA.
 
 ## How do I add a co-applicant?

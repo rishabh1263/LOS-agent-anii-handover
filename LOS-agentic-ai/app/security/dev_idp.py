@@ -350,14 +350,19 @@ def rotate_refresh_token(old_token: str) -> tuple[str, str]:
     return subject, issue_refresh_token(subject)
 
 
-def revoke_refresh_token(token: str) -> None:
-    """Used by /logout. Silently no-ops if the token doesn't exist."""
+def revoke_refresh_token(token: str) -> str | None:
+    """Used by /logout. Silently no-ops if the token doesn't exist. Returns the token's subject, when known."""
     conn = _db()
     try:
+        row = conn.execute("SELECT subject FROM dev_idp_refresh_tokens WHERE token_hash = %s",
+                           (_hash_refresh_token(token),)).fetchone()
         conn.execute(
             "UPDATE dev_idp_refresh_tokens SET revoked = 1 WHERE token_hash = %s",
             (_hash_refresh_token(token),),
         )
         conn.commit()
+        if row is None:
+            return None
+        return str(row["subject"] if hasattr(row, "keys") else row[0])
     finally:
         conn.close()

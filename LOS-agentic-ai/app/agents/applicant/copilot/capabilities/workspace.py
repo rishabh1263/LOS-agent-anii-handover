@@ -66,6 +66,17 @@ def _says(kind: str, text: str) -> bool:
     """Whether the text contains one of the configured phrases of this kind (whole words)."""
     said = f" {_norm(text)} "
     matched = [p for p in (_cfg().get("phrases") or {}).get(kind, []) if f" {_norm(p)} " in said]
+    if kind == "exit" and matched:
+        # A CLOSE IS A COMMAND, NOT A WORD IN A QUESTION (audit 2026-10-11): "back to the case: what is pending?" and
+        # "how close is this to CPA?" carry an exit word and close nothing -- every other word must be filler
+        # (exit_rule.allowed), and "back to the case" stays on it (phrases.stay)
+        if any(f" {_norm(p)} " in said for p in (_cfg().get("phrases") or {}).get("stay", [])):
+            return False
+        rest = said
+        for phrase in sorted(matched, key=len, reverse=True):
+            rest = rest.replace(f" {_norm(phrase)} ", " ")
+        allowed = {_norm(w) for w in (_cfg().get("exit_rule") or {}).get("allowed") or []}
+        return not allowed or set(rest.split()) <= allowed
     if kind != "list":
         return bool(matched)
     if matched:
@@ -263,6 +274,11 @@ def _row_status(application: Any) -> tuple[str, str]:
         if ready["status"] == "READY_FOR_CPA":
             return _label("row_ready"), "READY"
         docs = [i for i in ready.get("blocking_items") or [] if str(i.get("type", "")).upper() == "DOCUMENT"]
+        # DISTINCT DOCUMENTS per party (2026-10-11): the Signature slot and the mandatory-signature rule are two
+        # blocking items for ONE document -- the row said "5 docs pending" for 4
+        docs = list({(str(i.get("party") or i.get("party_role") or ""),
+                      str(i.get("label") or i.get("document_type") or i.get("slot") or i.get("id")).lower()): i
+                     for i in docs}.values())
         if docs:
             return _label("row_docs", n=len(docs)), "DOCS"
     except Exception:  # noqa: BLE001
@@ -390,8 +406,9 @@ def _list(claims: dict[str, Any], request_id: str, state, text: str = "", *, mor
         return list_view(claims, request_id, state)
     if more:
         query = case_list.understand(text, state.list_query or {}) or case_list.ListQuery.from_dict(state.list_query)
-        if query.page == case_list.ListQuery.from_dict(state.list_query).page and state.list_query:
-            query.page += 1
+        before = case_list.ListQuery.from_dict(state.list_query)
+        if state.list_query and (query.page, query.offset) == (before.page, before.offset):
+            query = case_list.next_page(state.list_query)       # "Show more": the rows after the last ones shown
         return paged_view(claims, request_id, state, query)
     return paged_view(claims, request_id, state, case_list.understand(text) if text else None)
 
@@ -550,7 +567,14 @@ def _noise(kinds: tuple[str, ...] = ("open", "case_word", "list", "switch", "fil
 
 
 def _by_name(text: str, cases: list[Any]) -> Selection:
-    words = [w for w in _norm(text).split() if w not in _noise() and len(w) >= 3]
+    # A FIELD'S OWN WORDS NAME NOBODY (2026-10-11): "what is the applicant's date of birth?" switched the chat to the
+    # caller's case of an applicant named "Birth ..." -- a word of the domain vocabulary (the intent catalogue's
+    # examples: birth, date, loan, amount, bank ...) is never matched against applicant names. A name that is such a
+    # word is still found by the full name or the case id.
+    from app.agents.applicant.copilot.capabilities import vague as _vocabulary
+
+    domain = _vocabulary._domain_words()
+    words = [w for w in _norm(text).split() if w not in _noise() and len(w) >= 3 and w not in domain]
     if not words:
         return Selection()
     threshold = float(_cfg().get("name_match_threshold", 0.84))
@@ -635,6 +659,25 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
         from app.agents.applicant.copilot.capabilities import case_list as _flow_list
         from app.agents.applicant.copilot.capabilities import product_flow as _product_flow
 
+        # THE TABLE ONLY ON REQUEST (owner 2026-10-10): the list renders as a short list unless THIS message asks
+        # for the table; "show me the table" right after a list shows that same list as the table
+        _flow_list.set_request_text(text)
+        if _flow_list.enabled() and state.list_query and _flow_list.only_asks_for_the_table(text):
+            return done(paged_view(claims, request_id, state, _flow_list.ListQuery.from_dict(state.list_query)))
+        # "why is the FIRST ONE pending?" right after a list: that row's case, re-authorized, and the question asked
+        # for it (case_list.yaml phrases.ordinals); never another officer's case -- the row ids are the caller's own
+        picked = _flow_list.ordinal_pick(text, state.listed_case_ids or [])
+        if picked and not state.active_case_id:
+            from app.store import get_repository
+
+            authorize(claims, picked[0])
+            # "open the second one" leaves "open it": nothing more to ask -- the case opens; a real question stays
+            if set(_norm(picked[1]).split()) - {"open", "it", "show", "what", "about", "and", "the", "please"}:
+                flow = dict(state.flow or {})
+                flow["after_pick"] = picked[1]
+                state.flow = flow
+            return opened(get_repository().get_application(picked[0]))
+
         flowed = _product_flow.step(text, state)
         if flowed and flowed.get("answer"):
             reply = _base(request_id, "PRODUCT_FLOW", flowed["answer"], query_type="CONVERSATION", tools_invoked=[])
@@ -661,7 +704,9 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
             reply["no_case_links"] = True                    # the links are the answer: not repeated below it
             return done(reply)
 
-    if action == "EXIT_CASE" or (action == "CUSTOM_QUERY" and state.active_case_id and _says("exit", text)):
+    # "go back to the previous one" says BACK and PREVIOUS: it is a return, never a close (Sprint 3A, real UI run)
+    if action == "EXIT_CASE" or (action == "CUSTOM_QUERY" and state.active_case_id and _says("exit", text)
+                                 and not _says("previous", text)):
         closed, state.active_case_id = state.active_case_id, None
         reply = _list(claims, request_id, state)
         if closed:
@@ -681,6 +726,10 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
             state.case_history = (history + [target.case_id])[-10:]
             _save(state)
             return Turn(case_id=target.case_id, applicant_id=target.applicant_id, in_case=target.case_id)
+        if target is None and named.candidates and all(a.case_id != state.active_case_id for a in named.candidates):
+            # SEVERAL OF THE CALLER'S OWN applicants carry that name (2026-10-12): ask which -- never the open case's
+            # "other customers' data" refusal for the officer's own applicant
+            return done(which_view(named.candidates, request_id, state))
     if action == "CUSTOM_QUERY" and _says("other_case", text) and _asks_more_than_the_switch(text):
         # "dusre case ka details do" (FOS plan 1.3): the question is about ANOTHER of the caller's cases --
         # one other case: switch to it and answer there; several: ask which (never the open case's answer)
@@ -763,6 +812,12 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
         # the list; only a SWITCH (or "close") leaves it. Picking a row from the list opens that row's case.
         closed = None
         if action == "CUSTOM_QUERY" and _says("switch", text):
+            # "the other applicant" with exactly ONE other case of the caller: that case, opened and re-authorized
+            # (Sprint 4, real UI); a bare switch ("dusra case") or more than one -> the list, as before
+            others = [a for a in my_cases(claims) if a.case_id != state.active_case_id]
+            if state.active_case_id and len(others) == 1 and asked_list is None and _says("the_other", text):
+                authorize(claims, others[0].case_id)
+                return opened(others[0])
             closed, state.active_case_id = state.active_case_id, None
         reply = paged_view(claims, request_id, state, asked_list) if _case_list.enabled() \
             else list_view(claims, request_id, state)
@@ -770,8 +825,8 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
             reply["answer"] = _label("closed", case_id=closed) + "\n\n" + reply["answer"]
         return done(reply)
     if action == "CUSTOM_QUERY" and _case_list.enabled() and state.list_query and not state.active_case_id \
-            and (_says("more", text) or _case_list._has(text, (_case_list.cfg().get("phrases") or {}).get("next")))\
-            and len(_norm(text).split()) <= 3:
+            and (((_says("more", text) or _case_list._has(text, (_case_list.cfg().get("phrases") or {}).get("next")))
+                  and len(_norm(text).split()) <= 3) or _case_list.only_pages_the_list(text)):
         return done(_list(claims, request_id, state, text, more=True))
     # "aur dikhao" pages the LIST only while no case is open: inside a case, "tell me more" is about the last answer
     if action == "CUSTOM_QUERY" and state.listed_case_ids and not state.active_case_id \

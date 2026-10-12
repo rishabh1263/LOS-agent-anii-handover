@@ -117,7 +117,7 @@ documents:
       - slot: SIGNATURE
         accepts: [SIGNATURE]
         reason: >-
-          Mandatory for every product (owner 2026-10-09). A photo of the applicant's signature for the application record. It is
+          Mandatory for every product. A photo of the applicant's signature for the application record. It is
           checked by the signature service; without a reference specimen it is
           REVIEW, never PASS.
     optional: []
@@ -159,6 +159,56 @@ documents:
       - slot: EMPLOYMENT_PROOF
         accepts: [EMPLOYMENT_PROOF]
         reason: Employment proof evidences the applicant's current employer.
+      # INDUSTRY DEFAULT (2026-10-11, owner: "industry level prod ready"; policy_status UNCONFIRMED until the business
+      # signs it off): a home loan's property is often not finalised at login, so its title document is OPTIONAL at
+      # FOS and required at CPA (stage_requirements.yaml CPA_PROPERTY)
+      - slot: PROPERTY_DOCUMENT
+        accepts: [SALE_DEED]
+        reason: The property's title document (sale deed). Optional at FOS for a home loan; CPA requires proof of
+          ownership of the property.
+
+  # LOAN AGAINST PROPERTY -- INDUSTRY DEFAULT (2026-10-11, owner: "industry level prod ready"), UNCONFIRMED until the
+  # business signs it off. Common Indian LAP login practice: identity and address KYC, banking, the signature, and
+  # -- because the loan is secured on property the applicant ALREADY owns -- the property's title document at login.
+  # Income documents are optional here (CPA asks for them: stage_requirements.yaml CPA_INCOME).
+  LOAN_AGAINST_PROPERTY:
+    required:
+      - slot: PAN
+        accepts: [PAN]
+        reason: >-
+          PAN is the applicant's identity proof at the FOS stage: it establishes
+          who is applying, and its name, date of birth and PAN number are what the
+          other documents are matched against in the KYC check.
+      - slot: ADDRESS_PROOF
+        accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+        reason: >-
+          An officially valid document evidencing the applicant's address. Any
+          one of the accepted types satisfies the requirement.
+      - slot: BANK_STATEMENT
+        accepts: [BANK_STATEMENT]
+        reason: >-
+          A bank statement evidences the applicant's banking relationship and
+          is passed to the credit stage for assessment.
+      - slot: SIGNATURE
+        accepts: [SIGNATURE]
+        reason: >-
+          Mandatory for every product. A photo of the applicant's signature for the application record. It is
+          checked by the signature service; without a reference specimen it is REVIEW, never PASS.
+      - slot: PROPERTY_DOCUMENT
+        accepts: [SALE_DEED]
+        reason: >-
+          The title document of the property the loan is secured on. Its owner (the buyer on the deed) must be the
+          applicant or a co-applicant -- checked against the application (KYC property ownership).
+    optional:
+      - slot: ITR
+        accepts: [ITR]
+        reason: Income tax returns evidence declared income for the credit stage.
+      - slot: SALARY_SLIP
+        accepts: [SALARY_SLIP]
+        reason: Salary slips evidence current salaried income for the credit stage.
+      - slot: EMPLOYMENT_PROOF
+        accepts: [EMPLOYMENT_PROOF]
+        reason: Employment proof evidences the applicant's current employer.
 
 # The FOS-stage taxonomy. Naming a type here makes it selectable on upload and
 # renderable in a dropdown; it does NOT make it required anywhere. A product
@@ -174,6 +224,8 @@ document_types:
   - ITR
   - FORM_16
   - EMPLOYMENT_PROOF
+  # the property's title document (LAP required, HL optional at FOS -- industry default 2026-10-11)
+  - SALE_DEED
   # PHOTO removed: the signature photo (SIGNATURE, verified by the signature
   # service) takes its place on the checklists.
   - SIGNATURE
@@ -603,6 +655,16 @@ chatbot:
       where's: where is
       y: why
       stg: stage
+      # SMS-style short forms officers type (held-out evaluation 2026-10-12)
+      pndng: pending
+      pendng: pending
+      pnding: pending
+      stts: status
+      sts: status
+      lone amount: loan amount
+      lone amout: loan amount
+      amt: amount
+      kyc stts: kyc status
       shw: show
       sho: show
       al: all
@@ -677,6 +739,13 @@ chatbot:
       - approved
       - income
       - account
+      # 2026-10-12: words of the questions officers ask most, so their misspellings are corrected too
+      - amount
+      - customer
+      - applicant
+      # (not "borrower": the real word "borrow" was being corrected into it)
+      - tenure
+      - readiness
 
   # QUESTION UNDERSTANDING (app/agents/applicant/semantic_frame.py).
   #
@@ -1061,7 +1130,7 @@ chatbot:
       state_verified: "verified"
       # "why is it stuck" / "how long till approval" (2026-10-09 human test): the SAME items, compact
       why_heading: "{case_id} is stuck at {stage} because:"
-      why_kyc: "KYC failed: {fields} do not match across the documents"
+      why_kyc: "KYC failed: mismatch in {fields} across the documents"
       why_kyc_review: "KYC needs a reviewer: {fields}"
       why_kyc_pending: "KYC not complete: {fields}"
       why_missing: "Not uploaded: {items}"
@@ -1365,19 +1434,29 @@ chatbot:
       more: [aur dikhao, more, aur, next page, aage dikhao, और दिखाओ]
       open: [kholo, khol do, open, jao, jaana hai, chalo, select, खोलो, उघडा]
       exit: [bahar aao, bahar, exit, close, close it, close karo, case close karo, close case, close this case, case band karo, band karo, band kar do, back, बाहर, बाहेर]
+      # "back to the case: what is pending?" RETURNS to the open case -- never a close (audit 2026-10-11)
+      stay: [back to the case, back to this case, back to the file, back to this file, wapas case par,
+             wapas is case par, case par wapas]
       switch: [dusra case, doosra case, another case, case badlo, switch case, other case, doosre applicant,
                dusre applicant, doosra applicant, dusra applicant, another applicant, other applicant, galat applicant,
                galat case, wrong applicant, wrong case, applicant badlo, dusre customer, doosre customer]
+      # "the other applicant" (English, Sprint 4): with exactly ONE other case it OPENS that case; a bare switch
+      # ("dusra case") still lists (FOS plan 1.2)
+      the_other: [the other applicant, the other customer, the other borrower]
       previous: [pehle wala case, pichla case, previous case, last case, wapas pehle wala, pehle wale case,
                  pehle wale par, pehle wale pe, pehle wale applicant, pichle applicant, previous applicant,
-                 go back to the previous case, back to the previous case, pehle wale par wapas, wapas pehle wale]
+                 go back to the previous case, back to the previous case, pehle wale par wapas, wapas pehle wale,
+                 the previous one, previous one, go back to the previous one, back to the previous one,
+                 the last one, go back to the last one, the earlier one, back to the earlier case, the other one before]
       case_word: [case, ka case, wala case, file, application]
       # MASTER SPEC section 2: "is applicant ke case dikhao" -- every case of the OPEN case's applicant (in scope)
       this_applicant: [is applicant ke case, is applicant ke cases, iss applicant ke case, iss applicant ke cases,
                        is customer ke case, is customer ke cases, this applicant's cases, this applicant cases,
                        cases of this applicant, इस आवेदक के केस, या अर्जदाराच्या केस]
       # small words dropped before a name / ordinal is read ("2 wala case open karo" -> "2")
-      filler: [ka, ki, ke, wala, wali, ji, karo, kar, please, plz, the, number]
+      filler: [ka, ki, ke, wala, wali, ji, karo, kar, please, plz, the, number,
+               # possessives name nobody ("meri id kya hai": nothing is read to look for a person, 2026-10-12)
+               meri, mera, mere, apna, apni, apne, hamara, hamari, my, mine, our]
       # FOS plan 1.3: a question about ANOTHER of the caller's cases ("dusre case ka details do"): one other case
       # -> switched to and answered there; several -> "which one?". Alone ("dusra case") it is the switch above.
       other_case: [dusre case, doosre case, dusra case, doosra case, dusri case, doosri case, other case,
@@ -1389,6 +1468,12 @@ chatbot:
     # FOS plan 1.2: any wording that ONLY asks for the case list -- a case noun + a cue + nothing but these words
     # ("all case ka list", "sab case dikhao", "mere kitne case hai"); a topic word (status, KYC, PAN) is never one.
     # The `list` phrases above are matched first; this only adds wordings that ask for nothing else.
+    # AN EXIT PHRASE CLOSES ONLY AS A COMMAND (audit 2026-10-11): every other word of the message must be one of
+    # these -- "close this case please" closes; "how close is this to CPA?" asks a question
+    exit_rule:
+      allowed: [case, this, the, it, file, application, chat, please, pls, plz, now, ok, okay, go, let, lets, me, us,
+                i, want, to, karo, kar, do, dijiye, jao, chalo, aao, se, ko, is, iss, ye, yeh, ab, ho, gaya, band,
+                mujhe, hai, h, bhai, yaar, list, my, cases, mere, wapas, sir, thanks, thank, you, se, bas, done]
     list_rule:
       case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
       cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, mera, meri, my,

@@ -1,10 +1,15 @@
 # THE KNOWLEDGE RETRIEVER (Smart Bot plan section 4, owner 2026-10-08) -- read by app/knowledge/__init__.py:backend and
 # app/knowledge/embeddings.py:provider_name. The environment (KNOWLEDGE_BACKEND / EMBEDDING_PROVIDER) still wins.
-#   backend: vector  -> nomic-embed-text dense retrieval (cosine >= LOS_KNOWLEDGE_VECTOR_MIN_SCORE, 0.53), with BM25 standing
+#   backend: vector  -> nomic-embed-text dense retrieval (cosine >= LOS_KNOWLEDGE_VECTOR_MIN_SCORE, 0.57), with BM25 standing
 #                       in whenever the embedding model is unreachable (FallbackRetriever, with a cooldown)
 #   backend: lexical -> BM25 only (the old default)
 # Chunk vectors are cached on disk (runtime/cache/knowledge_vectors.json): a restart re-embeds only changed chunks.
-backend: vector
+# 2026-10-10, MEASURED (scripts/eval_retrieval.py --calibrate, runs/eval/dense_calibration.json): nomic top-1 scores of
+# off-topic questions (0.54-0.86) overlap the answerable ones (0.59-0.86) completely -- at the configured 0.53 it
+# was confident on 10/10 off-topic questions, and no threshold separates them. Knowledge ANSWERS therefore use BM25
+# (+ the abstention rules below: 0/10 false confidence, 26/26 correct on evals/copilot/rag_metrics). The
+# embedding model stays ON for the intent meaning bank (semantics/meaning.py reads embedding_provider).
+backend: lexical
 embedding_provider: ollama
 # one embedding call (a question, or a batch of new chunks) waits at most this long; OLLAMA_EMBED_TIMEOUT overrides.
 # A model that stops answering makes the turn fall back (BM25 / the rules) instead of holding the officer for minutes.
@@ -12,11 +17,47 @@ embed_timeout_seconds: 8
 # texts per embedding request when a bank / corpus is embedded; each batch is cached as it lands (64 = ~1 s on CPU)
 embed_batch_size: 64
 # BM25 (lexical fallback): a question word the corpus has never seen counts this many times in the score's ceiling,
-# so "capital of France" (only "capital" known) is not a confident match (2026-10-09; 1.0 = the old behaviour)
+# so "capital of France" (only "capital" known) is not a confident match (2026-10-09; 1.0 = the old behaviour).
+# 2026-10-10, MEASURED (evals/copilot/rag_metrics, 24 answerable + 10 unanswerable): 3 sank every Hinglish / unusual-word
+# question below the threshold (retrieval_hit 17/24, top-1 14/24); 1 gives 21/24 and 19/24. Off-topic and
+# company-value questions are held back by value_shapes below instead, at no cost to recall.
+# 2026-10-11: back to 3 -- at 1 "What is the capital of France?" was answered with the glossary's Working capital
+# (tests/agents/test_fos_knowledge). The Hinglish recall loss that 3 caused came from FUNCTION words the corpus
+# never uses (kya, kaise, karna): those weigh 1 (lexical_function_words), a subject the corpus does not know weighs 3.
 lexical_unseen_term_weight: 3
+# a passage RESCUED by the second look (it covers most of what was asked) still needs this much lexical score
+# (knowledge_answer._second_look; was a hard-coded 0.1, measured against lexical_unseen_term_weight 1)
+rescue_min_score: 0.1
+# the 3x applies only when the question meets the corpus on at most this many words (one anchor = an outside subject)
+lexical_unseen_max_anchors: 1
+lexical_function_words: [kya, kyaa, hai, hain, h, ho, hota, hoti, hote, hona, kaise, kaisa, kaisi, karna, karne, karo,
+                         kar, kare, karein, karte, karta, karti, kiya, ke, ki, ka, ko, se, mein, me, mai, par, pe, aur,
+                         ya, nahi, nahin, na, toh, bhi, jab, kab, kitna, kitne, kitni, kaun, kaunsa, konsa, kaunse,
+                         wala, wali, wale, batao, bataiye, bata, mujhe, humein, hum, aap, apna, apne, kuch, sab, abhi,
+                         agar, kyun, kyu, kahan, kidhar, chahiye, liye, lie, tak, waala, hi, raha, rahi, rahe, gaya,
+                         gayi, sakte, sakta, sakti, lena, dena, milta, milega, hoga, hogi, isme, usme, iska, uska]
+# SOURCES THAT STATE NO COMPANY VALUES (their own front matter says so: "company policy values are never stated
+# here", "Company-specific charges are not configured here"). A question asking for a VALUE -- a rate, a fee, a
+# charge, a limit, a number of days (value_shapes) -- that only such a source answers is answered honestly: not
+# enough information, never a general definition passed off as the company's figure (2026-10-10).
+no_company_values_sources: [los_glossary.md, loan_terms.md]
+# a value question whose top hit is such a source is answered from a HANDBOOK passage instead, when one clears the
+# threshold AND covers at least this share of the question's distinctive terms (2026-10-11; measured: the real
+# answer 0.75, an unrelated handbook passage 0-0.5)
+value_handbook_min_coverage: 0.6
+value_shapes: ['\bhow (much|many|long)\b', '\b(maximum|minimum|max|min)\b', '\bkit(na|ne|ni)\b',
+               '\b(what is|what''s|whats) the [a-z ]{0,30}(fee|fees|rate|charge|charges|penalty|limit|cap|amount)\b',
+               '\bis there (a|any) [a-z ]{0,20}(fee|charge|charges|penalty)\b', '\b(fee|charge|charges|penalty) (on|for)\b']
 # DEFINITION SOURCES (knowledge_answer._definitions_last): the glossary answers "what is X"; for any other question its
 # passages weigh definition_source_weight so the handbook's own steps win ("what happens after CPA")
 definition_sources: [los_glossary.md]
-definition_source_weight: 0.7
+# 2026-10-10, measured on evals/copilot/rag_metrics: 0.7 let a one-line glossary entry outrank the handbook section
+# that answers ("no passport -- what else for address?" got the Passport definition); 0.3 -> top-1 21/24, false
+# confidence 0/10, both COPILOT_TERMS_KNOWLEDGE states. Definition-shaped questions are not weighed at all.
+definition_source_weight: 0.3
+# A definition asked IN A CASE'S CONTEXT ("why is my application under review and what does KYC mean?"): the handbook
+# section written to explain the term -- its heading in one of these shapes and naming the term -- comes first
+# (2026-10-10; BM25 caps short queries at 1.0, so "What to do if KYC fails?" otherwise tied and won)
+definition_headings: ['^what (is|are) ', '^how (does|do) .* work']
 definition_shapes: ['^(what|whats|what''s) (is|are|does) (an? |the )?[a-z0-9 -]{1,30}\??$', '\bmean(s|ing)?\b', '\bfull form\b',
                     '^define\b', '\bstand(s)? for\b', '\b(kya|kise) (hai|hota|kehte)\b', '^explain\b']

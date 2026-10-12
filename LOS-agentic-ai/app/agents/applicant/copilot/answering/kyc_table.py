@@ -326,6 +326,13 @@ def attach(published: dict[str, Any]) -> dict[str, Any]:
         published["presentation"]["kyc_table"] = table
     text = render(table)
     said = verdict(table)
+    # THE APPLICATION NAME vs THE VERIFIED PAN (kyc_gate.application_name_match): one line, the same result the KYC
+    # gate counts -- "has the name been verified?" / "does the PAN match the application?" answered in so many words
+    name_line = _application_name_line(case_id) if party in (None, "PRIMARY_APPLICANT") else None
+    if name_line:
+        said = (said.split("\n", 1)[0] + "\n" + name_line + ("\n" + said.split("\n", 1)[1] if "\n" in said else "")) \
+            if said else None
+        text = text if said else name_line + "\n\n" + text
     from app.agents.applicant.copilot.answering.counts import keep_case_header
 
     for key in ("answer", "answer_markdown"):
@@ -337,5 +344,25 @@ def attach(published: dict[str, Any]) -> dict[str, Any]:
         elif text not in published[key]:
             published[key] = published[key].rstrip() + "\n\n" + text
     return published
+
+
+def _application_name_line(case_id: str) -> str | None:
+    """The configured sentence for the primary applicant's application-name check, or None when off / unreadable."""
+    try:
+        from app.agents.applicant.copilot.answering import document_actions
+        from app.agents.los import kyc_gate
+        from app.store import get_repository
+
+        if not kyc_gate._name_check_enabled():
+            return None
+        repository = get_repository()
+        application = repository.get_application(case_id)
+        if application is None or not getattr(application, "applicant_id", None):
+            return None
+        match = kyc_gate.application_name_match(case_id, application.applicant_id, "PRIMARY_APPLICANT", repository)
+        return document_actions._t(f"docact_app_name_{match['outcome']}", None,
+                                   declared=match.get("declared") or "-", pan=match.get("pan_name") or "-")
+    except Exception:  # noqa: BLE001 - not said rather than guessed
+        return None
 
 __all__ = ["FLAG", "attach", "build", "enabled", "render", "to_upload", "verdict"]

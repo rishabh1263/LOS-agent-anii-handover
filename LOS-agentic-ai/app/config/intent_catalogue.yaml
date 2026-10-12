@@ -32,6 +32,75 @@ entities:
                      nahi, nahin, no, not, mera, meri, matlab, i, meant, mean, actually, sorry, se, tha, thi, the, ki,
                      ka, ke, baat, kar, raha, rahi, hoon, hu, was, talking, wala, wali, uska, uski, iska, iski, my, me]
 
+# BARE FOLLOW-UPS answered from the conversation state (the previous answer) by the rules -- never re-understood
+# on their own words: "why?" after "what is pending?" is the reason for THAT answer, not the nearest intent (audit
+# 2026-10-11; fos_api._understood)
+state_followups: [why, why so, but why, kyu, kyun, kyon, kyun bhai, how, kaise, then, phir, and then, phir kya, why not]
+
+# BOUNDED FALLBACK PLANNER (audit 2026-10-11; capabilities/fallback_planner.py): a question on an open case the
+# rules could not place (UNKNOWN) -- the model PROPOSES up to max_calls read-only lookups from `tools`, each validated
+# (allow-list, the turn's own authorised case, no empty identifier, a known document) and answered by the
+# deterministic engine. One budget for the model and the lookups; any failure: the deterministic reply stands.
+planner:
+  # OFF BY DEFAULT (2026-10-12, measured: tests/integration/test_planner_live_benchmark.py ->
+  # runs/planner_benchmark_20261011.json): qwen2.5:3b on this CPU timed out at the 10 s budget on 12 of 16 unseen
+  # questions (4/16 correct, p50 10.0 s); safety held (0 calls over 3, 0 outside the allow-list, 0 on another case,
+  # budget enforced). Turn on only with a model / host that plans inside the budget, after re-running the benchmark.
+  enabled: false
+  max_calls: 3
+  budget_seconds: 10
+  num_predict: 80          # a plan is ~60 tokens of JSON
+  hint_words: 7            # each tool's prompt line: its name + this many words of description
+  # one short line per tool in the planner prompt (a short prompt is what keeps the plan inside the budget)
+  hints:
+    case_status: overall status of the case
+    pending_documents: documents still pending or missing
+    why_stuck: why the case is blocked
+    next_step: what the officer should do next
+    cpa_readiness: is it ready for CPA, what blocks it
+    kyc_status: KYC result, name / DOB matches
+    document_status: status of one named document
+    document_rejection: why a named document was rejected
+    loan_amount: loan amount applied for
+    applicant_name: applicant's name
+    application_details: product, amount, tenure, employment
+    case_stage: current stage of the case
+    time_in_stage: how long in the current stage
+    case_history: what has happened so far
+    uploaded_documents: documents already uploaded
+  min_free_ram_gb: 2.0
+  # READ-ONLY intents only: no upload / draft / hold / collect / write
+  tools: [case_status, pending_documents, why_stuck, next_step, cpa_readiness, kyc_status, document_status,
+          document_rejection, loan_amount, applicant_name, application_details, case_stage, time_in_stage,
+          case_history, uploaded_documents]
+  not_answered: "I could not look up: {what}."
+  # STRONGER-MODEL PLANNER, PROOF OF CONCEPT (2026-10-12; app/llm/bedrock_planner.py). Used ONLY when
+  # COPILOT_STRONG_PLANNER=true AND LOS_EXTERNAL_MODEL_APPROVED=true (data-handling approval) -- both default OFF.
+  # The model gets the MASKED message, the case id and the tool names only; never a record or an answer.
+  # model_id / region verified on the official model card (2026-10-12): in ap-south-1 (Mumbai) Claude Haiku 5.5 is
+  # available ONLY through the GLOBAL cross-Region profile -- requests may be processed outside India (needs the
+  # data-residency sign-off). Prices: UNSET until read from the official pricing page -> cost is reported as unknown.
+  strong:
+    provider: bedrock
+    model_id: global.anthropic.claude-haiku-5-5
+    region: ap-south-1
+    max_tokens: 300
+    connect_timeout_s: 2
+    read_timeout_s: 8
+    price_per_mtok_usd: {input: null, output: null}
+  instructions: >-
+    You plan lookups for a loan field officer's question about ONE open case. Choose the fewest TOOLS (at most the
+    limit given) whose answers together answer the MESSAGE. Use only tool names from TOOLS, and the OPEN CASE id as
+    case_id. Give "document" only for a tool that needs one. If no tool fits, reply {"calls": []}. Never answer the
+    question yourself. Reply only JSON {"calls": [{"tool": "...", "case_id": "...", "document": "...", "party": "..."}]}.
+
+# THE LOS MEANING ADAPTER (2026-10-12; scripts/train_meaning_adapter.py): a linear map trained on the examples above,
+# applied to the frozen embeddings. ON only when it beats the plain embeddings on the held-out set E
+# (evals/copilot/meaning_heldout_e.yaml) with no regression in the semantic / conversation evals.
+adapter:
+  enabled: true
+  path: models/meaning_adapter.npy
+
 model:                              # the CHOOSER (never an answer writer): small prompt, JSON {"i": id}
   timeout_seconds: 4.0
   num_predict: 20
@@ -76,13 +145,14 @@ intents:
     description: Whether the case is ready to move to CPA, and what is needed for that.
     canonical: "Is this case ready for CPA?"
     examples: [ready hai kya, case ready hai, is my case ready, is it ready, kya is case ko next stage par bhej sakte hain, next stage pe bhej sakte hai kya, can this go to the next stage, kya ye CPA ke liye ready hai, policy mein exactly kya requirement hai, next stage ke liye kya requirement hai, what is required to move this case, is this case ready for CPA, can I move this to CPA, what is needed to move to CPA, can this go to CPA now,
-               is the file complete for CPA, what's left before CPA, is it ready for handoff, CPA readiness]
+               is the file complete for CPA, what's left before CPA, is it ready for handoff, CPA readiness,
+               what exactly is blocking CPA, what is blocking CPA, what's stopping this case from going to CPA]
   kyc_status:
     kind: case
     party_aware: true
     description: KYC result of the case, including whether names, dates of birth and other details match across the form and the documents.
     canonical: "What is the KYC status?"
-    examples: [what is the KYC status, kyc status, did KYC pass, is the KYC done, does the name match on all documents,
+    examples: [has the name been verified, does the PAN match the application, is the application name verified, does the name on the application match the PAN, is the name matching with PAN, has the PAN name been checked, KYC mein kya issue hai, kyc me problem kya hai, kyc mein kya galat hai, what is wrong in kyc, what is the KYC status, kyc status, did KYC pass, is the KYC done, does the name match on all documents,
                do the documents match the form, is there any mismatch in the documents, why did KYC fail,
                is the date of birth same everywhere, are the details consistent across documents, kyc result]
   document_status:
@@ -94,7 +164,9 @@ intents:
     canonical_without_slot: "What is pending?"
     examples: [is the PAN uploaded, has the bank statement been verified, what is the status of the address proof,
                did the salary slip pass verification, is the ITR ok, PAN status, was the driving licence accepted,
-               has the customer uploaded the passport, is the signature verified]
+               has the customer uploaded the passport, is the signature verified,
+               no I meant the bank statement, I meant the PAN, sorry I meant the address proof, no the bank statement,
+               I was asking about the bank statement, not that I meant the driving licence]
   document_rejection:
     kind: case
     needs: document
@@ -108,18 +180,24 @@ intents:
     description: The loan amount applied for on the case.
     canonical: "What is the loan amount?"
     examples: [what's the loan amount, loan amount, how much loan did they apply for, how much is the customer borrowing,
+               kitne paise ka loan chahiye, customer ko kitna loan chahiye, how much money do they need,
+               what amount was requested, loan kitne ka hai,
                applied amount, what amount is on the application]
   applicant_name:
     kind: case
     description: The name of the applicant on the case.
     canonical: "What is the applicant's name?"
-    examples: [what is the applicant's name, who is the applicant, customer name, whose case is this, name of the borrower]
+    examples: [what is the applicant's name, who is the applicant, customer name, whose case is this, name of the borrower,
+               is case ka customer kaun hai, customer ka naam batao, who is this file for, who are we lending to]
   applicant_contact:
     kind: case
     description: The applicant's mobile number, email or address on the case.
     # no canonical: the engine answers the field asked ("mobile no" -> the mobile), never the whole details block
     examples: [what is the mobile number, customer phone number, what's the address on the application, email of the applicant,
-               contact details of the customer, date of birth of the applicant]
+               where does the customer live, customer ka address, customer kab paida hua, customer ki umar kitni hai,
+               how do I reach the customer, customer ka contact number,
+               contact details of the customer, date of birth of the applicant,
+               what's the customer's date of birth on file, when was the applicant born, applicant's DOB]
   application_details:
     kind: case
     description: The details recorded on the application form (product, amount, tenure, employment and personal details).
@@ -130,7 +208,16 @@ intents:
     kind: case
     description: Which stage the case is in.
     canonical: "Which stage is this case in?"
-    examples: [which stage is this case in, what stage is it at, where is the file now, is it still at FOS, current stage]
+    examples: [which stage is this case in, what stage is it at, where is the file now, is it still at FOS, current stage,
+               has this moved past FOS yet, file abhi kis stage pe hai, has it reached CPA, which desk is it with now,
+               how far along is this application, how far has this case progressed, what's the progress on this case]
+  uploaded_documents:
+    kind: case
+    party_aware: true
+    description: Which documents have already been uploaded or collected on the case.
+    canonical: "Which documents have been uploaded?"
+    examples: [which documents have been uploaded, which documents did we already collect, what have we collected so far,
+               what documents do we have, documents received so far, which papers has the customer given]
   time_in_stage:
     kind: case
     description: How long the case has been in its current stage, or how long it has taken so far.
@@ -294,3 +381,13 @@ decide:
   accept_with_lead: { score: 0.72, margin: 0.10 }
   # case open, the model could not choose: the best case reading when at least this (else the old rules)
   fallback_accept: 0.70
+  # CLOSE CALL, DECIDED INTERNALLY (2026-10-12, meaning._clarify): two CLOSE readings of a confusable pair, neither
+  # ahead by `margin` -> the previous turn's reading continues, else BOTH are answered (no buttons). A pair is
+  # added here only from measured confusions (evals / router misses); never a clear lead.
+  clarify:
+    enabled: true
+    floor: 0.62
+    margin: 0.03
+    # each pair's two canonical questions must split as a compound (intents.compound_parts) -- checked in code
+    pairs: [[case_status, case_stage], [kyc_status, document_status], [cpa_readiness, next_step],
+            [time_in_stage, case_stage]]

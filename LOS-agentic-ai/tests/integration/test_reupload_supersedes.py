@@ -126,7 +126,8 @@ def test_kyc_details_are_field_by_field_and_never_contradict_the_result(client):
     for question in ("what is kyc details", "kyc details", "give me kyc details"):
         answer = ask(client, applicant_id, case_id, question)
         assert answer.startswith("Your KYC check passed. Field by field:"), answer
-        assert "- name: matched (on the PAN and driving licence)" in answer
+        # a PASSED name now names the verified value (owner 2026-10-09: "store that name and mention it")
+        assert re.search(r"- name: matched( -- [A-Z .]+)? \(on the PAN and driving licence\)", answer), answer
         assert "did not match" not in answer
         assert "address: not compared (only the driving licence carries it)" in answer
     for question in ("kyc ki details", "kyc detail batao", "kyc details kya hai"):

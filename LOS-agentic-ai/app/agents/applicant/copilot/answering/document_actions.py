@@ -43,11 +43,14 @@ _EN = {
     "docact_kyc_status_heading": "KYC:",
     "docact_kyc_other_checks": "Other checks: {checks}",
     "docact_kyc_field_PASS": "{field} matches",
-    "docact_kyc_name_verified": "✅ Name verified: **{name}** (matches on {documents}).",
-    "docact_kyc_name_verified_saved": "✅ Name verified: **{name}** (matches on {documents}). Saved on the application.",
-    "docact_kyc_name_verified_differs": "✅ Name verified: **{name}** (matches on {documents}). The application form says "
-                                        "\"{form}\" -- correct the form if it is wrong.",
-    "docact_kyc_field_FAIL": "{field} does not match",
+    # the application-name check: wording in config languages.yaml (these keys only so _t knows them)
+    "docact_app_name_MATCH": "{declared} / {pan}", "docact_app_name_PARTIAL": "{declared} / {pan}",
+    "docact_app_name_MISMATCH": "{declared} / {pan}", "docact_app_name_PENDING": "{declared}",
+    "docact_app_name_UNVERIFIABLE": "{declared} / {pan}",
+    # the verified-name lines: config languages.yaml templates (these keys only so _t knows them)
+    "docact_kyc_name_verified": "{name} ({documents})",
+    "docact_kyc_name_verified_saved": "{name} ({documents})",
+    "docact_kyc_name_verified_differs": "{name} ({documents}) / {form}",
     "docact_kyc_field_REVIEW": "{field} needs a review",
     "docact_kyc_field_PARTIAL": "{field} needs a review",
     "docact_kyc_field_MISSING": "{field} not found on the documents",
@@ -255,6 +258,20 @@ def build(case_id: str, *, party: str | None = None, repository: Any = None) -> 
 
     out = {"reupload": keep(reupload), "pending": keep(pending), "under_review": keep(under_review),
            "kyc_issues": keep(kyc_issues), "kyc_status": keep(kyc_status), "kyc_fields": keep(kyc_fields)}
+    # THE APPLICATION'S NAME AGAINST THE VERIFIED PAN (kyc_policies.yaml application_name): the same result the KYC
+    # gate counts, for the primary applicant -- said in the answer so "has the name been verified?" is answered
+    out["application_name"] = None
+    if party in (None, "PRIMARY_APPLICANT"):
+        try:
+            from app.agents.los import kyc_gate
+
+            if kyc_gate._name_check_enabled():
+                application = repository.get_application(case_id)
+                if application is not None and getattr(application, "applicant_id", None):
+                    out["application_name"] = kyc_gate.application_name_match(
+                        case_id, application.applicant_id, "PRIMARY_APPLICANT", repository)
+        except Exception:  # noqa: BLE001 - unreadable: the line is simply not said, nothing is invented
+            out["application_name"] = None
     for row in out["reupload"] + out["pending"]:
         row["action"] = {"type": "UPLOAD_DOCUMENT", "document_type": row["document_type"], "party": row["party"],
                          "label": f"Upload {row['label']}"}
@@ -305,6 +322,13 @@ def render(view: dict[str, Any], language: str | None = None) -> dict[str, Any]:
                 others.append(_t(key, language, field=label))
             if others:
                 lines.append(_t("docact_kyc_other_checks", language, checks=" · ".join(dict.fromkeys(others))))
+    # THE APPLICATION NAME vs THE VERIFIED PAN (kyc_gate.application_name_match), one line, the outcome's own words
+    # -- said once a PAN has been verified; before that (PENDING) the pending list already names the PAN, and the
+    # KYC answer ("has the name been verified?") still says PENDING in so many words (kyc_table)
+    name_match = view.get("application_name")
+    if name_match and name_match.get("outcome") and name_match["outcome"] != "PENDING":
+        lines.append(_t(f"docact_app_name_{name_match['outcome']}", language,
+                        declared=name_match.get("declared") or "-", pan=name_match.get("pan_name") or "-"))
     # THE VERIFIED NAME, said whenever KYC passed the name check (owner 2026-10-09): the name and the documents it
     # matched on -- this is the name stored on the record
     for f in view.get("kyc_fields") or []:

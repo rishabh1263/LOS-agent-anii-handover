@@ -10,7 +10,11 @@
   ],
   "lacks": [
    "Aadhaar"
-  ]
+  ],
+  "also_source": [
+   "document_requirements.md"
+  ],
+  "also_source_why": "document_requirements.md states the same ADDRESS_PROOF rule (driving licence, passport, voter ID) derived from app/config/applicant_agent.yaml (2026-10-10)"
  },
  {
   "id": "rag_002",

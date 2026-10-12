@@ -1,0 +1,64 @@
+# HELD-OUT SET E (2026-10-12): unseen officer phrasings labelled with the intent catalogue's intent names. NEVER used
+# for training or for choosing the adapter -- only to measure it (scripts/train_meaning_adapter.py --evaluate).
+# Written after the catalogue examples; none of these sentences appears in intent_catalogue.yaml.
+items:
+  - { q: "how much has the customer asked us to lend", intent: loan_amount }
+  - { q: "loan ka size kya hai is file mein", intent: loan_amount }
+  - { q: "requested funding amount?", intent: loan_amount }
+  - { q: "rupees kitne chahiye unko", intent: loan_amount }
+  - { q: "what is the borrower called", intent: applicant_name }
+  - { q: "naam kya hai applicant ka", intent: applicant_name }
+  - { q: "full name on this application", intent: applicant_name }
+  - { q: "give me the customer's mobile", intent: applicant_contact }
+  - { q: "customer ko call karna hai number do", intent: applicant_contact }
+  - { q: "residential address of the applicant", intent: applicant_contact }
+  - { q: "kis stage par atka hai ye case", intent: case_stage }
+  - { q: "which desk has the file right now", intent: case_stage }
+  - { q: "is it with credit already", intent: case_stage }
+  - { q: "how is this file doing overall", intent: case_status }
+  - { q: "koi update hai is case ka", intent: case_status }
+  - { q: "where are we on this application", intent: case_status }
+  - { q: "what's still outstanding from the customer", intent: pending_documents }
+  - { q: "kaunse kagaz abhi tak nahi aaye", intent: pending_documents }
+  - { q: "list the missing papers", intent: pending_documents }
+  - { q: "why is this file not moving", intent: why_stuck }
+  - { q: "atka kyun hai ye", intent: why_stuck }
+  - { q: "what's the hold up here", intent: why_stuck }
+  - { q: "what do I do now on this one", intent: next_step }
+  - { q: "aage kya karna hai mujhe", intent: next_step }
+  - { q: "my next action please", intent: next_step }
+  - { q: "can I send this to CPA today", intent: cpa_readiness }
+  - { q: "CPA bhej sakte hain kya ab", intent: cpa_readiness }
+  - { q: "is the file complete enough for central processing", intent: cpa_readiness }
+  - { q: "did the identity checks pass", intent: kyc_status }
+  - { q: "kyc clear hai kya", intent: kyc_status }
+  - { q: "are the names consistent across the documents", intent: kyc_status }
+  - { q: "was the bank statement accepted", intent: document_status }
+  - { q: "PAN verify hua kya", intent: document_status }
+  - { q: "why did they reject the address proof", intent: document_rejection }
+  - { q: "bank statement reject kyun hua", intent: document_rejection }
+  - { q: "which documents came in already", intent: uploaded_documents }
+  - { q: "kya kya upload ho chuka hai", intent: uploaded_documents }
+  - { q: "how many days has it been sitting at this stage", intent: time_in_stage }
+  - { q: "kitne din se pending hai", intent: time_in_stage }
+  - { q: "show me what happened on this file so far", intent: case_history }
+  - { q: "is case mein ab tak kya kya hua", intent: case_history }
+  - { q: "what product and tenure did they choose", intent: application_details }
+  - { q: "application form ki details dikhao", intent: application_details }
+  - { q: "draft a whatsapp for the customer about pending docs", intent: customer_message }
+  - { q: "customer ko message likh do", intent: customer_message }
+  - { q: "what should the customer carry for the visit", intent: collect_from_customer }
+  - { q: "which of my files should I pick up first today", intent: work_queue }
+  - { q: "aaj kaunsa case pehle dekhu", intent: work_queue }
+  - { q: "how do I push a file to CPA", intent: process_move_to_cpa }
+  - { q: "steps to create a new loan file", intent: process_create_case }
+  - { q: "how do I attach a document", intent: process_upload }
+  - { q: "what are the stages a loan goes through", intent: process_stages }
+  - { q: "what does FOIR mean", intent: knowledge_term }
+  - { q: "explain loan to value", intent: knowledge_term }
+  - { q: "what is the bank's rate of interest for home loans", intent: policy_value }
+  - { q: "will the credit team approve it", intent: credit_decision }
+  - { q: "calculate EMI for 3 lakh over 2 years", intent: calculator }
+  - { q: "thank you so much", intent: small_talk }
+  - { q: "tell me a cricket score", intent: out_of_scope }
+  - { q: "recommend a good movie", intent: out_of_scope }

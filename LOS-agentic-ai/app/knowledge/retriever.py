@@ -228,11 +228,21 @@ class LexicalRetriever(Retriever):
         from app.knowledge import _config as _knowledge_cfg
 
         unseen_weight = float(_knowledge_cfg().get("lexical_unseen_term_weight") or 1.0)
+        # ...except a FUNCTION word of a language the officers type in ("kya", "kaise", "karna"): unseen, but it names
+        # no subject -- weighing it up sank every Hinglish question (2026-10-11, lexical_function_words)
+        function_words = {str(w).lower() for w in _knowledge_cfg().get("lexical_function_words") or []}
+        # ...and only for a question that touches the corpus on at most `lexical_unseen_max_anchors` words: "capital
+        # of France" meets it on "capital" alone -- France is its subject. A question meeting it on several words is
+        # about the corpus, and its unusual words are phrasing (2026-10-11, rag_metrics + test_fos_knowledge)
+        anchors = sum(1 for t in set(terms) if document_frequency.get(t, 0) and t not in function_words)
+        if anchors > int(_knowledge_cfg().get("lexical_unseen_max_anchors", 1)):
+            unseen_weight = 1.0
         ceiling = 0.0
         for term in set(terms):
             seen_in = document_frequency.get(term, 0)
             idf = math.log(1 + (total - seen_in + 0.5) / (seen_in + 0.5))
-            ceiling += idf * (_K1 + 1) / (1 + _K1 * (1 - _B)) * (unseen_weight if not seen_in else 1.0)
+            weight = unseen_weight if not seen_in and term not in function_words else 1.0
+            ceiling += idf * (_K1 + 1) / (1 + _K1 * (1 - _B)) * weight
         ceiling = ceiling or 1.0
 
         hits = [

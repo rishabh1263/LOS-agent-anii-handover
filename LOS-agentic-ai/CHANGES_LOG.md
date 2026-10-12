@@ -1840,3 +1840,206 @@ single-chat Hinglish conversation, real Qwen + nomic, production flags, in-proce
   Saved on the application." -- or "The application form says "Y" -- correct the form if it is wrong." when they
   differ. Applies to KYC runs from now on (older records never kept the passed values).
 - Tests updated to owner rules: step4 pending incl. SIGNATURE; step5c activation date 2026-10-08.
+
+## 2026-10-10 -- Sprint 4: application name vs verified PAN, table on request, English follow-ups
+- kyc_gate.application_name_match (kyc_policies.yaml `application_name`): MATCH/PARTIAL/MISMATCH/PENDING/UNVERIFIABLE
+  -> PASS/REVIEW/BLOCKED/NOT_READY/REVIEW; only a VERIFIED non-superseded PAN of that party; only EXACT/TOKEN_SET
+  make a MATCH (FUZZY/INITIALS -> PARTIAL); application name never overwritten. `cpa_gate: true` -> sixth CPA check
+  APPLICATION_NAME. Explained by languages.yaml `docact_app_name_<OUTCOME>` in the KYC and document answers.
+- case_list.yaml `format`: short list by default + "Show as a table"; table only on request; "show me the table" /
+  "just summarize" re-render the list just shown; ordinals ("why is the first one pending?") pick a row of it.
+- Tests: test_application_name_vs_pan.py, test_sprint4_conversation.py; list tests accept short-list or table rows
+  (same counts/order/paging). Report: docs/SPRINT4_REPORT.md.
+- Sprint 4 regression (runs/sprint4_regression.log): 20 failed / 3271 passed. Classified (docs/SPRINT4_REPORT.md §6):
+  8 Sprint 4 (fixed: list tests accept short list; "dusra case" lists again -- only `the_other` phrases open the
+  single other case; application-name PENDING line no longer leads the pending-documents answer), 4 environment
+  (.env APPLICANT_AGENT_LLM_FOR_SIMPLE_INTENTS=true; pass with it false), 6 pre-existing on clean HEAD worktree,
+  test_mixed + variant_evals known. Stop-gate re-run: 12 failed (exactly those) / 405 passed, 0 new.
+- Name-correction defect (master prompt §9): corrected name persisted but the case list showed the old one for
+  cache_ttl_seconds -- case_list row cache never invalidated on writes. case_list.forget_case() called from
+  case_form.save (+ request_cache.invalidate) and on every logged case write. tests/integration/
+  test_name_correction_persists.py (failed before, passes after: DB, form re-fetch, list, chat list, KYC name check).
+- HL/LAP FOS matrix (config, verified): HOME_LOAN required PAN, BANK_STATEMENT, ADDRESS_PROOF, SIGNATURE; optional
+  ITR, SALARY_SLIP, EMPLOYMENT_PROOF. LOAN_AGAINST_PROPERTY has no FOS entry -> `default` checklist. Sale deed
+  (PROPERTY_OWNERSHIP_PROOF) only at CPA; SALE_DEED not an FOS upload type. Open business questions.
+- .env APPLICANT_AGENT_LLM_FOR_SIMPLE_INTENTS=false (owner "off rakho"; backup .env.bak-before-simple-intents-off).
+  Subset re-run -n 2: 10 failed / 407 passed -- the 4 env failures resolved (quality + composition prompt test fail
+  only under parallel load, pass alone); remaining = 6 pre-existing on HEAD + test_mixed + variant_evals. 0 new.
+
+## 2026-10-11 -- Closure directive: legacy evals, knowledge calibration, sessions, lifecycle (docs/CLOSURE_TRACKER.md)
+- Access-violation dumps: all at popen_spawn_win32.py:75 (CreateProcess); reproduced with a 6-line script, results
+  correct -- environment noise, no effect (same as Sprint 3A).
+- Legacy evals all pass (181 in the eval suites): process (stage questions -> stage guide), RAG (unseen weight 1,
+  glossary weight 0.3, value_shapes abstention for no-company-values sources, Hindi inflections, rag_001 also_source),
+  semantic 178/178, conversation 124/124, family, variant (one-word contract re-baselined per owner decision:
+  clarification OR direct answer, never retrieval/model), test_mixed (exact-term definitions, IN_CASE_CONTEXT).
+- Real defects fixed on the way: "Do I need a passport?" said mandatory (now: one of the documents accepted for
+  Address Proof); "why is X required" answered yes/no; greetings read the case list; follow-ups got generic options;
+  option picks "first one"/"dusra"/"पहला" not understood; "why is it pending" asked which doc after a 1-doc question;
+  "(owner 2026-10-09)" leaked into a user-facing reason text.
+- Knowledge: backend lexical for answers (dense calibration: off-topic 0.47-0.56 vs in-domain overlap); vector
+  threshold 0.53 -> 0.57; the meaning bank keeps nomic.
+- Sessions: a pending Confirm is bound to the OIDC `sid`; dev /logout voids it. Lifecycle test (create -> correct ->
+  gate -> move -> NO_CHANGE -> isolation -> FORM_LOCKED). UI E2E session 3: table on request + logout.
+
+## 2026-10-11 (later) -- Copilot intelligence gaps from docs/AUDIT_2026-10-11.md (Part 2, P2-K)
+Built in an isolated git worktree while full regression Run 6 ran on this tree; ported after Run 6 finished.
+1. RAG abstention / handbook precedence:
+   - A value question whose top passage is a no-company-values source (glossary) is answered from a handbook passage
+     that clears the threshold and covers >= 60% of its distinctive terms (knowledge.yaml value_handbook_min_coverage);
+     otherwise not answered, as before.
+   - REGRESSION FIXED (introduced by the 2026-10-10 calibration, lexical_unseen_term_weight 3 -> 1): "What is the
+     capital of France?" was answered with the glossary's Working capital (tests/agents/test_fos_knowledge, 3 tests,
+     also failing in Run 6). Weight back to 3, applied only when the question meets the corpus on <= 1 word
+     (lexical_unseen_max_anchors) and never to Hinglish function words (lexical_function_words). The second-look
+     rescue floor is now config (rescue_min_score, unchanged 0.1).
+   - RAG eval (both COPILOT_TERMS_KNOWLEDGE states): retrieval 24/24, top-1 22/24, answers 26/26, citations 26/26,
+     grounded 26/26, no-answer 10/10, false confidence 0/10. test_fos_knowledge 40/40.
+2. Case insights (capabilities/case_insights.py, case_list.yaml `insights`): COUNT / CLOSEST-to-CPA / most-PENDING /
+   COMPARE over the caller's own cases only (case_list ownership per row; a named case re-authorised; another
+   officer's case -> "can't find"). Deterministic, from the store; no model.
+3. Routing: rules for "how far along / how far has this case progressed" (stage), "what is blocking CPA" (readiness),
+   "which documents did we already collect" (uploaded); catalogue examples for these + DOB; new catalogue intent
+   uploaded_documents. A compound question is never rewritten by the meaning layer (the splitter answers both halves).
+4. Follow-ups:
+   - An exit phrase closes only as a COMMAND (every other word filler: applicant_agent.yaml exit_rule.allowed);
+     "back to the case: ..." stays on the case (phrases.stay). "how close is this case to CPA?" no longer closes it.
+   - "and the first one?" after a row of the list was opened: picked from that list, never re-understood.
+   - Bare "why?" / "kyun?" (intent_catalogue.yaml state_followups): answered from the previous answer, never
+     re-understood on its own words.
+5. Duplicate document names: customer draft, visit checklist and the case row count each document once.
+6. Bounded fallback planner (capabilities/fallback_planner.py, intent_catalogue.yaml `planner`): only when no rule
+   places the message and the fuller reading is not confident, on an open case. The model PROPOSES <= 3 calls from a
+   read-only allow-list (catalogue case intents); each validated (tool allowed, case_id non-empty = the turn's case
+   and authorised, document known when needed, party enum) -- one invalid call rejects the plan; each call answered
+   by the deterministic engine; one 10 s budget; failure -> the deterministic reply stands; a failed lookup is named,
+   never filled in. Outcome on understanding.fallback_planner.
+Tests (new): tests/core/test_rag_handbook_precedence.py, tests/core/test_routing_audit_rules.py,
+tests/integration/test_case_insights.py, test_routing_audit_phrasings.py, test_followups_audit.py,
+test_documents_named_once.py, test_fallback_planner.py.
+7. Also fixed (2026-10-11, after the directive):
+   - "Show only cases pending with KYC" -> the KYC filter (was "needs action": listed cases with no KYC issue).
+   - Readiness report named the missing Signature twice (document row + signature-rule row): printed once, still
+     counted as a check ("1 of 6").
+   - General (model) answers labelled "General information, not from the company handbook" + response_source
+     LLM_GENERAL; they still run only after a knowledge miss and never with a case in scope.
+   - Request-size guard: a declared Content-Length above LOS_MAX_REQUEST_BYTES (default 26 MB) -> 413 before the
+     body is read. API-wide per-caller limit (app/security/api_rate_limit.py, LOS_API_RATE_LIMIT_PER_MINUTE,
+     default 600) -> 429 + Retry-After; per process -- a cross-replica / per-IP limit belongs to the gateway.
+   - REGRESSIONS FROM UNCOMMITTED WORK (found by Run 6 / test_general_coverage, both passed at HEAD): "what happens
+     after CPA" with no case asked "which case?" (the 2026-10-10 stage-process diversion; now only when a case is in
+     scope or no handbook section is titled with the question); "what is foreclosure" got the glossary's
+     "Foreclosure letter" (1.0 tie; now the question-titled handbook section, then the entry with the fewest extra
+     heading words).
+8. Run 6 (full regression, -n 2, 20:24-21:22): exit 1 -- 11 failed / 7507 passed / 33 skipped / 1 xfailed, 3467 s.
+   Classified: 3 test_fos_knowledge + 1 test_general_coverage = confirmed regressions, FIXED; 5 test_question_rewrite
+   = environment (the fake model is skipped by the free-RAM guard under -n 2 with Qwen loaded; pass alone);
+   test_one_pipeline = order-dependent wording variant (passes alone); test_vague_messages = test isolation (fixed
+   chat id in the persistent test store) + live-model nondeterminism (passes 3/3 with Ollama unreachable) -- test
+   hardened: fresh chat id; the pick must answer with the picked fact, not a clarification (assertion CHANGED:
+   follow-up suggestion links are no longer counted as options -- please review).
+9. Ported from the worktree after Run 6: 15 modified + 14 new files, CRLF preserved, each hunk reviewed; backups of
+   the originals in the session scratchpad (backup_before_port).
+10. After the port (2026-10-12):
+   - Wrong-case switch: "what is the applicant's date of birth?" switched to another of the caller's cases whose
+     applicant is named "Birth ..." -- domain words are never matched against applicant names (workspace._by_name).
+   - Reads before resolution (conversation evals 115/124 -> 124/124, also failing on the pre-port tree): a whole-
+     message dialogue act ("chhodo", "neither", "haan") or a message with no possible name ("meri id kya hai",
+     "show me all customers") no longer reads the caller's case list (vague.names_a_case,
+     conversation/state.is_dialogue_act; possessives added to workspace filler).
+   - test_one_pipeline: the phrasing seed is pinned in the test (two routes = two chats = two seeds); fresh chat ids.
+   - Meaning evals: semantic 178/178, conversations 124/124, families 153/157, variants 233/246 -- every remaining
+     family / variant failure also fails on clean HEAD (HEAD: families 124/157, variants 218/246).
+   - LIVE PLANNER BENCHMARK (qwen2.5:3b, CPU): 4/16 correct, 12/16 timed out at the 10 s budget, p50 10.0 s; 0 calls
+     over 3, 0 tools outside the allow-list, 0 calls on another case, budget enforced (0.3 s -> timeout at 466 ms).
+     => planner.enabled: false by default (evidence: runs/planner_benchmark_20261011.json). Its contract tests turn
+     it on explicitly.
+
+11. Run 7 (full regression after the port, 10:27-11:31): exit 1 -- 3 failed / 7609 passed / 34 skipped / 1 xfailed,
+    3859 s. All three classified and fixed:
+   - test_copilot_party_kyc_evals: "which fields did my KYC check compare?" -> CASE_INSIGHT. REGRESSION (mine): the
+     compare shape matched any "compare"; now it needs cases / applicants / case ids as its object.
+   - test_universal_copilot::test_the_semantic_fallback_needs_a_case_in_hand: REGRESSION (mine): the new "how far
+     along" rule took "how far along is my loan" from the example-similarity fallback; narrowed to this/the case /
+     application / file (the audit's phrasing).
+   - test_directive_examples::test_a_real_name_still_switches (new test): shared-store name collision -- and it
+     exposed a PRE-EXISTING defect (also on clean HEAD): a name matching several of the caller's OWN applicants got
+     the "other customers' private data" refusal on the open case. Now "Which one did you mean?" with those cases
+     (workspace.handle). Tests: unique-name switch + ambiguous-name asks which.
+   - Meaning evals after these: semantic 178/178, conversations 124/124, families 153/157, variants 232-233/246
+     (missing_fields flaky 8-9/18 run to run, 9/18 at HEAD); no new failure vs HEAD.
+   - Planner on qwen3:4b (the other installed model): 0/16, all at the 10 s budget -- worse than qwen2.5:3b on this
+     CPU; planner stays OFF. (runs/planner_benchmark_qwen3_4b.json)
+12. Run 8 = final regression on the final code (runs/final_regression8.log).
+
+## 2026-10-12 (afternoon) -- real-chatbot generalisation, meaning adapter, LOS-only boundary, Run 8, Run 9
+- Run 8 (after the second port): exit 1 -- 6 failed / 7607 passed / 34 skipped / 1 xfailed, 5992 s. Classified:
+  5 test_question_rewrite = ENVIRONMENT (free RAM 1.7-1.8 GB < the 2 GB guard: OneDrive 4.4 GB + parallel worktree
+  runs; the fake model is never called); test_issuer_verification = TEST FLAKE (a random hex event_id held 12 digits
+  in a row, "4b3a0f7d4c624408809120ae966dc231"; no PII) -- the check now blanks event_id / request_id and still
+  scans every other value (a real 12-digit leak still fails).
+- Held-out conversation sets (tests/integration/test_heldout_conversations.py, LOS_HELDOUT=1, offline): A 12->30/31,
+  B 14->22/22 (both then used for fixes), C (fresh) 14->18/20, D diagnostic 30->36/43, O (LOS boundary) 17/17.
+- ROOT-CAUSE fixes (no per-question hardcoding): name detector read "paise ka loan" as a person (vocabulary from
+  the catalogue + function words); no case open + nothing a case holds -> out of scope, never "which case?";
+  "which CASES have X" -> the case list not the handbook; confident handbook answer for any phrasing with no case
+  open; ranking verbs; definition grammar (full form / ka matlab); "difference between A and B" from both sourced
+  definitions (stage guide for stages); guardrail "which file" = a loan file unless code words; "why not?" follow-up;
+  typo short forms; DOB / name / stage phrasings; handbook text no longer shows an internal field name.
+- general_llm OFF (owner): only LOS data + approved handbook/SOPs.
+- MEANING ADAPTER (route 3, scripts/train_meaning_adapter.py, numpy only): a linear map on the frozen nomic
+  embeddings trained on the catalogue + a balanced, curated paraphrase bank (+ hard negatives). Fresh held-out set F:
+  55% -> 73% (33 -> 44/60). Live semantic eval: real misses 3 (off) vs 3 (on); the other failures in BOTH runs are
+  the 3 s latency limit on this CPU. -> adapter.enabled: true.
+- ROUTE 2 (LoRA, Qwen2.5-0.5B classifier, CPU, separate .venv-train): set F 65% (39/60), overfit -- not deployed;
+  requirements-train.txt only (the app's requirements.txt unchanged: no new runtime dependency).
+- 90% target NOT reached by either route on fresh questions: the limit is training-data variety (~1,000 examples).
+- Planner: short prompt + tool enum -> live qwen2.5:3b 8/16 (was 4/16), p50 6.0 s (was 10.0 s), safety 0/0/0 -- still
+  OFF (not good enough to turn on).
+- Frontend handoff: docs/FRONTEND_HANDOFF_2026-10-12.md; API_CONTRACT.md error table + 413 / Retry-After (contract
+  version unchanged, 1.0).
+
+## 2026-10-12 (evening) -- port 3: queries + deviation master, eligibility/credit chat; Run 9 classified; Run 10
+- Run 9 (before port 3): 43 failed / 7576 passed / 35 skipped, 5708 s. Rerun of the failing files after port 3:
+  11 failed -> adapter size guard (meaning._adapted: a matrix trained on another embedding size is never applied)
+  -> 5 failed -> handbook boundary fix (below) -> 0 failed (81 passed in those files + related suites).
+- DEVIATIONS from docs/frontend/DEVIATION_MASTER.ods (read-only, never edited): scripts/import_deviation_master.py
+  -> app/config/deviation_master.yaml (69 deviations, 4 conflicting rows flagged for business). Raise / list /
+  approve / reject in chat (stage_flow kinds deviation, deviation_decision) through the EXISTING los_api routes
+  and approval service; approver authority checked from token roles (queries.yaml deviations.authority_roles,
+  UNCONFIRMED mapping) before four-eyes. No new API.
+- ELIGIBILITY / CREDIT chat: reads the recorded verdict only (DEMO policy from config, ELIGIBILITY_POLICY_PROVIDER);
+  fixed HTTP 500 on a non-dict FOIR value (eligibility_facts._ratio); ROUTED published answers are never replaced
+  by "Do you mean" / FAQ unknown; credit decisions stay with the credit agent (FOS denied list).
+- HANDBOOK BOUNDARY (general._handbook_answers_without_a_case): with no case open, a message that points at a case
+  or the officer's cases (conversation_general.yaml case_pointers + case_value_patterns, the case list's own
+  understanding, workspace "more" / case-list "next" phrases) is never a handbook question -- "show top 2 cases",
+  "show me the next two", "why is it pending?", "what's the loan amount" go back to the case logic. "what comes after
+  CPA in the process?" still answers from the handbook. Held-out C 19/20, O 17/17 unchanged; 164 routing/general
+  tests pass.
+- Run 10: the full suite was started, then STOPPED at 22% by the owner (no failures up to then;
+  runs/final_regression10_full_stopped_22pct.log). Run instead: the chatbot subset (181 files: copilot / chat /
+  query / deviation / eligibility / credit / KYC / routing integration + agent unit tests + knowledge), -n 3,
+  Qwen unloaded -> runs/final_regression10_subset.log. The document / OCR suites were NOT re-run after port 3.
+- Run 10 subset RESULT: 4808 passed / 1 failed / 8 skipped in 27.5 min (runs/final_regression10_subset.log). The 1 failure is
+  test_copilot_verify_e2e::test_process_mode_reads_each_document_once... -- a heavy real-OCR test (3 real bank
+  statements in worker processes); under -n 3 load the case store timed out (CASE_STORE_UNAVAILABLE) and the
+  worker did not finish in 300 s. It also hung at the same line in Run 9. Classified ENVIRONMENT / LOAD (OCR path
+  not changed by this work). SOLO RERUN: it hung again (>20 min, stopped) -- so it is NOT only load: a
+  PRE-EXISTING hang of the process-mode verify executor on this Windows machine (also in Run 9, before
+  port 3). Open defect for the document/OCR owner; not caused by the chatbot changes.
+- CLOSE CALL, DECIDED INTERNALLY (owner: no buttons; meaning._clarify, intent_catalogue.yaml decide.clarify): two
+  close readings of a configured confusable pair (status/stage, KYC/document status, CPA readiness/next step,
+  time in stage/stage), neither ahead by 0.03, case open -> the previous turn's reading continues, else BOTH are
+  answered as one compound question through the engine's own split (intents.compound_parts; a pair that does
+  not split is never used). Nothing is asked back. Live only (needs the embedding model); offline unchanged.
+  Test: tests/integration/test_meaning_close_call.py.
+- LIVE SMOKE (real Qwen + nomic, production flags, 21 turns; tests/integration/test_live_smoke_chat.py, opt-in
+  LOS_LIVE_LLM_TESTS=1; transcript runs/live_smoke/latest.md): all HTTP 200, p50 ~0.27 s, max ~4.3 s. Fixed from it:
+  'what does the credit memo say' was answered from the Credit stage guide -> credit team route
+  (intents.names_credit_record); 'which of my cases are pending for KYC?' asked 'which case?' -> KYC filter
+  (case_list.yaml phrases); 'Showing 6-5 of 2' past the end of the list -> only 'that is the whole list';
+  glossary expansion inside a link label broke the link ('CIBIL Limited))') -> never inside a link (style.py);
+  deviation pick offered far-off options ('BT for loan' for 'low cibil score') -> filler words ignored
+  (queries.yaml match_ignore_words) and only options near the best shown (pick_min_share 0.6).
+  NOT changed (pre-existing, noted): the case voice says 'your application' / 'your name' to the officer.

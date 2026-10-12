@@ -52,6 +52,24 @@ queries:
   max_text_length: 1000
 
 deviations:
+  # THE DEVIATION MASTER (owner's sheet docs/frontend/DEVIATION_MASTER.ods, 2026-10-12) -> deviation_master.yaml via
+  # scripts/import_deviation_master.py: every deviation a CPA / credit officer may RAISE (chat or button), its category
+  # (NFA / OTHER_CRITICAL_PARAMETER) and the authorities that may approve it. No deviation outside the master.
+  master: deviation_master.yaml
+  # WHO IS WHICH AUTHORITY: the login roles (token `roles`) that make a caller ACM / RCM / ZCM / HEAD_CREDIT.
+  # UNCONFIRMED: the identity team's real role names go here; the authority's own name is accepted meanwhile.
+  authority_roles:
+    ACM: [ACM, area_credit_manager]
+    RCM: [RCM, regional_credit_manager]
+    ZCM: [ZCM, zonal_credit_manager]
+    HEAD_CREDIT: [HEAD_CREDIT, head_credit, HEADCREDIT]
+  # chat matching: below this score, or closer than this to the next one, the officer picks from the top options
+  match_min_score: 0.5
+  match_margin: 0.15
+  # an unclear match offers only readings scoring at least this share of the best one (never a far-off option)
+  pick_min_share: 0.6
+  match_ignore_words: [for, the, a, an, of, to, on, in, at, is, are, and, or, with, due, because, ka, ki, ke, hai,
+                       se, me, mein, raise, deviation, deviations, please, case, this]
   # A deviation is raised ONLY by a configured rule. No rule is configured
   # here, so none is ever raised automatically: deviation detection is a
   # CONFIGURATION_GAP until the business supplies the rules (metric, limit,

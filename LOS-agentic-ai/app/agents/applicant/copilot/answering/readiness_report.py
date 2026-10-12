@@ -170,8 +170,21 @@ def render(report: dict[str, Any]) -> str:
         return _label("heading_ready")
     lines = [_label("heading_not_ready", passed=report.get("passed", 0), total=report.get("total", 0))]
     order = {i: n for n, i in enumerate(report.get("unblock_order") or [])}
+    # EACH DOCUMENT NAMED ONCE (2026-10-11): a missing signature is already a failing row of the party's document
+    # checklist -- the signature rule's own "not uploaded" row says the same thing again. It still counts as a check;
+    # it is not printed twice. A rejected / unchecked signature (a different fact) is still shown.
+    shown_missing = {i["id"] for g in report.get("groups") or [] if g["group"].endswith("DOCUMENTS")
+                     for i in g["items"] if i["status"] == PENDING}
+    party_of = {"PRIMARY_APPLICANT": "PRIMARY", "None": "PRIMARY", "": "PRIMARY", "CO_APPLICANT": "CO"}   # no role = primary
+
+    def _repeated(i: dict[str, Any]) -> bool:
+        role = str(i["id"]).split(":")[1] if str(i["id"]).count(":") >= 2 else ""
+        return i["status"] == PENDING and f"DOC:{party_of.get(role, role)}:SIGNATURE" in shown_missing
+
     for g in report.get("groups") or []:
-        failing = sorted([i for i in g["items"] if i["status"] != PASS], key=lambda i: order.get(i["id"], 999))
+        failing = sorted([i for i in g["items"] if i["status"] != PASS and not (g["group"] == "SIGNATURE"
+                                                                                 and _repeated(i))],
+                         key=lambda i: order.get(i["id"], 999))
         passed = [i["label"] for i in g["items"] if i["status"] == PASS]
         if not failing and not g.get("note"):
             continue
@@ -221,8 +234,13 @@ def attach(published: dict[str, Any]) -> dict[str, Any]:
 
 
 def _asks(message: str, key: str) -> bool:
-    said = " " + " ".join("".join(c if c.isalnum() or c in "' " else " " for c in str(message or "").lower()).split()) + " "
-    return any(" " + " ".join(str(p).lower().split()) + " " in said for p in _cfg().get(key) or [])
+    """The WHOLE message is one of the configured phrases (Sprint 2: a substring made "KYC mein kya issue hai" a
+    why-stuck question). `message` may carry the typed and the rewritten text joined by " || "."""
+    def plain(text: str) -> str:
+        return " ".join("".join(c if c.isalnum() or c in "' " else " " for c in str(text or "").lower()).split())
+
+    phrases = {plain(p) for p in _cfg().get(key) or []}
+    return any(plain(part) in phrases for part in str(message or "").split(" || "))
 
 
 def why_stuck(report: dict[str, Any], stage: str) -> str:
@@ -263,6 +281,8 @@ def attach_asked(published: dict[str, Any], message: str) -> dict[str, Any]:
     """'why is it stuck' / 'how long till approval' on an open case: answered from this report (config phrases)."""
     if not isinstance(published, dict) or not enabled() or not published.get("case_id"):
         return published
+    if str(published.get("intent") or "") == "READINESS":
+        return published                 # "what is blocking CPA?" is the full readiness report already
     why, approval = _asks(message, "why_phrases"), _asks(message, "approval_phrases")
     review = _asks(message, "review_phrases")
     if not (why or approval or review):

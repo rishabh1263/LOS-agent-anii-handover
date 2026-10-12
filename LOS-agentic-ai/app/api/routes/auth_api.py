@@ -332,7 +332,12 @@ def refresh(payload: RefreshRequest) -> TokenResponse:
 
 @router.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT, summary="Revoke a refresh token")
 def logout(payload: LogoutRequest) -> None:
-    dev_idp.revoke_refresh_token(payload.refresh_token)
+    subject = dev_idp.revoke_refresh_token(payload.refresh_token)
+    if subject:
+        # a Confirm still waiting from this session is void: logging out never leaves a write one click away
+        from app.agents.applicant.copilot.capabilities import case_form
+
+        case_form.end_session(subject)
 
 
 @router.get("/.well-known/jwks.json", include_in_schema=False)

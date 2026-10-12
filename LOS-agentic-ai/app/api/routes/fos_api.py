@@ -1272,8 +1272,8 @@ async def copilot(
 
             published = _timeline.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
             # "why is it stuck" / "how long till approval": the readiness items, compact (config phrases)
-            published = _readiness_report.attach_asked(published, " ".join(
-                {str(getattr(request.state, k, "") or "") for k in ("copilot_typed", "copilot_message")}))
+            published = _readiness_report.attach_asked(published, " || ".join(
+                str(getattr(request.state, k, "") or "") for k in ("copilot_typed", "copilot_message")))
             # THE CPA HANDOFF NOTE, only for a ready case (FOS plan 7.1; shared with /copilot/query)
             from app.agents.applicant.copilot.answering import handoff_note as _handoff_note
 
@@ -1363,8 +1363,27 @@ async def _understood(message: str, claims: dict[str, Any], payload: Any, reques
 
     if _vq.is_command(said, case_open=bool(state.active_case_id or payload.case_id)):
         return None                 # open / close / a case id / a list / a new case: the workspace and the forms
+    from app.agents.applicant.copilot.capabilities import case_list as _ord_list
+
+    if _ord_list.ordinal_pick(said, getattr(state, "listed_case_ids", None) or []):
+        # "why is the first one pending?" after a list -- and "and the first one?" after a row of it was OPENED
+        # (audit 2026-10-11): the workspace picks that row of the list shown, never a canonical rewrite
+        return None
+    bare = re.sub(r"[^\w\s]", " ", said.lower()).split()
+    if bare and " ".join(bare) in {str(w).lower() for w in _meaning.catalogue().get("state_followups") or []}:
+        return None                 # "why?" / "kyun?": answered from the previous answer (rules), never re-understood
     if _vq.names_a_case(said, claims):
         return None                 # "Priya ka pending": the NAMED applicant's case -- a canonical would drop the name
+    from app.agents.applicant.copilot.semantics import intents as _cmp_intents
+
+    if _cmp_intents.compound_parts(said):
+        return None                 # two questions in one: the splitter answers BOTH -- one canonical would drop half
+    from app.agents.applicant.copilot.answering import profile as _cmp_profile
+
+    _fields = _cmp_profile.detect(said)
+    if _fields is not None and len(_fields.fields) >= 2:
+        return None                 # two RECORDED fields ("who is the applicant and what loan ...?"): one profile
+        #                             answer carries both -- a single canonical would drop one of them
     decision = await _meaning.understand(said, case_open=bool(state.active_case_id or payload.case_id),
                                          previous=(getattr(state, "flow", None) or {}).get("last_meaning"),
                                          request_id=request_id)
@@ -1412,6 +1431,18 @@ def move_case_stage(confirmed: dict[str, Any], request_id: str) -> dict[str, Any
     case_id, here, there, actor = move["case_id"], move["from"], move["to"], move["actor"]
     lang = _mv_lock.current() or "en"
     reply = {k: v for k, v in confirmed.items() if k != "execute_move"}
+    def stage_now() -> str | None:
+        """The case's stage READ BACK from the store (never assumed from the call that wrote it), or None."""
+        try:
+            from app.agents.los import stages as _mv_stages
+            from app.store import request_cache as _mv_cache
+
+            _mv_cache.invalidate()
+            found = _mv_stages.resolve(case_id).stage
+            return str(getattr(found, "value", found) or "").upper() or None
+        except Exception:  # noqa: BLE001 - unreadable: the outcome stays unknown, never guessed
+            return None
+
     try:
         stage_lifecycle.transition(case_id, there, reason=f"{here} gate passed; confirmed in chat by {actor}",
                                    actor=actor, source="OPERATOR", expected_stage=here,
@@ -1420,11 +1451,44 @@ def move_case_stage(confirmed: dict[str, Any], request_id: str) -> dict[str, Any
         audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
                      tools=["los.stage"], write=True, status="REFUSED", detail=exc.code)
         return {**reply, "intent": "STAGE_MOVE_REFUSED", "answer": _mv_flow.move_failed_text(case_id, exc.message, lang)}
+    except Exception as exc:  # noqa: BLE001 - a timeout / dropped connection: RECONCILED from the stored stage
+        logger.warning("chat move %s -> %s raised %s; reconciling from the stored stage", case_id, there,
+                       type(exc).__name__)
+        now = stage_now()
+        if now != str(there).upper():
+            status_ = "FAILED" if now == str(here).upper() else "UNKNOWN"
+            audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id,
+                         intent="STAGE_MOVE", tools=["los.stage"], write=True, status=status_,
+                         detail=f"{here}->{there} {type(exc).__name__}; stage now {now or 'unreadable'}")
+            text = (_mv_flow.move_failed_text(case_id, type(exc).__name__, lang) if status_ == "FAILED"
+                    else _mv_flow.move_unknown_text(case_id, there, lang))
+            return {**reply, "intent": "STAGE_MOVE_" + status_, "answer": text}
+    # SUCCESS IS SAID ONLY WHEN THE STORE SAYS SO: the stage read back must be the target
+    if stage_now() != str(there).upper():
+        audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
+                     tools=["los.stage"], write=True, status="UNKNOWN", detail=f"{here}->{there} not read back")
+        return {**reply, "intent": "STAGE_MOVE_UNKNOWN", "answer": _mv_flow.move_unknown_text(case_id, there, lang)}
     audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
                  tools=["los.stage"], write=True, confirmed=True, status="OK", detail=f"{here}->{there}")
     _mv_form.activity(case_id, "STAGE_MOVED", f"{here} -> {there} by {actor} (chat)")
     return {**reply, "intent": "STAGE_MOVED", "tools_invoked": ["los.stage"],
             "answer": _mv_flow.moved_text(case_id, here, there, lang)}
+
+
+def _answered_before(claims: dict[str, Any], context: dict[str, Any] | None) -> bool:
+    """Whether this chat's conversation state holds a previous ANSWER (its intent) a bare word can follow up on."""
+    from app.agents.applicant.copilot.conversation import state as _conv
+
+    if isinstance(context, dict) and context.get("last_intent"):
+        return True                     # the previous reply's own context names what it answered (echoed back)
+    conversation_id = (context or {}).get("conversation_id") if isinstance(context, dict) else None
+    if not conversation_id:
+        return False
+    try:
+        found = _conv.STORE.get(str(get_subject(claims) or "anonymous"), conversation_id)
+    except Exception:  # noqa: BLE001 - no state: nothing to follow up on
+        return False
+    return bool(found is not None and (found.last_answer_reference or {}).get("intent"))
 
 
 def _attach_next_step_upload(reply: dict[str, Any]) -> None:
@@ -1643,8 +1707,13 @@ async def _copilot_json(
         _realtime.start(_subject_key, payload.chat_id, request_id)    # a newer message cancels an older stream
     if payload.new_chat:
         _contract.forget(_subject_key, payload.chat_id)
-    elif payload.context is None and _contract.enabled():
-        payload.context = _contract.recall(_subject_key, payload.chat_id)   # the context the reply no longer carries
+    elif _contract.enabled() and not (isinstance(payload.context, dict) and payload.context.get("conversation_id")):
+        # the context the reply no longer carries. An EMPTY / partial context counts as none (Sprint 3A, real UI: the
+        # React client sends `context: {}` on every turn, so every turn started a new conversation and "why?" had
+        # nothing to refer to); the keys the client did send still win
+        recalled = _contract.recall(_subject_key, payload.chat_id)
+        if recalled:
+            payload.context = {**recalled, **(payload.context or {})}
     if payload.chat_id:
         # ONE WORKSPACE PER CHAT (MASTER SPEC 4: a new chat starts fresh): the open case, the last list, a pending
         # question or draft never leak from one chat into another. An explicit workspace_id still wins.
@@ -1751,6 +1820,16 @@ async def _copilot_json(
                     "errors": [{"code": "REQUEST_NOT_ALLOWED",
                                 "message": _early_guard.refusal(verdict.category, verdict.rule)}]}
 
+    # CASE INSIGHTS (2026-10-11, audit P2-C): "how many of my cases have a KYC problem?", "which case is closest to
+    # CPA?", "compare CASE-A and CASE-B" -- counted / ranked / compared deterministically over the caller's OWN cases
+    # (capabilities/case_insights.py), before a fragment layer can read them as "which case is this about?"
+    if action is FosAction.CUSTOM_QUERY:
+        from app.agents.applicant.copilot.capabilities import case_insights as _insights
+
+        _insight = _insights.answer(message, claims, request_id, payload.response_language or "en")
+        if _insight is not None:
+            return _insight
+
     # VAGUE / ONE-WORD MESSAGES (owner decision A; capabilities/vague.py): a pending option list is answered by the
     # pick (or the most likely option on a second vague message) BEFORE chat case creation, so "Create a new case"
     # picked by its number starts the form like the typed words would; the Upload option answers with its link
@@ -1845,10 +1924,13 @@ async def _copilot_json(
                 if read:
                     message = read                     # the one reading the conversation supports: answered now
                     request.state.copilot_message = message
-                else:
+                elif not _answered_before(claims, payload.context):
                     asked = _vague.ask(message, _vstate, request_id, _open)
                     if asked is not None:
                         return asked
+                # else: A BARE WORD AFTER AN ANSWER ("What stage am I in?" -> "documents") is settled by that answer
+                # -- the conversation-state short-query resolver reads it in context ("documents" = which documents
+                # are required) -- never asked back with options (owner 2026-10-09: one word is answered, not asked)
         decision = await _understood(message, claims, payload, request_id)
         if decision is not None and decision.kind in ("control", "clarify_action"):
             # "ruko, abhi action mat lena" -> nothing pending is written; "usko process kar do" -> which action?
@@ -1891,9 +1973,15 @@ async def _copilot_json(
         from app.agents.applicant.copilot.answering import language_lock as _gen_lock
         from app.agents.applicant.copilot.capabilities import general as _general
 
-        general_reply = await _general.answer(message, claims, payload.context, request_id,
-                                              _gen_lock.current() or "en", case_in_scope=payload.case_id,
-                                              meaning_kind=meaning_kind)
+        from app.agents.applicant.copilot.capabilities import case_list as _cl_table
+
+        # "show me the table" is the workspace's (the list just shown, as a table): never a general answer
+        _ord_state = _general._state(claims, payload.context)
+        _ord_pick = (not getattr(_ord_state, "active_case_id", None)
+                     and _cl_table.ordinal_pick(message, getattr(_ord_state, "listed_case_ids", None) or []))
+        general_reply = None if (_cl_table.only_asks_for_the_table(message) or _ord_pick) else await _general.answer(
+            message, claims, payload.context, request_id, _gen_lock.current() or "en", case_in_scope=payload.case_id,
+            meaning_kind=meaning_kind)
         if general_reply is not None:
             return general_reply
 
@@ -1965,6 +2053,14 @@ async def _copilot_json(
                 # 15.2 step 2: a general "how / what is" question, no case data and no FAQ answer -- never a guess
                 return _ws._base(request_id, "FAQ_UNKNOWN", _faq_none.unknown(_nc_lang, len(message)),
                                  query_type="CONVERSATION", category="KNOWLEDGE_ONLY", tools_invoked=[])
+            if action is FosAction.CUSTOM_QUERY and not about_a_case:
+                # NOTHING A CASE HOLDS IS NAMED ("write me a poem", 2026-10-12): not a case question -- the polite
+                # out-of-scope line and the next option, never "which case is this about?" over the case list
+                line, option = _oos.out_of_scope_reply(_nc_lang, len(message))
+                reply = _ws._base(request_id, "NOT_IN_SCOPE", line, query_type="CONVERSATION",
+                                  category="UNSUPPORTED", tools_invoked=[])
+                reply["faq_block"] = option
+                return reply
             # A CASE QUESTION (typed or from the dropdown) WITH NO CASE OPEN -- golden rule 2, never a dead end:
             # 0 cases -> say so + Create New Case; 1 case -> answered for it; several -> "Which case ...?" + the
             # recent cases, and the pick answers THIS question
@@ -2283,6 +2379,25 @@ async def _answer_action_scoped(
         if isinstance(result.get("understanding"), dict):
             result["understanding"]["compound"] = {
                 "parts": list(parts), "intents": intents_seen, "frames": frames}
+    if (action is FosAction.CUSTOM_QUERY and message and not parts and case_id
+            and str(result.get("intent") or "") not in ("GUARDRAIL_BLOCKED", "OUT_OF_SCOPE")):
+        # NOTHING DETERMINISTIC PLACED IT (audit 2026-10-11): the bounded planner may propose up to 3 read-only
+        # lookups on this case, each validated and answered by the engine; otherwise this reply stands
+        from app.agents.applicant.copilot.capabilities import fallback_planner as _planner
+
+        if _planner.enabled() and _planner.needed(message):
+            async def _lookup(call: dict[str, Any]) -> dict[str, Any]:
+                return await answer_question(
+                    message=call["canonical"], applicant_id=applicant_id, case_id=call["case_id"], claims=claims,
+                    request_id=request_id, intent_override=None, concise=True, context=context)
+
+            planned, plan_record = await _planner.plan_and_answer(message, case_id=case_id, claims=claims,
+                                                                  lookup=_lookup)
+            if planned is not None:
+                result = planned
+            if isinstance(result.get("understanding"), dict):
+                result["understanding"]["fallback_planner"] = plan_record
+            result["_fallback_planner"] = plan_record
     if str(result.get("intent") or "") == "STAGE_PROCESS" and not str(result.get("answer") or "").strip():
         # HOW A NAMED STAGE WORKS: the agent leaves the text to a caller with a
         # stage-guide source (copilot/agent.py). This route has one -- the
@@ -3596,6 +3711,10 @@ class FormUpdate(BaseModel):
     """The changed fields only. The frontend shows the summary and asks "Confirm?" before sending this."""
 
     changes: dict[str, Any] = Field(..., examples=[{"loan_amount": 600000, "email": "rahul@example.com"}])
+    # OPTIONAL, BACKWARD COMPATIBLE (2026-10-10): the values the form SHOWED for the fields being changed. When one
+    # no longer matches the stored value (another officer saved in between), nothing is written: 409 STALE_FORM
+    # with the current values, so a stale screen never silently overwrites a newer correction.
+    expected: dict[str, Any] | None = Field(None, examples=[{"full_name": "Rahul Shrma"}])
 
 
 @router.put("/cases/{case_id}/form", summary="Save changed fields of a case's form (same rules as create and chat)")
@@ -3624,9 +3743,19 @@ async def case_form_update(case_id: str, body: FormUpdate, lang: str | None = No
         raise HTTPException(422, detail={"request_id": request_id, "error": "INVALID_FIELDS",
                                          "fields": {f: {"label": _form.label(f, lang), "message": w}
                                                     for f, w in errors.items()}})
-    _form.save(case_id, clean, claims, request_id, "ui")
+    unknown_expected = sorted(set(body.expected or {}) - known)
+    if unknown_expected:
+        raise HTTPException(422, detail={"request_id": request_id, "error": "UNKNOWN_FIELD",
+                                         "fields": unknown_expected})
+    result = _form.save(case_id, clean, claims, request_id, "ui", expected=body.expected)
+    if result["outcome"] == "STALE":
+        raise HTTPException(409, detail={"request_id": request_id, "error": "STALE_FORM",
+                                         "current": result["current"]})
+    if result["outcome"] == "NOT_FOUND":
+        raise HTTPException(404, detail={"request_id": request_id, "error": "CASE_NOT_FOUND"})
+    # `changed`: the fields actually written (empty for a duplicate / no-op request) -- additive to the contract
     return {"request_id": request_id, "case_id": case_id, "values": _form.values_of(case_id),
-            "missing": _form.missing(case_id)}
+            "missing": _form.missing(case_id), "changed": sorted(result["changed"])}
 
 
 @router.get("/exports", summary="A short-lived download link: one case or a filtered list, as xlsx / docx / pdf")

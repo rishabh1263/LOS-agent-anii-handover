@@ -312,6 +312,8 @@ async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] |
         return None
     if meaning_kind == "case":
         return None                     # understood as a question about the case: the case engine answers it
+    if _stage_process_question(message) and not _handbook_heading_answers(message, claims, context, case_in_scope):
+        return None                     # "What does CPA verify?": the stage guide answers it (STAGE_PROCESS)
     parts = _parts(message)
     if len(parts) > 1:
         # "what is FOIR and what is LTV": every part answered by the same pipeline, joined; a part that needs a case
@@ -443,7 +445,10 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         kind = "THANKS" if _only(text, "thanks") else "ACKNOWLEDGEMENT"
         return _reply(request_id, kind, _say("ack", lang, seed) + " " + _say("ack_next", lang),
                       block=_asks(_suggestions(state, lang, 2)), case_id=case_id, category="CONVERSATION",
-                      answer_basis={"composition": {"called": False}, "source": "SMALL_TALK"})
+                      answer_basis={"composition": {"called": False}, "source": "SMALL_TALK"},
+                      # the turn's conversation outcome, as the conversation-state layer names it: an acknowledgement
+                      # of the previous answer -- nothing read, nothing resolved (conversation eval o3)
+                      understanding={"conversation": {"outcome": "ACKNOWLEDGEMENT", "turn_type": "ACKNOWLEDGEMENT"}})
     if _has(text, "role"):
         role = str(claims.get("role") or " ".join(claims.get("roles") or []) or "--")
         return _reply(request_id, "LOGIN_ROLE", _say("role", lang, user=get_subject(claims), role=role),
@@ -497,7 +502,12 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
     # with a case in scope, "interest rate" / "tenure" means THAT case's value (the case logic); the policy number only
     # when a product is named ("maximum tenure for home loan")
     unconfigured = _unconfigured_product(text) and not _product_of(text)
-    policy_answer = _policy(text, state, lang) if not case_id or _product_of(text) or unconfigured else None
+    # ...and a LIMIT asked by name ("what is the MAX LTV?", "minimum income?") is the policy number, case open or not
+    # (2026-10-12) -- "what is the interest rate?" with a case open stays that case's own value
+    limit_asked = bool(re.search(r"\b(max|maximum|min|minimum|limit|limits|cut\s*-?\s*off|upto|up\s+to|allowed|"
+                                 r"zyada\s+se\s+zyada|kam\s+se\s+kam)\b", _plain(text)))
+    policy_answer = (_policy(text, state, lang)
+                     if not case_id or _product_of(text) or unconfigured or limit_asked else None)
     if policy_answer is not None and unconfigured:
         policy_answer = _say_text((cfg().get("policy") or {}).get("texts", {}).get("generic_not_configured"), lang)
     if policy_answer is not None:
@@ -527,11 +537,14 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         return None                      # definitions with a case open are off (COPILOT_TERMS_KNOWLEDGE=false)
     if in_case and _case_question_not_definition(text, meaning_kind):
         return None                      # "is any document still outstanding" -- that case's data, not the glossary
+    compared = await _difference(text, request_id, lang, case_id)
+    if compared is not None:
+        return compared
     defined = await _definition(text, request_id, lang, case_id)
     if defined is not None:
         return defined
     # understood as GENERAL KNOWLEDGE by meaning (semantics/meaning.py): the knowledge base answers it, case open or not
-    if meaning_kind == "knowledge" or (_general_question(text) and not (case_id and _names_case_data(text))):
+    if meaning_kind == "knowledge" or (_general_question(text) and not (case_id and _names_case_data(text)))             or (not case_id and _handbook_answers_without_a_case(text)):
         # with a case OPEN, "is PAN mandatory?" / "documents required?" is about THAT case: the case logic answers
         # (unless MEANING said general knowledge: then a miss is "not in the knowledge base", never a case answer)
         return await _knowledge(text, request_id, lang, None if meaning_kind == "knowledge" else case_id)
@@ -593,7 +606,11 @@ def _requirement_answer(text: str, lang: str) -> str | None:
     required, optional = [], []
     for product in products:
         for e in config.checklist_for(product) or []:
-            if slot == str(e.get("slot")) or slot in [str(a) for a in e.get("accepts") or []]:
+            accepts = [str(a) for a in e.get("accepts") or []]
+            # THE SLOT ITSELF, or a document that is the slot's ONLY accepted type (PAN) -- never one option among
+            # several: "Do I need a passport?" is not "Passport is mandatory" when a driving licence or a voter ID
+            # satisfies the same slot (2026-10-10, family eval req_option_of_slot)
+            if slot == str(e.get("slot")) or accepts == [slot]:
                 (required if e.get("mandatory", True) else optional).append(_readable(product))
                 break
     if not required and not optional:
@@ -659,12 +676,81 @@ def _decision(text: str) -> bool:
     return any(_norm(p) in said for p in (cfg().get("decisions") or {}).get("phrases") or [])
 
 
+def _handbook_answers_without_a_case(text: str) -> bool:
+    """
+    ANY PHRASING, NOT A SHAPE LIST (2026-10-12, held-out evaluation): with no case open, a question that points at
+    no case (no case referent, no case id, not a list request, not case-only) and that the handbook answers WITH
+    CONFIDENCE is a general question -- "what comes after CPA in the process?" was sent to "which case?" because it
+    did not start with "what is". A case question ("kitna loan maanga hai") has no confident handbook answer and
+    still goes to the case logic.
+    """
+    spec = cfg().get("general_question") or {}
+    said = _plain(text)
+    if not said or any(re.search(p, said) for p in spec.get("case_only") or []):
+        return False
+    # A PICK OR A FRAGMENT ("1", "yes", "docs") answers the conversation, never the handbook: BM25 matched "1" to a
+    # numbered handbook list and the "which case?" pick was answered with it (test_chat_raise_query, 2026-10-12)
+    if re.fullmatch(r"[\d\s.,]+", said) or len(re.findall(r"[a-z]{2,}", said)) < 3:
+        return False
+    # ABOUT THE OFFICER'S OWN CASES ("show top 2 cases", "show me the next two", "why is it pending"): the workspace
+    # and the case logic answer it -- never the handbook (Run 9, 2026-10-12). "what comes after CPA in the process?"
+    # names no case and stays a handbook question.
+    from app.agents.applicant.copilot.capabilities import case_list as _own
+    from app.agents.applicant.copilot.capabilities import workspace as _ws
+
+    if (any(re.search(p, said) for p in (spec.get("case_value_patterns") or []) + (spec.get("case_pointers") or []))
+            or _own.understand(text) is not None or _ws._says("more", text)
+            or _own._has(text, (_own.cfg().get("phrases") or {}).get("next"))):
+        return False
+    if any(" " + _plain(r) in " " + said + " " for r in spec.get("case_referents") or []):
+        return False
+    from app.agents.applicant.copilot.capabilities import workspace
+
+    if workspace._only_asks_for_the_list(text) or any(p.search(text) for p in workspace._ID.values()):
+        return False
+    # A REQUEST TO DO SOMETHING is never a general question ("query daalo - bank statement 6 mahine ka chahiye",
+    # "raise deviation ..."): the workflow's own phrases (case actions, stage flow) send it to its case step
+    from app.agents.applicant.copilot.capabilities import case_actions as _acts
+    from app.agents.applicant.copilot.capabilities import stage_flow as _flow
+
+    if any(_acts.asks(k, text) for k in ("raise_query", "list_queries", "new_case")) or any(
+            _flow._says(k, text) for k in ((_flow._cfg().get("phrases") or {}).keys())):
+        return False
+    # "which CASES have a KYC mismatch?" asks for the caller's cases filtered -- the case list, not the handbook
+    # ("what is a KYC mismatch?" names no cases and stays a definition)
+    from app.agents.applicant.copilot.capabilities import case_list as _cl
+
+    if re.search(r"\b(cases|files|applications|applicants|customers)\b", said):
+        wanted = _cl.understand(text)
+        if wanted is not None and (getattr(wanted, "filter", None) or getattr(wanted, "status", None)
+                                   or getattr(wanted, "group", None) or getattr(wanted, "sort", None)):
+            return False
+    from app.agents.applicant import knowledge_answer
+
+    result = knowledge_answer.retrieve(text)
+    if result and result.confident and result.hits:
+        return True
+    # ...or a COMPANY VALUE the knowledge base deliberately does not state ("what's the processing fee you charge?":
+    # the best passage is a general-lending definition, knowledge.yaml no_company_values_sources + value_shapes) --
+    # answered honestly as not in the knowledge base, never "which case?"
+    from app.knowledge import _config as _knowledge_cfg
+
+    kcfg = _knowledge_cfg()
+    general = {str(s) for s in kcfg.get("no_company_values_sources") or []}
+    return bool(result and result.hits and result.hits[0].chunk.source in general
+                and any(re.search(p, said) for p in kcfg.get("value_shapes") or []))
+
+
 def _general_question(text: str) -> bool:
     """Shaped like general knowledge and pointing at no case (conversation_general.yaml general_question)."""
     spec = cfg().get("general_question") or {}
     said = _plain(text)
     if not said or any(re.search(p, said) for p in spec.get("case_only") or []):
         return False
+    from app.agents.applicant.copilot.semantics import intents as _credit
+
+    if _credit.names_credit_record(text):
+        return False                                    # "what does the credit memo say": the credit team's route
     # a GENERAL topic named outright ("another lender ... take over his loan" = balance transfer) wins over a referent
     # word ("his"): config general_question.general_override_shapes
     if any(re.search(p, said) for p in spec.get("general_override_shapes") or []):
@@ -709,7 +795,13 @@ async def _knowledge(text: str, request_id: str, lang: str, case_id: str | None)
         return None                 # a case is in scope: nothing general found -- the case logic answers it
     general = await _general_llm(text, request_id)
     if general:
-        return _reply(request_id, "GENERAL_LLM", general, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
+        # NEVER PASSED OFF AS THE HANDBOOK (2026-10-11, directive section 9): a general answer carries no citation, so
+        # it says what it is (config general_llm.provenance_note) and is marked as such on the reply
+        note = _pick((cfg().get("general_llm") or {}).get("provenance_note"), lang)
+        reply = _reply(request_id, "GENERAL_LLM", f"{general}\n\n{note}" if note else general, case_id=case_id,
+                       query_type="PROCESS_KNOWLEDGE")
+        reply.update(response_source="LLM_GENERAL")
+        return reply
     _log_gap(_plain(text), kind="questions")
     return _reply(request_id, "UNKNOWN_TERM", _pick(cfg().get("general_unknown"), lang), case_id=case_id)
 
@@ -1073,6 +1165,83 @@ def _say_list(key: str) -> Any:
     return (cfg().get("texts") or {}).get(key)
 
 
+def _stage_process_question(text: str) -> bool:
+    """
+    HOW A STAGE WORKS, not what a word means (2026-10-10, test_copilot_process_questions): "What does CPA verify?",
+    "How does the CPA stage work?" are read by the classifier as STAGE_PROCESS and answered from the stage guide.
+    This layer took them first as "what does <ACRONYM>" and, with no confident handbook hit, said the term was
+    unknown. A DEFINITION of the stage name ("what is CPA", "CPA kya hai" -- config phrases.definition) stays here:
+    the glossary answers that.
+    """
+    from app.agents.applicant.copilot.semantics import intents
+
+    if intents.classify(text).intent is not intents.Intent.STAGE_PROCESS:
+        return False
+    return not any(re.match(p, str(text or "").strip(), re.I)
+                   for p in (cfg().get("phrases") or {}).get("definition") or [])
+
+
+def _handbook_heading_answers(text: str, claims: dict[str, Any], context: dict[str, Any] | None,
+                              case_in_scope: str | None) -> bool:
+    """
+    A PROCESS QUESTION THE HANDBOOK ANSWERS WORD FOR WORD, with no case open: "what happens after CPA" has its own
+    handbook section -- the stage guide needs a case, and diverting there asked "which case?" for a question about no
+    case (2026-10-11, tests/integration/test_general_coverage; passed at HEAD before the 2026-10-10 diversion).
+    """
+    if case_in_scope or getattr(_state(claims, context), "active_case_id", None):
+        return False
+    from app.agents.applicant import knowledge_answer
+
+    result = knowledge_answer.retrieve(text)
+    plain = lambda s: " ".join(re.sub(r"[^a-z0-9 ]", " ", str(s or "").lower()).split())   # noqa: E731
+    return bool(result and result.confident and result.hits and plain(result.hits[0].chunk.heading) == plain(text))
+
+
+async def _difference(text: str, request_id: str, lang: str, case_id: str | None) -> dict[str, Any] | None:
+    """
+    "What's the difference between CPA and Credit?" (2026-10-12): when the handbook has no section comparing the two,
+    each term's OWN definition, side by side -- only when BOTH are defined (a stage name also as "<term> stage");
+    otherwise None and the ordinary pipeline answers. Nothing is composed beyond the two sourced definitions.
+    """
+    found = None
+    for pattern in (cfg().get("phrases") or {}).get("difference") or []:
+        found = re.match(pattern, text.strip(), re.I)
+        if found:
+            break
+    if not found:
+        return None
+    from app.agents.applicant import knowledge_answer
+
+    whole = knowledge_answer.retrieve(text)
+    terms = [found.group("a"), found.group("b")]
+    if whole and whole.confident and whole.hits and all(
+            t.lower() in f"{whole.hits[0].chunk.heading} {whole.hits[0].chunk.text}".lower() for t in terms):
+        return None                       # a section compares them already: the knowledge pipeline answers it
+    parts = []
+    for term in terms:
+        body = await _stage_description(term)        # a LOS stage: the configured stage guide describes it
+        if body is None:
+            defined = await _definition(f"what is {term}", request_id, lang, case_id)
+            if defined is None or str(defined.get("intent")) != "DEFINITION":
+                return None               # one of them is not defined: never half an answer
+            body = str(defined.get("answer") or "").split("\n\n")[0].strip()
+        parts.append(body if body.lower().lstrip("*").startswith(term.lower()) else f"**{term}**: {body}")
+    return _reply(request_id, "DEFINITION", "\n\n".join(parts), case_id=case_id, query_type="PROCESS_KNOWLEDGE")
+
+
+async def _stage_description(term: str) -> str | None:
+    """A LOS stage named by the term ("CPA", "credit", "RCU"): its description from the configured stage guide."""
+    from app.agents.applicant import config as _agent_config
+    from app.agents.applicant.copilot.semantics import intents as _stage_intents
+    from app.knowledge import process_knowledge
+
+    stage = _stage_intents.stage_in(f"{term} stage")
+    if not stage:
+        return None
+    described = process_knowledge.describe(stage, _agent_config.stage_label(stage))
+    return f"**{_agent_config.stage_label(stage)}**: {described}" if described else None
+
+
 async def _definition(text: str, request_id: str, lang: str, case_id: str | None) -> dict[str, Any] | None:
     """A definition / full form: the glossary, then the knowledge base; an unknown ACRONYM is logged."""
     term = None
@@ -1120,6 +1289,10 @@ def after(published: Any, message: str, claims: dict[str, Any], context: dict[st
         return published
     fb = cfg().get("fallback") or {}
     missed = str(published.get("intent") or "").upper() in {str(i).upper() for i in fb.get("miss_intents") or []}
+    # A DELIBERATE ROUTE IS AN ANSWER, NOT A MISS (2026-10-12): "what is the risk on this case?" was routed by the
+    # engine ("Risk scoring is handled by the downstream Risk process") and then overwritten by "Do you mean: ..."
+    if str(published.get("response_type") or "").upper() == "ROUTED" or published.get("route_to"):
+        missed = False
     # "Do you mean: <case tool> or <case tool>?" only for a CASE question the router half-understood -- a general
     # question the knowledge base lacks gets the plain "not in the knowledge base yet" (never case-tool guesses)
     knowledge_miss = str(published.get("intent") or "").upper() == "UNKNOWN_TERM" or _general_question(message)

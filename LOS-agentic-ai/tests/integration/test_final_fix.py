@@ -26,6 +26,11 @@ FOS, ACTION = "/api/v1/fos/copilot", "/api/v1/fos/action"
 LINK = re.compile(r"\]\(((?:action|ask):[^)]*)\)")
 
 
+
+def case_rows(md: str) -> bool:
+    """A case list was shown: the short list (default) or the table (on request, case_list.yaml format)."""
+    return bool(re.search(r"^(\| CASE-|\d+\. .*CASE-[0-9A-F]+)", md, re.M))
+
 def say(client, message, chat="ff", **extra):
     r = client.post(FOS, json={"action": "CUSTOM_QUERY", "message": message, "reply_language": "en",
                                "chat_id": chat, **extra})
@@ -35,7 +40,8 @@ def say(client, message, chat="ff", **extra):
 
 def extra_links(md: str) -> int:
     """Link items outside the case table and outside the flow question's own answer options."""
-    lines = [ln for ln in md.split("\n") if not ln.startswith("|")]
+    # the case list's own Open links (table rows or short-list rows) are the list itself, not extra links
+    lines = [ln for ln in md.split("\n") if not ln.startswith("|") and not re.match(r"\d+\. .*action:open_case", ln)]
     items = 0
     for ln in lines:
         found = LINK.findall(ln)
@@ -131,7 +137,7 @@ def test_several_cases_ask_once_and_the_pick_answers_the_original_question(clien
     for n in ("Rahul Sharma", "Priya Verma"):
         make_case(client, n)
     asked = say(client, "Application status", chat="z2")["markdown"]
-    assert asked.startswith("Which case is this about?") and "| CASE-" in asked
+    assert asked.startswith("Which case is this about?") and case_rows(asked)
     for pick, chat in (("2", "z2"),):
         answered = say(client, pick, chat=chat)["markdown"]
         assert "Which case" not in answered and re.search(r"CASE-[0-9A-F]+", answered)
@@ -154,7 +160,7 @@ def test_list_phrasings_reach_the_list(client, prod, phrase):
     make_case(client, "Rahul Sharma")
     make_case(client, "Priya Verma")
     md = say(client, phrase, chat="l-" + phrase)["markdown"]
-    assert "| CASE-" in md and re.search(r"Showing \d+-\d+ of \d+", md)
+    assert case_rows(md) and re.search(r"Showing \d+-\d+ of \d+", md)
 
 
 # ---- A4 / A5 ----------------------------------------------------------------------------------------------------
@@ -260,7 +266,7 @@ def test_the_owner_transcript(client, prod):
         make_case(client, n)
     chat = "owner"
     listed = say(client, "view all cases", chat=chat)["markdown"]
-    assert "| CASE-" in listed and "Showing 1-3 of 3" in listed
+    assert case_rows(listed) and "Showing 1-3 of 3" in listed
     opened = say(client, "2", chat=chat)["markdown"]
     assert "Priya Verma" in opened.split("\n")[0]
     pending = say(client, "what is pending?", chat=chat)["markdown"]
@@ -273,7 +279,7 @@ def test_the_owner_transcript(client, prod):
     ui = say(client, "show in UI", chat=chat)["markdown"]
     assert "action:show_in_ui" in ui
     other = say(client, "dusra case", chat=chat)["markdown"]
-    assert "| CASE-" in other
+    assert case_rows(other)
     asked = say(client, "Application status", chat="owner-2", new_chat=True)["markdown"]
     assert asked.startswith("Which case is this about?")
     answered = say(client, "1", chat="owner-2")["markdown"]

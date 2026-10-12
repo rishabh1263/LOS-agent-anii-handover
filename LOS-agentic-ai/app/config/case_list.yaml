@@ -55,7 +55,12 @@ phrases:
   next: [aur dikhao, next, agle, agla, aage, more, show more, aur]
   filter:
     kyc_issue: [kyc wale, kyc wala, kyc issue, kyc fail, kyc problem, kyc atka, kyc pending wale, kyc cases, kyc case,
-                kyc failed cases, kyc issue cases]
+                kyc failed cases, kyc issue cases, kyc issues, kyc problems, kyc discrepancy, kyc discrepancies,
+                kyc mismatch, kyc mismatches,
+                # "cases pending with KYC" names KYC as the reason -- never the generic needs-action list (2026-10-11)
+                pending with kyc, pending for kyc, pending kyc, kyc ke liye pending, kyc ki wajah se pending, pending due to kyc, pending because of kyc, pending on kyc, stuck on kyc,
+                stuck due to kyc, due to kyc, because of kyc, with kyc issues, with kyc issue, kyc pending,
+                kyc trouble, kyc troubles, kyc problem wale, kyc gadbad, kyc mein problem, kyc issue wale]
     ready_for_cpa: [ready wale, ready wala, cpa ready, ready for cpa, taiyar wale, ready cases]
     stuck: [atke hue, atka hua, atke, stuck, over target, late wale, der wale]
     documents_pending: [pending docs wale, docs pending, documents pending, document pending wale, docs baaki,
@@ -63,6 +68,9 @@ phrases:
     needs_action: [action wale, needs action, needing action, need action, kaam wale, jinme kaam hai, pending files,
                    pending cases, my pending, pending wale, files pending, cases pending]
   # a number said as a word
+  # "the first one" / "the second case" after a list: that row (negative = from the end)
+  ordinals: { first one: 1, second one: 2, third one: 3, last one: -1, first case: 1, second case: 2, third case: 3,
+              1st one: 1, 2nd one: 2, 3rd one: 3, top one: 1 }
   numbers: { ek: 1, one: 1, do: 2, two: 2, teen: 3, three: 3, char: 4, chaar: 4, four: 4, paanch: 5, panch: 5,
              five: 5, chhe: 6, six: 6, saat: 7, seven: 7, aath: 8, eight: 8, nau: 9, nine: 9, das: 10, ten: 10 }
 
@@ -133,3 +141,57 @@ labels:
     hi-Latn: ["Aur dikhao", "KYC wale", "Ready wale", "Sabse purane"]
     hi: ["और दिखाओ", "KYC वाले", "तैयार वाले", "सबसे पुराने"]
     mr: ["आणखी दाखवा", "KYC वाले", "तयार केस", "सर्वात जुने"]
+
+# THE CASE TABLE ONLY ON REQUEST (owner 2026-10-10). A list is answered as a short list -- one line per case with its
+# Open button -- and a "Show as a table" option; the markdown table only when the officer asks for one.
+#   default            summary | table
+#   table_phrases      words that ask for the table ("show me the table", "in a table", "tabular")
+#   no_table_phrases   words that refuse it ("don't show the table", "just summarize")
+format:
+  default: summary
+  table_phrases: [table, tabular, as a table, in a table, show the table, show me the table, table format, grid]
+  no_table_phrases: [no table, without table, without the table, don't show the table, dont show the table,
+                     do not show the table, just summarize, just summarise, only summary, summary only]
+  show_table: { en: "Show as a table", hi-Latn: "Table mein dikhao" }
+
+# ---- CASE INSIGHTS (capabilities/case_insights.py, 2026-10-11): count / rank / compare across the caller's OWN cases
+insights:
+  enabled: true
+  max_cases: 200          # rows read for an insight (the caller's granted cases)
+  max_listed: 5           # rows shown under a count / ranking
+  compare_all_up_to: 3    # "compare my cases" with no ids compares them all only up to this many
+  shapes:
+    # "compare" only with CASES as its object -- "which fields did my KYC check compare?" is a KYC question
+    compare: ['\bcompare\b.*\b(cases?|applicants?|applications?|files?|case-[0-9a-f]{6,}|these|them|both)\b',
+              '\b(cases?|applicants?|applications?)\b.*\bcompare\b', '\bdifference between\b.*\bcases?\b',
+              '\bcases?\b.*\bvs\.?\b', '\b(cases?|applicants?)\b.*\btulna\b', '\btulna\b.*\b(cases?|applicants?)\b',
+              '\bside by side\b']
+    closest: ['\b(closest|nearest|most ready|readiest)\b.*\b(cpa|ready|move)\b', '\bsabse (kareeb|paas|qareeb)\b.*\bcpa\b',
+              '\bcpa\b.*\b(closest|nearest|sabse paas|sabse kareeb)\b',
+              '\b(fewest|least|minimum|kam se kam)\b.*\b(blockers?|blocking|items? left|issues|pending)\b']
+    # "the most (documents / stuff / items) pending": the ranking is by pending documents either way
+    pending: ['\b(more|most|maximum|max|highest)\b.*\b(pending|missing|baaki|outstanding)\b',
+              '\b(rank|sort|order|arrange)\b.*\b(cases?|files?|applications?)\b.*\b(pending|missing|documents?|outstanding)\b',
+              '\b(documents?|docs)\b.*\b(pending|missing)\b.*\b(more|most)\b',
+              '\bsabse zyada\b.*\b(pending|baaki)\b']
+    count: ['\bhow many\b.*\b(cases?|files?|applications?)\b', '\bkitne\b.*\b(cases?|files?)\b',
+            '\bnumber of\b.*\b(cases?|files?|applications?)\b', '\bcount\b.*\b(cases?|files?)\b']
+  texts:
+    count: { en: "{n} of your {total} cases: {what}.", hi-Latn: "Aapke {total} mein se {n} cases: {what}." }
+    closest: { en: "Closest to CPA (fewest items left first):", hi-Latn: "CPA ke sabse kareeb (sabse kam kaam baaki):" }
+    none_at_fos: { en: "None of your cases is at FOS, so none is waiting to move to CPA.",
+                   hi-Latn: "Aapka koi case FOS par nahi hai, isliye koi CPA ke liye ruka nahi hai." }
+    most_pending: { en: "Most documents pending first:", hi-Latn: "Sabse zyada documents baaki wale pehle:" }
+    none_pending: { en: "No documents are pending on any of your cases.",
+                    hi-Latn: "Aapke kisi case par koi document baaki nahi hai." }
+    compare: { en: "Your {n} cases side by side:", hi-Latn: "Aapke {n} cases saath mein:" }
+    row: { en: "- {name} · {case_id} · {stage} · {status} · pending {pending} ({documents}) · {kyc}",
+           hi-Latn: "- {name} · {case_id} · {stage} · {status} · baaki {pending} ({documents}) · {kyc}" }
+    nothing: { en: "nothing", hi-Latn: "kuch nahi" }
+    kyc_issue: { en: "KYC issue", hi-Latn: "KYC issue" }
+    kyc_ok: { en: "no KYC issue", hi-Latn: "KYC theek" }
+    no_cases: { en: "You have no cases yet.", hi-Latn: "Aapke paas abhi koi case nahi hai." }
+    not_yours: { en: "I can't find {case_id} in your cases.", hi-Latn: "{case_id} aapke cases mein nahi mila." }
+    name_two: { en: "Name the two cases to compare (for example: compare CASE-... and CASE-...).",
+                hi-Latn: "Compare karne ke liye do cases batayein (jaise: compare CASE-... and CASE-...)." }
+

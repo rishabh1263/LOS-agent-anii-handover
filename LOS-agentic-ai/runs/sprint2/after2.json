@@ -1,0 +1,876 @@
+{
+ "summary": {
+  "matrix": "25/25",
+  "session": "27/27",
+  "by_category": {
+   "action:ambiguous": "1/1",
+   "action:cancel": "3/3",
+   "action:no": "2/2",
+   "action:refuse": "1/1",
+   "action:yes": "4/4",
+   "isolation": "1/1",
+   "ref:switch": "3/3",
+   "short:clear": "7/7",
+   "short:nocontext": "3/3"
+  },
+  "p50_ms": 102,
+  "p95_ms": 242,
+  "max_ms": 286,
+  "model_calls_total": 0,
+  "turns_with_model_call": 0
+ },
+ "matrix": [
+  {
+   "id": "docs-ctx",
+   "category": "short:clear",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "what is pending?"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "CASE-487BD93A4287\nKYC (Know Your Customer) needs attention:\n• **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pendi"
+   ],
+   "officer": "docs",
+   "status": 200,
+   "ms": 229,
+   "model_calls": 0,
+   "meaning": "pending_documents/embedding/0.99",
+   "audit": [
+    "PENDING_ITEMS:OK:workflow.pending_items,documents.checklist"
+   ],
+   "bot": "KYC needs attention:\n• **Name** mismatch: **PAN** shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pending:\n- Signature\n\n**Next step:** Clear these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n- [Why is signature required for this application?](ask:Why%20is%20signature%20required%20for%20this%20application?)\n- [Why does the checklist depend on the employment type?](ask:Why%20does%20the%20checklist%20depend%20on%20the%20employment%20type?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "status-ctx",
+   "category": "short:clear",
+   "setup": [
+    "open CASE-487BD93A4287"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app"
+   ],
+   "officer": "status",
+   "status": 200,
+   "ms": 286,
+   "model_calls": 0,
+   "meaning": "case_status/embedding/0.99",
+   "audit": [
+    "FULL_SUMMARY:OK:applicant.360"
+   ],
+   "bot": "CASE-487BD93A4287\n- Rahul Sharma — the application is at Basic Document Verification. Completed: **PAN** (Permanent Account Number), Driving Licence, Bank Statement. **Pending**: Signature has not been uploaded. Next action: Collect and upload the missing document: Signature. CPA readiness: Not ready — 2 item(s) blocking.\n\nDownload: [Excel](action:download?format=xlsx&case=CASE-487BD93A4287) · [Doc](action:download?format=docx&case=CASE-487BD93A4287) · [PDF](action:download?format=pdf&case=CASE-487BD93A4287) · [Show in UI](action:show_in_ui?case=CASE-487BD93A4287)\n\n- [Why is signature required for this application?](ask:Why%20is%20signature%20required%20for%20this%20application?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "pending-ctx",
+   "category": "short:clear",
+   "setup": [
+    "open CASE-487BD93A4287"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app"
+   ],
+   "officer": "pending",
+   "status": 200,
+   "ms": 242,
+   "model_calls": 0,
+   "meaning": "pending_documents/embedding/0.99",
+   "audit": [
+    "PENDING_ITEMS:OK:workflow.pending_items,documents.checklist"
+   ],
+   "bot": "CASE-487BD93A4287\nKYC (Know Your Customer) needs attention:\n• **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pending:\n- Signature\n\n**Next step:** Clear these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "why-after-pending",
+   "category": "short:clear",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "what is pending?"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "CASE-487BD93A4287\nKYC (Know Your Customer) needs attention:\n• **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pendi"
+   ],
+   "officer": "why",
+   "status": 200,
+   "ms": 185,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "CASE_HISTORY:OK:application.get"
+   ],
+   "bot": "The application has recorded findings. The name on the PAN, RAHUL SHARMA, does not match the bank account holder name, ROHIT VERMA.\n\n- [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?)\n- [What is pending?](ask:What%20is%20pending?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "kyun-after-kyc",
+   "category": "short:clear",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "kyc status?"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "CASE-487BD93A4287\nNot ready for CPA. KYC is not complete.\n- Applicant: name on the Bank Statement, differs from the application.\n- Applicant: name differs between the PAN and the Bank Statement.\n- Applicant: name differs between the Driving Licence and the Bank Statement.\n\n**Next step:** Ask the cus"
+   ],
+   "officer": "kyun",
+   "status": 200,
+   "ms": 265,
+   "model_calls": 0,
+   "meaning": "why_stuck/embedding/0.76",
+   "audit": [
+    "CASE_HISTORY:OK:application.get,workflow.pending_items,workflow.next_action"
+   ],
+   "bot": "CASE-487BD93A4287 is stuck at FOS because:\n- KYC failed: mismatch in name across the documents\n- Not uploaded: Signature\n- KYC not complete: date of birth, address, PAN number, father's name\n\n**Next step:** Upload the Signature.\n\n- [What is pending?](ask:What%20is%20pending?)\n- [Why is it stuck?](ask:Why%20is%20it%20stuck?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "next-ctx",
+   "category": "short:clear",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "what is pending?"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "CASE-487BD93A4287\nKYC (Know Your Customer) needs attention:\n• **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pendi"
+   ],
+   "officer": "next",
+   "status": 200,
+   "ms": 188,
+   "model_calls": 0,
+   "meaning": "next_step/embedding/0.83",
+   "audit": [
+    "NEXT_ACTION:OK:workflow.next_action,documents.checklist"
+   ],
+   "bot": "**Next step:** The next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue.\n\n[Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n- [Why is signature required for this application?](ask:Why%20is%20signature%20required%20for%20this%20application?)\n- [Why does the checklist depend on the employment type?](ask:Why%20does%20the%20checklist%20depend%20on%20the%20employment%20type?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "aur-after-pan",
+   "category": "short:clear",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "is the PAN verified?"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "CASE-487BD93A4287\n- **PAN** (Permanent Account Number) is **verified**. Its issuing authority has not been independently confirmed.\n\n- [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n\n[Close](action:exit_ca"
+   ],
+   "officer": "aur bank statement?",
+   "status": 200,
+   "ms": 121,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "DOCUMENT_VERIFICATION:OK:documents.verification,documents.checklist"
+   ],
+   "bot": "**Bank Statement** is **verified**. Its issuing authority has not been independently confirmed.\n\n- [Why is signature required for this application?](ask:Why%20is%20signature%20required%20for%20this%20application?)\n- [Why does the checklist depend on the employment type?](ask:Why%20does%20the%20checklist%20depend%20on%20the%20employment%20type?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "iska-after-switch",
+   "category": "ref:switch",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "open CASE-F1229EC01940"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "CASE-F1229EC01940 · Priya Verma · FOS\nPAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Priya Verma's KYC (Know Your Customer) hasn't run yet.\nNext step: Upload the PAN.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:Wh"
+   ],
+   "officer": "iska pending kya hai?",
+   "status": 200,
+   "ms": 161,
+   "model_calls": 0,
+   "meaning": "pending_documents/embedding/0.90",
+   "audit": [
+    "PENDING_ITEMS:OK:workflow.pending_items,documents.checklist"
+   ],
+   "bot": "CASE-F1229EC01940\nStill pending:\n- **PAN** (Permanent Account Number)\n- **Address Proof**\n- Bank Statement\n- Signature\n\n**Next step:** Clear these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Address Proof](action:upload?doc=ADDRESS_PROOF&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "pehle-wale",
+   "category": "ref:switch",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "open CASE-F1229EC01940",
+    "pehle wale par wapas chalo"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "CASE-F1229EC01940 · Priya Verma · FOS\nPAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Priya Verma's KYC (Know Your Customer) hasn't run yet.\nNext step: Upload the PAN.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:Wh",
+    "CASE-487BD93A4287 · Rahul Sharma · FOS\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driv"
+   ],
+   "officer": "status",
+   "status": 200,
+   "ms": 104,
+   "model_calls": 0,
+   "meaning": "case_status/embedding/0.99",
+   "audit": [
+    "FULL_SUMMARY:OK:applicant.360"
+   ],
+   "bot": "CASE-487BD93A4287\n- Rahul Sharma — the application is at Basic Document Verification. Completed: **PAN** (Permanent Account Number), Driving Licence, Bank Statement. **Pending**: Signature has not been uploaded. Next action: Collect and upload the missing document: Signature. CPA readiness: Not ready — 2 item(s) blocking.\n\nDownload: [Excel](action:download?format=xlsx&case=CASE-487BD93A4287) · [Doc](action:download?format=docx&case=CASE-487BD93A4287) · [PDF](action:download?format=pdf&case=CASE-487BD93A4287) · [Show in UI](action:show_in_ui?case=CASE-487BD93A4287)\n\n- [Why is signature required for this application?](ask:Why%20is%20signature%20required%20for%20this%20application?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "woh-wala",
+   "category": "ref:switch",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "open CASE-F1229EC01940"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "CASE-F1229EC01940 · Priya Verma · FOS\nPAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Priya Verma's KYC (Know Your Customer) hasn't run yet.\nNext step: Upload the PAN.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:Wh"
+   ],
+   "officer": "woh pehle wala case kholo",
+   "status": 200,
+   "ms": 36,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-487BD93A4287 · Rahul Sharma · FOS\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "docs-nocase",
+   "category": "short:nocontext",
+   "setup": [],
+   "setup_replies": [],
+   "officer": "docs",
+   "status": 200,
+   "ms": 40,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "What would you like to know about docs?\n\n1. [Show cases with documents pending](ask:Show%20cases%20with%20documents%20pending)\n2. [Which documents are needed for a loan?](ask:Which%20documents%20are%20needed%20for%20a%20loan%3F)\n3. [How do I upload documents?](ask:How%20do%20I%20upload%20documents%3F)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "why-nocase",
+   "category": "short:nocontext",
+   "setup": [],
+   "setup_replies": [],
+   "officer": "why",
+   "status": 200,
+   "ms": 54,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "Which case is this about? Pick one and I'll answer \"why\" for it.\n\nYou have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**.\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-487BD93A4287 | Rahul S. (APP-53AD667B58B4) | FOS (Field Officer Sales) | Created · KYC issue | [Open](action:open_case?id=CASE-487BD93A4287) |\n| 2 | CASE-F1229EC01940 | Priya V. (APP-D3F193BF91AC) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-F1229EC01940) |\n\nShowing 1-2 of 2 (newest first).\nThat is the whole list.",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "yes-nothing-pending",
+   "category": "action:yes",
+   "setup": [],
+   "setup_replies": [],
+   "officer": "yes",
+   "status": 200,
+   "ms": 23,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "Which case is this about? Pick one and I'll answer \"yes\" for it.\n\nYou have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**.\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-487BD93A4287 | Rahul S. (APP-53AD667B58B4) | FOS (Field Officer Sales) | Created · KYC issue | [Open](action:open_case?id=CASE-487BD93A4287) |\n| 2 | CASE-F1229EC01940 | Priya V. (APP-D3F193BF91AC) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-F1229EC01940) |\n\nShowing 1-2 of 2 (newest first).\nThat is the whole list.",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "cancel-nothing",
+   "category": "action:cancel",
+   "setup": [],
+   "setup_replies": [],
+   "officer": "cancel",
+   "status": 200,
+   "ms": 149,
+   "model_calls": 0,
+   "meaning": "command/embedding/1.00",
+   "audit": [],
+   "bot": "Which case is this about? Pick one and I'll answer \"cancel\" for it.\n\nYou have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**.\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-487BD93A4287 | Rahul S. (APP-53AD667B58B4) | FOS (Field Officer Sales) | Created · KYC issue | [Open](action:open_case?id=CASE-487BD93A4287) |\n| 2 | CASE-F1229EC01940 | Priya V. (APP-D3F193BF91AC) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-F1229EC01940) |\n\nShowing 1-2 of 2 (newest first).\nThat is the whole list.",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "iska-nocase",
+   "category": "short:nocontext",
+   "setup": [],
+   "setup_replies": [],
+   "officer": "iska status?",
+   "status": 200,
+   "ms": 118,
+   "model_calls": 0,
+   "meaning": "case_status/embedding/0.81",
+   "audit": [],
+   "bot": "Which case is this about? Pick one and I'll answer \"What is the status of this case?\" for it.\n\nYou have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**.\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-487BD93A4287 | Rahul S. (APP-53AD667B58B4) | FOS (Field Officer Sales) | Created · KYC issue | [Open](action:open_case?id=CASE-487BD93A4287) |\n| 2 | CASE-F1229EC01940 | Priya V. (APP-D3F193BF91AC) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-F1229EC01940) |\n\nShowing 1-2 of 2 (newest first).\nThat is the whole list.",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "yes-confirms",
+   "category": "action:yes",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "loan amount 6 lakh karo"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "Change Loan amount (Rs) of CASE-487BD93A4287 from 500000 to 600000?\n\n[Confirm](action:confirm_write?ref=edit-49f5ec) · [Cancel](action:cancel_write?ref=edit-49f5ec)\n\n[Close](action:exit_case)"
+   ],
+   "officer": "yes",
+   "status": 200,
+   "ms": 81,
+   "model_calls": 0,
+   "meaning": "command/embedding/1.00",
+   "audit": [
+    "UPDATE_CASE_FORM:OK:application.update"
+   ],
+   "bot": "Updated Loan amount (Rs) of CASE-487BD93A4287 to 600000.\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "haan-confirms",
+   "category": "action:yes",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "loan amount 6 lakh karo"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "Change Loan amount (Rs) of CASE-487BD93A4287 from 500000 to 600000?\n\n[Confirm](action:confirm_write?ref=edit-59f4fb) · [Cancel](action:cancel_write?ref=edit-59f4fb)\n\n[Close](action:exit_case)"
+   ],
+   "officer": "haan",
+   "status": 200,
+   "ms": 72,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "UPDATE_CASE_FORM:OK:application.update"
+   ],
+   "bot": "Updated Loan amount (Rs) of CASE-487BD93A4287 to 600000.\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "no-declines",
+   "category": "action:no",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "loan amount 7 lakh karo"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "Change Loan amount (Rs) of CASE-487BD93A4287 from 500000 to 700000?\n\n[Confirm](action:confirm_write?ref=edit-4797be) · [Cancel](action:cancel_write?ref=edit-4797be)\n\n[Close](action:exit_case)"
+   ],
+   "officer": "no",
+   "status": 200,
+   "ms": 98,
+   "model_calls": 0,
+   "meaning": "command/embedding/1.00",
+   "audit": [],
+   "bot": "Okay, nothing was changed.\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "nahi-declines",
+   "category": "action:no",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "loan amount 7 lakh karo"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "Change Loan amount (Rs) of CASE-487BD93A4287 from 500000 to 700000?\n\n[Confirm](action:confirm_write?ref=edit-a84a9f) · [Cancel](action:cancel_write?ref=edit-a84a9f)\n\n[Close](action:exit_case)"
+   ],
+   "officer": "nahi",
+   "status": 200,
+   "ms": 91,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "Okay, nothing was changed.\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "cancel-pending",
+   "category": "action:cancel",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "loan amount 7 lakh karo"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "Change Loan amount (Rs) of CASE-487BD93A4287 from 500000 to 700000?\n\n[Confirm](action:confirm_write?ref=edit-0971df) · [Cancel](action:cancel_write?ref=edit-0971df)\n\n[Close](action:exit_case)"
+   ],
+   "officer": "cancel",
+   "status": 200,
+   "ms": 55,
+   "model_calls": 0,
+   "meaning": "command/embedding/1.00",
+   "audit": [],
+   "bot": "Okay, nothing was changed.\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "yes-after-cancel",
+   "category": "action:cancel",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "loan amount 7 lakh karo",
+    "cancel"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "Change Loan amount (Rs) of CASE-487BD93A4287 from 500000 to 700000?\n\n[Confirm](action:confirm_write?ref=edit-f75e8a) · [Cancel](action:cancel_write?ref=edit-f75e8a)\n\n[Close](action:exit_case)",
+    "Okay, nothing was changed.\n\n[Close](action:exit_case)"
+   ],
+   "officer": "yes",
+   "status": 200,
+   "ms": 30,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "ACKNOWLEDGEMENT:CONVERSATION:"
+   ],
+   "bot": "CASE-487BD93A4287\nSure. Let me know if you'd like to check anything else.\n\n- [What is pending?](ask:What%20is%20pending?)\n- [Why is it stuck?](ask:Why%20is%20it%20stuck?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "yes-not-blanket",
+   "category": "action:yes",
+   "setup": [
+    "open CASE-487BD93A4287",
+    "what is pending?"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app",
+    "CASE-487BD93A4287\nKYC (Know Your Customer) needs attention:\n• **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pendi"
+   ],
+   "officer": "yes",
+   "status": 200,
+   "ms": 35,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "ACKNOWLEDGEMENT:CONVERSATION:"
+   ],
+   "bot": "Sure. Let me know if you'd like to check anything else.\n\n- [What is pending?](ask:What%20is%20pending?)\n- [Why is it stuck?](ask:Why%20is%20it%20stuck?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "kar-do-ambiguous",
+   "category": "action:ambiguous",
+   "setup": [
+    "open CASE-487BD93A4287"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app"
+   ],
+   "officer": "kar do",
+   "status": 200,
+   "ms": 131,
+   "model_calls": 0,
+   "meaning": "ambiguous_action/embedding/1.00",
+   "audit": [],
+   "bot": "What should I do? Pick one:\n\n1. [Collect from customer](ask:Collect%20from%20customer)\n2. [What is pending?](ask:What%20is%20pending%3F)\n3. [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA%3F)\n4. [Move to CPA](ask:Move%20to%20CPA)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "move-not-ready",
+   "category": "action:refuse",
+   "setup": [
+    "open CASE-487BD93A4287"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app"
+   ],
+   "officer": "CPA pe move kar do",
+   "status": 200,
+   "ms": 44,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-487BD93A4287 can't move to CPA yet, these need to be fixed first:\nApplicant documents\n- Signature: PENDING, not uploaded yet. Fix: Upload the Signature.\nPassed: PAN (Permanent Account Number), Address Proof, Bank Statement.\n\nSignature\n- Signature: PENDING. Signature has not been uploaded. Fix: Upload the signature.\n\nKYC (Know Your Customer)\n- Applicant: name: FAILED, the documents disagree. Fix: Upload a correct document so the name matches.\n- Applicant: date of birth: PENDING, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n- Applicant: address: PENDING, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n- Applicant: PAN number: PENDING, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n- Applicant: father's name: PENDING, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n\n**Next step:** Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "id": "named-other",
+   "category": "isolation",
+   "setup": [
+    "open CASE-487BD93A4287"
+   ],
+   "setup_replies": [
+    "CASE-487BD93A4287 · Rahul Sharma · FOS (Field Officer Sales)\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=app"
+   ],
+   "officer": "Priya ka pending kya hai?",
+   "status": 200,
+   "ms": 49,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "DOCUMENTS_PENDING:OK:documents.get,workflow.pending_items,documents.checklist"
+   ],
+   "bot": "CASE-F1229EC01940\nStill pending:\n- **PAN** (Permanent Account Number)\n- **Address Proof**\n- Bank Statement\n- Signature\n\n**Next step:** Upload these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Address Proof](action:upload?doc=ADDRESS_PROOF&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [What should I do next?](ask:What%20should%20I%20do%20next?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  }
+ ],
+ "session": [
+  {
+   "officer": "Good morning! Aaj kis case par pehle kaam karun?",
+   "status": 200,
+   "ms": 23,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**.\n\n| # | Case | Applicant | Stage | Status | |\n|---|---|---|---|---|---|\n| 1 | CASE-487BD93A4287 | Rahul S. (APP-53AD667B58B4) | FOS (Field Officer Sales) | Created · KYC issue | [Open](action:open_case?id=CASE-487BD93A4287) |\n\nShowing 1-1 of 2 (newest first).\n\n[Show more](action:list_more)\n\nDo you want to know about a particular case?\n[Yes](ask:Yes) · [No](ask:No)\n\nDownload: [Excel](action:download_list?format=xlsx&q=all) · [Doc](action:download_list?format=docx&q=all) · [PDF](action:download_list?format=pdf&q=all) · [Show in UI](action:show_list_in_ui?q=all)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "Rahul Sharma ka case kholo",
+   "status": 200,
+   "ms": 145,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-487BD93A4287 · Rahul Sharma · FOS\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "status batao",
+   "status": 200,
+   "ms": 237,
+   "model_calls": 0,
+   "meaning": "case_status/embedding/1.00",
+   "audit": [
+    "FULL_SUMMARY:OK:applicant.360"
+   ],
+   "bot": "CASE-487BD93A4287\n- Rahul Sharma — the application is at Basic Document Verification. Completed: **PAN** (Permanent Account Number), Driving Licence, Bank Statement. **Pending**: Signature has not been uploaded. Next action: Collect and upload the missing document: Signature. CPA readiness: Not ready — 2 item(s) blocking.\n\nDownload: [Excel](action:download?format=xlsx&case=CASE-487BD93A4287) · [Doc](action:download?format=docx&case=CASE-487BD93A4287) · [PDF](action:download?format=pdf&case=CASE-487BD93A4287) · [Show in UI](action:show_in_ui?case=CASE-487BD93A4287)\n\n- [Why is signature required for this application?](ask:Why%20is%20signature%20required%20for%20this%20application?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "pending",
+   "status": 200,
+   "ms": 131,
+   "model_calls": 0,
+   "meaning": "pending_documents/embedding/0.99",
+   "audit": [
+    "PENDING_ITEMS:OK:workflow.pending_items,documents.checklist"
+   ],
+   "bot": "KYC (Know Your Customer) needs attention:\n• **Name** mismatch: **PAN** shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pending:\n- Signature\n\n**Next step:** Clear these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "why",
+   "status": 200,
+   "ms": 73,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "CASE_HISTORY:OK:application.get"
+   ],
+   "bot": "The application has recorded findings. The name on the PAN, RAHUL SHARMA, does not match the bank account holder name, ROHIT VERMA.\n\n- [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?)\n- [What is pending?](ask:What%20is%20pending?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "KYC mein kya issue hai?",
+   "status": 200,
+   "ms": 251,
+   "model_calls": 0,
+   "meaning": "kyc_status/embedding/0.99",
+   "audit": [
+    "KYC_RESULT:OK:"
+   ],
+   "bot": "Not ready for CPA. KYC is not complete.\n- Applicant: name on the Bank Statement, differs from the application.\n- Applicant: name differs between the PAN and the Bank Statement.\n- Applicant: name differs between the Driving Licence and the Bank Statement.\n\n**Next step:** Ask the customer to upload correct documents that match the application form (Applicant: Bank Statement).\n[Draft a message to the customer](ask:Draft%20a%20message%20to%20the%20customer)\n\n**KYC, Applicant**\n\n*A. Application form vs documents*\n\n| Field | Form value | Document | Document value | Result |\n|---|---|---|---|---|\n| Name | Rahul Sharma | PAN | RAHUL SHARMA | Match |\n| Name | Rahul Sharma | Driving Licence | RAHUL SHARMA | Match |\n| Name | Rahul Sharma | Bank Statement | ROHIT VERMA | Differs from the application |\n\n*B. Documents vs each other*\n\n| Field | Document 1 | Value | Document 2 | Value | Result |\n|---|---|---|---|---|---|\n| Name | PAN | RAHUL SHARMA | Driving Licence | RAHUL SHARMA | Match |\n| Name | PAN | RAHUL SHARMA | Bank Statement | ROHIT VERMA | Differs |\n| Name | Driving Licence | RAHUL SHARMA | Bank Statement | ROHIT VERMA | Differs |\n\nLikely odd one out: the Bank Statement (name), the other documents agree. Upload a correct Bank Statement.\n\n- [Which documents does KYC compare?](ask:Which%20documents%20does%20KYC%20compare?)\n- [Why is it stuck?](ask:Why%20is%20it%20stuck?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "docs",
+   "status": 200,
+   "ms": 140,
+   "model_calls": 0,
+   "meaning": "pending_documents/embedding/0.99",
+   "audit": [
+    "PENDING_ITEMS:OK:workflow.pending_items,documents.checklist"
+   ],
+   "bot": "KYC needs attention:\n• **Name** mismatch: **PAN** shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pending:\n- Signature\n\n**Next step:** Clear these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "is signature mandatory?",
+   "status": 200,
+   "ms": 106,
+   "model_calls": 0,
+   "meaning": "knowledge_documents/embedding/0.99",
+   "audit": [],
+   "bot": "Yes, Signature is mandatory for every loan product.\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "next",
+   "status": 200,
+   "ms": 97,
+   "model_calls": 0,
+   "meaning": "next_step/embedding/0.83",
+   "audit": [
+    "NEXT_ACTION:OK:workflow.next_action,documents.checklist"
+   ],
+   "bot": "**Next step:** The next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue.\n\n[Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "Ek minute, Priya Verma ka case check karo",
+   "status": 200,
+   "ms": 80,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "DOCUMENT_VERIFICATION:OK:documents.get,documents.checklist"
+   ],
+   "bot": "CASE-F1229EC01940\n- No documents have been uploaded on this case yet, so nothing has been **verified**.\n\n- [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?)\n- [Why is PAN required for this application?](ask:Why%20is%20PAN%20required%20for%20this%20application?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "iska pending kya hai?",
+   "status": 200,
+   "ms": 102,
+   "model_calls": 0,
+   "meaning": "pending_documents/embedding/0.90",
+   "audit": [
+    "PENDING_ITEMS:OK:workflow.pending_items,documents.checklist"
+   ],
+   "bot": "Still pending:\n- **PAN** (Permanent Account Number)\n- **Address Proof**\n- Bank Statement\n- Signature\n\n**Next step:** Clear these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Address Proof](action:upload?doc=ADDRESS_PROOF&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "Ab pehle wale par wapas chalo",
+   "status": 200,
+   "ms": 51,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-487BD93A4287 · Rahul Sharma · FOS\nApplicant: name **did not pass**: the documents disagree.\nNext step: Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?)\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "uska status change hua?",
+   "status": 200,
+   "ms": 149,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "APPLICATION_STATUS:OK:application.get,documents.checklist"
+   ],
+   "bot": "CASE-487BD93A4287\n- The application has been created. Signature and Signature are still **pending**.\n\n**Next step:** Ask \"what is pending\" to see the documents.\n\n- [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?)\n- [What should I do next?](ask:What%20should%20I%20do%20next?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "loan amount 6 lakh karo",
+   "status": 200,
+   "ms": 20,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "Change Loan amount (Rs) of CASE-487BD93A4287 from 500000 to 600000?\n\n[Confirm](action:confirm_write?ref=edit-432c21) · [Cancel](action:cancel_write?ref=edit-432c21)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "haan",
+   "status": 200,
+   "ms": 55,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "UPDATE_CASE_FORM:OK:application.update"
+   ],
+   "bot": "Updated Loan amount (Rs) of CASE-487BD93A4287 to 600000.\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "loan amount kitna hai ab?",
+   "status": 200,
+   "ms": 227,
+   "model_calls": 0,
+   "meaning": "loan_amount/embedding/0.79",
+   "audit": [
+    "APPLICANT_PROFILE:OK:application.get"
+   ],
+   "bot": "The application records show a loan amount of **₹6,00,000**.\n\n- [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "loan amount 7 lakh karo",
+   "status": 200,
+   "ms": 19,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "Change Loan amount (Rs) of CASE-487BD93A4287 from 600000 to 700000?\n\n[Confirm](action:confirm_write?ref=edit-ae9075) · [Cancel](action:cancel_write?ref=edit-ae9075)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "ruko, cancel karo",
+   "status": 200,
+   "ms": 94,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "Okay, nothing was changed.\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "yes",
+   "status": 200,
+   "ms": 38,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "ACKNOWLEDGEMENT:CONVERSATION:"
+   ],
+   "bot": "Sure. Let me know if you'd like to check anything else.\n\n- [What is pending?](ask:What%20is%20pending?)\n- [Why is it stuck?](ask:Why%20is%20it%20stuck?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "nahi mera matlab bank statement ka status",
+   "status": 200,
+   "ms": 71,
+   "model_calls": 0,
+   "meaning": "document_status/followup/1.00",
+   "audit": [
+    "DOCUMENT_VERIFICATION:OK:documents.verification,documents.checklist"
+   ],
+   "bot": "**Bank Statement** is **verified**. Its issuing authority has not been independently confirmed.\n\n- [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?)\n- [What is the KYC status?](ask:What%20is%20the%20KYC%20status?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "Is this case ready for CPA?",
+   "status": 200,
+   "ms": 195,
+   "model_calls": 0,
+   "meaning": "cpa_readiness/embedding/1.00",
+   "audit": [
+    "READINESS:OK:workflow.readiness,documents.checklist"
+   ],
+   "bot": "CPA readiness: 4 of 12 checks passed.\n\n**Applicant documents**\n- Signature: **PENDING**, not uploaded yet. Fix: Upload the Signature.\n- Income Proof: **PENDING**, not uploaded yet. Fix: Upload the Income Proof.\nPassed: PAN, Address Proof, Bank Statement.\n\n**Signature**\n- Signature: **PENDING**. Signature has not been uploaded. Fix: Upload the signature.\n\n**KYC**\n- Applicant: name: **FAILED**, the documents disagree. Fix: Upload a correct document so the name matches.\n- Applicant: date of birth: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n- Applicant: address: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n- Applicant: PAN number: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n- Applicant: father's name: **PENDING**, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n\n**Next step:** Upload the Signature.\n\n- [What should I do next?](ask:What%20should%20I%20do%20next?)\n- [Why is signature required for this application?](ask:Why%20is%20signature%20required%20for%20this%20application?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "CPA pe move kar do",
+   "status": 200,
+   "ms": 46,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [],
+   "bot": "CASE-487BD93A4287 can't move to CPA yet, these need to be fixed first:\nApplicant documents\n- Signature: PENDING, not uploaded yet. Fix: Upload the Signature.\n- Income Proof: PENDING, not uploaded yet. Fix: Upload the Income Proof.\nPassed: PAN (Permanent Account Number), Address Proof, Bank Statement.\n\nSignature\n- Signature: PENDING. Signature has not been uploaded. Fix: Upload the signature.\n\nKYC (Know Your Customer)\n- Applicant: name: FAILED, the documents disagree. Fix: Upload a correct document so the name matches.\n- Applicant: date of birth: PENDING, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n- Applicant: address: PENDING, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n- Applicant: PAN number: PENDING, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n- Applicant: father's name: PENDING, no KYC result recorded for this check. Fix: Upload the identity documents so KYC can run.\n\n**Next step:** Upload the Signature.\n\n[Collect from customer](ask:Collect%20from%20customer)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "what documents are needed for personal loan?",
+   "status": 200,
+   "ms": 150,
+   "model_calls": 0,
+   "meaning": "knowledge_documents/embedding/0.90",
+   "audit": [],
+   "bot": "Required: PAN (Permanent Account Number), Address Proof (Driving Licence, Passport or Voter ID), Bank Statement, Signature.",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "can I upload aadhaar instead of pan?",
+   "status": 200,
+   "ms": 147,
+   "model_calls": 0,
+   "meaning": "knowledge_documents/embedding/1.00",
+   "audit": [],
+   "bot": "No. Aadhaar cannot replace it: the PAN (Permanent Account Number) requirement accepts only PAN.\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "what is api",
+   "status": 200,
+   "ms": 11,
+   "model_calls": 0,
+   "meaning": null,
+   "audit": [
+    "GUARDRAIL_BLOCKED:BLOCKED:"
+   ],
+   "bot": "I can't share details of the systems behind this assistant. I can help with your cases, documents, KYC (Know Your Customer) and the steps to move a case to CPA.",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "thanks",
+   "status": 200,
+   "ms": 141,
+   "model_calls": 0,
+   "meaning": "small_talk/embedding/1.00",
+   "audit": [],
+   "bot": "Okay. Anything else?\n\n[What is the KYC status?](ask:What%20is%20the%20KYC%20status?) · [What is pending?](ask:What%20is%20pending?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "officer": "Abhi tak kya kya pending hai, ek summary do",
+   "status": 200,
+   "ms": 182,
+   "model_calls": 0,
+   "meaning": "pending_documents/embedding/0.87",
+   "audit": [
+    "PENDING_ITEMS:OK:workflow.pending_items,documents.checklist"
+   ],
+   "bot": "KYC (Know Your Customer) needs attention:\n• **Name** mismatch: **PAN** (Permanent Account Number) shows \"RAHUL SHARMA\", Driving Licence shows \"RAHUL SHARMA\", Bank Statement shows \"ROHIT VERMA\"\nPlease upload the correct documents:\n- PAN\n- Driving Licence\n- Bank Statement\nStill pending:\n- Signature\n- Income Proof\n\n**Next step:** Clear these to move the case to CPA.\n\n[Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank Statement](action:upload?doc=BANK_STATEMENT&party=applicant) · [Upload Signature](action:upload?doc=SIGNATURE&party=applicant) · [Upload Income Proof](action:upload?doc=INCOME_PROOF&party=applicant)\n\n- [Is this case ready for CPA?](ask:Is%20this%20case%20ready%20for%20CPA?)\n- [Why is signature required for this application?](ask:Why%20is%20signature%20required%20for%20this%20application?)\n\n[Close](action:exit_case)",
+   "problems": [],
+   "passed": true
+  }
+ ],
+ "cases": {
+  "c1": "CASE-487BD93A4287",
+  "c2": "CASE-F1229EC01940"
+ }
+}

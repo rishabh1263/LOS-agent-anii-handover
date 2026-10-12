@@ -38,7 +38,8 @@ FLAG = "COPILOT_MEANING"
 _ROOT = Path(__file__).resolve().parents[5]
 _LOCK = threading.RLock()
 _BANK: dict[str, Any] = {"key": None, "intents": [], "vectors": [], "texts": []}
-STATS: dict[str, int] = {"asked": 0, "embedding": 0, "model": 0, "followup": 0, "none": 0, "model_failed": 0}
+STATS: dict[str, int] = {"asked": 0, "embedding": 0, "model": 0, "followup": 0, "none": 0, "model_failed": 0,
+                         "clarify": 0}
 
 
 @dataclass
@@ -115,18 +116,57 @@ def _norm(v: list[float]) -> list[float]:
     return [x / n for x in v]
 
 
+_ADAPTER: dict[str, Any] = {"mtime": None, "matrix": None}
+
+
+def _adapter():
+    """
+    THE LOS MEANING ADAPTER (2026-10-12; scripts/train_meaning_adapter.py): a linear map learned from the catalogue's
+    own examples on top of the frozen embeddings -- LOS paraphrases of one intent closer, different intents further.
+    Config intent_catalogue.yaml `adapter` (enabled + path); missing / unreadable file: None (plain cosine, as before).
+    """
+    spec = catalogue().get("adapter") or {}
+    if not spec.get("enabled"):
+        return None
+    path = Path(__file__).resolve().parents[4] / str(spec.get("path") or "models/meaning_adapter.npy")
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    with _LOCK:
+        if _ADAPTER["mtime"] != mtime:
+            try:
+                import numpy as np
+
+                _ADAPTER.update(mtime=mtime, matrix=np.load(path))
+            except Exception:  # noqa: BLE001 - an unreadable adapter is no adapter
+                logger.warning("meaning: adapter %s unreadable; plain embeddings", path, exc_info=True)
+                _ADAPTER.update(mtime=mtime, matrix=None)
+        return _ADAPTER["matrix"]
+
+
+def _adapted(v: list[float]) -> list[float]:
+    matrix = _adapter()
+    # ONLY FOR THE EMBEDDING IT WAS TRAINED ON: a vector of another size (another model, a test embedder) gets the
+    # plain cosine -- a size mismatch once made every ranking fail and silently switched meaning off (2026-10-12)
+    if matrix is None or getattr(matrix, "shape", (0, 0))[1] != len(v):
+        return _norm(v)
+    return _norm([float(x) for x in matrix @ _norm(v)])
+
+
 def _bank(embedder) -> tuple[list[str], list[list[float]], list[str]]:
     intents = catalogue().get("intents") or {}
     extra = (_load("intent_paraphrases.yaml").get("paraphrases") or {})
     pairs = [(name, str(e)) for name, spec in intents.items() for e in spec.get("examples") or []]
     pairs += [(name, str(e)) for name, items in extra.items() if name in intents for e in items or []]
-    key = hash(tuple(pairs))
+    _adapter()
+    key = hash((tuple(pairs), _ADAPTER["mtime"] if (catalogue().get("adapter") or {}).get("enabled") else None))
     with _LOCK:
         if _BANK["key"] == key:
             return _BANK["intents"], _BANK["vectors"], _BANK["texts"]
     from app.knowledge.retriever import _cached_embed_all
 
-    vectors = [_norm(v) for v in _cached_embed_all(embedder, [t for _, t in pairs])]
+    vectors = [_adapted(v) for v in _cached_embed_all(embedder, [t for _, t in pairs])]
     with _LOCK:
         _BANK.update(key=key, intents=[n for n, _ in pairs], vectors=vectors, texts=[t for _, t in pairs])
     return _BANK["intents"], _BANK["vectors"], _BANK["texts"]
@@ -138,7 +178,7 @@ def rank(message: str, embedder=None) -> list[tuple[str, float]]:
     if embedder is None:
         return []
     names, vectors, _ = _bank(embedder)
-    query = _norm(embedder.embed(_clean(message)))
+    query = _adapted(embedder.embed(_clean(message)))
     best: dict[str, float] = {}
     for name, vec in zip(names, vectors):
         score = sum(a * b for a, b in zip(query, vec))
@@ -225,6 +265,44 @@ def _decision(name: str, score: float, ranked: list[tuple[str, float]], by: str,
                     candidates=[(n, round(s, 3)) for n, s in ranked[:5]])
 
 
+def _clarify(message: str, ranked: list[tuple[str, float]], case_open: bool,
+             previous: dict[str, Any] | None = None) -> Decision | None:
+    """
+    CLOSE CALL, DECIDED INTERNALLY (2026-10-12; config decide.clarify). The held-out misses are mostly two CLOSE
+    topics read the wrong way round (status vs stage, KYC vs document status). When the two best readings are a
+    configured confusable pair and neither leads by `margin`, nothing is guessed and nothing is asked back:
+      1. the CONVERSATION decides -- the reading the previous turn was about continues ("what is pending?" ... "and
+         what's left?" stays on pending);
+      2. otherwise BOTH readings are answered, one compound question to the same engine ("What is the status of
+         this case and which stage is this case in?"), each part answered exactly as if asked alone.
+    Never for a clear lead, never outside the configured pairs, never with no case open for a case reading.
+    """
+    spec = _decide_cfg().get("clarify") or {}
+    if not spec.get("enabled") or len(ranked) < 2:
+        return None
+    (first, s1), (second, s2) = ranked[0], ranked[1]
+    if s1 < float(spec.get("floor", 0.6)) or s1 - s2 >= float(spec.get("margin", 0.03)):
+        return None
+    if not any({first, second} == {str(a), str(b)} for a, b in (spec.get("pairs") or [])):
+        return None
+    intents = catalogue().get("intents") or {}
+    if any((intents.get(n) or {}).get("kind") != "case" for n in (first, second)) or not case_open:
+        return None                                # no case open: the case logic asks "which case?" first
+    earlier = (previous or {}).get("intent")
+    if earlier in (first, second):
+        return _decision(earlier, dict(ranked)[earlier], ranked, "context", message)
+    d = _decision(first, s1, ranked, "both", message)
+    questions = [_canonical(intents.get(n) or {}, d.party, d.document) for n in (first, second)]
+    if not all(questions) or questions[0] == questions[1]:
+        return None
+    a, b = (str(q).strip().rstrip("?") for q in questions)
+    d.canonical = f"{a} and {b[:1].lower() + b[1:]}?"
+    # only when the engine really answers it as two questions (its own compound split); else the usual path
+    from app.agents.applicant.copilot.semantics import intents as _intents
+
+    return d if _intents.compound_parts(d.canonical) else None
+
+
 def _followup(message: str, previous: dict[str, Any] | None) -> Decision | None:
     """'and the co-applicant?' / 'what about PAN?' / 'and bank statement?': the previous case intent, the new slot."""
     if not previous or not previous.get("intent"):
@@ -292,6 +370,11 @@ async def understand(message: str, *, case_open: bool, previous: dict[str, Any] 
             return d
     top, score = ranked[0]
     second = ranked[1][1] if len(ranked) > 1 else 0.0
+    unsure = _clarify(message, ranked, case_open, previous)
+    if unsure is not None:
+        STATS["clarify"] += 1
+        _log(message, unsure)
+        return unsure
     lead = cfg.get("accept_with_lead") or {}
     clear_lead = bool(lead) and score >= float(lead["score"]) and score - second >= float(lead["margin"])
     if clear_lead or (score >= float(cfg["accept"]) and score - second >= float(cfg["margin"])):

@@ -68,6 +68,16 @@ def case(repo, monkeypatch):
         "documents": [{"source_id": f"{d.lower()}.jpg", "type": d, "party_id": APP, "verification": "PASS",
                        "reason_codes": []} for d in ("PAN", "DRIVING_LICENCE")]})
     repo.grant_access("test-subject", "APPLICANT", APP)
+    # THE APPLICATION NAME and the name read from the verified PAN (kyc_policies.yaml application_name, 2026-10-10):
+    # a case whose KYC passed also has a named applicant whose PAN carries that name
+    from app.store.models import Applicant
+
+    repo.save_applicant(Applicant(applicant_id=APP, full_name="Rahul Sharma"))
+    pan = next(d for d in repo.list_documents(CASE) if str(d.document_type).upper() == "PAN")
+    repo.save_finding(CaseFinding(
+        finding_id="pan-extraction", case_id=CASE, finding_kind=FindingKind.EXTRACTION, party_id=APP, stage="FOS",
+        status="PASS", source_type="DOCUMENT", source_id="pan.jpg", document_id=pan.document_id,
+        payload={"fields": {"name": "RAHUL SHARMA"}}))
     real = gates.read_sources
 
     def ready(case_id, **kw):
@@ -112,7 +122,20 @@ def move(client, mode="GATED", target="CPA", reason="FOS_HANDOFF"):
 
 # ---- configuration ---------------------------------------------------------------------
 def test_the_cpa_gate_checks_are_the_five_identity_checks_not_income():
-    assert kyc_gate.required_checks() == ALL
+    # the five document identity checks, then the application name vs the verified PAN (2026-10-10); never income
+    assert kyc_gate.required_checks() == ALL + ["APPLICATION_NAME"]
+    assert "INCOME" not in kyc_gate.required_checks()
+
+
+def test_an_application_name_that_differs_from_the_verified_pan_blocks(case, repo, service, monkeypatch):
+    from app.store.models import Applicant
+
+    rule_on(monkeypatch)
+    kyc(repo)                                               # every document check passed ...
+    repo.save_applicant(Applicant(applicant_id=APP, full_name="Karan Sethi"))   # ... but the application names another
+    r = move(service)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "GATE_NOT_MET", r.text
+    assert stages.resolve(CASE).stage is stages.LosStage.FOS
 
 
 def test_the_gate_configuration_is_valid():

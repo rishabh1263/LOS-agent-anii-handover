@@ -598,6 +598,38 @@ async def _request_span(request, call_next):
 
         detail = {"code": "INVALID_REQUEST", "message": "The request contains an invalid character."}
         return JSONResponse({"detail": detail, "error": _errors.error_block(400, detail)}, status_code=400)
+    # A BODY LARGER THAN ANY ROUTE ACCEPTS is refused from its declared length, before it is read into memory
+    # (2026-10-11, security review): the upload route's own 25 MB check ran only after the whole body was buffered.
+    # LOS_MAX_REQUEST_BYTES overrides; a chunked body without a length is still bounded by the route's own check.
+    from app.agents.document_agent.workflow import MAX_UPLOAD_BYTES as _max_upload
+
+    try:
+        _limit = int(_os.getenv("LOS_MAX_REQUEST_BYTES") or (_max_upload + 1024 * 1024))
+    except ValueError:
+        _limit = _max_upload + 1024 * 1024               # a malformed setting keeps the default, never "no limit"
+    try:
+        _declared = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        _declared = -1
+    if _declared < 0 or (_limit and _declared > _limit):
+        from fastapi.responses import JSONResponse
+
+        too_large = _declared >= 0
+        detail = {"code": "PAYLOAD_TOO_LARGE" if too_large else "INVALID_REQUEST",
+                  "message": "The request body is too large." if too_large else "Invalid Content-Length."}
+        status = 413 if too_large else 400
+        return JSONResponse({"detail": detail, "error": _errors.error_block(status, detail)}, status_code=status)
+    # API-WIDE LIMIT per caller (app/security/api_rate_limit.py): 429 + Retry-After before the route runs
+    from app.security import api_rate_limit as _api_limit
+
+    _wait = _api_limit.check(request.url.path, request.headers.get("authorization"),
+                             request.client.host if request.client else None)
+    if _wait:
+        from fastapi.responses import JSONResponse
+
+        detail = {"code": "RATE_LIMITED", "message": "Too many requests. Please wait and try again."}
+        return JSONResponse({"detail": detail, "error": _errors.error_block(429, detail)}, status_code=429,
+                            headers={"Retry-After": str(_wait)})
     # one model-call ledger per request (app/llm/trace.py)
     _llm_trace.begin()
     with span("http.request", http_method=request.method) as current:

@@ -41,14 +41,19 @@ def test_an_accepted_type_is_explained_through_its_slot():
     assert "one of the documents accepted as Address Proof" in fact.text
 
 
-def test_the_signature_photo_is_optional_on_both_products():
+def test_the_signature_photo_is_required_on_both_products():
+    # owner 2026-10-09: the signature is mandatory for every product (it was optional before)
     for product in ("PERSONAL_LOAN", "HOME_LOAN"):
-        assert "optional" in facts.authoritative_answer("why is the signature needed?", product).text
+        text = facts.authoritative_answer("why is the signature needed?", product).text
+        assert "required" in text and "optional" not in text, text
+        assert "owner" not in text.lower() and "2026" not in text, text       # no internal notes in an answer
 
 
 def test_the_answer_is_generic_across_products():
     fact = facts.authoritative_answer("why is PAN required?")
-    assert "Personal Loan and Home Loan" in fact.text
+    # every product whose checklist requires PAN is named (LAP added 2026-10-11, industry default)
+    for product in ("Personal Loan", "Home Loan", "Loan Against Property"):
+        assert product in fact.text, fact.text
 
 
 def test_a_document_no_product_asks_for_is_not_required():

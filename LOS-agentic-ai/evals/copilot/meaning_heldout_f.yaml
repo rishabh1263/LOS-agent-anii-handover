@@ -1,0 +1,64 @@
+# HELD-OUT SET F (2026-10-12): the FINAL accuracy test for the 90% target. Written before any route-3 / route-2
+# tuning and never used to choose data, examples or settings (set E is the development set). None of these
+# sentences is a catalogue example, a paraphrase in intent_paraphrases.yaml, or a set E sentence.
+items:
+  - { q: "what figure did the applicant put down for the loan", intent: loan_amount }
+  - { q: "kitna amount sanction ke liye maanga gaya hai", intent: loan_amount }
+  - { q: "how big is the loan on this file", intent: loan_amount }
+  - { q: "principal requested please", intent: loan_amount }
+  - { q: "applicant ka poora naam batao", intent: applicant_name }
+  - { q: "who exactly is the customer here", intent: applicant_name }
+  - { q: "what name is on the loan form", intent: applicant_name }
+  - { q: "share the email id of the borrower", intent: applicant_contact }
+  - { q: "customer ka ghar ka pata kya hai", intent: applicant_contact }
+  - { q: "what's the date of birth we have", intent: applicant_contact }
+  - { q: "abhi ye file kis level pe hai", intent: case_stage }
+  - { q: "which step of the process is it at", intent: case_stage }
+  - { q: "has it gone to RCU or not", intent: case_stage }
+  - { q: "give me a quick status on this one", intent: case_status }
+  - { q: "case ki halat kya hai", intent: case_status }
+  - { q: "how's this application going", intent: case_status }
+  - { q: "what papers do I still have to collect", intent: pending_documents }
+  - { q: "abhi kya kya dena baaki hai customer ko", intent: pending_documents }
+  - { q: "which uploads are missing", intent: pending_documents }
+  - { q: "what's blocking this file", intent: why_stuck }
+  - { q: "ye aage kyun nahi badh raha", intent: why_stuck }
+  - { q: "reason this case is held", intent: why_stuck }
+  - { q: "what's my next move here", intent: next_step }
+  - { q: "ab mujhe kya action lena chahiye", intent: next_step }
+  - { q: "tell me what to do next on this", intent: next_step }
+  - { q: "is this file good to go to CPA", intent: cpa_readiness }
+  - { q: "CPA ke liye sab complete hai kya", intent: cpa_readiness }
+  - { q: "what is left before the CPA handoff", intent: cpa_readiness }
+  - { q: "did the kyc match go through fine", intent: kyc_status }
+  - { q: "kyc ka result kya aaya", intent: kyc_status }
+  - { q: "is there any name or DOB mismatch in kyc", intent: kyc_status }
+  - { q: "has the address proof been verified", intent: document_status }
+  - { q: "salary slip ka status kya hai", intent: document_status }
+  - { q: "what went wrong with the PAN upload", intent: document_rejection }
+  - { q: "passport reject hone ki wajah", intent: document_rejection }
+  - { q: "show me the documents already on file", intent: uploaded_documents }
+  - { q: "abhi tak kaunse documents mil gaye", intent: uploaded_documents }
+  - { q: "since when has it been stuck at FOS", intent: time_in_stage }
+  - { q: "is stage pe kitna time ho gaya", intent: time_in_stage }
+  - { q: "give me the timeline of this case", intent: case_history }
+  - { q: "kab kya hua is file mein", intent: case_history }
+  - { q: "employment type and tenure on the form", intent: application_details }
+  - { q: "loan ka product aur tenure kya hai", intent: application_details }
+  - { q: "write an sms to the customer listing what's pending", intent: customer_message }
+  - { q: "customer ke liye whatsapp message bana do", intent: customer_message }
+  - { q: "what must the customer bring when I visit", intent: collect_from_customer }
+  - { q: "which file needs my attention first", intent: work_queue }
+  - { q: "sabse pehle kis case pe kaam karu", intent: work_queue }
+  - { q: "how to move a file forward to CPA", intent: process_move_to_cpa }
+  - { q: "naya case kaise banate hain", intent: process_create_case }
+  - { q: "how do I upload the customer's documents", intent: process_upload }
+  - { q: "explain the loan stages end to end", intent: process_stages }
+  - { q: "what does LTV stand for", intent: knowledge_term }
+  - { q: "meaning of FOIR in lending", intent: knowledge_term }
+  - { q: "what's the max tenure for a personal loan", intent: policy_value }
+  - { q: "will this case get sanctioned", intent: credit_decision }
+  - { q: "emi kitni banegi 5 lakh pe 3 saal ke liye", intent: calculator }
+  - { q: "ok thanks a lot", intent: small_talk }
+  - { q: "who is going to win the election", intent: out_of_scope }
+  - { q: "suggest a holiday destination", intent: out_of_scope }

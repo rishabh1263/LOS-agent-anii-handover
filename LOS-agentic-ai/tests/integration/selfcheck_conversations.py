@@ -10,7 +10,9 @@ FOS, PAN / Address Proof / Bank Statement pending, KYC not run, not ready for CP
 from __future__ import annotations
 
 R = r"(?i)"
-LIST = [R + r"\| CASE-[0-9A-F]+ \|"]
+# a case list: the short list "1. Name · CASE-… · Status · [Open]" (default) or the table (on request, case_list.yaml)
+ROWS = r"(?m)(\| CASE-[0-9A-F]+ \||^\d+\. .*\bCASE-[0-9A-F]+)"
+LIST = [R + ROWS]
 PARTICULAR = [R + r"particular case|details of a particular"]
 GROUP_Q = [R + r"pending or done|pending ya done"]
 OPENED = [R + r"CASE-[0-9A-F]+\** · [^\n]+ · FOS|\bopened\b"]       # the case brief's first line
@@ -132,10 +134,10 @@ CONVERSATIONS: list[tuple[str, list[tuple]]] = [
         ("sorry, my cases", [LIST], []),
     ]),
     ("20 abuse hinglish", [
-        ("chutiya bot mere cases dikha", [ABUSE], [R + r"\| CASE-"]),
+        ("chutiya bot mere cases dikha", [ABUSE], [R + ROWS]),
     ]),
     ("21 out of scope", [
-        ("kal IPL kaun jeeta", [[R + r"only help with your cases|outside what I can help"]], [R + r"\| CASE-"]),
+        ("kal IPL kaun jeeta", [[R + r"only help with your cases|outside what I can help"]], [R + ROWS]),
     ]),
     ("22 other officer case", [
         ("open {B}", [NOT_FOUND], NO_CASE_B),

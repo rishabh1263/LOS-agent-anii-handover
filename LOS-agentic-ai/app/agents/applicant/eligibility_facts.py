@@ -178,7 +178,7 @@ def answer(memory: dict[str, Any], want: str = SUMMARY) -> tuple[str, list[dict[
         return NOT_ASSESSED, []
 
     status = str(recorded.get("status") or "").upper()
-    policy = recorded.get("policy") or {}
+    policy = recorded.get("policy") if isinstance(recorded.get("policy"), dict) else {}
     sources = [{"kind": _FINANCIAL, "status": status,
                 "policy_id": policy.get("id"),
                 "policy_version": policy.get("version")}]
@@ -192,7 +192,7 @@ def answer(memory: dict[str, Any], want: str = SUMMARY) -> tuple[str, list[dict[
     lines = [_headline(state or status, recorded.get("reason_codes") or [])]
     lines.append(_ratios(recorded.get("foir") or {}, recorded.get("ltv") or {}))
 
-    basis = _basis(recorded.get("inputs") or {})
+    basis = _basis(recorded.get("inputs") if isinstance(recorded.get("inputs"), dict) else {})
     if basis:
         lines.append(basis)
 
@@ -273,7 +273,11 @@ def _ratios(foir: dict[str, Any], ltv: dict[str, Any]) -> str:
     return f"{_ratio('FOIR', foir)} {_ratio('LTV', ltv)}".strip()
 
 
-def _ratio(name: str, block: dict[str, Any]) -> str:
+def _ratio(name: str, block: Any) -> str:
+    # A RECORD IN ANOTHER SHAPE never crashes the answer (2026-10-12: an older record held "foir": "0.35" -- the
+    # Copilot answered HTTP 500): a bare value is said as recorded, nothing is recomputed or reinterpreted
+    if not isinstance(block, dict):
+        return f"{name}: {block} (as recorded)." if block not in (None, "") else f"{name}: not computed."
     status = str(block.get("status") or "").upper()
     if status == "NOT_APPLICABLE":
         return f"{name}: not applicable (unsecured loan)."

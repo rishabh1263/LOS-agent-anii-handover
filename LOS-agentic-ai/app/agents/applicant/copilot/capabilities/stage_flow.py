@@ -20,8 +20,11 @@ import time
 import uuid
 from typing import Any
 
-KINDS = ("customer_query", "free_query", "move", "stage_query", "reply_query", "resolve_query")
+KINDS = ("customer_query", "free_query", "move", "stage_query", "reply_query", "resolve_query",
+         "deviation", "deviation_decision")
 _QID = re.compile(r"\bQRY-[0-9A-F]{6,}\b", re.I)
+_DEV_ID = re.compile(r"\bDEV-[0-9A-F]{10}\b", re.I)          # a raised deviation record
+_DEV_CODE = re.compile(r"\bDVM-[0-9A-F]{6}\b", re.I)          # an entry of the deviation master
 
 
 def _cfg() -> dict[str, Any]:
@@ -154,6 +157,16 @@ def propose(message: str, case_id: str, claims: dict[str, Any], request_id: str,
     if not enabled():
         return None, None
     text = str(message or "")
+    # DEVIATIONS FIRST ("raise deviation ..." must never read as "raise query"): the deviation master's entries only
+    if _says("deviation_status", text):
+        workspace.authorize(claims, case_id)
+        return _deviation_list(case_id, request_id, lang), None
+    if _says("approve_deviation", text) or _says("reject_deviation", text):
+        workspace.authorize(claims, case_id)
+        return _propose_deviation_decision(case_id, text, request_id, lang)
+    if _says("raise_deviation", text):
+        workspace.authorize(claims, case_id)
+        return _propose_deviation(case_id, text, request_id, lang)
     # the most specific first: "raise query to FOS" is a stage query, not the customer one
     if _says("query_to_stage", text):
         workspace.authorize(claims, case_id)
@@ -355,6 +368,111 @@ def _propose_query_move(case_id: str, query_id: str | None, to_status: str, note
 # the pending step: text (for a stage query), Confirm, Cancel
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# DEVIATIONS (the deviation master, queries.yaml deviations; 2026-10-12)
+# --------------------------------------------------------------------------
+
+def _dev_fields(entry: dict[str, Any]) -> dict[str, str]:
+    return {"description": str(entry.get("description") or ""),
+            "category": str(entry.get("category") or "").replace("_", " ").title().replace("Nfa", "NFA"),
+            "approvers": ", ".join(str(a).replace("_", " ") for a in entry.get("approvers") or []) or "--"}
+
+
+def _propose_deviation(case_id: str, text: str, request_id: str, lang: str):
+    """ "raise deviation LTV > 70%": the master entry it names -> its reason -> Confirm. Not clear: pick from options."""
+    from app.agents.los import queries
+
+    code = _DEV_CODE.search(text)
+    entry = queries.deviation_by_code(code.group(0).upper()) if code else None
+    rest = text
+    for phrase in sorted((_cfg().get("phrases") or {}).get("raise_deviation") or [], key=len, reverse=True):
+        rest = re.sub(re.escape(phrase), " ", rest, flags=re.I)
+    reason = None
+    if ":" in rest:                                    # "raise deviation LTV > 70%: property value revised"
+        rest, reason = rest.split(":", 1)
+    words = " ".join(_DEV_CODE.sub(" ", rest).split()).strip(" -,")
+    if entry is None and words:
+        cfg = queries.config("deviations")
+        ranked = queries.match_deviations(words, limit=3)
+        top = ranked[0] if ranked else None
+        margin = top[1] - ranked[1][1] if len(ranked) > 1 else 1.0
+        if top and top[1] >= float(cfg.get("match_min_score", 0.5)) and margin >= float(cfg.get("match_margin", 0.15)):
+            entry = top[0]
+        elif top and top[1] > 0.15:
+            # NOT CLEAR: the officer picks -- a write is never made on a guess
+            # only the readings NEAR the best one (queries.yaml deviations.pick_min_share): "low cibil score" offered
+            # "BT for loan < 10 MOB" at a third of the best score (live smoke 2026-10-12)
+            share = float(cfg.get("pick_min_share", 0.6))
+            lines = [f"- [{d['description'][:90]}](ask:{_ask_text(f'raise deviation ' + d['code'])})"
+                     for d, s in ranked if s >= top[1] * share]
+            return _reply(request_id, case_id, _say("deviation_pick", lang) + "\n" + "\n".join(lines),
+                          intent="DEVIATION_PICK"), None
+    if entry is None:
+        return _reply(request_id, case_id, _say("deviation_none", lang, text=words or text)), None
+    write = _write("deviation", case_id, code=entry["code"], reason=" ".join(str(reason or "").split()) or None)
+    if not write["reason"]:
+        return _reply(request_id, case_id, _say("deviation_ask_reason", lang, case_id=case_id, **_dev_fields(entry)),
+                      intent="DEVIATION_DRAFT"), write
+    return _deviation_draft(write, entry, request_id, lang), write
+
+
+def _ask_text(text: str) -> str:
+    from urllib.parse import quote
+
+    return quote(text, safe="")
+
+
+def _deviation_draft(write: dict[str, Any], entry: dict[str, Any], request_id: str, lang: str) -> dict[str, Any]:
+    return _reply(request_id, write["case_id"], _say("deviation_draft", lang, case_id=write["case_id"],
+                                                     reason=write["reason"], **_dev_fields(entry)),
+                  block=_confirm_links(write["ref"], lang), intent="DEVIATION_DRAFT")
+
+
+def _deviation_list(case_id: str, request_id: str, lang: str) -> dict[str, Any]:
+    from app.agents.los import queries
+
+    rows = queries.list_deviations(case_id)
+    if not rows:
+        return _reply(request_id, case_id, _say("deviation_list_none", lang, case_id=case_id), intent="DEVIATIONS")
+    lines = [_say("deviation_list_head", lang, case_id=case_id)]
+    for d in rows:
+        lines.append(_say("deviation_row", lang, deviation_id=d.get("deviation_id"), status=d.get("status"),
+                          **_dev_fields(d)))
+    return _reply(request_id, case_id, "\n".join(lines), intent="DEVIATIONS", tools_invoked=["los.deviation.list"])
+
+
+def _propose_deviation_decision(case_id: str, text: str, request_id: str, lang: str):
+    """ "approve deviation DEV-...: reason" / "reject deviation DEV-...: reason" -> Confirm (authority checked then)."""
+    from app.agents.los import queries
+
+    decision = "REJECTED" if _says("reject_deviation", text) else "APPROVED"
+    verb = "reject" if decision == "REJECTED" else "approve"
+    named = _DEV_ID.search(text)
+    open_rows = [d for d in queries.list_deviations(case_id)
+                 if d["status"] in set(queries.config("deviations").get("open_statuses") or [])]
+    if named is None:
+        if len(open_rows) == 1:
+            deviation_id = str(open_rows[0]["deviation_id"])
+        else:
+            ids = ", ".join(str(d["deviation_id"]) for d in open_rows) or "--"
+            return _reply(request_id, case_id, _say("deviation_which", lang, ids=ids)), None
+    else:
+        deviation_id = named.group(0).upper()
+    row = next((d for d in queries.list_deviations(case_id) if d["deviation_id"] == deviation_id), None)
+    if row is None:
+        return _reply(request_id, case_id, _say("deviation_which", lang,
+                                                ids=", ".join(str(d["deviation_id"]) for d in open_rows) or "--")), None
+    justification = text[named.end():].strip(" :-,") if named else (text.split(":", 1)[1].strip() if ":" in text else "")
+    if not justification:
+        return _reply(request_id, case_id, _say("deviation_need_reason", lang, verb=verb, deviation_id=deviation_id)), None
+    write = _write("deviation_decision", case_id, deviation_id=deviation_id, decision=decision,
+                   justification=justification[:500])
+    return _reply(request_id, case_id, _say("deviation_decision_draft", lang, decision=decision.title(),
+                                            deviation_id=deviation_id, justification=write["justification"],
+                                            **_dev_fields(row)),
+                  block=_confirm_links(write["ref"], lang), intent="DEVIATION_DECISION_DRAFT"), write
+
+
 def step(write: dict[str, Any], message: str, claims: dict[str, Any], request_id: str,
          lang: str) -> dict[str, Any] | None:
     """The answer to a pending workflow proposal; None when the message is about something else (proposal dropped)."""
@@ -362,10 +480,20 @@ def step(write: dict[str, Any], message: str, claims: dict[str, Any], request_id
 
     ref = str(write.get("ref") or "")
     case_id = str(write.get("case_id") or "")
+    if write.get("kind") == "deviation" and not write.get("reason"):
+        # the deviation's reason was asked: THIS message is it -> the draft, then Confirm
+        from app.agents.los import queries
+
+        text = " ".join(str(message or "").split())
+        if not text or case_form._only(message, [*case_form._words("cancel_words"), *case_form._words("soft_cancel_words"), "cancel"], ref):
+            write["done"] = True
+            return _reply(request_id, case_id, _say("cancelled", lang))
+        write["reason"] = text[:500]
+        return _deviation_draft(write, queries.deviation_by_code(write["code"]) or {}, request_id, lang)
     if write.get("kind") == "free_query" and not write.get("text"):
         # "raise a query" with no words yet: this message IS the query's text -> the draft, then Confirm
         text = " ".join(str(message or "").split())
-        if not text or case_form._only(message, [*case_form._words("cancel_words"), "cancel"], ref):
+        if not text or case_form._only(message, [*case_form._words("cancel_words"), *case_form._words("soft_cancel_words"), "cancel"], ref):
             write["done"] = True
             return _reply(request_id, case_id, _say("cancelled", lang))
         target = str((_cfg().get("free_query") or {}).get("target_type") or "CUSTOMER")
@@ -375,14 +503,14 @@ def step(write: dict[str, Any], message: str, claims: dict[str, Any], request_id
         return _reply(request_id, case_id, answer, block=_confirm_links(ref, lang), intent="QUERY_DRAFT")
     if write.get("kind") == "stage_query" and not write.get("text"):
         text = " ".join(str(message or "").split())
-        if not text or case_form._only(message, [*case_form._words("cancel_words"), "cancel"], ref):
+        if not text or case_form._only(message, [*case_form._words("cancel_words"), *case_form._words("soft_cancel_words"), "cancel"], ref):
             write["done"] = True
             return _reply(request_id, case_id, _say("cancelled", lang))
         write["text"] = text[:950]
         answer = _say("stage_query_proposal", lang, case_id=case_id, here=write["here"], there=write["there"]) \
             + "\n\n> " + write["text"]
         return _reply(request_id, case_id, answer, block=_confirm_links(ref, lang))
-    if case_form._only(message, [*case_form._words("cancel_words"), "cancel"], ref):
+    if case_form._only(message, [*case_form._words("cancel_words"), *case_form._words("soft_cancel_words"), "cancel"], ref):
         write["done"] = True
         return _reply(request_id, case_id, _say("cancelled", lang))
     if not case_form._only(message, [*case_form._words("confirm_words"), "confirm"], ref):
@@ -450,11 +578,71 @@ def _execute(write: dict[str, Any], claims: dict[str, Any], request_id: str, lan
                           intent="QUERY_UPDATED", tools_invoked=["los.query.move"])
         if kind == "move":
             return _move(write, claims, actor, request_id, lang)
+        if kind == "deviation":
+            # THE SAME SERVICE the decision route reads (queries.raise_deviation: scopes, master, idempotency)
+            created = queries.raise_deviation(case_id, code=str(write["code"]), reason=str(write["reason"]),
+                                              actor=actor, scopes=scopes, idempotency_key=f"chat:{write['ref']}",
+                                              request_id=request_id)
+            key = "deviation_exists" if created.get("result") == "EXISTING" else "deviation_raised"
+            if key == "deviation_raised":
+                case_form.activity(case_id, "DEVIATION_RAISED",
+                                   f"deviation {created.get('deviation_id')} ({created.get('code')}) raised by {actor} (chat)")
+            return _reply(request_id, case_id, _say(key, lang, deviation_id=created.get("deviation_id"),
+                                                    status=created.get("status"), **_dev_fields(created)),
+                          intent="DEVIATION_RAISED" if key == "deviation_raised" else "DEVIATION_EXISTS",
+                          tools_invoked=["los.deviation.raise"], deviation_id=created.get("deviation_id"))
+        if kind == "deviation_decision":
+            return _decide_deviation(write, claims, actor, scopes, request_id, lang)
     except queries.QueryError as exc:
+        if kind.startswith("deviation"):
+            audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id,
+                         intent=kind.upper(), tools=[], write=True, status="REFUSED", detail=exc.code)
+            return _reply(request_id, case_id, _say("deviation_failed", lang, why=exc.message))
         audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent=kind.upper(),
                      tools=[], write=True, status="REFUSED", detail=exc.code)
         return _reply(request_id, case_id, _say("query_failed", lang, why=exc.message))
     return _reply(request_id, case_id, _say("cancelled", lang))
+
+
+def _decide_deviation(write: dict[str, Any], claims: dict[str, Any], actor: str, scopes: set[str], request_id: str,
+                      lang: str) -> dict[str, Any]:
+    """
+    The same rules as POST /api/v1/los/cases/{case_id}/deviations/{id}/decision: the configured approving scope, the
+    master's authority for THIS deviation, never the raiser, a justification -- and an APPROVAL under four eyes is
+    only REQUESTED here (a second person checks it); a rejection acts at once.
+    """
+    from app.agents.los import queries
+    from app.approvals import service as approvals
+    from app.security.auth import get_roles
+
+    case_id, deviation_id, decision = str(write["case_id"]), str(write["deviation_id"]), str(write["decision"])
+    authorities = queries.authorities_of(get_roles(claims))
+    if decision == "APPROVED" and approvals.requires_check("DEVIATION_APPROVAL"):
+        cfg = queries.config("deviations")
+        if not set(scopes) & set(cfg.get("approve_scopes") or []):
+            raise queries.QueryError("DEVIATION_APPROVAL_NOT_PERMITTED",
+                                     "Only the configured approving authority can approve a deviation.", 403)
+        row = queries._get(case_id, "DEVIATION", deviation_id)
+        if str((row.payload or {}).get("raised_by") or "") == actor:
+            raise queries.QueryError("RAISER_CANNOT_DECIDE", "The person who raised a deviation cannot approve it.", 403)
+        queries.check_deviation_authority(row, authorities)
+        try:
+            pending = approvals.request("DEVIATION_APPROVAL", case_id=case_id, resource_id=deviation_id,
+                                        maker_id=actor, reason=str(write["justification"]),
+                                        payload={"decision": "APPROVED", "justification": write["justification"],
+                                                 "maker_scopes": sorted(scopes),
+                                                 "maker_authorities": sorted(authorities)})
+        except approvals.ApprovalError as exc:
+            raise queries.QueryError(exc.code, exc.message, exc.http_status) from None
+        return _reply(request_id, case_id, _say("deviation_pending_check", lang, deviation_id=deviation_id,
+                                                approval_id=approvals.public(pending).get("approval_id")),
+                      intent="DEVIATION_APPROVAL_PENDING_CHECK", tools_invoked=["approvals.request"])
+    decided = queries.decide_deviation(case_id, deviation_id, decision=decision, actor=actor, scopes=scopes,
+                                       justification=str(write["justification"]), request_id=request_id,
+                                       authorities=authorities)
+    return _reply(request_id, case_id, _say("deviation_decided", lang, deviation_id=deviation_id,
+                                            status=decided.get("status")),
+                  intent="DEVIATION_DECIDED", tools_invoked=["los.deviation.decide"])
 
 
 def _move(write: dict[str, Any], claims: dict[str, Any], actor: str, request_id: str, lang: str) -> dict[str, Any]:
@@ -479,4 +667,8 @@ def move_failed_text(case_id: str, why: str, lang: str) -> str:
     return _say("move_failed", lang, case_id=case_id, why=why)
 
 
-__all__ = ["KINDS", "enabled", "gate", "move_failed_text", "moved_text", "offers", "problems", "propose", "step"]
+def move_unknown_text(case_id: str, there: str, lang: str) -> str:
+    return _say("move_unknown", lang, case_id=case_id, there=there)
+
+
+__all__ = ["KINDS", "enabled", "gate", "move_failed_text", "move_unknown_text", "moved_text", "offers", "problems", "propose", "step"]

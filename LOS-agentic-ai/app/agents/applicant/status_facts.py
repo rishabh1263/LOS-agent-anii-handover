@@ -102,6 +102,7 @@ def _checklist_pending(checklist: list[dict[str, Any]] | None) -> list[str]:
 
 
 def _pending_sentence(names: list[str], *, still: bool) -> str:
+    names = list(dict.fromkeys(names))        # a slot named twice (checklist + signature rule) is said once
     shown = names[:_MAX_PENDING]
     more = len(names) - len(shown)
     listed = (", ".join(shown) + f" and {more} more" if more > 0

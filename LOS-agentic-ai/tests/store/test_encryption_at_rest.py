@@ -79,3 +79,24 @@ def test_dev_login_refresh_tokens_live_in_postgres_and_are_single_use_under_a_ra
     with ThreadPoolExecutor(8) as pool:
         outcomes = list(pool.map(lambda _: rotate(), range(8)))
     assert outcomes.count("dev-user") == 1 and outcomes.count(401) == 7
+
+
+def test_logout_revokes_the_token_and_voids_that_users_waiting_confirms():
+    """/api/v1/auth/logout: the refresh token is revoked and its user's pending writes end with the session."""
+    import time
+
+    from fastapi.testclient import TestClient
+
+    import main
+    from app.agents.applicant.copilot.capabilities import case_form
+    from app.security import dev_idp
+
+    token = dev_idp.issue_refresh_token("logout-user")
+    case_form._LOGGED_OUT.pop("logout-user", None)
+    before = time.time()
+    r = TestClient(main.app).post("/api/v1/auth/logout", json={"refresh_token": token})
+    assert r.status_code == 204, r.text
+    assert case_form._LOGGED_OUT.get("logout-user", 0) >= before
+    waiting = {"expires": before - 1 + float(case_form._cfg().get("draft_ttl_seconds", 1800))}
+    assert case_form._from_an_ended_session("logout-user", waiting)
+    case_form._LOGGED_OUT.pop("logout-user", None)

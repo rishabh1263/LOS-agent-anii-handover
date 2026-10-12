@@ -263,11 +263,17 @@ def post(h: Harness, message: str, context: dict | None) -> dict[str, Any]:
             "reads": list(TRACE.reads), "retrievals": TRACE.retrievals, "qwen": TRACE.qwen_calls}
 
 
-def grade(turn: dict[str, Any], o: dict[str, Any]) -> list[str]:
+def _vague_options(r: dict[str, Any]) -> bool:
+    """The vague layer's options question (owner one-word contract, 2026-10-09; confirmed 2026-10-10)."""
+    return r.get("intent") == "VAGUE_OPTIONS" and r.get("query_type") == "CLARIFICATION"
+
+
+def grade(turn: dict[str, Any], o: dict[str, Any], after_options: bool = False) -> list[str]:
     r = o["r"]
     u = r.get("understanding") or {}
     conv = u.get("conversation") or {}
-    clar = r.get("clarification_required") or {}
+    # A CLARIFICATION is the structured question or the vague options question -- both ask before answering
+    clar = r.get("clarification_required") or ({"options": "vague"} if _vague_options(r) else {})
     answer = str(r.get("answer") or "")
     problems: list[str] = []
     if turn["intents"] and r.get("intent") not in turn["intents"]:
@@ -278,7 +284,9 @@ def grade(turn: dict[str, Any], o: dict[str, Any]) -> list[str]:
         problems.append("expected a clarification")
     if turn["conversation"] and r.get("category") != "CONVERSATION":
         problems.append(f"expected a conversational reply, got {r.get('category')}")
-    if turn["outcome"] and conv.get("outcome") != turn["outcome"]:
+    # after the vague options question the conversation-state layer did not ask, so it reports no outcome: the
+    # answer's INTENT (checked above) is what shows the pick / follow-up was resolved
+    if turn["outcome"] and conv.get("outcome") != turn["outcome"]             and not (after_options and turn["outcome"] == "OPTION_RESOLVED"):
         problems.append(f"outcome {conv.get('outcome')} != {turn['outcome']}")
     if turn["zero_reads"] and o["reads"]:
         problems.append(f"read before resolution: {sorted(set(o['reads']))[:4]}")
@@ -307,10 +315,12 @@ def run(report: str | None) -> int:
             context: dict | None = None
             turns_out = []
             ok = True
+            after_options = False
             for turn in scenario["turns"]:
                 o = post(h, turn["q"], context)
                 context = o["r"].get("context") or context
-                problems = grade(turn, o)
+                problems = grade(turn, o, after_options)
+                after_options = _vague_options(o["r"])
                 latencies.append(o["ms"])
                 conv = (o["r"].get("understanding") or {}).get("conversation") or {}
                 turns_out.append({"q": turn["q"], "intent": o["r"].get("intent"),

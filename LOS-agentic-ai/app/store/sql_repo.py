@@ -571,6 +571,75 @@ class SqlRepository(Repository):
         )
         return application
 
+    #: The form columns a field edit may write (case_form.APPLICANT_FIELDS / APPLICATION_FIELDS) -- a whitelist,
+    #: because the column names are spliced into the UPDATE.
+    _FORM_APPLICANT_COLUMNS = frozenset({"full_name", "mobile", "email", "date_of_birth", "address"})
+    _FORM_APPLICATION_COLUMNS = frozenset({"product", "loan_amount", "employment_type", "tenure_months",
+                                           "interest_rate_pct", "declared_monthly_income",
+                                           "declared_monthly_obligations", "property_value"})
+
+    def update_case_fields(self, case_id: str, applicant_fields: dict[str, Any],
+                           application_fields: dict[str, Any],
+                           expected: dict[str, Any] | None = None) -> dict[str, Any]:
+        """
+        A FORM EDIT IN ONE TRANSACTION, ONLY THE CHANGED COLUMNS (2026-10-10, master prompt §9).
+
+        save_applicant / save_application write EVERY column from a record read earlier, so two officers editing
+        different fields of one case at once lost one edit (last writer's stale copy won), and an applicant write
+        that succeeded before an application write failed left half an edit. Here: a per-case advisory lock, the
+        current values read inside it, `expected` checked (STALE -> nothing written), unchanged values skipped
+        (UNCHANGED -> nothing written: a duplicate request is a no-op), then one UPDATE per table naming only the
+        changed columns, committed together or rolled back together.
+        """
+        from app.store.repository import same_value
+
+        bad = (set(applicant_fields) - self._FORM_APPLICANT_COLUMNS) | \
+            (set(application_fields) - self._FORM_APPLICATION_COLUMNS)
+        if bad:
+            raise ValueError(f"not form columns: {sorted(bad)}")
+        self.initialise()
+        conn = self._connect()
+        try:
+            if conn.in_transaction:
+                conn.commit()
+            conn.execute("BEGIN")
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"case_form:{case_id}",))
+            app_row = conn.execute("SELECT * FROM applications WHERE case_id = ?", (case_id,)).fetchone()
+            person = conn.execute("SELECT * FROM applicants WHERE applicant_id = ?",
+                                  (app_row["applicant_id"],)).fetchone() if app_row is not None else None
+            if app_row is None or person is None:
+                conn.rollback()
+                return {"outcome": "NOT_FOUND", "changed": {}, "current": {}}
+            current = {**{f: person[f] for f in self._FORM_APPLICANT_COLUMNS},
+                       **{f: app_row[f] for f in self._FORM_APPLICATION_COLUMNS}}
+            stale = {f: current.get(f) for f, v in (expected or {}).items()
+                     if f in current and not same_value(current.get(f), v)}
+            if stale:
+                conn.rollback()
+                return {"outcome": "STALE", "changed": {}, "current": stale}
+            new = {**applicant_fields, **application_fields}
+            changed = {f: [current.get(f), v] for f, v in new.items() if not same_value(current.get(f), v)}
+            if not changed:
+                conn.rollback()
+                return {"outcome": "UNCHANGED", "changed": {}, "current": current}
+            now = _iso(utcnow())
+            for table, key, key_value, columns in (
+                    ("applicants", "applicant_id", app_row["applicant_id"],
+                     [f for f in applicant_fields if f in changed]),
+                    ("applications", "case_id", case_id, [f for f in application_fields if f in changed])):
+                if columns:
+                    sets = ", ".join(f"{c} = ?" for c in columns)
+                    conn.execute(f"UPDATE {table} SET {sets}, updated_at = ? WHERE {key} = ?",  # noqa: S608
+                                 (*[new[c] for c in columns], now, key_value))
+            conn.commit()
+            return {"outcome": "SAVED", "changed": changed, "current": current}
+        except StoreDbError as exc:
+            conn.rollback()
+            raise RepositoryError(f"Case store write failed: {exc}") from exc
+        except Exception:
+            conn.rollback()
+            raise
+
     def list_applications(self, applicant_id: str) -> list[Application]:
         rows = self._all(
             "SELECT * FROM applications WHERE applicant_id = ? "

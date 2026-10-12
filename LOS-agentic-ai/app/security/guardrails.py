@@ -143,7 +143,12 @@ _INPUT_ALWAYS = (
                               r"packages?|functions?|classes?|methods?|scripts?|implementation|"
                               r"source)\b"),
         ("which_function", r"\b(which|what|name\s+the|show\s+the)\s+(python\s+)?(function|class|"
-                           r"module|method|file|script)\b"),
+                           r"module|method|script)\b"),
+        # "which FILE" is a LOAN file to an officer ("which file has the fewest blockers?", 2026-10-12): a code file
+        # only when it says so -- a python / source / code file, or code words around it
+        ("which_code_file", r"\b(which|what|name\s+the|show\s+the)\s+(python|source|code|config(uration)?)\s+files?\b"
+                            r"|\b(which|what|name\s+the|show\s+the)\s+files?\b[^?]{0,40}\b(code|logic|implement\w*|"
+                            r"function|source|repo(sitory)?|codebase|module|class|\.py|script|handles?\s+the)\b"),
     )),
     (Category.FILE_PATH_LEAK, _rules(
         ("file_path", r"\b(file|folder|directory|storage|server|disk|internal)\s*(path|location)s?\b"),

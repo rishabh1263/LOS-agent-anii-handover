@@ -1,0 +1,67 @@
+{
+  "corpus": "evals\\copilot\\assistant_corpus\\rag.json",
+  "runs": 3,
+  "results": [
+    {
+      "retriever": "bm25",
+      "questions": 24,
+      "off_topic": 10,
+      "p_at_1": 0.375,
+      "mrr_at_5": 0.491,
+      "hit_at_5": 0.667,
+      "latency_ms": {
+        "median": 1.3,
+        "p95": 1.6,
+        "n": 72
+      },
+      "first_query_ms": 26.3,
+      "confident_on_off_topic": "3/10",
+      "misses": [
+        "rag_001",
+        "rag_002",
+        "rag_003",
+        "rag_004",
+        "rag_007",
+        "rag_008",
+        "rag_009",
+        "rag_011",
+        "rag_015",
+        "rag_016",
+        "rag_017",
+        "rag_020",
+        "rag_021",
+        "rag_022",
+        "rag_024"
+      ]
+    },
+    {
+      "retriever": "dense_nomic",
+      "questions": 24,
+      "off_topic": 10,
+      "p_at_1": 0.5,
+      "mrr_at_5": 0.612,
+      "hit_at_5": 0.792,
+      "latency_ms": {
+        "median": 10.3,
+        "p95": 84.6,
+        "n": 72
+      },
+      "first_query_ms": 10742.0,
+      "confident_on_off_topic": "10/10",
+      "misses": [
+        "rag_001",
+        "rag_003",
+        "rag_008",
+        "rag_009",
+        "rag_011",
+        "rag_013",
+        "rag_015",
+        "rag_018",
+        "rag_020",
+        "rag_021",
+        "rag_023",
+        "rag_024"
+      ]
+    }
+  ]
+}

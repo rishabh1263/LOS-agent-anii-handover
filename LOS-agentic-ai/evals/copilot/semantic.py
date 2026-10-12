@@ -27,6 +27,7 @@ import argparse
 import json
 import statistics
 import sys
+import re
 import time
 from typing import Any
 
@@ -178,13 +179,22 @@ def run(*, live: bool, report: str | None) -> int:
             body = out["body"]
             r = body.get("result") if isinstance(body.get("result"), dict) else body
             clar = r.get("clarification_required") or {}
+            # THE ONE-WORD CONTRACT (owner decision, 2026-10-09; confirmed 2026-10-10 "keep direct answer"): a bare
+            # word is EITHER clarified -- the structured AMBIGUOUS_SHORT_QUERY question, or the vague layer's options
+            # question (VAGUE_OPTIONS, >= 2 options, reading nothing beyond the caller's own case scope) -- OR, when
+            # the conversation settles it, answered directly. Never retrieval, never a model call, in either case.
             reads = set(out["reads"]) - {"get_application", "get_applicant", "has_access",
                                          "get_case_stage", "get_stage_transitions",
-                                         "get_case_timeline"}
-            ok = (clar.get("reason") == "AMBIGUOUS_SHORT_QUERY" and clar.get("head") == case["head"]
-                  and len(clar.get("options") or []) >= 2 and not reads
-                  and out["retrievals"] == 0 and out["qwen_calls"] == 0
-                  and "mean" in str(r.get("answer") or "").lower())
+                                         "get_case_timeline", "list_granted_cases"}
+            answer = str(r.get("answer") or "")
+            structured = (clar.get("reason") == "AMBIGUOUS_SHORT_QUERY" and clar.get("head") == case["head"]
+                          and len(clar.get("options") or []) >= 2 and "mean" in answer.lower())
+            options = (r.get("intent") == "VAGUE_OPTIONS" and r.get("query_type") == "CLARIFICATION"
+                       and len(re.findall(r"^\d+\. ", answer, re.M)) >= 2)
+            direct = bool(r.get("intent")) and r.get("intent") not in ("VAGUE_OPTIONS", "UNKNOWN") \
+                and r.get("query_type") != "CLARIFICATION"
+            ok = (((structured or options) and not reads) or direct) \
+                and out["retrievals"] == 0 and out["qwen_calls"] == 0
             latencies.append(out["total_ms"])
             results.append({"id": case["id"], "q": case["q"], "passed": ok,
                             "ms": round(out["total_ms"], 1), "answer": str(r.get("answer"))[:120],

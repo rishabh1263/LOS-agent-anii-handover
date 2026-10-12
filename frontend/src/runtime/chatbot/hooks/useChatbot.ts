@@ -435,8 +435,11 @@ export function useChatbot(context: ChatbotContext = {}) {
           )
           setStatus('online')
         } else {
-          const step = total > 400 ? 4 : total > 180 ? 3 : 2
+          // THE TYPING EFFECT TAKES AT MOST ~1 s (Sprint 3A, measured in a real browser: a 2,000-character reply with
+          // a table typed for 5-10 s AFTER the server had answered); short replies type as before
           const delay = total > 400 ? 12 : 16
+          const maxTicks = Math.max(1, Math.floor(1000 / delay))
+          const step = Math.max(total > 400 ? 4 : total > 180 ? 3 : 2, Math.ceil(total / maxTicks))
           let i = 0
           await new Promise<void>((resolve) => {
             const tick = () => {

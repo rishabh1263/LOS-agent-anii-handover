@@ -373,7 +373,7 @@ def deterministic_answer(
         # been collected, then what is waiting on verification.
         sentences: list[str] = []
         if not_collected:
-            names = [_readable(i.get("slot")) for i in not_collected]
+            names = list(dict.fromkeys(_readable(i.get("slot")) for i in not_collected))
             sentences.append(f"{_and_list(names)} "
                              f"{'are' if len(names) > 1 else 'is'} still pending.")
         # a document IN REVIEW has been read; it waits on a person, not a check
@@ -439,6 +439,13 @@ def deterministic_answer(
                 if phrase and phrase not in names:
                     names.append(phrase)
             if not names:
+                # NOTHING UPLOADED is not "no issues" (Sprint 2 transcript: a case with no documents read as clear)
+                if not documents:
+                    from app.agents.applicant import language as _nolang
+
+                    said = ((_nolang._load().get("templates") or {}).get("no_documents_uploaded") or {}).get("en")
+                    if said:
+                        return str(said)
                 return "No documents currently have verification issues."
             lead = "Both your" if len(names) == 2 else "Your"
             return (f"{lead} {_and_list(names)} passed document "
@@ -525,7 +532,9 @@ def _summary_text(view: dict[str, Any]) -> str:
         lines.append("Completed: " + ", ".join(n + (f" ({named.count(n)})" if named.count(n) > 1 else "")
                                                for n in dict.fromkeys(named)) + ".")
 
-    outstanding = [b["detail"] for b in (readiness.get("blocking_items") or [])]
+    # one sentence per blocker: the signature is both a checklist slot and the signature rule (Sprint 2 transcript:
+    # "Signature has not been uploaded. Signature has not been uploaded.")
+    outstanding = list(dict.fromkeys(b["detail"] for b in (readiness.get("blocking_items") or [])))
     lines.append("Pending: " + " ".join(outstanding) if outstanding
                  else "Pending: nothing.")
 

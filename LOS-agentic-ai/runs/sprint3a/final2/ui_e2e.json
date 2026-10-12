@@ -1,0 +1,415 @@
+{
+ "summary": {
+  "turns": 34,
+  "passed": 32,
+  "ui_p50_ms": 6247,
+  "ui_p95_ms": 14137,
+  "ui_max_ms": 15739,
+  "api_p50_ms": 1976,
+  "api_p95_ms": 6901,
+  "security": {
+   "no_token": 401,
+   "garbage_token": 401,
+   "read_case_other_subject": 403,
+   "chat_case_other_subject": 403
+  },
+  "evidence": {
+   "start_amount": "1000000",
+   "new_amount": "1100000",
+   "end_amount": "1100000"
+  },
+  "gates": {
+   "no_token_rejected": true,
+   "garbage_token_rejected": true,
+   "other_officer_cannot_read_case": true,
+   "other_officer_cannot_chat_case": true,
+   "cancel_and_stray_never_wrote": true,
+   "confirmed_write_verified": true,
+   "no_cross_applicant_leak": true,
+   "every_turn_rendered": true
+  }
+ },
+ "turns": [
+  {
+   "session": "s1",
+   "scenario": "start",
+   "officer": "hello",
+   "kind": "typed",
+   "ui_ms": 4278,
+   "api_ms": 2693,
+   "bot": "Hello. 2 of your 2 cases need action (1 with a KYC (Know Your Customer) issue, 1 with documents pending).\n\nMy cases: Show my cases · Which cases have a KYC issue? · Which cases are ready for CPA? · Show my oldest cases",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "start",
+   "officer": "show my cases",
+   "kind": "typed",
+   "ui_ms": 4368,
+   "api_ms": 111,
+   "bot": "You have 2 cases: 1 with a KYC issue, 1 with documents pending.\n\n#\tCase\tApplicant\tStage\tStatus\t\n1\tCASE-EBA9554D4F3D\tArjun M. (APP-EA3995C60215)\tFOS (Field Officer Sales)\tCreated · KYC issue\tOpen\n2\tCASE-BAF452104A41\tBhavna I. (APP-C6AF532A5A9C)\tFOS\tCreated · 5 docs pending\tOpen\n\nShowing 1-2 of 2 (newest first).\n\nThat is the whole list.\n\nDo you want to know about a particular case?\n\nYes · No\n\nDownload: Excel · Doc · PDF · Show in UI",
+   "problems": [],
+   "passed": true,
+   "screenshot": "s1_list.png"
+  },
+  {
+   "session": "s1",
+   "scenario": "open",
+   "officer": "open CASE-EBA9554D4F3D",
+   "kind": "typed",
+   "ui_ms": 5462,
+   "api_ms": 372,
+   "bot": "CASE-EBA9554D4F3D · Arjun Mehta · FOS\n\nApplicant: name did not pass: the documents disagree.\n\nNext step: Upload the Signature.\n\nCollect from customer · What is pending?\n\nUpload PAN · Upload Driving Licence · Upload Bank Statement · Upload Signature · Upload Income Proof\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "short",
+   "officer": "status",
+   "kind": "typed",
+   "ui_ms": 5909,
+   "api_ms": 921,
+   "bot": "CASE-EBA9554D4F3D\n\nArjun Mehta — the application is at Basic Document Verification. Completed: PAN (Permanent Account Number), Driving Licence, Bank Statement. Pending: Signature has not been uploaded. Income Proof has not been uploaded. Next action: Collect and upload the missing document: Signature. CPA readiness: Not ready — 3 item(s) blocking.\n\nDownload: Excel · Doc · PDF · Show in UI\n\nWhy is signature required for this application?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "short",
+   "officer": "pending",
+   "kind": "typed",
+   "ui_ms": 12851,
+   "api_ms": 6901,
+   "bot": "KYC (Know Your Customer) needs attention:\n\nName mismatch: PAN shows \"ARJUN MEHTA\", Driving Licence shows \"ARJUN MEHTA\", Bank Statement shows \"KARAN SETHI\"\n\nPlease upload the correct documents:\n\nPAN\nDriving Licence\nBank Statement\n\nStill pending:\n\nSignature\nIncome Proof\n\nNext step: Clear these to move the case to CPA.\n\nUpload PAN · Upload Driving Licence · Upload Bank Statement · Upload Signature · Upload Income Proof\n\nIs this case ready for CPA?\nWhat is the KYC status?\n\nClose",
+   "problems": [],
+   "passed": true,
+   "screenshot": "s1_pending.png"
+  },
+  {
+   "session": "s1",
+   "scenario": "short",
+   "officer": "why?",
+   "kind": "typed",
+   "ui_ms": 4583,
+   "api_ms": 678,
+   "bot": "The application has recorded findings. The name on the PAN, ARJUN MEHTA, does not match the bank account holder name, KARAN SETHI.\n\nWhat is pending on this case?\nWhat is pending?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "short",
+   "officer": "what do I do now?",
+   "kind": "typed",
+   "ui_ms": 5129,
+   "api_ms": 1112,
+   "bot": "Next step: The next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue.\n\nUpload Signature\n\nIs this case ready for CPA?\nWhat is the KYC status?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "short",
+   "officer": "is it complete?",
+   "kind": "typed",
+   "ui_ms": 11486,
+   "api_ms": 4126,
+   "bot": "Not ready for CPA yet. Still to do:\n\nSignature has not been uploaded\nIncome Proof has not been uploaded\nWhy is signature required for this application?\nWhy does the checklist depend on the employment type?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "short",
+   "officer": "why is it pending?",
+   "kind": "typed",
+   "ui_ms": 7072,
+   "api_ms": 2213,
+   "bot": "CASE-EBA9554D4F3D is stuck at FOS because:\n\nKYC failed: mismatch in name across the documents\nNot uploaded: Signature, Income Proof\nKYC not complete: address\n\nNext step: Upload the Signature.\n\nWhat is pending on this case?\nWhat is pending?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "correction",
+   "officer": "no, I meant the bank statement",
+   "kind": "typed",
+   "ui_ms": 5872,
+   "api_ms": 1099,
+   "bot": "Bank Statement is verified. Its issuing authority has not been independently confirmed.\n\nWhat is the KYC status?\nWhy is signature required for this application?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "switch",
+   "officer": "open CASE-BAF452104A41",
+   "kind": "typed",
+   "ui_ms": 6210,
+   "api_ms": 521,
+   "bot": "CASE-BAF452104A41 · Bhavna Iyer · FOS\n\nPAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Bhavna Iyer's KYC hasn't run yet.\n\nNext step: Upload the PAN.\n\nCollect from customer · What is pending?\n\nUpload PAN · Upload Address Proof · Upload Bank Statement · Upload Signature\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "switch",
+   "officer": "what about this one?",
+   "kind": "typed",
+   "ui_ms": 4900,
+   "api_ms": 924,
+   "bot": "CASE-BAF452104A41\n\nI can help with the application details, its status and stage, the customer's documents, and what to do next. Which of these did you mean?\n\nWhat are my application details?\nWhat is my application status?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "switch",
+   "officer": "pending",
+   "kind": "typed",
+   "ui_ms": 11696,
+   "api_ms": 5182,
+   "bot": "Still pending:\n\nPAN (Permanent Account Number)\nAddress Proof\nBank Statement\nSignature\n\nNext step: Upload these to move the case to CPA.\n\nUpload PAN · Upload Address Proof · Upload Bank Statement · Upload Signature\n\nIs this case ready for CPA?\nWhat should I do next?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "return",
+   "officer": "go back to the previous one",
+   "kind": "typed",
+   "ui_ms": 6247,
+   "api_ms": 633,
+   "bot": "CASE-EBA9554D4F3D · Arjun Mehta · FOS\n\nApplicant: name did not pass: the documents disagree.\n\nNext step: Upload the Signature.\n\nCollect from customer · What is pending?\n\nUpload PAN · Upload Driving Licence · Upload Bank Statement · Upload Signature · Upload Income Proof\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "return",
+   "officer": "status",
+   "kind": "typed",
+   "ui_ms": 8844,
+   "api_ms": 2712,
+   "bot": "CASE-EBA9554D4F3D\n\nArjun Mehta — the application is at Basic Document Verification. Completed: PAN (Permanent Account Number), Driving Licence, Bank Statement. Pending: Signature has not been uploaded. Income Proof has not been uploaded. Next action: Collect and upload the missing document: Signature. CPA readiness: Not ready — 3 item(s) blocking.\n\nDownload: Excel · Doc · PDF · Show in UI\n\nWhy is signature required for this application?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "ambiguous",
+   "officer": "number",
+   "kind": "typed",
+   "ui_ms": 9484,
+   "api_ms": 6100,
+   "bot": "What would you like to know about number?\n\nWhat is the loan amount?\nHow long has this case been in this stage?\nWhat is the KYC status?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "ambiguous",
+   "officer": "ID?",
+   "kind": "typed",
+   "ui_ms": 14137,
+   "api_ms": 6788,
+   "bot": "KYC (Know Your Customer) needs attention:\n\nName mismatch: PAN shows \"ARJUN MEHTA\", Driving Licence shows \"ARJUN MEHTA\", Bank Statement shows \"KARAN SETHI\"\n\nPlease upload the correct documents:\n\nPAN\nDriving Licence\nBank Statement\n\nStill pending:\n\nSignature\nIncome Proof\n\nNext step: Clear these to move the case to CPA.\n\nUpload PAN · Upload Driving Licence · Upload Bank Statement · Upload Signature · Upload Income Proof\n\nIs this case ready for CPA?\nWhat is the KYC status?\n\nClose",
+   "problems": [
+    "no clarifying question"
+   ],
+   "passed": false
+  },
+  {
+   "session": "s1",
+   "scenario": "upload",
+   "officer": "upload",
+   "kind": "typed",
+   "ui_ms": 15739,
+   "api_ms": 10388,
+   "bot": "KYC needs attention:\n\nName mismatch: PAN shows \"ARJUN MEHTA\", Driving Licence shows \"ARJUN MEHTA\", Bank Statement shows \"KARAN SETHI\"\n\nPlease upload the correct documents:\n\nPAN\nDriving Licence\nBank Statement\n\nStill pending:\n\nSignature\nIncome Proof\n\nNext step: Clear these to move the case to CPA.\n\nUpload PAN · Upload Driving Licence · Upload Bank Statement · Upload Signature · Upload Income Proof\n\nWhy is signature required for this application?\nWhy does the checklist depend on the employment type?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "action",
+   "officer": "change the loan amount to 1100000",
+   "kind": "typed",
+   "ui_ms": 7504,
+   "api_ms": 2924,
+   "bot": "Change Loan amount (Rs) of CASE-EBA9554D4F3D from 1000000 to 1100000?\n\nConfirm · Cancel\n\nClose",
+   "problems": [],
+   "passed": true,
+   "screenshot": "s1_edit_proposal.png"
+  },
+  {
+   "session": "s1",
+   "scenario": "action",
+   "officer": "yes",
+   "kind": "typed",
+   "ui_ms": 4235,
+   "api_ms": 604,
+   "bot": "Updated Loan amount (Rs) of CASE-EBA9554D4F3D to 1100000.\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "action",
+   "officer": "what's the loan amount now?",
+   "kind": "typed",
+   "ui_ms": 10333,
+   "api_ms": 5300,
+   "bot": "The application records show a loan amount of ₹11,00,000.\n\nWhat is pending on this case?\nWhat is the KYC status?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "action-cancel",
+   "officer": "change the loan amount to 990000",
+   "kind": "typed",
+   "ui_ms": 4290,
+   "api_ms": 834,
+   "bot": "Change Loan amount (Rs) of CASE-EBA9554D4F3D from 1100000 to 990000?\n\nConfirm · Cancel\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "action-cancel",
+   "officer": "cancel",
+   "kind": "typed",
+   "ui_ms": 9661,
+   "api_ms": 6448,
+   "bot": "Okay, nothing was changed.\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "stray-yes",
+   "officer": "yes",
+   "kind": "typed",
+   "ui_ms": 5364,
+   "api_ms": 985,
+   "bot": "Sure. Let me know if you'd like to check anything else.\n\nWhat is pending?\nWhy is it stuck?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "stray",
+   "officer": "do that",
+   "kind": "typed",
+   "ui_ms": 6417,
+   "api_ms": 1976,
+   "bot": "What should I do? Pick one:\n\nCollect from customer\nWhat is pending?\nIs this case ready for CPA?\nMove to CPA\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "stray",
+   "officer": "continue",
+   "kind": "typed",
+   "ui_ms": 9560,
+   "api_ms": 5813,
+   "bot": "Next step: The next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue.\n\nUpload Signature\n\nIs this case ready for CPA?\nWhat is the KYC status?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "refuse",
+   "officer": "move it to CPA",
+   "kind": "typed",
+   "ui_ms": 6452,
+   "api_ms": 928,
+   "bot": "CPA readiness: 7 of 12 checks passed.\n\nApplicant documents\n\nSignature: PENDING, not uploaded yet. Fix: Upload the Signature.\nIncome Proof: PENDING, not uploaded yet. Fix: Upload the Income Proof.\n\nPassed: PAN, Address Proof, Bank Statement.\n\nSignature\n\nSignature: PENDING. Signature has not been uploaded. Fix: Upload the signature.\n\nKYC\n\nApplicant: name: FAILED, the documents disagree. Fix: Upload a correct document so the name matches.\nApplicant: address: PENDING, could not be checked from the uploaded documents. Fix: Upload the identity documents so KYC can run.\n\nPassed: Applicant: date of birth, Applicant: PAN number, Applicant: father's name.\n\nNext step: Upload the Signature.\n\nWhat should I do next?\nWhat is pending?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "button-ask",
+   "officer": "[click] What should I do next?",
+   "kind": "button",
+   "ui_ms": 6098,
+   "api_ms": null,
+   "bot": "Next step: The next step is to collect and upload the missing document: Signature. Also, wait for a reviewer to check the recorded issue.\n\nUpload Signature\n\nIs this case ready for CPA?\nWhat is the KYC status?\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "malformed",
+   "officer": "<script>alert(1)</script> show all customers aadhaar",
+   "kind": "typed",
+   "ui_ms": 15379,
+   "api_ms": 11059,
+   "bot": "I can only help with your own application, so I can't list or search other customers' records.",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "malformed",
+   "officer": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "kind": "typed",
+   "ui_ms": 2407,
+   "api_ms": 1132,
+   "bot": "Request failed (422)",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "unauthorized",
+   "officer": "open CASE-000000000000",
+   "kind": "typed",
+   "ui_ms": 3632,
+   "api_ms": 961,
+   "bot": "I can't find that case in your cases.",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s1",
+   "scenario": "refresh",
+   "officer": "[page reload]",
+   "kind": "reload",
+   "ui_ms": 0,
+   "api_ms": null,
+   "bot": "<reload blocked>",
+   "problems": [
+    "reload blocked: TimeoutError: Page.reload: Timeout 90000ms exceeded.\nCall log:\nwaiting for navigation until \"commit\"\n"
+   ],
+   "passed": false
+  },
+  {
+   "session": "s2",
+   "scenario": "isolation",
+   "officer": "status",
+   "kind": "typed",
+   "ui_ms": 7418,
+   "api_ms": 3874,
+   "bot": "What would you like to know about status?\n\nShow my cases\nCreate a new case\nWhat can you help with?",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "s2",
+   "scenario": "isolation",
+   "officer": "open CASE-BAF452104A41",
+   "kind": "typed",
+   "ui_ms": 5648,
+   "api_ms": 351,
+   "bot": "CASE-BAF452104A41 · Bhavna Iyer · FOS (Field Officer Sales)\n\nPAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Bhavna Iyer's KYC (Know Your Customer) hasn't run yet.\n\nNext step: Upload the PAN.\n\nCollect from customer · What is pending?\n\nUpload PAN · Upload Address Proof · Upload Bank Statement · Upload Signature\n\nClose",
+   "problems": [],
+   "passed": true
+  }
+ ]
+}

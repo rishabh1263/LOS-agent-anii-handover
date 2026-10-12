@@ -46,6 +46,8 @@ def strip_emojis(text: str) -> str:
     lines = []
     for line in text.split("\n"):
         indent = re.match(r"^[ \t]*", line).group(0)          # the line's own indent, not the gap an emoji leaves
+        # an emoji that ENDED a sentence ("Sure 👍 Let me know") leaves its full stop behind (Sprint 2: "Sure Let me")
+        line = re.sub(rf"(?<=[A-Za-z])\s*(?:{_EMOJI.pattern})+\s+(?=[A-Z])", ". ", line)
         lines.append(indent + " ".join(_EMOJI.sub("", line).split()))
     return "\n".join(lines).strip("\n")
 

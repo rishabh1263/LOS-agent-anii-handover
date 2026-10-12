@@ -574,6 +574,25 @@ def _vocabulary() -> frozenset[str]:
                   "loan", "bank", "file", "case", "form", "pata", "mahina", "saal", "tarikh"})
     words.update({"naam", "nam", "naav", "kaam", "kyc", "ekyc", "ckyc", "emi", "ifsc", "nbfc", "otp",
                   "upi", "cibil", "itr", "gst", "dob", "pan", "aadhar", "aadhaar"})
+    # THE WORDS OFFICERS ALREADY USE WITH THE BOT name nobody (2026-10-12): "kitne PAISE ka loan" was read as a
+    # person "Paise" and refused as another customer's data. Every word of the intent catalogue's example questions
+    # (the meaning bank -- English and Hinglish) and the configured function words is ordinary vocabulary.
+    try:
+        from app.agents.applicant.copilot.semantics import meaning as _meaning
+
+        for spec in (_meaning.catalogue().get("intents") or {}).values():
+            walk(list(spec.get("examples") or []) + [spec.get("canonical") or ""])
+    except Exception:
+        pass
+    try:
+        from app.knowledge import _config as _knowledge_cfg
+
+        walk(_knowledge_cfg().get("lexical_function_words") or [])
+    except Exception:
+        pass
+    # money words a possessive follows ("paise ka loan", "rupaye ki EMI")
+    words.update({"paise", "paisa", "paison", "rupaye", "rupay", "rupee", "rupees", "rakam", "amount", "lakh",
+                  "crore", "hazaar", "hazar"})
     _VOCAB = frozenset(words)
     return _VOCAB
 

@@ -96,6 +96,14 @@ class _Admissible:
                                                         and top[0].score >= result.threshold))
 
 
+#: Set while the GENERAL HALF OF A CASE QUESTION is retrieved ("why is my application under review and what does KYC
+#: mean?"): there the system's own meaning (the handbook's "KYC check": cross-document consistency) explains the
+#: case; a dictionary definition does not. The glossary is then weighed even for a definition-shaped clause.
+import contextvars as _cv  # noqa: E402
+
+IN_CASE_CONTEXT = _cv.ContextVar("knowledge_in_case_context", default=False)
+
+
 def _definitions_last(hits: list, query: str) -> list:
     """
     THE GLOSSARY ANSWERS DEFINITIONS (2026-10-09): its ~200 one-line entries flooded every other question ("what
@@ -121,11 +129,39 @@ def _definitions_last(hits: list, query: str) -> list:
     sources = {str(s) for s in cfg.get("definition_sources") or []}
     if not sources or not hits:
         return hits
-    if any(re.search(p, said) for p in cfg.get("definition_shapes") or []):
-        return hits
+    if not IN_CASE_CONTEXT.get() and any(re.search(p, said) for p in cfg.get("definition_shapes") or []):
+        # THE TERM ITSELF FIRST (2026-10-10): "what does KYC mean" -- every KYC entry scores the capped 1.0, and the
+        # tie went to "e-KYC" / "Re-KYC". The entry whose heading STARTS with an asked word ("KYC (Know Your
+        # Customer)") is that word's definition; compounds ("e-KYC", "CKYC") come after it -- unless asked for.
+        from app.knowledge.retriever import content_terms
+
+        asked = {w for w in re.findall(r"[a-z0-9][a-z0-9-]*", said) if w in set(content_terms(query)) or "-" in w}
+
+        def lead(heading: str) -> str:
+            return (re.findall(r"[a-z0-9][a-z0-9-]*", str(heading or "").lower()) or [""])[0]
+
+        own = [h for h in hits if h.chunk.source in sources and lead(h.chunk.heading) in asked]
+        # ...and among those, the heading with the FEWEST words beyond what was asked: "what is foreclosure" is the
+        # "Foreclosure" entry, not "Foreclosure letter" / "Foreclosure charges" (all tie at 1.0; 2026-10-11,
+        # tests/integration/test_general_coverage). Stable: an equal count keeps the retriever's order.
+        own.sort(key=lambda h: len([w for w in plain(h.chunk.heading).split() if w not in asked]))
+        # a handbook section titled with the question itself ("What is foreclosure?") still answers it first
+        own = [h for h in own if h not in exact]
+        return exact + own + [h for h in hits if h not in own and h not in exact]
     weight = float(cfg.get("definition_source_weight") or 1.0)
+    if IN_CASE_CONTEXT.get():
+        # a case's own question: the general-lending sources (no company values) step back too
+        sources = sources | {str(s) for s in cfg.get("no_company_values_sources") or []}
     weighed = [replace(h, score=round(h.score * weight, 4)) if h.chunk.source in sources else h for h in hits]
     first = [h for h in weighed if plain(h.chunk.heading) == plain(query)]
+    if IN_CASE_CONTEXT.get() and not first and any(re.search(p, said) for p in cfg.get("definition_shapes") or []):
+        from app.knowledge.retriever import content_terms
+
+        asked = set(content_terms(query))
+        shapes = [str(p) for p in cfg.get("definition_headings") or []]
+        first = sorted([h for h in weighed if h.chunk.source not in sources
+                        and any(re.search(p, str(h.chunk.heading or "").lower()) for p in shapes)
+                        and asked & set(plain(h.chunk.heading).split())], key=lambda h: h.score, reverse=True)
     return first + sorted([h for h in weighed if h not in first], key=lambda h: h.score, reverse=True)
 
 
@@ -154,10 +190,50 @@ def _retrieve(question: str, *, limit: int = 3, wanted: str | None = None):
         logger.exception("FOS knowledge retrieval failed")
         return None
     try:
-        return _second_look(retriever, question, first, limit)
+        return _no_value_from_general_sources(question, _second_look(retriever, question, first, limit))
     except Exception:  # noqa: BLE001 - the second look never costs the first
         logger.exception("FOS knowledge rerank failed")
-        return _trimmed(first, limit)
+        return _no_value_from_general_sources(question, _trimmed(first, limit))
+
+
+def _no_value_from_general_sources(question: str, result):
+    """
+    "What is the processing fee on a home loan?" answered by the glossary's DEFINITION of a processing fee is false
+    confidence: the glossary states no company values (knowledge.yaml no_company_values_sources). A value-shaped
+    question (value_shapes) whose best passage comes from such a source is NOT confident -- the officer is told the
+    knowledge base does not have it, never a general meaning dressed up as the lender's figure.
+    """
+    import re
+    from dataclasses import replace
+
+    from app.knowledge import _config as _knowledge_cfg
+
+    if result is None or not getattr(result, "confident", False) or not result.hits:
+        return result
+    cfg = _knowledge_cfg()
+    general = {str(s) for s in cfg.get("no_company_values_sources") or []}
+    said = " ".join(str(question or "").lower().split())
+    if general and result.hits[0].chunk.source in general \
+            and any(re.search(p, said) for p in cfg.get("value_shapes") or []):
+        # THE HANDBOOK FIRST, NOT SILENCE (2026-10-11, audit P2-C): "what is the minimum bank statement period?"
+        # ranked the glossary's "Bank statement" line first (0.62) above the handbook's "How many months of bank
+        # statement are needed?" (0.55) -- abstaining then handed the question to general_llm ("varies by lender").
+        # A handbook passage among the hits that clears the threshold is the answer; only with none is it abstained.
+        # ... and it must be ABOUT what was asked: it covers most of the question's distinctive terms (measured: the
+        # real answer 3/4 = 0.75; "processing fee" -> the home-loan checklist 0/2, document statuses 1/2)
+        terms = _distinctive(question)
+        need = float(cfg.get("value_handbook_min_coverage", 0.6))
+
+        def covers(h) -> bool:
+            body = f"{h.chunk.heading} {h.chunk.text}".lower()
+            return bool(terms) and sum(1 for t in terms if _stem(t) in body) / len(terms) >= need
+
+        handbook = [h for h in result.hits if h.chunk.source not in general
+                    and h.score >= float(getattr(result, "threshold", 0.0) or 0.0) and covers(h)]
+        if handbook:
+            return replace(result, hits=handbook + [h for h in result.hits if h not in handbook], confident=True)
+        return replace(result, confident=False)
+    return result
 
 
 #: Words that say nothing about WHICH passage answers ("loan", "customer").
@@ -496,9 +572,15 @@ def _second_look(retriever, question: str, first, limit: int):
     scored = {cid: _group_coverage(groups, h) for cid, h in merged.items()}
     for_rank = {cid: _group_coverage(rank_groups, h) for cid, h in merged.items()}
 
+    from app.knowledge import _config as _rescue_cfg
+
+    # the lexical signal a rescued passage still needs (knowledge.yaml rescue_min_score): an unseen subject weighs 3x
+    # in the BM25 ceiling (lexical_unseen_term_weight), so the same evidence scores lower than the old 0.1 assumed
+    floor = float(_rescue_cfg().get("rescue_min_score", 0.1))
+
     def _acceptable(h) -> bool:
         cov, cov_n, _ = scored[h.chunk.chunk_id]
-        return cov >= _ACCEPT_COVERAGE and cov_n >= _MIN_MATCHED and h.score >= 0.1
+        return cov >= _ACCEPT_COVERAGE and cov_n >= _MIN_MATCHED and h.score >= floor
 
     # a passage that meets the (unchanged) acceptance rule comes before one
     # that only ranks well; among each, the ranking decides
@@ -509,7 +591,7 @@ def _second_look(retriever, question: str, first, limit: int):
                     reverse=True)
     best, covered, _heading = scored[ranked[0].chunk.chunk_id]
     confident = (best >= _ACCEPT_COVERAGE and covered >= _MIN_MATCHED
-                 and ranked[0].score >= 0.1)
+                 and ranked[0].score >= floor)
     # GROUNDING GUARDS on a rescued retrieval: the question's own subject
     # must exist in the handbook, and a threshold needs a stated number.
     if confident and _unknown_subject(terms):

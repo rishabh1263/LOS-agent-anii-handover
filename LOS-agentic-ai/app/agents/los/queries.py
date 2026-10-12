@@ -57,6 +57,7 @@ def config(kind: str = "queries") -> dict[str, Any]:
 
 def reload() -> None:
     _load.cache_clear()
+    _master.cache_clear()
 
 
 # ---- reading ---------------------------------------------------------------------------
@@ -116,8 +117,100 @@ def open_items(case_id: str, *, repository: Any = None) -> dict[str, list[dict[s
 
 
 def deviation_rules_status() -> str:
-    """CONFIGURATION_GAP while no deviation rule is configured."""
-    return "CONFIGURED" if config("deviations").get("rules") else "CONFIGURATION_GAP"
+    """CONFIGURED once the deviation master (or an automatic rule) is loaded; CONFIGURATION_GAP otherwise."""
+    return "CONFIGURED" if (config("deviations").get("rules") or deviation_master()) else "CONFIGURATION_GAP"
+
+
+# ---- THE DEVIATION MASTER (owner's sheet, 2026-10-12; scripts/import_deviation_master.py) -------------------
+@lru_cache(maxsize=1)
+def _master() -> dict[str, Any]:
+    import yaml
+
+    name = str(config("deviations").get("master") or "deviation_master.yaml")
+    path = _CONFIG.parent / name
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except OSError:
+        return {}
+
+
+def deviation_master() -> list[dict[str, Any]]:
+    """Every deviation the business allows, with its category and the authorities that may approve it."""
+    return list(_master().get("deviations") or [])
+
+
+def deviation_by_code(code: str) -> dict[str, Any] | None:
+    return next((d for d in deviation_master() if d["code"] == str(code or "").strip().upper()), None)
+
+
+def match_deviations(text: str, limit: int = 3) -> list[tuple[dict[str, Any], float]]:
+    """The master entries closest to the officer's words (word overlap + character similarity), best first."""
+    import difflib
+    import re
+
+    # filler words never make a match ("for low cibil score" matched "BT FOR loan"): queries.yaml match_ignore_words
+    ignore = {str(w).lower() for w in config("deviations").get("match_ignore_words") or []}
+
+    def words(s: str) -> set[str]:
+        return {w for w in re.findall(r"[a-z0-9<>%]+", str(s).lower()) if len(w) > 1 and w not in ignore}
+
+    said = " ".join(str(text or "").lower().split())
+    asked = words(said)
+    scored = []
+    for d in deviation_master():
+        desc = str(d["description"]).lower()
+        overlap = len(asked & words(desc)) / max(1, len(words(desc)))
+        ratio = difflib.SequenceMatcher(None, said, desc).ratio()
+        scored.append((d, round(0.7 * overlap + 0.3 * ratio, 3)))
+    return sorted(scored, key=lambda x: x[1], reverse=True)[:limit]
+
+
+def authorities_of(roles: Any) -> set[str]:
+    """The approving authorities a caller holds: their roles mapped by queries.yaml deviations.authority_roles."""
+    held = {str(r).strip().upper() for r in (roles or [])}
+    mapping = config("deviations").get("authority_roles") or {}
+    return {a for a, names in mapping.items() if held & {str(n).strip().upper() for n in names or []}}
+
+
+def raise_deviation(case_id: str, *, code: str, reason: str, actor: str, scopes: set[str],
+                    idempotency_key: str | None = None, request_id: str | None = None,
+                    repository: Any = None) -> dict[str, Any]:
+    """A deviation from the master, PENDING_APPROVAL by its listed authorities; the same one still open is returned."""
+    cfg = config("deviations")
+    request_id = request_id or f"dev_{uuid.uuid4().hex}"
+    if not _held(scopes, list(cfg.get("raise_scopes") or [])):
+        raise QueryError("DEVIATION_NOT_PERMITTED", "Raising a deviation needs the deviation permission.", 403)
+    entry = deviation_by_code(code)
+    if entry is None:
+        raise QueryError("UNKNOWN_DEVIATION", "That deviation is not in the deviation master.")
+    reason = " ".join(str(reason or "").split())
+    if not reason:
+        raise QueryError("DEVIATION_REASON_REQUIRED", "A deviation must say why it is needed.")
+    open_statuses = set(cfg.get("open_statuses") or [])
+    for existing in list_deviations(case_id, repository=repository):
+        same_key = idempotency_key and existing.get("idempotency_key") == idempotency_key
+        if same_key or (existing.get("code") == entry["code"] and existing["status"] in open_statuses):
+            return {**existing, "result": "EXISTING"}
+    deviation_id = "DEV-" + hashlib.sha1(f"{case_id}:{uuid.uuid4().hex}".encode()).hexdigest()[:10].upper()
+    stage = _current_stage(case_id)
+    payload = {"code": entry["code"], "description": entry["description"], "category": entry["category"],
+               "severity": entry.get("severity"), "approvers": list(entry.get("approvers") or []),
+               "reason": reason[:500], "raised_by": actor, "stage": stage, "idempotency_key": idempotency_key,
+               "history": [{"status": "PENDING_APPROVAL", "by": actor, "note": reason[:500]}]}
+    _record(case_id, "DEVIATION", deviation_id, status="PENDING_APPROVAL", stage=stage, party_id=None,
+            document_id=None, payload=payload, event="DEVIATION_RAISED", actor=actor, request_id=request_id,
+            repository=repository,
+            summary=f"Deviation {deviation_id} raised: {entry['description']} ({entry['category']}; approvers "
+                    f"{', '.join(entry.get('approvers') or [])})")
+    return {**_view(_get(case_id, "DEVIATION", deviation_id, repository)), "result": "CREATED"}
+
+
+def check_deviation_authority(row: Any, authorities: set[str] | None) -> None:
+    """Only an authority the master lists for THIS deviation may approve or reject it (NFA: Head Credit only)."""
+    allowed = {str(a).upper() for a in ((row.payload or {}).get("approvers") or [])}
+    if allowed and not (set(authorities or set()) & allowed):
+        raise QueryError("DEVIATION_AUTHORITY_INSUFFICIENT",
+                         f"This deviation needs approval from: {', '.join(sorted(allowed))}.", 403)
 
 
 # ---- the structured action the chat and the button share ---------------------------------
@@ -294,7 +387,7 @@ def move_query(case_id: str, query_id: str, *, to_status: str, actor: str, scope
 
 def decide_deviation(case_id: str, deviation_id: str, *, decision: str, actor: str, scopes: set[str],
                      justification: str | None = None, request_id: str | None = None,
-                     repository: Any = None) -> dict[str, Any]:
+                     repository: Any = None, authorities: set[str] | None = None) -> dict[str, Any]:
     """APPROVED / REJECTED / WITHDRAWN -- by the configured authority, never by the raiser."""
     cfg = config("deviations")
     request_id = request_id or f"dev_{uuid.uuid4().hex}"
@@ -306,6 +399,8 @@ def decide_deviation(case_id: str, deviation_id: str, *, decision: str, actor: s
                              "Only the configured approving authority can decide a deviation.", 403)
         if (row.payload or {}).get("raised_by") == actor:
             raise QueryError("SELF_APPROVAL_FORBIDDEN", "A deviation cannot be decided by the person who raised it.", 403)
+        # THE MASTER'S AUTHORITY: ACM / RCM / ZCM / HEAD_CREDIT as the sheet lists for this deviation
+        check_deviation_authority(row, authorities)
         if not (justification or "").strip():
             raise QueryError("JUSTIFICATION_REQUIRED", "A deviation decision must record its justification.")
     allowed = (cfg.get("lifecycle") or {}).get(row.status) or []
