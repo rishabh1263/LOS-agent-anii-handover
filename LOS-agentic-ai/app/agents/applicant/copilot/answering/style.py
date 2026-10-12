@@ -91,7 +91,11 @@ def expand_first_mentions(text: str, explained: set[str]) -> tuple[str, set[str]
             continue
         # a whole word, upper case as written, not part of an id ("CASE-..."), not already expanded
         pattern = re.compile(rf"(?<![\w-])(\*\*)?{re.escape(term)}(\*\*)?(?![\w-])(?!\s*\()")
-        found = pattern.search(text)
+        # NEVER INSIDE A LINK ("[Negative Dedupe / CIBIL catch](ask:...)"): a full form with brackets broke the link
+        # label (live smoke 2026-10-12) -- the first mention in plain text is expanded instead
+        links = [m.span() for m in re.finditer(r"\[[^\]]*\]\([^)]*\)", text)]
+        found = next((m for m in pattern.finditer(text)
+                      if not any(a <= m.start() < b for a, b in links)), None)
         if found:
             text = text[:found.start()] + f"**{term} ({entry['full_form']})**" + text[found.end():]
             newly.add(term)

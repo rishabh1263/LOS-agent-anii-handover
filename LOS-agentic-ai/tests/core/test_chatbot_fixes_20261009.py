@@ -55,6 +55,9 @@ def test_bank_embedded_in_batches_and_kept_on_failure(tmp_path, monkeypatch):
 
 
 def test_case_level_kyc_result_is_the_primary_applicants(monkeypatch):
+    from app.agents.los import kyc_gate as _kg
+
+    monkeypatch.setattr(_kg, "_name_check_enabled", lambda: False)   # document-level KYC only
     from app.agents.los import kyc_gate
 
     monkeypatch.setattr(kyc_gate, "required_checks", lambda: ["NAME", "DOB"])
@@ -72,6 +75,9 @@ def test_case_level_kyc_result_is_the_primary_applicants(monkeypatch):
 
 
 def test_party_specific_kyc_result_wins_over_case_level(monkeypatch):
+    from app.agents.los import kyc_gate as _kg
+
+    monkeypatch.setattr(_kg, "_name_check_enabled", lambda: False)   # document-level KYC only
     from app.agents.los import kyc_gate
 
     monkeypatch.setattr(kyc_gate, "required_checks", lambda: ["NAME"])
@@ -118,7 +124,7 @@ def test_document_actions_list_every_other_kyc_field(monkeypatch):
     ("do i need bank statement", "Bank Statement"),
     ("can i upload aadhaar instead of pan", "No. **Aadhaar** cannot replace it"),
     ("aadhar card ki jagah voter id chalega", "Yes. **Voter ID**"),
-    ("is aadhaar mandatory", "not mandatory by itself"),
+    ("is aadhaar mandatory", "not required by itself"),   # one of the documents accepted (2026-10-10 wording)
 ])
 def test_document_rule_questions_answer_from_the_checklist(message, expected):
     from app.agents.applicant.copilot.capabilities import general
@@ -156,7 +162,7 @@ def test_why_stuck_names_every_kind_of_blocker():
 
     text = readiness_report.why_stuck(_report(), "FOS")
     assert "CASE-1 is stuck at FOS because:" in text
-    assert "KYC failed: name, date of birth" in text and "Not uploaded: Address Proof" in text
+    assert "KYC failed: mismatch in name, date of birth" in text and "Not uploaded: Address Proof" in text
     assert "Upload the Address Proof" in text
 
 
@@ -211,3 +217,65 @@ def test_the_reply_names_the_verified_name(monkeypatch, form, said):
     view = document_actions.build("CASE-1", repository=_name_repo(form))
     text = document_actions.render(view, "en")["answer"]
     assert "Name verified: **RISHABH SINGH** (matches on PAN, Bank Statement)" in text and said in text
+
+
+# ---- Sprint 2 (2026-10-10) -------------------------------------------------------------------------------------
+@pytest.mark.parametrize("text, expected", [("Sure \U0001F44D Let me know", "Sure. Let me know"),
+                                            ("Done \U0001F44D", "Done"), ("\u2705 Name verified", "Name verified")])
+def test_a_stripped_emoji_keeps_the_sentence_break(text, expected):
+    from app.agents.applicant.copilot.answering import professional
+
+    assert professional.strip_emojis(text) == expected
+
+
+def test_readiness_phrases_match_the_whole_message_only():
+    from app.agents.applicant.copilot.answering import readiness_report
+
+    assert readiness_report._asks("why is it stuck?", "why_phrases")
+    assert not readiness_report._asks("KYC mein kya issue hai?", "why_phrases")      # was a substring hit
+    assert readiness_report._asks("hmm || why is it stuck", "why_phrases")           # typed || rewritten
+
+
+def test_a_pending_slot_is_named_once():
+    from app.agents.applicant import status_facts
+
+    assert status_facts._pending_sentence(["Signature", "Signature"], still=True) == "Signature is still pending."
+
+
+def test_a_plain_yes_confirms_only_a_field_edit():
+    from app.agents.applicant.copilot.capabilities import case_form
+
+    soft = case_form._words("soft_confirm_words")
+    assert "yes" in soft and "haan" in soft
+    assert not set(soft) & set(case_form._words("confirm_words")) - {"confirm"}      # moves keep confirm_words only
+    import inspect
+
+    from app.agents.applicant.copilot.capabilities import stage_flow
+
+    assert "soft_confirm_words" not in inspect.getsource(stage_flow)                 # a move never takes a plain yes
+
+
+def test_every_case_topic_has_a_default_question():
+    from app.agents.applicant.copilot.capabilities import vague
+
+    topics = vague._cfg().get("case_topics") or []
+    assert topics and all(t.get("default") in (t.get("options") or []) for t in topics)
+
+
+# ---- Sprint 3A (2026-10-10, found on the real UI path) ---------------------------------------------------------
+@pytest.mark.parametrize("message", ["go back to the previous one", "back to the previous one", "the previous one"])
+def test_going_back_to_the_previous_case_is_a_return_never_a_close(message):
+    import inspect
+
+    from app.agents.applicant.copilot.capabilities import workspace
+
+    assert workspace._says("previous", message)
+    src = inspect.getsource(workspace)
+    assert 'and not _says("previous", text)' in src            # "back" alone still closes; with "previous" it returns
+
+
+def test_an_english_correction_names_the_document_status_intent():
+    from app.agents.applicant.copilot.semantics import meaning
+
+    examples = meaning.catalogue()["intents"]["document_status"]["examples"]
+    assert "no I meant the bank statement" in examples

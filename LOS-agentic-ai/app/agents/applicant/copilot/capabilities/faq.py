@@ -202,6 +202,8 @@ def apply_unknown(published: Any, message: str) -> Any:
         return published
     if str(published.get("intent") or "").upper() not in ("OUT_OF_SCOPE", "UNKNOWN"):
         return published
+    if str(published.get("response_type") or "").upper() == "ROUTED" or published.get("route_to"):
+        return published         # a deliberate route ("handled by the credit team after CPA") is the answer (2026-10-12)
     published["answer"] = unknown(language_lock.current() or "en", len(message))
     published.pop("answer_markdown", None)
     published["suggested_questions"] = []

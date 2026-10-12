@@ -312,7 +312,7 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
     # knowledge base, which would have answered a creditworthiness question
     # out of the FOS handbook.
     (r"\b(credit\s*score|cibil|bureau|credit\s*report|credit\s*history"
-     r"|credit\s*worth\w*|creditworth\w*|credit\s*(assessment|evaluation)"
+     r"|credit\s*worth\w*|creditworth\w*|credit\s*(assessment|evaluation|memo|appraisal|note|decision\s+note)"
      r"|eligib\w*\s+for\s+(the\s+|a\s+)?loan)\b", "CREDIT_SCORE"),
     # ANY mention of risk routes, for the same reason fraud does: the FOS
     # stage does not own it in any form, so there is nothing to gain from
@@ -353,12 +353,18 @@ _OUT_OF_SCOPE: list[tuple[str, str]] = [
      r"salary\s+slip|photo|document|doc|apply\s+kiya|applied\s+for|requested|maanga)\b)[^?]*"
      r"\b(approve[ds]?|approval|sanction(ed)?|disburse[ds]?|reject(ed|ion)?)\b",
      "LOAN_DECISION"),
-    (r"\b(is\s+.{0,20}loan\s+safe|should\s+we\s+approve|eligib\w+\s+amount)\b", "LOAN_DECISION"),
+    (r"\b(is\s+.{0,20}loan\s+safe|should\s+we\s+approve)\b", "LOAN_DECISION"),
     # DOMAIN-ADJACENT: about money or loans, but not this desk's to answer. Each
     # is routed with its reason (applicant_agent.yaml `routing`), never guessed at.
-    (r"\b(how\s+much\s+(loan|money|amount)\s+(can|could|will|would)\s+(i|we)\s+(get|be\s+given|borrow)"
-     r"|max(imum)?\s+(loan\s+)?amount\s+(i|we)\s+can|kitna\s+loan\s+(mil|milega|mil\s+sakta)"
-     r"|loan\s+kab\s+(milega|mil\s+jayega|aayega))\b", "ELIGIBILITY_AMOUNT"),
+    # (2026-10-12) any subject -- "how much loan can HE get", "the customer" -- and the eligible amount by name
+    (r"\b(how\s+much\s+(loan|money|amount)\s+(can|could|will|would)\s+"
+     r"(i|we|he|she|they|the\s+customer|customer|the\s+applicant|applicant|the\s+borrower|borrower)\s+"
+     r"(get|be\s+given|borrow|avail)"
+     r"|how\s+much\s+(can|could)\s+(i|we|he|she|they|the\s+customer|the\s+applicant)\s+borrow"
+     r"|max(imum)?\s+(loan\s+)?amount\s+(i|we|he|she|they)\s+can"
+     r"|max(imum)?\s+eligib\w*\s+(loan\s+)?amount|eligib\w*\s+(loan\s+)?amount"
+     r"|kitna\s+loan\s+(mil|milega|mil\s+sakta)|loan\s+kab\s+(milega|mil\s+jayega|aayega))\b",
+     "ELIGIBILITY_AMOUNT"),
     # NEGOTIATING OR PREDICTING terms only. The application RECORDS an interest
     # rate and a declared EMI: "what is my interest rate?" is a profile answer.
     (r"\b(reduce|lower|decrease|cut|change|negotiate|waive|kam\s+kar\w*|kam\s+ho)\b.{0,25}"
@@ -657,6 +663,9 @@ _PATTERNS: list[tuple[str, Intent]] = [
     # KYC findings -- a real answer to a different question.
     (r"\beligib\w*\b", Intent.ELIGIBILITY),
     (r"\bfoir\b", Intent.ELIGIBILITY),
+    # "kya income kaafi hai loan ke liye" / "is the income enough for this loan" -- the eligibility verdict (2026-10-12)
+    (r"\b(income|salary|aay)\b[^?]{0,25}\b(kaafi|kafi|enough|sufficient|adequate|chalegi|chalega)\b"
+     r"|\b(enough|sufficient)\s+(income|salary)\b", Intent.ELIGIBILITY),
     (r"\b(afford|affordab\w+)\b", Intent.ELIGIBILITY),
     (r"\b(emi|instal?ment)\b[^?]{0,30}"
      r"\b(proposed|calculated|computed|what|how\s+much)\b"
@@ -907,6 +916,13 @@ _PATTERNS: list[tuple[str, Intent]] = [
 
     # readiness
     (r"\b(ready|readiness)\b.{0,20}\bcpa\b", Intent.READINESS),
+    # "what about CPA?" / "and CPA?" on a case: whether it can go to CPA (held-out evaluation, 2026-10-12)
+    (r"^(and\s+|so\s+)?(what|how)\s+about\s+(moving\s+to\s+|going\s+to\s+|the\s+)?cpa\W*$|^and\s+cpa\W*$",
+     Intent.READINESS),
+    # WHAT STANDS BETWEEN THE CASE AND CPA (audit 2026-10-11): "what exactly is blocking CPA?" is the readiness
+    # blockers, never the stage process description
+    (r"\b(block\w*|stopp?\w*|prevent\w*|holding\s+up|holds?\s+up)\b[^?]{0,25}\b(cpa)\b"
+     r"|\bcpa\b[^?]{0,15}\b(blocked|blockers?)\b", Intent.READINESS),
     # A field officer says "this case"; an applicant-facing screen says "my
     # application". Both are the same question and both must reach it.
     (r"\bis\s+(my|this|the)\s+(case|application|file)\b.{0,20}\bready\b",
@@ -1021,6 +1037,11 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\b(show|list)\s+.{0,25}\bchecklist\b", Intent.DOCUMENTS_REQUIRED),
     (r"\b(which|what)\s+documents?\s+(have\s+been\s+)?(uploaded|collected|received|submitted)\b",
      Intent.DOCUMENTS_UPLOADED),
+    # WHAT WE ALREADY HAVE (audit 2026-10-11): "which documents did we already collect?" is the uploaded list
+    (r"\b(which|what)\s+(documents?|docs|papers)\s+(did|have|has)\s+(we|i|you|they|the\s+customer)\s+"
+     r"(already\s+)?(collect\w*|upload\w*|receiv\w*|got|gotten|submit\w*)\b"
+     r"|\bwhat\s+have\s+(we|i)\s+(already\s+)?(collected|received|got)\b",
+     Intent.DOCUMENTS_UPLOADED),
     (r"\b(show|list)\s+.{0,20}\bdocuments?\b", Intent.DOCUMENTS_UPLOADED),
     # AN ADVERB DOES NOT CHANGE THE QUESTION. "What documents are
     # STILL pending" fell through this pattern to UNKNOWN and was
@@ -1091,6 +1112,15 @@ _PATTERNS: list[tuple[str, Intent]] = [
     # frame; which stage the case is at is asked through the frame's
     # CURRENT_STAGE task (or the explicit _CURRENT_STAGE shapes above).
     (r"\bwhere\s+is\s+(this|the)\s+application\b", Intent.APPLICATION_STAGE),
+    # "where is this file sitting / parked / right now" -- where it is in the process (held-out eval, 2026-10-12)
+    (r"\bwhere\s+(is|does)\s+(this|the|my)\s+(file|case|loan)\s+(sitting|sit|lying|parked|now|currently|right\s+now|"
+     r"at\s+the\s+moment)\b", Intent.APPLICATION_STAGE),
+    # PROGRESS IS THE STAGE (audit 2026-10-11): "how far along is this application?" / "what's the progress on
+    # this case?" -- not the application form's details
+    (r"\bhow\s+far\s+along\s+(is|has)\s+(this|the)\s+(case|application|file)\b"
+     r"|\bhow\s+far\s+(has|have|is|did)\s+(this|the)\s+(case|application|file)\b"
+     r"|\b(progress)\b\s+(on|of|for)\s+(this|the|my)\s+(case|application|file|loan)\b",
+     Intent.APPLICATION_STAGE),
     # A STATUS QUESTION ABOUT ONE'S OWN CASE, IN THE REMAINING WORDINGS.
     #
     # "Where does my application stand", "what is my application's
@@ -1121,7 +1151,8 @@ _PATTERNS: list[tuple[str, Intent]] = [
     (r"\bwhat\s+information\s+is\s+(still\s+)?missing\b", Intent.APPLICANT_MISSING_INFO),
     (r"\bmissing\s+(applicant\s+)?(information|details|fields)\b", Intent.APPLICANT_MISSING_INFO),
     (r"\b(applicant|customer)\s+(details|information|profile|data)\b", Intent.APPLICANT_DETAILS),
-    (r"\bwho\s+is\s+the\s+applicant\b", Intent.APPLICANT_DETAILS),
+    # "who's the borrower on this file?" / "who is the customer" = "who is the applicant" (2026-10-12)
+    (r"\bwho(\s+is|'?s)\s+the\s+(applicant|borrower|customer)\b", Intent.APPLICANT_DETAILS),
     (r"\b(phone|mobile|email|address|name|dob|date\s+of\s+birth)\s+(number\s+)?(of|for)?\b.{0,20}\bapplicant\b",
      Intent.APPLICANT_DETAILS),
     (r"\bapplicant('?s)?\s+(phone|mobile|email|address|name)\b", Intent.APPLICANT_DETAILS),
@@ -1131,6 +1162,15 @@ _PATTERNS: list[tuple[str, Intent]] = [
 
 _COMPILED = [(re.compile(p, re.IGNORECASE), i) for p, i in _PATTERNS]
 _COMPILED_OOS = [(re.compile(p, re.IGNORECASE), r) for p, r in _OUT_OF_SCOPE]
+
+
+def names_credit_record(text: str) -> bool:
+    """'what does the credit memo say': a credit DOCUMENT (memo / appraisal / note), never the stage guide
+    -- the credit team's route answers it (live smoke 2026-10-12: it was answered from the Credit stage description)."""
+    return bool(re.search(r"\bcredit\s*(memo|appraisal|note|decision\s+note)s?\b", str(text or ""),
+                          re.IGNORECASE))
+
+
 _DOC_RE = re.compile(_DOC_TYPES, re.IGNORECASE)
 
 #: Spoken forms -> the stored document_type.
@@ -1457,7 +1497,7 @@ def classify(message: str) -> Classification:
     if asks_impact(text):
         return Classification(Intent.READINESS, matched_on="impact")
 
-    if looks_like_stage_process(text):
+    if looks_like_stage_process(text) and not names_credit_record(text):
         return Classification(Intent.STAGE_PROCESS, matched_on="stage")
 
     # AND THE SAME QUESTION ASKED ABOUT A CASE KEEPS ITS CASE ROUTE.
@@ -1514,7 +1554,7 @@ def classify(message: str) -> Classification:
     if _terms.enabled() and _terms.is_definition(text):
         return Classification(Intent.FOS_KNOWLEDGE, matched_on="lending_term_definition")
 
-    if not asks_process:
+    if not asks_process or names_credit_record(text):    # "what does the credit memo say" is not a process question
         for pattern, route in _COMPILED_OOS:
             if pattern.search(text):
                 return Classification(
@@ -2310,6 +2350,8 @@ def _general_question(message: str, classification: Classification) -> Classific
             r"\b(maximum|minimum|max|min|policy|rule|allowed|charge|fee|penalty|rate|usually|"
             r"typically|how\s+(many|long)|can\s+i\s+(check|see|tell))\b", text, re.I):
         return None                        # a decision question stays out of scope
+    if classification.route_to == "ELIGIBILITY_AMOUNT" and re.search(r"\beligib\w*", text, re.I):
+        return None                        # "maximum ELIGIBLE amount": this applicant's -- the credit route (2026-10-12)
     if len(text.split()) < 4:
         return None
     if stage_in(text) is not None and re.search(r"\b(hold|block|stop|stuck|check|happen)\w*\b", text, re.I) \

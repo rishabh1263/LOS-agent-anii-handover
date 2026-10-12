@@ -62,7 +62,7 @@ def gate_passes(monkeypatch):
 def test_my_cases_shows_the_five_most_recent(client, prod):
     made = [make_case(client, f"Officer Case {n}")[1] for n in range(7)]
     md = turn(client, "my cases", chat="r5")
-    shown = re.findall(r"\| (CASE-[0-9A-F]+) \|", md)
+    shown = re.findall(r"^(?:\| |\d+\. .*?)(CASE-[0-9A-F]+)", md, re.M)   # short list (default) or table
     assert shown == list(reversed(made))[:5]                          # newest first, five only
     assert "Showing 1-5 of 7" in md
 

@@ -798,7 +798,12 @@ _PRINTED = {
             ("total_income", "signals.declared_annual_income"), ("taxes_paid", "detail.taxes_paid")),
     "BANK_STATEMENT": (("closing_balance", "signals.closing_balance"),),
     "SALE_DEED": (("article_type", "detail.article_type"),
-                  ("registration_reference", "detail.registration_reference")),
+                  ("registration_reference", "detail.registration_reference"),
+                  # the parties and the property, AS PRINTED -- the property-ownership check reads the buyers
+                  # (the current owners) against the application (kyc_gate.property_ownership_match, 2026-10-11)
+                  ("buyer_names", "detail.buyer_names"), ("seller_names", "detail.seller_names"),
+                  ("property_type", "detail.property_type"), ("district", "detail.district"),
+                  ("pin_code", "detail.pin_code")),
 }
 
 

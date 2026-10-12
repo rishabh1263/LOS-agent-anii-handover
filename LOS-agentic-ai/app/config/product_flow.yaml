@@ -233,7 +233,30 @@ case_form:
   skip_words: [skip, chhodo, chodo, rehne do, na, none, -, छोड़ो, वगळा]
   cancel_words: [cancel, stop creating, band karo, rehne do case, cancel case, रद्द करो, रद्द करा]
   confirm_words: [confirm, yes confirm, haan confirm, confirm karo, create karo, theek hai banao, पुष्टि, खात्री]
+  # SPRINT 2 (directive phase 3): a plain yes / no answers the ONE pending FIELD-EDIT question just asked ("Change
+  # Loan amount from 500000 to 600000?"). A field edit is reversible and was proposed with its old and new value;
+  # a stage move or a query to another team still needs the explicit confirm_words (stage_flow never reads these).
+  soft_confirm_words: ["yes", "y", "haan", "han", "ha", "ji", "haan ji", "ji haan", "ok", "okay", "theek hai", "thik hai",
+                       "yes please", "haan kar do", "kar do", "go ahead", "sure", "हाँ", "हां", "हो"]
+  # cancelling a pending write is always safe: these cancel any pending field edit / move / query proposal
+  soft_cancel_words: ["no", "n", "nahi", "nahin", "na", "nope", "ruko", "ruko cancel karo", "cancel karo", "mat karo",
+                      "abhi mat karo", "rehne do", "stop", "don't", "dont", "nahi karna", "abhi nahi", "नहीं", "रुको", "नको"]
   edit_words: [edit, badlo, change, बदलो, बदला]
+  # "Is it done?" while a field edit waits for Confirm (2026-10-10): the truth -- not saved yet -- and the same
+  # Confirm / Cancel again; the proposal is kept, never silently dropped
+  status_words: ["is it done", "is it done?", "done?", "is it saved", "saved?", "did it save", "has it been saved",
+                 "is it updated", "updated?", "ho gaya", "ho gaya?", "hua kya", "ho gaya kya", "save hua", "save hua kya"]
+  edit_waiting:
+    en: "Not saved yet: changing **{label}** to **{new}** is waiting for your Confirm."
+    hi-Latn: "Abhi save nahi hua: **{label}** ko **{new}** karna aapke Confirm ka intezaar kar raha hai."
+    hi: "अभी सेव नहीं हुआ: **{label}** को **{new}** करना आपके Confirm का इंतज़ार कर रहा है।"
+    mr: "अजून सेव्ह झाले नाही: **{label}** **{new}** करणे तुमच्या Confirm ची वाट पाहत आहे."
+  # a Confirm / Cancel button of a change that is no longer pending (dropped, expired or already done)
+  write_gone:
+    en: "That change is no longer pending, so nothing was written. Ask again to make it."
+    hi-Latn: "Woh badlaav ab pending nahi hai, isliye kuch save nahi hua. Karna ho to phir se kahiye."
+    hi: "वह बदलाव अब बाकी नहीं है, इसलिए कुछ भी सेव नहीं हुआ। करना हो तो फिर से कहें।"
+    mr: "तो बदल आता प्रलंबित नाही, म्हणून काहीही सेव्ह झाले नाही. करायचा असल्यास पुन्हा सांगा."
   # while a field is asked, a message that is clearly a question / command PARKS the draft (it is answered as
   # usual, nothing is lost); "Create New Case" or a resume word continues where it stopped
   escape_first: [open, show, list, what, how, why, when, which, kya, kaise, kyu, kyun, kab, kaun, kaunsa, hi, hello,
@@ -306,6 +329,11 @@ case_form:
     hi-Latn: "{case_id} ka **{label}** {old} se **{new}** karna hai?"
     hi: "{case_id} का **{label}** {old} से **{new}** करना है?"
     mr: "{case_id} चे **{label}** {old} वरून **{new}** करायचे का?"
+  # the edit was sent but the stored value read back is not the new one: never claimed as done (2026-10-10)
+  edit_unverified: { en: "I could not confirm that **{label}** of {case_id} was saved. It now reads {current}.",
+                     hi-Latn: "Main confirm nahi kar paya ki {case_id} ka **{label}** save hua. Abhi {current} hai.",
+                     hi: "मैं पुष्टि नहीं कर पाया कि {case_id} का **{label}** सेव हुआ। अभी {current} है।",
+                     mr: "{case_id} चे **{label}** सेव्ह झाले याची खात्री करता आली नाही. आता {current} आहे." }
   edited: { en: "Updated **{label}** of {case_id} to {new}.", hi-Latn: "{case_id} ka **{label}** {new} kar diya.",
             hi: "{case_id} का **{label}** {new} कर दिया।", mr: "{case_id} चे **{label}** {new} केले." }
   missing_fields:
@@ -314,6 +342,11 @@ case_form:
     hi: "इस केस में अभी भी चाहिए: {fields}।"
     mr: "या केसमध्ये अजून हवे: {fields}."
   empty: { en: "(empty)", hi-Latn: "(khaali)", hi: "(खाली)", mr: "(रिकामे)" }
+  # Confirm on a field another officer changed after the proposal (2026-10-10): nothing written, asked again
+  edit_stale: { en: "Not saved: {label} was changed by someone else meanwhile (now {current}). Say the new value again to edit it.",
+                hi-Latn: "Save nahi hua: {label} beech mein kisi aur ne badal diya (ab {current}). Badalna ho to nayi value phir se batayein.",
+                hi: "सेव नहीं हुआ: {label} इस बीच किसी और ने बदल दिया (अब {current})। बदलना हो तो नई वैल्यू फिर से बताएँ।",
+                mr: "सेव्ह झाले नाही: {label} दरम्यान दुसऱ्या कोणी बदलले (आता {current}). बदलायचे असल्यास नवीन मूल्य पुन्हा सांगा." }
   edit_locked: { en: "This case is past FOS; its form can no longer be edited here.",
                  hi-Latn: "Yeh case FOS se aage hai; iska form ab yahan edit nahi ho sakta.",
                  hi: "यह केस FOS से आगे है; इसका फ़ॉर्म अब यहाँ बदला नहीं जा सकता।",
@@ -460,6 +493,13 @@ stage_flow:
            cpa mein move, cpa me move, move kar do, submit to cpa, aage bhejo, सीपीए को भेजो]
     query_to_stage: [query to fos, fos ko query, fos ko bolo, raise query to fos, query to cpa, cpa ko query,
                      cpa ko bolo, raise query to cpa]
+    # DEVIATIONS from the deviation master (queries.yaml deviations.master; 2026-10-12)
+    raise_deviation: [raise deviation, raise a deviation, deviation raise, deviation raise karo, deviation daalo,
+                      deviation lagao, add deviation, new deviation, deviation chahiye, request deviation]
+    deviation_status: [deviation status, deviations dikhao, show deviations, list deviations, pending deviations,
+                       deviation ka status, open deviations, deviations on this case, deviation kya hai is case par]
+    approve_deviation: [approve deviation, deviation approve, approve karo deviation]
+    reject_deviation: [reject deviation, deviation reject, reject karo deviation]
     reply_query: [reply to, reply karo, jawab do, answer query, respond to]
     resolve_query: [resolve query, query resolve, query band karo, close query, resolve karo]
     # a query in the OFFICER'S words ("raise a query: address mismatch with Aadhaar") -> draft -> Confirm
@@ -572,6 +612,13 @@ stage_flow:
       hi-Latn: "{case_id} abhi {there} nahi ja sakta, pehle yeh theek karna hoga:"
       hi: "{case_id} अभी {there} नहीं जा सकता, पहले यह ठीक करना होगा:"
       mr: "{case_id} अजून {there} कडे जाऊ शकत नाही, आधी हे दुरुस्त करावे लागेल:"
+    # the transition raised something unexpected (a timeout, a dropped connection) and the stage could not be read
+    # back either: the outcome is UNKNOWN -- never claimed as done, never as failed (2026-10-10)
+    move_unknown:
+      en: "I could not confirm whether {case_id} moved to {there}. Please check its stage before trying again."
+      hi-Latn: "Main confirm nahi kar paya ki {case_id} {there} mein gaya ya nahi. Dobara try karne se pehle stage check karein."
+      hi: "मैं पुष्टि नहीं कर पाया कि {case_id} {there} में गया या नहीं। दोबारा कोशिश से पहले स्टेज जाँच लें।"
+      mr: "{case_id} {there} मध्ये गेली की नाही हे मी खात्री करू शकलो नाही. पुन्हा प्रयत्न करण्यापूर्वी स्टेज तपासा."
     move_failed:
       en: "{case_id} was not moved: {why}"
       hi-Latn: "{case_id} move nahi hua: {why}"
@@ -622,6 +669,30 @@ stage_flow:
                      hi: "{case_id} पर कोई खुली क्वेरी नहीं है।", mr: "{case_id} वर कोणतीही उघडी क्वेरी नाही." }
     query_failed: { en: "The query was not saved: {why}", hi-Latn: "Query save nahi hui: {why}",
                     hi: "क्वेरी सेव नहीं हुई: {why}", mr: "क्वेरी सेव्ह झाली नाही: {why}" }
+    # DEVIATIONS (deviation master; 2026-10-12)
+    deviation_pick: { en: "Which deviation from the master? Pick one:", hi-Latn: "Master se kaunsi deviation? Ek chuniye:" }
+    deviation_none: { en: "No deviation in the master matches \"{text}\". Say it in other words, e.g. \"raise deviation LTV > 70%\".",
+                      hi-Latn: "Master mein \"{text}\" jaisi koi deviation nahi mili. Dusre shabdon mein bataiye, jaise \"raise deviation LTV > 70%\"." }
+    deviation_ask_reason: { en: "**{description}** ({category}; approval: {approvers}). Why is this deviation needed on {case_id}?",
+                            hi-Latn: "**{description}** ({category}; approval: {approvers}). {case_id} par ye deviation kyun chahiye?" }
+    deviation_draft: { en: "📝 **Deviation for {case_id}**: {description} ({category}; approval: {approvers})\n> {reason}\nRaise it?",
+                       hi-Latn: "📝 **{case_id} ke liye deviation**: {description} ({category}; approval: {approvers})\n> {reason}\nRaise karein?" }
+    deviation_raised: { en: "✅ Deviation **{deviation_id}** raised: {description}. Pending approval by {approvers}; the case cannot move forward until it is decided.",
+                        hi-Latn: "✅ Deviation **{deviation_id}** raise ho gayi: {description}. {approvers} ki approval baaki hai; tab tak case aage nahi badhega." }
+    deviation_exists: { en: "Deviation **{deviation_id}** for this is already open ({status}).",
+                        hi-Latn: "Iske liye deviation **{deviation_id}** pehle se khuli hai ({status})." }
+    deviation_list_head: { en: "Deviations on {case_id}:", hi-Latn: "{case_id} par deviations:" }
+    deviation_row: { en: "- **{deviation_id}** {description} -- {status} (approval: {approvers})" }
+    deviation_list_none: { en: "There is no deviation on {case_id}.", hi-Latn: "{case_id} par koi deviation nahi hai." }
+    deviation_which: { en: "Which deviation? Open ones: {ids}", hi-Latn: "Kaunsi deviation? Khuli deviations: {ids}" }
+    deviation_decision_draft: { en: "📝 **{decision}** deviation **{deviation_id}** ({description})\n> {justification}\nConfirm?",
+                                hi-Latn: "📝 Deviation **{deviation_id}** ({description}) ko **{decision}**\n> {justification}\nConfirm karein?" }
+    deviation_need_reason: { en: "A decision needs its reason: \"{verb} deviation {deviation_id}: <reason>\".",
+                             hi-Latn: "Decision ke saath kaaran chahiye: \"{verb} deviation {deviation_id}: <kaaran>\"." }
+    deviation_pending_check: { en: "✅ Approval of **{deviation_id}** recorded -- a second person must check it before it takes effect (approval {approval_id}).",
+                               hi-Latn: "✅ **{deviation_id}** ki approval record hui -- lagu hone se pehle doosra vyakti check karega (approval {approval_id})." }
+    deviation_decided: { en: "✅ Deviation **{deviation_id}** is now **{status}**.", hi-Latn: "✅ Deviation **{deviation_id}** ab **{status}** hai." }
+    deviation_failed: { en: "The deviation was not saved: {why}", hi-Latn: "Deviation save nahi hui: {why}" }
     cancelled: { en: "Okay, nothing was sent or changed.", hi-Latn: "Theek hai, kuch bheja ya badla nahi gaya.",
                  hi: "ठीक है, कुछ नहीं भेजा या बदला गया।", mr: "ठीक आहे, काहीही पाठवले किंवा बदलले नाही." }
   # the offers shown under case answers (ask: links)

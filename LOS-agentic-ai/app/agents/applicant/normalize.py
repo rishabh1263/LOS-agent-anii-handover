@@ -110,6 +110,7 @@ such only own same just now also still yet already please thanks thank
 state stage status tell show give need needs needed want know see get got
 make made take upload uploaded wrong right happening happen happened going
 doing stand stands long time today check checked done left next action
+lend lends lending lender lenders lent borrow borrows borrowed borrowing custom customs tense tender
 """.split())
 
 

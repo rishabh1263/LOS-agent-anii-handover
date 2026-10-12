@@ -2,8 +2,9 @@
 "top 2 cases", "last 3", "pichle 3 case dikhao", "show 2 cases", "last case" ... -- the case list at the size asked
 (case_list.understand; case_list.yaml phrases). Six cases on file; every wording must show exactly N rows.
 """
-
 from __future__ import annotations
+
+import re
 
 import pytest
 
@@ -21,7 +22,9 @@ SIZED = [("top 2 cases", 2), ("last 3 cases", 3), ("last 3", 3), ("show top 2 ca
 
 
 def rows(md: str) -> int:
-    return sum(1 for line in md.split("\n") if line.startswith("| ") and "CASE-" in line)
+    # the short list (default) or the table (on request, case_list.yaml format): one line per case
+    return sum(1 for line in md.split("\n")
+               if "CASE-" in line and (line.startswith("| ") or re.match(r"\d+\. ", line)))
 
 
 @pytest.fixture

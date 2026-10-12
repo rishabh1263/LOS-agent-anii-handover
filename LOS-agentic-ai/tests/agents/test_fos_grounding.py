@@ -217,9 +217,12 @@ def test_a_model_answer_that_is_grounded_is_kept(monkeypatch):
         # A REPHRASING OF THE RETRIEVED PASSAGE: the same facts, reworded.
         # (An answer that adds a claim the passage does not carry is now
         # replaced by the passage -- app/agents/applicant/fidelity.py.)
-        return ("FOS says what should be collected; it does not say whether a "
-                "collected document is genuine, and it says nothing about "
-                "creditworthiness, risk or KYC status, which belong to later stages.")
+        # (the handbook's own "What happens during FOS verification" section is the passage retrieved since
+        # 2026-10-09; the rephrasing is of THAT passage)
+        return ("During FOS verification every uploaded document is checked for readability and its type, and "
+                "KYC compares the name, date of birth, PAN number, address and father's name across the "
+                "documents; the case is ready to hand to CPA when the mandatory documents are verified, the "
+                "signature is on file and KYC has passed.")
 
     monkeypatch.setattr(knowledge_answer, "_phrase", sensible)
     monkeypatch.setenv("APPLICANT_AGENT_LLM_ENABLED", "true")
@@ -227,7 +230,7 @@ def test_a_model_answer_that_is_grounded_is_kept(monkeypatch):
 
     answer, source, detail = ask("What happens during FOS verification?")
 
-    assert "says nothing about creditworthiness" in answer
+    assert "checked for readability and its type" in answer
     assert detail.get("grounding_rejected") is not True
     assert source == "LLM"
 

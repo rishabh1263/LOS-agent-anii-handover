@@ -102,8 +102,10 @@ export async function queryFosCopilot(
   const body: Record<string, unknown> = {
     action: payload.action || 'CUSTOM_QUERY',
     message: payload.message || '',
-    context: payload.context || {},
   }
+  // only a REAL context is sent: the server keeps this chat's conversation by chat_id (an empty `{}` used to start a
+  // new conversation on every turn -- Sprint 3A)
+  if (payload.context && Object.keys(payload.context).length) body.context = payload.context
   if (payload.applicant_id?.trim()) body.applicant_id = payload.applicant_id.trim()
   if (payload.case_id?.trim()) body.case_id = payload.case_id.trim()
   if (payload.chat_id) body.chat_id = payload.chat_id

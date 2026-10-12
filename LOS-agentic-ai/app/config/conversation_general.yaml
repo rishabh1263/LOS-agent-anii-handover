@@ -31,7 +31,14 @@ phrases:
                  aadhar, pan, passport, voter, driving licence, driving license, photo, form 16, itr, accepted as]
   # a definition / full form: "what is X", "X meaning", "X full form", "X kya hai", "X ka matlab"
   definition: ["^(?:what is|what's|whats|what does|define)\\s+(?:a |an |the )?(?P<term>[A-Za-z][A-Za-z0-9-]{1,14})(?:\\s+(?:stage|step|desk|check))?(?:\\s+mean| stand for)?\\s*\\??$",
-               "^(?P<term>[A-Za-z][A-Za-z0-9-]{1,14})\\s+(?:meaning|full form|ka matlab|matlab|kya hai|kya hota hai|means)\\s*\\??$"]
+               "^(?P<term>[A-Za-z][A-Za-z0-9-]{1,14})\\s+(?:meaning|full form|ka matlab|matlab|kya hai|kya hota hai|means)\\s*\\??$",
+               # "what is the full form of LTV" / "LTV ka full form kya hai" / "FOIR ka matlab batao" (2026-10-12)
+               "^(?:what(?:'s| is) )?(?:the )?(?:full form|expansion|meaning) of (?P<term>[A-Za-z][A-Za-z0-9-]{1,14})\\s*\\??$",
+               "^(?P<term>[A-Za-z][A-Za-z0-9-]{1,14})\\s+(?:ka|ki|ke)\\s+(?:full form|matlab|meaning|arth)(?:\\s+(?:kya hai|kya hota hai|kya|batao|bataiye))?\\s*\\??$"]
+  # "difference between A and B" with no section comparing them: each term's own definition, side by side --
+  # answered only when BOTH are defined (2026-10-12; capabilities/general._difference)
+  difference: ["^(?:what(?:'s| is) the )?difference between (?:the |a |an )?(?P<a>[A-Za-z][A-Za-z0-9-]{1,14})(?: stage)? and (?:the |a |an )?(?P<b>[A-Za-z][A-Za-z0-9-]{1,14})(?: stages?)?\\s*\\??$",
+               "^(?P<a>[A-Za-z][A-Za-z0-9-]{1,14}) (?:aur|and|vs|versus) (?P<b>[A-Za-z][A-Za-z0-9-]{1,14}) (?:mein|me|main) (?:kya )?(?:fark|farak|difference)(?: hai| kya hai)?\\s*\\??$"]
 
 # PROCESS ANSWERS: numbered steps whose FACTS are filled from the live config at answer time
 processes:
@@ -102,8 +109,8 @@ texts:
   requirement_some: { en: "**{document}** is mandatory for: {products}.",
                       hi-Latn: "**{document}** in products ke liye zaroori hai: {products}." }
   requirement_optional: { en: "**{document}** is optional for: {products}.", hi-Latn: "**{document}** in products ke liye optional hai: {products}." }
-  requirement_accepted: { en: "**{document}** is not mandatory by itself. It is one accepted option for: {slots}.",
-                          hi-Latn: "**{document}** khud zaroori nahi. Yeh in ke liye ek accepted option hai: {slots}." }
+  requirement_accepted: { en: "**{document}** is not required by itself: it is one of the documents accepted for {slots}.",
+                          hi-Latn: "**{document}** khud zaroori nahi: yeh {slots} ke liye accepted documents mein se ek hai." }
   requirement_none: { en: "**{document}** is not on any product's document checklist.",
                       hi-Latn: "**{document}** kisi product ki document list mein nahi hai." }
   substitute_yes: { en: "Yes. **{document}** is accepted for the {slot} requirement (accepted: {accepted}).",
@@ -209,6 +216,11 @@ general_question:
                    is applicant, this applicant, customer ka, applicant ka]
   # with a case in scope: a VALUE of that case, never a definition ("what is the CIBIL score" -> routed downstream)
   case_value_patterns: ['\b(the|my|mera|meri|mere|his|her|their|this|iska|uska|customer s|applicant s) (\w+ )?(score|amount|income|salary|emi|limit|tenure|rate|value|balance)\b', '\b(score|amount|income|salary|emi) (kitna|kitni|kya) (hai|h)\b']
+  # with NO case open, a message that points at a case or the officer's cases is never a handbook question
+  # (general._handbook_answers_without_a_case; Run 9, 2026-10-12): "show top 2 cases", "why is it pending?"
+  case_pointers: ['\b(case|cases|file|files|application|applications)\b',
+                  '\b(it|this|that|ye|yeh) (is |still |abhi )?(pending|stuck|rejected|on hold|atka|ruka)\b',
+                  '^why (is|was) (it|this|that)\b']
   # questions about a case's own data even without "this": the ordinary pipeline asks which case
   case_only: ['^(what is|whats) (pending|missing|the status|status|the stage|my status|left|baaki)\b',
               '\b(status|pending|baaki|baki) (kya|hai|batao)', '^(loan amount|kyc status|stage|status)\b',
@@ -220,8 +232,13 @@ general_question:
   # two named documents + a substitute shape -> whether the first is accepted in the second's slot.
   requirement_shapes: ['\b(mandatory|required|compulsory|necessary|needed|zaroori|zaruri|jaruri|chahiye)\b',
                        '^(do|does) (i|we|you|the customer|customer|the applicant) (need|have to)\b', '^is .+ (needed|a must)$']
-  # a COUNT / DURATION question is never a yes/no requirement ("how many months bank statement is needed")
-  requirement_not_shapes: ['\bhow (many|much|long|old)\b', '\b(kitne|kitna|kitni)\b', '\bmonths?\b', '\bdays?\b', '\byears?\b']
+  # a COUNT / DURATION question is never a yes/no requirement ("how many months bank statement is needed"), and a
+  # COMMAND that names a document ("query daalo - bank statement 6 mahine ka chahiye") is the command's, not a rule
+  requirement_not_shapes: ['\bhow (many|much|long|old)\b', '\b(kitne|kitna|kitni)\b', '\bmonths?\b', '\bdays?\b', '\byears?\b',
+                           '\bmahin(e|a|on)\b', '\bdin\b', '\bsaal\b', '\bquery\b', '\b(daalo|dalo|bhejo|raise)\b',
+                           # a WHY question asks the reason, not yes/no ("Why is address proof required?": the handbook
+                           # says why -- family eval cvk_09, 2026-10-10)
+                           '^why\b', '\b(kyu|kyun|kyon|kyo)\b', '^(क्यों|क्यूं)']
   substitute_shapes: ['\binstead of\b', '\bin place of\b', '\bki jagah\b', '\bke badle\b', '\breplace\b']
   # Hindi order: "<wanted> ki jagah <offered>"
   substitute_shapes_reversed: ['\bki jagah\b', '\bke badle\b']
@@ -247,6 +264,9 @@ general_question:
     - ['^(.+?) aur (.+?) (?:mein|me|main) (?:kya )?(?:fark|farak|difference)(?: hai| kya hai)?$', 'difference between \1 and \2']
     - ['^(.+?) (?:mein|me|ke liye|ke liy) (?:kya|kya kya|kaunsa|kaunse|konsa|konse) (?:chalega|chalta hai|chalti hai|de sakte hai|de sakte hain|de sakta hai|de sakte|dena hai|dena hota hai|dein|lagta hai|accept hota hai)$', 'which documents are accepted as \1']
     - ['^(?:loan )?(approve|reject|sanction|decide) kaun (?:karta|karti|karte) (?:hai|hain)$', 'who \1s the loan']
+    # English: "which documents work as address proof?" / "what counts as income proof?" (held-out set B, 2026-10-12)
+    - ['^(?:which|what) (?:documents?|docs|papers) (?:work|works|count|counts|can be used|can i use|are valid|are ok|qualify|will do) (?:as|for) (.+?)$', 'which documents are accepted as \1']
+    - ['^what (?:counts|works|can be used|will do) (?:as|for) (.+?)$', 'which documents are accepted as \1']
     - ['\bloan (?:ka )?process\b', 'stages of a loan']
     - ['^.*\b(?:another|other|different) (?:lender|bank)\b.*\b(?:take over|takeover|transfer|move|shift)\b.*$', 'what is a balance transfer']
   # the knowledge pipeline may phrase with the model (grounded + checked, agent._knowledge_reply)
@@ -257,7 +277,9 @@ decisions:
   phrases: [will this loan get approved, will the loan get approved, will it get approved, will it be approved,
             loan approve hoga, approve hoga kya, approval milega, chance of approval, approval chances,
             can you approve, approve kar do, approve karo, should i reject, should i approve, reject kar du,
-            can you reject, can you sanction, sanction kar do, is this customer eligible, kya loan milega]
+            can you reject, can you sanction, sanction kar do, kya loan milega]
+  # (2026-10-12) "is this customer eligible?" is no longer here: the RECORDED eligibility verdict answers it (DEMO-
+  # labelled); the lending decision itself stays the credit team's
   text:
     en: "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still pending so the case is ready for them."
     hi-Latn: "Main credit decision nahi leta. CPA ke baad credit team case check karti hai (credit, phir RCU) aur decide karti hai. Main bata sakta hoon ki kya baaki hai taaki case unke liye ready ho."
@@ -312,7 +334,8 @@ policy:
   texts:
     loan_amount: "{product}: loan amount {minimum} to {maximum}."
     tenure: "{product}: tenure {minimum} to {maximum} months."
-    interest: "{product}: {rate}% a year (the rate used for the EMI estimate)."
+    # the configured rate is the EMI ESTIMATE rate, never a promised / maximum rate (held-out set B, 2026-10-12)
+    interest: "{product}: {rate}% a year is the rate used for the EMI estimate -- the actual rate is set at sanction by the credit team."
     age: "{product}: age {minimum} to {maximum} years."
     ltv: "{product}: LTV up to {maximum}% of the property value."
     ltv_off: "{product}: LTV does not apply (no property is taken as security)."
@@ -393,13 +416,20 @@ llm_rewrite:
 # max 3 sentences, VALIDATED (no number / ₹ / % the question did not carry, no company voice, never "unknown"), else
 # "not in the knowledge base". Unknown ALL-CAPS terms (company jargon) are never explained. Only after a knowledge miss.
 general_llm:
-  enabled: true
+  # OFF (owner decision 2026-10-12): the Copilot answers ONLY from LOS data and the approved handbook / SOPs -- a
+  # question neither holds is "not in the knowledge base", never general model knowledge. COPILOT_GENERAL_LLM=true
+  # turns it back on (answers stay labelled "not from the company handbook").
+  enabled: false
   min_words: 8          # a shorter model answer is never shown
   max_echo: 0.4          # more than this share of the answer's words taken from the question: never shown
   timeout_seconds: 8.0
   num_predict: 90
   max_sentences: 3
   min_free_ram_gb: 2.0
+  # shown under every general answer: it is not from the handbook and cites nothing (2026-10-11)
+  provenance_note:
+    en: "_General information, not from the company handbook -- confirm with your lender's policy._"
+    hi-Latn: "_Yeh general jaankari hai, company handbook se nahi -- lender ki policy se confirm karein._"
   instructions: |-
     You answer a loan field officer's general question about Indian retail lending or banking in at most 3 short plain
     sentences. Use only widely known, standard facts. Never state any lender's limits, interest rates, fees, cut-offs,
@@ -422,6 +452,16 @@ vague:
               # ONE clear meaning on an open case: answered directly, never an options question (variant evals)
               tenure, interest, interest rate, ready, history, timeline, loan amount, emi]
   question: "What would you like to know about {topic}?"
+  # PICKING AN OPTION BY ITS PLACE (2026-10-10, conversation evals B/C): after the options question, "first one",
+  # "second", "pehla", "दूसरा", "option 2", "the other one" (of two) select that option; negative = from the end.
+  # A bare number is read as before.
+  option_picks: { "first": 1, "first one": 1, "the first one": 1, "1st": 1, "option 1": 1, "pehla": 1, "pehli": 1,
+                  "pehle wala": 1, "पहला": 1, "पहली": 1, "pahila": 1, "second": 2, "second one": 2,
+                  "the second one": 2, "2nd": 2, "option 2": 2, "dusra": 2, "doosra": 2, "dusri": 2, "dusre wala": 2,
+                  "दूसरा": 2, "दूसरी": 2, "third": 3, "third one": 3, "3rd": 3, "option 3": 3, "teesra": 3,
+                  "तीसरा": 3, "last": -1, "last one": -1, "the last one": -1 }
+  # "the other one" names the option NOT first when exactly two were offered
+  other_option: [the other one, other one, the other, doosra wala, dusra wala]
   # the Upload option is a real upload link (action:upload); picked by its number it answers with that link
   upload_reply: "Tap below to upload the {document}."
   # the party of the Upload link: the party the message names (semantics/meaning.py party_in), else the default
@@ -440,16 +480,36 @@ vague:
   # a fragment READ IN CONTEXT (capabilities/vague.py contextual): the previous question of the chat when it is one
   # of the fragment's readings (in its topic, or among its `previous_in_top` ranked case intents); else ONE clear
   # reading alone (intent_catalogue decide.accept_with_lead); else the options below
-  contextual: { enabled: true, previous_in_top: 3 }
+  # default_in_top: a topic's direct answer looks at the word's top readings ("case" reads case_history first,
+  # case_status third, 2026-10-11); only the topic's OWN words (case_topics default_words) take it
+  contextual: { enabled: true, previous_in_top: 1, upload_in_top: 3, default_in_top: 3 }
   # a case open and no document named: the TOPIC of the word -> that case's questions
+  # `default` (owner 2026-10-09 "seedha jawab do"): with a case OPEN and nothing earlier in the chat choosing one
+  # reading, a one-word message in this topic is ANSWERED with the default question for that case (meaning picks the
+  # topic); `options` remain for no-case and for an explicit "what can I ask"
   case_topics:
     - intents: [pending_documents, document_status, document_rejection, knowledge_documents, process_upload,
                 process_verify_documents, process_fix_rejected]
       options: ["What is pending?", "Why is this case stuck?", "What should I do next?"]
+      default: "What is pending?"
+      # THE DEFAULT IS ANSWERED ONLY FOR THE TOPIC'S OWN WORDS (2026-10-10): "address" / "income" read as nearest to
+      # this topic and were answered with the pending list; a word not listed here gets the options question
+      default_words: [pending, documents, document, docs, doc, upload, uploads, baaki, dastavez]
     - intents: [kyc_status]
       options: ["What is the KYC status?", "What is pending?", "Why is this case stuck?"]
+      default: "What is the KYC status?"
+      default_words: [kyc, ekyc, verification]
     - intents: [cpa_readiness, process_move_to_cpa]
       options: ["Is this case ready for CPA?", "What is pending?", "What should I do next?"]
+      default: "Is this case ready for CPA?"
+      default_words: [cpa, ready, readiness]
+    - intents: [case_status, query_status, application_details, case_stage]
+      # options are what an officer would ask, never an intent's internal name ("query status" read as a typo)
+      options: ["What is the status of this case?", "What queries are open on this case?", "What are the application details?"]
+      default: "What is the status of this case?"
+      # "case" alone on an OPEN case is answered with its status (owner rule: one word on an open case is answered,
+      # 2026-10-11 -- "case" asked options while "Case?" answered, a difference of one question mark)
+      default_words: [status, stage, update, progress, sthiti, case, file, application]
   # no case open: the TOPIC of the word (its most likely intents, semantics/meaning.py) -> list / how-to options
   no_case_topics:
     - intents: [pending_documents, document_status, document_rejection, knowledge_documents, process_upload,

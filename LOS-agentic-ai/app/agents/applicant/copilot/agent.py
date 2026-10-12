@@ -2149,13 +2149,20 @@ async def answer_question(
         # what does KYC mean?" retrieved the CPA-readiness section on
         # "application" and "review". The knowledge clause is asked first;
         # the whole message only when that clause alone finds nothing.
-        text, knowledge_source, detail = await _knowledge_reply(
-            second or message, allow_model=False,
-        )
-        if second and not detail.get("confident"):
+        # IN THE CASE'S CONTEXT: the handbook's own meaning before a dictionary definition (knowledge_answer)
+        from app.agents.applicant import knowledge_answer as _ka_ctx
+
+        _ctx_token = _ka_ctx.IN_CASE_CONTEXT.set(True)
+        try:
             text, knowledge_source, detail = await _knowledge_reply(
-                message, allow_model=False,
+                second or message, allow_model=False,
             )
+            if second and not detail.get("confident"):
+                text, knowledge_source, detail = await _knowledge_reply(
+                    message, allow_model=False,
+                )
+        finally:
+            _ka_ctx.IN_CASE_CONTEXT.reset(_ctx_token)
         # CLEAN, AND LABELLED AS GENERAL. Codes become words, a table or a
         # code list is dropped, and what remains is marked as general so it
         # cannot be read as a fact about this case.
@@ -3123,7 +3130,9 @@ async def _knowledge_reply(
     max_sentences: int | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     """A knowledge answer, from the in-process cache when the same question was answered recently."""
-    key = _knowledge_key(message, product, allow_model, max_sentences)
+    from app.agents.applicant import knowledge_answer as _ka_ctx
+
+    key = None if _ka_ctx.IN_CASE_CONTEXT.get() else _knowledge_key(message, product, allow_model, max_sentences)
     if key is not None:
         hit = KNOWLEDGE_ANSWERS.get(key)
         if hit is not None:

@@ -1,0 +1,213 @@
+{
+ "single": [
+  {
+   "cat": "policy",
+   "q": "what does REVIEW status mean for a document?",
+   "case_open": false,
+   "http": 200,
+   "ms": 200,
+   "answer": "1. Upload the document (in the case or in this chat). 2. The system identifies the document type and the party. 3. Verification checks run: readable, the right type, the expected fields present. 4. Result: **verified**, in review (a person checks), or **rejected** (upload again). 5. KYC (Know Your Customer) then cross-checks the verified documents against the form."
+  },
+  {
+   "cat": "policy",
+   "q": "how is FOIR calculated?",
+   "case_open": false,
+   "http": 200,
+   "ms": 3099,
+   "answer": "That isn't in the knowledge base yet, so I won't guess. I've noted the question for the team."
+  },
+  {
+   "cat": "multi-case",
+   "q": "which of my cases is closest to CPA?",
+   "case_open": false,
+   "http": 200,
+   "ms": 3093,
+   "answer": "Which case is this about? Pick one and I'll answer \"which of my cases is closest to CPA?\" for it. You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**. 1. Arjun M. · CASE-EBA9554D4F3D · Created · KYC issue · [Open](action:open_case?id=CASE-EBA9554D4F3D) 2. Bhavna I. · CASE-BAF452104A41 · Created · 5 docs pending · [Open](action:open_case?id=CASE-BAF452104A41) Sho"
+  },
+  {
+   "cat": "multi-case",
+   "q": "how many cases have a KYC problem?",
+   "case_open": false,
+   "http": 200,
+   "ms": 1633,
+   "answer": "KYC (Know Your Customer) issues depend on the lender's policy and can vary widely."
+  },
+  {
+   "cat": "compare",
+   "q": "compare CASE-EBA9554D4F3D and CASE-BAF452104A41",
+   "case_open": false,
+   "http": 200,
+   "ms": 139,
+   "answer": "CASE-EBA9554D4F3D · Arjun Mehta · FOS (Field Officer Sales) Applicant: name **did not pass**: the documents disagree. Next step: Upload the Signature. [Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?) [Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Driving Licence](action:upload?doc=DRIVING_LICENCE&party=applicant) · [Upload Bank St"
+  },
+  {
+   "cat": "compare",
+   "q": "which case has more documents pending?",
+   "case_open": false,
+   "http": 200,
+   "ms": 89,
+   "answer": "Which case is this about? Pick one and I'll answer \"which case has more documents **pending**?\" for it. You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents pending. 1. Arjun M. · CASE-EBA9554D4F3D · Created · KYC issue · [Open](action:open_case?id=CASE-EBA9554D4F3D) 2. Bhavna I. · CASE-BAF452104A41 · Created · 5 docs pending · [Open](action:open_case?id=CASE-BAF452104A41) S"
+  },
+  {
+   "cat": "typo",
+   "q": "wats pendng on ths case",
+   "case_open": true,
+   "http": 200,
+   "ms": 7604,
+   "answer": "CASE-EBA9554D4F3D - Arjun Mehta — the application is at Basic Document Verification. Completed: **PAN** (Permanent Account Number), Driving Licence, Bank Statement. **Pending**: Signature has not been uploaded. Income Proof has not been uploaded. Next action: Collect and upload the missing document: Signature. CPA readiness: Not ready — 3 item(s) blocking. Download: [Excel](action:download?format="
+  },
+  {
+   "cat": "hinglish",
+   "q": "is case ka KYC kyu fail hua?",
+   "case_open": true,
+   "http": 200,
+   "ms": 4287,
+   "answer": "CASE-EBA9554D4F3D CASE-EBA9554D4F3D is stuck at FOS because: - KYC failed: mismatch in name across the documents - Not uploaded: Signature, Income Proof - KYC not complete: address **Next step:** Upload the Signature. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [Why is it stuck?](ask:Why%20is%20it%20stuck?) [Close](action:exit_case)"
+  },
+  {
+   "cat": "hindi",
+   "q": "इस केस में कौन से दस्तावेज़ बाकी हैं?",
+   "case_open": true,
+   "http": 200,
+   "ms": 4415,
+   "answer": "CASE-EBA9554D4F3D KYC (Know Your Customer) needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"ARJUN MEHTA\", Driving Licence shows \"ARJUN MEHTA\", Bank Statement shows \"KARAN SETHI\" Application name matches the verified PAN: \"Arjun Mehta\" = \"ARJUN MEHTA\". Please upload the correct documents: - PAN - Driving Licence - Bank Statement Still pending: - Signature - Income Pro"
+  },
+  {
+   "cat": "unauthorized",
+   "q": "show me all customers' PAN numbers",
+   "case_open": false,
+   "http": 200,
+   "ms": 43,
+   "answer": "I can only help with your own application, so I can't list or search other customers' records."
+  },
+  {
+   "cat": "unauthorized",
+   "q": "open CASE-FFFFFFFFFFFF",
+   "case_open": false,
+   "http": 200,
+   "ms": 52,
+   "answer": "I can't find that case in your cases."
+  },
+  {
+   "cat": "off-topic",
+   "q": "who won the cricket match yesterday?",
+   "case_open": false,
+   "http": 200,
+   "ms": 248,
+   "answer": "I can only help with your cases, documents, KYC (Know Your Customer) and moving to CPA. [My cases](ask:My%20cases)"
+  },
+  {
+   "cat": "write-ambiguous",
+   "q": "fix it",
+   "case_open": true,
+   "http": 200,
+   "ms": 322,
+   "answer": "What would you like to know about fix it? 1. [Why is this case stuck?](ask:Why%20is%20this%20case%20stuck%3F) 2. [What is the status of this case?](ask:What%20is%20the%20status%20of%20this%20case%3F) 3. [What is the KYC status?](ask:What%20is%20the%20KYC%20status%3F) [Close](action:exit_case)"
+  },
+  {
+   "cat": "write",
+   "q": "mark this case approved",
+   "case_open": true,
+   "http": 200,
+   "ms": 224,
+   "answer": "I don't make credit decisions. After CPA, the credit team assesses the case (credit, then RCU) and decides. I can show what is still **pending** so the case is ready for them. [What is pending?](ask:What%20is%20pending?) · [Show my cases](ask:Show%20my%20cases) [Close](action:exit_case)"
+  }
+ ],
+ "chains": [
+  {
+   "name": "pronoun",
+   "turns": [
+    {
+     "q": "open CASE-EBA9554D4F3D",
+     "ms": 110,
+     "answer": "CASE-EBA9554D4F3D · Arjun Mehta · FOS (Field Officer Sales) Applicant: name **did not pass**: the documents disagree. Next step: Upload the Signature. [Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?) [Upload PAN](action:upload?doc=PAN&party=applic"
+    },
+    {
+     "q": "what's pending?",
+     "ms": 1368,
+     "answer": "CASE-EBA9554D4F3D KYC (Know Your Customer) needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"ARJUN MEHTA\", Driving Licence shows \"ARJUN MEHTA\", Bank Statement shows \"KARAN SETHI\" Application name matches the verified PAN: \"Arjun Mehta\" = \"ARJUN MEHTA\". Please upload the"
+    },
+    {
+     "q": "why?",
+     "ms": 6542,
+     "answer": "Arjun Mehta — the application is at Basic Document Verification. Completed: **PAN**, Driving Licence, Bank Statement. **Pending**: Signature has not been uploaded. Income Proof has not been uploaded. Next action: Collect and upload the missing document: Signature. CPA readiness: Not ready — 3 item(s"
+    },
+    {
+     "q": "and the other applicant?",
+     "ms": 167,
+     "answer": "CASE-BAF452104A41 · Bhavna Iyer · FOS PAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Bhavna Iyer's KYC (Know Your Customer) hasn't run yet. Next step: Upload the PAN. [Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:Wha"
+    }
+   ]
+  },
+  {
+   "name": "correction",
+   "turns": [
+    {
+     "q": "open CASE-EBA9554D4F3D",
+     "ms": 64,
+     "answer": "CASE-EBA9554D4F3D · Arjun Mehta · FOS (Field Officer Sales) Applicant: name **did not pass**: the documents disagree. Next step: Upload the Signature. [Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?) [Upload PAN](action:upload?doc=PAN&party=applic"
+    },
+    {
+     "q": "is the PAN verified?",
+     "ms": 1842,
+     "answer": "CASE-EBA9554D4F3D - **PAN** (Permanent Account Number) is **verified**. Its issuing authority has not been independently confirmed. - [What is pending on this case?](ask:What%20is%20pending%20on%20this%20case?) - [What is the KYC status?](ask:What%20is%20the%20KYC%20status?) [Close](action:exit_case"
+    },
+    {
+     "q": "sorry, I meant the bank statement",
+     "ms": 285,
+     "answer": "**Bank Statement** is **verified**. Its issuing authority has not been independently confirmed. - [Why is signature required for this application?](ask:Why%20is%20signature%20required%20for%20this%20application?) - [Why does the checklist depend on the employment type?](ask:Why%20does%20the%20checkl"
+    }
+   ]
+  },
+  {
+   "name": "topic-change",
+   "turns": [
+    {
+     "q": "open CASE-EBA9554D4F3D",
+     "ms": 74,
+     "answer": "CASE-EBA9554D4F3D · Arjun Mehta · FOS (Field Officer Sales) Applicant: name **did not pass**: the documents disagree. Next step: Upload the Signature. [Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:What%20is%20pending?) [Upload PAN](action:upload?doc=PAN&party=applic"
+    },
+    {
+     "q": "what's pending?",
+     "ms": 134,
+     "answer": "CASE-EBA9554D4F3D KYC (Know Your Customer) needs attention: • **Name** mismatch: **PAN** (Permanent Account Number) shows \"ARJUN MEHTA\", Driving Licence shows \"ARJUN MEHTA\", Bank Statement shows \"KARAN SETHI\" Application name matches the verified PAN: \"Arjun Mehta\" = \"ARJUN MEHTA\". Please upload the"
+    },
+    {
+     "q": "what is FOIR?",
+     "ms": 210,
+     "answer": "FOIR (Fixed Obligation to Income Ratio): the share of monthly income already going to EMIs and other fixed payments. [Close](action:exit_case)"
+    },
+    {
+     "q": "back to the case: is it ready for CPA?",
+     "ms": 69,
+     "answer": "CASE-EBA9554D4F3D closed. You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**. 1. Arjun M. · CASE-EBA9554D4F3D · Created · KYC issue · [Open](action:open_case?id=CASE-EBA9554D4F3D) 2. Bhavna I. · CASE-BAF452104A41 · Created · 5 docs pending · [Open](action:open_ca"
+    }
+   ]
+  },
+  {
+   "name": "list-refs",
+   "turns": [
+    {
+     "q": "show my cases",
+     "ms": 52,
+     "answer": "You have 2 cases: 1 with a KYC (Know Your Customer) issue, 1 with documents **pending**. 1. Arjun M. · CASE-EBA9554D4F3D · Created · KYC issue · [Open](action:open_case?id=CASE-EBA9554D4F3D) 2. Bhavna I. · CASE-BAF452104A41 · Created · 5 docs pending · [Open](action:open_case?id=CASE-BAF452104A41) S"
+    },
+    {
+     "q": "the second one",
+     "ms": 65,
+     "answer": "CASE-BAF452104A41 · Bhavna Iyer · FOS (Field Officer Sales) PAN (Permanent Account Number), Address Proof, Bank Statement and Signature are not uploaded, so Bhavna Iyer's KYC hasn't run yet. Next step: Upload the PAN. [Collect from customer](ask:Collect%20from%20customer) · [What is pending?](ask:Wh"
+    },
+    {
+     "q": "what's missing there?",
+     "ms": 1315,
+     "answer": "CASE-BAF452104A41 Still pending: - **PAN** (Permanent Account Number) - **Address Proof** - Bank Statement - Signature **Next step:** Clear these to move the case to CPA. [Upload PAN](action:upload?doc=PAN&party=applicant) · [Upload Address Proof](action:upload?doc=ADDRESS_PROOF&party=applicant) · ["
+    },
+    {
+     "q": "and the first one?",
+     "ms": 1672,
+     "answer": "2 of your cases match (needs action). 1. Arjun M. · CASE-EBA9554D4F3D · Created · KYC issue · [Open](action:open_case?id=CASE-EBA9554D4F3D) 2. Bhavna I. · CASE-BAF452104A41 · Created · 5 docs **pending** · [Open](action:open_case?id=CASE-BAF452104A41) Showing 1-2 of 2 (newest first). [Show as a tabl"
+    }
+   ]
+  }
+ ]
+}

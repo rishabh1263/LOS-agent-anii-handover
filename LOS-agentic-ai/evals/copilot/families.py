@@ -24,6 +24,7 @@ or internal detail, and never another customer's value or a full identifier.
 
 from __future__ import annotations
 
+
 import argparse
 import json
 import re
@@ -403,7 +404,10 @@ def _check(turn: dict[str, Any], out: dict[str, Any]) -> list[str]:
     intent = str(r.get("intent") or "")
     kind = turn.get("kind", "any")
     refused = out["status"] in (401, 403) or intent == REFUSED or bool(r.get("guardrail"))
-    clarified = bool(r.get("clarification_required"))
+    # a clarification: the structured question, or the vague layer's options question (owner one-word contract,
+    # 2026-10-09 / confirmed 2026-10-10) -- both ask before anything is answered
+    clarified = bool(r.get("clarification_required")) or (
+        r.get("intent") == "VAGUE_OPTIONS" and r.get("query_type") == "CLARIFICATION")
     problems: list[str] = []
     if kind == "refused":
         if not refused:
@@ -419,7 +423,12 @@ def _check(turn: dict[str, Any], out: dict[str, Any]) -> list[str]:
     if kind == "case" and intent in KNOWLEDGE:
         problems.append(f"case question answered as knowledge ({intent})")
     if kind == "no_answer":
-        if NO_ANSWER not in answer:
+        # HONEST ABSENCE, said generically or specifically (owner decision 2026-10-10): the configured policy facts
+        # (conversation_general.yaml general_question.texts, e.g. "No CIBIL score cut-off is configured in this
+        # system") state outright that no such value exists -- that is the honest no-answer too. Never a number.
+        stated_absent = bool(re.search(r"(?i)\bno\b[^.]{0,60}\b(is|are) configured\b", answer)) \
+            and not re.search(r"\d", answer.split(".")[0])
+        if NO_ANSWER not in answer and not stated_absent:
             problems.append("no honest no-answer")
         if "Source:" in answer or (r.get("knowledge") or {}).get("citation"):
             problems.append("no-answer carries a citation")

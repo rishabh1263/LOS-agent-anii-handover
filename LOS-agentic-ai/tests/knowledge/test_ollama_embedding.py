@@ -61,6 +61,13 @@ def fake(vectors, *, capture=None):
 
 def test_the_default_provider_needs_no_service(monkeypatch):
     monkeypatch.delenv(ENV_PROVIDER, raising=False)
+    # THE CODE'S DEFAULT, with no provider configured anywhere. The deployment config (knowledge.yaml
+    # embedding_provider: ollama, owner 2026-10-09) deliberately turns the model on for the intent meaning bank;
+    # what this guards is that nothing NEEDS a service when no one configured one.
+    import app.knowledge as _k
+
+    real = _k._config
+    monkeypatch.setattr(_k, "_config", lambda: {k: v for k, v in real().items() if k != "embedding_provider"})
 
     assert provider_name() == "hashing"
     assert isinstance(get_embedder(), HashingEmbedding)
@@ -99,6 +106,9 @@ def test_there_is_no_default_host(monkeypatch):
     against whatever happens to answer on that machine.
     """
     monkeypatch.delenv(ENV_OLLAMA_URL, raising=False)
+    # the app's own Ollama address (OLLAMA_HOST, from .env) is an explicit fallback, not a default: cleared here so
+    # the test sees an environment where NOTHING names a host (it leaked in from other tests under xdist)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
 
     with pytest.raises(EmbeddingError) as raised:
         OllamaEmbedding()

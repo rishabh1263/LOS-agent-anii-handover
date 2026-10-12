@@ -51,7 +51,7 @@ verdict the next desk can rely on.
 
 ## Why a case is not ready
 
-The `pending_items` list gives the reasons, in the order a field officer
+The list of pending items gives the reasons, in the order a field officer
 should work through them: applicant information first, then application
 information, then documents. Information comes first because a document
 collected against a half-captured applicant often has to be collected again.

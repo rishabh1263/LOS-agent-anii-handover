@@ -57,6 +57,15 @@ def clear_cache() -> None:
         _ROWS.clear()
 
 
+def forget_case(case_id: str) -> None:
+    """A case was written (form edit, upload, stage move): drop its cached row for every officer, so the next list
+    reads the stored name / status, never the one from before the write (2026-10-10: a corrected name stayed
+    misspelled in the list for cache_ttl_seconds)."""
+    with _LOCK:
+        for _, rows in _ROWS.values():
+            rows.pop(case_id, None)
+
+
 # --------------------------------------------------------------------------
 # the query
 # --------------------------------------------------------------------------
@@ -75,6 +84,9 @@ class ListQuery:
     group: str | None = None             # product_flow.yaml case_status.groups: pending / done (section 15.5)
     status: str | None = None            # Created / Review / Disbursal
     with_counts: bool = False            # the counts by status over ALL the caller's cases (summary / greeting)
+    # "show me the NEXT TWO" after rows 1-5: the first row to show (0-based), so a new size continues after the last
+    # row shown instead of paging by the new size (2026-10-10); None = page * size, as before
+    offset: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v not in (None, "", False)}
@@ -93,6 +105,7 @@ class ListPage:
     page: int = 0
     size: int = 5
     has_more: bool = False
+    start: int = 0                       # index of the first row shown (page * size, or the query's offset)
     query: ListQuery = field(default_factory=ListQuery)
 
 
@@ -218,17 +231,18 @@ def run(claims: dict[str, Any], query: ListQuery) -> ListPage:
                     or spec.get("order")
                     or spec.get("by") == "days_in_stage")
     page_no = max(0, int(query.page or 0))
+    start = max(0, int(query.offset)) if query.offset is not None else page_no * size
     if not computed and hasattr(repository, "count_granted_cases"):
         # THE CHEAP PATH: a SQL page + a separate count; statuses only for the page's rows
         total = int(repository.count_granted_cases(subject, product=query.product, created_from=query.created_from,
                                                    created_to=query.created_to))
         apps = _owned(claims, repository.list_granted_cases(
-            subject, limit=size, offset=page_no * size, order=spec.get("by", "updated_at"),
+            subject, limit=size, offset=start, order=spec.get("by", "updated_at"),
             descending=bool(spec.get("desc", True)), product=query.product,
             created_from=query.created_from, created_to=query.created_to))
         rows = list(_rows_for(subject, apps).values())
-        return ListPage(rows=_number(rows, page_no, size), total=total, all_total=total, page=page_no, size=size,
-                        has_more=(page_no + 1) * size < total, query=query)
+        return ListPage(rows=_number(rows, start), total=total, all_total=total, page=page_no, size=size,
+                        has_more=start + size < total, query=query, start=start)
     apps = _owned(claims, repository.list_granted_cases(subject, limit=int(c.get("scan_limit", 2000))))
     rows_by_case = _rows_for(subject, apps)
     every = list(rows_by_case.values())
@@ -271,13 +285,13 @@ def run(claims: dict[str, Any], query: ListQuery) -> ListPage:
         # an exact name wins; fuzzy (typos) only when nothing matches exactly
         chosen = exact or [r for r in chosen if _matches_search(r, query.search, co_cases)]
     chosen = sorted(chosen, key=_sort_key(sort))
-    window = chosen[page_no * size:(page_no + 1) * size]
-    return ListPage(rows=_number(window, page_no, size), total=len(chosen), all_total=len(every), counts=counts,
-                    page=page_no, size=size, has_more=(page_no + 1) * size < len(chosen), query=query)
+    window = chosen[start:start + size]
+    return ListPage(rows=_number(window, start), total=len(chosen), all_total=len(every), counts=counts,
+                    page=page_no, size=size, has_more=start + size < len(chosen), query=query, start=start)
 
 
-def _number(rows: list[dict[str, Any]], page: int, size: int) -> list[dict[str, Any]]:
-    return [{**r, "number": i} for i, r in enumerate(rows, page * size + 1)]
+def _number(rows: list[dict[str, Any]], start: int) -> list[dict[str, Any]]:
+    return [{**r, "number": i} for i, r in enumerate(rows, start + 1)]
 
 
 # --------------------------------------------------------------------------
@@ -387,12 +401,39 @@ def understand(text: str, previous: dict[str, Any] | None = None) -> ListQuery |
     if n and asked and not query.size:
         query.size = n
     if not asked and previous is not None and _has(text, p.get("next")):
-        prev = ListQuery.from_dict(previous)
-        prev.page += 1
-        if n:
-            prev.size = n
-        return prev
+        return next_page(previous, n)
     return query if asked else None
+
+
+def next_page(previous: dict[str, Any] | None, n: int | None = None) -> ListQuery:
+    """The rows right after the last ones shown, `n` of them when said ("the next two"), else the same size."""
+    prev = ListQuery.from_dict(previous)
+    shown_from = prev.offset if prev.offset is not None else max(0, int(prev.page or 0)) * _size(prev)
+    prev.offset = shown_from + _size(prev)
+    prev.page = prev.offset // _size(prev)
+    if n:
+        prev.size = n
+    return prev
+
+
+def only_pages_the_list(text: str) -> bool:
+    """
+    "aur dikhao", "show more", "Show me the next two.": a request for the next rows of the list just shown and
+    nothing else -- every word a next/more phrase, a list verb, filler, a case noun or a count (case_list.yaml).
+    """
+    p = cfg().get("phrases") or {}
+    if not _has(text, p.get("next") or []):
+        return False
+    vocabulary = set()
+    for key in ("next", "list_verbs", "list_filler"):
+        for phrase in p.get(key) or []:
+            vocabulary |= set(_norm(str(phrase)).split())
+    for nouns in (p.get("case_nouns") or {}).values():
+        for phrase in nouns or []:
+            vocabulary |= set(_norm(str(phrase)).split())
+    vocabulary |= {str(w) for w in (p.get("numbers") or {})} | {"page", "rows", "ones", "one", "please"}
+    words = _norm(text).split()
+    return bool(words) and all(w in vocabulary or w.isdigit() for w in words)
 
 
 # --------------------------------------------------------------------------
@@ -452,7 +493,8 @@ def render(page: ListPage, lang: str, seed: int = 0, closing: list[str] | None =
 
     cols = language_lock.pick(head, lang) if isinstance(head, dict) else head
     cols = cols or ["#", "Case", "Applicant", "Stage", "Status", ""]
-    table = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
+    as_table = wants_table(_REQUEST_TEXT.get())
+    table = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)] if as_table else []
     from app.agents.applicant.copilot.answering import professional
 
     for r in page.rows:
@@ -460,17 +502,26 @@ def render(page: ListPage, lang: str, seed: int = 0, closing: list[str] | None =
             + professional.strip_emojis(str(r["status_label"])).strip()
         if r.get("over_target") and r.get("days_in_stage") is not None:
             status += f" ({r['days_in_stage']}d)"
+        if not as_table:
+            # A SHORT LIST, not a table (case_list.yaml format.default): one line per case, with its Open button
+            table.append(f"{r['number']}. {r['applicant_name']} · {r['case_id']} · {status} · "
+                         + contract.link("open_case", lang, id=r["case_id"]))
+            continue
         cells = [str(r["number"]), r["case_id"], f"{r['applicant_name']} ({r['applicant_id']})", str(r["stage"]),
                  status, contract.link("open_case", lang, id=r["case_id"])]
         table.append("| " + " | ".join(str(x).replace("|", "/") for x in cells) + " |")
-    first = page.page * page.size + 1
+    first = page.start + 1
     sort_name = _name_of("sorted", q.sort or cfg().get("default_sort", "needs_action"), lang)
-    lines += ["", *table, "", _say("showing", lang, seed, first=first, last=first + len(page.rows) - 1,
-                                   total=page.total, sort=sort_name)]
+    # PAST THE END ("show me the next two" after the whole list): no "Showing 6-5 of 2" -- only "that is the whole list"
+    lines += ["", *table, ""] + ([_say("showing", lang, seed, first=first, last=first + len(page.rows) - 1,
+                                       total=page.total, sort=sort_name)] if page.rows else [])
     options = [o for o in (language_lock.pick((cfg().get("labels") or {}).get("options") or {}, lang) or [])]
     links = []
     if page.has_more:
         links.append(contract.link("list_more", lang))
+    offer = _format().get("show_table")
+    if not as_table and page.rows and offer:
+        links.append(contract.ask(language_lock.pick(offer, lang)))
     else:
         lines.append(_say("end", lang, seed))
     if closing is None:
@@ -485,4 +536,67 @@ def render(page: ListPage, lang: str, seed: int = 0, closing: list[str] | None =
     return "\n".join(lines)
 
 
-__all__ = ["ListPage", "ListQuery", "cfg", "clear_cache", "render", "run", "understand"]
+
+
+def ordinal_pick(text: str, listed: list[str]) -> tuple[str, str] | None:
+    """
+    "why is the first one pending?" / "open the second one" -> (that listed case id, the question without the
+    ordinal: "why is it pending?"), or None. Ordinals in case_list.yaml phrases.ordinals; only the ids of the list
+    the caller was just shown are ever picked.
+    """
+    if not listed:
+        return None
+    ordinals = {str(k): int(v) for k, v in ((cfg().get("phrases") or {}).get("ordinals") or {}).items()}
+    said = _norm(text)
+    for word, n in sorted(ordinals.items(), key=lambda kv: -len(kv[0])):
+        m = re.search(rf"\b(the\s+)?{re.escape(word)}(\s+(one|case|applicant))?\b", said)
+        if not m:
+            continue
+        index = n - 1 if n > 0 else len(listed) + n
+        if not 0 <= index < len(listed):
+            return None
+        rest = " ".join((said[:m.start()] + " it " + said[m.end():]).split())
+        return listed[index], rest
+    return None
+
+# --------------------------------------------------------------------------
+# the table only on request (owner 2026-10-10; case_list.yaml `format`)
+# --------------------------------------------------------------------------
+import contextvars as _contextvars
+
+#: the message of THIS request (set by workspace.handle): render decides table vs short list from it
+_REQUEST_TEXT: "_contextvars.ContextVar[str]" = _contextvars.ContextVar("case_list_request_text", default="")
+
+
+def set_request_text(text: str) -> None:
+    _REQUEST_TEXT.set(text or "")
+
+
+def _format() -> dict[str, Any]:
+    return cfg().get("format") or {}
+
+
+def wants_table(text: str) -> bool:
+    """The message asks for the table (and does not refuse it), or the configured default is the table."""
+    spec = _format()
+    if _has(text or "", spec.get("no_table_phrases") or []):
+        return False
+    if _has(text or "", spec.get("table_phrases") or []):
+        return True
+    return str(spec.get("default") or "summary").lower() == "table"
+
+
+def only_asks_for_the_table(text: str) -> bool:
+    """"show me the table" / "in a table please": nothing but the table of the list already shown."""
+    spec = _format()
+    if not (_has(text or "", spec.get("table_phrases") or []) or _has(text or "", spec.get("no_table_phrases") or [])):
+        return False
+    filler = {"show", "me", "the", "a", "an", "it", "as", "in", "table", "tabular", "format", "please", "pls",
+              "grid", "can", "you", "give", "that", "this", "those", "them", "now", "instead", "full",
+              # "don't show the table, just summarize": the list again, without the table
+              "don", "dont", "don't", "t", "do", "not", "no", "without", "just", "only", "summary", "summarize",
+              "summarise", "it", "list"}
+    return set(_norm(text).split()) <= filler
+
+__all__ = ["ListPage", "ListQuery", "cfg", "clear_cache", "only_asks_for_the_table", "render", "run",
+           "set_request_text", "understand", "wants_table"]

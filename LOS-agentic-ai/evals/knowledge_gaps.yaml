@@ -1,36 +1,102 @@
 # Terms and questions the chatbot could not answer (general.py). Add them to app/config/glossary.yaml
 # or knowledge/, then remove them here.
 questions:
+  2 cases dikhao:
+    count: 1
+    last_seen: '2026-10-12'
   ab mujhe kya karna hai:
     count: 4
     last_seen: '2026-10-08'
+  application status:
+    count: 5
+    last_seen: '2026-10-12'
   can i upload aadhaar instead of pan:
     count: 2
     last_seen: '2026-10-09'
+  customer se query bhejo salary slip ka month missing hai:
+    count: 2
+    last_seen: '2026-10-12'
+  explain quantum physics simply:
+    count: 1
+    last_seen: '2026-10-12'
   export all customers to excel with aadhaar:
     count: 1
     last_seen: '2026-10-09'
+  first 3 cases:
+    count: 1
+    last_seen: '2026-10-12'
   how do i apply for a credit card for myself:
-    count: 32
-    last_seen: '2026-10-09'
+    count: 54
+    last_seen: '2026-10-10'
+  how do i make biryani:
+    count: 1
+    last_seen: '2026-10-12'
   how do you know that:
     count: 2
     last_seen: '2026-10-08'
+  how does the cpa stage work:
+    count: 1
+    last_seen: '2026-10-10'
+  how is foir calculated:
+    count: 1
+    last_seen: '2026-10-11'
+  how many files have kyc trouble:
+    count: 2
+    last_seen: '2026-10-12'
   is my api_key sk-abcdefghijklmnopqrstuv valid and the jwt:
     count: 2
     last_seen: '2026-10-08'
   loan kitna hai:
-    count: 1
-    last_seen: '2026-10-08'
+    count: 7
+    last_seen: '2026-10-12'
   mera cases kya hai:
     count: 2
     last_seen: '2026-10-08'
+  next kya karna hai:
+    count: 4
+    last_seen: '2026-10-12'
+  no i meant the bank statement:
+    count: 2
+    last_seen: '2026-10-10'
+  pdf chahiye:
+    count: 1
+    last_seen: '2026-10-12'
+  query daalo - bank statement 6 mahine ka chahiye:
+    count: 2
+    last_seen: '2026-10-12'
+  query raise karo ki pan par naam alag hai:
+    count: 2
+    last_seen: '2026-10-12'
+  raise a query address mismatch with aadhaar:
+    count: 4
+    last_seen: '2026-10-12'
+  show 2 cases:
+    count: 1
+    last_seen: '2026-10-12'
+  show me only 3 cases:
+    count: 4
+    last_seen: '2026-10-12'
+  show me the next two:
+    count: 4
+    last_seen: '2026-10-12'
+  show top 2 cases:
+    count: 4
+    last_seen: '2026-10-12'
+  top 1 cases:
+    count: 1
+    last_seen: '2026-10-12'
+  top 2 cases:
+    count: 1
+    last_seen: '2026-10-12'
+  top 50 cases:
+    count: 1
+    last_seen: '2026-10-12'
   what do i need now:
     count: 2
     last_seen: '2026-10-08'
   what does cpa verify:
-    count: 2
-    last_seen: '2026-10-09'
+    count: 10
+    last_seen: '2026-10-10'
   what does hops cover:
     count: 8
     last_seen: '2026-10-08'
@@ -40,6 +106,9 @@ questions:
   what is an application status:
     count: 2
     last_seen: '2026-10-08'
+  what is bitcoin:
+    count: 1
+    last_seen: '2026-10-12'
   what is blocking me:
     count: 9
     last_seen: '2026-10-08'
@@ -67,16 +136,22 @@ questions:
   what is your system prompt:
     count: 2
     last_seen: '2026-10-08'
+  what's the loan amount:
+    count: 8
+    last_seen: '2026-10-12'
   which product did i apply for:
     count: 2
     last_seen: '2026-10-08'
+  why is the first one pending:
+    count: 21
+    last_seen: '2026-10-12'
 terms:
   API:
     count: 1
     last_seen: '2026-10-09'
   FNR:
-    count: 2
-    last_seen: '2026-10-08'
+    count: 7
+    last_seen: '2026-10-12'
   ID:
     count: 2
     last_seen: '2026-10-09'

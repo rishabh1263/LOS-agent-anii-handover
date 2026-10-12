@@ -45,7 +45,7 @@ Video KYC (V-CIP, video-based customer identification) is KYC (Know Your Custome
 
 ### what is NACH  (terms, expect answer, got answer)
 
-e-NACH: A NACH mandate registered digitally, through net banking, debit card or Aadhaar. Example: e-NACH set up during onboarding.
+NACH (National Automated Clearing House): NPCI's system for automatic EMI (Equated Monthly Instalment) debits from a borrower's bank account, under a mandate the borrower signs. Example: EMI collected through NACH on the due date.
 
 ### what is e-mandate  (terms, expect answer, got answer)
 
@@ -73,7 +73,9 @@ Disbursement is the release of the loan money, to the borrower, or for a home lo
 
 ### what is tenure  (terms, expect answer, got answer)
 
-Tenure is the repayment period of the loan, in months or years. A longer tenure means a lower EMI (Equated Monthly Instalment) but more interest paid in total; a shorter tenure means a higher EMI and less interest.
+Tenure is the repayment period of the loan, in months or years. A longer tenure means a lower EMI (Equated Monthly Instalment) but more
+interest paid in total; a shorter tenure means a higher EMI and less interest. The configured minimum and maximum
+tenure per product are in the eligibility policy (ask "maximum tenure").
 
 ### what is processing fee  (terms, expect answer, got answer)
 
@@ -87,7 +89,7 @@ Foreclosure (or pre-closure) is repaying the whole outstanding loan early and cl
 
 ### what is prepayment  (terms, expect answer, got answer)
 
-Part prepayment: A prepayment of only part of the outstanding principal; the loan continues. Example: a **₹50,000** part prepayment, then the EMI (Equated Monthly Instalment) is recalculated.
+Prepayment: Paying back part of the principal before it is due, which reduces the EMI (Equated Monthly Instalment) or the tenure. Example: paying **₹1,00,000** extra towards a home loan after a bonus.
 
 ### what is part payment  (terms, expect answer, got answer)
 
@@ -116,7 +118,8 @@ Field investigation: A visit by the lender or its agency to the customer's home 
 
 ### what is personal discussion  (terms, expect answer, got answer)
 
-PD (Personal Discussion): An interview of the customer by the lender to understand income, business, obligations and the loan's purpose. Example: PD at the business premises.
+A personal discussion (PD) is an interview of the customer by the lender to understand their income, business
+or job, existing loans and the purpose of the loan.
 
 ### what is legal verification  (terms, expect answer, got answer)
 
@@ -200,15 +203,17 @@ Indicative only: the system's eligibility check uses the **verified** figures.
 
 - Personal Loan: FOIR (Fixed Obligation to Income Ratio) up to 50% (above it the case goes to a reviewer).
 - Home Loan: FOIR up to 50% (above it the case goes to a reviewer).
+- Loan Against Property: FOIR up to 55% (above it the case goes to a reviewer).
 
-These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
+These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1, LAP_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
 
 ### minimum income required  (eligibility_policy, expect answer, got answer)
 
 - Personal Loan: minimum monthly income **₹25,000,** taken from the **verified** net pay.
 - Home Loan: minimum monthly income ₹25,000, taken from the verified net pay.
+- Loan Against Property: minimum monthly income ₹25,000, taken from the verified net pay.
 
-These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
+These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1, LAP_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
 
 ### minimum salary for personal loan  (eligibility_policy, expect answer, got answer)
 
@@ -220,8 +225,9 @@ These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, th
 
 - Personal Loan: minimum monthly income **₹25,000,** taken from the **verified** net pay.
 - Home Loan: minimum monthly income ₹25,000, taken from the verified net pay.
+- Loan Against Property: minimum monthly income ₹25,000, taken from the verified net pay.
 
-These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
+These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1, LAP_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
 
 ### minimum cibil score required  (eligibility_policy, expect not_configured, got not_configured)
 
@@ -235,10 +241,11 @@ These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, th
 
 ### what is the interest rate  (eligibility_policy, expect answer, got answer)
 
-- Personal Loan: 14% a year (the rate used for the EMI (Equated Monthly Instalment) estimate).
-- Home Loan: 8.5% a year (the rate used for the EMI estimate).
+- Personal Loan: 14% a year is the rate used for the EMI (Equated Monthly Instalment) estimate, the actual rate is set at sanction by the credit team.
+- Home Loan: 8.5% a year is the rate used for the EMI estimate, the actual rate is set at sanction by the credit team.
+- Loan Against Property: 10.5% a year is the rate used for the EMI estimate, the actual rate is set at sanction by the credit team.
 
-These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
+These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1, LAP_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
 
 ### maximum tenure for home loan  (eligibility_policy, expect answer, got answer)
 
@@ -250,8 +257,9 @@ These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, th
 
 - Personal Loan: not set in the eligibility policy.
 - Home Loan: not set in the eligibility policy.
+- Loan Against Property: not set in the eligibility policy.
 
-These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
+These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1, LAP_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
 
 ### maximum LTV for home loan  (eligibility_policy, expect answer, got answer)
 
@@ -293,6 +301,7 @@ Documents for Home Loan:
 | ITR (Income Tax Return) | Optional | ITR |
 | Salary Slip | Optional | Salary Slip |
 | Employment Proof | Optional | Employment Proof |
+| Property Document | Optional | Sale Deed |
 
 Every co-applicant:
 
@@ -310,7 +319,7 @@ Driving Licence, Passport or Voter ID can satisfy the Address Proof requirement.
 
 ### is aadhaar mandatory  (documents, expect answer, got answer)
 
-Aadhaar is not mandatory by itself. It is one accepted option for: Address Proof (co-applicant).
+Aadhaar is not required by itself: it is one of the documents accepted for Address Proof (co-applicant).
 
 ### can I use electricity bill as address proof  (documents, expect answer, got answer)
 
@@ -385,11 +394,11 @@ Every case moves through these stages, in this order: FOS (Field Officer Sales) 
 
 ### how does KYC work  (process, expect answer, got answer)
 
-KYC (Know Your Customer) is checked for every party (the applicant and each co-applicant) in two ways: A, the application form against the documents (name, date of birth, PAN (Permanent Account Number), address match what was declared), and B, the documents against each other (the same person on every document). KYC runs once the identity documents are uploaded; a **failed** KYC must be fixed before the case can move to CPA.
+KYC (Know Your Customer) is checked for every party (the applicant and each co-applicant) in two ways: A, the application form against the documents (name, date of birth, PAN (Permanent Account Number), address match what was declared), and B, the documents against each other (the same person on every document: cross-document consistency). KYC runs once the identity documents are uploaded; a **failed** KYC must be fixed before the case can move to CPA.
 
 ### KYC fail ho gaya to kya kare  (process, expect answer, got answer)
 
-KYC (Know Your Customer) is checked for every party (the applicant and each co-applicant) in two ways: A, the application form against the documents (name, date of birth, PAN (Permanent Account Number), address match what was declared), and B, the documents against each other (the same person on every document). KYC runs once the identity documents are uploaded; a **failed** KYC must be fixed before the case can move to CPA.
+KYC (Know Your Customer) is checked for every party (the applicant and each co-applicant) in two ways: A, the application form against the documents (name, date of birth, PAN (Permanent Account Number), address match what was declared), and B, the documents against each other (the same person on every document: cross-document consistency). KYC runs once the identity documents are uploaded; a **failed** KYC must be fixed before the case can move to CPA.
 
 ### how to add a co-applicant  (process, expect answer, got answer)
 
@@ -442,13 +451,12 @@ You are signed in as test-subject, role --.
 
 You have 2 cases: 2 with documents **pending**.
 
-| # | Case | Applicant | Stage | Status | |
-|---|---|---|---|---|---|
-| 1 | CASE-1E6CDF8C7C27 | Priya V. (APP-5BB27AF95567) | FOS (Field Officer Sales) | Created · 5 docs pending | [Open](action:open_case?id=CASE-1E6CDF8C7C27) |
-| 2 | CASE-83062A9CBFCD | Rahul S. (APP-CF3EB8F50D0D) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-83062A9CBFCD) |
+1. Priya V. · CASE-50D00F0FAD90 · Created · 4 docs pending · [Open](action:open_case?id=CASE-50D00F0FAD90)
+2. Rahul S. · CASE-D4D6011101AB · Created · 4 docs pending · [Open](action:open_case?id=CASE-D4D6011101AB)
 
 Showing 1-2 of 2 (newest first).
-That is the whole list.
+
+[Show as a table](ask:Show%20as%20a%20table)
 
 Do you want to know about a particular case?
 [Yes](ask:Yes) · [No](ask:No)
@@ -459,13 +467,12 @@ Download: [Excel](action:download_list?format=xlsx&q=all) · [Doc](action:downlo
 
 2 of your cases match (needs action).
 
-| # | Case | Applicant | Stage | Status | |
-|---|---|---|---|---|---|
-| 1 | CASE-1E6CDF8C7C27 | Priya V. (APP-5BB27AF95567) | FOS (Field Officer Sales) | Created · 5 docs **pending** | [Open](action:open_case?id=CASE-1E6CDF8C7C27) |
-| 2 | CASE-83062A9CBFCD | Rahul S. (APP-CF3EB8F50D0D) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-83062A9CBFCD) |
+1. Priya V. · CASE-50D00F0FAD90 · Created · 4 docs **pending** · [Open](action:open_case?id=CASE-50D00F0FAD90)
+2. Rahul S. · CASE-D4D6011101AB · Created · 4 docs pending · [Open](action:open_case?id=CASE-D4D6011101AB)
 
 Showing 1-2 of 2 (newest first).
-That is the whole list.
+
+[Show as a table](ask:Show%20as%20a%20table)
 
 Do you want to know about a particular case?
 [Yes](ask:Yes) · [No](ask:No)
@@ -511,7 +518,10 @@ I can't approve, reject, disburse or skip a check from chat, a person does that.
 
 ### co-applicant kya hota hai  (hinglish, expect answer, got answer)
 
-A co-applicant applies for the loan together with the main applicant. A co-applicant's income can be counted for eligibility, and a co-applicant is equally responsible for repaying the loan. A co-applicant is usually a spouse or a close family member; for a property loan, every co-owner of the property is normally a co-applicant. In this system a co-applicant has their own documents and their own KYC (Know Your Customer).
+A co-applicant applies for the loan together with the main applicant. A co-applicant's income can be counted
+for eligibility, and a co-applicant is equally responsible for repaying the loan. A co-applicant is usually a
+spouse or a close family member; for a property loan, every co-owner of the property is normally a co-applicant.
+In this system a co-applicant has their own documents and their own KYC (Know Your Customer).
 
 ### sanction letter kya hai  (hinglish, expect answer, got answer)
 
@@ -531,7 +541,9 @@ Indicative only: the system's eligibility check uses the **verified** figures.
 
 ### tenure kya hota hai  (hinglish, expect answer, got answer)
 
-Tenure is the repayment period of the loan, in months or years. A longer tenure means a lower EMI (Equated Monthly Instalment) but more interest paid in total; a shorter tenure means a higher EMI and less interest.
+Tenure is the repayment period of the loan, in months or years. A longer tenure means a lower EMI (Equated Monthly Instalment) but more
+interest paid in total; a shorter tenure means a higher EMI and less interest. The configured minimum and maximum
+tenure per product are in the eligibility policy (ask "maximum tenure").
 
 ### address proof mein kya chalega  (hinglish, expect answer, got answer)
 
@@ -578,8 +590,9 @@ Indicative only: the system's eligibility check uses the **verified** figures.
 
 - Personal Loan: Salaried, Self Employed.
 - Home Loan: Salaried, Self Employed.
+- Loan Against Property: Salaried, Self Employed.
 
-These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
+These are DEMO policy values (PL_DUMMY_V1, HL_DUMMY_V1, LAP_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
 
 ### pan card mandatory hai kya  (held_out_2, expect answer, got answer)
 
@@ -591,7 +604,7 @@ Net salary (net pay) is the take-home pay after deductions such as tax and provi
 
 ### kyc kaise hota hai  (held_out_2, expect answer, got answer)
 
-KYC (Know Your Customer) is checked for every party (the applicant and each co-applicant) in two ways: A, the application form against the documents (name, date of birth, PAN (Permanent Account Number), address match what was declared), and B, the documents against each other (the same person on every document). KYC runs once the identity documents are uploaded; a **failed** KYC must be fixed before the case can move to CPA.
+KYC (Know Your Customer) is checked for every party (the applicant and each co-applicant) in two ways: A, the application form against the documents (name, date of birth, PAN (Permanent Account Number), address match what was declared), and B, the documents against each other (the same person on every document: cross-document consistency). KYC runs once the identity documents are uploaded; a **failed** KYC must be fixed before the case can move to CPA.
 
 ### who decides the loan  (held_out_2, expect answer, got answer)
 
@@ -628,7 +641,7 @@ Form 16 is the certificate an employer gives each employee every year, showing t
 ### what is NACH and CERSAI  (classes_2, expect answer, got answer)
 
 What is NACH
-e-NACH: A NACH mandate registered digitally, through net banking, debit card or Aadhaar. Example: e-NACH set up during onboarding.
+NACH (National Automated Clearing House): NPCI's system for automatic EMI (Equated Monthly Instalment) debits from a borrower's bank account, under a mandate the borrower signs. Example: EMI collected through NACH on the due date.
 
 What is CERSAI
 CERSAI (Central Registry of Securitisation Asset Reconstruction and Security Interest of India) is the registry where a lender records its charge on a property given as security, so the same property cannot be pledged to two lenders without it showing. It also holds the Central KYC (Know Your Customer) records.
@@ -683,7 +696,7 @@ These are DEMO policy values (PL_DUMMY_V1), not the company's lending policy, th
 
 ### interest rate and maximum ltv for home loan  (multi_value, expect answer, got answer)
 
-- Home Loan: 8.5% a year (the rate used for the EMI (Equated Monthly Instalment) estimate).
+- Home Loan: 8.5% a year is the rate used for the EMI (Equated Monthly Instalment) estimate, the actual rate is set at sanction by the credit team.
 
 These are DEMO policy values (HL_DUMMY_V1), not the company's lending policy, the credit team confirms the real limits.
 
@@ -695,13 +708,12 @@ Which case is this about? Pick one and I'll answer "kyc status" for it.
 
 You have 2 cases: 2 with documents **pending**.
 
-| # | Case | Applicant | Stage | Status | |
-|---|---|---|---|---|---|
-| 1 | CASE-1E6CDF8C7C27 | Priya V. (APP-5BB27AF95567) | FOS (Field Officer Sales) | Created · 5 docs pending | [Open](action:open_case?id=CASE-1E6CDF8C7C27) |
-| 2 | CASE-83062A9CBFCD | Rahul S. (APP-CF3EB8F50D0D) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-83062A9CBFCD) |
+1. Priya V. · CASE-50D00F0FAD90 · Created · 4 docs pending · [Open](action:open_case?id=CASE-50D00F0FAD90)
+2. Rahul S. · CASE-D4D6011101AB · Created · 4 docs pending · [Open](action:open_case?id=CASE-D4D6011101AB)
 
 Showing 1-2 of 2 (newest first).
-That is the whole list.
+
+[Show as a table](ask:Show%20as%20a%20table)
 
 ### what is pending  (case_questions, expect case, got case)
 
@@ -709,13 +721,12 @@ Which case is this about? Pick one and I'll answer "what is **pending**" for it.
 
 You have 2 cases: 2 with documents pending.
 
-| # | Case | Applicant | Stage | Status | |
-|---|---|---|---|---|---|
-| 1 | CASE-1E6CDF8C7C27 | Priya V. (APP-5BB27AF95567) | FOS (Field Officer Sales) | Created · 5 docs pending | [Open](action:open_case?id=CASE-1E6CDF8C7C27) |
-| 2 | CASE-83062A9CBFCD | Rahul S. (APP-CF3EB8F50D0D) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-83062A9CBFCD) |
+1. Priya V. · CASE-50D00F0FAD90 · Created · 4 docs pending · [Open](action:open_case?id=CASE-50D00F0FAD90)
+2. Rahul S. · CASE-D4D6011101AB · Created · 4 docs pending · [Open](action:open_case?id=CASE-D4D6011101AB)
 
 Showing 1-2 of 2 (newest first).
-That is the whole list.
+
+[Show as a table](ask:Show%20as%20a%20table)
 
 ### loan amount kitna hai  (case_questions, expect case, got case)
 
@@ -723,10 +734,9 @@ Which case is this about? Pick one and I'll answer "loan amount kitna hai" for i
 
 You have 2 cases: 2 with documents **pending**.
 
-| # | Case | Applicant | Stage | Status | |
-|---|---|---|---|---|---|
-| 1 | CASE-1E6CDF8C7C27 | Priya V. (APP-5BB27AF95567) | FOS (Field Officer Sales) | Created · 5 docs pending | [Open](action:open_case?id=CASE-1E6CDF8C7C27) |
-| 2 | CASE-83062A9CBFCD | Rahul S. (APP-CF3EB8F50D0D) | FOS | Created · 5 docs pending | [Open](action:open_case?id=CASE-83062A9CBFCD) |
+1. Priya V. · CASE-50D00F0FAD90 · Created · 4 docs pending · [Open](action:open_case?id=CASE-50D00F0FAD90)
+2. Rahul S. · CASE-D4D6011101AB · Created · 4 docs pending · [Open](action:open_case?id=CASE-D4D6011101AB)
 
 Showing 1-2 of 2 (newest first).
-That is the whole list.
+
+[Show as a table](ask:Show%20as%20a%20table)

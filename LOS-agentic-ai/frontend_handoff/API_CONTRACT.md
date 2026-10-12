@@ -113,7 +113,8 @@ Every error body is `{ "detail": …, "error": { "code", "message", "retryable",
 | 404 | `NOT_FOUND` | "That was not found." (a case of another officer is also 404) |
 | 409 | `CONFLICT` / not ready | the message; refresh the view |
 | 422 | `INVALID_REQUEST`, `MESSAGE_REQUIRED`, `INVALID_ACTION_LINK` | the message — `detail.fields` names the bad field for developers |
-| 429 | `RATE_LIMITED` | "Too many requests right now. Please wait a moment and try again." (retryable) |
+| 413 | `PAYLOAD_TOO_LARGE` | the message -- a body over ~26 MB is refused before it is read (uploads: 25 MB limit) |
+| 429 | `RATE_LIMITED` | "Too many requests right now. Please wait a moment and try again." (retryable; wait the **`Retry-After`** header's seconds -- per signed-in session: 600 requests / minute, chat 30 messages / minute) |
 | 503 | `SERVICE_UNAVAILABLE` | "The service is temporarily unavailable. Please try again shortly." (retryable) |
 
 Abuse: a message with foul language returns **200** with a warning in `markdown` (the word masked) — show it like any

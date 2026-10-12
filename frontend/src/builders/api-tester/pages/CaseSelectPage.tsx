@@ -183,7 +183,7 @@ export function CaseSelectPage({ accessToken, onNewCase, onCaseLoaded }: CaseSel
         </div>
 
         <p className="text-center text-[12px] text-content-secondary">
-          Case ID and APP ID are not tied to your account — any valid combination can be accessed.
+          Only cases assigned to your account can be opened; the server checks your access on every request.
         </p>
       </div>
     </div>

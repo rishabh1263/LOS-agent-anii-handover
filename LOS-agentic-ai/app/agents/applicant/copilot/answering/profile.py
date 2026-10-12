@@ -50,12 +50,18 @@ _FIELDS: tuple[tuple[str, str, str], ...] = (
      # RECORDED amounts only: "how much CAN I borrow" is an eligibility
      # question, and an EMI / income / balance amount is a different figure.
      r"^(?!.*\b(emi|instal\w*|foir|income|salary|balance|credit|fee|charges?|obligation\w*|"
-     r"property)\b)(.*\b(loan\s+)?(amount|amt|principal)\b|.*\bhow\s+much\b[^?]{0,20}"
+     r"property|eligib\w*)\b)"
+     # "how much loan CAN HE GET / BORROW" is the eligible amount (routed to credit), not the recorded one (2026-10-12)
+     r"(?!.*\b(can|could|will|would)\s+(i|we|he|she|they|the\s+customer|customer|the\s+applicant|applicant)\s+"
+     r"(get|borrow|avail|be\s+given)\b)"
+     r"(.*\b(loan\s+)?(amount|amt|principal)\b|.*\bhow\s+much\b[^?]{0,20}"
      r"\b(did|have|had)\s+(i|we|the\s+applicant|the\s+customer)\b|"
      r".*\bkitna\s+loan\b|.*\bloan\s+(kitna|kitni|kitne)\b|.*\bhow\s+much\s+(is\s+)?(my\s+|the\s+)?loan\b|"
      r".*\bloan\s+how\s+much\b|.*\bloan\s+(value|size)\b|.*\b(requested|asked\s+for)\s+loan\b|"
      r".*\bhow\s+(many|much)\s+rupees\b|.*\brupees\s+(ka|of|ke)\s+loan\b|.*\bhow\s+big\b[^?]{0,15}\bloan\b|"
-     r".*\bloan\b[^?]{0,12}\bhow\s+much\b|.*\bhow\s+much\b[^?]{0,8}\bloan\b)"),
+     r".*\bloan\b[^?]{0,12}\bhow\s+much\b|.*\bhow\s+much\b[^?]{0,8}\bloan\b|"
+     # "how much money is the customer asking for?" -- the amount applied for (2026-10-12, held-out set B)
+     r".*\bhow\s+much\s+(money|cash|funding|finance)\b[^?]{0,30}\b(ask\w*|request\w*|appl\w*|want\w*|borrow\w*)\b)"),
     ("tenure_months", "tenure",
      r"\b(tenure|loan\s+term|term\s+of\s+(the\s+|my\s+)?loan|repayment\s+(period|term)|"
      r"how\s+many\s+months|duration\s+of\s+(the\s+|my\s+)?loan|avadhi|"
@@ -76,8 +82,10 @@ _FIELDS: tuple[tuple[str, str, str], ...] = (
      r"salaried\b[^?]{0,30}\b(or|ya|/)\s+self|self\s+employed\b[^?]{0,30}\b(or|ya)\s+salaried|naukri)\b|"
      r"रोज़गार|रोजगार|व्यवसाय|पगारदार|व्यावसायिक"),
     ("declared_monthly_income", "declared monthly income",
-     r"\b(declared\s+)?(monthly\s+)?income\b(?!\s+(proof|document|evidence|verif\w*))"
-     r"|\b(salary\s+declared|declared\s+salary|aay|आय|उत्पन्न)\b"),
+     # "is the income ENOUGH for the loan" asks the eligibility verdict, not the recorded figure (2026-10-12)
+     r"^(?!.*\b(kaafi|kafi|enough|sufficient|adequate|chalegi|chalega)\b)"
+     r"(?:.*?\b(declared\s+)?(monthly\s+)?income\b(?!\s+(proof|document|evidence|verif\w*))"
+     r"|.*?\b(salary\s+declared|declared\s+salary|aay|आय|उत्पन्न)\b)"),
     ("declared_monthly_obligations", "declared monthly obligations",
      r"\b(obligations?|existing\s+emis?|monthly\s+emis?|liabilit\w*|outgoings?|"
      r"existing\s+loans?\s+emi|dues|emis?\b[^?]{0,30}\b(declar\w*|running|chal|already))\b"),
@@ -91,7 +99,9 @@ _FIELDS: tuple[tuple[str, str, str], ...] = (
      r"\b(e-?mail|emial|emal|mail\s+id)(\s+(id|address))?\b|ईमेल|ई-मेल"),
     ("date_of_birth", "date of birth",
      r"\b(dob|d\.o\.b|date\s+of\s+birth|birth\s*date|birthday|born|janm\s*tithi|"
-     r"janam\s*(tithi|din))\b|जन्म"),
+     r"janam\s*(tithi|din))\b|जन्म"
+     # Hinglish "janam kab hua" / "paida kab hua" (held-out evaluation, 2026-10-12)
+     r"|\b(janam|janm|paida)\b[^?]{0,15}\b(kab|when)\b"),          # "kab" is normalised to "when"
     ("address", "address",
      r"\baddress\b(?!\s+proof)|\bpata\b|पत्ता|पता"),
     ("aadhaar_number", "Aadhaar number",

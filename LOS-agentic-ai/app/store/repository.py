@@ -19,6 +19,7 @@ force every caller into a try block to ask an ordinary question.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from app.store.models import (
     Applicant,
@@ -47,6 +48,19 @@ def _slot(finding: CaseFinding) -> tuple[str, str, str, str]:
     kind = getattr(finding.finding_kind, "value", str(finding.finding_kind))
     return (kind, finding.source_type or "", finding.party_id or "",
             finding.source_id or "")
+
+
+def same_value(stored: Any, given: Any) -> bool:
+    """Whether a form value is unchanged: numbers by value ("500000" == 500000.0), text exactly after trimming
+    (a case-only correction "rahul sharma" -> "Rahul Sharma" IS a change), empty and None alike."""
+    a = "" if stored is None else str(stored).strip()
+    b = "" if given is None else str(given).strip()
+    if a == b:
+        return True
+    try:
+        return float(a) == float(b)
+    except ValueError:
+        return False
 
 
 def current_findings(findings: list[CaseFinding]) -> list[CaseFinding]:
@@ -126,6 +140,42 @@ class Repository(ABC):
     @abstractmethod
     def list_applications(self, applicant_id: str) -> list[Application]:
         """Every application belonging to one applicant, newest first."""
+
+    def update_case_fields(self, case_id: str, applicant_fields: dict[str, Any],
+                           application_fields: dict[str, Any],
+                           expected: dict[str, Any] | None = None) -> dict[str, Any]:
+        """
+        A FORM EDIT: only the named columns, applicant and application together.
+
+        Returns {"outcome": "SAVED" | "UNCHANGED" | "STALE" | "NOT_FOUND", "changed": {field: [old, new]},
+        "current": {field: value}}. STALE when `expected` (what the editor was shown) no longer matches the stored
+        value -- someone else changed it since; nothing is written. UNCHANGED when every value already holds (a
+        duplicate request): nothing is written. This default reads then writes whole records; the SQL store
+        overrides it with one locked transaction that touches only the changed columns.
+        """
+        import dataclasses
+
+        application = self.get_application(case_id)
+        applicant = self.get_applicant(application.applicant_id) if application else None
+        if application is None or applicant is None:
+            return {"outcome": "NOT_FOUND", "changed": {}, "current": {}}
+        current = {**{f: getattr(applicant, f, None) for f in applicant_fields},
+                   **{f: getattr(application, f, None) for f in application_fields}}
+        stale = {f: current.get(f) for f in (expected or {}) if f in current
+                 and not same_value(current.get(f), (expected or {})[f])}
+        if stale:
+            return {"outcome": "STALE", "changed": {}, "current": stale}
+        new = {**applicant_fields, **application_fields}
+        changed = {f: [current.get(f), v] for f, v in new.items() if not same_value(current.get(f), v)}
+        if not changed:
+            return {"outcome": "UNCHANGED", "changed": {}, "current": current}
+        a = {f: v for f, v in applicant_fields.items() if f in changed}
+        b = {f: v for f, v in application_fields.items() if f in changed}
+        if a:
+            self.save_applicant(dataclasses.replace(applicant, **a))
+        if b:
+            self.save_application(dataclasses.replace(application, **b))
+        return {"outcome": "SAVED", "changed": changed, "current": current}
 
     # -- documents ---------------------------------------------------------
 

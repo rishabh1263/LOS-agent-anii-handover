@@ -141,8 +141,11 @@ def customer_message(case_id: str) -> str | None:
     todo = [i for i in _todo(_report(case_id)) if i["id"].startswith(("DOC:", "SIG:"))]
     if not todo:
         return None
-    redo = [i["label"] for i in todo if i["status"] in ("FAILED", "REVIEW")]
-    bring = [i["label"] for i in todo if i["status"] == "PENDING"]
+    # EACH DOCUMENT ONCE (2026-10-11, audit P2-C): the checklist's Signature slot (DOC:) and the mandatory-signature
+    # rule's item (SIG:) are one document to the customer -- "Signature, Income Proof, Signature" asked twice; and a
+    # document to re-upload is not also listed as one to bring
+    redo = list(dict.fromkeys(i["label"] for i in todo if i["status"] in ("FAILED", "REVIEW")))
+    bring = [x for x in dict.fromkeys(i["label"] for i in todo if i["status"] == "PENDING") if x not in redo]
     parts = [_label("customer_message", "greeting")]
     if bring:
         parts.append(_label("customer_message", "bring", items=", ".join(bring)))
@@ -161,7 +164,8 @@ def visit_checklist(case_id: str) -> str | None:
     for i in todo:
         party = "Co-applicant" if ":CO:" in i["id"] or ":CO_APPLICANT:" in i["id"] else "Applicant"
         action = _label("visit", "redo" if i["status"] in ("FAILED", "REVIEW") else "collect", document=i["label"])
-        by_party.setdefault(party, []).append(action)
+        if action not in by_party.get(party, []):          # each document once per party (DOC: and SIG: items)
+            by_party.setdefault(party, []).append(action)
     lines = [_label("visit", "heading")]
     for party, items in by_party.items():
         lines += ["", f"**{party}**"] + [f"- [ ] {x}" for x in items]

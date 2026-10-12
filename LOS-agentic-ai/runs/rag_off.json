@@ -1,0 +1,531 @@
+{
+ "summary": {
+  "retrieval_hit": "17/24",
+  "top1_relevance": "14/24",
+  "answer_correct": "18/26",
+  "citation_correct": "25/26",
+  "grounded": "21/26",
+  "no_answer_accuracy": "6/10",
+  "false_confidence": "4/10",
+  "latency_ms": {
+   "retrieval_p50_p95": [
+    39.5,
+    63.6
+   ],
+   "answer_p50_p95": [
+    26.2,
+    41.0
+   ]
+  }
+ },
+ "rows": [
+  {
+   "id": "rag_001",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "los_glossary.md",
+    "los_glossary.md",
+    "document_requirements.md"
+   ],
+   "answer": "Passport: The government travel document; accepted as identity and address proof. Example: passport with the current address.",
+   "retrieval_hit": false,
+   "answer_correct": false,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_002",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "address_proof.md",
+    "address_proof.md",
+    "los_glossary.md"
+   ],
+   "answer": "A **PAN card is not an address proof.** A PAN card carries a name, a father's name, a date of birth and a permanent account number. It does not carry an address, so it cannot prove one. Uploading a PAN against the ADDRESS_PROOF slot fails with DOCUMENT_TYPE_MISMATCH.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_003",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "address_proof.md",
+    "los_glossary.md",
+    "los_glossary.md"
+   ],
+   "answer": "A **PAN card is not an address proof.** A PAN card carries a name, a father's name, a date of birth and a permanent account number. It does not carry an address, so it cannot prove one. Utility bills, rent agreements and ration cards are commonly used as address proof in the industry, but this service has no classifier or extractor for them, so it cannot accept them.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_004",
+   "answerable": true,
+   "confident": false,
+   "sources": [
+    "cpa_readiness.md",
+    "fos_workflow.md",
+    "document_statuses.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "retrieval_hit": false,
+   "answer_correct": false,
+   "citation_correct": true,
+   "grounded": false
+  },
+  {
+   "id": "rag_005",
+   "answerable": true,
+   "confident": false,
+   "sources": [
+    "cpa_readiness.md",
+    "cpa_readiness.md",
+    "document_requirements_home_loan.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "retrieval_hit": false,
+   "answer_correct": false,
+   "citation_correct": true,
+   "grounded": false
+  },
+  {
+   "id": "rag_006",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "cpa_readiness.md",
+    "cpa_readiness.md",
+    "document_requirements.md"
+   ],
+   "answer": "The `pending_items` list gives the reasons, in the order a field officer should work through them: applicant information first, then application information, then documents. Each pending item carries a code: -- Code -- Meaning",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_007",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_requirements.md",
+    "faq.md",
+    "cpa_readiness.md"
+   ],
+   "answer": "An optional document never blocks the handoff to CPA. It appears on the checklist so a field officer can see what has been collected beyond the minimum, but its absence is not a pending item.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_008",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "los_glossary.md",
+    "faq.md",
+    "los_glossary.md"
+   ],
+   "answer": "Soft enquiry: A check of one's own credit report, or a pre-approval check, that does not affect the score. Example: checking your own CIBIL report online.",
+   "retrieval_hit": true,
+   "answer_correct": false,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_009",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_policy.md",
+    "document_requirements_personal_loan.md",
+    "document_requirements_personal_loan.md"
+   ],
+   "answer": "- **Base requirements** — the documents every application for that product needs, whatever the amount. No combination of amount and attributes can remove a base requirement, so no case ends up needing less identity evidence than every other case.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_010",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_policy.md",
+    "document_policy.md",
+    "document_requirements_home_loan.md"
+   ],
+   "answer": "A checklist row answers two questions, and they have separate fields. - **CONDITIONAL** — needed because of something about this case. It is just as binding as REQUIRED once the condition has matched; the distinction is there so the reason can be shown.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_011",
+   "answerable": true,
+   "confident": false,
+   "sources": [
+    "document_policy.md",
+    "document_requirements_personal_loan.md",
+    "document_requirements.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "retrieval_hit": false,
+   "answer_correct": false,
+   "citation_correct": true,
+   "grounded": false
+  },
+  {
+   "id": "rag_012",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_policy.md",
+    "document_requirements_personal_loan.md",
+    "document_policy.md"
+   ],
+   "answer": "`UNCONFIRMED` means the thresholds in it are placeholders that no lender has signed off — they exist so the engine can be exercised end to end, and they are not this lender's policy, an industry standard, or a regulatory requirement. Every checklist row derived from an unconfirmed policy carries `policy_status: UNCONFIRMED`, so it can be shown as provisional rather than presented as a rule.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_013",
+   "answerable": true,
+   "confident": false,
+   "sources": [
+    "document_policy.md",
+    "document_policy.md",
+    "document_policy.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "retrieval_hit": false,
+   "answer_correct": false,
+   "citation_correct": true,
+   "grounded": false
+  },
+  {
+   "id": "rag_014",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_requirements_personal_loan.md",
+    "document_requirements.md",
+    "document_requirements_personal_loan.md"
+   ],
+   "answer": "Required: PAN, ADDRESS_PROOF (Driving Licence, Passport or Voter ID), Bank Statement, Signature.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_015",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_requirements_home_loan.md",
+    "document_requirements_personal_loan.md",
+    "fos_workflow.md"
+   ],
+   "answer": "Mandatory, for every home loan: PAN, BANK_STATEMENT and ADDRESS_PROOF.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_016",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "loan_terms.md",
+    "document_requirements_personal_loan.md",
+    "los_glossary.md"
+   ],
+   "answer": "**Form 16** is the certificate an employer gives each employee every year, showing the salary paid and the tax (TDS) deducted. In this system a Form 16 is accepted as income proof, like a salary slip or an ITR.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_017",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_requirements.md",
+    "los_glossary.md",
+    "los_glossary.md"
+   ],
+   "answer": "Indian lenders commonly ask for more than this at the personal-loan stage — Aadhaar, Form 16, ITR, employment proof and photographs all appear on public lender checklists. **None of them is mandatory here**, because a document becomes required only by being listed as a mandatory slot for a product in the configuration.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_018",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_statuses.md",
+    "officer_howto.md",
+    "document_statuses.md"
+   ],
+   "answer": "A slot shows the best outcome among the documents uploaded against it: a rejected first attempt followed by a verified re-upload is a satisfied slot, not a blocked one. MISSING, UPLOADED, PROCESSING, REVIEW and REJECTED all leave it outstanding.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_019",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "document_statuses.md",
+    "faq.md",
+    "los_glossary.md"
+   ],
+   "answer": "SKIPPED always means \"this was not done\", never \"this was done and found nothing wrong\". On a KYC field it means there was nothing to compare — either no document carried the field, or only one did, and one document cannot corroborate itself. A SKIPPED KYC field reports `match_score: 0`, and that zero means nothing was compared, not that nothing matched. SKIPPED is never treated as a pass.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_020",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "loan_terms.md",
+    "officer_howto.md",
+    "officer_howto.md"
+   ],
+   "answer": "Video KYC (V-CIP, video-based customer identification) is KYC done over a live, consent-based video call with the lender's official, where the customer shows the original documents. It is a way to complete KYC without a branch visit.",
+   "retrieval_hit": false,
+   "answer_correct": false,
+   "citation_correct": false,
+   "grounded": true
+  },
+  {
+   "id": "rag_021",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "faq.md",
+    "faq.md",
+    "officer_howto.md"
+   ],
+   "answer": "The service compares names across documents and tolerates case, spacing, punctuation, ordering and expanded initials. A genuine difference — a married name, a corrected record — is reported for a person to resolve, and never rejects the applicant automatically.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_022",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "verification_guidelines.md",
+    "verification_guidelines.md",
+    "document_requirements_personal_loan.md"
+   ],
+   "answer": "A PASS means the document is **structurally valid and internally consistent**. It does **not** mean the document is genuine. There is no issuer API, no government lookup and no issuer signature this service can check against, so every identity document carries `authenticity: NOT_ESTABLISHED` alongside its verdict, at every verdict including PASS.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_023",
+   "answerable": true,
+   "confident": false,
+   "sources": [
+    "faq.md",
+    "verification_guidelines.md",
+    "document_statuses.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "retrieval_hit": false,
+   "answer_correct": false,
+   "citation_correct": true,
+   "grounded": false
+  },
+  {
+   "id": "rag_024",
+   "answerable": true,
+   "confident": true,
+   "sources": [
+    "fos_workflow.md",
+    "fos_workflow.md",
+    "fos_workflow.md"
+   ],
+   "answer": "1. **APPLICATION_CREATED**; 2. **DOCUMENT_COLLECTION**; 3. **BASIC_DOCUMENT_VERIFICATION**; 4. **READY_FOR_CPA**.",
+   "retrieval_hit": true,
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_025",
+   "answerable": true,
+   "confident": false,
+   "sources": [
+    "cpa_readiness.md",
+    "fos_workflow.md",
+    "officer_howto.md"
+   ],
+   "answer": "According to the configured stage guide (a sample process description, not a policy document), the CPA stage works like this: Central processing checks that the file is internally consistent and complete before any credit view is taken. It checks that applicant and co-applicant details match their documents, the product's required document list is satisfied, and earlier findings have been addresse",
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_026",
+   "answerable": true,
+   "confident": false,
+   "sources": [
+    "loan_terms.md",
+    "los_glossary.md",
+    "cpa_readiness.md"
+   ],
+   "answer": "According to the configured stage guide (a sample process description, not a policy document), the DISBURSEMENT stage works like this: Funds are released against the sanction, to the account the file names. It checks that the beneficiary account holder matches the applicant, the amount matches the sanction, and the sign-off is present. A file is held back by a beneficiary account whose holder does",
+   "answer_correct": true,
+   "citation_correct": true,
+   "grounded": true
+  },
+  {
+   "id": "rag_027",
+   "answerable": false,
+   "confident": true,
+   "sources": [
+    "los_glossary.md",
+    "los_glossary.md",
+    "loan_terms.md"
+   ],
+   "answer": "ROI (Rate of Interest): The yearly percentage a lender charges on the outstanding loan. It may be fixed or floating.",
+   "no_answer": false
+  },
+  {
+   "id": "rag_028",
+   "answerable": false,
+   "confident": true,
+   "sources": [
+    "los_glossary.md",
+    "loan_terms.md",
+    "loan_terms.md"
+   ],
+   "answer": "Foreclosure charges: A fee some lenders charge when a loan is closed early. **Owner review:** RBI does not allow foreclosure or prepayment charges on floating-rate term loans taken by individuals for non-business purposes; the amount for other loans is in the loan agreement.",
+   "no_answer": false
+  },
+  {
+   "id": "rag_029",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "los_glossary.md",
+    "los_glossary.md",
+    "los_glossary.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_030",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "los_glossary.md",
+    "los_glossary.md",
+    "los_glossary.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_031",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "los_glossary.md",
+    "loan_terms.md",
+    "los_glossary.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_032",
+   "answerable": false,
+   "confident": true,
+   "sources": [
+    "los_glossary.md",
+    "loan_terms.md",
+    "document_requirements_home_loan.md"
+   ],
+   "answer": "Processing fee: A one-time fee for processing a loan application, usually a percentage of the loan amount, often deducted from the disbursed amount. Example: a fee stated in the sanction letter and the Key Fact Statement.",
+   "no_answer": false
+  },
+  {
+   "id": "rag_033",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "loan_terms.md",
+    "los_glossary.md",
+    "los_glossary.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_034",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "los_glossary.md",
+    "document_requirements_home_loan.md",
+    "document_requirements_home_loan.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  },
+  {
+   "id": "rag_035",
+   "answerable": false,
+   "confident": true,
+   "sources": [
+    "los_glossary.md",
+    "loan_terms.md",
+    "los_glossary.md"
+   ],
+   "answer": "AML (Anti-Money Laundering): Rules and checks to prevent loans and accounts being used to launder money. Example: screening customers against sanctions lists.",
+   "no_answer": false
+  },
+  {
+   "id": "rag_036",
+   "answerable": false,
+   "confident": false,
+   "sources": [
+    "los_glossary.md",
+    "faq.md",
+    "los_glossary.md"
+   ],
+   "answer": "I don't have enough information in the FOS knowledge base to answer that.",
+   "no_answer": true
+  }
+ ]
+}

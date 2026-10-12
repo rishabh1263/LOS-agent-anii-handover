@@ -1,0 +1,541 @@
+{
+  "warmup_ms": 3274.3,
+  "runs": 3,
+  "cpu_count": 16,
+  "ocr_workers": 3,
+  "document_workers": 4,
+  "sets": {
+    "one": {
+      "documents": [
+        "PAN"
+      ],
+      "wall_ms": {
+        "n": 3,
+        "median": 1259.2,
+        "min": 1159.8,
+        "max": 4156.3
+      },
+      "cpu_ms": {
+        "n": 3,
+        "median": 2156.2,
+        "min": 1828.1,
+        "max": 6031.2
+      },
+      "peak_rss_mb": 263.2,
+      "stages_ms_median": {
+        "classification_ms": 5.1,
+        "extraction_ms": 1.1,
+        "kyc_ms": 1.9,
+        "llm_ms": 0.0,
+        "ocr_ms": 904.7,
+        "processing_ms": 1259.0,
+        "profile_match_ms": 0.6,
+        "summary_ms": 0.0,
+        "total_ms": 1259.0,
+        "verification_ms": 1.2
+      },
+      "errors": [],
+      "last": {
+        "status": "PARTIAL",
+        "documents": [
+          {
+            "type": "PAN",
+            "classified": null,
+            "status": "PASS",
+            "ms": 1250.82
+          }
+        ]
+      }
+    },
+    "two": {
+      "documents": [
+        "PAN",
+        "DRIVING_LICENCE"
+      ],
+      "wall_ms": {
+        "n": 3,
+        "median": 2750.5,
+        "min": 2718.3,
+        "max": 4738.0
+      },
+      "cpu_ms": {
+        "n": 3,
+        "median": 6734.4,
+        "min": 6640.6,
+        "max": 9984.4
+      },
+      "peak_rss_mb": 268.7,
+      "stages_ms_median": {
+        "classification_ms": 28.3,
+        "extraction_ms": 2.5,
+        "kyc_ms": 2.6,
+        "llm_ms": 0.0,
+        "ocr_ms": 3432.0,
+        "processing_ms": 2749.9,
+        "profile_match_ms": 0.4,
+        "summary_ms": 0.0,
+        "total_ms": 2749.9,
+        "verification_ms": 3.2
+      },
+      "errors": [],
+      "last": {
+        "status": "PARTIAL",
+        "documents": [
+          {
+            "type": "PAN",
+            "classified": null,
+            "status": "PASS",
+            "ms": 1681.09
+          },
+          {
+            "type": "DRIVING_LICENCE",
+            "classified": null,
+            "status": "PASS",
+            "ms": 2705.48
+          }
+        ]
+      }
+    },
+    "four": {
+      "documents": [
+        "PAN",
+        "DRIVING_LICENCE",
+        "BANK_STATEMENT",
+        "SIGNATURE"
+      ],
+      "wall_ms": {
+        "n": 3,
+        "median": 3695.4,
+        "min": 3654.7,
+        "max": 3726.9
+      },
+      "cpu_ms": {
+        "n": 3,
+        "median": 11343.8,
+        "min": 11218.8,
+        "max": 11562.5
+      },
+      "peak_rss_mb": 308.3,
+      "stages_ms_median": {
+        "classification_ms": 199.4,
+        "extraction_ms": 674.0,
+        "kyc_ms": 2.8,
+        "llm_ms": 0.0,
+        "ocr_ms": 4130.7,
+        "processing_ms": 3694.7,
+        "profile_match_ms": 0.3,
+        "summary_ms": 0.0,
+        "total_ms": 3694.7,
+        "verification_ms": 3.1
+      },
+      "errors": [],
+      "last": {
+        "status": "PARTIAL",
+        "documents": [
+          {
+            "type": "PAN",
+            "classified": null,
+            "status": "PASS",
+            "ms": 2499.45
+          },
+          {
+            "type": "DRIVING_LICENCE",
+            "classified": null,
+            "status": "PASS",
+            "ms": 3712.4
+          },
+          {
+            "type": "BANK_STATEMENT",
+            "classified": null,
+            "status": "PASS",
+            "ms": 924.96
+          },
+          {
+            "type": null,
+            "classified": null,
+            "status": "REVIEW",
+            "ms": 4894.4
+          }
+        ]
+      }
+    },
+    "five": {
+      "documents": [
+        "PAN",
+        "DRIVING_LICENCE",
+        "BANK_STATEMENT",
+        "SIGNATURE",
+        "SALARY_SLIP"
+      ],
+      "wall_ms": {
+        "n": 3,
+        "median": 3638.9,
+        "min": 3386.8,
+        "max": 3873.5
+      },
+      "cpu_ms": {
+        "n": 3,
+        "median": 9640.6,
+        "min": 8921.9,
+        "max": 9828.1
+      },
+      "peak_rss_mb": 316.6,
+      "stages_ms_median": {
+        "classification_ms": 263.8,
+        "extraction_ms": 952.3,
+        "kyc_ms": 2.8,
+        "llm_ms": 0.0,
+        "ocr_ms": 4079.6,
+        "processing_ms": 3638.0,
+        "profile_match_ms": 0.3,
+        "summary_ms": 0.0,
+        "total_ms": 3638.0,
+        "verification_ms": 2.9
+      },
+      "errors": [],
+      "last": {
+        "status": "PARTIAL",
+        "documents": [
+          {
+            "type": "PAN",
+            "classified": null,
+            "status": "PASS",
+            "ms": 2545.29
+          },
+          {
+            "type": "DRIVING_LICENCE",
+            "classified": null,
+            "status": "PASS",
+            "ms": 3624.14
+          },
+          {
+            "type": "BANK_STATEMENT",
+            "classified": null,
+            "status": "PASS",
+            "ms": 990.78
+          },
+          {
+            "type": null,
+            "classified": null,
+            "status": "REVIEW",
+            "ms": 3315.0
+          },
+          {
+            "type": "SALARY_SLIP",
+            "classified": null,
+            "status": "PASS",
+            "ms": 204.78
+          }
+        ]
+      }
+    },
+    "home_loan_full": {
+      "documents": [
+        "PAN",
+        "BANK_STATEMENT",
+        "DRIVING_LICENCE",
+        "SIGNATURE",
+        "ITR",
+        "SALARY_SLIP"
+      ],
+      "wall_ms": {
+        "n": 3,
+        "median": 4399.3,
+        "min": 4232.8,
+        "max": 4712.7
+      },
+      "cpu_ms": {
+        "n": 3,
+        "median": 10500.0,
+        "min": 10203.1,
+        "max": 12531.2
+      },
+      "peak_rss_mb": 315.0,
+      "stages_ms_median": {
+        "classification_ms": 474.3,
+        "extraction_ms": 1760.8,
+        "kyc_ms": 3.7,
+        "llm_ms": 0.0,
+        "ocr_ms": 4619.0,
+        "processing_ms": 4397.8,
+        "profile_match_ms": 0.4,
+        "summary_ms": 0.0,
+        "total_ms": 4397.8,
+        "verification_ms": 3.6
+      },
+      "errors": [],
+      "last": {
+        "status": "PARTIAL",
+        "documents": [
+          {
+            "type": "PAN",
+            "classified": null,
+            "status": "PASS",
+            "ms": 3636.92
+          },
+          {
+            "type": "BANK_STATEMENT",
+            "classified": null,
+            "status": "PASS",
+            "ms": 1697.86
+          },
+          {
+            "type": "DRIVING_LICENCE",
+            "classified": null,
+            "status": "PASS",
+            "ms": 4692.86
+          },
+          {
+            "type": null,
+            "classified": null,
+            "status": "REVIEW",
+            "ms": 4991.7
+          },
+          {
+            "type": "ITR",
+            "classified": null,
+            "status": "PASS",
+            "ms": 880.51
+          },
+          {
+            "type": "SALARY_SLIP",
+            "classified": null,
+            "status": "PASS",
+            "ms": 204.5
+          }
+        ]
+      }
+    },
+    "lap_full_default": {
+      "documents": [
+        "PAN",
+        "VOTER_ID",
+        "BANK_STATEMENT",
+        "SIGNATURE"
+      ],
+      "wall_ms": {
+        "n": 3,
+        "median": 3223.3,
+        "min": 3196.3,
+        "max": 4641.2
+      },
+      "cpu_ms": {
+        "n": 3,
+        "median": 9953.1,
+        "min": 9484.4,
+        "max": 12421.9
+      },
+      "peak_rss_mb": 320.8,
+      "stages_ms_median": {
+        "classification_ms": 189.7,
+        "extraction_ms": 865.9,
+        "kyc_ms": 1.7,
+        "llm_ms": 0.0,
+        "ocr_ms": 4747.1,
+        "processing_ms": 3223.0,
+        "profile_match_ms": 0.3,
+        "summary_ms": 0.0,
+        "total_ms": 3223.0,
+        "verification_ms": 1.9
+      },
+      "errors": [],
+      "last": {
+        "status": "PARTIAL",
+        "documents": [
+          {
+            "type": "PAN",
+            "classified": null,
+            "status": "PASS",
+            "ms": 2853.02
+          },
+          {
+            "type": "VOTER_ID",
+            "classified": null,
+            "status": "PASS",
+            "ms": 3212.6
+          },
+          {
+            "type": "BANK_STATEMENT",
+            "classified": null,
+            "status": "PASS",
+            "ms": 1072.03
+          },
+          {
+            "type": null,
+            "classified": null,
+            "status": "REVIEW",
+            "ms": 3681.7
+          }
+        ]
+      }
+    },
+    "edge_scanned_pdf": {
+      "documents": [
+        "BANK_STATEMENT"
+      ],
+      "wall_ms": {
+        "n": 3,
+        "median": 18619.1,
+        "min": 18148.2,
+        "max": 43169.1
+      },
+      "cpu_ms": {
+        "n": 3,
+        "median": 34265.6,
+        "min": 33109.4,
+        "max": 76421.9
+      },
+      "peak_rss_mb": 320.4,
+      "stages_ms_median": {
+        "classification_ms": 59.5,
+        "extraction_ms": 14837.0,
+        "kyc_ms": 0.5,
+        "llm_ms": 0.0,
+        "ocr_ms": 3081.5,
+        "processing_ms": 18619.0,
+        "profile_match_ms": 0.3,
+        "summary_ms": 0.0,
+        "total_ms": 18619.0,
+        "verification_ms": 0.0
+      },
+      "errors": [],
+      "last": {
+        "status": "REVIEW",
+        "documents": [
+          {
+            "type": "BANK_STATEMENT",
+            "classified": null,
+            "status": "REVIEW",
+            "ms": 18138.72
+          }
+        ]
+      }
+    },
+    "edge_large_pdf": {
+      "documents": [
+        "BANK_STATEMENT"
+      ],
+      "wall_ms": {
+        "n": 3,
+        "median": 2058.6,
+        "min": 2003.2,
+        "max": 2527.3
+      },
+      "cpu_ms": {
+        "n": 3,
+        "median": 1234.4,
+        "min": 1218.8,
+        "max": 1312.5
+      },
+      "peak_rss_mb": 305.0,
+      "stages_ms_median": {
+        "classification_ms": 150.5,
+        "extraction_ms": 1872.3,
+        "kyc_ms": 0.6,
+        "llm_ms": 0.0,
+        "ocr_ms": 0.0,
+        "processing_ms": 2058.5,
+        "profile_match_ms": 0.3,
+        "summary_ms": 0.0,
+        "total_ms": 2058.5,
+        "verification_ms": 0.0
+      },
+      "errors": [],
+      "last": {
+        "status": "REVIEW",
+        "documents": [
+          {
+            "type": "BANK_STATEMENT",
+            "classified": null,
+            "status": "REVIEW",
+            "ms": 2050.29
+          }
+        ]
+      }
+    },
+    "edge_malformed": {
+      "documents": [
+        "BANK_STATEMENT"
+      ],
+      "wall_ms": {
+        "n": 3,
+        "median": 7.9,
+        "min": 7.2,
+        "max": 11.5
+      },
+      "cpu_ms": {
+        "n": 3,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 15.6
+      },
+      "peak_rss_mb": 305.0,
+      "stages_ms_median": {
+        "classification_ms": 0.0,
+        "extraction_ms": 0.0,
+        "kyc_ms": 0.4,
+        "llm_ms": 0.0,
+        "ocr_ms": 0.0,
+        "processing_ms": 7.8,
+        "profile_match_ms": 0.4,
+        "summary_ms": 0.0,
+        "total_ms": 7.8,
+        "verification_ms": 0.0
+      },
+      "errors": [],
+      "last": {
+        "status": "FAILED",
+        "documents": [
+          {
+            "type": "BANK_STATEMENT",
+            "classified": null,
+            "status": "FAIL",
+            "ms": 1.33
+          }
+        ]
+      }
+    },
+    "edge_unreadable_image": {
+      "documents": [
+        "PAN"
+      ],
+      "wall_ms": {
+        "n": 3,
+        "median": 1670.5,
+        "min": 1649.9,
+        "max": 2373.1
+      },
+      "cpu_ms": {
+        "n": 3,
+        "median": 2953.1,
+        "min": 2796.9,
+        "max": 4140.6
+      },
+      "peak_rss_mb": 319.0,
+      "stages_ms_median": {
+        "classification_ms": 0.0,
+        "extraction_ms": 0.0,
+        "kyc_ms": 0.5,
+        "llm_ms": 0.0,
+        "ocr_ms": 0.0,
+        "processing_ms": 1670.4,
+        "profile_match_ms": 0.3,
+        "summary_ms": 0.0,
+        "total_ms": 1670.4,
+        "verification_ms": 0.0
+      },
+      "errors": [],
+      "last": {
+        "status": "FAILED",
+        "documents": [
+          {
+            "type": "PAN",
+            "classified": null,
+            "status": "FAIL",
+            "ms": 1663.84
+          }
+        ]
+      }
+    }
+  }
+}

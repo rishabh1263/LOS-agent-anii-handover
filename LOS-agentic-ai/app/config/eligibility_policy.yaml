@@ -193,6 +193,51 @@ policies:
     # Rules the assessment cannot be made without: missing = CONFIGURATION_GAP.
     essential_rules: [FOIR]
 
+  # -------------------------------------------------------------------------
+  # LOAN AGAINST PROPERTY -- a demonstration policy like PL / HL (2026-10-11). Every number is a DEMO value in the
+  # common industry range (LAP LTV is lower than a home loan's); the business replaces them with the real policy.
+  # -------------------------------------------------------------------------
+  LOAN_AGAINST_PROPERTY:
+    policy_id: LAP_DUMMY_V1
+    version: "1.0"
+    product: LOAN_AGAINST_PROPERTY
+    status: DEMO_NON_PRODUCTION
+    breach_status: REVIEW
+    income:
+      basis: NET_PAY
+      minimum_monthly_income: 25000
+      on_income_review: REVIEW
+    foir:
+      maximum_percent: 55
+      fail_above_percent: null
+    loan:
+      minimum_amount: 500000
+      maximum_amount: 50000000
+    tenure:
+      minimum_months: 12
+      maximum_months: 180
+    interest:
+      annual_rate_percent: 10.5
+    employment:
+      allowed:
+        - SALARIED
+        - SELF_EMPLOYED
+    obligations:
+      accepted_sources:
+        - DECLARED
+    ltv:
+      enabled: true
+      maximum_percent: 60
+      accepted_value_sources:
+        - DECLARED
+    age:
+      minimum_years: null
+      maximum_years: null
+    prerequisites:
+      kyc:
+        accepted_statuses: [PASS]
+    essential_rules: [FOIR]
+
 # ---------------------------------------------------------------------------
 # WHAT TO DO NEXT, per reason code -- operational wording for the officer, not
 # a lending rule. `owner` is who acts: APPLICANT, FOS, SYSTEM or REVIEWER.

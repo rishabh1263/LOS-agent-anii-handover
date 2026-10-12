@@ -22,12 +22,17 @@ def options(md: str) -> int:
 
 def test_one_word_with_a_case_open_asks_once_and_the_pick_answers(client, prod):
     _, case_id = make_case(client, "Rahul Sharma")
-    say(client, f"open {case_id}", "v1")
-    asked = say(client, "docs", "v1")
+    chat = f"v1-{case_id}"                 # a fresh chat: the test store outlives a session, and so would "v1"'s state
+    say(client, f"open {case_id}", chat)
+    asked = say(client, "docs", chat)
     assert "?" in asked and 2 <= options(asked) <= 4 and "Which case" not in asked
-    answer = say(client, "1", "v1")
+    answer = say(client, "1", chat)
     assert "?" not in answer.split("\n")[0] or "Still pending" in answer
-    assert options(answer) < 2 or "Still pending" in answer
+    # THE PICK ANSWERS, it does not ask again (2026-10-11): an answer now carries its follow-up suggestions (ask:
+    # links), so counting links no longer tells a menu from an answer -- the reply must not be a clarification, and
+    # must state the fact picked (option 1 = the required documents, PAN among them)
+    assert "do you mean" not in answer.lower() and "didn't catch" not in answer, answer
+    assert "PAN" in answer and ("required" in answer.lower() or "Still pending" in answer), answer
 
 
 def test_a_second_vague_message_answers_directly(client, prod):

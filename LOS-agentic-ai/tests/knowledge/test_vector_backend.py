@@ -37,7 +37,8 @@ def test_answers_stay_lexical_when_an_embedding_model_is_configured(monkeypatch)
     # the dense signal (handbook routing) is still available, separately
     dense = knowledge.dense_retriever()
     assert isinstance(dense, FallbackRetriever)
-    assert dense.describe()["primary"]["default_threshold"] == knowledge.vector_threshold() == 0.53
+    # the calibrated cutoff (recalibrated 0.53 -> 0.57 on 2026-10-10 after the glossary grew the corpus)
+    assert dense.describe()["primary"]["default_threshold"] == knowledge.vector_threshold() == 0.57
 
 
 def test_vector_answers_are_opt_in(monkeypatch):
@@ -48,12 +49,19 @@ def test_vector_answers_are_opt_in(monkeypatch):
     assert isinstance(knowledge.get_retriever(), FallbackRetriever)
 
 
-def test_no_dense_signal_without_a_real_embedding_model():
+def test_no_dense_signal_without_a_real_embedding_model(monkeypatch):
+    # no model configured anywhere (the deployment config turns one on deliberately -- see knowledge.yaml)
+    real = knowledge._config
+    monkeypatch.setattr(knowledge, "_config", lambda: {k: v for k, v in real().items() if k != "embedding_provider"})
     assert knowledge.dense_retriever() is None
 
 
 def test_vector_backend_never_uses_the_hashing_embedder(monkeypatch):
     monkeypatch.setenv("KNOWLEDGE_BACKEND", "vector")          # asked for, but no real model configured
+    real = knowledge._config                                   # (the deployment config turns one on deliberately,
+    monkeypatch.setattr(knowledge, "_config",                  #  and OLLAMA_HOST can leak in from .env under xdist)
+                        lambda: {k: v for k, v in real().items() if k != "embedding_provider"})
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
     assert isinstance(knowledge.get_retriever(), LexicalRetriever)
 
 

@@ -90,8 +90,10 @@ def test_upload_with_a_document_in_context_gives_that_upload_link(client, prod, 
 
 
 def test_a_fragment_with_no_supporting_context_asks_once(client, prod, fake):
+    # owner 2026-10-09 ("seedha jawab do sab one-word pe"): with a case OPEN and no earlier docs reading, "docs" is
+    # ANSWERED with its topic's default question (case_topics.default: "What is pending?"), not an options question
     _, c1 = make_case(client, "Rahul Sharma")
     say(client, f"open {c1}", "frag-amb")
     say(client, "what is the loan amount", "frag-amb")             # a previous question that is NOT a docs reading
     md = say(client, "docs", "frag-amb")
-    assert ASKED in md and 2 <= md.count("](ask:") <= 4
+    assert ASKED not in md and "pending" in md.lower(), md

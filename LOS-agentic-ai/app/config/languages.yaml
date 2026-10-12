@@ -446,6 +446,17 @@ lexicon:
     स्टेटस: status
     दस्तावेज़: documents
     दस्तावेज: documents
+    # inflected forms (2026-10-10, rag_020: "KYC जांच में दस्तावेज़ों के बीच कौन-कौन सी जानकारी मिलाई जाती है?" kept only
+    # "kyc" and retrieved the video-KYC passage; in English it retrieves the FAQ's KYC-check answer)
+    दस्तावेज़ों: documents
+    दस्तावेजों: documents
+    जांच: check
+    जाँच: check
+    मिलाई: matched
+    मिलाया: matched
+    मिलाए: matched
+    मिलान: matched
+    बीच: between
     डॉक्यूमेंट: documents
     कागज़ात: documents
     लंबित: pending
@@ -1003,6 +1014,30 @@ templates:
     hi-Latn: "Co-applicant"
     mr: "सह-अर्जदार"
   # Documents that need action (answering/document_actions.py; COPILOT_DOCUMENT_ACTIONS)
+  # THE APPLICATION NAME vs THE VERIFIED PAN (kyc_gate.application_name_match; owner 2026-10-10)
+  docact_app_name_MATCH:
+    en: "Application name matches the verified PAN: \"{declared}\" = \"{pan}\"."
+  docact_app_name_PARTIAL:
+    en: "Application name only partly matches the verified PAN (\"{declared}\" vs \"{pan}\"): a reviewer should confirm it."
+  docact_app_name_MISMATCH:
+    en: "Application name does not match the verified PAN: the application says \"{declared}\", the PAN says \"{pan}\"."
+  docact_app_name_PENDING:
+    en: "Application name not checked yet: no PAN has passed verification on this case."
+  docact_app_name_UNVERIFIABLE:
+    en: "Application name could not be checked against the PAN (no name on one side)."
+  # the VERIFIED NAME (owner 2026-10-09: PAN / bank statement name match -> stored and mentioned)
+  docact_kyc_name_verified:
+    en: "✅ Name verified: **{name}** (matches on {documents})."
+  docact_kyc_name_verified_saved:
+    en: "✅ Name verified: **{name}** (matches on {documents}). Saved on the application."
+  docact_kyc_name_verified_differs:
+    en: "✅ Name verified: **{name}** (matches on {documents}). The application form says \"{form}\" -- correct the form if it is wrong."
+  # a document-verification question on a case with NOTHING uploaded (answering/answer.py)
+  no_documents_uploaded:
+    en: "No documents have been uploaded on this case yet, so nothing has been verified."
+  # "why is that pending?" after an answer about two documents: which one (conversation/state.py)
+  which_document_pending:
+    en: "Which one do you mean: the {documents}?"
   docact_kyc_heading:
     en: "KYC needs attention:"          # the officer's voice (2026-10-09), not "Your KYC ..."
     hi: "आपके KYC सत्यापन पर ध्यान देना ज़रूरी है:"

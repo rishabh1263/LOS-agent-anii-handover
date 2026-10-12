@@ -114,6 +114,8 @@ _THEN = re.compile(r"^\s*(and\s+|aur\s+|so\s+|ok\s*,?\s*)?(then|then\s+what|what
 # (not "kyu atka hai?": that asks why the CASE is stuck -- the workspace quick question -- and is routed as one,
 # never as "why" of whatever the last answer was)
 _WHY = re.compile(r"^\s*(and\s+|aur\s+|but\s+|par\s+|lekin\s+)?(why|why\s+so|how\s+come|kyun|kyon|kyu|"
+                  # "why not?" after "is it ready?" asks the same reason (2026-10-12, held-out set B)
+                  r"why\s+not|why\s+isn'?t\s+it|kyun\s+nahi|kyu\s+nahi|kyon\s+nahi|"
                   r"क्यों)\s*[?.!]*\s*$", re.IGNORECASE)
 #: WHERE AN ANSWER GOES NEXT: each capability's next level, as the question
 #: the ordinary pipeline answers (never a sentence composed here).
@@ -944,6 +946,15 @@ def _completed_fragment(earlier: str, now: str) -> str | None:
     return None
 
 
+_DIALOGUE_ACTS = ("CANCEL", "AFFIRM", "NEGATE", "NEITHER", "ACK", "CONFIRM_SOFT", "UNSURE", "AGAIN", "REFER_BACK")
+
+
+def is_dialogue_act(text: str) -> bool:
+    """The WHOLE message is a dialogue act ("chhodo", "never mind", "neither", "haan", "ok"): it names no case and
+    no applicant -- nothing is read to look for one (conversation evals: zero reads before resolution)."""
+    return any(_has(kind, text) for kind in _DIALOGUE_ACTS)
+
+
 def _leading(kind: str, text: str) -> str | None:
     """The remainder after a leading phrase of `kind`, or None."""
     lowered = _strip(text)
@@ -1354,6 +1365,15 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
         # it fail?" / "iska score?" right after a PAN answer are about that
         # PAN -- for the party the conversation is on.
         several = [d for d in dict.fromkeys(state.last_documents or []) if d]
+        # ASKED ONLY WHEN THE PREVIOUS QUESTION ITSELF NAMED SEVERAL DOCUMENTS (2026-10-10, conversation evals j1/j2):
+        # "Is my bank statement pending?" -> "why is it still pending?" is about the bank statement even though the
+        # answer listed every pending document; "What document is pending?" named none -- the listed set answers.
+        from app.agents.applicant.copilot.semantics import intents as _named_docs
+
+        named_before = {_named_docs._DOC_ALIASES.get(re.sub(r"\s+", " ", m.group(0).strip().lower()))
+                        for m in _named_docs._DOC_RE.finditer(str(state.last_message or ""))} - {None}
+        if len(named_before) < 2:
+            several = []
         if len(several) > 1 and not _SELF_WORDS.search(text):
             from app.agents.applicant.copilot.semantics import semantic_frame as _pframes
             from app.agents.applicant.copilot.conversation.followup import _display as _pdisplay
@@ -1364,7 +1384,11 @@ def read_turn(message: str, state: ConversationState | None) -> Reading:
                 # "why is that pending?" after an answer about TWO documents: which one is never guessed --
                 # asked, naming both (the first document named is not necessarily the pending one)
                 names = [_pdisplay(d) for d in several[:3]]
-                return Reading(ASKED, text, reply=f"Which one do you mean: the {' or the '.join(names)}?",
+                from app.agents.applicant import language as _plang
+
+                asked = ((_plang._load().get("templates") or {}).get("which_document_pending") or {}).get("en") \
+                    or "{documents}?"
+                return Reading(ASKED, text, reply=str(asked).format(documents=" or the ".join(names)),
                                options=[f"Why is the {n} pending?" for n in names],
                                note="a pointer at one of several documents")
         if state.last_document and last_intent in ("DOCUMENT_VERIFICATION", "DOCUMENTS_UPLOADED",

@@ -66,6 +66,16 @@ def test_the_bare_switch_still_lists(client, demo):
     assert reply["intent"] == "CASE_LIST"
 
 
+def test_the_other_applicant_opens_the_only_other_case(client, demo):
+    """Sprint 4 (English): "the other applicant" with exactly one other case opens it; the bare switch above lists."""
+    _, c1 = make_case(client, "Rahul Sharma")
+    _, c2 = make_case(client, "Priya Verma")
+    client.post("/api/v1/fos/copilot", json={"action": "OPEN_CASE", "case_id": c1})
+    reply = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY",
+                                                     "message": "the other applicant"}).json()
+    assert reply["intent"] != "CASE_LIST" and c2 in reply["answer"], reply
+
+
 # ---- FOS PLAN 1.4: the same details question never flips to "None ... recorded" -------------------------------
 def test_details_without_ids_on_the_universal_endpoint_use_the_opened_case(client, demo):
     _, c1 = make_case(client, "Rahul Sharma")

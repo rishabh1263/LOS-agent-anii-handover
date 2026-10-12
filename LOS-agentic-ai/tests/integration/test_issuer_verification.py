@@ -450,7 +450,10 @@ def test_every_evaluation_is_audited_with_names_never_values(tmp_path):
         assert key in entry, key
     assert entry["case_id"] == "CASE-A" and entry["document_id"] == "CASE-A:APP-1:doc.jpg"
     raw = (tmp_path / "issuer.jsonl").read_text()
-    assert not re.search(r"\d{12}", raw)
+    # every VALUE is scanned for a 12-digit number -- except the random hex identifiers (event_id, request_id):
+    # a uuid4 hex can hold 12 digits in a row by chance (Run 8, 2026-10-12: "4b3a0f7d4c624408809120ae966dc231")
+    scanned = re.sub(r'"(event_id|request_id)":\s*"[0-9a-fA-F-]+"', '"\\1": "-"', raw)
+    assert not re.search(r"\d{12}", scanned)
     assert "R SINGH" not in raw
 
 

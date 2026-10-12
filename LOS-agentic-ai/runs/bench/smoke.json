@@ -1,0 +1,51 @@
+{
+  "warmup_ms": 5033.0,
+  "runs": 1,
+  "cpu_count": 16,
+  "ocr_workers": 3,
+  "document_workers": 4,
+  "sets": {
+    "one": {
+      "documents": [
+        "PAN"
+      ],
+      "wall_ms": {
+        "n": 1,
+        "median": 5717.9,
+        "min": 5717.9,
+        "max": 5717.9
+      },
+      "cpu_ms": {
+        "n": 1,
+        "median": 8406.2,
+        "min": 8406.2,
+        "max": 8406.2
+      },
+      "peak_rss_mb": 253.9,
+      "stages_ms_median": {
+        "classification_ms": 7.0,
+        "extraction_ms": 1.7,
+        "kyc_ms": 73.1,
+        "llm_ms": 0.0,
+        "ocr_ms": 3590.3,
+        "processing_ms": 5717.7,
+        "profile_match_ms": 4.3,
+        "summary_ms": 0.0,
+        "total_ms": 5717.7,
+        "verification_ms": 287.0
+      },
+      "errors": [],
+      "last": {
+        "status": "PARTIAL",
+        "documents": [
+          {
+            "type": "PAN",
+            "classified": null,
+            "status": "PASS",
+            "ms": 4401.8
+          }
+        ]
+      }
+    }
+  }
+}

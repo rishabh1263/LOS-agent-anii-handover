@@ -69,7 +69,7 @@ base:
     - slot: SIGNATURE
       accepts: [SIGNATURE]
       reason: >-
-        Mandatory for every product (owner 2026-10-09). A photo of the applicant's signature for the application record. It is
+        Mandatory for every product. A photo of the applicant's signature for the application record. It is
         checked by the signature service; without a reference specimen it is
         REVIEW, never PASS.
   optional: []

@@ -6,6 +6,7 @@ endpoint with the same scope, and a cache so paging does not recompute 200 statu
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import timedelta
 
@@ -52,7 +53,13 @@ def ask(client, message, **extra):
 
 
 def rows(md: str) -> list[str]:
-    return [ln for ln in md.split("\n") if ln.startswith("| ") and "action:open_case" in ln]
+    """One line per case: the short list (default) or the table (on request, case_list.yaml format)."""
+    return [ln for ln in md.split("\n")
+            if (ln.startswith("| ") or re.match(r"\d+\. ", ln)) and "action:open_case" in ln]
+
+
+def case_of(row: str) -> str:
+    return re.search(r"\bCASE-[0-9A-F]+", row).group(0)
 
 
 def test_list_all_is_a_summary_one_page_and_showing_x_of_n(client, many):
@@ -70,7 +77,7 @@ def test_list_all_is_a_summary_one_page_and_showing_x_of_n(client, many):
 @pytest.mark.parametrize("message,first_row", [("last 3", "CASE-0000000000CC"), ("sabse purane", "CASE-000000000000")])
 def test_order_phrases(client, many, message, first_row):
     md = ask(client, message)
-    assert rows(md)[0].split(" | ")[1] == first_row, md
+    assert case_of(rows(md)[0]) == first_row, md
     if message == "last 3":
         assert len(rows(md)) == 3
 

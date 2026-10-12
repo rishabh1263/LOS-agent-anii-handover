@@ -119,7 +119,7 @@ def _run_deviation(approval: dict[str, Any]) -> dict[str, Any]:
     p = approval["payload"]
     return queries.decide_deviation(
         approval["case_id"], approval["resource_id"], decision=p["decision"], actor=approval["maker_id"],
-        scopes=set(p.get("maker_scopes") or []),
+        scopes=set(p.get("maker_scopes") or []), authorities=set(p.get("maker_authorities") or []),
         justification=(f"{p.get('justification') or approval['reason']} "
                        f"[checked by {approval['checker_id']}]")[:500],
         request_id=f"mc_{approval['approval_id']}")

@@ -26,6 +26,11 @@ from tests.integration.test_reupload_supersedes import FOS_SCOPES, _store, clien
 FOS = "/api/v1/fos/copilot"
 
 
+
+def case_rows(md: str) -> bool:
+    """A case list was shown: the short list (default) or the table (on request, case_list.yaml format)."""
+    return bool(re.search(r"^(\| CASE-|\d+\. .*CASE-[0-9A-F]+)", md, re.M))
+
 def turn(client, message, chat="c15", **extra):
     r = client.post(FOS, json={"action": "CUSTOM_QUERY", "message": message, "reply_language": "en",
                                "chat_id": chat, **extra})
@@ -303,7 +308,7 @@ def test_a_case_question_with_no_case_open_asks_which_case_then_answers_it(clien
     make_case(client, "Rahul Sharma")
     make_case(client, "Priya Verma")
     asked = turn(client, "Application status", chat="wc")["markdown"]
-    assert asked.startswith("Which case is this about?") and "| CASE-" in asked
+    assert asked.startswith("Which case is this about?") and case_rows(asked)
     answered = turn(client, "1", chat="wc")["markdown"]
     assert "CASE-" in answered and "Which case" not in answered and "Open a case first" not in answered
     hinglish = turn(client, "status kya hai", chat="wc2")["markdown"]
@@ -313,4 +318,4 @@ def test_a_case_question_with_no_case_open_asks_which_case_then_answers_it(clien
 def test_one_case_is_answered_directly_and_view_all_cases_lists(client, prod):
     make_case(client, "Rahul Sharma")
     assert "Which case" not in turn(client, "Application status", chat="one")["markdown"]
-    assert "| CASE-" in turn(client, "view all cases", chat="va")["markdown"]
+    assert case_rows(turn(client, "view all cases", chat="va")["markdown"])

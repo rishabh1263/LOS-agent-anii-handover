@@ -39,6 +39,10 @@ def is_command(message: str, case_open: bool = False) -> bool:
     from app.agents.applicant.copilot.capabilities import case_actions, case_list, workspace
 
     text = str(message or "")
+    if case_list.only_asks_for_the_table(text):
+        return True                        # "show me the table": the list just shown, as a table (workspace)
+    if case_list.only_pages_the_list(text):
+        return True                        # "show me the next two": the next rows of that list (workspace)
     if any(p.search(text) for p in workspace._ID.values()):
         return True
     if any(workspace._says(k, text) for k in ("open", "exit", "switch", "previous", "more", "list", "this_applicant")):
@@ -118,11 +122,51 @@ def is_vague(message: str) -> bool:
     return bool(ranked) and ranked[0][1] < accept
 
 
+_DOMAIN_WORDS: set[str] | None = None
+
+
+def _domain_words() -> set[str]:
+    """Lower-case words of the intent catalogue's examples and canonical questions (written in lower case there)."""
+    global _DOMAIN_WORDS
+    if _DOMAIN_WORDS is None:
+        from app.agents.applicant.copilot.semantics import meaning
+
+        words: set[str] = set()
+        for spec in (meaning.catalogue().get("intents") or {}).values():
+            for text in list(spec.get("examples") or []) + [spec.get("canonical") or ""]:
+                words |= {w for w in re.findall(r"[A-Za-z]+", str(text)) if w.islower()}
+        _DOMAIN_WORDS = words
+    return _DOMAIN_WORDS
+
+
 def names_a_case(message: str, claims) -> bool:
     """ "Priya Verma" / "Rahul": the applicant name of one of the caller's OWN cases -- the workspace selects it."""
     from app.agents.applicant.copilot.capabilities import workspace
 
     try:
+        # SMALL TALK NAMES NO CASE ("hello", "thanks a lot", "namaste"): answered without reading the caller's case
+        # list (semantic eval greeting_*: zero reads). "hi Priya" still looks for Priya.
+        from app.agents.applicant import conversation as _social
+
+        if _social.classify(message) is not None:          # whole-message small talk only ("hi Priya" is not)
+            return False
+        from app.agents.applicant.copilot.conversation import state as _acts
+
+        if _acts.is_dialogue_act(message):                  # "chhodo" / "neither" / "haan": no name in it, nothing read
+            return False
+        # DOMAIN WORDS NAME NO APPLICANT ("stage", "documents", "status"): every word is ordinary vocabulary of the
+        # intent catalogue -- the caller's case list is not read to look for a person (conversation evals: nothing is
+        # read before the clarifying question). A name ("Priya", "Rahul Sharma") is not catalogue vocabulary.
+        said = re.findall(r"[a-z]+", str(message or "").lower())
+        if said and all(w in _domain_words() for w in said):
+            return False
+        # ...and only a word that COULD be a name is looked up -- the name matcher's own rule (workspace._by_name):
+        # not domain vocabulary or its plural ("customers"), not filler / possessives ("meri", "please"), 3+ letters
+        # ("meri id kya hai", "show me all customers": nothing read; conversation evals, 2026-10-12)
+        domain, noise = _domain_words(), workspace._noise()
+        if not [w for w in said if len(w) >= 3 and w not in domain and w not in noise
+                and not (w.endswith("s") and w[:-1] in domain)]:
+            return False
         found = workspace._by_name(message, workspace.my_cases(claims))
     except Exception:  # noqa: BLE001 - no case list: not a name
         return False
@@ -264,6 +308,12 @@ def _case_options(message: str) -> list[str]:
     code = _document_code(message) if document else None
     if code and len(out) < 4:
         out.append(upload_option(message, code))
+    if not ranked and not document:
+        # NOTHING WORD-SPECIFIC TO OFFER (no meaning model, no document named): the same generic pair for "stage",
+        # "name" and "status" alike is not a question about the word. The deterministic clarifier asks instead --
+        # its options are the word's own ("stage" -> the current stage / the documents required) and it reads
+        # nothing first (2026-10-10, conversation evals)
+        return []
     for fallback in _cfg().get("case_defaults") or []:
         if len(out) >= 2:
             break
@@ -322,14 +372,42 @@ def contextual(message: str, state, case_open: bool) -> str | None:
     top_names = [n for n, _ in case_like[:int(spec.get("previous_in_top", 3))]]
     previous = (getattr(state, "flow", None) or {}).get("last_meaning") or {}
     prev_intent = previous.get("intent")
-    if "upload_document" in top_names and previous.get("document"):
+    # "upload" with a document in context: upload is among the fragment's few top readings (config upload_in_top,
+    # wider than previous_in_top, which only lets the previous QUESTION win when it is the top reading)
+    upload_names = [n for n, _ in case_like[:int(spec.get("upload_in_top", 3))]]
+    if "upload_document" in upload_names and previous.get("document"):
         code = _document_code(previous.get("document") or "")
         if code:
             return upload_option(previous.get("document") or "", code)
     topic = next((t.get("intents") or [] for t in _cfg().get("case_topics") or []
                   if top_names and top_names[0] in (t.get("intents") or [])), [])
+    # A FRAGMENT WITH ITS OWN CLEAR READING wins over the previous question (Sprint 3A, real UI: "pending" after
+    # "status of the bank statement" repeated the bank-statement question on the next applicant). A topic word with
+    # several close readings ("docs") still follows the conversation.
+    lead_cfg = (meaning.catalogue().get("decide") or {}).get("accept_with_lead") or {}
+    if lead_cfg and case_like and prev_intent and case_like[0][0] != prev_intent:
+        best, score = case_like[0]
+        second = case_like[1][1] if len(case_like) > 1 else 0.0
+        if score >= float(lead_cfg["score"]) and score - second >= float(lead_cfg["margin"]):
+            return meaning._canonical(intents.get(best) or {}, meaning.party_in(message), meaning.document_in(message))
     if prev_intent and (prev_intent in topic or prev_intent in top_names):
         return meaning._canonical(intents.get(prev_intent) or {}, previous.get("party"), previous.get("document"))
+    # THE TOPIC'S DEFAULT (owner 2026-10-09: one word on an open case is answered, not asked): the conversation chose
+    # no other reading above, so the topic meaning picked is answered with its configured default question
+    said_words = set(_words(message))
+    # the word's top readings for a topic DEFAULT (config default_in_top; wider than previous_in_top, which only
+    # lets the previous question win when it is the first reading)
+    default_names = [n for n, _ in case_like[:int(spec.get("default_in_top", 3))]]
+    for t in _cfg().get("case_topics") or []:
+        # the topic among the word's TOP readings (as its options are chosen: "case" reads case_history 0.81 first,
+        # case_status third) -- safe because only the topic's OWN words take its default
+        own = {str(w).lower() for w in t.get("default_words") or []}
+        if own:
+            in_top = any(n in (t.get("intents") or []) for n in default_names)
+        else:
+            in_top = bool(top_names and top_names[0] in (t.get("intents") or []))
+        if t.get("default") and in_top and (not own or said_words & own):
+            return str(t["default"])                     # the topic's OWN word: answered directly (owner rule)
     lead = (meaning.catalogue().get("decide") or {}).get("accept_with_lead") or {}
     in_wide_topic = any(case_like and case_like[0][0] in (t.get("intents") or []) and len(t.get("intents") or []) > 1
                         for t in _cfg().get("case_topics") or [])
@@ -377,6 +455,13 @@ def resolve(message: str, state, case_open: bool = False) -> str | None:
     said = " ".join(_words(message))
     if re.fullmatch(r"\d{1,2}", said) and 1 <= int(said) <= len(options):
         return options[int(said) - 1]
+    # BY ITS PLACE: "first one", "dusra", "दूसरा", "option 2", "last one" (config option_picks); "the other one" of two
+    picks = {" ".join(_words(str(k))): int(v) for k, v in (_cfg().get("option_picks") or {}).items()}
+    place = picks.get(said)
+    if place is None and len(options) == 2 and said in {" ".join(_words(str(w))) for w in _cfg().get("other_option") or []}:
+        place = 2
+    if place is not None and options and -len(options) <= place <= len(options) and place != 0:
+        return options[place - 1] if place > 0 else options[place]
     for option in options:
         shown = _parts(option)[2] if is_upload(option) else option
         if said and (said == " ".join(_words(option)) or said in (" ".join(_words(f"upload the {shown}")),

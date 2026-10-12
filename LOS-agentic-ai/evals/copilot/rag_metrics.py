@@ -88,6 +88,9 @@ def run(report: str | None) -> int:
             accepted = [expected] + [alt for flag, alt in (case.get("also_source_when_flag_on") or {}).items()
                                      if (os.getenv(flag, "false") or "false").strip().lower()
                                      in {"1", "true", "yes", "on"}]
+            # "also_source": another handbook file that states the SAME rule from the same configuration (its
+            # answer still has to pass `any` / `lacks`, the citation and the grounding checks below)
+            accepted += [str(a) for a in case.get("also_source") or []]
             if expected != "stage_guide":
                 m["retrieval_cases"] += 1
                 hit = confident and any(e in s for e in accepted for s in sources)

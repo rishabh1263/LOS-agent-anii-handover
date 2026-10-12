@@ -282,3 +282,61 @@ confidence:
     BANK_STATEMENT: 0.85
     SALARY_SLIP: 0.80
     APPLICATION: 0.75
+
+# ---------------------------------------------------------------------------
+# APPLICATION NAME vs VERIFIED PAN (2026-10-10, owner: "match the application name against the name verified from
+# PAN and reflect it in KYC status"). Read by app/agents/los/kyc_gate.py as the check APPLICATION_NAME for every
+# party. NOT a second matcher: the comparison is profile_match's NAME comparator (app/services/name_match).
+#
+#   source       only a PAN document whose verification PASSED (status VERIFIED) counts; OCR alone never does
+#   outcomes     MATCH (comparator PASS)            -> gate PASS
+#                PARTIAL (comparator PARTIAL)       -> gate REVIEW   (a person decides: initials, order, spelling)
+#                MISMATCH (comparator FAIL)         -> gate BLOCKED  (a discrepancy, not an accusation of fraud)
+#                PENDING (no verified PAN yet)      -> gate NOT_READY
+#                UNVERIFIABLE (no name on the application, or none read from the verified PAN)
+#                                                   -> gate REVIEW
+#   cpa_gate     whether the FOS -> CPA gate requires MATCH (as for the other cpa_gate checks above)
+# Nothing is stored: the outcome is computed from the case's own records on every read, so a re-upload or an
+# edited name is reflected at once and no second copy of a name is kept.
+# ---------------------------------------------------------------------------
+application_name:
+  enabled: true
+  cpa_gate: true
+  # extraction keys that carry the PAN holder's name, in order
+  pan_name_fields: [name, name_on_card, holder_name, full_name]
+  # ONLY THESE comparator methods make a MATCH here (2026-10-10, measured): the shared comparator calls
+  # "Arjun Mehra" vs "ARJUN MEHTA" a FUZZY match (91) and "A Mehta" an INITIALS match (95) -- right for linking
+  # documents, too lenient to call an identity VERIFIED. Any other method that passed becomes PARTIAL (a person
+  # decides). The comparator itself is unchanged.
+  match_methods: [EXACT, TOKEN_SET]
+
+# ---------------------------------------------------------------------------
+# PROPERTY OWNERSHIP (industry default, 2026-10-11; UNCONFIRMED until the business signs it off)
+# ---------------------------------------------------------------------------
+# A loan secured on property needs the property's owner -- the BUYER on its sale deed -- to be the applicant or a
+# co-applicant (a co-owner who is not a party cannot be bound by the mortgage). Read from the deed's released
+# extraction (buyer_names), compared with each party's application name by the same NAME comparator as the
+# application-name check. Only EXACT / TOKEN_SET make a MATCH; a lenient match is PARTIAL (a person confirms).
+#   MATCH -> PASS   PARTIAL -> REVIEW   MISMATCH -> mismatch_status   no deed yet -> NOT_READY (where required)
+property_ownership:
+  enabled: true
+  # the products whose FOS checklist REQUIRES the deed: there the check is counted for the FOS -> CPA gate;
+  # elsewhere it is shown when a deed is on file, never counted
+  products: [LOAN_AGAINST_PROPERTY]
+  cpa_gate: true
+  mismatch_status: BLOCKED
+  buyer_fields: [buyer_names]
+  match_methods: [EXACT, TOKEN_SET]
+
+# ---------------------------------------------------------------------------
+# EMPLOYER CONSISTENCY (industry default, 2026-10-11; UNCONFIRMED)
+# ---------------------------------------------------------------------------
+# The employer printed on the applicant's income / employment documents (salary slip, employment proof) should be
+# one organisation. Compared after removing the legal-form words below ("ABC Technologies Pvt Ltd" = "ABC
+# Technologies Private Limited"). A difference is a REVIEW for a person (a job change, a group company), never a
+# block: it is not counted for the gate.
+employer_consistency:
+  enabled: true
+  cpa_gate: false
+  employer_fields: [employer_name, employer, company_name]
+  legal_form_words: [pvt, private, ltd, limited, llp, inc, incorporated, co, company, corp, corporation, the]

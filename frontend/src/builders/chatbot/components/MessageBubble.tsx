@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { ChatMarkdown } from './ChatLinks'
 import type { ChatLinkContext } from './ChatMessages'
 import { Check, Copy, Pencil, RefreshCw, Volume2, VolumeX, X } from 'lucide-react'
@@ -158,7 +158,7 @@ function inlineFormat(text: string): ReactNode {
   })
 }
 
-export function MessageBubble({
+function MessageBubbleView({
   message,
   showTimestamp = true,
   showSuggestedQuestions = true,
@@ -459,3 +459,19 @@ export function MessageBubble({
     </div>
   )
 }
+
+/**
+ * Only the bubble whose message changed re-renders (Sprint 3A, measured in a real browser: every typing-animation
+ * tick re-rendered EVERY bubble and re-parsed its markdown, so a 30-turn chat took 50-99 s to type one reply).
+ * Unchanged messages keep their object identity in the hook (`messages.map(m => m.id === id ? {...} : m)`); the
+ * callback props are recreated each render and are not compared (they close over the same handlers).
+ */
+export const MessageBubble = memo(MessageBubbleView, (prev, next) =>
+  prev.message === next.message &&
+  prev.isSpeaking === next.isSpeaking &&
+  prev.editDisabled === next.editDisabled &&
+  prev.showTimestamp === next.showTimestamp &&
+  prev.showSuggestedQuestions === next.showSuggestedQuestions &&
+  prev.links?.chatId === next.links?.chatId &&
+  prev.links?.token === next.links?.token,
+)

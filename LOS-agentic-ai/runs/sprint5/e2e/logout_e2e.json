@@ -1,0 +1,45 @@
+{
+ "case": "CASE-EBA9554D4F3D",
+ "amount_before": "1400000",
+ "steps": [
+  {
+   "session": "logout",
+   "scenario": "logout",
+   "officer": "open CASE-EBA9554D4F3D",
+   "kind": "typed",
+   "ui_ms": 3563,
+   "api_ms": 1810,
+   "bot": "CASE-EBA9554D4F3D · Arjun Mehta · FOS (Field Officer Sales)\n\nApplicant: name did not pass: the documents disagree.\n\nNext step: Upload the Signature.\n\nCollect from customer · What is pending?\n\nUpload PAN · Upload Driving Licence · Upload Bank Statement · Upload Signature · Upload Income Proof\n\nClose",
+   "problems": [],
+   "passed": true
+  },
+  {
+   "session": "logout",
+   "scenario": "logout",
+   "officer": "change the loan amount to 777777",
+   "kind": "typed",
+   "ui_ms": 2601,
+   "api_ms": 166,
+   "bot": "Change Loan amount (Rs) of CASE-EBA9554D4F3D from 1400000 to 777777?\n\nConfirm · Cancel\n\nClose",
+   "problems": [],
+   "passed": true,
+   "screenshot": "logout_proposal_before_logout.png"
+  },
+  {
+   "session": "logout",
+   "scenario": "logout",
+   "officer": "yes",
+   "kind": "typed",
+   "ui_ms": 3257,
+   "api_ms": 1654,
+   "bot": "CASE-EBA9554D4F3D\n\nSure. Let me know if you'd like to check anything else.\n\nWhat is pending?\nWhy is it stuck?\n\nClose",
+   "problems": [],
+   "passed": true,
+   "screenshot": "logout_yes_after_relogin.png"
+  }
+ ],
+ "logout_status": 204,
+ "signed_out_login_form_shown": true,
+ "amount_after": "1400000",
+ "passed": true
+}

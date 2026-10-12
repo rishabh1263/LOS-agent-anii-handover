@@ -179,9 +179,11 @@ def test_a_pending_deviation_blocks_and_only_the_authority_other_than_the_raiser
     assert done.json()["open_items"]["deviations"] == []
 
 
-def test_no_deviation_rule_is_configured_so_it_is_a_configuration_gap(repo, make_token):
+def test_the_deviation_master_is_configured_and_nothing_is_raised_by_itself(repo, make_token):
+    # 2026-10-12: the owner's deviation master (app/config/deviation_master.yaml) is loaded -> CONFIGURED; a
+    # deviation is still only ever RAISED by a person (chat / button), never automatically
     body = _client(make_token, FOS).get(f"/api/v1/los/cases/{CASE}/queries").json()
-    assert body["deviation_rules"] == "CONFIGURATION_GAP" and body["deviations"] == []
+    assert body["deviation_rules"] == "CONFIGURED" and body["deviations"] == []
     said = _ask(_client(make_token, FOS), "koi deviation hai?").json()
     assert said["response_type"] == "CASE_QUERIES" and said["answer"].startswith("No deviation")
 

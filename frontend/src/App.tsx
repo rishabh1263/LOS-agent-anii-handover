@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LogOut, Moon, Sun, User as UserIcon, Webhook } from 'lucide-react'
 import { ProcessPage, CaseSelectPage } from './builders/api-tester'
 import { RequireAuth } from './builders/auth'
@@ -121,32 +121,61 @@ function AppHeader() {
 
 type AppStep = 'case-select' | 'process'
 
+// THE STEP SURVIVES A BROWSER REFRESH (Sprint 3A, real-browser E2E: a refresh dropped the officer on "Select case"
+// and the chat was gone until "Create new case" was pressed again). Per tab (sessionStorage: cleared when the tab
+// closes and on logout); only the step name is kept -- the wizard restores its own fields, the chat its history.
+const STEP_KEY = 'los.appStep.v1'
+
+function readStep(): AppStep {
+  try {
+    return window.sessionStorage.getItem(STEP_KEY) === 'process' ? 'process' : 'case-select'
+  } catch {
+    return 'case-select'
+  }
+}
+
+function writeStep(step: AppStep | null) {
+  try {
+    if (step) window.sessionStorage.setItem(STEP_KEY, step)
+    else window.sessionStorage.removeItem(STEP_KEY)
+  } catch {
+    /* storage unavailable: the step is simply not restored */
+  }
+}
+
 function AppContent() {
   const { isAuthenticated, accessToken } = useAuth()
-  const [appStep, setAppStep] = useState<AppStep>('case-select')
+  const [appStep, setAppStep] = useState<AppStep>(readStep)
   const [loadedCaseData, setLoadedCaseData] = useState<CaseDataResponse | null>(null)
+  const wasAuthenticated = useRef(isAuthenticated)
 
-  // Reset to case-select whenever user logs out and back in
+  // Reset to case-select when the user LOGS OUT (a true -> false change), never on the first render of a refresh,
+  // while the session is still being restored
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (wasAuthenticated.current && !isAuthenticated) {
       setAppStep('case-select')
       setLoadedCaseData(null)
+      writeStep(null)
     }
+    wasAuthenticated.current = isAuthenticated
   }, [isAuthenticated])
 
   function handleNewCase() {
     setLoadedCaseData(null)
     setAppStep('process')
+    writeStep('process')
   }
 
   function handleCaseLoaded(data: CaseDataResponse) {
     setLoadedCaseData(data)
     setAppStep('process')
+    writeStep('process')
   }
 
   function handleBackToCaseSelect() {
     setLoadedCaseData(null)
     setAppStep('case-select')
+    writeStep('case-select')
   }
 
   return (

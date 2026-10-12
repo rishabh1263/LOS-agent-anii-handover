@@ -15,3 +15,13 @@
 {"at": "2026-10-09T12:08:22+00:00", "original": "can i upload aadhaar instead of pan", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1529.2}
 {"at": "2026-10-09T12:56:21+00:00", "original": "w h a t   i s   t h e   a p i", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1512.9}
 {"at": "2026-10-09T12:56:45+00:00", "original": "what is the capital of france", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1517.9}
+{"at": "2026-10-10T00:25:32+00:00", "original": "Rahul Sharma ka case kholo", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1501.0}
+{"at": "2026-10-10T02:35:00+00:00", "original": "Rahul Sharma ka case kholo", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1498.4}
+{"at": "2026-10-10T02:37:08+00:00", "original": "Rahul Sharma ka case kholo", "rewrite": null, "result": "LOW_MEMORY", "status": "LOW_MEMORY", "ms": 0.0}
+{"at": "2026-10-10T02:38:25+00:00", "original": "Rahul Sharma ka case kholo", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1498.5}
+{"at": "2026-10-10T04:03:04+00:00", "original": "Rahul Sharma ka case kholo", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1498.6}
+{"at": "2026-10-10T04:53:52+00:00", "original": "no, I meant the bank statement", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1556.7}
+{"at": "2026-10-10T05:09:58+00:00", "original": "no, I meant the bank statement", "rewrite": null, "result": "UNAVAILABLE", "status": "UNAVAILABLE", "ms": 0.0}
+{"at": "2026-10-10T07:13:41+00:00", "original": "Why is the first one pending?", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1509.0}
+{"at": "2026-10-10T07:17:03+00:00", "original": "Why is the first one pending?", "rewrite": null, "result": "LOW_MEMORY", "status": "LOW_MEMORY", "ms": 0.0}
+{"at": "2026-10-11T14:45:41+00:00", "original": "how is FOIR calculated?", "rewrite": null, "result": "TIMEOUT", "status": "TIMEOUT", "ms": 1524.8}

@@ -109,15 +109,17 @@ def _config() -> dict:
 def vector_threshold() -> float:
     """
     LOS_KNOWLEDGE_VECTOR_MIN_SCORE: the cosine a dense hit must reach.
-    0.53 is CALIBRATED on the FOS corpus with nomic-embed-text: all 41
-    answerable questions scored >= 0.573 and all 14 off-topic questions
-    (English and Hinglish) <= 0.498. Recalibrate when the corpus or the
-    embedding model changes.
+    RECALIBRATED 2026-10-10 to 0.57 after the corpus grew (los_glossary.md, +1027 lines): off-topic questions
+    ("kal mausam kaisa rahega", "capital of france", "best mutual fund") now reach 0.47-0.559 on glossary
+    one-liners, answerable ones score >= 0.585 (evals/copilot/assistant_corpus/rag.json + the calibration test;
+    scripts/eval_retrieval.py --calibrate). Was 0.53 (41 answerable >= 0.573, 14 off-topic <= 0.498 on the
+    smaller corpus). In-domain VALUE questions (fees, rates) score high and are held back by the answer layer
+    (knowledge.yaml value_shapes), not by this cosine. Recalibrate when the corpus or the embedding model changes.
     """
     try:
-        return float(os.getenv("LOS_KNOWLEDGE_VECTOR_MIN_SCORE", "0.53"))
+        return float(os.getenv("LOS_KNOWLEDGE_VECTOR_MIN_SCORE", "0.57"))
     except (TypeError, ValueError):
-        return 0.53
+        return 0.57
 
 
 def default_threshold() -> float:

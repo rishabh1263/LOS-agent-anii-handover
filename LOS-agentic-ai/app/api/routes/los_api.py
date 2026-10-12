@@ -1110,8 +1110,11 @@ async def move_case_query(case_id: str, query_id: str, body: QueryStatusRequest,
              summary="Decide a deviation (configured approving authority only; never the raiser)")
 async def decide_case_deviation(case_id: str, deviation_id: str, body: DeviationDecisionRequest,
                                 claims: dict[str, Any] = Depends(require_jwt)) -> dict[str, Any]:
+    from app.agents.los import queries as _dq
     from app.approvals import service as approvals
+    from app.security.auth import get_roles
 
+    authorities = _dq.authorities_of(get_roles(claims))
     if str(body.decision or "").strip().upper() == "APPROVED" and approvals.requires_check("DEVIATION_APPROVAL"):
         # FOUR EYES (config/maker_checker.yaml DEVIATION_APPROVAL): approving a
         # deviation is REQUESTED by the authority and executed only when a second
@@ -1126,12 +1129,14 @@ async def decide_case_deviation(case_id: str, deviation_id: str, body: Deviation
             row = q._get(case_id, "DEVIATION", deviation_id)
             if str((row.payload or {}).get("raised_by") or "") == str(actor):
                 raise q.QueryError("RAISER_CANNOT_DECIDE", "The person who raised a deviation cannot approve it.", 403)
+            # the deviation master's authority for THIS deviation (ACM / RCM / ZCM / HEAD_CREDIT), before the request
+            q.check_deviation_authority(row, authorities)
             try:
                 return approvals.request(
                     "DEVIATION_APPROVAL", case_id=case_id, resource_id=deviation_id, maker_id=actor,
                     reason=body.justification or "deviation approval",
                     payload={"decision": "APPROVED", "justification": body.justification,
-                             "maker_scopes": sorted(scopes)})
+                             "maker_scopes": sorted(scopes), "maker_authorities": sorted(authorities)})
             except approvals.ApprovalError as exc:
                 raise q.QueryError(exc.code, exc.message, exc.http_status) from None
 
@@ -1141,7 +1146,8 @@ async def decide_case_deviation(case_id: str, deviation_id: str, body: Deviation
             "message": "The approval is recorded for a second person to check; the deviation is unchanged."})
     return _query_call(case_id, claims, "dev", True, lambda q, scopes, actor, rid: {
         "deviation": q.decide_deviation(case_id, deviation_id, decision=body.decision, actor=actor,
-                                        scopes=scopes, justification=body.justification, request_id=rid)})
+                                        scopes=scopes, justification=body.justification, request_id=rid,
+                                        authorities=authorities)})
 
 
 # ==========================================================================

@@ -24,18 +24,27 @@ def _clean(md: str) -> tuple:
             tuple(re.findall(r"\]\(([^)]+)\)", md)), len(md.split("\n")))
 
 
-def test_query_wrapper_gives_the_same_replies(client, prod):
+def test_query_wrapper_gives_the_same_replies(client, prod, monkeypatch):
+    from app.agents.applicant.copilot.answering import phrasing
     from app.agents.applicant.copilot.capabilities import safety
 
+    # ONE PIPELINE, NOT ONE SEED (2026-10-11): the wording variant is seeded by the conversation id and turn
+    # (phrasing.seed_for), and the two routes are two chats -- the canonical shape on both, so the comparison below
+    # (first line, every bold value, every link, the shape) tests the pipeline, not a hash coincidence
+    monkeypatch.setattr(phrasing, "seed_for", lambda *_a, **_k: 0)
+
     make_case(client, "Rahul Sharma")
-    make_case(client, "Priya Verma")
+    _, fresh = make_case(client, "Priya Verma")
+    # FRESH chats on both routes (2026-10-11): the test store outlives a session, and a reused chat id carries its
+    # earlier turns -- wording variants rotate with a chat's history, so two different histories differ in wording
+    fos_chat, uni_chat = f"p-fos-{fresh}", f"p-uni-{fresh}"
     for message in MESSAGES:
         safety.reset()
         fos = client.post("/api/v1/fos/copilot", json={"action": "CUSTOM_QUERY", "message": message,
-                                                       "reply_language": "en", "chat_id": "p-fos"})
+                                                       "reply_language": "en", "chat_id": fos_chat})
         safety.reset()
         uni = client.post("/api/v1/copilot/query", json={"message": message, "reply_language": "en",
-                                                         "chat_id": "p-uni"})
+                                                         "chat_id": uni_chat})
         assert fos.status_code == uni.status_code == 200, (message, fos.text, uni.text)
         assert set(uni.json()) == {"request_id", "markdown", "tts"}
         assert _clean(fos.json()["markdown"]) == _clean(uni.json()["markdown"]), message
