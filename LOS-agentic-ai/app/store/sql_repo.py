@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS applications (
     declared_monthly_income TEXT,
     property_value   TEXT,
     employment_type  TEXT,
+    co_applicant_employment_type TEXT,
     policy_id        TEXT,
     policy_version   TEXT,
     policy_pinned_at TEXT,
@@ -381,6 +382,31 @@ def _column(row: "Any", name: str) -> str | None:
         return None
 
 
+def _date_or_none(value: Any):
+    """An ISO date (YYYY-MM-DD) for a DATE column, as a date object so every driver binds it as a date."""
+    from datetime import date
+
+    if value in (None, ""):
+        return None
+    return value if isinstance(value, date) else date.fromisoformat(str(value)[:10])
+
+
+def _iso_date_or_none(value: Any) -> str | None:
+    """A stored DATE back as "YYYY-MM-DD" (Postgres date, SQLite text); None stays None."""
+    if value in (None, ""):
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)[:10]
+
+
+def _bool_or_none(value: Any) -> bool | None:
+    """A stored yes / no (Postgres BOOLEAN, SQLite 0/1): None stays None -- "not captured", never "no"."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "t", "yes"}
+    return bool(value)
+
+
 #: Columns added after the first release, and the migration that adds them.
 #: Each is nullable with no default, so adding one to a populated table is a
 #: metadata-only change and cannot rewrite or lose a row.
@@ -402,6 +428,24 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # Declared income (credit underwriting). Nullable: existing rows keep
         # NULL, which underwriting reports as "not declared".
         ("declared_monthly_income", "TEXT"),
+        # The LTV grid's inputs (2026-10-13): RESIDENTIAL / COMMERCIAL / INDUSTRIAL, a valuation report's value and
+        # the purchase price of the property being bought. Nullable: existing rows keep NULL ("not captured").
+        ("property_type", "TEXT"),
+        ("purchase_price", "TEXT"),
+        ("valuation_value", "TEXT"),
+        # The co-applicant's employment (2026-10-21): SALARIED / SELF_EMPLOYED. Nullable: existing rows keep NULL
+        # ("not captured"), and the co-applicant gets the product's general checklist, as before.
+        ("co_applicant_employment_type", "TEXT"),
+        # The LOS Sourcing screen (2026-10-22, migration 0011): free text until the business sends the lists.
+        ("loan_purpose", "TEXT"),
+        ("applicant_type", "TEXT"),
+        # The LOS Application Details screen (2026-10-23, migration 0012).
+        ("document_received_date", "DATE"),
+        ("co_origination", "BOOLEAN"),
+    ],
+    "applicants": [
+        # Whether the applicant's MOBILE is Aadhaar-linked: yes / no only (migration 0011) -- never an Aadhaar number.
+        ("mobile_aadhaar_linked", "BOOLEAN"),
     ],
     "case_findings": [
         # When the row was LAST written. Nullable: an existing row keeps
@@ -492,19 +536,22 @@ class SqlRepository(Repository):
         self._write(
             """
             INSERT INTO applicants (applicant_id, full_name, mobile, email,
-                                    date_of_birth, address, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    date_of_birth, address, created_at, updated_at,
+                                    mobile_aadhaar_linked)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(applicant_id) DO UPDATE SET
                 full_name     = excluded.full_name,
                 mobile        = excluded.mobile,
                 email         = excluded.email,
                 date_of_birth = excluded.date_of_birth,
                 address       = excluded.address,
-                updated_at    = excluded.updated_at
+                updated_at    = excluded.updated_at,
+                mobile_aadhaar_linked = excluded.mobile_aadhaar_linked
             """,
             (applicant.applicant_id, applicant.full_name, applicant.mobile,
              applicant.email, applicant.date_of_birth, applicant.address,
-             _iso(applicant.created_at), _iso(applicant.updated_at)),
+             _iso(applicant.created_at), _iso(applicant.updated_at),
+             getattr(applicant, "mobile_aadhaar_linked", None)),
         )
         return applicant
 
@@ -535,8 +582,12 @@ class SqlRepository(Repository):
                                       co_applicant_id,
                                       policy_id, policy_version,
                                       policy_pinned_at,
-                                      created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      created_at, updated_at,
+                                      property_type, purchase_price, valuation_value,
+                                      co_applicant_employment_type,
+                                      loan_purpose, applicant_type,
+                                      document_received_date, co_origination)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(case_id) DO UPDATE SET
                 status           = excluded.status,
                 product          = excluded.product,
@@ -552,7 +603,15 @@ class SqlRepository(Repository):
                 policy_id        = excluded.policy_id,
                 policy_version   = excluded.policy_version,
                 policy_pinned_at = excluded.policy_pinned_at,
-                updated_at       = excluded.updated_at
+                updated_at       = excluded.updated_at,
+                property_type    = excluded.property_type,
+                purchase_price   = excluded.purchase_price,
+                valuation_value  = excluded.valuation_value,
+                co_applicant_employment_type = excluded.co_applicant_employment_type,
+                loan_purpose     = excluded.loan_purpose,
+                applicant_type   = excluded.applicant_type,
+                document_received_date = excluded.document_received_date,
+                co_origination   = excluded.co_origination
             """,
             (application.case_id, application.applicant_id,
              application.status.value, application.product,
@@ -567,16 +626,25 @@ class SqlRepository(Repository):
              (_iso(application.policy_pinned_at)
               if application.policy_pinned_at else None),
              _iso(application.created_at),
-             _iso(application.updated_at)),
+             _iso(application.updated_at),
+             getattr(application, "property_type", None), getattr(application, "purchase_price", None),
+             getattr(application, "valuation_value", None),
+             getattr(application, "co_applicant_employment_type", None),
+             getattr(application, "loan_purpose", None), getattr(application, "applicant_type", None),
+             _date_or_none(getattr(application, "document_received_date", None)),
+             getattr(application, "co_origination", None)),
         )
         return application
 
     #: The form columns a field edit may write (case_form.APPLICANT_FIELDS / APPLICATION_FIELDS) -- a whitelist,
     #: because the column names are spliced into the UPDATE.
-    _FORM_APPLICANT_COLUMNS = frozenset({"full_name", "mobile", "email", "date_of_birth", "address"})
+    _FORM_APPLICANT_COLUMNS = frozenset({"full_name", "mobile", "email", "date_of_birth", "address",
+                                         "mobile_aadhaar_linked"})
     _FORM_APPLICATION_COLUMNS = frozenset({"product", "loan_amount", "employment_type", "tenure_months",
                                            "interest_rate_pct", "declared_monthly_income",
-                                           "declared_monthly_obligations", "property_value"})
+                                           "declared_monthly_obligations", "property_value",
+                                           "loan_purpose", "applicant_type",
+                                           "document_received_date", "co_origination"})
 
     def update_case_fields(self, case_id: str, applicant_fields: dict[str, Any],
                            application_fields: dict[str, Any],
@@ -630,7 +698,8 @@ class SqlRepository(Repository):
                 if columns:
                     sets = ", ".join(f"{c} = ?" for c in columns)
                     conn.execute(f"UPDATE {table} SET {sets}, updated_at = ? WHERE {key} = ?",  # noqa: S608
-                                 (*[new[c] for c in columns], now, key_value))
+                                 (*[_date_or_none(new[c]) if c == "document_received_date" else new[c]
+                                    for c in columns], now, key_value))
             conn.commit()
             return {"outcome": "SAVED", "changed": changed, "current": current}
         except StoreDbError as exc:
@@ -736,6 +805,51 @@ class SqlRepository(Repository):
         return {c: current_findings(f) for c, f in grouped.items()}
 
     # -- plumbing ----------------------------------------------------------
+
+    # -- eligibility assessments (the asynchronous eligibility API, migration 0007) -----------------------------
+
+    def create_eligibility_assessment(self, assessment_id: str, subject: str,
+                                      idempotency_key: str | None) -> dict[str, Any]:
+        """
+        A new PENDING assessment -- or, for a caller's Idempotency-Key already used, THAT assessment (a retried POST
+        is the same request: never a second case). Returns the stored row and whether it was created now.
+        """
+        self._write("INSERT INTO eligibility_assessments (assessment_id, subject, idempotency_key, status) "
+                    "VALUES (?, ?, ?, 'PENDING') ON CONFLICT DO NOTHING",
+                    (assessment_id, subject, idempotency_key))
+        if idempotency_key:
+            row = self._one("SELECT * FROM eligibility_assessments WHERE subject = ? AND idempotency_key = ?",
+                            (subject, idempotency_key))
+        else:
+            row = self._one("SELECT * FROM eligibility_assessments WHERE assessment_id = ?", (assessment_id,))
+        record = self._assessment(row)
+        record["created"] = record.get("assessment_id") == assessment_id
+        return record
+
+    def get_eligibility_assessment(self, assessment_id: str) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM eligibility_assessments WHERE assessment_id = ?", (assessment_id,))
+        return self._assessment(row) if row else None
+
+    def update_eligibility_assessment(self, assessment_id: str, *, status: str, case_id: str | None = None,
+                                      applicant_id: str | None = None, result: dict[str, Any] | None = None,
+                                      error_code: str | None = None) -> None:
+        self._write("UPDATE eligibility_assessments SET status = ?, case_id = COALESCE(?, case_id), "
+                    "applicant_id = COALESCE(?, applicant_id), result = COALESCE(?, result), "
+                    "error_code = ?, updated_at = now() WHERE assessment_id = ?",
+                    (status, case_id, applicant_id, json.dumps(result) if result is not None else None,
+                     error_code, assessment_id))
+
+    @staticmethod
+    def _assessment(row: Any) -> dict[str, Any]:
+        if not row:
+            return {}
+        record = {k: row[k] for k in ("assessment_id", "subject", "idempotency_key", "case_id", "applicant_id",
+                                      "status", "error_code", "created_at", "updated_at")}
+        record["result"] = json.loads(row["result"]) if row["result"] else None
+        for key in ("created_at", "updated_at"):
+            value = record.get(key)
+            record[key] = value.isoformat() if hasattr(value, "isoformat") else value
+        return record
 
     # -- access grants -------------------------------------------------------
 
@@ -896,6 +1010,7 @@ class SqlRepository(Repository):
             email=row["email"],
             date_of_birth=row["date_of_birth"],
             address=row["address"],
+            mobile_aadhaar_linked=_bool_or_none(_column(row, "mobile_aadhaar_linked")),
             created_at=_parse(row["created_at"]),
             updated_at=_parse(row["updated_at"]),
         )
@@ -914,12 +1029,20 @@ class SqlRepository(Repository):
             loan_amount=row["loan_amount"],
             employment_type=_column(row, "employment_type"),
             co_applicant_id=_column(row, "co_applicant_id"),
+            co_applicant_employment_type=_column(row, "co_applicant_employment_type"),
             tenure_months=_column(row, "tenure_months"),
             interest_rate_pct=_column(row, "interest_rate_pct"),
             declared_monthly_obligations=_column(
                 row, "declared_monthly_obligations"),
             declared_monthly_income=_column(row, "declared_monthly_income"),
             property_value=_column(row, "property_value"),
+            property_type=_column(row, "property_type"),
+            purchase_price=_column(row, "purchase_price"),
+            valuation_value=_column(row, "valuation_value"),
+            loan_purpose=_column(row, "loan_purpose"),
+            applicant_type=_column(row, "applicant_type"),
+            document_received_date=_iso_date_or_none(_column(row, "document_received_date")),
+            co_origination=_bool_or_none(_column(row, "co_origination")),
             policy_id=_column(row, "policy_id"),
             policy_version=_column(row, "policy_version"),
             policy_pinned_at=(_parse(pinned)

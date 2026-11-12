@@ -1,0 +1,42 @@
+# =====================================================================================================================
+# SCHEMA RENAMES -- every name in lower case (owner 2026-11-04: "db me jitne bhi schemas h, unko lower case me sab
+# tables k naam yaa triggers sab lower case me"). Used by scripts/lowercase_db_names.py (dry run by default).
+#
+# Only the two teammates' schemas had capitals (found 2026-11-04: 2 schemas, 6 tables, 6 sequences, 20 indexes,
+# 41 constraints, 2 triggers). The new names are the ones the credit_underwriting bundle's agents already use
+# (agents/itr_verification/db/schema.py, agents/collateral_verification/db/schema.py), so those agents find their
+# tables. Sequences, indexes and constraints follow their table: old table name -> new, then lower case.
+#
+# adopt_migrations: the bundle's migration 0001 of each agent CREATES these tables; the rename marks it applied (same
+# version, description and checksum as the bundle -- sha256 of its SQL), so the agent does not try to create them
+# again and only adds what is new (agent_logs, api_responses).
+# =====================================================================================================================
+schemas:
+  ITR_Verification:
+    to: itr_verification
+    tables:
+      VerificationResults: verification_results
+      SystemSettings: system_settings
+      RuleConfigs: rule_configs
+    adopt_migrations:
+      - version: "0001"
+        description: "itr verification: rule_configs, system_settings, verification_results"
+        checksum: b7dd6f66a085d29466beb1c6cd74cbca7fc80f7f2722df4b93f14a79ee349468
+  Collateral_Verification:
+    to: collateral_verification
+    tables:
+      VerificationResults: collateral_verification_results
+      SystemSettings: collateral_system_settings
+      RuleConfigs: collateral_rule_configs
+    adopt_migrations:
+      - version: "0001"
+        description: "collateral verification: rule configs, system settings, verification results"
+        checksum: 8effb48c8ff3ee70e8d8de5c7efb5e4501c4ac02e219c0b77371e3869b55f376
+  # owner 2026-11-04: "change verification_agent schema name to office_residence_verification" (tables already lower)
+  verification_agent:
+    to: office_residence_verification
+    tables: {}
+  # owner 2026-11-04: "ALTER SCHEMA collateral_verification RENAME TO collateral_check" (tables keep their names)
+  collateral_verification:
+    to: collateral_check
+    tables: {}

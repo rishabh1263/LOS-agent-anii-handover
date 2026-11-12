@@ -1,0 +1,117 @@
+# BANK PASSBOOK VERIFICATION + EXTRACTION (HRMS) -- every rule and limit the passbook service uses.
+# Read by app/agents/passbook/config.py. A missing key stops startup by name; nothing falls back to a number in code.
+
+# ---- what the API returns (owner 2026-10-21: the passbook API gives ONLY the account holder's name) ---------------
+# every other value (bank, account number, IFSC, branch) is still read and checked inside the service, never sent
+api:
+  fields: [account_holder_name]
+  # the verdicts that send the fields (owner 2026-10-22: a real passbook is often MANUAL_REVIEW -- an old IFSC, a
+  # blurred account number -- while the holder's name is read fine); REJECTED / UNSUPPORTED / UNREADABLE: none
+  extract_statuses: [VERIFIED, MANUAL_REVIEW]
+
+limits:
+  max_upload_bytes: 10485760          # 10 MB
+  # 0 = any number of pages (owner 2026-10-21): only the FIRST (front) page is ever read, whether the PDF has 1 page
+  # or many; the upload size limit above still bounds the file. A number > 0 refuses PDFs longer than that.
+  max_pdf_pages: 0
+  max_image_pixels: 60000000
+  ocr_max_side: 1280                  # long side the page is OCR'd at (measured: passbook text stays legible)
+  # long side the text DETECTOR runs at (recognition still reads the 1280 px crops). MEASURED 2026-10-16, 64
+  # held-out passbooks, one engine: detector at the full image (RapidOCR default) P50 1663 / P95 2166 ms; at 800
+  # P50 1083 / P95 1369 ms -- every verdict and every account number / IFSC identical (0 errors either way).
+  ocr_det_max_side: 800
+  processing_timeout_seconds: 60
+  result_cache_seconds: 300           # verify then extract on the same upload reuses one OCR, per caller only
+  result_cache_entries: 64
+
+# Document must look like a passbook: weighted captions, summed. Anything that is clearly another document is
+# UNSUPPORTED whatever else it says.
+classification:
+  min_score: 0.55
+  markers:
+    PASSBOOK: 0.45
+    PASS BOOK: 0.45
+    IFSC: 0.25
+    IFS CODE: 0.25
+    ACCOUNT NO: 0.20
+    A/C NO: 0.20
+    ACCOUNT NUMBER: 0.20
+    BRANCH: 0.15
+    CIF: 0.10
+    CUSTOMER ID: 0.10
+    MICR: 0.10
+    DATE OF OPENING: 0.10
+    NOMINATION: 0.10
+    ACCOUNT HOLDER: 0.10
+    CUSTOMER NAME: 0.10
+  other_documents:                    # any of these -> UNSUPPORTED (the document is something else)
+    INCOME TAX DEPARTMENT: PAN
+    PERMANENT ACCOUNT NUMBER: PAN
+    ELECTION COMMISSION: VOTER_ID
+    ELECTOR: VOTER_ID
+    DRIVING LICENCE: DRIVING_LICENCE
+    DRIVING LICENSE: DRIVING_LICENCE
+    REPUBLIC OF INDIA: PASSPORT
+    UNIQUE IDENTIFICATION AUTHORITY: AADHAAR
+    AADHAAR: AADHAAR
+    STATEMENT OF ACCOUNT: BANK_STATEMENT
+    ACCOUNT STATEMENT: BANK_STATEMENT
+    OPENING BALANCE: BANK_STATEMENT
+    SALARY SLIP: SALARY_SLIP
+    PAY SLIP: SALARY_SLIP
+    PAYSLIP: SALARY_SLIP
+    NET PAY: SALARY_SLIP
+
+# Account-number lengths per bank (IFSC bank code). A length outside the list is MANUAL_REVIEW, never a rejection:
+# banks keep legacy formats. ACTION FOR OPS: confirm each list with the bank before go-live.
+account_number:
+  min_digits: 9
+  max_digits: 18
+  lengths:
+    SBIN: [11, 17]
+    HDFC: [13, 14]
+    ICIC: [12]
+    BARB: [14]
+    PUNB: [16]
+    CNRB: [12, 13]
+    UBIN: [12, 13, 15]
+    UTIB: [15, 16]
+    KKBK: [10, 14]
+    IDIB: [9, 10]
+    BKID: [15]
+    CBIN: [10]
+    IOBA: [15]
+    UCBA: [14]
+    YESB: [15]
+    INDB: [12]
+    IBKL: [13, 14, 15]
+    IDFB: [11]
+    MAHB: [11]
+
+verification:
+  min_ocr_confidence: 0.80            # below this a field is "low confidence" and the verdict is MANUAL_REVIEW
+  branch_match_min_similarity: 0.80   # printed branch vs the IFSC master's branch name (token similarity)
+  name_min_letters: 3
+  # the holder's name not beside its label (a real passbook printed a line off): a line with an honorific
+  # (MR / MRS / SHRI / SMT ...) within this many rows of a "Name" label, never a relation's (S/O, D/O, W/O)
+  name_search_rows: 3
+  name_max_words: 5
+  # an account TYPE printed on the Name row is not a name (2026-10-22, real Union Bank passbook: "Name i) (SB
+  # GENERAL)", the name one row lower): a value made only of these words is passed over
+  not_a_name_words: [SB, GENERAL, SAVINGS, SAVING, CURRENT, ACCOUNT, AC, CA, CC, OD, SBGEN, NRE, NRO, SALARY, JOINT,
+                     SINGLE, SINGLY, EITHER, SURVIVOR, FORMER, BANK, PERSONAL, INDIVIDUAL, STAFF, REGULAR, PUBLIC,
+                     ZERO, BALANCE, BSBD, PMJDY, BASIC]
+  # banks merged away (2019-2020 PSU mergers): their old IFSCs left the RBI list (the master keeps one row each), the
+  # passbooks did not -- an old-prefix IFSC is accepted when the printed bank is the old bank or the one it became
+  # (2026-10-22: a real Andhra Bank passbook, ANDB..., was MANUAL_REVIEW IFSC_NOT_IN_MASTER). Remove a line to stop.
+  merged_banks:
+    ANDB: UBIN      # Andhra Bank -> Union Bank of India
+    CORP: UBIN      # Corporation Bank -> Union Bank of India
+    ORBC: PUNB      # Oriental Bank of Commerce -> Punjab National Bank
+    UTBI: PUNB      # United Bank of India -> Punjab National Bank
+    SYNB: CNRB      # Syndicate Bank -> Canara Bank
+    ALLA: IDIB      # Allahabad Bank -> Indian Bank
+    VIJB: BARB      # Vijaya Bank -> Bank of Baroda
+    BKDN: BARB      # Dena Bank -> Bank of Baroda
+  # an Account No. label with nothing beside it: its number on one of this many rows below (same layout)
+  account_search_rows: 2

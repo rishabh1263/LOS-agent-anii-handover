@@ -1,0 +1,83 @@
+# =====================================================================================================================
+# FINANCIAL DOCUMENTS (bank statements, ITRs): how each PDF PAGE is routed -- its own text layer, or OCR.
+# app/agents/bank_statement/inspect.py reads these; nothing in the code holds a number of its own.
+#
+# WHY PER PAGE (Phase 0 audit, docs/financial_documents/PHASE0_AUDIT.md, G1-G3): a statement was routed by counting the
+# pages with >= 60 characters. A scan with a typed header / stamp passed as digital, and a statement with 9 digital
+# pages and 1 scanned one was "DIGITAL" -- the scanned page was never read and its transactions were missing.
+# =====================================================================================================================
+page_routing:
+  # a page with fewer characters than this in its text layer has no usable text layer: OCR
+  min_chars: 60
+  # a page whose embedded images cover at least this share of it ...
+  image_coverage_min: 0.60
+  # ... and whose text layer holds fewer characters than this is a SCAN with a typed header / stamp: OCR
+  text_chars_with_image: 400
+  # a text layer with fewer printable characters than this share is garbage (a broken font map): OCR
+  printable_ratio_min: 0.85
+  # an image narrower or lower than this (points) is a logo / signature, not a page image
+  min_image_side_pt: 72
+
+# ITR-V acknowledgement (app/agents/itr/extract.py): its own arithmetic, checked before anything is accepted
+itr:
+  # (Total tax, interest and fee payable) - (Taxes paid) must equal (Tax payable / (-) refundable) within this many
+  # rupees; a larger difference is a misread or an inconsistent document: REVIEW, never a silent correction
+  reconciliation_tolerance_rupees: 1
+  # Income-tax Act s.288B: the payable / refundable amount is rounded to the nearest multiple of this many rupees (taxes
+  # paid are not). A printed amount that is such a multiple and within half of it of (payable - paid) reconciles
+  # (2 of the 4 sample mismatches were a refund of ...0 against taxes paid ending in 4)
+  payable_rounding_rupees: 10
+  # the acknowledgement prints a refund as "(-) 12,345" (and sometimes a payable as "(+) 12,345"): the marker is the
+  # sign. Unparsed, the refund line was skipped and a row label read instead -- all 4 sample MISMATCHes (2026-11-02)
+  negative_markers: ["(-)"]
+  positive_markers: ["(+)"]
+
+# =====================================================================================================================
+# SCANNED / PHOTOGRAPHED ITR AND SALARY SLIP: how a page is OCR'd (app/agents/document_agent/scan_text.py)
+# Measured 2026-11-12 on real scans: OCR 1.2-3.4 s a page, Tesseract orientation (OSD) ~0.9 s a page on pages that
+# were already upright. These documents are printed upright, so:
+#   upright         skip the per-line 180-degree classifier
+#   osd             always | fallback (only when the upright read finds fewer than osd_min_tokens tokens) | off
+#   early_stop      stop at the first page whose read is complete (the extractor decides "complete")
+# =====================================================================================================================
+scan_ocr:
+  ITR:
+    upright: true
+    osd: fallback
+    osd_min_tokens: 25
+    early_stop: true
+  SALARY_SLIP:
+    upright: true
+    osd: fallback
+    osd_min_tokens: 25
+    early_stop: true
+
+# =====================================================================================================================
+# ITR-V / ITR-U ACKNOWLEDGEMENT FIGURES: which row is which, by MEANING (app/agents/itr/extract.py, 2026-11-12).
+# A row matches when its caption contains one of `any` and none of `not`; `not_before` / `not_after` reject a word
+# right before / after the caption ("Gross Total Income", "Total income as per earlier return"). The FIRST matching
+# row wins, so row 9 "(+) Tax Payable /(-) Refundable (7-8)" is taken before row 15 "(13-14)". Captions are compared
+# lower-case, commas dropped and spaces around / ( ) removed. Layouts covered: ITR-V (rows 1-15), the older
+# ITR-V, ITR-U (updated return, rows 1-10).
+# =====================================================================================================================
+itr_captions:
+  total_income:
+    any: ["total income as per updated return", "total income"]
+    not_before: ["gross", "deemed", "adjusted", "accreted"]
+    not_after: ["as per earlier", "under amt"]   # "as per earlier retum" (OCR) too
+  net_tax_payable:
+    any: ["net tax payable", "additional income-tax liability", "additional income tax liability"]
+  total_tax_and_interest_payable:
+    any: ["total tax interest and fee payable", "total tax interest & fee payable", "net amount payable",
+          "total tax and interest payable"]
+  taxes_paid:
+    # "tax paid" covers "Tax paid u/s 140B" as OCR reads it too ("w/s 140B")
+    any: ["total taxes paid", "taxes paid", "tax paid"]
+    not: ["tax and interest paid"]
+  tax_payable_or_refundable:
+    any: ["tax payable/(-)refundable", "payable(+)/refundable(-)", "tax payable/refundable", "tax due"]
+    # ITR-U prints "Amount payable (+)/ Refundable(-) as per Updated return" (and "... as per earlier return") ABOVE
+    # its own "Tax due (8 - 9)": those are the return's tax, not what is still due (2 real ITR-Us read as MISMATCH)
+    not: ["as per earlier", "as per updated"]
+  # a row label ("2" in "Total Income 2 9,99,999") is a small plain number in front of the value
+  max_row_label: 30

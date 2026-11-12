@@ -1,0 +1,6 @@
+# Nothing new: the agent runs inside the LOS service and uses only packages its root requirements.txt already pins.
+# Listed here so the agent's dependencies are visible on their own.
+fastapi
+pydantic>=2
+python-dotenv
+psycopg[binary]

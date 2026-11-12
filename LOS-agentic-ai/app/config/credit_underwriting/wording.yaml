@@ -1,0 +1,379 @@
+# CREDIT UNDERWRITING -- EVERY SENTENCE THE OFFICER READS (2026-10-19)
+#
+# Plain words, one idea per line, numbers in Indian format ({…} is filled by the code; money already carries ₹).
+# Change the wording here; the code and the rules do not change. Rules and limits live in policy.yaml.
+
+currency: "₹"
+
+# the one line on top of the answer
+headline:
+  RECOMMENDED: "The customer can pay the new EMI of {emi} from this account."
+  REFER: "A credit officer should check this case before relying on the new EMI of {emi}."
+  NOT_RECOMMENDED: "The customer is unlikely to pay the new EMI of {emi}, going by the bank statement."
+  no_emi: "the loan"                       # {emi} when the new EMI could not be worked out
+
+verdict_labels:
+  RECOMMENDED: "Recommended"
+  REFER: "Refer to credit officer"
+  NOT_RECOMMENDED: "Not recommended"
+
+# a rule's result, as the screen shows it
+results:
+  PASS: PASS
+  REFER: REVIEW
+  DECLINE: FAIL
+
+# the name of each of the 5 checks
+checks:
+  DATA_COMPLETE: "Bank statement is complete and in the customer's name"
+  REPAYMENT_TRACK: "EMIs and cheques paid on time"
+  TRUE_FOIR: "All EMIs fit within the income"
+  BALANCE_COVER: "Account keeps enough money for the EMI"
+  INCOME_SUPPORT: "Declared income is seen in the bank"
+
+# each check's limit, as the screen shows it (values from policy.yaml)
+limits:
+  DATA_COMPLETE: "At least {months} full months"
+  REPAYMENT_TRACK: "No bounce and no missed EMI"
+  TRUE_FOIR: "Up to {pct}% of the income"
+  BALANCE_COVER: "At least {times} times the new EMI"
+  INCOME_SUPPORT: "At least {pct}% of the declared income"
+
+# what each check found
+rules:
+  DATA_COMPLETE:
+    pass: "{months} full months of statement, and the balances add up."
+    short: "Only {months} full months of statement; at least {need} are needed."
+    breaks: "Balances do not add up in {breaks} month(s); the statement may be incomplete or edited."
+    holder: "The account is not in the customer's name."
+    no_name: "The account holder's name was not compared (no customer name was given)."
+  REPAYMENT_TRACK:
+    pass: "No EMI or cheque bounced and no EMI was missed in the last {months} months."
+    bounces: "{n} EMI or cheque payment(s) bounced in the last {months} months."
+    missed: "{n} EMI(s) were not paid in the last {months} months."
+    none: "Not checked: the statement has no full month."
+  TRUE_FOIR:
+    ok: "All EMIs, including the new one, take {pct}% of the monthly income (limit {limit}%)."
+    hidden: "{amount} a month of EMIs are paid from this account but were not declared."
+    none: "Not checked: the monthly income or the new EMI is missing."
+  BALANCE_COVER:
+    ok: "The account usually holds {abb}, which is {times} times the new EMI of {emi}."
+    low: "The account usually holds only {abb}, which is {times} times the new EMI of {emi} (at least {need} times is needed)."
+    none: "Not checked: no daily balances in the statement, or no new EMI."
+  INCOME_SUPPORT:
+    ok: "{inflow} comes into the account each month, which is {pct}% of the declared income of {income}."
+    low: "Only {inflow} comes into the account each month, which is {pct}% of the declared income of {income} (at least {need}% is needed)."
+    none: "Not checked: the declared income is missing, or no money came into the account."
+
+# points to look at -- they never decide on their own
+watch:
+  new_loans: "{n} new loan(s) taken in the last {months} months."
+  undeclared_emi: "{amount} a month of EMIs were not declared by the customer."
+  cash: "{pct}% of the money coming in is cash deposits."
+  top_payer: "{pct}% of the money coming in is from one payer."
+  spike: "One month brought in {times} times the usual amount; ask what it was."
+  falling_balance: "The average balance fell {pct}% over the period."
+  co_no_statement: "The co-applicant's{who} bank statement has not been received."
+  co_no_statement_income: "The co-applicant's{who} bank statement has not been received, so their income of {income} is not verified."
+
+# the eligibility decision, when it limits the answer
+eligibility:
+  line: "Eligibility check: {decision}{detail}"
+  decisions:
+    APPROVED: "eligible"
+    CONDITIONAL: "eligible for a lower amount"
+    REFER: "needs a review"
+    DATA_MISSING: "some eligibility data is missing"
+    REJECTED: "not eligible"
+  recorded: "the eligibility result recorded on the case is {status}"
+  not_recorded: "no eligibility result is recorded on the case"
+
+# the vendor's figure and ours disagree
+vendor_differs: "The vendor's {item} is {vendor}, but our check found {ours}; please verify."
+co_applicant_prefix: "Co-applicant's statement: "
+vendor_items:
+  foir_pct: { label: "FOIR", unit: pct }
+  emi_payments: { label: "total of EMIs paid", unit: money }
+  cheque_bounces_6m: { label: "bounce count (last 6 months)" }
+  emi_detected: { label: "'EMI running' flag" }
+  cheque_bounce_flag: { label: "'bounce' flag" }
+  monthly_average_balance: { label: "average balance", unit: money }
+
+# what the account can carry
+suggestion:
+  fits: "By income, the new EMI fits. Up to {max_emi} a month would still fit."
+  lower: "By income, the new EMI does not fit. At most {max_emi} a month fits{loan}."
+  loan: ", which is a loan of about {amount}"
+  none: "No new EMI fits: the existing EMIs already use the allowed share of the income."
+
+# where the bank statement came from
+statement:
+  RECEIVED_NOW: "Received with this request."
+  ON_FILE: "Received earlier."
+  DEMO: "Sample data (not a real statement)."
+
+# the credit agent's result, in one line
+underwriting:
+  READY_FOR_DECISION: "All checks are done; the case can go to the decision step."
+  REVIEW_REQUIRED: "Some findings need a credit officer's review before the decision."
+  DATA_INSUFFICIENT: "Some required information is missing, so underwriting could not finish."
+  not_requested: "Underwriting was not run (not asked for)."
+  missing: "Missing: {items}."
+  # the evidence the credit agent needs, in plain words (its plan steps)
+  evidence:
+    application: "loan application"
+    documents: "documents"
+    kyc: "KYC"
+    income: "income proof"
+    banking: "bank statement"
+    eligibility: "eligibility result"
+    risk: "risk check"
+    bureau: "credit bureau report"
+    repayment: "bank analysis"
+  refused:
+    NOT_IN_LOS: "This case is not in the LOS yet (it has only eligibility data), so underwriting cannot run on it."
+    STAGE_NOT_ALLOWED: "Underwriting runs only when the case is at the Credit stage; this case is at another stage."
+    INSUFFICIENT_SCOPE: "You do not have permission to run underwriting."
+    CASE_ACCESS_DENIED: "You cannot run underwriting on this case."
+    CASE_NOT_ACCESSIBLE: "You cannot run underwriting on this case."
+    DEADLINE_EXCEEDED: "Underwriting took too long and was stopped; please try again."
+    other: "Underwriting could not be completed; please try again or contact support."
+
+# a check's result, as the screen shows it (same words as the eligibility screen: pass / fail)
+check_results:
+  PASS: pass
+  REFER: review
+  DECLINE: fail
+
+# THE VENDOR REPORT, SECTION BY SECTION (sections.py): title, the vendor sheets it reads, the line, the flags
+sections:
+  account:
+    title: "Account"
+    from: "Customer & Account Information"
+    line: "{type} account at {bank}, {months} months of statement ({start} to {end})."
+    joint: "This is a joint account."
+    not_holder: "The account is not in the customer's name."
+    part_months: "{n} month(s) of the statement are part months and are not averaged."
+  monthly:
+    title: "Month by month"
+    from: "Monthly Details, Monthwise Credits and Debits"
+    line: "On average {money_in} comes in and {money_out} goes out each month (last {n} months)."
+    none: "The vendor gave no monthly totals."
+    deficit: "More money went out than came in during {n} month(s)."
+  balances:
+    title: "Daily balances"
+    from: "Monthwise EOD Balances"
+    line: "The balance usually stays around {abb}; the lowest was {low} ({month})."
+    none: "The vendor gave no daily balances."
+    low_days: "On {n} of {of} checked days the balance was below the new EMI of {emi}."
+  income:
+    title: "Money coming in"
+    from: "SalaryXns, Non Salary Income, TopFundsReceived"
+    salary: "Salary from {payer} came in {n} of the last {of} months, about {amount} each time."
+    no_salary: "No salary credits; most money comes from {top}."
+    irregular: "Salary came in only {n} of the last {of} months."
+  spending:
+    title: "Money going out"
+    from: "TopFundsTransferred, Recurring Debits"
+    line: "Most of the money goes to {top} ({pct}% of spending, EMIs not counted)."
+    none: "No spending in the period."
+    cash: "{pct}% of the spending is cash or ATM withdrawals."
+  loans:
+    title: "Loans and EMIs"
+    from: "Emi Transactions, Fixed Obligations (+ our loan map)"
+    line: "{n} loan(s) are running, with EMIs of {total} a month."
+    none: "No running loan is seen in the account."
+    undeclared: "{amount} a month of it was not declared."
+    missed: "{n} EMI(s) were missed."
+    new: "{n} new loan(s) were taken recently."
+    vendor_missed: "{n} loan(s) were found by our check but not listed by the vendor."
+  bounces:
+    title: "Bounces"
+    from: "Total Details, Monthly Details"
+    line: "{n} EMI or cheque payment(s) bounced and {out} outward cheque(s) bounced in the last {months} months."
+    none: "No bounce in the last {months} months."
+    charges: "{amount} of bank charges were paid in the period."
+  vendor:
+    title: "Vendor's own totals"
+    from: "Overall Analysis"
+    agrees: "The vendor's totals agree with our check."
+    differs: "{n} of the vendor's figures differ from our check (see watch)."
+
+# THE ANSWER AS A SHORT STORY (story.py): five plain lines right under the summary
+story:
+  customer: "{money_in}. They declared EMIs of {declared} a month; the new EMI is {new}."
+  salary: "Salary of {amount} a month comes in from {payer}"
+  money_in: "About {amount} a month comes into the account"
+  with_co: ", plus {amount} a month from the co-applicant"
+  unknown: "not known"
+  found_undeclared: "The bank shows EMIs of {bank} a month; {hidden} of it{who} was not declared."
+  found_match: "The EMIs seen in the bank ({bank} a month) match what was declared."
+  found_none: "No loan EMI is seen in the bank."
+  all_pass: "All 5 checks pass."
+  eligibility_problem: "the eligibility check limits it"
+  fine: "In order: {items}."
+  nothing_fine: "None of the 5 checks passed."
+  # each passed check, in two or three words (the "In order" line)
+  fine_words:
+    DATA_COMPLETE: "full statement"
+    REPAYMENT_TRACK: "no bounces or missed EMIs"
+    TRUE_FOIR: "EMIs within the income"
+    BALANCE_COVER: "enough balance for the EMI"
+    INCOME_SUPPORT: "income seen in the bank"
+  # the same, as a noun for the one-line sentence ("The salary and the balance are fine, but ...")
+  fine_nouns:
+    DATA_COMPLETE: "statement"
+    REPAYMENT_TRACK: "repayment track"
+    TRUE_FOIR: "EMI load"
+    BALANCE_COVER: "balance"
+    INCOME_SUPPORT: "income"
+  # the most telling passed checks first, for the one-line sentence (at most 2 are named)
+  fine_order: [INCOME_SUPPORT, BALANCE_COVER, REPAYMENT_TRACK, TRUE_FOIR, DATA_COMPLETE]
+  # the deciding check, in a few words
+  problems:
+    TRUE_FOIR: "all EMIs with the new one take {pct}% of the income (limit {limit}%)"
+    TRUE_FOIR_hidden: "an undeclared EMI of {amount} a month pushes all EMIs with the new one to {pct}% of the income (limit {limit}%)"
+    bounces: "{n} EMI or cheque payment(s) bounced"
+    missed: "{n} EMI(s) were missed"
+    BALANCE_COVER: "the account usually holds only {times} times the EMI ({abb})"
+    INCOME_SUPPORT: "only {pct}% of the declared income is seen in the bank"
+    short: "the statement has only {months} full months (at least {need} are needed)"
+    breaks: "the statement's balances do not add up"
+    holder: "the account is not in the customer's name"
+    TRUE_FOIR_none: "the income or the new EMI is not known"
+    BALANCE_COVER_none: "the account's daily balances are not known"
+    INCOME_SUPPORT_none: "the declared income is not known"
+    REPAYMENT_TRACK_none: "the statement has no full month to check"
+  verdict:
+    "YES": "the new EMI fits"
+    "NEEDS_REVIEW": "the case needs a credit officer's check"
+    "NO": "the new EMI does not fit"
+  one_line_mixed: "The {good} are fine, but {problem}, so {verdict}."
+  one_line_bad: "{problem}, so {verdict}."
+  one_line_good: "Everything checks out, so {verdict}."
+
+# the few figures each section shows in the short answer (all of them are in detail)
+compact_keys:
+  account: [account, full_months]
+  monthly: [average_in, average_out, deficit_months]
+  balances: [average_balance, lowest, low_balance_points]
+  income: [salary_each_month, salary_months, top_payer]
+  spending: [spent_each_month, top_payee, cash_withdrawal_pct]
+  loans: [running_loans, emis_each_month, not_declared]
+  bounces: [emi_or_cheque_bounces, outward_bounces]
+  vendor: [FOIR, EMI Payments]
+
+# OUR TWO INSIGHTS, not in the vendor report (insights.py)
+insights:
+  # one line each, in simple English
+  dry_run:
+    title: "EMI dry run"
+    all: "If this new EMI of {emi} had started {of} months ago, it would have been paid every month. The account always had enough money on day {day}, the EMI day."
+    some: "If this new EMI of {emi} had started {of} months ago, it would have bounced in {short}. On day {day}, the EMI day, the account did not have enough money then."
+    none: "If this new EMI of {emi} had started {of} months ago, it would have bounced every month. The account never had enough money on day {day}, the EMI day."
+    # added when the customer does not save enough: the EMI day comes right after the salary
+    caveat: "But that is only on the EMI day, just after the salary comes in; see the next point."
+    watch: "In the EMI dry run, the new EMI would have bounced in {n} month(s)."
+    step: "Ask the customer to keep the EMI amount in the account before the EMI day, or move the EMI date after the salary date."
+  surplus:
+    title: "Money left each month"
+    positive: "After spending and paying current EMIs, the customer saves about {left} a month. That is enough for the new EMI of {emi}, with about {after} left over."
+    negative: "After spending and paying current EMIs, the customer saves only about {left} a month. The new EMI is {emi}, so they are {short} short every month."
+    no_emi: "After spending and paying current EMIs, the customer saves about {left} a month."
+    runway: "Their savings of {balance} can cover this for about {months} months. After that, EMIs may bounce."
+    runway_full: "Their savings of {balance} can cover this for the whole loan ({tenure} months)."
+    runway_none: "Their savings of {balance} cannot cover this even for 1 month, so EMIs may bounce from the start."
+    watch: "The customer's real monthly savings do not cover the new EMI."
+    step: "Ask how the customer will fit the EMI into their spending (a lower EMI, a longer tenure, or a co-applicant)."
+
+# a check's value, as the screen shows it
+check_values:
+  DATA_COMPLETE: "{value} full months"
+  REPAYMENT_TRACK: "{bounces} bounced, {missed} missed"
+  TRUE_FOIR: "{value}%"
+  BALANCE_COVER: "{value} times the EMI"
+  INCOME_SUPPORT: "{value}% of declared"
+loan_status:
+  RUNNING: running
+  CLOSED: closed
+  NEW: new
+found_by:
+  VENDOR: vendor
+  OUR_CHECK: our check
+# one short line on a loan, only when there is something to know about it
+loan_notes:
+  our_check: "Not in the vendor's EMI list; our check found the same amount going to this lender every month."
+  undeclared: "Not declared by the customer."
+  missed: "EMI not paid in {months}."
+  new: "Taken recently ({date})."
+
+# what the officer should do next -- one line per open point, in this order
+next_steps:
+  eligibility: "Settle the eligibility check first."
+  DATA_COMPLETE:
+    short: "Ask for the last {need} months of the bank statement."
+    breaks: "Ask the vendor to re-check the statement: the balances do not add up."
+    holder: "Ask for a statement of the customer's own account."
+  REPAYMENT_TRACK:
+    bounces: "Ask why the EMIs or cheques bounced, and get proof they were paid later."
+    missed: "Ask about the missed EMI, and get the loan account statement."
+  TRUE_FOIR:
+    with_amount: "Lower the loan to about {max_loan} (EMI {max_emi}), or close an existing loan first."
+    plain: "Lower the loan, or close an existing loan first."
+  BALANCE_COVER: "Ask which account the EMI will be paid from, and get that account's statement if it is another one."
+  INCOME_SUPPORT: "Ask for proof of the rest of the income (salary slips, ITR, or the other account it comes into)."
+  undeclared_emi: "Ask the customer about the EMIs that were not declared, and add them to the application."
+  co_statement: "Get the co-applicant's bank statement."
+  vendor_differs: "Check the vendor's report for the difference before deciding."
+  name_not_compared: "Send the customer's name so the account holder can be checked."
+  none: "No further checks are needed on the bank statement."
+
+# the working behind the figures, one line each (like the eligibility screen's working)
+working:
+  income_one: "Money in each month: {total}, against {declared} declared ({pct}%)."
+  income_many: "Money in each month: {parts} = {total}, against {declared} declared ({pct}%)."
+  part: "{who} {amount}"
+  emis: "EMIs each month: {declared} declared, {bank} seen in the bank; {used} is counted."
+  foir: "FOIR = (EMIs {existing} + new EMI {new}) / income {income} = {pct}% (limit {limit}%)."
+  balance: "Average balance on days {days}: {abb}, which is {times} times the new EMI of {new}."
+
+# how people are named on the screen
+roles:
+  applicant: "Applicant"
+  co_applicant: "Co-applicant"
+statement_status:
+  received: "received"
+  sample: "sample data"
+  missing: "not received"
+
+# THE AI SUMMARY at the end: the local model explains the finished answer in easy words. It decides nothing; a
+# sentence that adds a figure, a field name or a word against the answer is dropped, and the summary below the
+# instructions is built from the facts instead.
+ai_summary:
+  instructions: |
+    You are a senior credit officer. Write a short note to a colleague about this customer's bank statement,
+    in simple everyday English, as one paragraph of 3 short sentences:
+    1. The answer (the meaning of "answer").
+    2. The biggest reason behind it, with its key figure.
+    3. One thing in the customer's favour and one risk (from "good", "risks" and "insights").
+    4. What to do next (the meaning of "next_step").
+    Say it in your own plain words; do not copy the facts' sentences. Use only these facts. Every number you write
+    must appear in the facts exactly as written there (amounts with ₹ and commas, percentages as given), and always
+    as digits. No field names, no headings, no lists. Do not approve or reject the loan: the officer decides.
+  # the answer, as the model is told to say it
+  answers:                                    # quoted: bare YES / NO are booleans in YAML
+    "YES": "The customer can pay the new EMI."
+    "NEEDS_REVIEW": "A credit officer should check this case before relying on the new EMI."
+    "NO": "The customer is unlikely to pay the new EMI."
+  # the passed checks that best say WHY the customer can pay, most telling first
+  good_order: [TRUE_FOIR, INCOME_SUPPORT, BALANCE_COVER, REPAYMENT_TRACK, DATA_COMPLETE]
+  # words that contradict the answer -> the model's text is dropped
+  contradicts:
+    RECOMMENDED: ["cannot pay", "can't pay", "unable to pay", "not recommended", "unlikely", "reject"]
+    REFER: ["approved", "rejected", "sanctioned", "can pay the new emi only", "cannot pay"]
+    NOT_RECOMMENDED: ["can pay the new emi", "can easily", "comfortably", "is recommended", "approved",
+                      "sanctioned"]
+  # built from the facts when the model is off, slow or refused: the answer, the main reason, one insight, next step
+  fallback: "{summary} {reason} {insight} Next step: {next}"
+
+note: "This helps the credit officer decide. It is not the loan decision."

@@ -5371,6 +5371,18 @@ export interface components {
              */
             new_chat: boolean;
             /**
+             * Stream
+             * @description Reply as Server-Sent Events (status lines while it works, then the answer) instead of one JSON body. The same as sending `Accept: text/event-stream`. COPILOT_STREAMING.
+             * @default false
+             */
+            stream: boolean;
+            /**
+             * With Sources
+             * @description Add `sources` [{type, document, section, title}] to a handbook answer: the handbook file and section retrieval cited for it. Left out on case answers and refusals.
+             * @default false
+             */
+            with_sources: boolean;
+            /**
              * Context
              * @description The `context` block from the PREVIOUS response, echoed back so a bare follow-up such as "why?" can be resolved.
              *

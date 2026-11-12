@@ -1,0 +1,423 @@
+# Crime Record Verification Agent -- every sentence and label the API, the screen and the report use.
+
+banner: "DEMO MODE — SYNTHETIC DATA — NOT FOR ACTUAL LENDING DECISIONS"
+
+roles:
+  PRIMARY: "Applicant"
+  CO_APPLICANT: "Co-Applicant"
+# co-applicants are numbered (Co-Applicant 1, 2 ...) -- also a single one when config subjects.number_single_co_applicant
+roles_numbered:
+  CO_APPLICANT: "Co-Applicant {n}"
+
+fields:
+  full_name: "Applicant Name"
+  father_name: "Father's Name"
+  date_of_birth: "Date of Birth"
+  permanent_address: "Permanent Address"
+  pan: "PAN"
+
+risk:
+  labels:
+    NO_RISK: "No Risk"
+    LOW_RISK: "Low Risk"
+    AVERAGE_RISK: "Average Risk"
+    HIGH_RISK: "High Risk"
+    VERY_HIGH_RISK: "Very High Risk"
+  # the words written on the risk meter's arcs (short, so they fit the arc); the full label shows under the meter
+  short:
+    NO_RISK: "No Risk"
+    LOW_RISK: "Low"
+    AVERAGE_RISK: "Average"
+    HIGH_RISK: "High"
+    VERY_HIGH_RISK: "Very High"
+  meaning:
+    NO_RISK: "No matches were found in the covered sources. This does not establish that the person has no record anywhere."
+    LOW_RISK: "Findings of minor impact on financial liability (for example, civil or marital matters)."
+    AVERAGE_RISK: "Findings of moderate impact. Proceed only with closer review, as per the credit policy."
+    HIGH_RISK: "Findings of high impact on financial liability. Refer to credit for a decision."
+    VERY_HIGH_RISK: "Findings of a serious nature. Refer to credit for a decision."
+
+clusters:
+  SERIOUS_CRIMINAL: "Serious criminal offences"
+  FINANCIAL: "Financial matters"
+  STATUTORY: "Statutory & regulatory matters"
+  CIVIL: "Civil matters"
+  OTHER: "Other matters"
+
+groups:
+  GENERAL_COURTS: "General Courts"
+  TRIBUNALS: "Tribunals"
+  DEFAULTER_LISTS: "Defaulter Lists"
+  OTHERS: "Others"
+
+statuses:
+  NOT_INITIATED: "Not initiated"
+  INITIATED: "Initiated"
+  PROCESSING: "Processing"
+  COMPLETED: "Completed"
+  REVIEW_REQUIRED: "Review required"
+  FAILED: "Failed"
+  WAIVED: "Waived"
+
+outcomes:
+  NO_MATCH: "No matches found"
+  FINDINGS: "Findings detected"
+  INCONCLUSIVE: "Inconclusive — result not yet available"
+  PROVIDER_FAILURE: "Provider failure — no result"
+
+decisions:
+  ACCEPTED: "Accepted"
+  REFER_TO_CREDIT: "Refer to credit"
+  DECLINE_RECOMMENDED: "Decline recommended"
+
+provider_errors:
+  PROVIDER_UNAVAILABLE: "The verification provider did not respond. No result was received; you can retry."
+  PROVIDER_REJECTED: "The verification provider rejected the request."
+
+summary:
+  NO_MATCH: "No matches were found across {sources} covered sources."
+  FINDINGS: "{cases} case(s) found across {categories} source(s): {top}."
+  PENDING: "The provider has accepted the request; the result is not available yet."
+  FAILED: "{error}"
+  WAIVED: "Verification was waived: {reason}"
+
+audit:
+  CONFIRMED_AND_INITIATED: "Details confirmed and verification initiated"
+  PROVIDER_REQUESTED: "Request sent to the provider"
+  PROVIDER_RESULT: "Provider result received"
+  PROVIDER_PENDING: "Provider accepted; result pending"
+  PROVIDER_FAILED: "Provider failure"
+  STATUS_REFRESHED: "Status refreshed"
+  RETRIGGERED: "Verification retriggered"
+  RETRY: "Verification retried after a failure"
+  REPORT_GENERATED: "Report generated"
+  REPORT_DOWNLOADED: "Report downloaded"
+  FINALIZED: "Result acknowledged"
+  WAIVED: "Verification waived"
+  IDEMPOTENT_REPLAY: "Duplicate submission returned the existing case"
+  APPLICATION_SYNCED: "Application received from the LOS"
+
+errors:
+  NOT_PERMITTED: "You are not permitted to {permission}."
+  APPLICATION_NOT_FOUND: "No application {application_id} is open to you."
+  CASE_NOT_FOUND: "No verification case {case_id} is open to you."
+  SUBJECT_NOT_FOUND: "No subject {subject_id} is open to you."
+  REPORT_NOT_AVAILABLE: "A report is available once the provider has returned a result."
+  CONFIRMATION_REQUIRED: "Confirm the applicant details before verification is initiated."
+  NO_SUBJECTS: "Select at least one subject to verify."
+  DUPLICATE_SUBJECT: "Each subject can be included only once."
+  TOO_MANY_SUBJECTS: "An application can have at most {max} co-applicants."
+  PROVIDER_NOT_CONFIGURED: "Crime verification is not connected to a vendor yet. Ask the administrator to configure it."
+  BRANCH_NOT_PERMITTED: "You may not change applications of branch {branch}."
+  BAD_APPLICATION: "The application is not valid."
+  PARTY_HAS_HISTORY: "The {role} already has verification history: they cannot be removed and their PAN cannot change."
+  UNKNOWN_VENDOR: "Vendor {vendor} is not available."
+  UNKNOWN_SCENARIO: "Unknown demo scenario {scenario}."
+  SCENARIO_DEMO_ONLY: "A demo scenario can be chosen only in demo mode."
+  SUBJECT_NOT_ON_APPLICATION: "Application {application_id} has no {role}."
+  PAN_NOT_LINKED: "The PAN for the {role} does not match the application record."
+  SAME_PAN_TWICE: "The applicant and the co-applicant cannot have the same PAN."
+  ALREADY_IN_PROGRESS: "A verification for the {role} is already in progress (case {case_id})."
+  RETRIGGER_REQUIRED: "The {role} already has a verification ({current}). Use ReTrigger to run it again."
+  IDEMPOTENCY_CONFLICT: "This submission key was already used for different details."
+  NOTHING_TO_FINALIZE: "Results are not available yet; the case cannot be finalized."
+  ALREADY_FINALIZED: "This case has already been finalized."
+  UNKNOWN_DECISION: "Unknown decision {decision}."
+  REMARKS_REQUIRED: "Remarks are required for this decision."
+  DEMO_ONLY: "Available in demo mode only."
+  INTERNAL: "Something went wrong. Please try again."
+  VALIDATION_ERROR: "Some details are not valid."
+
+validation:
+  required: "{field} is required."
+  name_format: "{field} may contain letters, spaces, dots, apostrophes and hyphens only."
+  too_long: "{field} must be at most {max} characters."
+  address_short: "Permanent Address must be at least {min} characters."
+  date_format: "Date of Birth must be a valid date (YYYY-MM-DD)."
+  date_future: "Date of Birth cannot be in the future."
+  age_range: "Age must be between {min} and {max} years."
+  pan_format: "PAN must be 10 characters like ABCPE1234F."
+  pin_format: "PIN code must be 6 digits."
+
+alarm:
+  title: "Review required"
+  subtitle: "Findings for {people}. Look at them before you decide."
+
+celebration:
+  title: "All clear"
+  subtitle: "No matches found for {people}."
+  sound_on: "Sound on"
+  sound_off: "Sound off"
+
+form_fields:
+  address_line: "House / street / locality"
+  state: "State"
+  city: "City"
+  pin: "PIN code"
+
+ai_summary:
+  instructions: |
+    You explain a crime record verification result to a credit officer in plain English.
+    You get JSON: one entry per person: role, status, risk, total_cases_found (that person's total),
+    sources_with_findings (how many sources), largest_sources (only the biggest few, not all), matter_types.
+    Write at most {sentences} short sentences, no lists, no headings. Name every person in the JSON.
+    Say each person's result separately, naming the role (Applicant, Co-Applicant) in every sentence; never merge them
+    into one risk and never give one person's numbers to the other.
+    A total is always total_cases_found; never add up largest_sources.
+    Use only the numbers and words given. Never invent a case, a court, a number or a reason.
+    A person with no matches: say no matches were found in the covered sources; never say the person has no record.
+    Only an entry that has "result" instead of "risk" is failed or pending: for that person alone say the result
+    is not available yet. Every entry with a "risk" HAS its result -- never call it pending or not available.
+    Do not decide or recommend approval or rejection; the credit officer decides.
+  # ONE person's point (config ai_summary.per_person): short, so each parallel call reads little (CPU prompt time)
+  person_instructions: |
+    Explain ONE person's crime record verification result to a credit officer in one short plain-English sentence.
+    Start with the role exactly as given. Use only the numbers and words in the JSON; total_cases_found is the total.
+    Never invent a case, court, number or reason. Do not approve, reject or recommend.
+  # words that say a result is missing: refused in a sentence about a person whose result is in
+  pending_words: [not available, not yet available, pending, awaiting, still in progress, not yet received]
+  banned_words: [approved, approve, rejected, reject, guilty, convicted, criminal record, clean record, fraud,
+                 fraudster, safe, trustworthy, innocent, recommend]
+  labels:
+    ai: "AI summary"
+    rules: "Summary"
+    pending: "Writing the AI summary…"
+    ai_note: "Written by AI from the results and checked against them. It explains; the credit officer decides."
+    rules_note: "Written from the results."
+    clean: "Clean result"
+    review: "Needs review"
+  rules:
+    person: "{role}: {status}{risk}."
+    risk: " — {risk}, {cases} case(s) found{sources}"
+    sources: " ({sources})"
+    no_match: " — no matches in the covered sources"
+
+report:
+  title: "Crime Verification Report"
+  subtitle: "Legal risk summary"
+  provider_demo: "mock provider, synthetic data"
+  watermark: "CONFIDENTIAL"
+  footer: "{title} · {application} · {role} · Page {page} of {pages}"
+  # the combined report: every person on the application in one PDF (owner 2026-10-29)
+  everyone: "All people ({n})"
+  found_for: "{role}: {n}"
+  disclaimer: >-
+    DEMO MODE — SYNTHETIC DATA — NOT FOR ACTUAL LENDING DECISIONS. This report was produced by a mock provider from
+    fictional data for demonstration. It is not a legal record and makes no statement about any real person.
+  limitations: >-
+    Coverage depends on the sources a provider has digitised. A provider result of no matches does not establish that
+    a person has no record; findings are indicative and must be read with the case documents and the credit policy.
+  sections:
+    summary: "Summary"
+    subject: "Subject"
+    glance: "Result at a glance"
+    findings: "Findings"
+    clusters: "Findings by matter type"
+    coverage: "Coverage and cases found"
+    case: "Verification details"
+    meaning: "Risk indicator guide"
+    limitations: "Limitations"
+    people: "People at a glance"
+    person: "{role} — {name}"
+    application: "Application and verification"
+  columns:
+    source: "Source"
+    group: "Category"
+    since: "Coverage since"
+    found: "Cases found"
+    matter: "Matter type"
+    count: "Count"
+    level: "Risk level"
+    meaning: "What it means"
+    role: "Person"
+    name: "Name"
+    pan: "PAN"
+    risk: "Risk"
+    hits: "Sources hit"
+    status: "Status"
+    found_for: "Cases found for"
+  stats:
+    cases: "Cases found"
+    hits: "Sources with findings"
+    covered: "Sources covered"
+    status: "Verification status"
+  no_findings: "No matches were found in any covered source."
+  labels:
+    application: "Application"
+    product: "Product"
+    loan: "Loan amount"
+    branch: "Branch"
+    role: "Role"
+    case: "Verification case"
+    provider_ref: "Provider reference"
+    vendor: "Vendor"
+    status: "Verification status"
+    risk: "Overall risk"
+    outcome: "Outcome"
+    result_at: "Result received"
+    initiated: "Initiated"
+    decision: "Officer's decision"
+    generated: "Generated"
+    version: "Version"
+    report_no: "Report"
+
+# ---- EVERY WORD ON THE SCREEN (owner 2026-10-27: "sab config hona chahiye"). The screen reads this block through
+# GET /config; tests check that every key the screen uses is here.
+screen:
+  brand: { title: "Credit Underwriting", subtitle: "Crime Record Verification" }
+  nav: { dashboard: "Dashboard", verify: "Verify", reset: "Reset data",
+         reset_confirm: "Reload the applications? Every verification case is removed." }
+  user: { officer: "Credit officer", viewer: "Viewer" }
+  common:
+    cannot_start: "Cannot start"
+    unreachable: "The service is not reachable."
+    loading_failed: "Could not load."
+    request_failed: "The request could not be completed."
+    network: "The server could not be reached. Check your connection and try again."
+    loading: "Loading"
+    main_nav: "Main"
+    progress: "Verification progress"
+  dashboard:
+    kicker: "Credit underwriting"
+    title: "Crime Record Verification"
+    subtitle: "Applicant and co-applicant legal-risk checks, results and reports in one place."
+    ring: "with results"
+    tiles: { total: "Total cases", in_progress: "Initiated / in progress", completed: "Completed",
+             review_required: "Review required", failed: "Failed", waived: "Waived" }
+    table_title: "Verification cases"
+    table_subtitle: "{n} applications in your branches"
+    search: "Search case, application or applicant"
+    all_statuses: "All statuses"
+    columns: { case: "Case", application: "Application", applicant: "Applicant", subjects: "People",
+               vendor: "Vendor", status: "Status", result: "Result", initiated: "Initiated" }
+    none_title: "No cases found"
+    none_text: "Go to Verify to start a new verification."
+  verify:
+    eyebrow: "Credit underwriting · Criminal record check"
+    title: "New verification"
+    subtitle: "Find the case, confirm each person's details and send them for verification."
+    lookup_label: "Case or application ID"
+    lookup_placeholder: "APP-2026-001 or CRV-…"
+    lookup_open: "Open"
+    lookup_not_found: "No application {id} is open to you."
+    case_not_found: "Case not found."
+    filters: { all: "All", new: "Not started", progress: "In progress", done: "With results" }
+    none_match: "No applications match."
+    empty_title: "Enter a case or application ID"
+    empty_text: "Type the ID on the left, or pick an application from the list. Its applicant and co-applicant details load here."
+    open_failed_title: "Could not open the application"
+    open_failed: "The application could not be loaded."
+    loan: "Loan"
+    stage: "Stage"
+    branch: "Branch {branch}"
+    view_results: "View results"
+    waived_title: "Crime record verification was waived for this application."
+    retrigger: "ReTrigger"
+    people_tabs: "People on this application"
+    include: "Include {who} in this verification"
+    in_progress: "Verification in progress"
+    to_fix: "{n} to fix"
+    vendor: "Vendor"
+    scenario: "Scenario"
+    scenario_default: "As on application"
+    fill_sample: "Fill sample"
+    latest_check: "Latest check {case}"
+    select_someone: "Select at least one person to verify."
+    complete_first: "Complete the {who}'s details before initiating verification."
+    no_permission: "You can view this case; initiating a verification needs the credit underwriting permission."
+    initiate: "Initiate Verification"
+    retrigger_button: "ReTrigger Verification"
+    initiate_failed: "Verification could not be initiated. Your details are kept; try again."
+    people_count: "{n} of {total} people selected"
+    left_out: "Not included:"
+  form:
+    identity: "Identity"
+    address: "Permanent address"
+    from_application: "From application"
+    edited: "Edited"
+    entered: "Entered"
+    age: "{n} years old"
+    pan_private: "Kept private — only the last 4 characters show."
+    pan_must_match: "Must match the PAN on the application."
+    pan_enter: "Enter full PAN"
+    pan_use_application: "Use application PAN"
+    choose_state: "Select state"
+    choose_city: "Select city"
+    choose_state_first: "Choose a state first"
+    structured: "Enter as state / city / PIN"
+  confirm:
+    title: "Confirm Applicant Details and Initiate Crime Verification?"
+    people: "{n} person(s)"
+    primary_heading: "Primary Applicant"
+    message: "Please review the applicant details carefully. Confirming will initiate crime record verification for the selected subject(s). Do you want to continue?"
+    not_initiated: "Verification was not initiated"
+    cancel: "Cancel"
+    confirm: "Confirm & Initiate Verification"
+    working: "Initiating Verification..."
+  results:
+    back: "Back to {id}"
+    kicker: "Verification results"
+    all_clear: "All clear"
+    review: "Review required"
+    people: "People checked"
+    found: "Cases found"
+    loan: "Loan amount"
+    people_list: "People ({n})"
+    people_list_note: "Select a person to see their result"
+    show_all: "All ({n})"
+    show_review: "Needs review ({n})"
+    none_review: "Nobody needs review."
+    cases_n: "{n} found"
+    working_title: "The provider is still working on this case."
+    working_text: "Results appear here as soon as they are in."
+    refresh: "Refresh status"
+    refreshed: "Case {case} — {status}."
+    refresh_failed: "Status could not be refreshed."
+    download_failed: "The report could not be downloaded."
+    open_failed_title: "Could not open the case"
+    open_failed: "The case could not be loaded."
+    go_verify: "Go to verification"
+    activity: "Activity"
+    activity_subtitle: "Everything that happened to this case"
+    no_activity: "No activity yet"
+    activity_all: "Show all activity ({n})"
+    download_all: "Download full report (all people)"
+    preparing_all: "Preparing the full report…"
+    activity_less: "Show less"
+    at_a_glance: "At a glance"
+  result:
+    none_title: "No verification initiated"
+    none_text: "Complete the details and select Initiate Verification."
+    waived: "Verification waived"
+    pending_text: "Provider reference {ref}. Use Refresh status to ask the provider again."
+    cases_found: "Cases found"
+    sources_hit: "Sources with findings"
+    sources_covered: "Sources covered"
+    matter_types: "Findings by matter type"
+    source_with_findings: "Source with findings"
+    cases: "Cases"
+    show_coverage: "Show full coverage"
+    hide_coverage: "Hide full coverage"
+    source: "Source"
+    since: "Since"
+    provider_ref: "Provider reference"
+    received: "Result received"
+    download: "Download report (PDF)"
+    preparing: "Preparing report…"
+    overall_risk: "Overall risk: {risk}"
+  steps: { details: "Details", confirm: "Confirmed", provider: "With provider", results: "Results", decision: "Decision" }
+  finalize:
+    done_title: "Result acknowledged"
+    by: "by {who} · {when}"
+    title: "Acknowledge results"
+    subtitle: "Record the credit officer's decision on this verification."
+    decision: "Decision"
+    remarks: "Remarks"
+    remarks_placeholder: "Reason for the decision"
+    choose: "Choose a decision."
+    remarks_needed: "Remarks are required for this decision."
+    failed: "The decision could not be saved."
+    submit: "Submit decision"
+    saving: "Saving…"
+  summary:
+    writing: "Writing…"

@@ -1,0 +1,70 @@
+# SEMANTIC TASK HELD-OUT SET B (Phase 2, written 2026-10-12 AFTER the set-A baseline was looked at and BEFORE any
+# Phase 2 fix was switched on). Its baseline is measured with the Phase 2 task layer OFF; it is NOT looked at again
+# until the final measurement. Set A (task_heldout.yaml) was viewed at baseline, so set B is the clean
+# generalisation number. Same format as task_heldout.yaml.
+items:
+  # greetings / acknowledgements
+  - { id: bG1, cat: greeting, style: en, ctx: none, q: "hey hi", expect: { scope: conversation, op: greet } }
+  - { id: bG2, cat: greeting, style: hinglish, ctx: none, q: "good morning sir ji", expect: { scope: conversation, op: greet } }
+  - { id: bG3, cat: greeting, style: informal, ctx: open, q: "hiya", expect: { scope: conversation, op: greet } }
+  - { id: bG4, cat: greeting, style: hinglish, ctx: none, q: "ram ram bhai", expect: { scope: conversation, op: greet } }
+  - { id: bA1, cat: ack, style: en, ctx: open, before: ["what is pending"], q: "ok noted, thank you", expect: { scope: conversation, op: ack } }
+  - { id: bA2, cat: ack, style: hinglish, ctx: none, q: "accha theek hai", expect: { scope: conversation, op: ack } }
+  - { id: bA3, cat: ack, style: en, ctx: listed, q: "perfect, got it", expect: { scope: conversation, op: ack } }
+  - { id: bA4, cat: ack, style: hinglish, ctx: open, before: ["what is the kyc status"], q: "shukriya", expect: { scope: conversation, op: ack } }
+  # negation / correction
+  - { id: bN1, cat: negation, style: en, ctx: open, before: ["what is pending"], q: "no thanks", expect: { scope: conversation, op: negate } }
+  - { id: bN2, cat: negation, style: hinglish, ctx: none, q: "nahi bas", expect: { scope: conversation, op: negate } }
+  - { id: bR1, cat: correction, style: en, ctx: listed, before: ["open the second one"], q: "sorry, I meant the first one", expect: { scope: one_case, op: retrieve, ref: ordinal, rows: [1] } }
+  - { id: bR2, cat: correction, style: en, ctx: none, before: ["how many cases are stuck?"], q: "no, I meant the ones ready for CPA", expect: { scope: portfolio, op: count, filter: ready_for_cpa } }
+  - { id: bR3, cat: correction, style: en, ctx: listed, before: ["show the stuck cases"], q: "no, I meant the KYC ones", expect: { scope: portfolio, op: list, filter: kyc_issue } }
+  # single case
+  - { id: bS1, cat: single_case, style: en, ctx: open, q: "any update on this customer's file?", expect: { scope: one_case, op: retrieve } }
+  - { id: bS2, cat: single_case, style: hinglish, ctx: open, q: "ye file aage kyun nahi ja rahi", expect: { scope: one_case, op: retrieve } }
+  - { id: bS3, cat: single_case, style: en, ctx: open, q: "how long has it been sitting at this stage", expect: { scope: one_case, op: retrieve } }
+  - { id: bS4, cat: single_case, style: typo, ctx: open, q: "kyc staus for this one?", expect: { scope: one_case, op: retrieve } }
+  - { id: bS5, cat: single_case, style: en, ctx: none, q: "why is this application stuck?", expect: { scope: one_case, op: which_case } }
+  - { id: bS6, cat: single_case, style: en, ctx: open, q: "who is the borrower on this file", expect: { scope: one_case, op: retrieve } }
+  # portfolio list
+  - { id: bP1, cat: portfolio_list, style: en, ctx: none, q: "which of my customers still owe me documents?", expect: { scope: portfolio, op: list } }
+  - { id: bP2, cat: portfolio_list, style: en, ctx: none, q: "list my files that are stuck", expect: { scope: portfolio, op: list, filter: stuck } }
+  - { id: bP3, cat: portfolio_list, style: hinglish, ctx: none, q: "kyc wali problem kin files mein hai", expect: { scope: portfolio, op: list, filter: kyc_issue } }
+  - { id: bP4, cat: portfolio_list, style: en, ctx: none, q: "which applications can go to CPA now?", expect: { scope: portfolio, op: list, filter: ready_for_cpa } }
+  - { id: bP5, cat: portfolio_list, style: typo, ctx: none, q: "show my oldst cases", expect: { scope: portfolio, op: list } }
+  - { id: bP6, cat: portfolio_list, style: en, ctx: open, q: "list all my applications", expect: { scope: portfolio, op: list } }
+  # counts
+  - { id: bC1, cat: count, style: en, ctx: none, q: "how many of my applications have a KYC problem?", expect: { scope: portfolio, op: count, filter: kyc_issue } }
+  - { id: bC2, cat: count, style: hinglish, ctx: none, q: "kitni files CPA ke liye ready hain", expect: { scope: portfolio, op: count, filter: ready_for_cpa } }
+  - { id: bC3, cat: count, style: en, ctx: none, q: "number of files waiting on documents", expect: { scope: portfolio, op: count } }
+  - { id: bC4, cat: count, style: en, ctx: open, q: "how many of my cases are stuck right now?", expect: { scope: portfolio, op: count, filter: stuck } }
+  # ranking / comparison
+  - { id: bK1, cat: rank_compare, style: en, ctx: none, q: "which applicant is asking for the biggest loan amount?", expect: { scope: portfolio, op: rank } }
+  - { id: bK2, cat: rank_compare, style: en, ctx: listed, q: "compare the second and third", expect: { scope: portfolio, op: compare, ref: ordinal, rows: [2, 3] } }
+  - { id: bK3, cat: rank_compare, style: hinglish, ctx: none, q: "kis case mein sabse zyada documents baaki hai", expect: { scope: portfolio, op: rank } }
+  - { id: bK4, cat: rank_compare, style: en, ctx: none, q: "which file is closest to CPA?", expect: { scope: portfolio, op: rank } }
+  # follow-ups
+  - { id: bF1, cat: followup, style: en, ctx: listed, q: "what's pending on the second one?", expect: { scope: one_case, op: retrieve, ref: ordinal, rows: [2] } }
+  - { id: bF2, cat: followup, style: en, ctx: listed, q: "show the next 2", expect: { scope: portfolio, op: page } }
+  - { id: bF3, cat: followup, style: en, ctx: listed, q: "just the stuck ones", expect: { scope: portfolio, op: list, filter: stuck } }
+  - { id: bF4, cat: followup, style: en, ctx: none, before: ["how many cases have a KYC issue?"], q: "what about ready for CPA?", expect: { scope: portfolio, op: count, filter: ready_for_cpa } }
+  - { id: bF5, cat: followup, style: hinglish, ctx: none, before: ["how many cases are stuck?"], q: "aur kyc wale kitne hain", expect: { scope: portfolio, op: count, filter: kyc_issue } }
+  - { id: bF6, cat: followup, style: en, ctx: open, before: ["what is the kyc status"], q: "tell me more", expect: { scope: one_case, op: retrieve } }
+  - { id: bF7, cat: followup, style: en, ctx: listed, q: "is the first one ready for CPA?", expect: { scope: one_case, op: retrieve, ref: ordinal, rows: [1] } }
+  - { id: bF8, cat: followup, style: en, ctx: listed, before: ["show the stuck cases"], q: "and the ones with documents pending?", expect: { scope: portfolio, op: list, filter: documents_pending } }
+  # document status
+  - { id: bD1, cat: document_status, style: en, ctx: open, q: "did the driving licence pass verification?", expect: { scope: one_case, op: retrieve } }
+  - { id: bD2, cat: document_status, style: hinglish, ctx: open, q: "pan card verify hua ya nahi", expect: { scope: one_case, op: retrieve } }
+  - { id: bD3, cat: document_status, style: en, ctx: open, q: "what documents have been uploaded so far?", expect: { scope: one_case, op: retrieve } }
+  - { id: bD4, cat: document_status, style: en, ctx: none, q: "how many applications are missing the bank statement?", expect: { scope: portfolio, op: count } }
+  # handbook
+  - { id: bH1, cat: handbook, style: en, ctx: none, q: "can a voter id be used as address proof?", expect: { scope: knowledge, op: explain } }
+  - { id: bH2, cat: handbook, style: en, ctx: open, q: "what does CKYC mean?", expect: { scope: knowledge, op: explain } }
+  - { id: bH3, cat: handbook, style: hinglish, ctx: none, q: "salary slip kitne mahine ki chahiye", expect: { scope: knowledge, op: explain } }
+  - { id: bH4, cat: handbook, style: en, ctx: none, q: "what's the highest loan we can give on a personal loan?", expect: { scope: knowledge, op: explain } }
+  - { id: bH5, cat: handbook, style: en, ctx: open, q: "what happens after a case goes to CPA?", expect: { scope: knowledge, op: explain } }
+  - { id: bH6, cat: handbook, style: typo, ctx: none, q: "wat is a co applicant", expect: { scope: knowledge, op: explain } }
+  # ambiguous / unsupported
+  - { id: bU1, cat: ambiguous, style: en, ctx: open, q: "take care of this", expect: { scope: none, op: clarify } }
+  - { id: bU2, cat: ambiguous, style: en, ctx: none, q: "order me a pizza", expect: { scope: none, op: refuse } }
+  - { id: bU3, cat: ambiguous, style: en, ctx: open, q: "sanction this application", expect: { scope: none, op: refuse } }
+  - { id: bU4, cat: ambiguous, style: en, ctx: none, q: "show all officers' pending cases", expect: { scope: none, op: refuse } }

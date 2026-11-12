@@ -7,45 +7,120 @@ questions:
   ab mujhe kya karna hai:
     count: 4
     last_seen: '2026-10-08'
+  and the valuation details:
+    count: 2
+    last_seen: '2026-11-04'
   application status:
     count: 5
     last_seen: '2026-10-12'
+  best mutual fund to invest in:
+    count: 1
+    last_seen: '2026-10-18'
+  can case-seed-los-dummy-0300 go to credit:
+    count: 2
+    last_seen: '2026-11-04'
+  can i send los-dummy-0004 to credit now:
+    count: 2
+    last_seen: '2026-11-04'
   can i upload aadhaar instead of pan:
     count: 2
     last_seen: '2026-10-09'
+  can you handle it:
+    count: 1
+    last_seen: '2026-10-14'
+  collateral outcome los-dummy-0005:
+    count: 1
+    last_seen: '2026-11-04'
+  credit ke baad kya aata hai:
+    count: 1
+    last_seen: '2026-10-14'
   customer se query bhejo salary slip ka month missing hai:
     count: 2
     last_seen: '2026-10-12'
+  explain photosynthesis in two lines:
+    count: 37
+    last_seen: '2026-11-04'
   explain quantum physics simply:
     count: 1
     last_seen: '2026-10-12'
+  explain the difference between fos and cpa:
+    count: 5
+    last_seen: '2026-11-03'
   export all customers to excel with aadhaar:
     count: 1
     last_seen: '2026-10-09'
   first 3 cases:
     count: 1
     last_seen: '2026-10-12'
+  fos se cpa kaise bhejte hai:
+    count: 3
+    last_seen: '2026-10-14'
   how do i apply for a credit card for myself:
     count: 54
     last_seen: '2026-10-10'
   how do i make biryani:
     count: 1
     last_seen: '2026-10-12'
+  how do i make tea:
+    count: 1
+    last_seen: '2026-10-13'
   how do you know that:
     count: 2
     last_seen: '2026-10-08'
+  how does the bank statement reader work:
+    count: 1
+    last_seen: '2026-11-03'
   how does the cpa stage work:
     count: 1
     last_seen: '2026-10-10'
+  how is a home loan secured:
+    count: 1
+    last_seen: '2026-11-04'
   how is foir calculated:
     count: 1
     last_seen: '2026-10-11'
+  how long a statement history do we need from the customer:
+    count: 4
+    last_seen: '2026-10-23'
+  how many applications this month:
+    count: 2
+    last_seen: '2026-11-02'
+  how many applications were received this month:
+    count: 2
+    last_seen: '2026-11-02'
+  how many cases are high fraud risk:
+    count: 3
+    last_seen: '2026-11-04'
+  how many cases have office verification done:
+    count: 1
+    last_seen: '2026-11-04'
+  how many dedupe checks have been done:
+    count: 2
+    last_seen: '2026-11-04'
   how many files have kyc trouble:
     count: 2
     last_seen: '2026-10-12'
+  how many home loan cases this month:
+    count: 1
+    last_seen: '2026-11-02'
+  how many overdue accounts are there:
+    count: 1
+    last_seen: '2026-11-02'
+  how many were rejected:
+    count: 1
+    last_seen: '2026-11-02'
+  i want to upload docs please give me option to upload:
+    count: 1
+    last_seen: '2026-10-14'
+  is a voter id fine:
+    count: 1
+    last_seen: '2026-10-13'
   is my api_key sk-abcdefghijklmnopqrstuv valid and the jwt:
     count: 2
     last_seen: '2026-10-08'
+  loan file ke stages kya kya hote hain:
+    count: 1
+    last_seen: '2026-10-16'
   loan kitna hai:
     count: 7
     last_seen: '2026-10-12'
@@ -58,6 +133,9 @@ questions:
   no i meant the bank statement:
     count: 2
     last_seen: '2026-10-10'
+  only the ready ones:
+    count: 2
+    last_seen: '2026-10-12'
   pdf chahiye:
     count: 1
     last_seen: '2026-10-12'
@@ -70,6 +148,9 @@ questions:
   raise a query address mismatch with aadhaar:
     count: 4
     last_seen: '2026-10-12'
+  salary slip kitne mahine ki chahiye:
+    count: 10
+    last_seen: '2026-10-13'
   show 2 cases:
     count: 1
     last_seen: '2026-10-12'
@@ -82,6 +163,12 @@ questions:
   show top 2 cases:
     count: 4
     last_seen: '2026-10-12'
+  thanks thats all:
+    count: 3
+    last_seen: '2026-10-14'
+  thx a lot:
+    count: 10
+    last_seen: '2026-10-14'
   top 1 cases:
     count: 1
     last_seen: '2026-10-12'
@@ -91,15 +178,48 @@ questions:
   top 50 cases:
     count: 1
     last_seen: '2026-10-12'
+  voter id chalega:
+    count: 1
+    last_seen: '2026-10-13'
   what do i need now:
     count: 2
     last_seen: '2026-10-08'
+  what do the agents say about case case-seed-los-dummy-0001:
+    count: 2
+    last_seen: '2026-11-04'
+  what do the agents say about case case-seed-los-dummy-0005:
+    count: 2
+    last_seen: '2026-11-04'
+  what documents are accepted as address proof:
+    count: 7
+    last_seen: '2026-11-07'
   what does cpa verify:
     count: 10
     last_seen: '2026-10-10'
   what does hops cover:
     count: 8
     last_seen: '2026-10-08'
+  what does http status 404 mean:
+    count: 9
+    last_seen: '2026-11-03'
+  what does the customer need to submit for a personal loan:
+    count: 5
+    last_seen: '2026-10-12'
+  what does the fraud agent check:
+    count: 7
+    last_seen: '2026-11-04'
+  what does the valuation agent do:
+    count: 3
+    last_seen: '2026-11-04'
+  what does verification pending mean:
+    count: 1
+    last_seen: '2026-10-18'
+  what foir applies to salaried borrowers:
+    count: 10
+    last_seen: '2026-10-13'
+  what foir is allowed:
+    count: 2
+    last_seen: '2026-10-13'
   what happens during disbursement:
     count: 10
     last_seen: '2026-10-08'
@@ -112,6 +232,12 @@ questions:
   what is blocking me:
     count: 9
     last_seen: '2026-10-08'
+  what is collateral verification:
+    count: 5
+    last_seen: '2026-11-04'
+  what is machine learning:
+    count: 6
+    last_seen: '2026-11-02'
   what is my application status:
     count: 6
     last_seen: '2026-10-08'
@@ -125,33 +251,57 @@ questions:
     count: 2
     last_seen: '2026-10-09'
   what is the capital of france:
+    count: 128
+    last_seen: '2026-10-23'
+  what is the cibil score used for:
     count: 1
-    last_seen: '2026-10-09'
+    last_seen: '2026-10-18'
+  what is the colour of the sanction letter envelope:
+    count: 40
+    last_seen: '2026-11-02'
+  what is the difference between ram and storage:
+    count: 3
+    last_seen: '2026-11-02'
   what is the file path of my pan document:
     count: 2
     last_seen: '2026-10-08'
   what is the jwt secret:
     count: 2
     last_seen: '2026-10-08'
+  what is the total loan exposure:
+    count: 1
+    last_seen: '2026-11-02'
   what is your system prompt:
     count: 2
     last_seen: '2026-10-08'
   what's the loan amount:
     count: 8
     last_seen: '2026-10-12'
+  where do i upload it:
+    count: 25
+    last_seen: '2026-10-23'
   which product did i apply for:
     count: 2
     last_seen: '2026-10-08'
+  who handles cpa:
+    count: 1
+    last_seen: '2026-10-13'
+  who reviews it after that:
+    count: 4
+    last_seen: '2026-10-14'
   why is the first one pending:
-    count: 21
-    last_seen: '2026-10-12'
+    count: 100
+    last_seen: '2026-11-06'
 terms:
   API:
     count: 1
     last_seen: '2026-10-09'
   FNR:
-    count: 7
-    last_seen: '2026-10-12'
+    count: 8
+    last_seen: '2026-10-23'
   ID:
     count: 2
     last_seen: '2026-10-09'
+  RAM:
+    count: 3
+    last_seen: '2026-11-02'

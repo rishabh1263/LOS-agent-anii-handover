@@ -16,6 +16,8 @@ NEVER: a refusal, a write, another case, a credit decision. Ownership is checked
 
 from __future__ import annotations
 
+from app.llm import turn_budget as _tb
+
 import json
 import logging
 import os
@@ -57,6 +59,32 @@ def _value(x: Any) -> str:
     return str(getattr(x, "value", x) or "")
 
 
+_RUPEE_FIELDS = {"loan_amount", "declared_monthly_income", "declared_monthly_obligations", "property_value"}
+
+
+def _rupees(value: Any) -> str:
+    from app.agents.applicant.copilot.facts.document_facts import _rupees as rupees
+
+    return rupees(value)
+
+
+def _when(stamp: Any) -> str | None:
+    """A timestamp as an officer reads it, in IST: "15 Oct 2026, 10:45" (2026-10-15: the raw
+    "2026-10-15 05:15:32.248450+00:00" made the model time out on "when was this case created")."""
+    from datetime import datetime, timedelta, timezone
+
+    if stamp in (None, ""):
+        return None
+    try:
+        when = stamp if isinstance(stamp, datetime) else datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return str(stamp)[:19]
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    local = when.astimezone(timezone(timedelta(hours=5, minutes=30)))
+    return local.strftime("%d %b %Y, %H:%M").lstrip("0")
+
+
 def _masked(field: str, value: Any) -> str | None:
     from app.security import sensitivity
 
@@ -84,9 +112,17 @@ def fact_sheet(case_id: str, repository: Any = None) -> dict[str, str]:
     for key in ("product", "loan_amount", "status", "employment_type", "tenure_months", "interest_rate_pct",
                 "declared_monthly_income", "declared_monthly_obligations", "property_value", "created_at",
                 "updated_at"):
-        shown = _masked(key, getattr(application, key, None))
+        raw = getattr(application, key, None)
+        if key.endswith("_at"):
+            shown = _when(raw)
+        elif key in _RUPEE_FIELDS and raw not in (None, ""):
+            shown = _rupees(raw)                                 # "₹20,00,000", not "2000000.0"
+        else:
+            shown = _masked(key, _value(raw) if raw is not None else None)
+            if shown and key in ("product", "status", "employment_type"):
+                shown = shown.replace("_", " ").title()          # "Application Created", not "APPLICATION_CREATED"
         if shown:
-            facts[f"application.{key}"] = _value(shown)
+            facts[f"application.{key}"] = shown
     applicant = repository.get_applicant(application.applicant_id)
     for key in ("full_name", "mobile", "email", "date_of_birth", "address"):
         shown = _masked(key, getattr(applicant, key, None)) if applicant else None
@@ -109,7 +145,7 @@ def fact_sheet(case_id: str, repository: Any = None) -> dict[str, str]:
             facts[f"{base}.reason"] = "; ".join(reasons[:2])
         for stamp in ("uploaded_at", "verified_at", "updated_at"):
             if getattr(d, stamp, None):
-                facts[f"{base}.{stamp}"] = str(getattr(d, stamp))[:19]
+                facts[f"{base}.{stamp}"] = _when(getattr(d, stamp))
         counts[status] = counts.get(status, 0) + 1
     for status, n in counts.items():
         facts[f"documents.count.{status.lower()}"] = str(n)
@@ -141,11 +177,15 @@ def fact_sheet(case_id: str, repository: Any = None) -> dict[str, str]:
 # ==========================================================================
 
 def _prompt() -> str:
+    # COMPACT (2026-10-23, measured): the facts are numbered and cited by number -- the reply is the costly part on
+    # this CPU, and a cited key ("extracted.bank_statement.account_holder_name") was a dozen tokens each
     return str(_cfg().get("prompt") or (
-        "You answer questions about ONE loan case using ONLY the FACTS given. Never use outside knowledge. "
-        "Reply as JSON: {\"answer\": short answer in plain words, \"keys\": [the fact keys you used], "
-        "\"missing\": \"\" or the thing that is not in the facts}. If the facts do not contain the answer, "
-        "set answer to \"\" and name what is missing. Copy numbers, dates and names exactly as written in the facts."))
+        "You answer a loan officer's question about ONE loan case using ONLY the numbered FACTS given. Never use "
+        "outside knowledge. Reply as JSON: {\"a\": ONE natural, complete sentence that answers the question (e.g. "
+        "\"The case was created on 15 Oct 2026, 10:45.\", \"The tenure is 240 months.\"), \"f\": [the numbers of the "
+        "facts you used]}. If the facts do not contain the answer, reply {\"a\": \"\", \"f\": []}. Copy numbers, "
+        "dates and names exactly as written in the facts. Never say who did something (created, uploaded, verified) "
+        "unless a fact names who did it."))
 
 
 async def _ollama(prefix: str, content: str, timeout: float) -> dict:
@@ -161,8 +201,9 @@ async def _ollama(prefix: str, content: str, timeout: float) -> dict:
             "options": with_num_ctx({"temperature": 0.0, "num_predict": int(_cfg().get("num_predict", 120))})}
     if model.startswith("qwen3"):
         body["think"] = False
+    _tb.check("snapshot_qa")      # an earlier model call of this turn failed: answer without it (app/llm/turn_budget.py)
     async with httpx.AsyncClient(timeout=timeout + 0.5) as client:
-        response = await client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body)
+        response = await _tb.guarded(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), "snapshot_qa")
         response.raise_for_status()
         return response.json()
 
@@ -170,7 +211,10 @@ async def _ollama(prefix: str, content: str, timeout: float) -> dict:
 async def _ask(facts: dict[str, str], question: str, generator: Any) -> tuple[dict | None, str]:
     import asyncio
 
-    content = "FACTS:\n" + "\n".join(f"{k}: {v}" for k, v in facts.items()) + f"\n\nQUESTION: {question}"
+    # THE SAME SHEET, IN THE SAME ORDER, for every question on a case: Ollama reuses the read prompt (measured
+    # 0.6 s for ~870 tokens cached vs 3-5 s for a sheet that changed); only the question at the end differs
+    content = "FACTS:\n" + "\n".join(f"{n}. {k}: {v}" for n, (k, v) in enumerate(facts.items(), 1)) \
+        + f"\n\nQUESTION: {question}"
     limit = float(_cfg().get("timeout_seconds", 3.0))
     try:
         body = await asyncio.wait_for(generator(_prompt(), content, limit), timeout=limit)
@@ -200,11 +244,18 @@ def _norm(text: str) -> str:
 
 def check(answer: str, keys: list[str], facts: dict[str, str]) -> list[str]:
     """What in the answer is NOT on the fact sheet (empty = it passes)."""
-    problems = [f"key:{k}" for k in keys or [] if k not in facts]
+    # a key cited WITH its value ("application.tenure_months: 240") is still that key
+    keys = [re.split(r"[\s:=]", str(k).strip(), maxsplit=1)[0] for k in keys or []]
+    problems = [f"key:{k}" for k in keys if k not in facts]
     sheet = _norm(" ".join(facts.values()))
     for token in _NUMBER.findall(answer or "") + _ID.findall(answer or ""):
         if _norm(token) not in sheet:
             problems.append(f"value:{token}")
+    # WHO DID IT: "created / uploaded / verified BY <someone>" only when the sheet records an actor ("*_by" key) --
+    # "The case was created by Rahul Sharma" linked the applicant's name to an action nobody recorded (2026-10-15)
+    if re.search(r"\b(created|uploaded|verified|submitted|approved|rejected|reviewed|added)\s+by\b", answer or "", re.I) \
+            and not any(k.endswith("_by") for k in facts):
+        problems.append("actor:not_recorded")
     words = {str(w).lower() for w in _cfg().get("checked_words") or []}
     said = re.findall(r"[a-z_]+", (answer or "").lower())
     # a document's name lives in its KEYS ("extracted.salary_slip.employer_name"), a status in the values
@@ -236,7 +287,7 @@ async def answer(case_id: str, question: str, *, generator: Any = None, reposito
         return None
     if generator is None:
         from app.llm import availability
-        from app.llm.memory import free_gb
+        from app.llm.memory import free_gb_for_model as free_gb
 
         free = free_gb()
         if (free is not None and free < float(_cfg().get("min_free_ram_gb", 1.5))) \
@@ -250,8 +301,22 @@ async def answer(case_id: str, question: str, *, generator: Any = None, reposito
         logger.info("snapshot_qa case=%s status=%s ms=%s", case_id, status, ms)
         return {"status": "NOT_RECORDED", "answer": " ".join(x for x in (_label("not_recorded"), hint) if x),
                 "keys": [], "ms": ms} if hint else None
-    text = str(data.get("answer") or "").strip()
-    keys = [str(k) for k in data.get("keys") or [] if isinstance(k, str)]
+    text = str(data.get("a") or data.get("answer") or "").strip()
+    if re.search(r"\b(the facts|not (available|provided|mentioned|given|specified|stated))\b", text, re.I):
+        # "the dob on the pan is not available in the facts": a NOT-RECORDED answer in the model's words -- the
+        # officer gets the configured line, never the prompt's vocabulary (2026-10-15)
+        text = ""
+    # cited by NUMBER (the compact reply) or by key (the long form): either way the sheet's keys
+    names = list(facts)
+    keys = []
+    for cited in (data.get("f") if data.get("f") is not None else data.get("keys")) or []:
+        if isinstance(cited, bool):
+            continue
+        if isinstance(cited, int) or (isinstance(cited, str) and cited.strip().isdigit()):
+            number = int(cited)
+            keys.append(names[number - 1] if 1 <= number <= len(names) else f"#{number}")   # unknown -> check fails
+        elif isinstance(cited, str):
+            keys.append(cited)
     problems = check(text, keys, facts) if text else ["empty"]
     if text and not problems and keys:
         logger.info("snapshot_qa case=%s status=ANSWERED keys=%s ms=%s", case_id, ",".join(keys), ms)

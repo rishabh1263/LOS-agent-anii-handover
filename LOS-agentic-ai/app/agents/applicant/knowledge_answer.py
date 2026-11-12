@@ -805,6 +805,9 @@ async def answer(
         detail["refused"] = True
         return NO_ANSWER, "deterministic", detail
 
+    # THE PASSAGES THE ANSWER IS BUILT FROM (P1-B, 2026-10-18): the deterministic answer is the top passage; a phrased
+    # one reads the top `knowledge_passages`. `citations` stays every kept hit (audit / evals); a reply shows only these.
+    detail["answered_from"] = detail["citations"][:1]
     if not allow_model or not config.llm_enabled():
         counters.record(called=False)
         return (deterministic_answer(result, max_sentences=max_sentences, question=question),
@@ -832,6 +835,11 @@ async def answer(
                 "deterministic", detail)
 
     detail["processing_ms"] = round((time.perf_counter() - started) * 1000, 2)
+    try:
+        shown = int(config.chatbot("compose").get("knowledge_passages", 2))
+    except (TypeError, ValueError):
+        shown = 2
+    detail["answered_from"] = detail["citations"][:max(1, min(limit, shown))]
     # WHAT THE MODEL WAS SHOWN, for the caller's unified validation (numbers,
     # dates, decision words must come from the passage). Internal: the
     # caller removes it before anything is published.

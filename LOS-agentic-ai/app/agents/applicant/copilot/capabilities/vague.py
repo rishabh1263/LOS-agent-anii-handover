@@ -173,11 +173,27 @@ def names_a_case(message: str, claims) -> bool:
     return bool(found.application or found.candidates)
 
 
+def _new_general_question(message: str) -> bool:
+    """A message the meaning reads CLEARLY as a general question (knowledge / process / policy: decide.general_kinds)
+    -- never an answer to a pending "which case?" pick (2026-10-13 live: it was, and asked "which case?" again)."""
+    from app.agents.applicant.copilot.semantics import meaning
+
+    if len(str(message or "").split()) < 3 or not meaning.clear_reading(message, case_open=False):
+        return False
+    ranked = meaning.rank(message)
+    if not ranked:
+        return False
+    general = set((meaning._decide_cfg().get("general_kinds") or []))
+    return ((meaning.catalogue().get("intents") or {}).get(ranked[0][0]) or {}).get("kind") in general
+
+
 def waits_for(message: str, state, claims, context) -> bool:
     """Whether a question the chat is waiting on could take THIS word as its answer: a draft / write proposal or a
     "which case?" pick always; the agent's clarification only when the word is one of its options' words. A yes / no
     question never takes "docs" / "pan" (a vague word is never yes / no), so it never blocks the follow-up options."""
     flow = dict(getattr(state, "flow", None) or {})
+    if flow.get("after_pick") and not flow.get("write") and _new_general_question(message):
+        return False         # "when does a case go to CPA?" after "which case?": a new question, not the pick
     if flow.get("write") or flow.get("after_pick") or (flow.get("portfolio") or {}).get("pending"):
         return True          # the list's Yes / No / Pending / Done question survives only when this message answers it
     from app.agents.applicant.copilot.capabilities import workspace
@@ -427,9 +443,14 @@ def ask(message: str, state, request_id: str, case_open: bool) -> dict[str, Any]
     if len(options) < 2:
         return None
     from app.agents.applicant.copilot.capabilities import general, workspace
+    from app.agents.applicant.copilot.semantics import meaning
 
     topic = " ".join(_words(message))
-    question = general._say_text(_cfg().get("question"), _lang(), topic=topic)
+    known = {str(w).lower() for t in _cfg().get("case_topics") or [] for w in t.get("default_words") or []}
+    if meaning.document_in(message) or (topic and topic in known):
+        question = general._say_text(_cfg().get("question"), _lang(), topic=topic)
+    else:
+        question = general._say_text(_cfg().get("question_unclear") or _cfg().get("question"), _lang(), topic=topic)
     flow = dict(getattr(state, "flow", None) or {})
     flow["vague"] = {"options": options, "message": topic}
     state.flow = flow
@@ -467,7 +488,10 @@ def resolve(message: str, state, case_open: bool = False) -> str | None:
         if said and (said == " ".join(_words(option)) or said in (" ".join(_words(f"upload the {shown}")),
                                                                " ".join(_words(f"upload {shown}")))):
             return option
-    if is_vague(message) and options:
+    if is_vague(message) and options and not re.search(
+            r"\b(what|which|why|how|when|who|does|do|is|are|was|were|kya|kaun|kaunsa|kyu|kyun|kaise|kab)\b", said):
+        # a FULL QUESTION ("what does the salary slip say") is never a pick of an offered button (2026-10-13: it got
+        # "Tap below to upload the Salary Slip" for a verified slip); "docs" / "kyc" after the question still pick
         # vague again: the most likely answer, never a second question -- for THIS word ("docs" then "kyc" answers
         # the KYC option, not the documents one)
         if said != pending.get("message"):

@@ -72,9 +72,10 @@ def _any_document(content: bytes) -> bool:
                if ext not in (".pdf", ".webp") for sig in sigs)
 
 
-def check(content: bytes, filename: str, *, limit: int | None = None) -> Verdict:
+def check(content: bytes, filename: str, *, limit: int | None = None, identity: bool = False) -> Verdict:
     """Whether these bytes may be processed as the document they claim to be.
-    `limit` is the calling route's own size limit, when it has one."""
+    `limit` is the calling route's own size limit, when it has one. `identity`: a PAN / DL / voter ID / passport
+    upload, which also gets the strict PDF rules of the malware scan (malware_scan.py)."""
     suffix = Path(str(filename or "")).suffix.lower()
     if not content:
         return Verdict(False, "EMPTY_FILE", "The uploaded file is empty.")
@@ -82,6 +83,11 @@ def check(content: bytes, filename: str, *, limit: int | None = None) -> Verdict
         return Verdict(False, "FILE_TOO_LARGE", "The uploaded file is too large.")
     if suffix not in _SIGNATURES:
         return Verdict(False, "UNSUPPORTED_FILE_TYPE", f"Unsupported file type: {suffix or 'unknown'}.")
+    from app.security import malware_scan
+
+    known = malware_scan.known_malware(content)
+    if known is not None:
+        return Verdict(False, known.code, known.message)
     head = content[:16]
     if head.startswith(_EXECUTABLE):
         return Verdict(False, "MALICIOUS_CONTENT", "The file is not a document.")
@@ -102,6 +108,11 @@ def check(content: bytes, filename: str, *, limit: int | None = None) -> Verdict
                        f"The file's content is not a {suffix.lstrip('.').upper()} file.")
     if suffix == ".pdf" and any(action in content for action in _PDF_ACTIONS):
         return Verdict(False, "MALICIOUS_CONTENT", "The PDF asks to launch a program.")
+    # THE MALWARE SCAN (malware_scan.py): EICAR, an embedded program, a script or payload hidden in an image, PDF
+    # active content, an image bomb, a corrupt image -- and the configured antivirus engine, when there is one.
+    finding = malware_scan.scan(content, filename, identity=identity)
+    if finding is not None:
+        return Verdict(False, finding.code, finding.message)
     return ALLOWED
 
 

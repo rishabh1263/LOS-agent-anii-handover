@@ -58,6 +58,13 @@ class ITRResult(BaseModel):
     processing_ms: float = 0.0
     confidence: float = 0.0
 
+    # THE ACKNOWLEDGEMENT'S OWN ARITHMETIC (2026-11-02): (total tax, interest and fee payable) - (taxes paid) against
+    # (tax payable / (-) refundable). RECONCILED | MISMATCH (-> PARTIAL, a person reviews) | INCOMPLETE (a figure
+    # missing) | NOT_ATTEMPTED. Never a corrected figure: the document's values are kept as read.
+    reconciliation: str = "NOT_ATTEMPTED"
+    # WHERE EACH FIELD CAME FROM: {field: {page, method TEXT_LAYER|OCR, caption}} -- never the value of a PAN
+    evidence: dict[str, dict] = Field(default_factory=dict)
+
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

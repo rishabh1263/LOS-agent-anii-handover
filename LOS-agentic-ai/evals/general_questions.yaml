@@ -59,17 +59,18 @@ categories:
     - { q: "calculate FOIR income 50000 emi 15000", expect: answer, must: ["30.0%"] }
     - { q: "LTV for 40 lakh loan on 60 lakh property", expect: answer, must: ["66.7%"] }
 
+  # ELIGIBILITY IS NOT THE CHATBOT'S (owner, 2026-10-13): every limit question gets the Eligibility-service redirect
   eligibility_policy:
-    - { q: "what is the maximum FOIR", expect: answer, must: ["50%", "DEMO"] }
-    - { q: "minimum income required", expect: answer, must: ["25,000"] }
-    - { q: "minimum salary for personal loan", expect: answer }
-    - { q: "which income is used for eligibility", expect: answer }
-    - { q: "minimum cibil score required", expect: not_configured }
-    - { q: "maximum loan amount for personal loan", expect: answer, must: ["10,00,000", "DEMO"] }          # configured (demo values, said so)
-    - { q: "what is the interest rate", expect: answer, must: ["14%", "DEMO"] }          # configured (demo values, said so)
-    - { q: "maximum tenure for home loan", expect: answer, must: ["360"] }          # configured (demo values, said so)
-    - { q: "age limit for loan", expect: not_configured }
-    - { q: "maximum LTV for home loan", expect: answer, must: ["80%"] }          # configured (demo values, said so)
+    - { q: "what is the maximum FOIR", expect: eligibility_service }
+    - { q: "minimum income required", expect: eligibility_service }
+    - { q: "minimum salary for personal loan", expect: eligibility_service }
+    - { q: "which income is used for eligibility", expect: eligibility_service }
+    - { q: "minimum cibil score required", expect: eligibility_service }
+    - { q: "maximum loan amount for personal loan", expect: eligibility_service }
+    - { q: "what is the interest rate", expect: eligibility_service }
+    - { q: "maximum tenure for home loan", expect: eligibility_service }
+    - { q: "age limit for loan", expect: eligibility_service }
+    - { q: "maximum LTV for home loan", expect: eligibility_service }
 
   documents:
     - { q: "documents required for personal loan", expect: answer }
@@ -129,9 +130,9 @@ categories:
 
   held_out_2:                  # written 2026-10-08 BEFORE running, after round 1 was tuned: the honest score
     - { q: "what is RCU stage", expect: answer, must: ["risk"] }
-    - { q: "minimum loan amount for home loan", expect: answer, must: ["5,00,000"] }
+    - { q: "minimum loan amount for home loan", expect: eligibility_service }
     - { q: "EMI 20 lakh 9% 20 years", expect: answer, must: ["17,99"] }
-    - { q: "can self employed apply", expect: answer, must: ["self"] }
+    - { q: "can self employed apply", expect: eligibility_service }
     - { q: "pan card mandatory hai kya", expect: answer, must: ["PAN"] }
     - { q: "what is the difference between net and gross salary", expect: answer, must: ["gross"] }
     - { q: "kyc kaise hota hai", expect: answer, must: ["application form"] }
@@ -156,8 +157,8 @@ categories:
     - { q: "my customer says another lender gives a better rate, can we take over his loan", expect: answer, must: ["balance transfer"] }
 
   multi_value:                 # several policy values in one question (class added 2026-10-08)
-    - { q: "loan amount and tenure for personal loan", expect: answer, must: ["10,00,000", "60"] }
-    - { q: "interest rate and maximum ltv for home loan", expect: answer, must: ["8.5%", "80%"] }
+    - { q: "loan amount and tenure for personal loan", expect: eligibility_service }
+    - { q: "interest rate and maximum ltv for home loan", expect: eligibility_service }
 
   case_questions:              # these DO need a case: asking which one is right
     - { q: "kyc status", expect: case }

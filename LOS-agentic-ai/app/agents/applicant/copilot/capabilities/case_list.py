@@ -126,14 +126,28 @@ def _owned(claims: dict[str, Any], applications: list[Any]) -> list[Any]:
     from app.agents.applicant.copilot.capabilities import workspace
     from app.security import access
 
-    out = []
-    for application in applications:
+    def allowed(application: Any) -> bool:
         try:
             workspace.authorize(claims, application.case_id)
         except access.AccessDenied:
-            continue
-        out.append(application)
-    return out
+            return False
+        return True
+
+    # THE SAME CHECK PER CASE, IN PARALLEL (2026-11-04): 501 cases one after another took 1.5 s on every question
+    verdicts = _parallel(allowed, applications)
+    return [a for a, ok in zip(applications, verdicts) if ok]
+
+
+def _parallel(fn, items: list[Any]) -> list[Any]:
+    """fn over items, in order, on up to `row_workers` threads (case_list.yaml) -- each call reads the case store
+    through its own pooled connection; a small list runs inline."""
+    workers = int(cfg().get("row_workers", 8))
+    if workers <= 1 or len(items) < int(cfg().get("parallel_from", 20)):
+        return [fn(x) for x in items]
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="case-rows") as pool:
+        return list(pool.map(fn, items))
 
 
 def _row(application: Any) -> dict[str, Any]:
@@ -178,8 +192,9 @@ def _rows_for(subject: str, applications: list[Any]) -> dict[str, dict[str, Any]
         cached = _ROWS.get(subject)
         rows = dict(cached[1]) if cached and cached[0] > now else {}
     missing = [a for a in applications if a.case_id not in rows]
-    for application in missing:
-        rows[application.case_id] = _row(application)
+    # IN PARALLEL (2026-11-04): 501 rows one after another took 18 s -- the first "cases by stage" of every 30 s
+    for application, row in zip(missing, _parallel(_row, missing)):
+        rows[application.case_id] = row
     if missing:
         with _LOCK:
             _ROWS[subject] = (now + ttl, rows)
@@ -236,13 +251,17 @@ def run(claims: dict[str, Any], query: ListQuery) -> ListPage:
         # THE CHEAP PATH: a SQL page + a separate count; statuses only for the page's rows
         total = int(repository.count_granted_cases(subject, product=query.product, created_from=query.created_from,
                                                    created_to=query.created_to))
-        apps = _owned(claims, repository.list_granted_cases(
+        granted = repository.list_granted_cases(
             subject, limit=size, offset=start, order=spec.get("by", "updated_at"),
             descending=bool(spec.get("desc", True)), product=query.product,
-            created_from=query.created_from, created_to=query.created_to))
-        rows = list(_rows_for(subject, apps).values())
-        return ListPage(rows=_number(rows, start), total=total, all_total=total, page=page_no, size=size,
-                        has_more=start + size < total, query=query, start=start)
+            created_from=query.created_from, created_to=query.created_to)
+        apps = _owned(claims, granted)
+        if len(apps) == len(granted):
+            rows = list(_rows_for(subject, apps).values())
+            return ListPage(rows=_number(rows, start), total=total, all_total=total, page=page_no, size=size,
+                            has_more=start + size < total, query=query, start=start)
+        # the ownership check dropped a granted case: the SQL count no longer matches what may be shown -- the full
+        # (owned) scan below counts and pages the same rows ("Showing 1-2 of 3" with two rows, Phase 4 audit)
     apps = _owned(claims, repository.list_granted_cases(subject, limit=int(c.get("scan_limit", 2000))))
     rows_by_case = _rows_for(subject, apps)
     every = list(rows_by_case.values())
@@ -372,6 +391,8 @@ def understand(text: str, previous: dict[str, Any] | None = None) -> ListQuery |
     query = ListQuery()
     asked = False
     n = _number_in(text)
+    if n is not None and not re.search(r"\b\d{1,2}\b", text) and not set(_norm(text).split()) & set().union(*_case_nouns()):
+        n = None                        # "which ONE should i do first": a pronoun, not a count (no case noun beside it)
     for key, phrases in (p.get("filter") or {}).items():
         if _has(text, phrases):
             query.filter, asked = key, True
@@ -400,9 +421,29 @@ def understand(text: str, previous: dict[str, Any] | None = None) -> ListQuery |
         query.size, asked = _counted_cases(text), True
     if n and asked and not query.size:
         query.size = n
-    if not asked and previous is not None and _has(text, p.get("next")):
+    hit = _has(text, p.get("next")) if not asked and previous is not None else None
+    if hit and str(hit).strip().lower() == "aur" and _more_than_more(text):
+        # "aur co-applicant ka?" / "aur salary slip?" is a FOLLOW-UP about something named, not "show more" -- a
+        # bare "aur" / "aur dikhao" still pages (live, 2026-10-13: both were answered with the next page of cases)
+        hit = None
+    if hit:
         return next_page(previous, n)
     return query if asked else None
+
+
+#: the words of a bare "show more" -- anything else beside "aur" names what is being asked about
+_MORE_WORDS = {"aur", "dikhao", "dikha", "do", "bhi", "please", "pls", "more", "show", "next", "cases", "case", "list",
+               "agle", "aage", "batao"}
+
+
+def aur_followup(text: str) -> bool:
+    """ "aur co-applicant ka?" / "aur salary slip?": "aur" (and) with something NAMED -- a follow-up, never "more"."""
+    words = re.findall(r"[a-z\-]+", str(text or "").lower())
+    return "aur" in words and _more_than_more(text)
+
+
+def _more_than_more(text: str) -> bool:
+    return any(len(w) > 1 and w not in _MORE_WORDS for w in re.findall(r"[a-z\-]+", str(text or "").lower()))
 
 
 def next_page(previous: dict[str, Any] | None, n: int | None = None) -> ListQuery:

@@ -1,0 +1,370 @@
+# =====================================================================================================================
+# BANK VERIFICATION AGENT (app/agents/credit/bank_verification/) -- the credit agent's bank verification step.
+#
+# STATUS: DEMO_DUMMY / UNCONFIRMED. Every limit, list and decision rule below is a starting value chosen for the local
+# demo on synthetic data. The credit / operations owner confirms or changes them HERE; no code change is needed.
+# =====================================================================================================================
+status: DEMO_DUMMY
+demo_mode: true                      # shows the "DEMO MODE -- SYNTHETIC DATA" banner; enables /demo/reset
+
+storage:
+  # the uploaded files: relative to the repository root; BANK_VERIFICATION_HOME overrides (tests use a temporary folder)
+  home: runtime/credit_bank_verification
+  # THE DATABASE (prod-ready 2026-10-28): PostgreSQL in production -- set BANK_VERIFICATION_DSN in .env
+  # (postgresql://user:password@host:5432/bank_verification); a DSN always means PostgreSQL. `sqlite` is the local
+  # demo's one-file store and is REFUSED outside demo mode; `postgres` without a DSN is refused too.
+  backend: sqlite
+  dsn_env: BANK_VERIFICATION_DSN
+  pool_max: 8
+
+uploads:
+  max_bytes: 52428800                # 50 MB (a long statement is large)
+  statement_types: [pdf, csv]        # by content, not by the file name alone
+  report_types: [pdf, png, jpg]
+  # no page limit (owner 2026-10-26: "kitne bhi pages read hone chahiye"): 0 / null = every page is read
+  max_pdf_pages: 0
+
+# ---- the LOS cases (owner 2026-10-26: "AP and case number dusre agent se milega"): the search opens a case of the LOS
+# (the same cases the Dedupe Agent creates) by its case ID or applicant ID; its bank statement document, when one was
+# uploaded, becomes the statement on file
+los_cases:
+  enabled: true
+  statement_document_types: [BANK_STATEMENT]
+  statement_statuses: [VERIFIED, REVIEW, PENDING, UPLOADED]   # any of these is taken as the statement on file
+  default_stage: Sourcing                                     # a case the LOS has no stage row for yet
+
+# the statement reader's own limits (app/agents/bank_statement/extract.py), raised for THIS agent's reads only:
+# every page, and enough time for a long statement -- never cut short half way
+reader_limits:
+  BANK_STATEMENT_MAX_PAGES: 100000
+  BANK_STATEMENT_TIME_BUDGET_MS: 600000      # 10 minutes ceiling; an 84-page digital statement takes seconds
+  BANK_STATEMENT_DATE_WINDOW_DAYS: 3700      # multi-year statements kept whole (rule 3 still flags rows outside the printed period)
+  BANK_STATEMENT_INLINE_OCR_PAGES: 100000    # a SCANNED statement is read too, every page (owner: "scan wale q nahi")
+
+# A LONG OR SCANNED STATEMENT IS READ IN THE BACKGROUND (owner 2026-10-26): the upload answers at once ("reading"),
+# one worker reads it, the screen refreshes until the result is in. Small digital statements are checked at once.
+background:
+  enabled: true
+  over_pages: 30          # a digital statement with more pages than this
+  scan_over_pages: 1      # a scanned statement with more pages than this (OCR is ~8 s a page)
+  workers: 1              # statements read at the same time (OCR / tables are CPU-heavy)
+
+# scanned statements (no text layer): read by OCR -- the table by the statement reader's grid, the header from page 1
+scans:
+  enabled: true
+  header_dpi: 200
+  # the header OCR (page 1) runs beside the rows OCR instead of after it. Measured 2026-10-27, 6 paired runs: 20-40%
+  # less time in every pair (a page-1 crop was tried and dropped: slower and words ran together).
+  parallel_header: true
+
+# account types as statements and forms write them -> one canonical value
+account_types:
+  SAVINGS: [savings, saving, sb, savings account, savings a/c, sb account]
+  CURRENT: [current, ca, current account, current a/c]
+  SALARY: [salary, salary account, salary savings]
+  OVERDRAFT: [od, overdraft, cash credit, cc]
+
+# THE HOLDER'S NAME WITHOUT A LABEL (owner 2026-10-26, a real Kotak statement): some banks print the name alone on
+# its own line, right above the customer id ("CRN" / "CIF"). When no labelled name is found, the line just above one of
+# these labels is the name -- only if it is letters only and at most `max_words` words, never another label.
+statement_holder:
+  above_labels: [crn, cif, cif no, customer id, cust id, customer no, customer number]
+  not_a_name: [statement, account, bank, branch, period, address, ifsc, micr, page, date, balance, nominee]
+  max_words: 6
+
+# how a statement header labels each field (case-insensitive; the first match on the first page wins)
+# real statements put the label and its value on one line ("A/C No : 1234"), several labels on one line, or the value
+# on the next line -- all three are read; a value must also look right (value_patterns) or the next label is tried
+statement_labels:
+  bank_name: [bank name]
+  account_holder: [account holder name, account holder, account name, customer name]
+  account_number: [account number, account no, a/c number, a/c no, acct no, "account #"]
+  account_type: [account type, a/c type, type of account, account description, product name, product, scheme,
+                 account category]
+  ifsc: [ifsc code, ifsc, rtgs/neft ifsc, ifs code]
+  period: [statement period, statement from, period, for the period]
+  opening_balance: [opening balance, balance b/f, brought forward, balance as on]
+  closing_balance: [closing balance, balance c/f, carried forward, closing bal]
+value_patterns:
+  account_number: '[0-9Xx\*]{3,}[0-9]{3,}'          # digits, or masked digits ending in digits
+  ifsc: '[A-Za-z]{4}0[A-Za-z0-9]{6}'
+  opening_balance: '-?[0-9][0-9,]*\.?[0-9]{0,2}'
+  closing_balance: '-?[0-9][0-9,]*\.?[0-9]{0,2}'
+# an account type written in words ("SAVINGS BANK GENERAL", "SB-REGULAR", "CURRENT ACCOUNT - BUSINESS"): the first
+# keyword found decides it
+account_type_keywords:
+  SAVINGS: [savings, saving, sb]
+  CURRENT: [current, ca]
+  SALARY: [salary]
+  OVERDRAFT: [overdraft, od, cash credit, cc]
+
+# what the form suggests while the officer types (owner 2026-10-26 "canara likha toh bank ka naam suggest"): bank names
+# come from known_banks (an IFSC prefix like CNRB finds its bank too); account types from this list. Never the
+# statement's own values -- the officer's entry is what the checks compare with the statement.
+# THE APPLICATION'S BANK ACCOUNT fills the form (owner 2026-10-26 "account number application se bharo"): the account
+# the customer gave on the application (where the loan is paid) is checked against the statement -- a statement of
+# another account is caught. Only these fields, only in these modes (AA received: the AA fills the form). The CPA can
+# still change them. LOS cases: the LOS application has no bank account field yet, so nothing is filled there.
+# CLAIM vs EVIDENCE (decided 2026-10-26): the bank + account number are the customer's CLAIM (the account the loan is
+# paid into) and must come from the application; the statement is the EVIDENCE. Filling the number from the statement
+# would compare the statement with itself and never catch a statement of another account. Only when the application
+# holds no account (LOS cases today: no column until migration 0013) do these two fall back to the statement read,
+# tagged "From statement", for the CPA to check.
+application_details:
+  enabled: true
+  modes: [AA_FAILURE]
+  fields: [bank_name, account_number]
+
+# THE STATEMENT FILLS WHAT THE CPA WOULD COPY (owner 2026-10-26, option B): on upload the statement is read at once and
+# these fields arrive filled, tagged "From statement". The CPA checks each against the PDF beside the form and ticks
+# it ("Checked"); a value left unticked "cannot be confirmed" (REVIEW), never a match -- a statement compared with
+# itself proves nothing until a person has looked. Bank name and account number keep coming from the application.
+statement_prefill:
+  enabled: true
+  modes: [AA_FAILURE]
+  # bank_name / account_number: ONLY when the application has none (the claim comes first, see application_details)
+  fields: [bank_name, account_number, account_type, transactions]
+  require_confirmation: true
+  reuse_extraction: true           # Run verification uses the read made at upload (the file is not read twice)
+
+# the statement counts as fully read when these header fields and its transactions are read. Account type is NOT
+# required: many banks (Canara) never print it -- rule 1 says so on its own, the file is not "partly read" for it.
+reader_complete_requires: [bank_name, account_number]
+
+form_suggestions:
+  # a transaction date before this is a typing slip (the date box turns "21-07-2" into the year 0002)
+  earliest_transaction_date: "2000-01-01"
+  account_types: [Savings, Current, Salary, Overdraft]
+  max_shown: 8
+
+# bank names as the statement letterhead prints them; matched with spaces / case ignored (a scan's OCR may join the
+# words: "StateBankofIndia"), shown in this spelling
+known_banks: [State Bank of India, HDFC Bank, ICICI Bank, Axis Bank, Kotak Mahindra Bank, Punjab National Bank,
+              Bank of Baroda, Canara Bank, Union Bank of India, Bank of India, Indian Bank, Central Bank of India,
+              Indian Overseas Bank, UCO Bank, Bank of Maharashtra, Punjab & Sind Bank, IndusInd Bank, Yes Bank,
+              IDFC First Bank, Federal Bank, South Indian Bank, Karur Vysya Bank, RBL Bank, Bandhan Bank, IDBI Bank,
+              AU Small Finance Bank, Equitas Small Finance Bank, Ujjivan Small Finance Bank, City Union Bank,
+              Karnataka Bank, Tamilnad Mercantile Bank, DCB Bank, Jammu & Kashmir Bank, CSB Bank, Dhanlaxmi Bank]
+
+# the bank behind an IFSC's first four letters -- the bank name when the statement prints none (a logo letterhead)
+ifsc_banks: { SBIN: State Bank of India, HDFC: HDFC Bank, ICIC: ICICI Bank, UTIB: Axis Bank, KKBK: Kotak Mahindra Bank,
+              PUNB: Punjab National Bank, BARB: Bank of Baroda, CNRB: Canara Bank, UBIN: Union Bank of India,
+              BKID: Bank of India, IDIB: Indian Bank, CBIN: Central Bank of India, IOBA: Indian Overseas Bank,
+              UCBA: UCO Bank, MAHB: Bank of Maharashtra, PSIB: Punjab & Sind Bank, INDB: IndusInd Bank, YESB: Yes Bank,
+              IDFB: IDFC First Bank, FDRL: Federal Bank, SIBL: South Indian Bank, KVBL: Karur Vysya Bank,
+              RATN: RBL Bank, BDBL: Bandhan Bank, IBKL: IDBI Bank, AUBL: AU Small Finance Bank }
+
+# WHO FILLS THE FORM (owner 2026-10-26, per the bank verification process: "CPA khud bharega"):
+#   AA success  -> what the officer leaves blank is filled from the AA data ("From AA")
+#   AA failure  -> NOTHING is filled for the CPA: the CPA types it from the uploaded statement, and the checks compare
+#                  what the CPA typed with the statement (a blank stays blank: "not entered on the form")
+fill_blanks_from_source:
+  AA_SUCCESS: true
+  AA_FAILURE: false
+
+# WHAT THE FORM IS CHECKED AGAINST (owner / Sahil Sir 2026-10-28: "AA success pe statement bhi upload hota hai -- AA
+# se bhi data, statement se bhi, compare sab hona chahiye"). Each check does one job:
+#   rules 1, 2, 4  the form (and the applicant's name) against the REFERENCE source of the mode, below
+#   rule 6         the AA data against the uploaded statement: account, holder, balances, transactions
+#   rules 3, 7     the uploaded statement itself (integrity, reuse) -- not applicable when only AA data is on file
+# A source the mode names but that is missing falls back to the other one (never "no data" while one is there).
+reference_source:
+  AA_SUCCESS: [AA, STATEMENT]
+  AA_FAILURE: [STATEMENT]
+
+latest_transactions:
+  count: 3
+  # the statement's LATEST rows are only trusted when the read reached its end: a row on the newest date carries the
+  # printed closing balance (or, with no closing balance / balances printed, the file was read in full). Otherwise a
+  # dropped last page would make older rows look "latest" -- each row is then "cannot be confirmed", never PASS.
+  require_end_of_statement: true
+
+# BANK NAMES compare as the same bank when only these differ (owner 2026-10-26 audit): case, spacing, punctuation,
+# the noise words below ("Axis Bank Ltd" = "AXIS BANK LIMITED" = "Axis Bank"), a short name / old name in `aliases`,
+# or the IFSC prefix (ifsc_banks: "CNRB" = Canara Bank). Any other difference is a real mismatch.
+bank_names:
+  noise_words: [the, ltd, limited, co, company, pvt, private, corp, corporation, and]
+  aliases:
+    State Bank of India: [SBI, State Bank]
+    HDFC Bank: [HDFC]
+    ICICI Bank: [ICICI]
+    Axis Bank: [Axis, UTI Bank]
+    Kotak Mahindra Bank: [Kotak, Kotak Bank]
+    Punjab National Bank: [PNB]
+    Bank of Baroda: [BOB, Baroda]
+    Canara Bank: [Canara]
+    Union Bank of India: [Union Bank]
+    Bank of India: [BOI]
+    Indian Overseas Bank: [IOB]
+    Bank of Maharashtra: [Mahabank]
+    IDFC First Bank: [IDFC Bank, IDFC First]
+    IndusInd Bank: [IndusInd]
+    Yes Bank: [YES]
+
+integrity:
+  # PDF producers / creators that are editing or conversion tools, not a bank's statement generator. A match is a
+  # REVIEW signal, never proof of tampering.
+  suspicious_producers: [photoshop, gimp, canva, ilovepdf, sejda, pdfescape, smallpdf, pdf-xchange editor,
+                         foxit phantompdf, nitro pro, inkscape, microsoft word, libreoffice writer]
+  # modified this long after it was created -> REVIEW
+  modified_after_created_hours: 24
+  # rows whose running balance does not follow from the previous row -> REVIEW (0 = any)
+  max_running_balance_breaks: 0
+  # a row this many days before / after the printed period is still in it (a real Canara statement prints its period
+  # from the 23rd and lists the 22nd's rows: the carried-forward day). 0 = exact.
+  period_grace_days: 1
+
+balance:
+  tolerance: "0.00"                  # exact by default (Decimal); a configured tolerance in rupees
+
+duplicates:
+  # same bytes in another case -> EXACT; same account + same transactions, different bytes -> SIMILAR
+  similar_min_shared_transactions: 3
+
+ownership:
+  # the statement's printed holder name vs the applicant: supporting evidence only, never ownership proof
+  holder_name_supporting_only: true
+
+# ---- the agency's finalization ---------------------------------------------------------------------------------------
+agencies:
+  - { id: AGY-NORTHSTAR, name: "Northstar Field Verification" }
+  - { id: AGY-CLEARPATH, name: "ClearPath Verification Services" }
+  - { id: AGY-TRUEVISIT, name: "TrueVisit Agency" }
+
+checklist:
+  # field-level items the agency must answer: VERIFIED / MISMATCH / NOT_VERIFIED
+  - { id: bank_name, label: "Bank name matches bank records" }
+  - { id: account_number, label: "Account number matches bank records" }
+  - { id: account_type, label: "Account type matches bank records" }
+  - { id: account_holder, label: "Account holder is the applicant" }
+  - { id: latest_transactions, label: "Latest transactions confirmed with the branch" }
+  - { id: statement_authentic, label: "Statement confirmed as issued by the bank" }
+
+# THE AGENCY'S REPORT, read and checked against the case on screen (owner 2026-10-27). services/report_check.py.
+agency_report:
+  enabled: true
+  required_for_positive: true      # a POSITIVE needs the report check to PASS
+  max_age_days: 30                 # a report dated earlier than this many days ago is stale
+  min_text_chars: 40               # less text than this: the report could not be read
+  ocr_max_pages: 3                 # a scanned / photographed report: pages OCR'd
+  ocr_dpi: 200
+  masked_min_digits: 4             # a masked account number on the report: at least this many visible digits
+  name_min_common_words: 2         # "Meera K Pillai" = "Meera Pillai" (two shared words, one name inside the other)
+  required: [readable, report_kind, case_ref, report_date, applicant_name, account_number, ownership]
+  # an agency report prints "Label: value" with the label at the start of its line; a label met inside a sentence
+  # ("Customer name on the statement differs...") is not a value
+  label_at_line_start: true
+  # THIS system's own verification report (downloaded and uploaded back by mistake) is not the agency's report: its
+  # title starts with these words (wording report.title)
+  own_report_titles: ["Bank Verification Report"]
+  labels:
+    applicant_name: [customer name, applicant name, name of the applicant, name of applicant, account holder name,
+                     account holder]
+    account_number: [account number, account no, a/c number, a/c no, acct no]
+    bank_name: [bank name, name of bank]
+    ownership: [account ownership, ownership status, ownership, verification result, result]
+    report_date: [date of report, report date, date of visit, visit date, verification date, date]
+    agency: [agency name, name of agency, verified by, agency]
+    account_type: [account type, type of account, a/c type]
+  # the report's transaction lines: a line starting with one of these, holding a date, an amount and a side
+  transaction_labels: [transaction, txn, entry]
+  amount_pattern: '[0-9][0-9,]*\.[0-9]{2}'
+  date_pattern: '[0-9]{1,2}[-/.][0-9]{1,2}[-/.][0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}[ -][A-Za-z]{3,9}[ -][0-9]{4}'
+  direction_words: { CREDIT: [credit, cr], DEBIT: [debit, dr] }
+  value_patterns:
+    account_number: '[0-9Xx\*]{3,}[0-9]{2,}'
+  date_formats: ["%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%Y-%m-%d", "%d %b %Y", "%d-%b-%Y", "%d %B %Y"]
+  # the ownership result in the report's words (the longest phrase wins: "not confirmed" before "confirmed")
+  ownership_words:
+    NOT_CONFIRMED: [not confirmed, not the account holder, negative, mismatch, not verified, does not belong]
+    PENDING: [pending, awaited, scheduled]
+    CONFIRMED: [confirmed, positive, verified, belongs to the customer]
+  ownership_labels: { CONFIRMED: "Confirmed", NOT_CONFIRMED: "Not confirmed", PENDING: "Pending" }
+
+finalize:
+  min_rationale_chars: 20
+  report_required: true
+  branch_visit_required_for_positive: true
+  # a rule left at REVIEW_REQUIRED by processing is resolved only when the agency VERIFIED these checklist items
+  review_resolved_by:
+    R1: [bank_name, account_number, account_type]
+    R2: [latest_transactions]
+    R3: [statement_authentic]
+    R5: [statement_authentic]
+    R7: [statement_authentic]
+  # a FAIL from these rules is an open discrepancy: never POSITIVE until the inputs are corrected and re-run
+  blocking_fail_rules: [R1, R2, R3, R5, R6]
+  # a POSITIVE needs the statement itself to have been read (a branch confirmation does not replace it)
+  positive_requires_readable_statement: true
+  readable_statuses: [COMPLETE, PARTIAL]
+
+# ---- the AI summary (local Qwen via Ollama, app/llm/config.py) ------------------------------------------------------
+# It EXPLAINS the rule results in easy words; it never decides. Checked before it is shown (every figure from the
+# results, no banned word, length); slow / refused / model down -> the rules-written summary, labelled as such.
+ai_summary:
+  enabled: true                    # BANK_VERIFICATION_AI_SUMMARY=off overrides (tests)
+  model: null                      # null -> the app's model (OLLAMA_MODEL / app/llm/config.py)
+  # LATENCY (CPU Qwen 4B; owner 2026-10-26 "use qwen but latency optimization"):
+  precompute: true                 # written in the background as soon as a run finishes (process / finalize / seed),
+                                   # so the case usually opens with it ready -- one worker, one summary at a time
+  warm_on_start: true              # a tiny prime call at server start loads the model before the first summary
+  wait_seconds: 0                  # the screen never waits: rules-written summary at once + pending, AI when ready
+  model_timeout_seconds: 90
+  sentences: 5                     # generation stops once this many sentences are complete
+  num_predict: 220                 # output tokens cap
+  num_ctx: 2048                    # small context window: the facts are compact (prompt time is per token)
+  max_items: 3                     # at most this many mismatches / missing items handed to the model
+  max_chars: 1200
+  keep_alive: "30m"
+  temperature: 0.2
+
+# ---- the standalone server -----------------------------------------------------------------------------------------
+server:
+  title: "Bank Verification Agent"
+  description: "Credit agent -- bank verification."
+  description_demo: "Credit agent -- bank verification."
+  cors_origins: ["http://localhost:5174", "http://127.0.0.1:5174"]
+  seed_when_empty: true            # demo mode: the first start seeds the scenarios
+
+# ---- the dashboard's summary cards: card -> the case statuses it counts --------------------------------------------
+# waiving the bank verification of a case with AA data (owner 2026-10-30): the reason is required
+waive:
+  reason_max: 1000
+
+summary_cards:
+  verified: [POSITIVE]
+  negative: [NEGATIVE]
+  review_required: [REVIEW_REQUIRED]
+  ready: [READY_FOR_FINALIZATION]
+  pending: [PENDING_VERIFICATION]
+  waived: [WAIVED]
+
+# ---- who may do what (simulated roles in demo mode; production takes them from the LOS login) ----------------------
+security:
+  # demo mode, no role header (owner 2026-10-26: "role switch hata do, simple rakho"): ONE demo user does the CPA and
+  # the agency steps on one screen. The CPA / AGENCY / VIEWER separation stays enforced for any caller that names a
+  # role, and production takes the role from the LOS login.
+  default_role: DEMO_USER
+  simulated_suffix: ""             # nothing technical on screen (owner 2026-10-26)
+  # PRODUCTION (demo_mode false): the LOS token decides -- its scopes give the role (first match below), and an AGENCY
+  # caller's agency is the token claim `agency_claim` (an agency can act only for itself). Demo headers are ignored.
+  role_by_scope:
+    - { scope: los.bank.agency, role: AGENCY }
+    - { scope: los.credit.underwrite, role: CPA }
+    - { scope: los.write, role: CPA }
+    - { scope: los.read, role: VIEWER }
+  agency_claim: agency_id
+roles:
+  CPA: [view, process, assign_agency, waive, retrigger]
+  AGENCY: [view, finalize]
+  VIEWER: [view]
+  DEMO_USER: [view, process, assign_agency, finalize, waive, retrigger]    # demo mode only (see security.default_role)
+
+# recommended next actions, most urgent first
+actions:
+  REQUEST_READABLE_STATEMENT: "Ask for a readable bank statement, or enter the details manually."
+  CORRECT_OR_EXPLAIN_MISMATCH: "Correct the entered details if they were typed wrongly; otherwise send the mismatch to the agency."
+  AGENCY_REVIEW: "Send to the verification agency for a branch check."
+  AWAIT_OWNERSHIP_CONFIRMATION: "Wait for the agency's branch confirmation of account ownership."
+  ESCALATE_NEGATIVE_EVIDENCE: "Ownership was not confirmed; escalate per credit policy."
+  READY_FOR_FINALIZATION: "All checks are settled; the agency can finalize."

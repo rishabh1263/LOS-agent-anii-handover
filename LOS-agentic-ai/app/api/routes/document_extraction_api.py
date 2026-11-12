@@ -81,10 +81,15 @@ def _pdf_pages_to_images(pdf_path: Path) -> list[Path]:
         str(pdf_path), dpi=300, first_page=1, last_page=MAX_PDF_PAGES
     )
     out: list[Path] = []
-    for index, page in enumerate(pages, start=1):
-        target = pdf_path.with_name(f"{pdf_path.stem}_p{index}.jpg")
-        page.save(str(target), "JPEG", quality=95)
-        out.append(target)
+    try:
+        for index, page in enumerate(pages, start=1):
+            target = pdf_path.with_name(f"{pdf_path.stem}_p{index}.jpg")
+            out.append(target)
+            page.save(str(target), "JPEG", quality=95)
+    except Exception:
+        for page_file in out:
+            page_file.unlink(missing_ok=True)
+        raise
     return out
 
 
@@ -129,7 +134,58 @@ async def _read_upload(file: UploadFile) -> bytes:
 
     if written == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-    return b"".join(chunks)
+    data = b"".join(chunks)
+    _gate(data, file.filename)
+    return data
+
+
+_GATE_STATUS = {"EMPTY_FILE": 400, "FILE_TOO_LARGE": 413, "AV_SCAN_UNAVAILABLE": 503}
+
+
+def _gate(data: bytes, filename: str) -> None:
+    """THE COMMON UPLOAD GATE (app/security/upload_gate.py) on this route too: the bytes must be the format they
+    claim, never an executable / script / PDF that launches a program. The extension alone was the only check here."""
+    from app.security import upload_gate
+
+    verdict = upload_gate.check(data, filename, limit=MAX_UPLOAD_BYTES, identity=True)
+    if not verdict.allowed:
+        raise _GateRefused(verdict)
+
+
+class _GateRefused(HTTPException):
+    """A refused upload. The route answers it with THIS route's failure contract -- a DocumentExtractionResult with
+    status FAILED and HTTP 422 (400 / 413 / 503 where those fit) -- the same shape a .NET caller already branches on;
+    the batch route, which catches HTTPException, reports it per file."""
+
+    def __init__(self, verdict) -> None:
+        self.verdict = verdict
+        super().__init__(status_code=_GATE_STATUS.get(verdict.code, 422),
+                         detail={"error": verdict.code, "message": verdict.message})
+
+
+def _refused(refusal: _GateRefused, response: Response, request_id: str) -> DocumentExtractionResult:
+    from app.agents.document_agent.schemas import DocumentType
+
+    logger.warning("Upload refused request_id=%s code=%s", request_id, refusal.verdict.code)
+    response.status_code = refusal.status_code
+    return DocumentExtractionResult(document_type=DocumentType.UNKNOWN, status=DocumentStatus.FAILED,
+                                    errors=[f"{refusal.verdict.code}: {refusal.verdict.message}"])
+
+
+async def _ocr_pages(page_images: list[Path]):
+    """OCR every rendered page of a multi-page PDF and merge them. The page JPEGs are deleted however this ends --
+    a failure on page two used to leave every rendered page (a full-resolution ID image) on disk."""
+    from app.agents.document_agent.ocr import run_ocr
+    from app.agents.document_agent.pipeline import extract_document, merge_results
+
+    try:
+        first = await run_ocr(extract_document, str(page_images[0]))
+        others = [await run_ocr(extract_document, str(page), None, first.document_type)
+                  for page in page_images[1:]]
+        return merge_results([first] + others)
+    finally:
+        for page in page_images:
+            page.unlink(missing_ok=True)
 
 
 def _finalise(state, response, request_id) -> DocumentExtractionResult:
@@ -158,44 +214,18 @@ def _finalise(state, response, request_id) -> DocumentExtractionResult:
 
 
 async def _save_upload(file: UploadFile, request_id: str) -> Path:
-    """Stream the upload to disk, enforcing the size cap as we go."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Filename is required.")
-
-    suffix = Path(file.filename).suffix.lower()
-    if suffix not in ALLOWED_SUFFIXES:
-        raise HTTPException(
-            status_code=415,
-            detail=f"Unsupported file type '{suffix}'. Allowed: {sorted(ALLOWED_SUFFIXES)}",
-        )
-
+    """Read the upload with the size cap enforced, SCAN it in memory, and only then write it to disk -- so a file
+    the gate refuses (a program, a script, EICAR) never lands on the server's disk at all. Only PDFs come here,
+    because pdf2image shells out to poppler and needs a path."""
+    data = await _read_upload(file)                       # size cap, empty check and the full upload gate
     UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
-    target = UPLOAD_ROOT / f"{request_id}{suffix}"
-
-    written = 0
+    target = UPLOAD_ROOT / f"{request_id}{Path(file.filename).suffix.lower()}"
     try:
-        with target.open("wb") as handle:
-            while chunk := await file.read(1024 * 1024):
-                written += len(chunk)
-                if written > MAX_UPLOAD_BYTES:
-                    handle.close()
-                    target.unlink(missing_ok=True)
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"File exceeds {MAX_UPLOAD_BYTES} bytes.",
-                    )
-                handle.write(chunk)
-    except HTTPException:
-        raise
-    except Exception as exc:
+        target.write_bytes(data)
+    except Exception:
         target.unlink(missing_ok=True)
         logger.exception("Upload failed request_id=%s", request_id)
         raise HTTPException(status_code=500, detail="Could not store the upload.") from None
-
-    if written == 0:
-        target.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-
     return target
 
 
@@ -252,7 +282,10 @@ async def extract_document_upload(
     # pdf2image shells out to poppler.
     suffix = Path(file.filename or "").suffix.lower()
     if suffix != ".pdf":
-        data = await _read_upload(file)
+        try:
+            data = await _read_upload(file)
+        except _GateRefused as refusal:
+            return _refused(refusal, response, request_id)
         state = await run_agent(
             agent_id=AGENT_ID,
             payload={"image_bytes": data},
@@ -260,7 +293,10 @@ async def extract_document_upload(
         )
         return _finalise(state, response, request_id)
 
-    stored = await _save_upload(file, request_id)
+    try:
+        stored = await _save_upload(file, request_id)
+    except _GateRefused as refusal:
+        return _refused(refusal, response, request_id)
     derived: Path | None = None
 
     try:
@@ -283,25 +319,9 @@ async def extract_document_upload(
                 # An ID card scanned to PDF has the front on page one and
                 # the reverse -- gender, date of birth, address -- on page
                 # two. Rendering only the first page lost half the card.
-                from app.agents.document_agent.pipeline import (
-                    extract_document, merge_results,
-                )
-                from app.agents.document_agent.ocr import run_ocr
-
                 page_images = _pdf_pages_to_images(stored)
                 if len(page_images) > 1:
-                    first = await run_ocr(extract_document, str(page_images[0]))
-                    others = []
-                    for page in page_images[1:]:
-                        others.append(
-                            await run_ocr(
-                                extract_document, str(page), None,
-                                first.document_type,
-                            )
-                        )
-                    for page in page_images:
-                        page.unlink(missing_ok=True)
-                    merged = merge_results([first] + others)
+                    merged = await _ocr_pages(page_images)
                     return _finalise(
                         {"status": "success",
                          "result": merged.model_dump(mode="json")},
@@ -386,32 +406,12 @@ async def extract_documents_batch(
                 # Batch has no per-item Response object to set a status code
                 # on, so the merged result is returned directly rather than
                 # through _finalise.
-                from app.agents.document_agent.pipeline import (
-                    extract_document, merge_results,
-                )
-                from app.agents.document_agent.ocr import run_ocr
-
                 page_images = _pdf_pages_to_images(stored)
                 if len(page_images) > 1:
-                    first_page = await run_ocr(
-                        extract_document, str(page_images[0])
-                    )
-                    others = []
-                    for page in page_images[1:]:
-                        others.append(
-                            await run_ocr(
-                                extract_document, str(page), None,
-                                first_page.document_type,
-                            )
-                        )
-                    for page in page_images:
-                        page.unlink(missing_ok=True)
                     results.append({
                         "filename": upload.filename,
                         "status": "success",
-                        "result": merge_results(
-                            [first_page] + others
-                        ).model_dump(mode="json"),
+                        "result": (await _ocr_pages(page_images)).model_dump(mode="json"),
                         "error": None,
                     })
                     continue
@@ -442,7 +442,7 @@ async def extract_documents_batch(
                 "filename": upload.filename,
                 "status": "failed",
                 "result": None,
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": f"EXTRACTION_FAILED ({type(exc).__name__})",
             })
         finally:
             if stored is not None:

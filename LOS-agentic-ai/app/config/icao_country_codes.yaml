@@ -1,0 +1,25 @@
+# The three-letter state codes a passport MRZ may carry in "issuing state" and "nationality" (ICAO Doc 9303 Part 3:
+# ISO 3166-1 alpha-3, plus ICAO's own codes). These two fields have NO check digit, so an OCR slip ("1ND", "INO")
+# passes unseen; the MRZ reader (document_agent/fields/passport.py) maps a value that is not a real code to the one
+# code at one OCR-likely character away -- or leaves it as read and flags it. Standard data, not a heuristic.
+codes: [
+  AFG, ALA, ALB, DZA, ASM, AND, AGO, AIA, ATA, ATG, ARG, ARM, ABW, AUS, AUT, AZE, BHS, BHR, BGD, BRB, BLR, BEL, BLZ,
+  BEN, BMU, BTN, BOL, BES, BIH, BWA, BVT, BRA, IOT, BRN, BGR, BFA, BDI, CPV, KHM, CMR, CAN, CYM, CAF, TCD, CHL, CHN,
+  CXR, CCK, COL, COM, COG, COD, COK, CRI, CIV, HRV, CUB, CUW, CYP, CZE, DNK, DJI, DMA, DOM, ECU, EGY, SLV, GNQ, ERI,
+  EST, SWZ, ETH, FLK, FRO, FJI, FIN, FRA, GUF, PYF, ATF, GAB, GMB, GEO, DEU, GHA, GIB, GRC, GRL, GRD, GLP, GUM, GTM,
+  GGY, GIN, GNB, GUY, HTI, HMD, VAT, HND, HKG, HUN, ISL, IND, IDN, IRN, IRQ, IRL, IMN, ISR, ITA, JAM, JPN, JEY, JOR,
+  KAZ, KEN, KIR, PRK, KOR, KWT, KGZ, LAO, LVA, LBN, LSO, LBR, LBY, LIE, LTU, LUX, MAC, MDG, MWI, MYS, MDV, MLI, MLT,
+  MHL, MTQ, MRT, MUS, MYT, MEX, FSM, MDA, MCO, MNG, MNE, MSR, MAR, MOZ, MMR, NAM, NRU, NPL, NLD, NCL, NZL, NIC, NER,
+  NGA, NIU, NFK, MKD, MNP, NOR, OMN, PAK, PLW, PSE, PAN, PNG, PRY, PER, PHL, PCN, POL, PRT, PRI, QAT, REU, ROU, RUS,
+  RWA, BLM, SHN, KNA, LCA, MAF, SPM, VCT, WSM, SMR, STP, SAU, SEN, SRB, SYC, SLE, SGP, SXM, SVK, SVN, SLB, SOM, ZAF,
+  SGS, SSD, ESP, LKA, SDN, SUR, SJM, SWE, CHE, SYR, TWN, TJK, TZA, THA, TLS, TGO, TKL, TON, TTO, TUN, TUR, TKM, TCA,
+  TUV, UGA, UKR, ARE, GBR, USA, UMI, URY, UZB, VUT, VEN, VNM, VGB, VIR, WLF, ESH, YEM, ZMB, ZWE,
+  # ICAO-specific codes
+  D, GBD, GBN, GBO, GBP, GBS, UNO, UNA, UNK, XXA, XXB, XXC, XXX, XOM, XPO, XES, XCC, XBA, XIM, EUE, RKS, ZIM,
+  # ICAO's specimen state ("Utopia"), printed on the Doc 9303 sample passports
+  UTO,
+]
+# OCR-B confusions in a LETTER-only field: what a digit (or look-alike) most likely was
+letter_for: { "0": "O", "1": "I", "2": "Z", "5": "S", "6": "G", "8": "B", "4": "A", "7": "T", "3": "E" }
+# letters the recogniser swaps for each other (a one-character repair may only swap within these pairs)
+confusable: [[O, Q], [O, D], [I, L], [I, J], [N, M], [N, H], [Z, N], [E, F], [B, R], [C, G], [U, V], [S, Z], [D, P]]

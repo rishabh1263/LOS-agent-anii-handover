@@ -1,4 +1,6 @@
 """
+POST /api/v1/credit/assess/{case_id} -- THE credit assessment call: send the vendor's bank report (optional), get
+the repayment answer in plain words and the credit agent's result (app/agents/credit/repayment/api_response.py).
 POST /api/v1/credit/underwriting/run -- run the Credit Underwriting Agent on one case.
 
 AUTHENTICATED (require_jwt on the router). Everything else is the agent's own
@@ -27,11 +29,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agents.credit.repayment.api_response import AssessResponse
 from app.security.auth import require_jwt
 
 logger = logging.getLogger(__name__)
@@ -119,6 +122,132 @@ async def recorded_assessment(case_id: str, claims: dict[str, Any] = Depends(req
             "status": (assessment or {}).get("status") or "NOT_ASSESSED", "assessment": assessment,
             "memo": recorded.get("memo"), "run_id": recorded.get("run_id"),
             "agent_version": recorded.get("agent_version")}
+
+
+# ---- ONE API for credit assessment: bank statement + repayment report + the credit agent (2026-10-19) ----------------
+def _assess_scopes():
+    """The scopes allowed to call it (settings.yaml `scopes`; the read-all service scope may read, not send a file)."""
+    from app.agents.credit.repayment import config as _cfg
+    from app.security.access import require_any_scope
+
+    return require_any_scope(*_cfg.settings()["scopes"])
+
+
+_ASSESS_STATUS = {
+    "INVALID_CASE_ID": status.HTTP_422_UNPROCESSABLE_ENTITY, "EMPTY_FILE": status.HTTP_400_BAD_REQUEST,
+    "FILE_TOO_LARGE": status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+    "UNSUPPORTED_FILE_TYPE": status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+    "INVALID_BANK_ANALYSIS": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "NO_BANK_ANALYSIS": status.HTTP_404_NOT_FOUND, "CASE_NOT_FOUND": status.HTTP_404_NOT_FOUND,
+    "DATA_SOURCE_UNAVAILABLE": status.HTTP_503_SERVICE_UNAVAILABLE,
+    "CONFIG_NOT_APPROVED": status.HTTP_503_SERVICE_UNAVAILABLE,
+    "FILE_NOT_ALLOWED": status.HTTP_403_FORBIDDEN,
+    "INVALID_PARTY": status.HTTP_422_UNPROCESSABLE_ENTITY,
+}
+
+# the error message the caller reads, in plain words
+_ASSESS_MESSAGE = {
+    "INVALID_CASE_ID": "The case id is not valid. It looks like CASE-XXXXXXXXXXXX.",
+    "EMPTY_FILE": "The file is empty.",
+    "FILE_TOO_LARGE": "The file is too large.",
+    "UNSUPPORTED_FILE_TYPE": "Send the vendor's bank report as .xlsx or .json.",
+    "INVALID_BANK_ANALYSIS": "The bank report could not be read: {detail}",
+    "NO_BANK_ANALYSIS": "No bank statement analysis has been received for this case yet. Send the vendor's file.",
+    "CASE_NOT_FOUND": "The case was not found.",
+    "DATA_SOURCE_UNAVAILABLE": "The case data could not be read right now. Please try again.",
+    "CONFIG_NOT_APPROVED": "Credit assessment is not enabled in this environment.",
+    "FILE_NOT_ALLOWED": "Your access can read assessments but cannot send a bank statement.",
+    "INVALID_PARTY": "The co-applicant id may hold letters, digits, - and _ only.",
+}
+
+
+def _in_los(case_id: str) -> bool:
+    """Whether the LOS case store holds an application for this case (unreadable: try the agent, it will say)."""
+    from app.store import get_repository
+
+    try:
+        return get_repository().get_application(case_id) is not None
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def _assess_error(code: str, detail: str, request_id: str) -> HTTPException:
+    message = _ASSESS_MESSAGE.get(code, "The request could not be completed.").format(detail=detail)
+    return HTTPException(_ASSESS_STATUS.get(code, status.HTTP_500_INTERNAL_SERVER_ERROR),
+                         detail={"code": code, "message": message, "request_id": request_id})
+
+
+@router.post(
+    "/assess/{case_id}",
+    response_model=AssessResponse,
+    response_model_exclude_none=True,
+    summary="Credit assessment in one call: send the bank statement (optional), get the repayment answer",
+    response_description="Can the customer repay, why in plain words, the 5 checks, loans, the suggestion, and the "
+                         "credit agent's result.",
+)
+async def assess(case_id: str,
+                 file: UploadFile | None = File(None, description="The vendor's bank report (.xlsx or .json). "
+                                                                  "Leave out to use the one already received."),
+                 run_underwriting: bool = Form(False, description="Also run the credit agent (a LOS case at the Credit "
+                                                                 "stage); its result is in `detail`."),
+                 party: Literal["applicant", "co_applicant"] = Form(
+                     "applicant", description="Whose statement the file is: the applicant's or a co-applicant's."),
+                 co_applicant_id: str | None = Form(None, max_length=40,
+                                                    description="The co-applicant the file belongs to (default CO1)."),
+                 applicant_name: str | None = Form(None, max_length=120,
+                                                   description="Compared with the account holder's name."),
+                 detail: bool = Form(False, description="Add everything behind the answer (sections, vendor sheets)."),
+                 explain: bool = Form(True, description="Add the AI summary in easy words at the end."),
+                 claims: dict[str, Any] = Depends(_assess_scopes())) -> AssessResponse:
+    """
+    ONE CALL, THREE STEPS: (1) keep the vendor's bank report when one is sent, (2) build the repayment report from
+    it and the case's eligibility data, (3) run the credit agent, which reads the same report through MCP.
+
+    A report that cannot be built is an error (no statement yet, unreadable file, unknown case). The credit agent not
+    running (wrong stage, no access) is NOT an error: the answer says so in `underwriting`.
+    """
+    import asyncio
+
+    from app.agents.applicant import permissions
+    from app.agents.credit import agent
+    from app.agents.credit.repayment import api_response, config as repayment_config, service
+    from app.security import access
+    from app.security.auth import get_scopes
+
+    request_id = f"cra_{uuid.uuid4().hex}"
+    case_id = case_id.strip()
+    statement = "ON_FILE"
+    try:
+        if file is not None:
+            held = set(get_scopes(claims))
+            if not (held & set(repayment_config.settings()["scopes"]) or access.is_service(held, write=True)):
+                raise service.RepaymentError("FILE_NOT_ALLOWED", "")
+            content = await file.read()
+            who = None if party == "applicant" else (co_applicant_id or "").strip() or "CO1"
+            await asyncio.to_thread(service.receive, case_id, content, file.filename or "", who)
+            statement = "RECEIVED_NOW"
+        report = await asyncio.to_thread(service.report_for, case_id, applicant_name)
+    except service.RepaymentError as exc:
+        raise _assess_error(exc.code, exc.message, request_id) from None
+    if statement == "ON_FILE" and report["bank_data"]["demo"]:
+        statement = "DEMO"
+
+    run = None
+    # A CASE THE LOS DOES NOT HOLD (an eligibility-only case) is not run: the agent would refuse it on its stage,
+    # which reads as if the case were at the wrong stage. Said plainly instead.
+    in_los = (not run_underwriting) or await asyncio.to_thread(_in_los, case_id)
+    if run_underwriting and in_los:
+        caller = permissions.Caller.from_claims(claims)
+        token = agent.CALLER.set(caller)
+        try:
+            run = await agent.underwrite(case_id, caller=caller, request_id=request_id)
+        except Exception:  # noqa: BLE001 - the report stands; the answer says underwriting did not complete
+            logger.exception("credit assess: underwriting failed request_id=%s", request_id)
+        finally:
+            agent.CALLER.reset(token)
+    block = api_response.underwriting_block(run, requested=run_underwriting, in_los=in_los)
+    return await asyncio.to_thread(api_response.build, report, request_id=request_id, statement_status=statement,
+                                   underwriting=block, detail=detail, explain=explain)
 
 
 __all__ = ["router"]

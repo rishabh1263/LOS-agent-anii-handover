@@ -5,7 +5,7 @@
   "reply",
   "upload"
  ],
- "contract_version": "1.0",
+ "contract_version": "1.1",
  "error_keys": [
   "code",
   "message",
@@ -39,7 +39,7 @@
  ],
  "request_schemas": {
   "ActionRequest": "0256ea5a348dc02f",
-  "CopilotRequest": "89f8f0e06b6c07b9",
+  "CopilotRequest": "a74e1cf30ec51227",
   "LoginRequest": "7d0156747363dde1",
   "RefreshRequest": "f55d91561a02d287",
   "_ChatRef": "f3a004b883dc0883"

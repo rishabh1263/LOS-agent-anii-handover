@@ -102,6 +102,17 @@ SETS = {
     "edge_large_pdf": [LARGE],
     "edge_malformed": [MALFORMED],
     "edge_unreadable_image": [UNREADABLE],
+    # ONE DOCUMENT PER FAMILY, small vs big (2026-10-14 OCR directive: small < 2 s, big < 5 s; Aadhaar excluded)
+    "doc_pan": [PAN],
+    "doc_dl": [DL],
+    "doc_voter": [VOTER],
+    "doc_itr_native": [ITR],
+    "doc_salary_native": [("salary2.pdf", "SALARY_SLIP", lambda: _file("real_batch/salary_slip.pdf"))],
+    "doc_bank_native_small": [BANK_TEXT],
+    "doc_bank_native_104p": [("bank104.pdf", "BANK_STATEMENT", lambda: _file("documents/Bank Statement.pdf"))],
+    "doc_bank_scanned_4p": [BANK_SCAN],
+    "doc_deed_scanned_6p": [("deed6.pdf", "SALE_DEED", lambda: _file("real_batch/sale_deed_small.pdf"))],
+    "doc_deed_scanned_28p": [("deed28.pdf", "SALE_DEED", lambda: _file("real_batch/sale_deed_clean.pdf"))],
 }
 
 

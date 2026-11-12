@@ -38,7 +38,8 @@ def _label(key: str, **values: Any) -> str:
     defaults = {"heading": "Case timeline -- {case_id}", "created": "Case created", "uploaded": "{document} uploaded "
                 "({status})", "kyc": "KYC run ({status})", "event": "{event}",
                 "days": "{days} day(s) in {stage}.", "over": "Past the {stage} target of {target} day(s).",
-                "within": "Within the {stage} target of {target} day(s).", "blocker": "Main blocker: {blocker}.",
+                "days_today": "It moved to {stage} today.",
+                "within": "That's still within the {target}-day {stage} target.", "blocker": "Main blocker: {blocker}.",
                 "day_none": "Nothing was uploaded {when}.", "day_some": "Uploaded {when}: {items}.",
                 "created_on": "The case was created on {date}."}
     return language_lock.pick((_cfg().get("labels") or {}).get(key, defaults.get(key, key))).format(**values)
@@ -148,12 +149,19 @@ def render(t: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _words(text: str) -> str:
+    """Lower-case words with the configured determiners dropped ("when was THIS case created" is "when was THE case
+    created"), padded with spaces for whole-phrase matching."""
+    drop = {str(w).lower() for w in _cfg().get("ignore_words") or []}
+    return " " + " ".join(w for w in re.findall(r"[\wऀ-ॿ]+", str(text or "").lower()) if w not in drop) + " "
+
+
 def asked(message: str) -> str | None:
     """TIMELINE / DAYS / CREATED / DAY:<offset> -- what a time question asks, from config phrases; else None."""
-    said = " " + " ".join(re.findall(r"[\wऀ-ॿ]+", str(message or "").lower())) + " "
+    said = _words(message)
     phrases = _cfg().get("phrases") or {}
     for kind in ("timeline", "days", "created"):
-        if any(f" {' '.join(str(p).lower().split())} " in said for p in phrases.get(kind) or []):
+        if any(_words(p) in said for p in phrases.get(kind) or []):
             return kind.upper()
     for word, offset in (_cfg().get("relative_days") or {}).items():
         if f" {str(word).lower()} " in said and any(f" {w} " in said for w in phrases.get("day_cues") or []):
@@ -166,7 +174,8 @@ def answer(case_id: str, kind: str, repository: Any = None, *, today: date | Non
     if kind == "TIMELINE":
         return render(t)
     if kind == "DAYS":
-        text = _label("days", days=t["days_in_stage"], stage=t["stage"])
+        # NOTHING TO COUNT YET: "It moved to FOS today.", never "0 day(s) in FOS." (2026-10-24)
+        text = _label("days_today" if t["days_in_stage"] == 0 else "days", days=t["days_in_stage"], stage=t["stage"])
         if t.get("target_days") is not None:
             text += " " + _label("over" if t["over_target"] else "within", stage=t["stage"], target=t["target_days"])
         return text
@@ -184,12 +193,21 @@ def attach(published: dict[str, Any], message: str) -> dict[str, Any]:
     if not isinstance(published, dict) or not enabled() or not published.get("case_id"):
         return published
     kind = asked(message)
+    intent = str(published.get("intent") or "").upper()
+    # AN ANSWER THAT IS ABOUT TIME ITSELF: "what has happened on this case so far" (CASE_HISTORY) carries its timeline
+    by_intent = kind is None and (_cfg().get("with_intents") or {}).get(intent)
+    kind = kind or by_intent
     if kind is None:
         return published
     from app.agents.applicant.copilot.answering.counts import keep_case_header
 
-    published["answer"] = keep_case_header(published.get("answer"), answer(published["case_id"], kind),
-                                           published["case_id"])
+    said = answer(published["case_id"], kind)
+    if by_intent or intent in {str(i).upper() for i in _cfg().get("add_to_intents") or []}:
+        # BOTH WERE ASKED ("what stage is it in and since when"): the stage answer stays, the time follows it
+        published["answer"] = str(published.get("answer") or "").rstrip() + "\n\n" + said
+        published.pop("answer_markdown", None)
+        return published
+    published["answer"] = keep_case_header(published.get("answer"), said, published["case_id"])
     published.pop("answer_markdown", None)
     published["intent"] = "CASE_TIMELINE"
     return published

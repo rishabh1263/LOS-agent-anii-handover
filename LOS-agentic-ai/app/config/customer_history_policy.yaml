@@ -1,0 +1,226 @@
+# CUSTOMER HISTORY POLICY -- MIFIN match + loan history, evaluated with the dedupe / credit rule conventions
+# (app/agents/dedupe/config.normalise_rules; app/agents/dedupe/history_policy.py).
+#
+# OUTCOME VOCABULARY = the credit agent's (app/agents/credit/schemas.py): READY_FOR_DECISION | REVIEW_REQUIRED |
+# DATA_INSUFFICIENT, precedence DATA_INSUFFICIENT > REVIEW_REQUIRED > READY_FOR_DECISION. READY_FOR_DECISION means the
+# evidence is complete for a decision-maker -- NEVER a loan approval; this layer never approves or declines.
+#
+# NO SBFC BUSINESS VALUE IS INVENTED. "eq true" / "gt 0" are each rule's own definition (ANY conflict, ANY unknown
+# status ...). Every limit that is a business value -- existing-loan count, total exposure, EMI burden, DPD -- is
+# null = UNCONFIGURED: NOT_EVALUATED, and an unconfigured limit keeps the outcome at REVIEW_REQUIRED (missing policy
+# is never a pass).
+
+policy_id: CUSTOMER_HISTORY
+policy_version: "0.1.0-UNSIGNED"
+signed_off: false
+
+rules:
+  - rule_id: H01_SOURCE_AVAILABLE
+    description: "MIFIN answered (not unavailable, errored or malformed)."
+    inputs: [source.mifin_unavailable]
+    operator: eq
+    threshold: true
+    severity: HIGH
+    recommendation: DATA_INSUFFICIENT
+    reason_code: MIFIN_UNAVAILABLE
+    next_action: "Retry the MIFIN dedupe, or raise it with the MIFIN team."
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: H02_IDENTITY_RESOLVED
+    description: "The match is confirmed (not potential or ambiguous)."
+    inputs: [match.unresolved]
+    operator: eq
+    threshold: true
+    severity: MEDIUM
+    recommendation: REVIEW_REQUIRED
+    reason_code: IDENTITY_NOT_CONFIRMED
+    next_action: "Confirm the customer's identity against MIFIN manually before using any loan history."
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: H03_HISTORY_COMPLETE
+    description: "Every loan's state is known from Leviosa (history COMPLETE, or no previous loans / no match)."
+    inputs: [history.incomplete]
+    operator: eq
+    threshold: true
+    severity: MEDIUM
+    recommendation: DATA_INSUFFICIENT
+    reason_code: LOAN_HISTORY_INCOMPLETE
+    next_action: "Get the missing loan details from Leviosa."
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: H04_NO_CONFLICTING_RECORDS
+    description: "No prospect / loan reference appears twice with different facts."
+    inputs: [history.conflicting_records]
+    operator: gt
+    threshold: 0
+    severity: HIGH
+    recommendation: REVIEW_REQUIRED
+    reason_code: CONFLICTING_LOAN_RECORDS
+    next_action: "Reconcile the conflicting loan records with MIFIN before relying on the history."
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: H05_NO_UNKNOWN_LOAN_STATUS
+    description: "No loan whose state neither Leviosa nor a mapped MIFIN status confirms."
+    inputs: [history.unknown_status_loans]
+    operator: gt
+    threshold: 0
+    severity: MEDIUM
+    recommendation: DATA_INSUFFICIENT
+    reason_code: LOAN_STATUS_UNKNOWN
+    next_action: "Confirm each unknown loan's state (live, closed or cancelled) from Leviosa."
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: H06_ADVERSE_HISTORY
+    description: "A previous loan was settled or written off (Leviosa)."
+    inputs: [history.adverse_events]
+    operator: gt
+    threshold: 0
+    severity: HIGH
+    recommendation: REVIEW_REQUIRED
+    reason_code: ADVERSE_LOAN_HISTORY
+    next_action: "Refer the settled / written-off history to the credit team."
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: H07_EXISTING_LOAN_COUNT
+    description: "Live loans at or above the approved existing-loan limit."
+    inputs: [history.active_loans]
+    operator: gte
+    threshold: 3             # DEMO_DUMMY (owner 2026-10-23); the business's limit replaces it
+    severity: MEDIUM
+    recommendation: REVIEW_REQUIRED
+    reason_code: EXISTING_LOAN_LIMIT
+    next_action: "Review the number of running loans before going further."
+    confirmation_status: DEMO_DUMMY
+
+  - rule_id: H08_TOTAL_EXPOSURE
+    description: "Live exposure plus the requested amount above the approved customer-exposure limit (rupees)."
+    inputs: [exposure.with_requested]
+    operator: gt
+    threshold: 5000000       # DEMO_DUMMY: Rs 50 lakh
+    severity: HIGH
+    recommendation: REVIEW_REQUIRED
+    reason_code: CUSTOMER_EXPOSURE_LIMIT
+    next_action: "Review the total exposure with the credit team."
+    confirmation_status: DEMO_DUMMY
+
+  - rule_id: H09_EMI_BURDEN
+    description: "Existing monthly EMI above the approved limit (rupees)."
+    inputs: [history.monthly_emi]
+    operator: gt
+    threshold: 50000         # DEMO_DUMMY: Rs 50,000 a month
+    severity: MEDIUM
+    recommendation: REVIEW_REQUIRED
+    reason_code: EMI_BURDEN_LIMIT
+    next_action: "Review the existing EMI burden with the credit team."
+    confirmation_status: DEMO_DUMMY
+
+  - rule_id: H11_TOPUP_ELIGIBILITY
+    description: "A running loan does not meet the top-up conditions (topup: below)."
+    inputs: [history.topup_ineligible_loans]
+    operator: gt
+    threshold: 0
+    severity: MEDIUM
+    recommendation: REVIEW_REQUIRED
+    reason_code: TOPUP_NOT_ELIGIBLE
+    next_action: "A top-up on the running loan needs review: it does not meet the top-up conditions."
+    confirmation_status: DEMO_DUMMY
+
+  - rule_id: H12_EMI_BOUNCES
+    description: "EMI bounces in the last 12 months above the limit (Leviosa)."
+    inputs: [history.emi_bounces_12m]
+    operator: gt
+    threshold: 2             # DEMO_DUMMY: more than 2 bounces
+    severity: HIGH
+    recommendation: REVIEW_REQUIRED
+    reason_code: EMI_BOUNCES
+    next_action: "Review the bounced EMIs and the repayment account with the credit team."
+    confirmation_status: DEMO_DUMMY
+
+  - rule_id: H13_FRAUD_HISTORY
+    description: "An RCU / fraud case on the customer that is confirmed or still open."
+    inputs: [rcu.adverse_records]
+    operator: gt
+    threshold: 0
+    severity: HIGH
+    recommendation: REVIEW_REQUIRED
+    reason_code: FRAUD_HISTORY
+    next_action: "Refer the case to RCU before going further."
+    confirmation_status: DEMO_DUMMY
+
+  - rule_id: H14_COLLATERAL_REUSE
+    description: "A property of the customer is also pledged by another customer."
+    inputs: [collateral.shared_properties]
+    operator: gt
+    threshold: 0
+    severity: HIGH
+    recommendation: REVIEW_REQUIRED
+    reason_code: COLLATERAL_REUSE
+    next_action: "Verify the shared property's title and charges before going further."
+    confirmation_status: DEMO_DUMMY
+
+  - rule_id: H10_DPD
+    description: "Worst DPD in the last 12 months above the approved limit (days)."
+    inputs: [history.worst_dpd_12m]
+    operator: gt
+    threshold: 30            # DEMO_DUMMY: 30 days
+    severity: HIGH
+    recommendation: REVIEW_REQUIRED
+    reason_code: DPD_LIMIT
+    next_action: "Review the repayment delays (DPD) with the credit team."
+    confirmation_status: DEMO_DUMMY
+
+# THE EXPLANATION (app/agents/dedupe/history_summary.py): the model only words the verified result; anything it adds
+# is rejected and the deterministic explanation is returned instead.
+summary:
+  llm_enabled: true
+  model: qwen3:4b-instruct-2507-q4_K_M   # the one local model used everywhere (OLLAMA_MODEL); instruct = no "thinking"
+  num_predict: 160                       # a short wording of the verified facts (max_words 140) -- faster than 220
+  timeout_seconds: 6
+  max_words: 140
+  # THE DEDUPE SCREEN DOES NOT WAIT FOR THE MODEL (owner 2026-10-23: the screen was slow -- the CPU model took the
+  # whole 6 s and then timed out). deferred: the dedupe answer carries the deterministic text and reason points at
+  # once; the page asks GET /api/v1/credit/dedupe/{request_id}/reason for the model's points, which may take longer.
+  deferred: true
+  reason_points: 3                       # exactly this many points: why the recommendation is what it is
+  reason_point_max_words: 24
+  reason_num_predict: 200
+  reason_timeout_seconds: 40             # the model's own call, off the dedupe answer's path
+  reason_cache_seconds: 900              # how long a check's facts are kept (in memory) for its reason call
+  reason_cache_max: 200
+
+# THE LOS'S OWN DEDUPE (app/agents/dedupe/service.py: other LOS cases, role swaps, file reuse, simultaneous
+# applications) in the same single answer: each recommendation it raises adds REVIEW_REQUIRED with this reason code
+# and next action. PARTIAL_ANALYSIS / DATA_UNAVAILABLE / LINK_EXISTING_CUSTOMER / CONTINUE_STANDARD_ONBOARDING add
+# nothing (they are reported in the los_dedupe section, never a pass or a block).
+los_dedupe_contributions:
+  IDENTITY_CONFLICT_REVIEW: {reason_code: LOS_IDENTITY_CONFLICT,
+                             next_action: "The PAN is on another customer record in the LOS: resolve which record is correct."}
+  DOCUMENT_VERIFICATION_REQUIRED: {reason_code: LOS_DOCUMENT_REUSE,
+                                   next_action: "A file on this case is on another customer's case: verify the document."}
+  DUPLICATE_APPLICATION: {reason_code: LOS_DUPLICATE_APPLICATION,
+                          next_action: "Check whether this application duplicates an open one."}
+  SIMULTANEOUS_APPLICATION_REVIEW: {reason_code: LOS_SIMULTANEOUS_APPLICATION,
+                                    next_action: "The customer has another open application for the same product: review it."}
+  POSSIBLE_MATCH_REVIEW: {reason_code: LOS_POSSIBLE_MATCH,
+                          next_action: "Another LOS customer shares the mobile: confirm they are different people."}
+  ROLE_CHANGE_REVIEW: {reason_code: LOS_ROLE_CHANGE,
+                       next_action: "The applicant is a co-applicant (or vice versa) on another case: confirm the roles."}
+
+# THE FORM'S CUSTOMER TYPE CONTRADICTED (2026-11-03): the Customer Type check's result (MIFIN + the LOS search) that
+# makes the one outcome REVIEW_REQUIRED. A customer declared New whose identifier is already on record is never
+# "ready for decision" without an officer's look.
+customer_type_contributions:
+  DECLARED_NEW_BUT_FOUND: {reason_code: DECLARED_NEW_BUT_FOUND,
+                           next_action: "The customer was declared New but this identifier is already on record: correct the Customer Type or confirm it is a different person."}
+  DECLARED_NEW_POSSIBLE_MATCH: {reason_code: DECLARED_NEW_POSSIBLE_MATCH,
+                                next_action: "The customer was declared New but a record shares this identifier: confirm whether it is the same customer."}
+
+# TOP-UP CONDITIONS for a running loan (H11; owner 2026-10-23 "you decide, demo dummy": DEMO_DUMMY values the business
+# replaces). A loan missing a value these need is NOT_EVALUATED for top-up -- never eligible by default.
+topup:
+  min_months_since_disbursal: 12
+  max_dpd_12m: 30
+  max_outstanding_pct: 80          # principal outstanding as % of the sanctioned amount
+
+# RCU / fraud statuses that make H13 fire (DEMO_DUMMY until the RCU system's vocabulary is confirmed)
+rcu_adverse_statuses: [FRAUD_CONFIRMED, UNDER_INVESTIGATION]

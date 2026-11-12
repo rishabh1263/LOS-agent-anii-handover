@@ -1,0 +1,505 @@
+# PLANNER BENCHMARK SET (2026-11-02; LOS-only scope relabel 2026-11-03): labelled messages, synthetic, for
+# evals/copilot/planner_bench.py. intent / tool are the expected plan; `args` lists only the arguments that
+# must match; `case: true` = a case is open; `history` = earlier [user, assistant] turns of the same chat.
+social:
+- q: Hi
+  intent: SOCIAL
+  tool: none
+- q: Hello
+  intent: SOCIAL
+  tool: none
+- q: How are you?
+  intent: SOCIAL
+  tool: none
+- q: Hows you bro?
+  intent: SOCIAL
+  tool: none
+- q: What's happening?
+  intent: SOCIAL
+  tool: none
+- q: Thank you
+  intent: SOCIAL
+  tool: none
+- q: Tell me a joke
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: Good morning
+  intent: SOCIAL
+  tool: none
+- q: good evening, long day today
+  intent: SOCIAL
+  tool: none
+- q: thanks a lot, that helped
+  intent: SOCIAL
+  tool: none
+- q: hey there
+  intent: SOCIAL
+  tool: none
+- q: nice to meet you
+  intent: SOCIAL
+  tool: none
+- q: you are very helpful
+  intent: SOCIAL
+  tool: none
+- q: bye, see you tomorrow
+  intent: SOCIAL
+  tool: none
+- q: how was your weekend?
+  intent: SOCIAL
+  tool: none
+general:
+- q: What is machine learning?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: Who wrote Romeo and Juliet?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: Why is the sky blue?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is the capital of Japan?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: Tell me something interesting about the ocean
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What does photosynthesis produce?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: How many planets are in the solar system?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is inflation in economics?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: Who invented the telephone?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is the boiling point of water?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: Explain gravity simply
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is a black hole?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: Give me a tip to stay focused at work
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What language is spoken in Brazil?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is the speed of light?
+  intent: OUT_OF_DOMAIN
+  tool: none
+technical:
+- q: What is Python?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: Explain API in simple language
+  intent: LOS_TECHNICAL
+  tool: handbook
+- q: What is an API?
+  intent: LOS_TECHNICAL
+  tool: handbook
+- q: What is PostgreSQL?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is a primary key in a database?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What does HTTP status 404 mean?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: Difference between RAM and storage?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is JSON?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: How does a cost-based query planner choose a plan?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is Docker used for?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: Explain REST vs GraphQL
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is a race condition?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is Git?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: How does HTTPS keep data safe?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: What is machine learning model overfitting?
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: How does the bank statement reader work?
+  intent: LOS_TECHNICAL
+  tool: handbook
+- q: What does OCR do in our LOS?
+  intent: LOS_TECHNICAL
+  tool: handbook
+- q: How does dedupe check a customer?
+  intent: LOS_TECHNICAL
+  tool: handbook
+handbook:
+- q: Explain CPA.
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: What happens during FOS?
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: Explain the bank verification process
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: What is the difference between RCU and CREDIT?
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: Explain the difference between FOS and CPA
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: What is FOIR?
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: What is CIBIL?
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: What file types can I upload?
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: Can I upload several documents at once?
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: Which documents are accepted as address proof?
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: What is a co-applicant?
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: What comes after CREDIT?
+  intent: LOS_HANDBOOK
+  tool: next_stage
+  args:
+    stage: CREDIT
+- q: What happens after CPA?
+  intent: LOS_HANDBOOK
+  tool: next_stage
+  args:
+    stage: CPA
+- q: What does a document status REVIEW mean?
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: What is the KYC check?
+  intent: LOS_HANDBOOK
+  tool: handbook
+case:
+- q: Show my oldest cases
+  intent: CASE_SPECIFIC
+  tool: list_cases
+  args:
+    sort: oldest
+- q: Which applications have KYC issues?
+  intent: CASE_SPECIFIC
+  tool: list_cases
+  args:
+    filter: kyc_issue
+- q: Which cases are ready for CPA?
+  intent: CASE_SPECIFIC
+  tool: list_cases
+  args:
+    filter: ready_for_cpa
+- q: Show cases with documents pending
+  intent: CASE_SPECIFIC
+  tool: list_cases
+  args:
+    filter: documents_pending
+- q: show my latest 3 cases
+  intent: CASE_SPECIFIC
+  tool: list_cases
+  args:
+    sort: recent
+- q: which of my files are stuck?
+  intent: CASE_SPECIFIC
+  tool: list_cases
+  args:
+    filter: stuck
+- q: What is the status of this application?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: case_status
+- q: What is my loan amount?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: application_details
+- q: What is the tenure?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: application_details
+- q: Which documents are pending?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: pending_documents
+- q: Is the KYC done?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: kyc_status
+- q: Can this case move to CPA?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: cpa_readiness
+- q: What should I do next?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: next_step
+- q: Why is this case stuck?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: why_stuck
+- q: Which documents did we upload?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: uploaded_documents
+- q: Why was the address proof rejected?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: document_rejection
+- q: Is this applicant approved?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: case_status
+- q: Give me a summary of this case
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: case_summary
+- q: What stage is my application at?
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: case_status
+- q: What is the status of this application?
+  intent: CLARIFICATION
+  tool: none
+analytics:
+- q: How many cases are pending?
+  intent: ANALYTICS
+  tool: portfolio_analytics
+- q: How many applications did I get this month?
+  intent: ANALYTICS
+  tool: portfolio_analytics
+  args:
+    period: this_month
+- q: Compare this month with last month
+  intent: ANALYTICS
+  tool: portfolio_analytics
+  args:
+    period: this_month
+    compare_period: last_month
+- q: Which stage has the highest pending count?
+  intent: ANALYTICS
+  tool: portfolio_analytics
+  args:
+    group_by: stage
+- q: Count my cases by product
+  intent: ANALYTICS
+  tool: portfolio_analytics
+  args:
+    group_by: product
+- q: What is the total loan amount of my cases?
+  intent: ANALYTICS
+  tool: portfolio_analytics
+  args:
+    op: sum
+    metric: loan_amount
+- q: Average loan amount this month
+  intent: ANALYTICS
+  tool: portfolio_analytics
+  args:
+    op: avg
+    period: this_month
+- q: Compare FOS and CPA case counts
+  intent: ANALYTICS
+  tool: portfolio_analytics
+  args:
+    group_by: stage
+- q: Which branch has the highest loan approval rate?
+  intent: ANALYTICS
+  tool: portfolio_analytics
+- q: How many overdue accounts do I have?
+  intent: ANALYTICS
+  tool: portfolio_analytics
+followup:
+- q: What happens after that?
+  history:
+  - - Explain CPA.
+    - CPA is the stage where the case is checked before credit.
+  intent: LOS_HANDBOOK
+  tool: next_stage
+  args:
+    stage: CPA
+- q: And after CREDIT?
+  history:
+  - - What happens after CPA?
+    - After CPA comes Credit, then RCU.
+  intent: LOS_HANDBOOK
+  tool: next_stage
+  args:
+    stage: CREDIT
+- q: and the tenure?
+  case: true
+  history:
+  - - what is my loan amount?
+    - The loan amount is 5,00,000.
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: application_details
+- q: why?
+  case: true
+  history:
+  - - can this case move to CPA?
+    - 'Not yet: PAN and Address Proof are pending.'
+  intent: CASE_SPECIFIC
+  tool: case_question
+- q: give me one example of it
+  history:
+  - - What is machine learning?
+    - Machine learning lets computers learn patterns from data.
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: compare with last month
+  history:
+  - - how many applications this month?
+    - 3 cases created this month.
+  intent: ANALYTICS
+  tool: portfolio_analytics
+  args:
+    compare_period: last_month
+- q: only the oldest ones
+  history:
+  - - show my cases
+    - Here are your 5 cases needing action.
+  intent: CASE_SPECIFIC
+  tool: list_cases
+  args:
+    sort: oldest
+- q: Explain the second one
+  history:
+  - - show my cases
+    - 1. Mahesh Verma CASE-1 ... 2. Neha Jadhav CASE-2 ...
+  intent: CLARIFICATION
+  tool: none
+- q: Show me more details
+  case: true
+  history:
+  - - what is the status?
+    - The case is at FOS with documents pending.
+  intent: CASE_SPECIFIC
+  tool: case_question
+- q: tell me more about it
+  history:
+  - - What is FOIR?
+    - FOIR is the Fixed Obligation to Income Ratio.
+  intent: LOS_HANDBOOK
+  tool: handbook
+hinglish:
+- q: Kitne cases abhi CPA mein pending hain?
+  intent: ANALYTICS
+  tool: portfolio_analytics
+  args:
+    stage: CPA
+- q: mera loan amount kya hai
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: application_details
+- q: kaise ho bhai
+  intent: SOCIAL
+  tool: none
+- q: KYC wale cases dikhao
+  intent: CASE_SPECIFIC
+  tool: list_cases
+  args:
+    filter: kyc_issue
+- q: CPA ke baad kya hota hai
+  intent: LOS_HANDBOOK
+  tool: next_stage
+  args:
+    stage: CPA
+- q: is case mein kya pending hai
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: pending_documents
+- q: FOIR kya hota hai
+  intent: LOS_HANDBOOK
+  tool: handbook
+- q: pichle mahine kitni files aayi
+  intent: ANALYTICS
+  tool: portfolio_analytics
+  args:
+    period: last_month
+- q: whats the staus of my aplication
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: case_status
+- q: shw my oldst cases
+  intent: CASE_SPECIFIC
+  tool: list_cases
+  args:
+    sort: oldest
+- q: kyc hua kya
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: kyc_status
+- q: shukriya
+  intent: SOCIAL
+  tool: none
+- q: machine learning kya hai
+  intent: OUT_OF_DOMAIN
+  tool: none
+- q: case CPA mein ja sakta hai kya
+  case: true
+  intent: CASE_SPECIFIC
+  tool: case_question
+  args:
+    topic: cpa_readiness
+- q: address proof mein kya chalega
+  intent: LOS_HANDBOOK
+  tool: handbook

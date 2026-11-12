@@ -2075,7 +2075,7 @@
      "FOS"
     ],
     "summary": "The FOS copilot: questions, dropdown actions and document upload",
-    "description": "**The single endpoint a FOS frontend needs.**\n\n`action` selects what happens. Two request forms:\n\n- **`application/json`** for every action except upload. Use `CUSTOM_QUERY` with `message` for natural language; use any other action for a dropdown selection.\n- **`multipart/form-data`** for `UPLOAD_DOCUMENT`, with `file` and an optional `document_type`.\n\nAn upload runs the existing LOS pipeline \u2014 classification, then the verification gate, then extraction only behind a PASS \u2014 and stores the verdict, which every later query then reports.\n\nCredit, risk, KYC, RCU and lending questions are **routed**, never answered: the response carries `route_to` and no verdict.\n\nEvery action returns the same response shape; fields an action does not populate come back null or empty.\n\n**Actions:** `GET_APPLICANT`, `GET_APPLICATION_STATUS`, `GET_DOCUMENTS`, `GET_DOCUMENT_CHECKLIST`, `GET_VERIFICATION_STATUS`, `GET_PENDING_ITEMS`, `GET_NEXT_ACTION`, `GET_CASE_360`, `CHECK_CPA_READINESS`, `UPLOAD_DOCUMENT`, `CUSTOM_QUERY`. Render the dropdown from `GET /api/v1/fos/actions`.",
+    "description": "**The single endpoint a FOS frontend needs.**\n\n`action` selects what happens. Two request forms:\n\n- **`application/json`** for every action except upload. Use `CUSTOM_QUERY` with `message` for natural language; use any other action for a dropdown selection.\n- **`multipart/form-data`** for `UPLOAD_DOCUMENT`, with `file` and an optional `document_type`.\n\nAn upload runs the existing LOS pipeline \u2014 classification, then the verification gate, then extraction only behind a PASS \u2014 and stores the verdict, which every later query then reports.\n\nCredit, risk, KYC, RCU and lending questions are **routed**, never answered: the response carries `route_to` and no verdict.\n\nEvery action returns the same response shape; fields an action does not populate come back null or empty.\n\n**Streaming:** `\"stream\": true` (or `Accept: text/event-stream`) returns the same answer as Server-Sent Events. **Feedback:** `{\"action\": \"FEEDBACK\", \"reply_to\": <request_id>, \"rating\": \"up\"|\"down\", \"reason\"?}` records a \ud83d\udc4d / \ud83d\udc4e on an earlier answer and returns `{request_id, status: RECORDED | NOT_RECORDED, reply_to, rating}`.\n\n**Actions:** `GET_APPLICANT`, `GET_APPLICATION_STATUS`, `GET_DOCUMENTS`, `GET_DOCUMENT_CHECKLIST`, `GET_VERIFICATION_STATUS`, `GET_PENDING_ITEMS`, `GET_NEXT_ACTION`, `GET_CASE_360`, `CHECK_CPA_READINESS`, `UPLOAD_DOCUMENT`, `CUSTOM_QUERY`. Render the dropdown from `GET /api/v1/fos/actions`.",
     "operationId": "copilot_api_v1_fos_copilot_post",
     "requestBody": {
      "content": {
@@ -2091,6 +2091,25 @@
           "case_id": "CASE-7DFE2F497522",
           "action": "CUSTOM_QUERY",
           "message": "What documents are pending?"
+         }
+        },
+        "ask_streamed": {
+         "summary": "CUSTOM_QUERY, streamed (SSE) \u2014 the same call with stream: true",
+         "value": {
+          "applicant_id": "APP-3D51FFAC6342",
+          "case_id": "CASE-7DFE2F497522",
+          "action": "CUSTOM_QUERY",
+          "message": "What documents are pending?",
+          "stream": true
+         }
+        },
+        "feedback": {
+         "summary": "FEEDBACK \u2014 \ud83d\udc4d / \ud83d\udc4e on an earlier answer (its request_id)",
+         "value": {
+          "action": "FEEDBACK",
+          "reply_to": "fos_0123456789abcdef0123456789abcdef",
+          "rating": "down",
+          "reason": "wrong document named"
          }
         },
         "documents": {
@@ -2267,7 +2286,7 @@
      "FOS"
     ],
     "summary": "The FOS copilot as Server-Sent Events: status lines while it works, then the answer (step 7)",
-    "description": "The same JSON request as /fos/copilot (COPILOT_STREAMING, default off -> 404). Events: `status`\n(at once, then every tick_seconds), then `answer` (the full /fos/copilot response + `latency`) or\n`error` (an HTTP status + detail). One pipeline: the answer IS the /fos/copilot answer.",
+    "description": "KEPT FOR EXISTING CLIENTS: the same as POST /fos/copilot with `\"stream\": true` (or\n`Accept: text/event-stream`). COPILOT_STREAMING, default off -> 404.",
     "operationId": "copilot_stream_api_v1_fos_copilot_stream_post",
     "requestBody": {
      "content": {
@@ -13741,6 +13760,18 @@
       "default": false,
       "description": "Start this chat fresh: nothing remembered from before.",
       "title": "New Chat",
+      "type": "boolean"
+     },
+     "stream": {
+      "default": false,
+      "description": "Reply as Server-Sent Events (status lines while it works, then the answer) instead of one JSON body. The same as sending `Accept: text/event-stream`. COPILOT_STREAMING.",
+      "title": "Stream",
+      "type": "boolean"
+     },
+     "with_sources": {
+      "default": false,
+      "description": "Add `sources` [{type, document, section, title}] to a handbook answer: the handbook file and section retrieval cited for it. Left out on case answers and refusals.",
+      "title": "With Sources",
       "type": "boolean"
      },
      "context": {

@@ -1,0 +1,11 @@
+# =====================================================================================================================
+# HOW EVERY AGENT'S SUMMARY IS PRESENTED (owner 2026-11-02: "saare agents ke summary points me hone chahiye 1, 2 aisa").
+# app/core/summary_points.py: the summary's sentences, one numbered point per line ("1. ...\n2. ..."). Applied where
+# each agent returns its summary -- after the summary was checked, so what the model may say is unchanged.
+# =====================================================================================================================
+enabled: true
+# "{n}. {text}"
+point_format: "{n}. {text}"
+# a sentence never ends after these (so "Rs. 10,000" or "No. 12" stays one point); compared case-insensitively
+# quoted: an unquoted no / on / yes is a YAML boolean, not a word
+abbreviations: ["rs", "no", "nos", "mr", "mrs", "ms", "dr", "ltd", "pvt", "co", "vs", "sr", "jr", "st", "a/c", "approx", "etc", "i.e", "e.g", "inr", "sq", "ft", "pg"]

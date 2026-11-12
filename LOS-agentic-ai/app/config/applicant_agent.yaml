@@ -448,7 +448,7 @@ chatbot:
     # provider/model are resolved by app/llm/provider.py (OLLAMA_* env);
     # named here so the configuration says what it runs against.
     provider: ollama
-    model: qwen2.5:3b
+    model: qwen3:4b-instruct-2507-q4_K_M
     # Override agent.temperature and timeouts.llm_seconds when set.
     temperature: 0.1
     # 2-3 s RESPONSE TARGET: the handbook-phrasing call gets at most 2.5 s;
@@ -598,6 +598,9 @@ chatbot:
   normalization:
     enabled: true
     fuzzy: true
+    # real words the fuzzy typo layer must never "correct" (2026-10-18: "stock statement" became "stuck statement",
+    # "stock tips" became the stuck-cases list)
+    keep: [stock, stocks, share, shares, crypto, fund, funds]
     synonyms:
       dis: this
       intrest: interest
@@ -774,6 +777,16 @@ chatbot:
   # Ollama reuses its prompt cache; only the state line and the question follow.
   router:
     enabled: true
+    # QWEN UNDERSTANDS EVERY QUESTION (owner, 2026-10-13: "no keywords, Qwen samjhega"): llm_first -> Qwen reads
+    # every question and its reading wins; the rules answer only when Qwen is unavailable / slow. Other modes:
+    # fallback (rules first, Qwen for what they cannot read), second_opinion. Env COPILOT_ROUTER_MODE overrides.
+    # 2026-10-13 (measured): Qwen's front door is the MEANING layer (intent_catalogue.yaml decide.model_always) --
+    # a second Qwen call here doubled the time for the same reading, so this router stays the fallback for what
+    # the meaning layer could not read
+    mode: fallback
+    # qwen3 4B INSTRUCT (2026-10-13 bench, CPU): refused the "max FOIR?" trap the 3B answered with an invented 55%.
+    # (The earlier "qwen3:4b, no gain" B9 note was the THINKING variant, which always reasons out loud.)
+    model: qwen3:4b-instruct-2507-q4_K_M
     timeout_seconds: 2.5
     min_free_ram_gb: 1.5
     max_question_chars: 400
@@ -1049,6 +1062,13 @@ chatbot:
       created: [case kab bana, kab bana tha, kab create hua, when was the case created, created on, case kab khula]
       day_cues: [verify, verified, upload, uploaded, wala, waala, document, documents, dala]
     relative_days: { kal: -1, yesterday: -1, aaj: 0, today: 0, parso: -2 }
+    # words a phrase match skips: "when was THIS case created" = "when was THE case created" (2026-10-23)
+    ignore_words: [the, this, that, my, his, her, their, our, its, ye, yeh]
+    # an answer whose intent is itself about time gets this part below it (CASE_HISTORY "what happened on this case":
+    # the dated timeline); these intents KEEP their answer when a time is asked too ("what stage is it in and since
+    # when"); any other answer is replaced by the time asked ("when was this case created")
+    with_intents: { CASE_HISTORY: TIMELINE }
+    add_to_intents: [APPLICATION_STAGE]
     day_words: { "-1": "yesterday", "0": "today", "-2": "two days ago" }
 
   # FOS plan 7.2 -- SMART UPLOAD (capabilities/smart_upload.py): per file what it looks like, whose (name on the
@@ -1071,7 +1091,8 @@ chatbot:
   # status / document name must be on the sheet or the answer is discarded. Env COPILOT_SNAPSHOT_QA.
   snapshot_qa:
     enabled: true
-    timeout_seconds: 3.0
+    # 2026-10-23: numbered facts + compact reply measured 2-4 s (was 4-7 s); past 6 s the engine's answer stands
+    timeout_seconds: 6.0
     num_predict: 120
     min_free_ram_gb: 1.5
     max_fields_per_document: 14
@@ -1080,7 +1101,7 @@ chatbot:
                     licence, voter, salary, itr, statement, signature]
     # 11d ANSWERABILITY: what is not captured at FOS, and where it comes from
     answerability:
-      - { words: [tenure, emi, interest, rate], say: "Tenure, rate and EMI are set at the Credit stage, not captured at FOS." }
+      - { words: [emi, sanctioned rate], say: "The final EMI and sanctioned rate are set at the Credit stage, not captured at FOS." }
       - { words: [cibil, credit score, score], say: "The credit score is checked at the Credit stage, not at FOS." }
       - { words: [sanction, approved, approval, disburse, disbursement], say: "Sanction and disbursement happen after CPA and Credit; FOS does not record them." }
     labels:
@@ -1091,6 +1112,10 @@ chatbot:
   # verdict only. Env COPILOT_READINESS_REPORT overrides `enabled`.
   readiness_report:
     enabled: true
+    # COMPACT (owner, 2026-10-13: "response clean nahi hai, jo bhi pending docs hain wahi show hona chahiye"):
+    # the pending documents, one KYC line only when KYC failed / needs a reviewer, the next step. false -> the full
+    # grouped report (every check, reason and fix).
+    compact: true
     # failing items, what unblocks the case FASTEST first: a re-upload the officer can do now, then a missing
     # upload, then details to record, then KYC, then what only a reviewer can clear
     unblock_order: [DOCUMENT_FAILED, DOCUMENT_PENDING, FIELD_PENDING, KYC_FAILED, KYC_PENDING, KYC_REVIEW,
@@ -1101,6 +1126,22 @@ chatbot:
                        hi-Latn: "CPA ke liye ready. Move ek vyakti confirm karega.",
                        hi: "CPA के लिए तैयार। आगे बढ़ाने की पुष्टि एक व्यक्ति करेगा।",
                        mr: "CPA साठी तयार. पुढे नेण्याची पुष्टी एक व्यक्ती करेल." }
+      compact_heading: { en: "Not ready for CPA yet. Pending:", hi-Latn: "Abhi CPA ke liye ready nahi. Pending:",
+                         hi: "अभी CPA के लिए तैयार नहीं। लंबित:", mr: "अजून CPA साठी तयार नाही. प्रलंबित:" }
+      compact_missing: "not uploaded yet"
+      compact_failed: "rejected, upload again"
+      compact_review: "under review"
+      compact_fields: "Details to record: {items}"
+      compact_kyc_failed: "KYC mismatch: {items}"
+      compact_kyc_review: "KYC needs a reviewer: {items}"
+      compact_other: "{items}"
+      # "is KYC done?" with no formal KYC result yet, but the KYC gate's own checks pending / failed (2026-10-15: the
+      # KYC answer said "no KYC check recorded" while readiness said "KYC needs a reviewer" -- one story now)
+      kyc_answer_gate_review: "KYC isn't complete yet: {items} needs a reviewer."
+      kyc_answer_gate_failed: "KYC isn't complete yet: {items} did not pass."
+      kyc_answer_gate_review_next: "A reviewer checks this before the case moves to CPA; meanwhile collect the pending documents."
+      kyc_answer_gate_failed_next: "Upload the correct document so the check can pass."
+      kyc_answer_gate_pending: "Not checked yet: {items} -- they could not be checked from the documents uploaded so far."
       heading_not_ready: { en: "CPA readiness: {passed} of {total} checks passed.",
                            hi-Latn: "CPA readiness: {total} mein se {passed} checks pass.",
                            hi: "CPA तैयारी: {total} में से {passed} जाँच पास।",
@@ -1311,10 +1352,37 @@ chatbot:
                     COPILOT_MD_TTS_CONTRACT, COPILOT_CASE_LIST_PAGING, COPILOT_FAQ, COPILOT_ABUSE_GUARD,
                     COPILOT_PRODUCT_FLOW, COPILOT_CHAT_CASE_CREATE]
 
+  # POST /api/v1/fos/applicants validation messages + Swagger example titles (2026-10-13)
+  create_case:
+    name_required: "Enter the applicant's name."
+    amount_above_zero: "Enter an amount in rupees above zero."
+    not_used_for: "Not used for {product} (no property is taken as security)."
+    property_type_one_of: "For {product} use one of: {types}."
+    property_type_required: "Required for {product}: one of {types}."
+    examples:
+      personal_loan: "Personal loan (no property fields)"
+      home_loan: "Home loan (residential property; valuation / purchase price)"
+      loan_against_property: "Loan against property (property type required)"
+
   # PLAUSIBLE AMOUNTS (FOS plan 1.1; trigger was demo data, kept as production protection).
   # ALL AMOUNTS ARE IN RUPEES, NOT LAKHS. Intake (create / update, app/agents/applicant/plausibility.py)
   # refuses a figure below its minimum or written with a unit word -> 422 AMOUNT_IMPLAUSIBLE. A stored
   # figure below its minimum is never shown in chat -- the label / sentence is said instead.
+  # ELIGIBILITY IS NOT THE CHATBOT'S (owner, 2026-10-13): an eligibility / FOIR question gets this line, nothing read
+  # "what can I submit as address proof?": a slot several document types satisfy names them (2026-10-13 English eval)
+  slot_options:
+    sentence: " Any one of these is accepted: {options}."
+  eligibility:
+    redirect: "Eligibility is checked separately in the Eligibility service, not in this chat."   # translations: languages.yaml fixed_sentences
+    # after an eligibility answer, only a SHORT follow-up ("Why?", "What is missing?", "What should I do?") stays on
+    # eligibility; a longer question, or one naming a document / party (the entity frame), is its own question
+    followup_max_words: 4
+  # a document on the case with no fields on record (2026-10-14): never "it is verified, so its details have not
+  # been released"
+  document_details:
+    verified_no_fields: "The {document} on this case is verified, but no details have been read from it yet."
+    being_checked: "The {document} is on this case and is still being checked, so its details are not available yet."
+
   plausibility:
     label: "Amount needs verification"
     sentence: "The recorded {field} needs verification; the figure on the case does not look right."
@@ -1506,6 +1574,8 @@ chatbot:
       row_kyc: "⚠️ KYC issue"
       row_docs: "⏳ {n} docs pending"
       row_ready: "✅ Ready for CPA"
+      # requirements met, but the CPA move gate does not pass (KYC under review, an open query / deviation ...)
+      row_gate: "🔶 Not yet cleared for CPA"
       row_other: "⏳ In progress"
       row_over_target: "⏰ {days}d in {stage} (target {target})"
       # {language: text} maps follow the locked reply language (FOS plan section 2); unlocked -> the en wording

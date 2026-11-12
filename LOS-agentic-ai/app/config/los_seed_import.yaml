@@ -1,0 +1,64 @@
+# LOS SEED IMPORT (scripts/import_los_seed.py, 2026-11-03)
+#
+# The dummy LOS data in the LOS store's database (public.customers, loan_applications, application_participants,
+# individual_applicant_details, applicant_addresses ...) is a DIFFERENT table design from the one this app reads
+# (applicants / applications / documents). The import turns each seed loan application into an ordinary case through
+# the app's ONE create path (fos_api.create_case): same validation, encryption, access grants and case events as a
+# case made on the form. The seed tables themselves are only read, never changed.
+#
+# NOT IMPORTED, on purpose:
+#   * Aadhaar numbers -- Aadhaar is never processed by this app.
+#   * PAN -- the seed PANs do not have the PAN format; an invalid PAN is never stored.
+#   * stage / status -- a stage is written only by the stage lifecycle service (stage_lifecycle.yaml: "not demo
+#     seeding"); every imported case starts at the initial stage. The seed's own stage stays in the seed table.
+
+# who the imported cases belong to (the dev officer the auth-off server runs as); scopes as the start script grants
+officer_subject: "local-developer"
+officer_scopes: "los.read los.write create_applicant create_application update_applicant read_applicant read_application read_documents"
+
+# ids: the seed's own numbers, so a re-run finds what it already imported and skips it
+case_id_prefix: "CASE-SEED-"            # + loan_applications.application_number
+applicant_id_prefix: "APP-SEED-"        # + customers.customer_id (one applicant may hold several cases)
+
+# loan_applications.loan_purpose -> the app's product (a purpose not listed uses default_product)
+product_by_purpose:
+  "Property Purchase": "HOME_LOAN"
+  "Home Improvement": "HOME_LOAN"
+  "Debt Consolidation": "LOAN_AGAINST_PROPERTY"
+  "Business Expansion": "LOAN_AGAINST_PROPERTY"
+  "Education": "PERSONAL_LOAN"
+  "Medical Expense": "PERSONAL_LOAN"
+  "Purchase of Gold": "PERSONAL_LOAN"
+default_product: "PERSONAL_LOAN"
+
+# loan_applications.applicant_category -> employment_type
+employment_by_category:
+  "Salaried": "SALARIED"
+  "Self Employed": "SELF_EMPLOYED"
+  "Business": "SELF_EMPLOYED"
+
+# collateral_properties.property_type -> property_type (secured products); not listed = not sent
+property_type_by_seed:
+  "Residential": "RESIDENTIAL"
+  "Commercial": "COMMERCIAL"
+  "Industrial": "INDUSTRIAL"
+  "Mixed Use": "COMMERCIAL"
+
+# co-applicants (application_participants is_primary false) come along with name, date of birth and relationship
+import_co_applicants: true
+
+# SYNTHETIC PAN for co-applicants (2026-11-03), so PAN dedupe has something to match: the seed's own PANs are not in
+# PAN format. Format-valid and meaningless: three letters + the holder-type letter + the surname's initial + four
+# digits + a letter, all derived from a keyed hash of the seed participant id (same participant = same PAN on every
+# run). Declared on the co-applicant record (co_applicants.pan, sealed) -- the one place this app takes a PAN without a
+# document. The PRIMARY applicant's PAN comes only from a PAN document's gate-released extraction, so none is made up.
+synthetic_pan:
+  enabled: true
+  key: "los-seed-import-2026-11-03"     # changes every PAN when changed
+  holder_type: "P"                      # 4th character: P = individual
+  # SHARED-PAN TEST PAIRS (seed application_number pairs): the second application's co-applicant is declared with the
+  # first one's PAN. The seed names differ, so this is the "one PAN, two different names" case a PAN dedupe must flag
+  # (identity conflict), not a confirmed same person.
+  same_person:
+    - ["LOS-DUMMY-0003", "LOS-DUMMY-0010"]
+    - ["LOS-DUMMY-0006", "LOS-DUMMY-0020"]

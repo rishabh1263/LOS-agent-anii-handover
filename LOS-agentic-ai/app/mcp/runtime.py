@@ -341,8 +341,11 @@ async def _call(
     """
     from app.agents.applicant import config
     from app.mcp import applicant as capabilities
+    from app.mcp import credit as credit_capabilities
 
-    contract = CONTRACTS.get(name)
+    # the credit stage's own reads (app/mcp/credit.py) are carried in process; over the protocol they are served
+    # by app/mcp/credit_server.py
+    contract = CONTRACTS.get(name) or credit_capabilities.CONTRACTS.get(name)
     started_at = datetime.now(timezone.utc).isoformat()
     started = time.perf_counter()
     trace: dict[str, Any] = {
@@ -354,6 +357,12 @@ async def _call(
     }
 
     async def direct() -> ToolEnvelope:
+        if name in credit_capabilities.READ_TOOLS:
+            # the authenticated caller, for a credit tool that scopes by the caller's own branches
+            credit_capabilities.CALLER_CLAIMS.set(
+                {"sub": getattr(caller, "subject", None), "scope": " ".join(sorted(getattr(caller, "scopes", ()) or ()))}
+                if caller is not None else None)
+            return await credit_capabilities.READ_TOOLS[name](case_id)
         handler = capabilities.READ_TOOLS[name]
         if name == "co_applicant.get":
             return await handler(case_id, co_applicant_id or "")

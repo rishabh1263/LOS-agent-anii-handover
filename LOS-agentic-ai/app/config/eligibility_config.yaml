@@ -1,0 +1,501 @@
+# =====================================================================================================================
+# ELIGIBILITY CONFIG (2026-10-13) -- every limit the eligibility engine applies. Nothing in the engine is a number.
+#
+# DEMO VALUES. The owner chose to start from these and replace them with the business's real rules; until then this
+# file is DEMO_NON_PRODUCTION and refused outside dev / test (staging-like environments need
+# ELIGIBILITY_ALLOW_DEMO_POLICY=true) -- see app/agents/eligibility/config.py.
+#
+# The decision is made from STRUCTURED applicant data (a DataProvider), never from documents.
+# =====================================================================================================================
+
+
+version: "2.0-demo"
+status: DEMO_NON_PRODUCTION
+
+# CONTENTS: 1. DATA SOURCE · 2. RULES · 3. PRODUCTS AND LTV · 4. INCOME · 5. TOP-UPS · 6. OFFER · 7. INPUT LIMITS · 8. SCREEN · 9. AI SUMMARY · 10. WORDING
+
+
+# =====================================================================================================================
+# 1. DATA SOURCE  --  where the applicant data comes from, the tables, timeouts and the connection pool
+# =====================================================================================================================
+
+# where the applicant data comes from (env ELIGIBILITY_DATA_PROVIDER overrides):
+#   postgres -- the DUMMY `eligibility_cases` table (app/agents/eligibility/schema.sql, 30 cases), DATABASE_URL
+#   los      -- the LOS case store (applications + applicants) + the credit bureau provider for the score
+# DUMMY FOR NOW (owner, 2026-10-13): postgres. Switch to los when the real data is connected.
+data_provider: postgres
+
+los:
+  bureau_timeout_seconds: 5     # the bureau is read for the score; slower -> 503, never a decision
+
+postgres:
+  table: eligibility_cases
+  connect_timeout_seconds: 5
+  statement_timeout_ms: 5000
+  runs_table: eligibility_runs      # every check is saved here (save_runs: false to stop)
+  inputs_table: eligibility_inputs  # the officer's saved entries per case (eligibility screen)
+  save_runs: true
+  pool_size: 5                  # pooled read-only connections (a new connection per read was ~65 ms of ~68 ms)
+
+
+# =====================================================================================================================
+# 2. RULES  --  the five rules every case is checked against, and the data a decision needs
+# =====================================================================================================================
+
+# THE FIVE RULES. Rules 1-3 are KNOCK-OUTS (any failure -> REJECTED); 4-5 size the loan.
+rules:
+  min_age: 21                   # Rule 1: age today >= this ...
+  max_age: 60                   #         ... and <= this today ...
+  max_age_at_maturity: 65       #         ... and age at the end of the tenure <= this
+  min_income: 25000             # Rule 2: net monthly income (Rs) >= this
+  min_score: 700                # Rule 3: bureau score >= this
+  refer_margin: 20              # a score within this many points ABOVE the cut-off is borderline -> REFER
+  foir_limit_pct: 50            # Rule 4: (existing EMI + new EMI) / net monthly income <= this %
+  max_dpd_12m: 30               # Rule 6: worst days-past-due in the last 12 months <= this (bureau) -- DEMO
+  dpd_refer_upto: 60            #         above the limit but <= this -> REFER for a credit review; above -> REJECT
+  reject_write_offs: true       #         any written-off account on the bureau report -> REJECT
+  reject_settlements: true      #         any settled account -> REJECT
+  round_down_to: 1000           # the eligible amount is rounded down to a multiple of this
+  # WHICH RULES RUN, IN THIS ORDER, AND OF WHICH KIND (2026-10-15, owner: "rules bhi config hi"):
+  #   knockout  a fail rejects the case      sizing  a fail only caps the amount (the most the rule allows)
+  # A rule is switched off with `enabled: false`; how each rule is worked out is calc/rules.py (one function each).
+  checks:
+    - { rule: AGE,    kind: knockout }
+    - { rule: INCOME, kind: knockout }
+    - { rule: SCORE,  kind: knockout }  # passed but within refer_margin of the cut-off -> REFER
+    - { rule: DPD,    kind: knockout }  # within dpd_refer_upto -> REFER
+    - { rule: FOIR,   kind: sizing }
+    - { rule: LTV,    kind: sizing }    # products with collateral only (ltv_limit_pct not null)
+
+# a field absent here -> DATA_MISSING, never a default (a default would err towards approving)
+mandatory_fields: [product, age, net_monthly_income, existing_emi, bureau_score, requested_amount, tenure_months,
+                   max_dpd_12m, write_offs, settlements]
+
+# and, for a product whose LTV applies:
+mandatory_with_ltv: [property_value]
+
+
+# =====================================================================================================================
+# 3. PRODUCTS AND LTV  --  per-product terms, the LTV grid by collateral / occupancy, the RBI slabs
+# =====================================================================================================================
+
+# per product: the rate used when the case has none, the largest loan, the tenure range, Rule 5's LTV (null: the
+# product has no collateral, so LTV does not apply) and the property types the product accepts (create-case form).
+products:
+  PERSONAL_LOAN:
+    rate_percent: 14.0
+    min_amount: 50000
+    max_amount: 1000000
+    min_tenure_months: 6
+    max_tenure_months: 60
+    ltv_limit_pct: null
+    property_types: []
+  HOME_LOAN:
+    rate_percent: 9.0
+    min_amount: 500000
+    max_amount: 10000000
+    min_tenure_months: 12
+    max_tenure_months: 360
+    ltv_limit_pct: 90              # the highest RBI slab; ltv_slabs.HOME_LOAN sets the ceiling by loan size
+    property_types: [RESIDENTIAL]
+    default_property_type: RESIDENTIAL
+    own_contribution: true         # a purchase: "what it would take" may suggest the buyer puts in more (not for LAP)
+  LOAN_AGAINST_PROPERTY:
+    rate_percent: 11.0
+    min_amount: 500000
+    max_amount: 20000000
+    min_tenure_months: 12
+    max_tenure_months: 180
+    ltv_limit_pct: 60
+    property_types: [RESIDENTIAL, COMMERCIAL, INDUSTRIAL]
+
+# LTV ON TOTAL EXPOSURE (workbook "LTV Total Exposure %"): (requested + existing exposure on the property) / property
+# value, against the limit for the collateral and occupancy type (else the product's ltv_limit_pct). DEMO grid.
+ltv_grid:
+  LOAN_AGAINST_PROPERTY:
+    RESIDENTIAL: { SELF_OCCUPIED: 65, RENTED: 60, VACANT: 55 }
+    COMMERCIAL:  { SELF_OCCUPIED: 55, RENTED: 50, VACANT: 45 }
+    INDUSTRIAL:  { SELF_OCCUPIED: 50, RENTED: 45, VACANT: 40 }
+  HOME_LOAN:                    # policy (DEMO); the RBI slabs below still cap it -- the lower of the two applies
+    RESIDENTIAL: { SELF_OCCUPIED: 90, RENTED: 80, VACANT: 80 }
+
+# RBI LTV SLABS FOR HOUSING LOANS (regulatory -- not a demo value; 2026-10-14): the LTV ceiling depends on the loan
+# size, measured on the TOTAL lent on the property (the request + loans already on it). The limit used is the LOWER of
+# the slab and the product / grid limit; the loan is sized to the largest amount that satisfies ITS OWN slab.
+ltv_slabs:
+  HOME_LOAN:
+    - { up_to: 3000000, pct: 90 }      # up to Rs 30 lakh
+    - { up_to: 7500000, pct: 80 }      # above Rs 30 lakh, up to Rs 75 lakh
+    - { up_to: null,    pct: 75 }      # above Rs 75 lakh
+
+
+# =====================================================================================================================
+# 4. INCOME  --  how each income method turns the officer's figures into a monthly income
+# =====================================================================================================================
+
+# ---------------------------------------------------------------------------------------------------------------------
+# INCOME BY METHOD (2026-10-14, from the business's "Calculations File.xlsx", ELIGIBILITY Calculation sheet). The
+# officer's pop-up fields arrive with POST /check {"income": {"method": ..., <fields>}}; the engine then uses the
+# MONTHLY income computed here instead of the case's declared net monthly income. Amounts in rupees.
+#
+# WORKBOOK ERRORS FIXED HERE (kept visible in every result's `income.notes`):
+#   * ITR / cash profit / gross profit are ANNUAL figures; the workbook compares them with a MONTHLY EMI (no / 12).
+#     Here `period: annual` divides by 12 before FOIR.
+#   * the workbook's EMI uses PMT(ROI/12) with ROI typed as 10 -> 83 % a month; the engine uses ROI / 100 / 12.
+# DEMO VALUES where the workbook gives none (marked) -- confirm with credit policy.
+# ---------------------------------------------------------------------------------------------------------------------
+income_methods:
+  SALARIED:                     # workbook: Net Income = (Gross Salary + Other Income - Other Deduction) + PF Deduction
+    period: monthly
+    pf_add_back: true           # the workbook ADDS BACK PF (it is the employee's saving) -- policy to confirm
+    form16_gap_pct: 20          # Form 16 income this much below gross salary x 12 -> a note to verify (DEMO)
+    required: [gross_salary]
+  ITR:                          # workbook: Gross Income = Income as per ITR - Tax + Other Income
+    period: annual
+    required: [income_as_per_itr]
+  CASH_PROFIT:                  # workbook: PAT + Depreciation + Interest & Remuneration to partners + to directors + Other Income
+    period: annual
+    required: [profit_after_tax]
+  GROSS_PROFIT:                 # workbook: lower of (turnover x 15 %, gross margin as per financials) + rental income
+    period: annual
+    turnover_pct: 15
+    rental_considered_pct: 100  # the workbook counts rental income in full; many policies take 50-80 % -- DEMO
+    required: [turnover, gross_margin]
+  ASSESSED:                     # Leviosa "Assessed Income": (A + B + C) - E business - G personal = H net surplus
+    period: monthly
+    required: [gross_sales]
+
+# ASSESSED INCOME: the personal "existing loan EMI" line is NOT deducted when FOIR already counts the case's EMIs
+# (deducting both counts the same EMI twice). false = deduct it in (G) as Leviosa does.
+assessed:
+  emi_counted_in_foir: true
+
+
+# =====================================================================================================================
+# 5. TOP-UPS  --  the months-on-book ladders of the two top-up types
+# =====================================================================================================================
+
+# TOP-UPS (workbook RTR (BT TOP-UP) and TOP-UP INTERNAL): POST /check {"topup": {"type": ..., <fields>}}. The top-up
+# amount is one more cap on the loan (limit TOPUP); the existing outstanding (POS) counts in LTV as exposure.
+# WORKBOOK ERRORS FIXED HERE:
+#   * the MOB ladders return the TEXT "0" below the first band (breaks arithmetic) -> 0 here;
+#   * BT: "Applicable %" is computed but never used and the eligible top-up is typed in -> computed from it here;
+#     the EMI used "Total Tenure" instead of the loan tenor -> the case tenure here;
+#   * INTERNAL: (sanction + outstanding) x % + (sanction + outstanding) counts the same loan twice -> the base is the
+#     previous SANCTION only; balance tenor = original tenor - MOB could go negative (-13 in the workbook) -> a loan
+#     past its tenor gets no top-up.
+topup:
+  BT_TOPUP:
+    mob_ladder:                 # months on book -> top-up % of the outstanding (POS); workbook D39
+      - { min_mob: 0,  max_mob: 12,  pct: 0 }
+      - { min_mob: 13, max_mob: 18,  pct: 15 }
+      - { min_mob: 19, max_mob: 24,  pct: 20 }
+      - { min_mob: 25, max_mob: 36,  pct: 25 }
+      - { min_mob: 37, max_mob: 9999, pct: 30 }
+  INTERNAL_TOPUP:
+    mob_ladder:                 # months on book -> top-up % of the previous sanction; workbook D57
+      - { min_mob: 0,  max_mob: 11,  pct: 0 }
+      - { min_mob: 12, max_mob: 24,  pct: 10 }
+      - { min_mob: 25, max_mob: 36,  pct: 15 }
+      - { min_mob: 37, max_mob: 9999, pct: 20 }
+
+
+# =====================================================================================================================
+# 6. OFFER  --  the ticket buckets the offered amount is rounded and labelled in
+# =====================================================================================================================
+
+# THE RECOMMENDATION when less than the request can be given: the ticket bucket the eligible amount falls in, the
+# amount to sanction (rounded down to the bucket's step), and the longer tenure that would lift the amount (within
+# the product's maximum tenure and the age at maturity). DEMO buckets -- set to the business's ticket bands.
+recommendation:
+  buckets:
+    - { label: "Up to ₹5 L",     min: 0,        max: 500000,    step: 10000 }
+    - { label: "₹5 L - ₹10 L",   min: 500000,   max: 1000000,   step: 25000 }
+    - { label: "₹10 L - ₹25 L",  min: 1000000,  max: 2500000,   step: 50000 }
+    - { label: "₹25 L - ₹50 L",  min: 2500000,  max: 5000000,   step: 100000 }
+    - { label: "₹50 L - ₹1 Cr",  min: 5000000,  max: 10000000,  step: 250000 }
+    - { label: "Above ₹1 Cr",    min: 10000000, max: null,      step: 500000 }
+  tenure_option: true           # also show the amount at the longest allowed tenure, when it is higher
+
+
+# =====================================================================================================================
+# 7. INPUT LIMITS  --  typo guards on the request
+# =====================================================================================================================
+
+# sanity bounds on what the screen / API accepts: a value outside them is a typing error -> 422 naming the field
+# (never a silent clamp). Business limits (tenure range, amounts per product) are in PRODUCTS; these only catch typos.
+input_limits:
+  max_rupees: 100000000000000     # one crore crore: far above any loan file (an extra zero typed is caught)
+  max_tenure_months: 480          # the request's tenure (the product's own range is checked in PRODUCTS)
+  max_rate_percent: 60            # the request's rate % a year
+  max_months_on_book: 600         # top-up: months on book
+  max_tenor_months: 600           # top-up: original / total / loan tenure
+  max_experience_years: 60        # salaried: total experience
+  max_applied_pct: 100            # top-up: applied %
+  # a case / run id: letters, digits, - _ . (max 64) -- anything else (a quote, a null byte, a path) is refused (422)
+  id_pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+
+
+# =====================================================================================================================
+# 8. SCREEN  --  the eligibility screen's fields, groups and sample figures
+# =====================================================================================================================
+
+# THE ELIGIBILITY SCREEN (GET /api/v1/eligibility/ui, 2026-10-14): the case is fetched, the officer enters the figures,
+# Save stores them (PUT /cases/{case_id}/inputs), Trigger eligibility runs POST /check on them. The screen is built
+# from THIS block (GET /form) -- a new method / field / label is a config change, never a page change.
+form:
+  case_fields:                    # read from the case, shown read-only (workbook: fixed obligation "freezed")
+    - { key: product, label: "Product" }
+    - { key: age, label: "Age (years)" }
+    - { key: net_monthly_income, label: "Declared net monthly income (₹)" }
+    - { key: existing_emi, label: "Existing EMIs (₹/month)" }
+    - { key: bureau_score, label: "Bureau score" }
+    - { key: max_dpd_12m, label: "Worst DPD, last 12 months (days)" }
+    - { key: write_offs, label: "Written-off accounts" }
+    - { key: settlements, label: "Settled accounts" }
+    - { key: property_value, label: "Property value (₹)" }
+  editable:                       # prefilled from the case, the officer may change them
+    - { key: requested_amount, label: "Loan amount (₹)", type: amount }
+    - { key: tenure_months, label: "Tenure (months)", type: int }
+    - { key: rate_percent, label: "Rate (% a year)", type: percent }
+  # Each field: key, label, type (amount | int | percent | text | select + options), group (a sub-heading on the
+  # screen), sample (the screen's "Fill sample" figure -- DEMO numbers to try the method, never a default).
+  # Sections and fields follow the Leviosa eligibility pop-ups (2026-10-15); the layout is our own.
+  income_methods:
+    SALARIED:
+      label: "Salaried (monthly figures)"
+      fields:
+        - { key: company_name, label: "Company name", type: text, group: "Employment", sample: "Acme Infotech Pvt Ltd" }
+        - { key: designation, label: "Designation", type: text, group: "Employment", sample: "Senior Engineer" }
+        - { key: salary_credit_mode, label: "Salary credited by", type: select, group: "Employment", sample: BANK,
+            options: { BANK: "Bank transfer", CHEQUE: "Cheque", CASH: "Cash" } }
+        - { key: total_experience_years, label: "Total experience (years)", type: int, group: "Employment", sample: 8 }
+        - { key: gross_salary, label: "Gross salary (₹/month)", group: "Monthly salary", sample: 95000 }
+        - { key: other_income, label: "Other income (₹/month)", group: "Monthly salary", sample: 4000 }
+        - { key: pf_deduction, label: "PF deduction (₹/month)", group: "Monthly salary", sample: 5700 }
+        - { key: other_deduction, label: "Other deduction (₹/month)", group: "Monthly salary", sample: 2500 }
+        - { key: form16_income, label: "Income as per latest Form 16 (₹/year)", group: "Monthly salary", sample: 1104000 }
+    ITR:
+      label: "ITR (annual figures)"
+      fields:
+        - { key: income_as_per_itr, label: "Business income as per ITR (₹/year)", sample: 1800000 }
+        - { key: tax, label: "Tax (₹/year)", sample: 210000 }
+        - { key: other_income, label: "Other income (₹/year)", sample: 120000 }
+    CASH_PROFIT:
+      label: "Cash profit (business, annual)"
+      fields:
+        - { key: profit_after_tax, label: "Profit after tax (₹/year)", sample: 950000 }
+        - { key: depreciation, label: "Depreciation (₹/year)", sample: 140000 }
+        - { key: interest_to_partners, label: "Interest on partners' capital (₹/year)", sample: 60000 }
+        - { key: remuneration_to_partners, label: "Remuneration to partners (₹/year)", sample: 180000 }
+        - { key: remuneration_to_directors, label: "Remuneration to directors (₹/year)", sample: 0 }
+        - { key: other_income, label: "Other income (₹/year)", sample: 50000 }
+    GROSS_PROFIT:
+      label: "Gross profit (business, annual)"
+      fields:
+        - { key: audited, label: "Financials", type: select, sample: AUDITED,
+            options: { AUDITED: "Audited", UNAUDITED: "Unaudited" } }
+        - { key: turnover, label: "Turnover (₹/year)", sample: 12000000 }
+        - { key: gross_margin, label: "Gross margin as per financials (₹/year)", sample: 2100000 }
+        - { key: rental_income, label: "Rental income (₹/year)", sample: 300000 }
+    ASSESSED:
+      label: "Assessed (monthly cash flow)"
+      fields:
+        - { key: gross_sales, label: "Gross sales / receipts (₹/month)", group: "A · Sales", sample: 450000 }
+        - { key: rental_income, label: "Rental income", group: "B · Additional income (₹/month)", sample: 15000 }
+        - { key: commission_income, label: "Commission income", group: "B · Additional income (₹/month)", sample: 0 }
+        - { key: agricultural_income, label: "Agricultural income", group: "B · Additional income (₹/month)", sample: 10000 }
+        - { key: interest_income, label: "Interest income", group: "B · Additional income (₹/month)", sample: 5000 }
+        - { key: other_additional_label, label: "Other income (specify)", type: text, group: "B · Additional income (₹/month)" }
+        - { key: other_additional_income, label: "Other income", group: "B · Additional income (₹/month)", sample: 0 }
+        - { key: clubbed_relationship, label: "Co-applicant relationship", type: text, group: "C · Clubbed income (co-applicant)", sample: "Spouse" }
+        - { key: clubbed_income, label: "Net income clubbed (₹/month)", group: "C · Clubbed income (co-applicant)", sample: 20000 }
+        - { key: material_cost, label: "Material cost", group: "E · Business expenses (₹/month)", sample: 240000 }
+        - { key: salary_expenses, label: "Salaries", group: "E · Business expenses (₹/month)", sample: 45000 }
+        - { key: admin_expenses, label: "Admin", group: "E · Business expenses (₹/month)", sample: 12000 }
+        - { key: operating_expenses, label: "Operating", group: "E · Business expenses (₹/month)", sample: 18000 }
+        - { key: business_rent, label: "Rent (business premises)", group: "E · Business expenses (₹/month)", sample: 25000 }
+        - { key: other_business_expenses, label: "Others", group: "E · Business expenses (₹/month)", sample: 5000 }
+        - { key: living_expenses, label: "Living", group: "G · Personal expenses (₹/month)", sample: 30000 }
+        - { key: education_expenses, label: "Education", group: "G · Personal expenses (₹/month)", sample: 8000 }
+        - { key: conveyance_expenses, label: "Conveyance", group: "G · Personal expenses (₹/month)", sample: 6000 }
+        - { key: residential_rent, label: "Rent (residence)", group: "G · Personal expenses (₹/month)", sample: 0 }
+        - { key: existing_loan_emi, label: "Existing loan EMI", group: "G · Personal expenses (₹/month)", sample: 12000 }
+        - { key: other_personal_expenses, label: "Others", group: "G · Personal expenses (₹/month)", sample: 4000 }
+  loan_types: &loan_types { HOME_LOAN: "Home loan", LOAN_AGAINST_PROPERTY: "Loan against property", BUSINESS_LOAN: "Business loan", PERSONAL_LOAN: "Personal loan" }
+  topup_types:
+    BT_TOPUP:
+      label: "Balance transfer + top-up"
+      fields:
+        - { key: bank_name, label: "Current bank / NBFC", type: text, group: "Loan being taken over", sample: "ABC Finance Ltd" }
+        - { key: loan_type, label: "Loan type", type: select, options: *loan_types, group: "Loan being taken over", sample: HOME_LOAN }
+        - { key: original_amount, label: "Original loan amount (₹)", group: "Loan being taken over", sample: 1500000 }
+        - { key: total_tenor_months, label: "Total tenure (months)", type: int, group: "Loan being taken over", sample: 180 }
+        - { key: pos, label: "Outstanding (POS) (₹)", group: "Top-up", sample: 1150000 }
+        - { key: mob, label: "Months on book", type: int, group: "Top-up", sample: 30 }
+        - { key: applied_pct, label: "Applied % (≤ applicable)", type: percent, group: "Top-up", sample: 25 }
+    INTERNAL_TOPUP:
+      label: "Internal top-up (our existing loan)"
+      fields:
+        - { key: lan_number, label: "LAN number", type: text, group: "Existing loan", sample: "LAN0001234567" }
+        - { key: loan_type, label: "Loan type", type: select, options: *loan_types, group: "Existing loan", sample: LOAN_AGAINST_PROPERTY }
+        - { key: previous_sanction, label: "Latest sanction amount (₹)", group: "Existing loan", sample: 1500000 }
+        - { key: pos, label: "Outstanding (POS, total) (₹)", group: "Existing loan", sample: 900000 }
+        - { key: original_tenor_months, label: "Original tenure (months)", type: int, group: "Existing loan", sample: 120 }
+        - { key: mob, label: "Months on book (latest loan)", type: int, group: "Existing loan", sample: 40 }
+        - { key: additional_loan_amount, label: "Additional amount asked (₹)", group: "Top-up", sample: 800000 }
+        - { key: loan_tenor_months, label: "Top-up tenure (months)", type: int, group: "Top-up", sample: 120 }
+        - { key: applied_pct, label: "Applied % (≤ applicable)", type: percent, group: "Top-up", sample: 20 }
+  collateral_types: { RESIDENTIAL: "Residential", COMMERCIAL: "Commercial", INDUSTRIAL: "Industrial" }
+  occupancy_types: { SELF_OCCUPIED: "Self-occupied", RENTED: "Rented", VACANT: "Vacant" }
+  existing_exposure_label: "Other loans already on this property (₹)"
+
+
+# =====================================================================================================================
+# 9. AI SUMMARY  --  the one-line remark: model, speed and wording rules
+# =====================================================================================================================
+
+# THE EXPLANATION (app/agents/eligibility/explain.py): one or two sentences by the local model, ONLY when the caller asks
+# (POST /check {"explain": true}). It explains the finished result and never changes it; a figure not in the result,
+# a contradicting decision word or a slow / down model -> no explanation, never an error.
+explanation:
+  enabled: true
+  timeout_seconds: 8      # 2026-10-15: past this the remark is built from the facts (never "not available")
+  # SPEED (2026-10-15, CPU ~10 tokens/s): one sentence (~35 tokens) instead of two; compact facts (~200 prompt tokens
+  # instead of 477); the same instructions every call, so the model's prompt cache reuses them; accepted texts cached
+  # (cache_size) and the model warmed at startup. A reply cut by num_predict keeps its complete sentences only.
+  num_predict: 80              # a ceiling only: the stream stops at the first full stop; 48 cut ₹1,00,00,000 sentences
+  sentences: 1             # the stream is closed after this many complete sentences (the model runs on otherwise)
+  cache_size: 256
+  keep_alive: "30m"
+  max_chars: 320
+  languages: { en: "English", hi: "Hinglish (Hindi written in English letters)" }
+  instructions: >-
+    You write the one-line credit remark on a loan eligibility result, in {language}, for a loan officer: ONE
+    sentence, at most 22 words, plain and professional: lead with the outcome, then the reason. Never use a dash. Shapes (fill from
+    the facts, never copy the brackets): APPROVED "Approved for the full [can_offer] at an EMI of [emi_at_offer]."
+    CONDITIONAL "Eligible for [can_offer] of the [requested] requested, limited by [limited_by]." REJECTED "Not eligible, as [reason, else the failed rule with its figure and limit]." REFER "Referred for review, as
+    [the reason]." DATA_MISSING "Cannot be assessed yet, as [to_fix]." Copy amounts and percentages exactly as
+    given. Never add a number, promise or advice; never question the decision; never write "this case can get".
+
+
+# =====================================================================================================================
+# 10. WORDING  --  every sentence the engine and the response show an officer
+# =====================================================================================================================
+
+# plain-language reasons ({values} filled by the engine)
+# the limiting factor as the engine's reason names it ("Eligible for ₹X of ₹Y requested (limited by ...)")
+limit_names: { FOIR: "FOIR", LTV: "LTV", PRODUCT_MAX: "the product maximum", TOPUP: "the top-up limit" }
+
+messages:
+  AGE: "Age {age} must be {min_age}-{max_age} today and at most {max_age_at_maturity} at the end of the loan (would be {age_at_maturity})."
+  INCOME: "Net monthly income ₹{income} against the minimum ₹{min_income}."
+  SCORE: "Bureau score {score} against the cut-off {min_score}."
+  DPD: "Worst delay in the last 12 months {dpd} days against the limit {limit}."
+  DPD_REFER: "Worst delay in the last 12 months {dpd} days: above {limit}, within {refer_upto}. Refer for a credit review."
+  DPD_ACCOUNTS: "Bureau report shows {write_offs} written-off and {settlements} settled account(s)."
+  SCORE_BORDERLINE: "Bureau score {score} is within {refer_margin} points of the cut-off {min_score}: refer for a manual review."
+  FOIR: "FOIR {foir}% on the requested loan (EMI ₹{emi} + existing ₹{existing}) against the limit {foir_limit}%."
+  LTV: "Requested ₹{requested} against {ltv_limit}% of the property value ₹{property_value} (₹{ltv_cap})."
+  LTV_NOT_APPLICABLE: "LTV does not apply to {product} (no property security)."
+  SIZED: "Eligible for ₹{eligible} of the ₹{requested} requested (limited by {limit})."
+  APPROVED: "All five checks pass for the full ₹{requested}."
+  NOTHING_AFFORDABLE: "Existing EMIs already take the income to the FOIR limit, so no new EMI is affordable."
+  NO_LTV_ROOM: "The loans already on the property use all of the LTV limit, so nothing more can be lent against it."
+  NO_TOPUP: "No top-up is available on the existing loan (months on book or tenure), so nothing can be given."
+  REQUEST_BELOW_PRODUCT_MIN: "The requested ₹{eligible} is below the product minimum ₹{min_amount}."
+  BELOW_PRODUCT_MIN: "The affordable amount ₹{eligible} is below the product minimum ₹{min_amount}."
+  MISSING: "Missing mandatory data: {fields}."
+  UNKNOWN_PRODUCT: "No eligibility terms are configured for {product}."
+
+# ---------------------------------------------------------------------------
+# THE FINAL RESPONSE (app/agents/eligibility/response.py): how the result is presented. Templates take the result's own
+# figures: {requested} {eligible} {emi} {tenure} {limit} {gap} {fields} {failed} {score}. Nothing here decides.
+# ---------------------------------------------------------------------------
+response:
+  labels:
+    AGE: "Age"
+    INCOME: "Net monthly income"
+    SCORE: "Bureau score"
+    FOIR: "FOIR (EMIs / income)"
+    LTV: "Loan to value"
+    DPD: "Repayment history (DPD)"
+  missing_labels:                           # a missing field as the officer reads it (several fields -> one item)
+    max_dpd_12m: "repayment history (DPD)"
+    write_offs: "repayment history (DPD)"
+    settlements: "repayment history (DPD)"
+    net_monthly_income: "net monthly income"
+    existing_emi: "existing EMIs"
+  limit_words:
+    TOPUP: "the top-up the existing loan allows"
+    FOIR: "FOIR (the EMIs the income can carry)"
+    LTV: "LTV (the share of the property value that can be lent)"
+    PRODUCT_MAX: "the product maximum"
+  failed:                                   # a failed rule in the REJECTED summary
+    AGE: "age {age} is outside {min}-{max}"
+    AGE_MATURITY: "age at the end of the loan would be {at_maturity} (maximum {max_at_maturity})"
+    INCOME: "net monthly income ₹{value} is below the ₹{limit} minimum"
+    SCORE: "bureau score {value} is below the {limit} minimum"
+    DPD: "a {dpd}-day delay in the last 12 months (limit {limit}, refer up to {refer_upto})"
+    DPD_ACCOUNTS: "the bureau report shows {write_offs} written-off and {settlements} settled account(s)"
+  summary:
+    APPROVED: "Eligible for the full ₹{requested} requested. EMI ₹{emi} over {tenure} months."
+    CONDITIONAL_FOIR: "Eligible for ₹{eligible} of the ₹{requested} requested, limited by {limit}. EMI ₹{emi} over {tenure} months."
+    CONDITIONAL_LTV: "Eligible for ₹{eligible} of the ₹{requested} requested, limited by {limit}. EMI ₹{emi} over {tenure} months."
+    CONDITIONAL_PRODUCT_MAX: "Eligible for ₹{eligible} of the ₹{requested} requested, limited by {limit}. EMI ₹{emi} over {tenure} months."
+    CONDITIONAL_TOPUP: "Eligible for ₹{eligible} of the ₹{requested} requested, limited by {limit}. EMI ₹{emi} over {tenure} months."
+    REFER: "Bureau score {score} is borderline. ₹{eligible} can be offered after a credit review."
+    REFER_DPD: "A {dpd}-day repayment delay in the last 12 months. ₹{eligible} can be offered after a credit review."
+    REJECTED: "Not eligible: {failed}."
+    REJECTED_NOTHING_AFFORDABLE: "Not eligible: the existing EMIs already use the income FOIR allows; no new EMI fits."
+    REJECTED_NO_LTV_ROOM: "Not eligible: the loans already on the property use the whole LTV limit."
+    REJECTED_NO_TOPUP: "Not eligible: no top-up is available on the existing loan yet."
+    REJECTED_BELOW_MIN: "Not eligible: {failed_min}."
+    DATA_MISSING: "Cannot decide yet: {fields}."
+  next_steps:
+    APPROVED:
+      - "Proceed with ₹{requested} at EMI ₹{emi}."
+    CONDITIONAL_FOIR:
+      - "Offer ₹{eligible} at EMI ₹{emi}."
+      - "Or bridge the ₹{gap} gap: a longer tenure, closing existing EMIs, or adding a co-applicant's income."
+    CONDITIONAL_LTV:
+      - "Offer ₹{eligible} at EMI ₹{emi}."
+      - "Or bridge the ₹{gap} gap: a higher own contribution, or a fresh / higher property valuation."
+    CONDITIONAL_PRODUCT_MAX:
+      - "Offer ₹{eligible}, the most this product lends; the ₹{gap} balance needs another product."
+    CONDITIONAL_TOPUP:
+      - "Offer ₹{eligible}, the top-up the existing loan allows; the ₹{gap} balance needs a fresh loan assessment."
+    REFER:
+      - "Send to credit for review of the bureau report before offering ₹{eligible}."
+    REFER_DPD:
+      - "Send to credit with the repayment track (DPD) before offering ₹{eligible}."
+    REJECTED:
+      - "Decline; re-check only if the failing criterion changes."
+    REJECTED_NOTHING_AFFORDABLE:
+      - "Decline, or re-check after existing EMIs are closed or income increases."
+    REJECTED_NO_LTV_ROOM:
+      - "Decline, or re-check with a fresh valuation or after the existing loan on the property is reduced."
+    REJECTED_NO_TOPUP:
+      - "Decline the top-up; re-check once the existing loan has enough months on book."
+    REJECTED_BELOW_MIN:
+      - "Decline for this product; consider a product with a lower minimum."
+    DATA_MISSING:
+      - "Capture {fields} on the case, then run the check again."
+  # WHAT IT WOULD TAKE for the full request (engine `what_it_takes`): one line per lever; {full} / {then} say whether
+  # that change alone is enough
+  what_it_takes:
+    CLOSE_EMIS: "Close ₹{value}/month of existing EMIs{outcome}"
+    ADD_INCOME: "Add ₹{value}/month of income (e.g. a co-applicant){outcome}"
+    LONGER_TENURE: "Take {value} months instead of {tenure}{outcome}"
+    OWN_CONTRIBUTION: "Raise the customer's own contribution by ₹{value} (loan ₹{gives_short})."
+    VALUATION: "A property valuation of ₹{value} or more{outcome}"
+    PRODUCT_MAX: "{product} lends at most ₹{value}; the balance needs another product."
+    TOPUP_CAP: "The existing loan allows a top-up of ₹{value}; the balance needs a fresh loan assessment."
+  what_it_takes_full: " → the full ₹{requested}."
+  what_it_takes_partial: " → up to ₹{gives}, then {then} limits it."
+  # less than requested: the bucket recommendation (engine `recommendation`), placed first in next_steps
+  recommendation: "Recommend ₹{amount} (bucket {bucket}) at EMI ₹{emi} over {tenure} months."
+  longer_tenure: "Or at {months} months: ₹{eligible} (bucket {bucket}), EMI ₹{emi}{covers}."
+  covers_request: ", which covers the full request"
+  topup_labels: { BT_TOPUP: "Balance transfer top-up", INTERNAL_TOPUP: "Internal top-up" }
+

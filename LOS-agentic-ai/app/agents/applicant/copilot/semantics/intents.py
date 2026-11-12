@@ -565,6 +565,45 @@ def asks_impact(message: str) -> bool:
     return bool(_IMPACT.search(message or ""))
 
 
+def asks_why_blocked(message: str) -> bool:
+    """ "Why can't this case move to CPA?" / "case cpa me kyu nahi ja raha" -- why a case does NOT go to a named stage:
+    what blocks it (the readiness blockers), never its stage history. The KIND of question is LEARNED
+    (semantics/answer_act.py, act WHY_NOT); only the stage is read here, as an entity."""
+    return stage_in(message or "") is not None and _act(message) == "WHY_NOT"
+
+
+def asks_why_pending(message: str) -> bool:
+    """ "Why it is pending?" / "case pending kyu hai" / "abhi tak baaki kyu hai" -- why the CASE is pending: what is
+    still open and why (the readiness blockers), never the case's recorded history (2026-11-06, owner: it got the
+    timeline and "no individual findings"). The learned act is WHY / WHY_NOT and the message carries the PENDING
+    concept (semantic_concepts.yaml) -- NOT a review state ("why is it under review?" asks for the recorded reason,
+    case history, as before) -- and names no document (a document's own "why pending" is its status)."""
+    from app.agents.applicant.copilot.semantics import semantic_frame as _sf
+
+    found = _sf.concepts_in(message or "")
+    present = {c for _, c in found}
+    if "PENDING" not in present or _sf.is_review_state(found) or "DOCUMENT" in present or "DOCUMENTS" in present:
+        return False
+    if _sf._document_type(message or ""):
+        return False
+    return _act(message) in ("WHY", "WHY_NOT")
+
+
+def asks_once_done(message: str) -> bool:
+    """ "After doing all this, can the case move to CPA?" -- a conditional about a named stage (act CONDITIONAL):
+    this case's readiness, answered yes / not yet."""
+    return stage_in(message or "") is not None and _act(message) == "CONDITIONAL"
+
+
+def _act(message: str) -> str | None:
+    try:
+        from app.agents.applicant.copilot.semantics import answer_act
+
+        return answer_act.sure_act(message)
+    except Exception:  # noqa: BLE001 - no act model: the stage rules below decide, as before
+        return None
+
+
 def asks_stage_history(message: str) -> bool:
     """Whether the question asks where the case HAS BEEN in the lifecycle."""
     text = message or ""
@@ -614,7 +653,13 @@ def looks_like_stage_process(message: str) -> bool:
         # MIXED when it asks both things, which answers the case half
         # from records and the rest from knowledge.
         return False
-    return any(pattern.search(text) for pattern in _STAGE_PROCESS)
+    if any(pattern.search(text) for pattern in _STAGE_PROCESS):
+        return True
+    # WHO WORKS A NAMED STAGE ("who handles cpa?", "who reviews the file at credit"): a role question (task.role_words
+    # + role_verbs) naming a stage is answered by that stage's guide (2026-10-23: it got the case's readiness)
+    from app.agents.applicant.copilot.semantics import task as _role
+
+    return bool(stage_in(text)) and _role.enabled() and _role.asks_role(text)
 
 
 def _asks_how_a_stage_works(message: str) -> bool:
@@ -1207,9 +1252,35 @@ _DOC_ALIASES = {
 def _document_type(message: str) -> str | None:
     match = _DOC_RE.search(message)
     if not match:
-        return None
+        return _document_in_other_script(message)
     key = re.sub(r"\s+", " ", match.group(0).strip().lower())
     return _DOC_ALIASES.get(key)
+
+
+_SCRIPT_NAMES: dict[str, Any] = {"mtime": None, "pairs": ()}
+
+
+def _document_in_other_script(message: str) -> str | None:
+    """A document named in Devanagari ("बैंक स्टेटमेंट"), from config copilot_document_names.yaml (longest name
+    first, whole words). None when the file is missing or nothing matches."""
+    import yaml as _yaml
+    from pathlib import Path as _Path
+
+    path = _Path(__file__).resolve().parents[4] / "config" / "copilot_document_names.yaml"
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    if _SCRIPT_NAMES["mtime"] != mtime:
+        data = _yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        pairs = [(str(n), str(doc)) for doc, names in (data.get("names") or {}).items() for n in names or []]
+        _SCRIPT_NAMES.update(mtime=mtime, pairs=tuple(sorted(pairs, key=lambda p: -len(p[0]))))
+    # punctuation only: `\w` does not cover Devanagari vowel signs, so a "non-word" strip would cut "बैंक" apart
+    said = " " + re.sub(r"[?.!,;:()\"'।|/\-]", " ", str(message or "")) + " "
+    for name, doc in _SCRIPT_NAMES["pairs"]:
+        if f" {name} " in said:
+            return doc
+    return None
 
 
 _MOBILE_RE = re.compile(r"\b(\d{10})\b")
@@ -1454,6 +1525,18 @@ def classify(message: str) -> Classification:
     if _WHAT_ABOUT_DOC.match(text) and _document_type(text):
         return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
                               document_type=_document_type(text), matched_on="what_about_document")
+    # WHY IT CAN'T GO TO A STAGE (2026-11-04, owner's chat: "Why this case cant be move to cpa?" was answered "The
+    # application has not been at the CPA stage" -- the stage-history rule took "move to cpa"): a WHY + a NOT + a
+    # MOVE about a named stage asks what blocks it -- the readiness blockers, before every stage rule. The act
+    # (WHY_NOT) is learned from examples (semantics/answer_act.py), so broken grammar and Hinglish reach it too.
+    if asks_why_blocked(text):
+        return Classification(Intent.READINESS, confidence="high", matched_on="why_blocked_from_stage")
+    # ONCE IT IS DONE, CAN IT GO? (2026-11-04, owner: "but after doing all this case can be move to cpa?" read "all
+    # this case" as a portfolio ask): the learned act CONDITIONAL about a named stage is THIS case's readiness
+    if asks_once_done(text):
+        return Classification(Intent.READINESS, confidence="high", matched_on="once_done_to_stage")
+    if asks_why_pending(text):
+        return Classification(Intent.READINESS, confidence="high", matched_on="why_pending")
     # A DEFINITION TAIL ("... CPA mein kyun hai aur KYC review ka matlab kya hai?") is split BEFORE this stage
     # rule too -- it took the whole message on its first half (the same check as below, moved ahead of it)
     if _CASE_STAGE.search(text) and re.search(r"\b(means?|meaning|matlab|arth)\b", text, re.IGNORECASE):
@@ -1951,7 +2034,9 @@ def understand(message: str, *, has_case: bool = False) -> Classification:
     if classification.matched_on in ("current_stage", "stage_history", "impact",
                                      "document_status_list", "document_rejected",
                                      # a field, a finding or a KYC result named explicitly
-                                     "profile", "findings", "kyc"):
+                                     "profile", "findings", "kyc",
+                                     # why it can't / once done can it go to a named stage (2026-11-04)
+                                     "why_blocked_from_stage", "once_done_to_stage", "why_pending"):
         frame_decides = False
     # A DOCUMENT'S verification asked with the word "reject" ("koi document
     # reject hua kya") is a document question, not a loan decision: the

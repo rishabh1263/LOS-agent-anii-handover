@@ -44,7 +44,11 @@ def text_engine() -> str:
     text-parsed Canara statement (153 of 524 rows, no longer reconciling).
     Correctness wins: it stays opt-in until the row parser is order-independent.
     """
-    return (os.getenv("BANK_STATEMENT_TEXT_ENGINE") or "pypdf").strip().lower()
+    # 2026-10-14: PyMuPDF in CONTENT-STREAM order ("pymupdf_stream", sort=False) is the default -- measured on 10 real
+    # native statements: identical rows and reconciliation to pypdf on all 10 (Canara 524/524, which the sorted
+    # order broke), and the 104-page statement reads in full (1339 rows, reconciled) instead of being projected over
+    # budget and deferred with 0 rows. "pypdf" / "pymupdf" stay selectable.
+    return (os.getenv("BANK_STATEMENT_TEXT_ENGINE") or "pymupdf_stream").strip().lower()
 
 
 def _fitz():
@@ -65,11 +69,14 @@ def available() -> bool:
 
 def page_texts(path: str) -> list[str] | None:
     """Text per page, in reading order. None when PyMuPDF cannot read the file."""
-    if text_engine() != "pymupdf" or not available():
+    chosen = text_engine()
+    if chosen not in ("pymupdf", "pymupdf_stream") or not available():
         return None
+    # "pymupdf_stream": the content-stream order (sort=False) -- the order pypdf reads in (2026-10-14)
+    ordered = chosen == "pymupdf"
     try:
         with _fitz().open(path) as doc:
-            return [page.get_text("text", sort=True) or "" for page in doc]
+            return [page.get_text("text", sort=ordered) or "" for page in doc]
     except Exception as exc:  # noqa: BLE001 - the caller falls back to pypdf
         logger.debug("PyMuPDF text extraction failed: %s", exc)
         return None

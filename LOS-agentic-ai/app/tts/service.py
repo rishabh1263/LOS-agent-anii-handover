@@ -72,7 +72,9 @@ def reachable(ttl_seconds: float = 30.0) -> bool:
         return False
     now = time.monotonic()
     cached = _REACH.get(url)
-    if cached and now - cached[0] < ttl_seconds:
+    # A DOWN SERVICE IS RE-PROBED LESS OFTEN (2026-10-14): a refused connect costs up to 1 s on Windows, and it was
+    # paid by a chat turn every 30 s; a service that comes up is still found within config tts.down_recheck_seconds
+    if cached and now - cached[0] < (ttl_seconds if cached[1] else float(_config().get("down_recheck_seconds") or 300)):
         return cached[1]
     parsed = urlparse(url)
     try:

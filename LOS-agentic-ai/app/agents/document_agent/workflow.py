@@ -61,6 +61,7 @@ from app.agents.document_agent.schemas import (
     DocumentExtractionResult,
     DocumentStatus,
     DocumentType,
+    OCRToken,
 )
 from app.agents.financial.agent import (
     process_financial_document,
@@ -314,7 +315,86 @@ def _escalation_satisfied(
     if recognition.result.document_type is not DocumentType.UNKNOWN:
         return True
 
+    # A DOCUMENT THIS SERVICE NEVER EXTRACTS (Aadhaar: external verification only) is recognised on the first pass
+    # and stops there. It used to look "unreadable" to the identity extractor (which has no Aadhaar fields) and paid
+    # for every recovery pass and all three rotations -- measured 10.2 s, live, to answer "not handled here".
+    if _external_only(recognition.tokens):
+        return True
+
     return len(recognition.tokens) >= DENSE_PAGE_TOKENS
+
+
+def _part_of_a_pan(recognition, requested_class: str | None) -> bool:
+    """A PAN was asked for and the first pass shows, CLEARLY READ, only PART of one: no further pass can add the
+    missing half, so none runs (2026-10-16, live: half cards took 3.8-9.9 s -- every recovery pass and rotation --
+    to reach the REJECTED they always reach). Only on an upright, legible first read (at least four lines, mean
+    confidence 0.75, most boxes wider than tall), so a blurred or sideways genuine card keeps every recovery pass.
+      * the card is incomplete by the PAN verifier's own measure (a left half: GOVT. OF INDIA missing)
+      * no PAN header and not classified PAN (a right or bottom half -- the INCOME TAX DEPARTMENT side is gone)
+      * classified PAN, no date anywhere, and the text runs into the bottom of the frame (a top half)"""
+    if (requested_class or "").strip().upper() != "PAN":
+        return False
+    from app.agents.verification.basic import _PAN_DATE, _PAN_LEFT_HEADER, pan_card_incomplete
+
+    tokens = [t for t in recognition.tokens if (t.x1 - t.x0) > 0 and (t.y1 - t.y0) > 0]
+    image = recognition.image
+    if len(tokens) < 4 or image is None:
+        return False
+    mean_confidence = sum(float(t.confidence or 0) for t in tokens) / len(tokens)
+    wide = sum((t.x1 - t.x0) > 1.5 * (t.y1 - t.y0) for t in tokens) / len(tokens)
+    if mean_confidence < 0.75 or wide < 0.6:
+        return False
+    if pan_card_incomplete(tokens, image.size):
+        return True
+    raw = " ".join(str(t.text or "") for t in tokens)
+    compact = re.sub(r"[^A-Z]", "", raw.upper())
+    try:
+        document_class, _score = classify_document_class(_compact_text(tokens), raw.upper())
+    except Exception:  # noqa: BLE001 - unsure: the normal escalation decides
+        return False
+    if document_class is not DocumentClass.PAN:
+        return not (_PAN_LEFT_HEADER.search(compact) or "आयकर" in raw)
+    return not _PAN_DATE.search(raw) and max(t.y1 for t in tokens) >= 0.85 * image.height
+
+
+def _another_card_than_requested(recognition, requested_class: str | None) -> bool:
+    """The caller asked for one card and the first pass clearly shows ANOTHER identity card: the answer is the type
+    mismatch whatever more passes would read, so none run. Measured 2026-10-16: a driving licence sent to the PAN
+    API took 4.1 s (five passes over a licence) to be rejected. Clearly = the classifier names an identity class with
+    its full threshold, OR the card extractor identified that same class on this pass (two independent readers
+    agree -- dl1, a small licence, scores 0.3 on captions yet is plainly a licence); an unsure page keeps the normal
+    escalation."""
+    from app.agents.verification import slots
+
+    wanted = (requested_class or "").strip().upper()
+    if not wanted or wanted in slots.WILDCARDS:
+        return False
+    tokens = recognition.tokens
+    try:
+        document_class, score = classify_document_class(
+            _compact_text(tokens), " ".join(str(getattr(t, "text", "") or "") for t in tokens).upper())
+    except Exception:  # noqa: BLE001 - unsure: the normal escalation decides
+        return False
+    if document_class not in _IDENTITY_CLASSES:
+        return False
+    extractor_agrees = _type_value(recognition.result.document_type) == document_class.value
+    if score < _CLEAR_CLASS_SCORE and not extractor_agrees:
+        return False
+    return not slots.satisfies(wanted, document_class.value)
+
+
+# The classifier score above which a page is clearly that card (its captions, not a guess).
+_CLEAR_CLASS_SCORE = 0.6
+
+
+def _external_only(tokens) -> bool:
+    """Whether the page's own captions name a class handled only by the external service (no field is read)."""
+    try:
+        document_class, _score = classify_document_class(
+            _compact_text(tokens), " ".join(str(getattr(t, "text", "") or "") for t in tokens).upper())
+    except Exception:  # noqa: BLE001 - unsure: the normal escalation decides
+        return False
+    return document_class in _EXTERNAL_ONLY_CLASSES
 
 
 def _recognise(
@@ -323,6 +403,7 @@ def _recognise(
     force_type: DocumentType | None = None,
     escalate: bool = True,
     rotate: bool = True,
+    requested_class: str | None = None,
 ) -> pipeline.Recognition | None:
     """
     Run recognition on the serialised OCR worker.
@@ -339,6 +420,9 @@ def _recognise(
         image,
         force_type=force_type,
         accept=_escalation_satisfied,
+        final=lambda recognition: (_external_only(recognition.tokens)
+                                   or _another_card_than_requested(recognition, requested_class)
+                                   or _part_of_a_pan(recognition, requested_class)),
         escalate=escalate and escalation_enabled(),
         rotate=rotate,
     )
@@ -1707,7 +1791,9 @@ async def process_document(
     # any renderer or OCR reads them. Reported for this document only.
     from app.security import upload_gate
 
-    gate = upload_gate.check(file_bytes, filename, limit=MAX_UPLOAD_BYTES)
+    # A declared PAN / DL / voter ID / passport also gets the strict PDF rules (no scripts, attachments, encryption).
+    identity = (requested_class or "").strip().upper() in {c.value for c in _IDENTITY_CLASSES}
+    gate = upload_gate.check(file_bytes, filename, limit=MAX_UPLOAD_BYTES, identity=identity)
     if not gate.allowed:
         raise ValueError(f"{gate.code}: {gate.message}")
 
@@ -1831,7 +1917,7 @@ def _process_image(
 
     timings = timings or Timings()
 
-    recognition = _recognise(image)
+    recognition = _recognise(image, requested_class=requested_class)
 
     if recognition is None or not recognition.tokens:
         return _unreadable(
@@ -1939,6 +2025,84 @@ def _process_image(
 # PDF workflow
 # ---------------------------------------------------------------------------
 
+NATIVE_MIN_WORDS = 8
+
+
+def _native_recognition(path: str, number: int, force_type) -> "pipeline.Recognition | None":
+    """Page `number` read from the PDF's own text layer -- no OCR -- or None when it has too little text to trust.
+    The words keep their positions (scaled to a 150 dpi render of the page, which verification's visual checks --
+    card completeness, scan quality, the signature strip -- look at)."""
+    try:
+        import pymupdf
+        from PIL import Image
+
+        with pymupdf.open(path) as doc:
+            if doc.needs_pass or number > doc.page_count:
+                return None
+            page = doc[number - 1]
+            words = page.get_text("words")
+            if sum(1 for w in words if any(c.isalnum() for c in w[4])) < NATIVE_MIN_WORDS:
+                return None
+            zoom = 150 / 72
+            pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
+            image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        lines: dict[tuple[int, int], list] = {}
+        for w in words:
+            lines.setdefault((w[5], w[6]), []).append(w)
+        tokens = [OCRToken(text=" ".join(x[4] for x in sorted(ws, key=lambda x: x[0])), confidence=1.0,
+                           x0=min(x[0] for x in ws) * zoom, y0=min(x[1] for x in ws) * zoom,
+                           x1=max(x[2] for x in ws) * zoom, y1=max(x[3] for x in ws) * zoom)
+                  for ws in lines.values()]
+        started = time.perf_counter()
+        result = pipeline.extract_from_tokens(tokens, ocr_ms=0.0, ocr_engine="pdf-text-layer", image=None,
+                                              force_type=force_type)
+        result.processing.extraction_ms = round((time.perf_counter() - started) * 1000, 2)
+        result.warnings.append("ocr_pass=native_text")
+        return pipeline.Recognition(tokens=tokens, image=image, result=result, ocr_ms=0.0,
+                                    engine_name="pdf-text-layer")
+    except Exception as exc:  # noqa: BLE001 - any doubt: the OCR path reads the page as before
+        logger.debug("PDF text layer not used for page %s: %s", number, type(exc).__name__)
+        return None
+
+
+def _single_embedded_image(path: str, number: int):
+    """A SCAN OR PHONE PHOTO SAVED AS A PDF: the page is one picture. That picture, taken out as it was stored, is
+    the very image a JPEG upload would have been -- no 300 dpi re-render (measured 2026-10-16, warm: a 1280x1920 card
+    photo as a PDF took 3.2 s against 1.3 s as the JPEG it contains). None when the page is anything else (text,
+    several pictures, a picture covering only part of it): the page is rendered as before."""
+    try:
+        import io
+
+        import pymupdf
+        from PIL import Image, ImageOps
+
+        with pymupdf.open(path) as doc:
+            if doc.needs_pass or number > doc.page_count:
+                return None
+            page = doc[number - 1]
+            images = page.get_images(full=True)
+            if len(images) != 1 or len(page.get_text("words")) > 3:
+                return None
+            xref = images[0][0]
+            placed = page.get_image_rects(xref)
+            page_area = page.rect.width * page.rect.height
+            if not placed or (placed[0].width * placed[0].height) < 0.85 * page_area:
+                return None
+            info = doc.extract_image(xref)
+            if not info or not info.get("image"):
+                return None
+            image = Image.open(io.BytesIO(info["image"]))
+            image = ImageOps.exif_transpose(image).convert("RGB")
+            # the picture as the page SHOWS it: a scan placed rotated is turned the same way
+            rotation = page.rotation % 360
+            if rotation:
+                image = image.rotate(-rotation, expand=True)
+            return image if min(image.size) >= 200 else None
+    except Exception as exc:  # noqa: BLE001 - anything unusual: render the page
+        logger.debug("No single embedded image on page %s (%s)", number, type(exc).__name__)
+        return None
+
+
 def _render_pdf_page(path: str, number: int):
     """
     Rasterise exactly one page.
@@ -1954,6 +2118,10 @@ def _render_pdf_page(path: str, number: int):
     and none anywhere else, including CI.
     """
     import os
+
+    embedded = _single_embedded_image(path, number)
+    if embedded is not None:
+        return embedded
 
     from pdf2image import convert_from_path
 
@@ -2113,6 +2281,20 @@ def _process_pdf(
 
         try:
             for number in range(1, page_count + 1):
+                # THE PDF'S OWN TEXT FIRST. A digital e-PAN / e-licence carries its words exactly; reading them takes
+                # milliseconds, OCR'ing a 300 dpi render of them took ~1.3 s (measured 2026-10-16). A page whose
+                # text layer is missing, thin or does not complete the card falls through to OCR as before.
+                native = _native_recognition(path, number, carried_type)
+                if native is not None and (pipeline._is_complete(native.result)
+                                           or (number > 1 and carried_type is not None)):
+                    if pending is not None:
+                        pending.cancel()
+                        pending = None
+                    recognitions.append(native)
+                    rendered += 1
+                    if carried_type is None and native.result.document_type is not DocumentType.UNKNOWN:
+                        carried_type = native.result.document_type
+                    continue
                 if pending is None:
                     page_image = _render_pdf_page(path, number)
                 else:
@@ -2150,12 +2332,27 @@ def _process_pdf(
                 # -- if the scan was too faint to read there, the rest of the
                 # same scan will be too, and paying for it per page turned a
                 # four-page unreadable document into eight OCR passes.
-                recognition = _recognise(
-                    page_image,
-                    force_type=carried_type,
-                    escalate=(number == 1),
-                    rotate=False,
-                )
+                recognition = None
+                if (number == 1 and document_class is DocumentClass.UNKNOWN
+                        and str(requested_class or "").strip().upper() in _FINANCIAL_CLASSES and carried_type is None):
+                    # A SCAN UPLOADED AS A FINANCIAL DOCUMENT (2026-10-14): one plain pass first. A statement page
+                    # is dense text the identity escalation (flatten / deskew / contrast ...) never "satisfies", so
+                    # it ran every variant just to learn the class (~2.7 s of an 18 s scanned statement). If the plain
+                    # pass already reads it as financial, the Financial Agent takes it; otherwise the full escalation
+                    # below runs exactly as before, so a wrong document in a financial slot is still caught.
+                    plain = _recognise(page_image, force_type=None, escalate=False, rotate=False)
+                    if plain is not None and plain.tokens:
+                        plain_class, plain_confidence = _timed(
+                            timings, "classification_ms", classify_document_class, _compact_text(plain.tokens))
+                        if plain_class in _FINANCIAL_CLASSES:
+                            recognition = plain
+                if recognition is None:
+                    recognition = _recognise(
+                        page_image,
+                        force_type=carried_type,
+                        escalate=(number == 1),
+                        rotate=False,
+                    )
 
                 if recognition is None or not recognition.tokens:
                     continue

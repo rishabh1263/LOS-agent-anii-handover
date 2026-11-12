@@ -75,12 +75,74 @@ DL_SPEC = {
 UNCERTAIN_BELOW = 0.55
 
 
-NAME_FIELDS = {"name", "father_name", "guardian_name"}
+# relation_name (2026-11-04): a Voter ID's father / husband name lost its space ("RAMESHVERMA") on 24 of 36 synthetic
+# held-out cards -- the same OCR line merge as the holder's name, recovered by the same letters-identical guard
+NAME_FIELDS = {"name", "father_name", "guardian_name", "relation_name"}
 
 # A single word at least this long suggests the recogniser merged two names.
 # The letters-identical guard in name_spacing still decides what is accepted,
 # so a false trigger costs time but can never corrupt a value.
 SUSPICIOUS_WORD_LEN = 8
+
+
+def _split_by_card_words(value: str, field_name: str, raw: dict) -> str | None:
+    """
+    A merged name re-spaced with the words the card's OTHER name fields already carry, or None.
+
+    Every long merged word must split, exactly and entirely, into those words (at least two of them, each 2+
+    letters); the letters are never changed, only grouped. A word that cannot be split that way leaves the whole
+    name to the Tesseract recovery, as before.
+    """
+    vocab = {w for name in NAME_FIELDS if name != field_name
+             for w in str((raw.get(name) or (None,))[0] or "").upper().split() if len(w) >= 2 and w.isalpha()}
+    if not vocab:
+        return None
+
+    def split(word: str) -> list[str] | None:
+        best: dict[int, list[str]] = {0: []}
+        for i in range(1, len(word) + 1):
+            for w in vocab:
+                j = i - len(w)
+                if j >= 0 and j in best and word[j:i] == w:
+                    cand = best[j] + [w]
+                    if i not in best or len(cand) < len(best[i]):
+                        best[i] = cand
+        if len(word) in best:
+            return best[len(word)]
+        # ONE first name the card does not repeat ("RAMESH" + the shared surname "SHARMA"): a single unknown part of
+        # 3+ letters at the start or the end, the rest entirely the card's own words
+        for cut in range(3, len(word) - 1):
+            head, tail = word[:cut], word[cut:]
+            rest = split_known(tail)
+            if rest:
+                return [head] + rest
+            rest = split_known(word[:len(word) - cut])
+            if rest and len(word[len(word) - cut:]) >= 3:
+                return rest + [word[len(word) - cut:]]
+        return None
+
+    def split_known(word: str) -> list[str] | None:
+        best: dict[int, list[str]] = {0: []}
+        for i in range(1, len(word) + 1):
+            for w in vocab:
+                j = i - len(w)
+                if j >= 0 and j in best and word[j:i] == w:
+                    cand = best[j] + [w]
+                    if i not in best or len(cand) < len(best[i]):
+                        best[i] = cand
+        return best.get(len(word))
+
+    out, changed = [], False
+    for word in value.upper().split():
+        if len(word) < SUSPICIOUS_WORD_LEN:
+            out.append(word)
+            continue
+        parts = split(word)
+        if not parts or len(parts) < 2:
+            return None
+        out.extend(parts)
+        changed = True
+    return " ".join(out) if changed else None
 
 
 def _build_field(
@@ -250,6 +312,14 @@ def extract_from_tokens(
                 continue
 
             if max(len(word) for word in words) < SUSPICIOUS_WORD_LEN:
+                continue
+
+            # THE CARD'S OTHER NAMES FIRST (2026-11-05): a guardian "RAJENDRAMAHALE" beside a holder "MAHALE MANSI
+            # RAJENDRA" is the same letters as two words the card already spaced. Split by those words -- letters
+            # identical, as the Tesseract guard requires -- and the ~2 s crop read is not needed.
+            sibling = _split_by_card_words(str(value), field_name, raw)
+            if sibling is not None:
+                raw[field_name] = (sibling, token)
                 continue
 
             suspicious_fields.append(
@@ -766,8 +836,48 @@ def _fill_missing_from_passes(best: "Recognition", attempts: list["Recognition"]
         result.status = DocumentStatus.SUCCESS
 
 
+def mrz_band_enabled() -> bool:
+    return (os.getenv("DOCUMENT_OCR_MRZ_BAND") or "true").strip().lower() not in {"false", "0", "no", "off"}
+
+
+def _mrz_like(text: str) -> bool:
+    """An MRZ line as OCR reads it: long, and dense with the '<' filler."""
+    t = (text or "").replace(" ", "")
+    return len(t) >= 28 and t.count("<") >= 3
+
+
+#: the MRZ band is enlarged to about this width before it is read again (a 44-character OCR-B line wants ~30 px/char)
+MRZ_BAND_WIDTH = 1400
+
+
+def _mrz_band(recognition: "Recognition"):
+    """(band image, its box in the pass's image, scale) around the MRZ lines the pass found, or None."""
+    lines = [t for t in recognition.tokens if _mrz_like(t.text)]
+    image = recognition.image
+    if not lines or image is None:
+        return None
+    x0, y0 = min(t.x0 for t in lines), min(t.y0 for t in lines)
+    x1, y1 = max(t.x1 for t in lines), max(t.y1 for t in lines)
+    h = max(t.y1 - t.y0 for t in lines)
+    box = (max(0, int(x0 - h)), max(0, int(y0 - h * 1.5)),
+           min(image.width, int(x1 + h)), min(image.height, int(y1 + h * 1.5)))
+    if box[2] - box[0] < 32 or box[3] - box[1] < 16:
+        return None
+    crop = image.crop(box)
+    scale = max(1.0, MRZ_BAND_WIDTH / crop.width)
+    if scale > 1.0:
+        crop = crop.resize((int(crop.width * scale), int(crop.height * scale)))
+    return crop, box, scale
+
+
 def card_crop_enabled() -> bool:
     return (os.getenv("DOCUMENT_OCR_CARD_CROP") or "true").strip().lower() not in {"false", "0", "no", "off"}
+
+
+def _crop_for_optional() -> bool:
+    """Whether the card-crop pass also runs for a card whose REQUIRED fields are complete but an optional one is
+    missing. Default from the A/B on the synthetic dev set (2026-11-04); env DOCUMENT_OCR_CROP_FOR_OPTIONAL."""
+    return (os.getenv("DOCUMENT_OCR_CROP_FOR_OPTIONAL") or "false").strip().lower() in {"true", "1", "yes", "on"}
 
 
 #: The crop pass runs only when the text spans less than this share of the frame.
@@ -792,6 +902,64 @@ def _card_crop(recognition: "Recognition"):
     return image.crop(box)
 
 
+_ROTATION_POOL = None
+_ROTATION_LOCK = threading.Lock()
+
+
+def _parallel_rotations() -> bool:
+    # OFF by default: MEASURED 2026-10-14 on 12 real passports, three engines reading at once took 20-32 s per
+    # passport against 8-10 s in series on this host (same chosen pass every time). Kept for other hardware.
+    return (os.getenv("DOCUMENT_OCR_PARALLEL_ROTATIONS", "false") or "false").strip().lower() == "true"
+
+
+def _read_rotations(variants: list, engine=None) -> list:
+    """(tokens, ocr_ms) -- or the exception -- per variant, in order. Concurrent on a 3-thread pool whose threads
+    each own an OCR engine (thread name prefix "ocr" -> ocr.get_engine gives a per-thread engine; no session shared).
+    None for each when parallel reads are off: the caller then reads them one by one as before."""
+    from app.agents.document_agent import ocr as _ocr
+
+    # only for the real RapidOCR engine: any other engine (Tesseract, a test double) is read in order as before
+    if not _parallel_rotations() or len(variants) < 2 or type(engine) is not _ocr.RapidOCREngine:
+        return [None] * len(variants)
+    global _ROTATION_POOL
+    from concurrent.futures import ThreadPoolExecutor
+
+    with _ROTATION_LOCK:
+        if _ROTATION_POOL is None:
+            _ROTATION_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix=f"{_ocr._OCR_THREAD_PREFIX}-rotate")
+
+    def read(variant):
+        try:
+            return _ocr.get_engine().read_array(preprocess.to_array(variant))
+        except Exception as exc:  # noqa: BLE001 - reported by attempt() as that pass's failure
+            return exc
+
+    return list(_ROTATION_POOL.map(read, [v for _, v in variants]))
+
+
+# The first look at a card. With DOCUMENT_OCR_ANGLE_CLS=retry (the default) it skips RapidOCR's per-line angle
+# classifier; every later pass keeps it -- the card crop included: it runs only for a card the first pass left
+# short, and on one real licence (dl4) it is the classifier on that crop that reads the holder's name.
+_FIRST_PASSES = frozenset({"standard"})
+
+
+def _read(engine, array, *, first: bool):
+    """engine.read_array, telling RapidOCR to skip the angle classifier on a first pass in "retry" mode. Engines
+    without the option (Tesseract ignores it; a test double may not take it) are called as before."""
+    from app.agents.document_agent import ocr as _ocr
+
+    if first and _ocr.angle_cls_mode() == "retry" and isinstance(engine, _ocr.RapidOCREngine):
+        return engine.read_array(array, upright=True)
+    return engine.read_array(array)
+
+
+def _ocr_cls_retry(engine) -> bool:
+    """Whether the first pass on this engine skipped the angle classifier (so a re-read with it can differ)."""
+    from app.agents.document_agent import ocr as _ocr
+
+    return _ocr.angle_cls_mode() == "retry" and isinstance(engine, _ocr.RapidOCREngine)
+
+
 def recognise(
     engine,
     image,
@@ -800,6 +968,7 @@ def recognise(
     accept: Callable[[Recognition], bool] | None = None,
     escalate: bool = True,
     rotate: bool = True,
+    final: Callable[[Recognition], bool] | None = None,
 ) -> Recognition | None:
     """
     OCR an image, escalating only while the caller is not satisfied.
@@ -837,7 +1006,8 @@ def recognise(
 
         return _is_complete(candidate.result)
 
-    def attempt(label: str, variant) -> Recognition | None:
+    def attempt(label: str, variant, read: tuple | None = None) -> Recognition | None:
+        """One pass. `read` = (tokens, ocr_ms) already OCR'd elsewhere (the parallel rotations), else OCR it here."""
         nonlocal cumulative_ocr_ms
 
         try:
@@ -846,9 +1016,10 @@ def recognise(
             telemetry["ocr_thread"] = threading.current_thread().name
             telemetry["ocr_passes"] += 1
 
-            tokens, ocr_ms = engine.read_array(
-                preprocess.to_array(variant)
-            )
+            if isinstance(read, Exception):
+                raise read
+            tokens, ocr_ms = read if read is not None else _read(engine, preprocess.to_array(variant),
+                                                                  first=label in _FIRST_PASSES)
 
         except Exception as exc:
             logger.warning("OCR pass '%s' failed: %s", label, exc)
@@ -893,7 +1064,67 @@ def recognise(
     if not report.analysed:
         logger.debug("Image quality analysis unavailable; using legacy passes")
 
-    current = attempt("standard", preprocess.standard(image))
+    standard_image = preprocess.ocr_ready(image)
+    settled = False                       # `final` said no further pass can change the answer
+    if final is None:
+        current = attempt("standard", standard_image)
+    else:
+        # The first look WITHOUT name-spacing recovery (Tesseract, 0.4-1.3 s on a licence): if `final` says the
+        # page is settled (another card than the one asked for, or an external-only document) its names are never
+        # used. Otherwise the same tokens are extracted again WITH it -- identical to the plain path.
+        from app.agents.document_agent import name_spacing as _spacing
+
+        with _spacing.suppressed():
+            current = attempt("standard", standard_image)
+        if current is not None and final(current):
+            escalate = rotate = False
+            settled = True
+        elif current is not None:
+            spaced = extract_from_tokens(current.tokens, ocr_ms=current.ocr_ms, ocr_engine=engine.name,
+                                         image=standard_image, force_type=force_type)
+            spaced.warnings.append("ocr_pass=standard")
+            current.result = spaced
+
+    # THE MRZ BAND, RE-READ ALONE (2026-11-05). A passport whose first pass found the MRZ but could not verify it
+    # (a digit dropped -- the birth date failed its check) paid three more FULL-PAGE passes (angle classifier, card
+    # crop, a 2000-2400 px enhanced page): ~4-6 s on 9 / 12 hard synthetic passports. The two MRZ lines are already
+    # located; cut just that band, enlarge it and read it again (one small image), swap those lines in. Kept only
+    # when it resolves more (_quality); otherwise the usual escalation follows unchanged.
+    if (current is not None and escalate and not settled and mrz_band_enabled()
+            and current.result.document_type is DocumentType.PASSPORT and not _is_complete(current.result)):
+        band = _mrz_band(current)
+        if band is not None:
+            band_image, box, scale = band
+            try:
+                band_tokens, band_ms = _read(engine, preprocess.to_array(band_image), first=False)
+            except Exception as exc:  # noqa: BLE001 - the band is an extra chance, never a failure
+                logger.warning("MRZ band pass failed: %s", exc)
+                band_tokens, band_ms = [], 0.0
+            cumulative_ocr_ms += band_ms
+            telemetry["ocr_passes"] += 1
+            if band_tokens:
+                placed = [t.model_copy(update={"x0": box[0] + t.x0 / scale, "x1": box[0] + t.x1 / scale,
+                                               "y0": box[1] + t.y0 / scale, "y1": box[1] + t.y1 / scale})
+                          for t in band_tokens]
+                merged = [t for t in current.tokens if not _mrz_like(t.text)] + placed
+                outcome = extract_from_tokens(merged, ocr_ms=cumulative_ocr_ms, ocr_engine=engine.name,
+                                              image=current.image, force_type=force_type)
+                outcome.warnings.append("ocr_pass=mrz_band")
+                candidate = Recognition(tokens=merged, image=current.image, result=outcome,
+                                        ocr_ms=cumulative_ocr_ms, engine_name=engine.name)
+                attempts.append(candidate)
+                if _quality(outcome) > _quality(current.result):
+                    current = candidate
+
+    # THE SAME IMAGE WITH THE ANGLE CLASSIFIER, the first retry in "retry" mode: the first pass skipped it to save
+    # time, and on a card it left short the classifier is the cheapest thing that can change the read (dl4: holder
+    # name MISSING without it, OK with it -- one more pass of ~0.8 s instead of three escalations, ~5 s). Only for
+    # an identified card missing a required field; a card the first pass completed never pays for it.
+    if (current is not None and escalate and _ocr_cls_retry(engine)
+            and current.result.document_type is not DocumentType.UNKNOWN and not _is_complete(current.result)):
+        reread = attempt("standard_cls", standard_image)
+        if reread is not None and _quality(reread.result) > _quality(current.result):
+            current = reread
 
     # THE CARD, NOT THE DESK. A card photographed small on a table or a phone
     # screen leaves most of the frame to background, and the detector misses
@@ -903,12 +1134,17 @@ def recognise(
     # rotation tried. One extra pass, only for an IDENTIFIED document still
     # missing a required field whose text fills little of the frame; the best
     # pass wins on _quality below, so it can only add fields.
-    if (current is not None and card_crop_enabled()
+    # 2026-11-04: the test was "any field missing" -- a Voter ID front never prints an address, so EVERY complete
+    # card paid this pass for nothing. Now: a REQUIRED field missing (what the comment above always said), or an
+    # optional one only when DOCUMENT_OCR_CROP_FOR_OPTIONAL is on.
+    if (current is not None and not settled and card_crop_enabled()
             and current.result.document_type is not DocumentType.UNKNOWN
-            and _quality(current.result)[1] < len(_spec_for(current.result.document_type))):
+            and (not _is_complete(current.result)
+                 or (_crop_for_optional()
+                     and _quality(current.result)[1] < len(_spec_for(current.result.document_type))))):
         cropped = _card_crop(current)
         if cropped is not None:
-            attempt("card_crop", preprocess.standard(cropped))
+            attempt("card_crop", preprocess.ocr_ready(cropped))
 
     if escalate:
         # TARGETED RECOVERY, only when the standard pass fell short, and
@@ -969,8 +1205,13 @@ def recognise(
                       # still counts as a resolved field, so total is not the test)
                       or _quality(best_so_far.result)[0] == 0)
         if rotate and unreadable:
-            for label, rotated in preprocess.rotations(image):
-                rotated_outcome = attempt(label, preprocess.standard(rotated))
+            variants = [(label, preprocess.ocr_ready(rotated)) for label, rotated in preprocess.rotations(image)]
+            # THE THREE ROTATIONS ARE READ TOGETHER (2026-10-14): on 12 real passport photos 9 ran all three, one
+            # after another, ~2-3 s each. Each is OCR'd on its own engine at the same time; the choice below is
+            # the unchanged in-order loop (first rotation that resolves more wins), so the result is the same.
+            reads = _read_rotations(variants, engine)
+            for (label, rotated_image), read in zip(variants, reads):
+                rotated_outcome = attempt(label, rotated_image, read)
 
                 if (
                     rotated_outcome is not None

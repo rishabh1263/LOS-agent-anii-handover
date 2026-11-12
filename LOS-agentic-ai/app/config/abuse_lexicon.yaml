@@ -50,6 +50,14 @@ reply:
               "Gaali mat dijiye ({words}). Sawal theek se poochhiye, main turant madad karunga."]
     hi: ["कृपया अपशब्दों का प्रयोग न करें: {words}। अपना सवाल सम्मान से दोबारा पूछें, मैं मदद करूँगा।"]
     mr: ["कृपया अपशब्द वापरू नका: {words}. तुमचा प्रश्न आदराने पुन्हा विचारा, मी मदत करेन."]
+  # the learned reading (semantics/tone.py) found the message abusive but no listed word: no word to show
+  markdown_unnamed:
+    en: ["Please keep it respectful. Ask your question about the application, and I'll help.",
+         "Let's keep it polite, please. Tell me what you need on the case and I'll help right away."]
+    hi-Latn: ["Kripya izzat se baat karein. Application ke baare mein apna sawal poochhiye, main madad karunga.",
+              "Thoda tameez se baat karte hain. Case mein kya chahiye, batayiye, main turant madad karunga."]
+    hi: ["कृपया सम्मान से बात करें। आवेदन के बारे में अपना सवाल पूछें, मैं मदद करूँगा।"]
+    mr: ["कृपया आदराने बोला. अर्जाबद्दल तुमचा प्रश्न विचारा, मी मदत करेन."]
   # spoken: the warning only -- never the word, never spelled
   tts:
     en: ["Please don't use foul language. Please rephrase your question respectfully, and I'll help."]

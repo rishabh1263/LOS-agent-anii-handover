@@ -56,7 +56,8 @@ _FIELDS: tuple[tuple[str, str, str], ...] = (
      r"(get|borrow|avail|be\s+given)\b)"
      r"(.*\b(loan\s+)?(amount|amt|principal)\b|.*\bhow\s+much\b[^?]{0,20}"
      r"\b(did|have|had)\s+(i|we|the\s+applicant|the\s+customer)\b|"
-     r".*\bkitna\s+loan\b|.*\bloan\s+(kitna|kitni|kitne)\b|.*\bhow\s+much\s+(is\s+)?(my\s+|the\s+)?loan\b|"
+     # "loan kitne MAHINE ka" is the tenure, not the amount (2026-11-06 live eval)
+     r".*\bkitna\s+loan\b|.*\bloan\s+(kitna|kitni|kitne)\b(?!\s+(mahine|mahino|months?|saal|years?)\b)|.*\bhow\s+much\s+(is\s+)?(my\s+|the\s+)?loan\b|"
      r".*\bloan\s+how\s+much\b|.*\bloan\s+(value|size)\b|.*\b(requested|asked\s+for)\s+loan\b|"
      r".*\bhow\s+(many|much)\s+rupees\b|.*\brupees\s+(ka|of|ke)\s+loan\b|.*\bhow\s+big\b[^?]{0,15}\bloan\b|"
      r".*\bloan\b[^?]{0,12}\bhow\s+much\b|.*\bhow\s+much\b[^?]{0,8}\bloan\b|"
@@ -64,7 +65,7 @@ _FIELDS: tuple[tuple[str, str, str], ...] = (
      r".*\bhow\s+much\s+(money|cash|funding|finance)\b[^?]{0,30}\b(ask\w*|request\w*|appl\w*|want\w*|borrow\w*)\b)"),
     ("tenure_months", "tenure",
      r"\b(tenure|loan\s+term|term\s+of\s+(the\s+|my\s+)?loan|repayment\s+(period|term)|"
-     r"how\s+many\s+months|duration\s+of\s+(the\s+|my\s+)?loan|avadhi|"
+     r"how\s+many\s+months|duration\s+of\s+(the\s+|my\s+)?loan|avadhi|kitne\s+(mahine|mahino|saal)|"
      r"(over\s+)?how\s+long(?![^?]{0,30}\b(take|wait|process|till|until))|"
      r"months\s+(is|of)\s+(the\s+|my\s+)?loan|(the|my)\s+months|months\s+(was|were|is|hai|kya))\b|"
      r"अवधि|कालावधी|महीने|महिने"),

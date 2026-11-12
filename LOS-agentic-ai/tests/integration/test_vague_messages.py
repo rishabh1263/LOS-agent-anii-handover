@@ -91,9 +91,8 @@ def test_picking_create_a_new_case_starts_the_form(client, prod):
 def test_the_upload_option_is_a_real_upload_link(client, prod):
     _, case_id = make_case(client, "Rahul Sharma")
     say(client, f"open {case_id}", "v-up")
+    # A DOCUMENT NAME ON AN OPEN CASE is that document's status (bare_document, owner 2026-10-13) -- and a document
+    # not uploaded yet comes WITH its real Upload button (owner 2026-10-14: the status and the button together)
     asked = say(client, "pan", "v-up")
+    assert re.search(r"(?i)\bno pan\b.*\buploaded\b|not (been )?uploaded|missing", asked), asked
     assert "(action:upload?doc=PAN&party=applicant)" in asked
-    n = 1 + asked.split("\n").index(next(l for l in asked.split("\n") if "action:upload" in l)) - asked.split(
-        "\n").index(next(l for l in asked.split("\n") if l.startswith("1. ")))
-    picked = say(client, str(n), "v-up")
-    assert "(action:upload?doc=PAN&party=applicant)" in picked

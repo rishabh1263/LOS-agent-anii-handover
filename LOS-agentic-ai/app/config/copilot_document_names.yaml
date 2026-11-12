@@ -1,0 +1,14 @@
+# DOCUMENT NAMES IN OTHER SCRIPTS (2026-11-06, live eval: "बैंक स्टेटमेंट अपलोड हुआ क्या?" named no document and was
+# answered as "what is pending"). semantics/intents._document_type reads these when the English names do not match;
+# whole words only. Add a spelling here -- never in code.
+names:
+  PAN: ["पैन", "पैन कार्ड", "पॅन", "पॅन कार्ड"]
+  BANK_STATEMENT: ["बैंक स्टेटमेंट", "बैंक स्टेटमेंट्स", "बँक स्टेटमेंट", "बैंक विवरण"]
+  ADDRESS_PROOF: ["पते का प्रमाण", "पता प्रमाण", "एड्रेस प्रूफ", "पत्त्याचा पुरावा", "ऍड्रेस प्रूफ"]
+  # not "सही": Marathi for signature, but Hindi for "correct" ("सही है")
+  SIGNATURE: ["हस्ताक्षर", "सिग्नेचर"]
+  SALARY_SLIP: ["सैलरी स्लिप", "वेतन पर्ची", "पगार स्लिप", "सॅलरी स्लिप"]
+  PASSPORT: ["पासपोर्ट"]
+  DRIVING_LICENCE: ["ड्राइविंग लाइसेंस", "ड्रायव्हिंग लायसन्स"]
+  VOTER_ID: ["वोटर आईडी", "मतदाता पहचान पत्र", "मतदार ओळखपत्र"]
+  ITR: ["आईटीआर", "आयकर रिटर्न"]

@@ -371,7 +371,7 @@ _SAYS = re.compile(
     r"\bthe ([A-Za-z][\w' -]{1,40}?) says ([^,]+?), but the ([A-Za-z][\w' -]{1,40}?) says ([^.]+?)\.")
 #: the case's hold, appended by the agent after a document answer
 _CASE_HOLD = re.compile(
-    r"However, (?:your|the|the customer's) application (is under review|was declined) because (.+?)\.\s*$")
+    r"However, (?:your|the|the customer's) application (is under review|is on hold|was declined) because (.+?)\.\s*$")
 
 
 def _end(language: str) -> str:
@@ -413,7 +413,7 @@ def _case_hold(english: str, language: str) -> str | None:
     hold = _CASE_HOLD.search(english or "")
     if not hold:
         return ""
-    fact = "case_declined" if hold.group(1) == "was declined" else "case_under_review"
+    fact = {"was declined": "case_declined", "is on hold": "case_on_hold"}.get(hold.group(1), "case_under_review")
     return languages.localized(fact, language, reason=_reason(hold.group(2), language))
 
 
@@ -518,8 +518,11 @@ def _next_sentence(result: dict[str, Any], language: str) -> str | None:
         if code is None and next_action.get("action") == "SUBMIT_TO_CPA":
             code = "SUBMIT_TO_CPA"
         target = next_action.get("target")
+        # EVERY DOCUMENT THE STEP NAMES (2026-10-28, live: "customer se aur kya lena hai" -> only Address Proof, the
+        # Signature dropped): the English detail lists them all after its colon; `target` is only the first
+        named = detail.split(":", 1)[1].strip().rstrip(".") if ":" in detail else ""
         first = languages.localized(f"workflow_{code}", language,
-                                    document=answers._readable(target) if target else "") if code else None
+                                    document=named or (answers._readable(target) if target else "")) if code else None
     else:
         first = phrase(primary)
     if not first:

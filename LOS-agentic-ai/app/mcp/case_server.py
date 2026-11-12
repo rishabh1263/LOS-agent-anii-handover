@@ -250,6 +250,12 @@ for _name in sorted(allowed_tools()):
 
 
 def main() -> None:
+    # THE SAME DEPLOYMENT SETTINGS AS THE API (2026-10-13, real run on :8030): run on its own, this server never read
+    # .env, so it knew no JWKS / issuer / audience and refused every VALID token as UNAUTHENTICATED (and had no case
+    # store settings). `main.py` loads .env the same way; load_dotenv never overrides a variable already set.
+    from dotenv import load_dotenv
+
+    load_dotenv()
     parser = argparse.ArgumentParser(description="LOS case MCP server")
     parser.add_argument("--http", action="store_true",
                         help="serve streamable HTTP instead of stdio")

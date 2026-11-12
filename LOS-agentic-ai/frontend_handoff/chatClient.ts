@@ -1,9 +1,10 @@
 /**
- * Typed client for the LOS chatbot contract 1.0 (frontend_handoff/API_CONTRACT.md). No dependencies.
+ * Typed client for the LOS chatbot contract 1.1 (frontend_handoff/API_CONTRACT.md). No dependencies.
  *
  *   const chat = new ChatClient({ getToken, refresh })
  *   const reply = await chat.send(chatId, 'what is pending')        // { request_id, markdown, tts }
  *   for await (const ev of chat.stream(chatId, 'docs')) { ... }      // typing / status / delta / final
+ *   await chat.feedback(reply.request_id, 'down', 'wrong document')   // 👍 / 👎, same endpoint
  */
 
 import {
@@ -14,6 +15,8 @@ import {
   type ApiErrorBody,
   type ChatReply,
   type ChatRequest,
+  type FeedbackRequest,
+  type FeedbackResult,
   type StreamEvent,
 } from './contract'
 
@@ -52,7 +55,9 @@ export class ChatClient {
 
   /** One typed message in one chat. */
   send(chatId: string, message: string, extra: Partial<ChatRequest> = {}, signal?: AbortSignal): Promise<ChatReply> {
-    const body: ChatRequest = { action: 'CUSTOM_QUERY', message, chat_id: chatId, reply_language: 'en', ...extra }
+    const body: ChatRequest = {
+      action: 'CUSTOM_QUERY', message, chat_id: chatId, reply_language: 'en', with_sources: true, ...extra,
+    }
     return this.json<ChatReply>('/api/v1/fos/copilot', body, signal)
   }
 
@@ -90,10 +95,12 @@ export class ChatClient {
 
   /** The streamed reply: typing -> status? -> delta* -> final (or cancelled / error). */
   async *stream(chatId: string, message: string, signal?: AbortSignal): AsyncGenerator<StreamEvent> {
-    const res = await this.fetch('/api/v1/fos/copilot/stream', {
+    const res = await this.fetch('/api/v1/fos/copilot', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ action: 'CUSTOM_QUERY', message, chat_id: chatId, reply_language: 'en' }),
+      body: JSON.stringify({
+        action: 'CUSTOM_QUERY', message, chat_id: chatId, reply_language: 'en', stream: true, with_sources: true,
+      }),
       signal,
     })
     const reader = res.body?.getReader()
@@ -116,6 +123,12 @@ export class ChatClient {
     }
   }
 
+  /** 👍 / 👎 on a reply (its request_id). Not a chat reply: never append the result to the chat. */
+  feedback(replyTo: string, rating: 'up' | 'down', reason?: string, chatId?: string): Promise<FeedbackResult> {
+    const body: FeedbackRequest = { action: 'FEEDBACK', reply_to: replyTo, rating, reason, chat_id: chatId }
+    return this.json<FeedbackResult>('/api/v1/fos/copilot', body)
+  }
+
   stop(chatId: string): Promise<unknown> {
     return this.json('/api/v1/fos/copilot/stop', { chat_id: chatId })
   }
@@ -123,6 +136,25 @@ export class ChatClient {
   replay(requestId: string): Promise<ChatReply> {
     return this.fetch(`/api/v1/fos/copilot/replay/${encodeURIComponent(requestId)}`, { method: 'GET' })
       .then((r) => r.json() as Promise<ChatReply>)
+  }
+
+  /**
+   * Open a case (the UI form: POST /api/v1/fos/applicants), double-submit safe.
+   *
+   * Pass the SAME `submission` on a retry (double click, timeout, network error): the server returns the case the
+   * first call created (`replayed: true`), never a second case. Build it with `caseSubmission(previous, body)`: the
+   * key is kept while the body is unchanged and renewed when the officer edits the form or starts a new case. A key
+   * reused with a different body is refused 409 IDEMPOTENCY_KEY_REUSED (ApiError) -- never a wrong case.
+   */
+  async createCase(submission: CaseSubmission, signal?: AbortSignal): Promise<CreateCaseResult> {
+    const res = await this.fetch('/api/v1/fos/applicants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': submission.key },
+      body: JSON.stringify(submission.body),
+      signal,
+    })
+    const reply = (await res.json()) as Record<string, unknown>
+    return { ...reply, replayed: res.headers.get('Idempotent-Replayed') === 'true' } as CreateCaseResult
   }
 
   private async json<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
@@ -160,4 +192,34 @@ export class ChatClient {
     }
     return res
   }
+}
+
+/** One logical "open this case" request: the body and the Idempotency-Key that travels with it on every retry. */
+export interface CaseSubmission {
+  readonly key: string
+  readonly body: Record<string, unknown>
+}
+
+/** The create reply, plus whether it was the earlier case returned for a retry. */
+export type CreateCaseResult = Record<string, unknown> & { case_id?: string; applicant_id?: string; replayed: boolean }
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined && v !== null)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+/**
+ * The submission for this form body: `previous` (same key) when the body is unchanged -- a retry of the same
+ * logical request -- else a new key. Call with `undefined` for a new case form; keep the result until the case is
+ * created, then discard it.
+ */
+export function caseSubmission(previous: CaseSubmission | undefined, body: Record<string, unknown>): CaseSubmission {
+  if (previous && canonical(previous.body) === canonical(body)) return previous
+  return { key: crypto.randomUUID(), body: JSON.parse(JSON.stringify(body)) as Record<string, unknown> }
 }

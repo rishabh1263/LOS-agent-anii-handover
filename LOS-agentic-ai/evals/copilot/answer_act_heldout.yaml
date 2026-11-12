@@ -1,0 +1,134 @@
+# ANSWER-ACT HELD-OUT SET (written 2026-11-04 BEFORE the answer-act model and its training bank existed).
+# NEVER train or tune on it: scripts/train_answer_act.py drops any training row equal to a sentence here, and a miss
+# is fixed only by adding OTHER examples of that kind to app/config/copilot_answer_acts.yaml, then re-measured.
+#
+# act = what KIND of answer the officer wants, independent of the topic:
+#   STATUS       tell me the state / show / details                    ("PAN ka status batao")
+#   YES_NO       is it / has it / can it, right now                     ("is the PAN verified?")
+#   CONDITIONAL  once / after / if X is done, will / can Y              ("after uploading these can it go to CPA?")
+#   WHY          why is it the way it is / why did it happen            ("why is the KYC on hold?")
+#   WHY_NOT      why can't / why isn't / what is stopping it            ("why can't this go to CPA?")
+#   WHEN         when will / how long / by when                         ("when will it reach credit?")
+#   HOW          how do I / what are the steps / process                ("how do I upload the bank statement?")
+#   NEXT         what should I do now / next step                       ("ab kya karna hai?")
+#   LIST         which ones / what all                                  ("which documents are missing?")
+#   COUNT        how many                                               ("how many documents are left?")
+#   DEFINE       what is X / meaning of a term                          ("what does FOIR mean?")
+#   PREFACE      announces a question / asks to ask, nothing asked yet  ("i have one more query to ask?")
+#                (added 2026-11-04 with the PREFACE act, written before its training examples)
+# style: en | hinglish | broken | typo | devanagari
+items:
+  # ---- CONDITIONAL
+  - { q: "but after doing all this case can be move to cpa?", act: CONDITIONAL, style: broken }
+  - { q: "if i upload the remaining papers will it be ready", act: CONDITIONAL, style: en }
+  - { q: "once PAN gets verified does the file go ahead?", act: CONDITIONAL, style: en }
+  - { q: "baaki documents de diye toh case aage chala jayega na?", act: CONDITIONAL, style: hinglish }
+  - { q: "signature upload karne ke baad ready ho jayega?", act: CONDITIONAL, style: hinglish }
+  - { q: "suppose bank statment is uploaded then can we send it", act: CONDITIONAL, style: typo }
+  - { q: "after KYC is cleared, is anything else stopping it?", act: CONDITIONAL, style: en }
+  - { q: "agar co-applicant ka PAN aa gaya to credit me bhej sakte hai?", act: CONDITIONAL, style: hinglish }
+  - { q: "when all these are done it will move right?", act: CONDITIONAL, style: broken }
+  - { q: "सारे डॉक्यूमेंट अपलोड करने के बाद केस आगे जाएगा?", act: CONDITIONAL, style: devanagari }
+  # ---- YES_NO
+  - { q: "is the address proof verified?", act: YES_NO, style: en }
+  - { q: "has the bank statement been uploaded", act: YES_NO, style: en }
+  - { q: "can this file go to CPA right now?", act: YES_NO, style: en }
+  - { q: "kya PAN verify ho gaya?", act: YES_NO, style: hinglish }
+  - { q: "KYC pass hua kya", act: YES_NO, style: hinglish }
+  - { q: "is my case ready or not", act: YES_NO, style: en }
+  - { q: "salary slip mil gayi kya", act: YES_NO, style: hinglish }
+  - { q: "any document rejected?", act: YES_NO, style: broken }
+  - { q: "is eligiblity passed for this one", act: YES_NO, style: typo }
+  - { q: "क्या केस तैयार है?", act: YES_NO, style: devanagari }
+  # ---- WHY
+  - { q: "why is the KYC on hold?", act: WHY, style: en }
+  - { q: "why did the address proof get rejected", act: WHY, style: en }
+  - { q: "PAN reject kyu hua?", act: WHY, style: hinglish }
+  - { q: "why is this case in RCU", act: WHY, style: en }
+  - { q: "reason for the signature mismatch?", act: WHY, style: broken }
+  - { q: "eligibility refer kyun aaya", act: WHY, style: hinglish }
+  - { q: "y is bank statemnt under review", act: WHY, style: typo }
+  - { q: "loan amount kam kyu dikha raha hai", act: WHY, style: hinglish }
+  - { q: "इसका केवाईसी होल्ड पर क्यों है?", act: WHY, style: devanagari }
+  # ---- WHY_NOT
+  - { q: "why can't this case move ahead?", act: WHY_NOT, style: en }
+  - { q: "what is stopping the file from going to credit", act: WHY_NOT, style: en }
+  - { q: "case aage kyu nahi badh raha", act: WHY_NOT, style: hinglish }
+  - { q: "why it is not going to cpa stage", act: WHY_NOT, style: broken }
+  - { q: "move to CPA button kyu nahi chal raha", act: WHY_NOT, style: hinglish }
+  - { q: "whats blocking my application", act: WHY_NOT, style: typo }
+  - { q: "why isn't the KYC passing", act: WHY_NOT, style: en }
+  - { q: "file ruki kyu hai", act: WHY_NOT, style: hinglish }
+  - { q: "केस सीपीए में क्यों नहीं जा रहा?", act: WHY_NOT, style: devanagari }
+  # ---- WHEN
+  - { q: "when will this case reach credit?", act: WHEN, style: en }
+  - { q: "how long will the verification take", act: WHEN, style: en }
+  - { q: "kab tak sanction ho jayega", act: WHEN, style: hinglish }
+  - { q: "by when the kyc will be done", act: WHEN, style: broken }
+  - { q: "when did it go to CPA", act: WHEN, style: en }
+  - { q: "PAN kab upload hua tha", act: WHEN, style: hinglish }
+  - { q: "how much time for disbursal", act: WHEN, style: broken }
+  - { q: "wen will the bank statment get verifed", act: WHEN, style: typo }
+  - { q: "यह केस कब तक आगे जाएगा?", act: WHEN, style: devanagari }
+  # ---- HOW
+  - { q: "how do I upload the bank statement?", act: HOW, style: en }
+  - { q: "how to add a co-applicant", act: HOW, style: en }
+  - { q: "PAN kaise upload karu", act: HOW, style: hinglish }
+  - { q: "what is the process to move a case to CPA", act: HOW, style: en }
+  - { q: "steps for re-uploading a rejected doc", act: HOW, style: broken }
+  - { q: "signature kaise change kare", act: HOW, style: hinglish }
+  - { q: "hw to fix the name mismatch", act: HOW, style: typo }
+  - { q: "दस्तावेज़ कैसे अपलोड करें?", act: HOW, style: devanagari }
+  # ---- NEXT
+  - { q: "what should I do now?", act: NEXT, style: en }
+  - { q: "ab kya karna hai", act: NEXT, style: hinglish }
+  - { q: "next step for this file", act: NEXT, style: broken }
+  - { q: "what's the next thing on this case", act: NEXT, style: en }
+  - { q: "aage kya karu iska", act: NEXT, style: hinglish }
+  - { q: "wat next", act: NEXT, style: typo }
+  - { q: "where do I go from here with this application", act: NEXT, style: en }
+  - { q: "अब आगे क्या करना है?", act: NEXT, style: devanagari }
+  # ---- LIST
+  - { q: "which documents are missing?", act: LIST, style: en }
+  - { q: "kaun kaun se document baaki hai", act: LIST, style: hinglish }
+  - { q: "list the pending items", act: LIST, style: en }
+  - { q: "which checks failed", act: LIST, style: en }
+  - { q: "what all is uploaded so far", act: LIST, style: broken }
+  - { q: "co-applicant ke kaunse docs pending hai", act: LIST, style: hinglish }
+  - { q: "wich docs got rejectd", act: LIST, style: typo }
+  - { q: "कौन से दस्तावेज़ बाकी हैं?", act: LIST, style: devanagari }
+  # ---- COUNT
+  - { q: "how many documents are still pending?", act: COUNT, style: en }
+  - { q: "kitne documents baaki hai", act: COUNT, style: hinglish }
+  - { q: "number of rejected docs?", act: COUNT, style: broken }
+  - { q: "how many co-applicants are on this file", act: COUNT, style: en }
+  - { q: "kitni cheezein reh gayi", act: COUNT, style: hinglish }
+  - { q: "hw many items left", act: COUNT, style: typo }
+  - { q: "कितने दस्तावेज़ बाकी हैं?", act: COUNT, style: devanagari }
+  # ---- STATUS
+  - { q: "what's the status of this case", act: STATUS, style: en }
+  - { q: "PAN ka status batao", act: STATUS, style: hinglish }
+  - { q: "tell me about the KYC", act: STATUS, style: en }
+  - { q: "bank statement ki details do", act: STATUS, style: hinglish }
+  - { q: "where is this application right now", act: STATUS, style: en }
+  - { q: "case ki halat kya hai", act: STATUS, style: hinglish }
+  - { q: "eligibilty result show", act: STATUS, style: typo }
+  - { q: "give me a quick update on this file", act: STATUS, style: en }
+  - { q: "इस केस का स्टेटस क्या है?", act: STATUS, style: devanagari }
+  # ---- DEFINE
+  - { q: "what does FOIR mean?", act: DEFINE, style: en }
+  - { q: "CPA matlab kya hota hai", act: DEFINE, style: hinglish }
+  - { q: "what is RCU", act: DEFINE, style: en }
+  - { q: "meaning of LTV", act: DEFINE, style: broken }
+  - { q: "KYC ka full form", act: DEFINE, style: hinglish }
+  - { q: "wat is dedupe", act: DEFINE, style: typo }
+  - { q: "एफओआईआर का मतलब क्या है?", act: DEFINE, style: devanagari }
+  # ---- PREFACE (added 2026-11-04, before the PREFACE training examples were written)
+  - { q: "i have one more query to ask?", act: PREFACE, style: broken }
+  - { q: "can I ask you something", act: PREFACE, style: en }
+  - { q: "one more question please", act: PREFACE, style: en }
+  - { q: "ek aur sawal hai mera", act: PREFACE, style: hinglish }
+  - { q: "mujhe kuch puchna hai", act: PREFACE, style: hinglish }
+  - { q: "wait i need to ask u something", act: PREFACE, style: typo }
+  - { q: "got another doubt", act: PREFACE, style: broken }
+  - { q: "मुझे एक सवाल पूछना है", act: PREFACE, style: devanagari }

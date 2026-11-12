@@ -1,0 +1,180 @@
+# =====================================================================================================================
+# CRIME RECORD VERIFICATION (app/agents/credit/crime_verification/) -- a sub-agent of Credit Underwriting: the
+# criminal record check of the applicant and the co-applicant.
+#
+# STATUS: DEMO_DUMMY / UNCONFIRMED. Every rule and list below is a starting value for the local demo on synthetic data
+# with a MOCK provider. The credit / operations owner confirms or changes them HERE; no code change is needed.
+# =====================================================================================================================
+status: DEMO_DUMMY
+demo_mode: true                      # synthetic data, mock provider, the demo banner, /demo/reset
+
+storage:
+  # The agent's OWN PostgreSQL database (never the LOS case store). CRIME_VERIFICATION_DSN names it
+  # (postgresql://user:password@host:5432/crime_verification, from .env, never logged). When it is not set, DEMO MODE
+  # starts a private local PostgreSQL cluster here (pgserver: real PostgreSQL binaries) -- never in production.
+  embedded_pgdata: runtime/crime_verification/pgdata
+  embedded_database: crime_verification
+  reports_dir: runtime/crime_verification/reports    # generated PDF reports; the database keeps the reference + hash
+  pool_min: 0
+  pool_max: 8
+  seed_when_empty: true              # DEMO MODE: the first use loads the synthetic applications into an empty database
+
+# ---- WHO MAY DO WHAT -- from the verified LOS token (require_jwt on the LOS server), never from the request.
+# The API sits under Credit Underwriting: /api/v1/credit/crime-verification/* on the LOS server (main.py).
+access:
+  # permissions each LOS scope gives (a caller gets the union of its scopes). manage_applications = the LOS pushes an
+  # application and its people (PUT /applications/{id}) -- the only way applications enter in production
+  scopes:
+    los.credit.underwrite: [view, initiate, retrigger, refresh, finalize, download_report]
+    los.write: [view, initiate, retrigger, refresh, finalize, download_report, manage_applications]
+    los.read: [view, download_report]
+  # callers holding one of these scopes see every branch (the LOS service account)
+  all_branches_scopes: [los.write]
+  # the branches a user (the token's `sub`) may open; "*" = every branch. A user not listed sees no application.
+  branches:
+    local-developer: ["*"]
+  # DEMO MODE ONLY: extra permissions for a named user (the local developer drives the demo and may reset it)
+  demo_grants:
+    local-developer: [view, initiate, retrigger, refresh, finalize, download_report, reset_demo]
+
+ui:
+  path: /crime-verification            # where the LOS server serves the built screen (frontend/dist)
+  # the application's verification tabs as the LOS shows them; only `active` is this screen
+  verification_tabs: ["Dedupe", "Bank Verification", "Criminal Record Check", "Field Investigation",
+                      "Legal & Technical"]
+  active_tab: "Criminal Record Check"
+  refresh_seconds: 0                   # auto-refresh of a processing case on screen (0 = the Refresh button only)
+  # owner 2026-10-27: "kuch bhi demo karke nahi aana chahiye frontend me" -- the screen and the downloadable report
+  # show no demo banner, no scenario picker, no reset button (the API and the data stay demo; this is display only)
+  show_demo_banner: false
+  show_scenario_picker: false
+  show_reset: false
+  # "Fill sample" on the details form (owner 2026-10-27): random realistic values from crime_verification_demo.yaml `samples`
+  show_fill_sample: true
+  # a clean result (every person in these risks) is celebrated on screen (petals); reduced-motion users see none
+  celebrate_risks: [NO_RISK, LOW_RISK]
+  celebration_sound: true             # a short chime with the celebration (the screen has a mute switch)
+  # a result with findings that need review is FLAGGED on screen (red pulse, warning badge, a short alert tone --
+  # same mute switch), once per case; reduced-motion users see the badge only
+  alarm_risks: [AVERAGE_RISK, HIGH_RISK, VERY_HIGH_RISK]
+  alarm_sound: true
+  # owner 2026-10-29: up to 10 co-applicants on one screen with little scrolling -- from this many people the
+  # results page shows one compact list of everyone + the chosen person's result (fewer: one card each), and the
+  # details form wraps its person tabs instead of scrolling them sideways
+  compact_people_from: 4
+  # the Activity list shows the newest this many events, the rest behind "Show all" (0 = all; owner 2026-10-29: less
+  # scrolling)
+  activity_visible: 5
+
+# provider: the adapter (providers/__init__.py). mock_crimecheck answers from synthetic scenarios and is REFUSED
+# outside demo mode -- production names the authorised vendor's adapter here (no code change elsewhere)
+vendors:
+  CRIME_CHECK: { name: "Crime Check", provider: mock_crimecheck, enabled: true }
+default_vendor: CRIME_CHECK
+
+roles_of_subjects: [PRIMARY, CO_APPLICANT]
+# the people one application may carry (owner 2026-10-27: "co-applicant 10 bhi ho sakte hain"): one applicant and up
+# to this many co-applicants; one verification may include any of them
+subjects:
+  max_co_applicants: 10
+  # owner 2026-10-29: "co app 1, 2" -- a single co-applicant is numbered too (Co-Applicant 1), so a person keeps
+  # the same name when more are added
+  number_single_co_applicant: true
+
+# ---- the details form on screen: the permanent address is entered as line + state + city + PIN (dropdowns) and
+# sent to the server as one address ("<line>, <city>, <state> <PIN>"). States and their cities / PIN prefixes:
+form:
+  pin_pattern: "^[1-9][0-9]{5}$"
+  states:
+    Maharashtra: { pin_prefixes: ["40", "41", "42", "43", "44"], cities: [Mumbai, Pune, Thane, Nagpur, Nashik, Aurangabad, Kolhapur, Navi Mumbai] }
+    Karnataka: { pin_prefixes: ["56", "57", "58", "59"], cities: [Bengaluru, Mysuru, Mangaluru, Hubballi, Belagavi] }
+    Gujarat: { pin_prefixes: ["36", "37", "38", "39"], cities: [Ahmedabad, Surat, Vadodara, Rajkot, Gandhinagar] }
+    Delhi: { pin_prefixes: ["11"], cities: [New Delhi, Dwarka, Rohini, Saket] }
+    Tamil Nadu: { pin_prefixes: ["60", "61", "62", "63", "64"], cities: [Chennai, Coimbatore, Madurai, Tiruchirappalli] }
+    Telangana: { pin_prefixes: ["50"], cities: [Hyderabad, Warangal, Secunderabad] }
+    Uttar Pradesh: { pin_prefixes: ["20", "21", "22", "23", "24", "25", "26", "27", "28"], cities: [Lucknow, Noida, Kanpur, Varanasi, Ghaziabad] }
+    West Bengal: { pin_prefixes: ["70", "71", "72", "73", "74"], cities: [Kolkata, Howrah, Durgapur, Siliguri] }
+    Rajasthan: { pin_prefixes: ["30", "31", "32", "33", "34"], cities: [Jaipur, Jodhpur, Udaipur, Kota] }
+
+# ---- input validation (the same rules are sent to the screen through GET /config)
+validation:
+  # PAN: 5 letters (4th = holder type), 4 digits, 1 letter
+  pan_pattern: "^[A-Z]{3}[PCHFATBLJG][A-Z][0-9]{4}[A-Z]$"
+  name_pattern: "^[A-Za-z][A-Za-z .'-]*$"
+  name_max: 80
+  address_min: 10
+  address_max: 250
+  min_age_years: 18
+  max_age_years: 100
+  # a subject's PAN must be the one on the application for that role (the identity link); names and address may be
+  # corrected by an officer, the PAN may not change
+  pan_must_match_application: true
+
+# ---- what a provider's risk category means for the workflow (per subject; the two people are never combined)
+risk_levels: [NO_RISK, LOW_RISK, AVERAGE_RISK, HIGH_RISK, VERY_HIGH_RISK]
+review_required_risks: [AVERAGE_RISK, HIGH_RISK, VERY_HIGH_RISK]
+
+# the case's WORKFLOW status from its subjects' statuses (first matching line wins). Workflow only -- never a risk.
+case_status_from_subjects:
+  - { any: PROCESSING, status: PROCESSING }
+  - { any: INITIATED, status: INITIATED }
+  - { all: WAIVED, status: WAIVED }
+  - { any: FAILED, status: FAILED }
+  - { any: REVIEW_REQUIRED, status: REVIEW_REQUIRED }
+  - { all: COMPLETED, status: COMPLETED }
+
+# a new verification for a subject whose latest one has this status needs `retrigger: true` (and the retrigger
+# permission); a subject still PROCESSING can never be initiated again (duplicate)
+retrigger_needed_after: [COMPLETED, REVIEW_REQUIRED, WAIVED]
+blocked_while: [INITIATED, PROCESSING]
+
+# ---- API 2: the officer's acknowledgement once results are in
+finalize:
+  decisions: [ACCEPTED, REFER_TO_CREDIT, DECLINE_RECOMMENDED]
+  remarks_required_for: [REFER_TO_CREDIT, DECLINE_RECOMMENDED]
+  remarks_max: 500
+  # results that must exist (no subject still PROCESSING, at least one result) before finalize
+  final_statuses: [COMPLETED, REVIEW_REQUIRED, FAILED]
+
+# ---- THE AI SUMMARY (owner 2026-10-27: "initiate ke baad jab result aayega, LLM summary bhi"): once a case's results
+# are in, the local model (Qwen via Ollama, app/llm/config.py) explains them in a few plain sentences -- on screen and
+# in the PDF report. IT EXPLAINS, IT NEVER DECIDES: it sees only the results (no name, no PAN), and its text is checked
+# (every figure from the facts, no banned word, length) before it is shown; otherwise the rules-written summary stands.
+ai_summary:
+  enabled: true                    # CRIME_VERIFICATION_AI_SUMMARY=off overrides (tests)
+  model: null                      # null -> the app's model (OLLAMA_MODEL)
+  model_timeout_seconds: 90
+  sentences: 4                     # generation stops once this many sentences are complete ...
+  num_predict: 180
+  # ... and grows with the people on the case (up to 11), so every person is named:
+  sentences_per_person: 1          # sentences = max(sentences, people x this), at most max_sentences
+  max_sentences: 12
+  num_predict_per_person: 45       # output tokens = max(num_predict, people x this)
+  max_chars_per_person: 220        # the check's length limit = max(max_chars, people x this)
+  num_ctx: 2048
+  max_items: 3                     # at most this many sources with findings per person handed to the model
+  max_chars: 900
+  keep_alive: "30m"
+  temperature: 0.2
+  # ONE POINT PER PERSON, WRITTEN IN PARALLEL (owner 2026-10-29: "llm summary taking too much time"). Measured on this
+  # CPU: one paragraph for 11 people = 27 s (253 tokens) -- and the check refused it. Now each person is one short
+  # call; each point is checked on its own and a refused / failed one falls back to that person's rules-written line.
+  # `parallel` calls at a time: 1 on a CPU -- measured, two at once wrote 3 tokens/s EACH against 7 for one alone
+  per_person: true
+  parallel: 1
+  person_sentences: 1
+  person_num_predict: 70             # 50 cut sentences short (then the check refuses them)
+  # a person with no matches is said from the results (no model call): nothing to explain
+  model_for_no_findings: false
+
+report:
+  version: "1.0"
+  show_demo_notice: false            # the demo notice in the PDF (owner: nothing "demo" in what the user sees)
+  # the page background (owner 2026-10-27 "background pattern kuch rakho"): security-paper waves, a page frame and a
+  # faint diagonal watermark (wording report.watermark), all behind the text
+  background:
+    waves: true
+    wave_lines: 9            # bands of guilloche waves down the page
+    frame: true
+    watermark: true
+  type: CRIME_VERIFICATION_REPORT

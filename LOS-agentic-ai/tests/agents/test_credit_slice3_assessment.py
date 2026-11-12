@@ -155,8 +155,14 @@ def test_missing_bank_count_is_unavailable_never_zero(store):
 
 
 def test_low_severity_review_does_not_force_review(store):
+    from evals.credit.suite import _BANK_PERIOD, credit_docs
+
     seed(store)
-    persist({"documents": [_bank_with({"mandate_debit_count": 3})],
+    bank = _bank_with({"mandate_debit_count": 3})
+    bank["extraction"]["fields"].update(_BANK_PERIOD)
+    # the full credit-stage document set (as full_evidence), so the documents are not what asks for a review
+    persist({"documents": [bank, {"source_id": "pan.jpg", "type": "PAN", "verification": "PASS", "party_id": APP},
+                           *credit_docs(APP)],
              **KYC, **INCOME, **ELIGIBILITY})
     demo_bureau.assign(APP, "DEMO-BUREAU-CLEAN")
     a = assessed()

@@ -1,0 +1,281 @@
+# =====================================================================================================================
+# CRIME RECORD VERIFICATION -- SYNTHETIC DEMO DATA. Every person, PAN, address, reference and finding below is
+# FICTIONAL (PANs use the made-up "ZZQP" series). Nothing here describes a real person or a real court record.
+# =====================================================================================================================
+
+# the provider reference the mock hands back (looks like a vendor reference on screen)
+provider_reference_prefix: "CC-"
+
+# ---- "Fill sample" on the details form: random realistic values (all fictional) from these pools
+samples:
+  first_names: [Aarav, Vivaan, Aditya, Arjun, Ishaan, Kabir, Rohan, Siddharth, Ananya, Diya, Ira, Kavya, Meera, Myra,
+                Saanvi, Tara, Nikhil, Pranav, Riya, Sneha, Varun, Yash, Neha, Pooja]
+  last_names: [Sharma, Verma, Iyer, Nair, Kulkarni, Deshpande, Joshi, Patil, Reddy, Menon, Bose, Chatterjee, Gupta,
+               Agarwal, Mehta, Shah, Rao, Pillai, Kapoor, Malhotra, Bhat, Shetty]
+  father_first_names: [Rajesh, Suresh, Mahesh, Prakash, Anil, Sunil, Vinod, Ramesh, Ashok, Dinesh, Sanjay, Vijay,
+                       Mohan, Girish, Harish, Naresh]
+  address_lines: ["Flat {n}, Sunrise Residency, {area}", "{n}, Gulmohar Lane, {area}", "B-{n}, Lakeview Towers, {area}",
+                  "House {n}, Anand Society, {area}", "{n}, Shanti Nagar, {area}", "C-{n}, Palm Grove Apartments, {area}"]
+  areas: [Andheri East, Kothrud, Baner, Whitefield, Indiranagar, Satellite, Salt Lake, Gachibowli, Vaishali Nagar,
+          Adyar, Gomti Nagar, Powai, Viman Nagar, Koramangala]
+  age_years: [23, 58]
+
+# ---- what the mock provider covers (the categories of a CrimeCheck-style legal risk report; years are illustrative)
+coverage:
+  - group: GENERAL_COURTS
+    items:
+      - { code: SUPREME_COURT, name: "Supreme Court", since: 1950 }
+      - { code: HIGH_COURTS, name: "All High Courts", since: 1960 }
+      - { code: CIVIL_COURTS, name: "Civil Courts (Junior, Senior, District)", since: 2005 }
+      - { code: CRIMINAL_COURTS, name: "Criminal Courts (Magistrate and Sessions)", since: 2005 }
+  - group: TRIBUNALS
+    items:
+      - { code: CONSUMER, name: "Consumer Courts", since: 1995 }
+      - { code: CESTAT, name: "Customs, Excise and Service Tax Appellate Tribunal", since: 2000 }
+      - { code: DRT, name: "Debt Recovery Tribunal", since: 2000 }
+      - { code: DRAT, name: "Debt Recovery Appellate Tribunal", since: 2000 }
+      - { code: ITAT, name: "Income Tax Appellate Tribunal", since: 2000 }
+      - { code: NCLT, name: "National Company Law Tribunal", since: 2016 }
+      - { code: SAT, name: "Securities Appellate Tribunal", since: 2000 }
+      - { code: NGT, name: "National Green Tribunal", since: 2010 }
+      - { code: NCLAT, name: "National Company Law Appellate Tribunal", since: 2016 }
+      - { code: OTHER_TRIBUNALS, name: "Other Tribunals", since: 2005 }
+  - group: DEFAULTER_LISTS
+    items:
+      - { code: CIBIL_DEFAULTERS, name: "Credit Bureau Defaulter List (A)", since: 2005 }
+      - { code: CRIF_DEFAULTERS, name: "Credit Bureau Defaulter List (B)", since: 2010 }
+      - { code: EPF_DEFAULTERS, name: "EPF Defaulter List", since: 2010 }
+      - { code: EQUIFAX_DEFAULTERS, name: "Credit Bureau Defaulter List (C)", since: 2010 }
+      - { code: MCA_DEFAULTERS, name: "MCA Defaulter List", since: 2010 }
+  - group: OTHERS
+    items:
+      - { code: FIR, name: "First Information Report (FIR)", since: 2015 }
+
+# ---- the mock provider's answer per scenario. findings: {coverage code: count}; clusters: {cluster: count}
+#      outcome COMPLETED | PENDING | FAILED. fail_attempts: attempts that fail before the retry succeeds with `then`.
+#      pending_polls: refreshes that stay pending before `then` (null = stays pending).
+scenarios:
+  NO_RISK:
+    label: "No Risk"
+    outcome: COMPLETED
+    risk: NO_RISK
+    findings: {}
+    clusters: {}
+  LOW_RISK:
+    label: "Low Risk"
+    outcome: COMPLETED
+    risk: LOW_RISK
+    findings: { CIVIL_COURTS: 1 }
+    clusters: { CIVIL: 1 }
+  AVERAGE_RISK:
+    label: "Average Risk"
+    outcome: COMPLETED
+    risk: AVERAGE_RISK
+    findings: { CIVIL_COURTS: 1, CONSUMER: 1, CRIMINAL_COURTS: 1 }
+    clusters: { CIVIL: 1, FINANCIAL: 1, OTHER: 1 }
+  HIGH_RISK:
+    label: "High Risk"
+    outcome: COMPLETED
+    risk: HIGH_RISK
+    findings: { CRIMINAL_COURTS: 2, DRT: 1, CIBIL_DEFAULTERS: 1 }
+    clusters: { FINANCIAL: 2, STATUTORY: 1, OTHER: 1 }
+  MULTIPLE_FINDINGS:
+    label: "Multiple Findings"
+    outcome: COMPLETED
+    risk: HIGH_RISK
+    findings: { HIGH_COURTS: 1, CIVIL_COURTS: 2, CRIMINAL_COURTS: 1, DRT: 1, NCLT: 1, EPF_DEFAULTERS: 1, FIR: 1 }
+    clusters: { CIVIL: 2, FINANCIAL: 3, STATUTORY: 1, OTHER: 2 }
+  VENDOR_FAILURE:
+    label: "Vendor Failure"
+    outcome: FAILED
+    error: PROVIDER_UNAVAILABLE
+    fail_attempts: 1          # the first attempt fails; a retry gets `then`
+    then: NO_RISK
+  PENDING:
+    label: "Pending"
+    outcome: PENDING
+    pending_polls: null       # stays in progress
+    then: NO_RISK
+
+# ---- the synthetic LOS applications (branch decides who may open them). scenario: per subject role.
+applications:
+  - id: APP-2026-001
+    title: "No Risk"
+    branch: MUM
+    product: "Home Loan"
+    loan_amount: 4500000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Aarav Mehrotra", father_name: "Suresh Mehrotra", date_of_birth: "1991-03-14",
+                 permanent_address: "Flat 12, Sunrise Residency, Andheri East, Mumbai, Maharashtra 400069",
+                 pan: "ZZQPM1001A", scenario: NO_RISK }
+      CO_APPLICANT: { full_name: "Ishita Mehrotra", father_name: "Ramesh Kapoor", date_of_birth: "1993-07-22",
+                      permanent_address: "Flat 12, Sunrise Residency, Andheri East, Mumbai, Maharashtra 400069",
+                      pan: "ZZQPM1002B", scenario: NO_RISK }
+  - id: APP-2026-002
+    title: "Low Risk"
+    branch: MUM
+    product: "Personal Loan"
+    loan_amount: 650000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Kabir Deshpande", father_name: "Anil Deshpande", date_of_birth: "1988-11-02",
+                 permanent_address: "24 Gulmohar Lane, Dadar West, Mumbai, Maharashtra 400028",
+                 pan: "ZZQPD2001C", scenario: LOW_RISK }
+      CO_APPLICANT: { full_name: "Meera Deshpande", father_name: "Vinod Joshi", date_of_birth: "1990-05-19",
+                      permanent_address: "24 Gulmohar Lane, Dadar West, Mumbai, Maharashtra 400028",
+                      pan: "ZZQPD2002D", scenario: LOW_RISK }
+  - id: APP-2026-003
+    title: "Average Risk"
+    branch: PUN
+    product: "Business Loan"
+    loan_amount: 2500000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Rohan Kulkarni", father_name: "Prakash Kulkarni", date_of_birth: "1985-01-30",
+                 permanent_address: "Plot 7, Shivneri Nagar, Kothrud, Pune, Maharashtra 411038",
+                 pan: "ZZQPK3001E", scenario: AVERAGE_RISK }
+      CO_APPLICANT: { full_name: "Sneha Kulkarni", father_name: "Dilip Patil", date_of_birth: "1987-09-08",
+                      permanent_address: "Plot 7, Shivneri Nagar, Kothrud, Pune, Maharashtra 411038",
+                      pan: "ZZQPK3002F", scenario: AVERAGE_RISK }
+  - id: APP-2026-004
+    title: "High Risk"
+    branch: PUN
+    product: "Loan Against Property"
+    loan_amount: 7800000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Vikram Shinde", father_name: "Mohan Shinde", date_of_birth: "1979-06-12",
+                 permanent_address: "Bungalow 3, Palm Grove Park, Baner, Pune, Maharashtra 411045",
+                 pan: "ZZQPS4001G", scenario: HIGH_RISK }
+      CO_APPLICANT: { full_name: "Anjali Shinde", father_name: "Ravi Pawar", date_of_birth: "1982-02-25",
+                      permanent_address: "Bungalow 3, Palm Grove Park, Baner, Pune, Maharashtra 411045",
+                      pan: "ZZQPS4002H", scenario: HIGH_RISK }
+  - id: APP-2026-005
+    title: "Multiple Findings"
+    branch: MUM
+    product: "Business Loan"
+    loan_amount: 5200000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Nikhil Rathore", father_name: "Gajendra Rathore", date_of_birth: "1983-12-05",
+                 permanent_address: "Unit 5, Sahyadri Industrial Estate, Bhiwandi, Thane, Maharashtra 421302",
+                 pan: "ZZQPR5001J", scenario: MULTIPLE_FINDINGS }
+      CO_APPLICANT: { full_name: "Pooja Rathore", father_name: "Hemant Chauhan", date_of_birth: "1986-04-17",
+                      permanent_address: "Unit 5, Sahyadri Industrial Estate, Bhiwandi, Thane, Maharashtra 421302",
+                      pan: "ZZQPR5002K", scenario: MULTIPLE_FINDINGS }
+  - id: APP-2026-006
+    title: "Vendor Failure"
+    branch: MUM
+    product: "Personal Loan"
+    loan_amount: 400000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Tanvi Agarwal", father_name: "Sanjay Agarwal", date_of_birth: "1995-08-29",
+                 permanent_address: "B-404, Lakeview Towers, Powai, Mumbai, Maharashtra 400076",
+                 pan: "ZZQPA6001L", scenario: VENDOR_FAILURE }
+      CO_APPLICANT: { full_name: "Rahul Agarwal", father_name: "Sanjay Agarwal", date_of_birth: "1993-10-10",
+                      permanent_address: "B-404, Lakeview Towers, Powai, Mumbai, Maharashtra 400076",
+                      pan: "ZZQPA6002M", scenario: VENDOR_FAILURE }
+  - id: APP-2026-007
+    title: "Pending"
+    branch: PUN
+    product: "Home Loan"
+    loan_amount: 3900000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Siddharth Gokhale", father_name: "Madhav Gokhale", date_of_birth: "1990-02-11",
+                 permanent_address: "18 Anand Society, Aundh, Pune, Maharashtra 411007",
+                 pan: "ZZQPG7001N", scenario: PENDING }
+      CO_APPLICANT: { full_name: "Radhika Gokhale", father_name: "Shrikant Bapat", date_of_birth: "1992-06-03",
+                      permanent_address: "18 Anand Society, Aundh, Pune, Maharashtra 411007",
+                      pan: "ZZQPG7002P", scenario: PENDING }
+  - id: APP-2026-008
+    title: "Applicant No Risk, Co-Applicant Findings"
+    branch: MUM
+    product: "Car Loan"
+    loan_amount: 900000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Arjun Nair", father_name: "Krishnan Nair", date_of_birth: "1989-09-15",
+                 permanent_address: "C-21, Neelkanth Apartments, Chembur, Mumbai, Maharashtra 400071",
+                 pan: "ZZQPN8001Q", scenario: NO_RISK }
+      CO_APPLICANT: { full_name: "Varun Nair", father_name: "Krishnan Nair", date_of_birth: "1991-12-01",
+                      permanent_address: "C-21, Neelkanth Apartments, Chembur, Mumbai, Maharashtra 400071",
+                      pan: "ZZQPN8002R", scenario: AVERAGE_RISK }
+  - id: APP-2026-009
+    title: "Applicant Findings, Co-Applicant No Risk"
+    branch: PUN
+    product: "Business Loan"
+    loan_amount: 3100000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Harsh Jadhav", father_name: "Baban Jadhav", date_of_birth: "1984-07-07",
+                 permanent_address: "Gala 9, Krishna Market Yard, Hadapsar, Pune, Maharashtra 411028",
+                 pan: "ZZQPJ9001S", scenario: HIGH_RISK }
+      CO_APPLICANT: { full_name: "Kavya Jadhav", father_name: "Nitin More", date_of_birth: "1988-03-21",
+                      permanent_address: "Gala 9, Krishna Market Yard, Hadapsar, Pune, Maharashtra 411028",
+                      pan: "ZZQPJ9002T", scenario: NO_RISK }
+  - id: APP-2026-010
+    title: "Previously Waived"
+    branch: MUM
+    product: "Home Loan"
+    loan_amount: 5600000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    waived:                     # a verification waived earlier (seeded as history); ReTrigger needs confirmation
+      reason: "Waived by the credit manager at sourcing (existing customer with a recent check on file)."
+      by: "manager.west"
+    subjects:
+      PRIMARY: { full_name: "Devansh Malhotra", father_name: "Ajay Malhotra", date_of_birth: "1987-05-26",
+                 permanent_address: "Villa 2, Hillside Greens, Thane West, Thane, Maharashtra 400601",
+                 pan: "ZZQPM1003U", scenario: NO_RISK }
+      CO_APPLICANT: { full_name: "Nisha Malhotra", father_name: "Pradeep Sethi", date_of_birth: "1989-11-13",
+                      permanent_address: "Villa 2, Hillside Greens, Thane West, Thane, Maharashtra 400601",
+                      pan: "ZZQPM1004V", scenario: NO_RISK }
+  - id: APP-2026-011
+    title: "Incomplete Details"
+    branch: MUM
+    product: "Personal Loan"
+    loan_amount: 300000
+    stage: "Sourcing"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Omkar Sawant", father_name: "Dattatray Sawant", date_of_birth: "1996-01-18",
+                 permanent_address: "Room 6, Ganesh Chawl, Parel, Mumbai, Maharashtra 400012",
+                 pan: "ZZQPS1101W", scenario: NO_RISK }
+      CO_APPLICANT: { full_name: "Sayali Sawant", father_name: "", date_of_birth: "1998-04-09",
+                      permanent_address: "", pan: "ZZQPS1102X", scenario: NO_RISK }
+  - id: APP-2026-012
+    title: "Four Co-Applicants"
+    branch: MUM
+    product: "Business Loan"
+    loan_amount: 9500000
+    stage: "Credit Assessment"
+    status: "In Progress"
+    subjects:
+      PRIMARY: { full_name: "Rajiv Bhandari", father_name: "Kishore Bhandari", date_of_birth: "1978-08-04",
+                 permanent_address: "12, Sunrise Residency, Vile Parle East, Mumbai, Maharashtra 400057",
+                 pan: "ZZQPB1201A", scenario: NO_RISK }
+      CO_APPLICANT:
+        - { full_name: "Sunita Bhandari", father_name: "Ashok Kale", date_of_birth: "1981-02-19",
+            permanent_address: "12, Sunrise Residency, Vile Parle East, Mumbai, Maharashtra 400057",
+            pan: "ZZQPB1202B", scenario: NO_RISK }
+        - { full_name: "Karan Bhandari", father_name: "Rajiv Bhandari", date_of_birth: "2001-05-30",
+            permanent_address: "12, Sunrise Residency, Vile Parle East, Mumbai, Maharashtra 400057",
+            pan: "ZZQPB1203C", scenario: LOW_RISK }
+        - { full_name: "Mahesh Bhandari", father_name: "Kishore Bhandari", date_of_birth: "1975-11-11",
+            permanent_address: "7, Gulmohar Lane, Kothrud, Pune, Maharashtra 411038",
+            pan: "ZZQPB1204D", scenario: AVERAGE_RISK }
+        - { full_name: "Nalini Joshi", father_name: "Vasant Joshi", date_of_birth: "1980-07-07",
+            permanent_address: "B-9, Lakeview Towers, Powai, Mumbai, Maharashtra 400076",
+            pan: "ZZQPJ1205E", scenario: NO_RISK }

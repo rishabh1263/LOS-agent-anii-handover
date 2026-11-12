@@ -264,6 +264,15 @@ def answer(
             stored = []
         if stored:
             state = str(getattr(getattr(stored[-1], "status", ""), "value", getattr(stored[-1], "status", ""))).lower()
+            from app.agents.applicant import config as _agent_config
+
+            # VERIFIED / STILL BEING CHECKED, BUT NO FIELDS ON RECORD (2026-10-14): never "it is verified, so its
+            # details have not been released" -- config chatbot.document_details
+            said = _agent_config.chatbot("document_details")
+            line = str(said.get("verified_no_fields") if state in ("verified", "pass", "passed", "accepted")
+                       else said.get("being_checked") if state in ("uploaded", "processing") else "")
+            if line:
+                return (line.format(document=words), [])
             return (f"The {words} is on this case but it is {state}, so its details have not been released. "
                     f"Upload a clear, correct {words} to get them read.", [])
         # No document, so no value of any field: said without naming a field

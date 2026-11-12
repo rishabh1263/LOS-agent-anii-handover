@@ -233,12 +233,23 @@ def screen(message: str, subject: str, request_id: str, case_id: str | None = No
         text = _say("cooldown", language, seconds=int(until - now) + 1)
         return _reply(request_id, case_id, "COOLDOWN", text, text, retry_after_seconds=int(until - now) + 1)
     hits = blocked(message)
+    learned = False
     if not hits:
-        return None
+        # THE LEARNED READING (2026-11-06, owner: "koi bhi gaali ... dont hardcode"): no listed word, but the tone
+        # model (semantics/tone.py, trained on copilot_tone.yaml) is SURE the message is abusive -- "hatt saale?",
+        # "chal be nikal". Frustration is not abuse and is answered as usual.
+        try:
+            from app.agents.applicant.copilot.semantics import tone as _tone
+
+            learned = _tone.is_abusive(message)
+        except Exception:  # noqa: BLE001 - no model: the lexicon alone decides, as before
+            learned = False
+        if not learned:
+            return None
     from app.agents.applicant import audit
 
     severity = max((h.severity for h in hits), key=lambda s: ["mild", "strong", "threat"].index(s)
-                   if s in ("mild", "strong", "threat") else 0)
+                   if s in ("mild", "strong", "threat") else 0) if hits else "learned"
     with _LOCK:
         seen = _SEEN[subject]
         while seen and now - seen[0] > float(cfg().get("window_seconds", 600)):
@@ -254,7 +265,8 @@ def screen(message: str, subject: str, request_id: str, case_id: str | None = No
                  tools=[], status="BLOCKED", detail=f"severity={severity} count={count} words="
                  + ",".join(dict.fromkeys(h.shown for h in hits)))
     words = ", ".join(f"**{w}**" for w in dict.fromkeys(h.shown for h in hits))
-    markdown = _say("markdown", language, seed, words=words)
+    # no listed word to show (the learned reading): the same boundary, without naming a word
+    markdown = _say("markdown", language, seed, words=words) if hits else _say("markdown_unnamed", language, seed)
     spoken = _say("tts", language, seed)
     if cooled:
         seconds = int(cfg().get("cooldown_seconds", 60))

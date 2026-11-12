@@ -222,7 +222,8 @@ def test_the_client_has_no_sdk_retries():
         bp._client()
     finally:
         boto3.client = real
-    assert isinstance(seen["config"], Config) and seen["config"].retries == {"max_attempts": 1, "mode": "standard"}
+    # ONE attempt in total: botocore counts "max_attempts" as retries (1 -> total 2), so the total is pinned
+    assert isinstance(seen["config"], Config) and seen["config"].retries == {"total_max_attempts": 1, "mode": "standard"}
 
 
 def test_cost_is_unknown_until_prices_are_configured(monkeypatch):

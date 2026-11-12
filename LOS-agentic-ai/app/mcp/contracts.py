@@ -274,6 +274,9 @@ CONTRACTS: dict[str, ToolContract] = {
                 "date_of_birth": _string("Date of birth, ISO format."),
                 "address": _string("Postal address."),
                 "applicant_id": _string("Optional. Generated when omitted."),
+                # the LOS Sourcing screen (migration 0011): a yes / no about the MOBILE -- never an Aadhaar number
+                "mobile_aadhaar_linked": {"type": "boolean",
+                                          "description": "Whether the mobile is Aadhaar-linked (yes / no only)."},
             },
             [],
         ),
@@ -341,6 +344,17 @@ CONTRACTS: dict[str, ToolContract] = {
                 "declared_monthly_income": _string(
                     "What the applicant says they earn each month. Recorded "
                     "AS DECLARED; never treated as verified income."),
+                "property_type": _string(
+                    "RESIDENTIAL / COMMERCIAL / INDUSTRIAL: selects the LTV "
+                    "limit for a secured product."),
+                "purchase_price": _string(
+                    "The agreed price of the property being bought."),
+                "valuation_value": _string("The valuation report's value."),
+                # the LOS Sourcing / Application Details screens (migrations 0011, 0012): optional, never defaulted
+                "loan_purpose": _string("Loan purpose (free text until the business list is configured)."),
+                "applicant_type": _string("Applicant type (free text until the business list is configured)."),
+                "document_received_date": _string("Date the documents were received, YYYY-MM-DD, not in the future."),
+                "co_origination": {"type": "boolean", "description": "Co-origination yes / no."},
                 "case_id": _string("Optional. Generated when omitted."),
             },
             ["applicant_id"],
@@ -385,6 +399,15 @@ CONTRACTS: dict[str, ToolContract] = {
                 "declared_monthly_income": _string(
                     "What the applicant says they earn each month. Recorded "
                     "AS DECLARED; never treated as verified income."),
+                "property_type": _string(
+                    "RESIDENTIAL / COMMERCIAL / INDUSTRIAL: selects the LTV "
+                    "limit for a secured product."),
+                "purchase_price": _string(
+                    "The agreed price of the property being bought. With a "
+                    "valuation, the lower of the two is the property value."),
+                "valuation_value": _string(
+                    "The valuation report's value. A change re-assesses "
+                    "eligibility; without one a declared value is indicative."),
             },
             ["case_id"],
         ),

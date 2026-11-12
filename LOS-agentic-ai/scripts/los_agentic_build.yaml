@@ -1,0 +1,251 @@
+# =====================================================================================================================
+# THE HANDOVER PROJECT (scripts/build_los_agentic.py), owner 2026-11-02: "ek major folder credit_underwriting, usme
+# saare agents folder-wise, clean structure". Everything the builder moves, renames or edits is here -- the script
+# holds no names. `from` is relative to this repository, `to` to the project folder.
+#
+#   credit_underwriting/
+#     main.py  conftest.py  README.md  requirements.txt  .env.example  pytest.ini
+#     eligibility/ docs_policy/ dedupe/ bank_verification/ crime_verification/ legal_verification/
+#         each: the agent's code, api.py, conf/ (its rules seed and settings), tests/, README.md
+#     underwriting/  the parent agent: the credit underwriting assessment over the agents' recorded results
+#     shared/      what every agent uses: db (los_agentic, rules, audit, logs), security, store, api, llm, ...
+#     scripts/  docs/
+#
+# A path a file builds from its own place (Path(__file__).parents[N]) is corrected by the builder for the new depth;
+# only the lines listed under `edits` are written by hand.
+# =====================================================================================================================
+name: credit_underwriting
+out: ../../../credit_underwriting_build          # relative to the repository root; --out overrides
+# the repository modules the agents really ran (their tests + the service's start-up), recorded with a pytest plugin;
+# a package marked only_used gets just those files
+used_modules: scripts/los_agentic_modules.txt
+# each agent folder's README.md
+agent_readmes: scripts/los_agentic_docs/agents.yaml
+
+# ---------------------------------------------------------------------------------------------------- code
+packages:
+  # ---- the six agents
+  - { from: app/agents/eligibility, to: eligibility }
+  - { from: app/api/routes/eligibility_api.py, to: eligibility/api.py }
+  - { from: app/agents/docs_verify_credit_agent, to: docs_policy }
+  - { from: app/agents/dedupe, to: dedupe }
+  - { from: app/api/routes/dedupe_api.py, to: dedupe/api.py }
+  - { from: app/agents/credit/bank_verification, to: bank_verification, exclude: [dist] }
+  - { from: app/agents/credit/crime_verification, to: crime_verification, exclude: [dist] }
+  - { from: app/agents/credit/legal_verification, to: legal_verification, exclude: [dist] }
+  # ---- shared: the platform
+  - { from: app/agent_db, to: shared/db }
+  - { from: app/security, to: shared/security, only_used: true }
+  - { from: app/store, to: shared/store, only_used: true, exclude: [ocr_queue.py] }
+  - { from: app/core, to: shared/core, only_used: true }
+  - { from: app/llm, to: shared/llm, only_used: true }
+  - { from: app/observability, to: shared/observability, only_used: true }
+  - { from: app/mcp, to: shared/mcp, only_used: true }
+  - { from: app/api/__init__.py, to: shared/api/__init__.py }
+  - { from: app/api/contract.py, to: shared/api/contract.py }
+  - { from: app/api/dependencies.py, to: shared/api/dependencies.py }
+  - { from: app/api/errors.py, to: shared/api/errors.py }
+  # ---- shared: the LOS parts the agents use
+  # ---- the parent agent: credit underwriting itself (assessment, planner, graph, memo), on the agent runtime
+  - { from: app/agents/credit, to: underwriting,
+      exclude: [bank_verification, crime_verification, legal_verification] }
+  - { from: app/agents/runtime, to: shared/runtime }
+  - { from: app/orchestration, to: shared/orchestration, only_used: true }
+  - { from: app/services, to: shared/services, only_used: true }
+  - { from: app/agents/los, to: shared/los, only_used: true, exclude: [flow.py, mapping.py, kyc_gate.py] }
+  - { from: app/agents/policy, to: shared/policy, only_used: true }
+  - { from: app/agents/fraud_risk, to: shared/fraud_risk, only_used: true }
+  - { from: app/agents/bank_statement, to: shared/bank_statement, only_used: true }
+  - { from: app/agents/document_agent, to: shared/document_agent, only_used: true, exclude: [workflow.py] }
+  - { from: app/agents/verification, to: shared/verification, only_used: true }
+  # the applicant agent: its permission / audit / config parts only (its package loads the copilot lazily)
+  - { from: app/agents/applicant/__init__.py, to: shared/applicant/__init__.py }
+  - { from: app/agents/applicant/config.py, to: shared/applicant/config.py }
+  - { from: app/agents/applicant/permissions.py, to: shared/applicant/permissions.py }
+  - { from: app/agents/applicant/audit.py, to: shared/applicant/audit.py }
+  - { from: app/agents/applicant/case_memory_facts.py, to: shared/applicant/case_memory_facts.py }
+  - { from: app/agents/applicant/ledger.py, to: shared/applicant/ledger.py }
+  - { from: app/agents/applicant/provenance.py, to: shared/applicant/provenance.py }
+  - { from: app/agents/applicant/chat_store.py, to: shared/applicant/chat_store.py }
+  - { from: app/agents/applicant/copilot/__init__.py, to: shared/applicant/copilot/__init__.py }
+  - { from: app/agents/applicant/copilot/semantics/__init__.py, to: shared/applicant/copilot/semantics/__init__.py }
+  - { from: app/agents/applicant/copilot/semantics/intents.py, to: shared/applicant/copilot/semantics/intents.py }
+  - { from: app/agents/applicant/copilot/semantics/entities.py, to: shared/applicant/copilot/semantics/entities.py }
+  - { from: app/agents/applicant/copilot/semantics/meaning.py, to: shared/applicant/copilot/semantics/meaning.py }
+  # ---- the service and its scripts
+  - { from: scripts/los_agentic_main.py, to: main.py }
+  - { from: scripts/__init__.py, to: scripts/__init__.py }
+  - { from: scripts/setup_agent_databases.py, to: scripts/setup_agent_databases.py }
+  - { from: scripts/configure_agent_databases.py, to: scripts/configure_agent_databases.py }
+  - { from: scripts/demo_activity.py, to: scripts/demo_activity.py }
+  - { from: scripts/rules.py, to: scripts/rules.py }
+  - { from: scripts/preflight_production.py, to: scripts/preflight_production.py }
+  - { from: scripts/move_agents_to_los_agentic.py, to: scripts/move_agents_to_los_agentic.py }
+  - { from: scripts/copy_local_data_to_agent_databases.py, to: scripts/copy_local_data_to_agent_databases.py }
+  - { from: scripts/make_demo_bank_reports.py, to: scripts/make_demo_bank_reports.py }
+
+# ---------------------------------------------------------------------------------------------------- non-code files
+files:
+  - { from: app/config, to: shared/config,
+      exclude: [eligibility_config.yaml, dedupe_policy.yaml, customer_history_policy.yaml, leviosa_lms.yaml, mifin.yaml,
+                mifin_demo.yaml, "bank_verification*.yaml", "crime_verification*.yaml", "legal_verification*.yaml"] }
+  - { from: app/static/eligibility_ui.html, to: eligibility/static/eligibility_ui.html }
+  - { from: app/config/eligibility_config.yaml, to: eligibility/conf/eligibility_config.yaml }
+  - { from: app/config/dedupe_policy.yaml, to: dedupe/conf/dedupe_policy.yaml }
+  - { from: app/config/customer_history_policy.yaml, to: dedupe/conf/customer_history_policy.yaml }
+  - { from: app/config/leviosa_lms.yaml, to: dedupe/conf/leviosa_lms.yaml }
+  - { from: app/config/mifin.yaml, to: dedupe/conf/mifin.yaml }
+  - { from: app/config/demo/mifin_demo.yaml, to: dedupe/conf/mifin_demo.yaml }
+  - { from: app/config/credit_underwriting/bank_verification.yaml, to: bank_verification/conf/bank_verification.yaml }
+  - { from: app/config/credit_underwriting/bank_verification_wording.yaml, to: bank_verification/conf/bank_verification_wording.yaml }
+  - { from: app/config/credit_underwriting/bank_verification_demo.yaml, to: bank_verification/conf/bank_verification_demo.yaml }
+  - { from: app/config/credit_underwriting/crime_verification.yaml, to: crime_verification/conf/crime_verification.yaml }
+  - { from: app/config/credit_underwriting/crime_verification_wording.yaml, to: crime_verification/conf/crime_verification_wording.yaml }
+  - { from: app/config/credit_underwriting/crime_verification_demo.yaml, to: crime_verification/conf/crime_verification_demo.yaml }
+  - { from: app/config/credit_underwriting/legal_verification.yaml, to: legal_verification/conf/legal_verification.yaml }
+  - { from: app/config/credit_underwriting/legal_verification_wording.yaml, to: legal_verification/conf/legal_verification_wording.yaml }
+  - { from: app/config/credit_underwriting/legal_verification_demo.yaml, to: legal_verification/conf/legal_verification_demo.yaml }
+  - { from: requirements.txt, to: requirements.txt }
+  - { from: scripts/los_agentic_docs/README.md, to: README.md }
+  - { from: .env.example, to: .env.example }
+
+tests:
+  - { from: tests/conftest.py, to: conftest.py }
+  - { from: tests/agents/test_agent_databases.py, to: shared/tests/test_agent_databases.py }
+  - { from: tests/agents/test_summary_points.py, to: shared/tests/test_summary_points.py }
+  - { from: tests/agents/test_eligibility.py, to: eligibility/tests/test_eligibility.py }
+  - { from: tests/agents/test_eligibility_config_strict.py, to: eligibility/tests/test_eligibility_config_strict.py }
+  - { from: tests/agents/test_eligibility_explain.py, to: eligibility/tests/test_eligibility_explain.py }
+  - { from: tests/agents/test_eligibility_leviosa_fields.py, to: eligibility/tests/test_eligibility_leviosa_fields.py }
+  - { from: tests/agents/test_eligibility_numbers.py, to: eligibility/tests/test_eligibility_numbers.py }
+  - { from: tests/agents/test_eligibility_workbook.py, to: eligibility/tests/test_eligibility_workbook.py }
+  - { from: tests/integration/test_eligibility_negative.py, to: eligibility/tests/test_eligibility_negative.py }
+  - { from: tests/integration/test_eligibility_postgres.py, to: eligibility/tests/test_eligibility_postgres.py }
+  - { from: tests/agents/test_docs_verify_credit_agent.py, to: docs_policy/tests/test_docs_verify_credit_agent.py }
+  - { from: tests/agents/test_policy_engine.py, to: docs_policy/tests/test_policy_engine.py }
+  - { from: tests/agents/test_dedupe_agent.py, to: dedupe/tests/test_dedupe_agent.py }
+  - { from: tests/agents/test_dedupe_reason_points.py, to: dedupe/tests/test_dedupe_reason_points.py }
+  - { from: tests/agents/test_dedupe_status.py, to: dedupe/tests/test_dedupe_status.py }
+  - { from: tests/integration/test_customer_history.py, to: dedupe/tests/test_customer_history.py }
+  - { from: tests/integration/test_dedupe_all_parameters.py, to: dedupe/tests/test_dedupe_all_parameters.py }
+  - { from: tests/integration/test_dedupe_api.py, to: dedupe/tests/test_dedupe_api.py }
+  - { from: tests/integration/test_dedupe_failures.py, to: dedupe/tests/test_dedupe_failures.py }
+  - { from: tests/agents/bank_verification_fixtures.py, to: bank_verification/tests/bank_verification_fixtures.py }
+  - { from: tests/agents/test_bank_verification_api.py, to: bank_verification/tests/test_bank_verification_api.py }
+  - { from: tests/agents/test_bank_verification_e2e_qa.py, to: bank_verification/tests/test_bank_verification_e2e_qa.py }
+  - { from: tests/agents/test_bank_verification_prod.py, to: bank_verification/tests/test_bank_verification_prod.py }
+  - { from: tests/agents/test_bank_verification_reading.py, to: bank_verification/tests/test_bank_verification_reading.py }
+  - { from: tests/agents/test_bank_verification_report_check.py, to: bank_verification/tests/test_bank_verification_report_check.py }
+  - { from: tests/agents/test_bank_verification_rules.py, to: bank_verification/tests/test_bank_verification_rules.py }
+  - { from: tests/agents/test_bank_verification_scenarios.py, to: bank_verification/tests/test_bank_verification_scenarios.py }
+  - { from: tests/agents/test_bank_verification_summary.py, to: bank_verification/tests/test_bank_verification_summary.py }
+  - { from: tests/agents/test_crime_verification.py, to: crime_verification/tests/test_crime_verification.py }
+  - { from: tests/agents/test_crime_verification_prod.py, to: crime_verification/tests/test_crime_verification_prod.py }
+  - { from: tests/agents/test_legal_verification.py, to: legal_verification/tests/test_legal_verification.py }
+
+# repository names that are not a moved package (a moved package is renamed by its entry above). Longest first, whole
+# names only, dotted and slashed forms both. A one-word name (`app`) is never rewritten.
+renames:
+  app.config.eligibility_config: eligibility.conf.eligibility_config
+  app.config.dedupe_policy: dedupe.conf.dedupe_policy
+  app.config.customer_history_policy: dedupe.conf.customer_history_policy
+  app.config.credit_underwriting.bank_verification: bank_verification.conf.bank_verification
+  app.config.credit_underwriting.crime_verification: crime_verification.conf.crime_verification
+  app.config.credit_underwriting.legal_verification: legal_verification.conf.legal_verification
+  app.config: shared.config
+  app.static: shared.static
+  tests.integration.test_customer_history: dedupe.tests.test_customer_history
+  bank_verification_fixtures: bank_verification.tests.bank_verification_fixtures
+  test_credit_slice2_graph: underwriting.tests.test_credit_slice2_graph
+  test_credit_repayment: underwriting.tests.test_credit_repayment
+
+# lines written against the repository's own layout -- matched on the REPOSITORY's text, before the renames
+edits:
+  bank_verification/config.py:
+    - { old: 'DIR = ROOT / "app" / "config" / "credit_underwriting"', new: 'DIR = Path(__file__).resolve().parent / "conf"' }
+  crime_verification/config.py:
+    - { old: 'DIR = ROOT / "app" / "config" / "credit_underwriting"', new: 'DIR = Path(__file__).resolve().parent / "conf"' }
+  legal_verification/config.py:
+    - { old: 'DIR = ROOT / "app" / "config" / "credit_underwriting"', new: 'DIR = Path(__file__).resolve().parent / "conf"' }
+  eligibility/config.py:
+    - { old: 'return Path(override) if override else Path(CONFIG_DIR) / DEFAULT_FILENAME',
+        new: 'return Path(override) if override else Path(__file__).resolve().parent / "conf" / DEFAULT_FILENAME' }
+  dedupe/config.py:
+    - { old: 'DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "dedupe_policy.yaml"',
+        new: 'DEFAULT_PATH = Path(__file__).resolve().parent / "conf" / "dedupe_policy.yaml"' }
+  dedupe/history_policy.py:
+    - { old: 'PATH = Path(__file__).resolve().parents[2] / "config" / "customer_history_policy.yaml"',
+        new: 'PATH = Path(__file__).resolve().parent / "conf" / "customer_history_policy.yaml"' }
+  dedupe/leviosa.py:
+    - { old: '_PATH = Path(__file__).resolve().parents[2] / "config" / "leviosa_lms.yaml"',
+        new: '_PATH = Path(__file__).resolve().parent / "conf" / "leviosa_lms.yaml"' }
+  dedupe/mifin.py:
+    - { old: 'CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "mifin.yaml"',
+        new: 'CONFIG_PATH = Path(__file__).resolve().parent / "conf" / "mifin.yaml"' }
+  dedupe/demo_sources.py:
+    - { old: 'PATH = Path(__file__).resolve().parents[2] / "config" / "demo" / "mifin_demo.yaml"',
+        new: 'PATH = Path(__file__).resolve().parent / "conf" / "mifin_demo.yaml"' }
+  shared/core/constants.py:
+    - { old: 'CONFIG_DIR = PROJECT_ROOT / "app" / "config"', new: 'CONFIG_DIR = PROJECT_ROOT / "shared" / "config"' }
+  shared/db/core.py:
+    - { old: 'CONFIG = ROOT / "app" / "config" / "agent_databases.yaml"', new: 'CONFIG = ROOT / "shared" / "config" / "agent_databases.yaml"' }
+  conftest.py:
+    - old: |2
+            from app.agents.applicant.copilot import agent as _agent
+            from app.agents.applicant.copilot.semantics import llm_router as _router
+
+            _router.clear_cache()
+            _agent.KNOWLEDGE_ANSWERS.clear()
+      new: |2
+            # (the copilot's own caches are cleared here in the LOS repository; the copilot is not in this project)
+  underwriting/repayment/config.py:
+    - { old: 'DIR = Path(__file__).resolve().parents[3] / "config" / "credit_underwriting"',
+        new: 'DIR = Path(__file__).resolve().parent.parent.parent / "shared" / "config" / "credit_underwriting"' }
+  scripts/preflight_production.py:
+    - { old: 'CONFIG = ROOT / "app" / "config" / "preflight.yaml"', new: 'CONFIG = ROOT / "shared" / "config" / "preflight.yaml"' }
+  shared/applicant/copilot/semantics/meaning.py:
+    - { old: 'path = _ROOT / "app" / "config" / name', new: 'path = _ROOT / "shared" / "config" / name' }
+  scripts/demo_activity.py:
+    - { old: 'CONFIG = ROOT / "app" / "config" / "agent_databases_demo.yaml"',
+        new: 'CONFIG = ROOT / "shared" / "config" / "agent_databases_demo.yaml"' }
+  dedupe/tests/test_dedupe_agent.py:
+    - old: 'async def test_the_los_flow_hands_released_pans_to_the_dedupe_and_survives_its_failure(repo, monkeypatch):'
+      new: |-
+        @pytest.mark.skip(reason="the LOS pipeline (los/flow.py) lives in the LOS repository, not in this project")
+        async def test_the_los_flow_hands_released_pans_to_the_dedupe_and_survives_its_failure(repo, monkeypatch):
+  docs_policy/tests/test_docs_verify_credit_agent.py:
+    - { old: 'root = Path(__file__).resolve().parents[2] / "app" / "agents" / "docs_verify_credit_agent"',
+        new: 'root = Path(__file__).resolve().parents[2] / "docs_policy"' }
+
+# written into the project (not in the repository)
+new_files:
+  - to: pytest.ini
+    content: |
+      [pytest]
+      asyncio_mode = auto
+      markers =
+          ocr: runs real OCR against sample documents (slow; excluded with -m "not ocr")
+          slow: takes more than a few seconds
+          live_llm: composes with the REAL local model; skipped unless LOS_LIVE_LLM_TESTS=1 and Ollama is reachable
+          live_pg: runs the repository contract on a REAL PostgreSQL; skipped unless LOS_TEST_PG_DSN is set
+          live_jev: calls the REAL JEV provider; skipped unless JEV_LIVE_TESTS=1
+      # every agent keeps its tests in its own folder
+      testpaths = eligibility/tests docs_policy/tests dedupe/tests bank_verification/tests crime_verification/tests legal_verification/tests shared/tests
+      python_files = test_*.py
+      addopts = --strict-markers
+
+# folders that hold data, not Python
+not_packages: [conf, static, policies, frontend, config]
+
+keep_out:
+  - "__pycache__"
+  - "dist"
+  - "*.pyc"
+  - "*.sqlite3"
+  - "*.log"
+  - ".env"
+  - "*.bak"
+  - "node_modules"
+  - "runtime"
+  - "Screenshot*"
+  - "*.jsonl"

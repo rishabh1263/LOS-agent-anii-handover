@@ -1,0 +1,167 @@
+{
+ "CASE-D0C500000001": {
+  "allowed": true,
+  "critical": 0,
+  "open": [],
+  "route": "MOVE_AHEAD",
+  "status": "COMPLETE",
+  "to_collect": 0
+ },
+ "CASE-D0C500000002": {
+  "allowed": false,
+  "critical": 1,
+  "open": [
+   "FILE_SIZE_FORMAT:BANK_STATEMENT|PRIMARY_APPLICANT",
+   "PF_BANK_STATEMENT_PERIOD:BANK_STATEMENT|PRIMARY_APPLICANT",
+   "PRIMARY_APPLICANT:PAN|PRIMARY_APPLICANT"
+  ],
+  "route": "REFER_TO_AUTHORITY",
+  "status": "ACTION_REQUIRED",
+  "to_collect": 2
+ },
+ "CASE-D0C500000003": {
+  "allowed": false,
+  "critical": 4,
+  "open": [
+   "CO_APPLICANT:ADDRESS_PROOF|CO_APPLICANT",
+   "CO_APPLICANT:BANK_STATEMENT|CO_APPLICANT",
+   "CO_APPLICANT:INCOME_PROOF|CO_APPLICANT",
+   "CO_APPLICANT:SIGNATURE|CO_APPLICANT",
+   "PF_SALARY_SLIP_RECENCY:SALARY_SLIP|PRIMARY_APPLICANT"
+  ],
+  "route": "REFER_TO_AUTHORITY",
+  "status": "ACTION_REQUIRED",
+  "to_collect": 1
+ },
+ "CASE-D0C500000004": {
+  "allowed": false,
+  "critical": 1,
+  "open": [
+   "PRIMARY_APPLICANT:ADDRESS_PROOF|PRIMARY_APPLICANT",
+   "PRIMARY_APPLICANT:SIGNATURE|PRIMARY_APPLICANT"
+  ],
+  "route": "REFER_TO_AUTHORITY",
+  "status": "ACTION_REQUIRED",
+  "to_collect": 0
+ },
+ "CASE-D0C500000005": {
+  "allowed": true,
+  "critical": 0,
+  "open": [
+   "PF_BANK_STATEMENT_PERIOD:BANK_STATEMENT|CO_APPLICANT"
+  ],
+  "route": "MOVE_AHEAD_WITH_NOTES",
+  "status": "COMPLETE",
+  "to_collect": 1
+ },
+ "CASE-D0C500000006": {
+  "allowed": false,
+  "critical": 3,
+  "open": [
+   "PF_BANK_STATEMENT_PERIOD:BANK_STATEMENT|PRIMARY_APPLICANT",
+   "PRIMARY_APPLICANT:BUSINESS_PROOF_2|PRIMARY_APPLICANT",
+   "PRIMARY_APPLICANT:PROPERTY_DOCUMENT|PRIMARY_APPLICANT",
+   "PRIMARY_APPLICANT:PROPERTY_OWNERSHIP_PROOF|PRIMARY_APPLICANT",
+   "SD_ITR_COMPUTATION:PRIMARY_APPLICANT|PRIMARY_APPLICANT"
+  ],
+  "route": "REFER_TO_AUTHORITY",
+  "status": "ACTION_REQUIRED",
+  "to_collect": 2
+ },
+ "CASE-D0C500000007": {
+  "allowed": true,
+  "critical": 0,
+  "open": [
+   "CO_APPLICANT:INCOME_PROOF|CO_APPLICANT",
+   "FILE_SIZE_FORMAT:PASSPORT|PRIMARY_APPLICANT",
+   "PF_ID_VALIDITY:PASSPORT|PRIMARY_APPLICANT",
+   "PRIMARY_APPLICANT:INCOME_PROOF|PRIMARY_APPLICANT"
+  ],
+  "route": "MOVE_AHEAD_WITH_NOTES",
+  "status": "COMPLETE",
+  "to_collect": 4
+ },
+ "CASE-D0C500000008": {
+  "allowed": false,
+  "critical": 2,
+  "open": [
+   "CO_APPLICANT:PAN|CO_APPLICANT",
+   "PRIMARY_APPLICANT:ADDRESS_PROOF|PRIMARY_APPLICANT",
+   "PRIMARY_APPLICANT:PAN|PRIMARY_APPLICANT"
+  ],
+  "route": "REFER_TO_AUTHORITY",
+  "status": "ACTION_REQUIRED",
+  "to_collect": 1
+ },
+ "CASE-D0C500000009": {
+  "allowed": false,
+  "critical": 3,
+  "open": [
+   "CONDITION:employment_type|None",
+   "CO_APPLICANT:BUSINESS_PROOF_2|CO_APPLICANT",
+   "PRIMARY_APPLICANT:PROPERTY_OWNERSHIP_PROOF|PRIMARY_APPLICANT",
+   "PRIMARY_APPLICANT:SIGNATURE|PRIMARY_APPLICANT"
+  ],
+  "route": "REFER_TO_AUTHORITY",
+  "status": "ACTION_REQUIRED",
+  "to_collect": 1
+ },
+ "CASE-D0C500000010": {
+  "allowed": false,
+  "critical": 0,
+  "open": [],
+  "route": "MOVE_AHEAD",
+  "status": "COMPLETE",
+  "to_collect": 0
+ },
+ "CASE-D0C500000011": {
+  "allowed": false,
+  "critical": 9,
+  "open": [
+   "CO_APPLICANT:ADDRESS_PROOF|CO_APPLICANT",
+   "CO_APPLICANT:BANK_STATEMENT|CO_APPLICANT",
+   "CO_APPLICANT:BUSINESS_PROOF_1|CO_APPLICANT",
+   "CO_APPLICANT:BUSINESS_PROOF_2|CO_APPLICANT",
+   "CO_APPLICANT:INCOME_PROOF|CO_APPLICANT",
+   "CO_APPLICANT:PAN|CO_APPLICANT",
+   "CO_APPLICANT:SIGNATURE|CO_APPLICANT",
+   "FILE_SIZE_FORMAT:PAN|PRIMARY_APPLICANT",
+   "PF_BANK_STATEMENT_PERIOD:BANK_STATEMENT|PRIMARY_APPLICANT",
+   "PRIMARY_APPLICANT:PROPERTY_DOCUMENT|PRIMARY_APPLICANT",
+   "PRIMARY_APPLICANT:PROPERTY_OWNERSHIP_PROOF|PRIMARY_APPLICANT"
+  ],
+  "route": "REFER_TO_AUTHORITY",
+  "status": "ACTION_REQUIRED",
+  "to_collect": 2
+ },
+ "CASE-D0C500000012": {
+  "allowed": false,
+  "critical": 0,
+  "open": [
+   "PRIMARY_APPLICANT:ADDRESS_PROOF|PRIMARY_APPLICANT"
+  ],
+  "route": "AWAIT_APPROVAL",
+  "status": "EXCEPTION_PENDING",
+  "to_collect": 0
+ },
+ "CASE-D0C500000013": {
+  "allowed": true,
+  "critical": 0,
+  "open": [
+   "SD_ITR_COMPUTATION:PRIMARY_APPLICANT|PRIMARY_APPLICANT"
+  ],
+  "route": "MOVE_AHEAD_WITH_NOTES",
+  "status": "COMPLETE",
+  "to_collect": 1
+ },
+ "CASE-D0C500000014": {
+  "allowed": true,
+  "critical": 0,
+  "open": [
+   "PF_SALARY_SLIP_RECENCY:SALARY_SLIP|CO_APPLICANT"
+  ],
+  "route": "MOVE_AHEAD_WITH_NOTES",
+  "status": "COMPLETE",
+  "to_collect": 1
+ }
+}
