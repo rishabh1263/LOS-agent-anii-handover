@@ -131,6 +131,15 @@ def run_kyc(request: KycRequest, request_id: str = "") -> KycResult:
         overall = CheckStatus.REVIEW
         reason_codes.append(ReasonCode.INSUFFICIENT_SOURCES)
 
+    # NO IDENTITY DOCUMENT, NO PASS (2026-10-13): a salary slip and a bank statement whose names agree describe the
+    # same person to each other, but nothing establishes who that person is.
+    identity_types = {str(t).upper() for t in config.section("decision").get("identity_document_types") or []}
+    sent_types = {str(getattr(d.document_type, "value", d.document_type)).upper() for d in request.documents}
+    if identity_types and not (sent_types & identity_types) and overall in (CheckStatus.PASS, CheckStatus.SKIPPED,
+                                                                              CheckStatus.REVIEW):
+        overall = CheckStatus.REVIEW
+        reason_codes.append(ReasonCode.IDENTITY_DOCUMENT_MISSING)
+
     # Stable, de-duplicated, order-independent.
     ordered = sorted({code for code in reason_codes}, key=lambda c: c.value)
 
@@ -187,6 +196,10 @@ def _explain(overall: CheckStatus, codes: list[ReasonCode], fields: list, reques
     documents = list(dict.fromkeys(str(getattr(d.document_type, "value", d.document_type))
                                    for d in request.documents))
     only_sources = set(codes) == {ReasonCode.INSUFFICIENT_SOURCES}
+    if overall is CheckStatus.REVIEW and ReasonCode.IDENTITY_DOCUMENT_MISSING in codes and not mismatched:
+        return ("PENDING", "No identity document has been verified yet, so the applicant's identity is not "
+                           "established.", documents, [],
+                "Upload the applicant's PAN plus an address proof (driving licence, voter ID, passport or Aadhaar).")
     if overall is CheckStatus.PASS:
         return ("PASS", "The documents describe the same person.", documents, [], "No action needed.")
     if overall is CheckStatus.REVIEW and only_sources:

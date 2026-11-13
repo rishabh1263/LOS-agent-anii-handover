@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eligibility Check</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1f2933; --muted:#616e7c; --line:#e1e5ea; --brand:#1f5fa8;
+          --ok:#1e7b45; --warn:#a15c00; --bad:#b42318; --soft:#eef3fa; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:var(--brand); color:#fff; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { margin:0; font-size:18px; font-weight:600; }
+  main { max-width:1080px; margin:0 auto; padding:16px; display:grid; gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h2 { margin:0 0 10px; font-size:15px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px 14px; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:3px; }
+  input, select { width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:7px; font:inherit; background:#fff; }
+  input[readonly] { background:#f2f4f7; color:var(--muted); }
+  .req::after { content:" *"; color:var(--bad); }
+  .row { display:flex; gap:10px; align-items:end; flex-wrap:wrap; }
+  .row > div { flex:1 1 220px; }
+  button { padding:9px 16px; border-radius:8px; border:1px solid var(--brand); background:#fff; color:var(--brand); font-weight:600; cursor:pointer; }
+  button.primary { background:var(--brand); color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  .actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .note { font-size:12px; color:var(--muted); }
+  .msg { padding:8px 10px; border-radius:7px; font-size:13px; display:none; }
+  .msg.err { display:block; background:#fdecea; color:var(--bad); }
+  .msg.ok { display:block; background:#e8f5ee; color:var(--ok); }
+  .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-weight:700; font-size:12px; letter-spacing:.3px; }
+  .APPROVED { background:#e8f5ee; color:var(--ok); } .CONDITIONAL, .REFER { background:#fff4e5; color:var(--warn); }
+  .REJECTED { background:#fdecea; color:var(--bad); } .DATA_MISSING { background:#eef0f3; color:var(--muted); }
+  .final { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; margin:12px 0; }
+  .final div { background:var(--soft); border-radius:8px; padding:9px 11px; }
+  .final b { display:block; font-size:16px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  .pass { color:var(--ok); font-weight:600; } .fail { color:var(--bad); font-weight:600; } .na { color:var(--muted); }
+  ul { margin:6px 0 0; padding-left:18px; }
+  #token-box { display:none; }
+  @media (max-width:600px) { main { padding:10px; } }
+</style>
+</head>
+<body>
+<header><h1>Eligibility check</h1><span class="note" style="color:#dbe7f5">Case data is fetched · enter figures · Save · Trigger</span></header>
+<main>
+  <div class="card" id="token-box">
+    <h2>Sign-in token</h2>
+    <div class="row"><div><label for="token">Bearer token (only when authentication is on)</label><input id="token" type="password" autocomplete="off"></div>
+    <div style="flex:0 0 auto"><button id="token-save">Use token</button></div></div>
+  </div>
+
+  <div class="card">
+    <h2>1. Case</h2>
+    <div class="row">
+      <div><label for="case-select">Pick a case</label><select id="case-select"><option value="">— select —</option></select></div>
+      <div><label for="case-id">or type a case id</label><input id="case-id" placeholder="CASE-…"></div>
+      <div style="flex:0 0 auto"><button id="load">Fetch case</button></div>
+    </div>
+    <div id="case-msg" class="msg"></div>
+    <div id="case-data" class="grid" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="entry" style="display:none">
+    <h2>2. Loan</h2>
+    <div class="grid" id="loan-fields"></div>
+
+    <h2 style="margin-top:16px">3. Income working</h2>
+    <div class="row"><div><label for="income-method">Income method</label><select id="income-method"></select></div></div>
+    <div class="grid" id="income-fields" style="margin-top:10px"></div>
+
+    <h2 style="margin-top:16px">4. Top-up</h2>
+    <div class="row"><div><label for="topup-type">Top-up</label><select id="topup-type"></select></div></div>
+    <div class="grid" id="topup-fields" style="margin-top:10px"></div>
+
+    <h2 style="margin-top:16px">5. Property</h2>
+    <div class="grid" id="property-fields"></div>
+
+    <div class="actions" style="margin-top:16px">
+      <button id="save">Save</button>
+      <button id="trigger" class="primary">Trigger eligibility</button>
+      <span id="save-note" class="note"></span>
+    </div>
+    <div id="entry-msg" class="msg" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card" id="result" style="display:none"></div>
+</main>
+
+<script>
+(() => {
+  const API = "/api/v1/eligibility";
+  const $ = (id) => document.getElementById(id);
+  let FORM = null, CASE = null, DIRTY = false;
+
+  const tokenGet = () => { try { return sessionStorage.getItem("elig_token") || ""; } catch (e) { return ""; } };
+  const tokenSet = (t) => { try { sessionStorage.setItem("elig_token", t); } catch (e) {} };
+  const inr = (v) => (v === null || v === undefined || v === "") ? "—" : "₹" + Number(v).toLocaleString("en-IN", {maximumFractionDigits: 0});
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+  async function call(method, path, body) {
+    const headers = {"Content-Type": "application/json"};
+    const t = tokenGet(); if (t) headers.Authorization = "Bearer " + t;
+    const r = await fetch(API + path, {method, headers, body: body ? JSON.stringify(body) : undefined});
+    let data = null; try { data = await r.json(); } catch (e) {}
+    if (r.status === 401 || r.status === 403) { $("token-box").style.display = "block"; }
+    if (!r.ok) throw {status: r.status, data};
+    return data;
+  }
+  function errorText(e) {
+    const d = e && e.data;
+    if (d && Array.isArray(d.detail)) return d.detail.map((x) => `${(x.loc || []).slice(1).join(".")}: ${String(x.msg || "").replace(/^Value error, /, "")}`).join(" · ");
+    if (d && d.detail && d.detail.message) return d.detail.message;
+    if (d && d.error && d.error.message) return d.error.message;
+    return `Request failed (${e && e.status || "network"})`;
+  }
+  function show(el, text, ok) { el.textContent = text; el.className = "msg " + (ok ? "ok" : "err"); }
+  function hide(el) { el.className = "msg"; el.textContent = ""; }
+
+  function field(container, f, value, opts = {}) {
+    const id = (opts.prefix || "") + f.key;
+    const wrap = document.createElement("div");
+    const step = f.type === "int" ? "1" : "any";
+    wrap.innerHTML = `<label for="${id}" class="${f.required ? "req" : ""}">${esc(f.label)}</label>` +
+      `<input id="${id}" data-key="${esc(f.key)}" type="number" min="0" step="${step}" ${opts.readonly ? "readonly" : ""} value="${value ?? ""}">`;
+    container.appendChild(wrap);
+    if (!opts.readonly) wrap.querySelector("input").addEventListener("input", markDirty);
+  }
+  function selectBox(sel, options, current, noneLabel) {
+    sel.innerHTML = (noneLabel ? `<option value="">${esc(noneLabel)}</option>` : "") +
+      Object.entries(options).map(([k, v]) => `<option value="${esc(k)}" ${k === current ? "selected" : ""}>${esc(v)}</option>`).join("");
+  }
+  function markDirty() { DIRTY = true; $("save-note").textContent = "Unsaved changes"; }
+
+  function renderGroup(kind, chosen, values) {
+    const box = $(kind + "-fields"); box.innerHTML = "";
+    const spec = (kind === "income" ? FORM.income_methods : FORM.topup_types)[chosen];
+    if (!spec) return;
+    for (const f of spec.fields || []) field(box, f, values ? values[f.key] : "", {prefix: kind + "-"});
+  }
+
+  function renderCase(payload) {
+    CASE = payload; DIRTY = false; $("save-note").textContent = payload.saved ? `Saved ${new Date(payload.saved.saved_at).toLocaleString()}` : "Nothing saved yet";
+    const c = payload.case || {}, saved = (payload.saved && payload.saved.inputs) || {};
+    const grid = $("case-data"); grid.innerHTML = "";
+    for (const f of FORM.case_fields || []) {
+      const v = c[f.key]; const money = /₹/.test(f.label);
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `<label>${esc(f.label)}</label><input readonly value="${esc(v === null || v === undefined ? "not on record" : (money ? inr(v) : v))}">`;
+      grid.appendChild(wrap);
+    }
+    // loan: product + editable figures, prefilled from the saved entries, else the case
+    const loan = $("loan-fields"); loan.innerHTML = "";
+    const pw = document.createElement("div");
+    pw.innerHTML = `<label for="product">Product</label><select id="product"></select>`; loan.appendChild(pw);
+    selectBox(pw.querySelector("select"), Object.fromEntries(FORM.products.map((p) => [p, p.replace(/_/g, " ")])), saved.product || c.product);
+    pw.querySelector("select").addEventListener("change", markDirty);
+    for (const f of FORM.editable || []) field(loan, f, saved[f.key] ?? c[f.key]);
+    // income / top-up: method dropdowns change the fields
+    selectBox($("income-method"), Object.fromEntries(Object.entries(FORM.income_methods).map(([k, v]) => [k, v.label])),
+              (saved.income || {}).method, "Use the declared income");
+    renderGroup("income", (saved.income || {}).method, saved.income);
+    selectBox($("topup-type"), Object.fromEntries(Object.entries(FORM.topup_types).map(([k, v]) => [k, v.label])),
+              (saved.topup || {}).type, "No top-up");
+    renderGroup("topup", (saved.topup || {}).type, saved.topup);
+    // property
+    const prop = $("property-fields"); prop.innerHTML = "";
+    const cw = document.createElement("div"); cw.innerHTML = `<label for="collateral">Collateral type</label><select id="collateral"></select>`; prop.appendChild(cw);
+    selectBox(cw.querySelector("select"), FORM.collateral_types, saved.collateral_type, "Product default");
+    const ow = document.createElement("div"); ow.innerHTML = `<label for="occupancy">Occupancy</label><select id="occupancy"></select>`; prop.appendChild(ow);
+    selectBox(ow.querySelector("select"), FORM.occupancy_types, saved.occupancy_type, "Product default");
+    field(prop, {key: "existing_exposure", label: FORM.existing_exposure_label}, saved.existing_exposure);
+    for (const s of [cw, ow]) s.querySelector("select").addEventListener("change", markDirty);
+    $("entry").style.display = "block"; $("result").style.display = "none"; hide($("entry-msg"));
+  }
+
+  function num(input) { const v = input.value.trim(); return v === "" ? null : Number(v); }
+  function collect() {
+    const body = {product: $("product").value || null};
+    for (const f of FORM.editable || []) { const v = num(document.querySelector(`#loan-fields [data-key="${f.key}"]`)); if (v !== null) body[f.key] = v; }
+    const method = $("income-method").value;
+    if (method) { body.income = {method}; for (const i of $("income-fields").querySelectorAll("input")) { const v = num(i); if (v !== null) body.income[i.dataset.key] = v; } }
+    const type = $("topup-type").value;
+    if (type) { body.topup = {type}; for (const i of $("topup-fields").querySelectorAll("input")) { const v = num(i); if (v !== null) body.topup[i.dataset.key] = v; } }
+    if ($("collateral").value) body.collateral_type = $("collateral").value;
+    if ($("occupancy").value) body.occupancy_type = $("occupancy").value;
+    const ex = num(document.querySelector('#property-fields [data-key="existing_exposure"]')); if (ex !== null) body.existing_exposure = ex;
+    return body;
+  }
+
+  function renderResult(r) {
+    // the compact answer: decision, summary, offer, checks, what it would take, next steps, one-line working
+    const o = r.offer || {}, w = r.working || {};
+    const lim = (x) => (x === null || x === undefined) ? "—" : (typeof x === "object" ? JSON.stringify(x) : x);
+    const checks = (r.checks || []).map((x) => `<tr><td>${esc(x.label)}</td><td class="${x.result === "pass" ? "pass" : x.result === "fail" ? "fail" : "na"}">${esc(x.result)}</td><td>${esc(lim(x.value))}</td><td>${esc(lim(x.limit))}</td></tr>`).join("");
+    const list = (title, items) => (items || []).length ? `<h2 style="margin-top:14px">${title}</h2><ul>${items.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>` : "";
+    const working = Object.values(w).map((s) => `<p class="note" style="margin:4px 0">${esc(s)}</p>`).join("");
+    $("result").innerHTML = `<h2>Result <span class="badge ${esc(r.decision)}">${esc(r.decision)}</span></h2>
+      <p style="margin:6px 0">${esc(r.summary || "")}</p>
+      ${o.amount ? `<div class="final"><div><span class="note">Amount to offer</span><b>${inr(o.amount)}</b></div>
+        ${o.range ? `<div><span class="note">Range</span><b>${esc(o.range)}</b></div>` : ""}
+        <div><span class="note">EMI</span><b>${inr(o.emi)}</b></div>
+        <div><span class="note">Tenure</span><b>${esc(o.tenure_months)} months${o.rate_percent ? " @ " + esc(o.rate_percent) + "%" : ""}</b></div></div>` : ""}
+      ${working}
+      <table><thead><tr><th>Check</th><th>Result</th><th>Value</th><th>Limit</th></tr></thead><tbody>${checks}</tbody></table>
+      ${list("What it would take", r.what_it_takes)}
+      ${list("Next steps", r.next_steps)}
+      ${(r.missing_fields || []).length ? `<p class="note">Missing: ${esc(r.missing_fields.join(", "))}</p>` : ""}
+      <p class="note" style="margin-top:10px">Run ${esc(r.run_id || "not saved")} · full working: GET ${API}/runs/${esc(r.run_id || "")}</p>`;
+    $("result").style.display = "block";
+  }
+
+  async function loadCase(id) {
+    id = (id || "").trim(); if (!id) return;
+    hide($("case-msg"));
+    try { renderCase(await call("GET", "/cases/" + encodeURIComponent(id))); $("case-id").value = id; }
+    catch (e) { show($("case-msg"), errorText(e)); $("entry").style.display = "none"; }
+  }
+
+  $("case-select").addEventListener("change", (e) => loadCase(e.target.value));   // auto-fetch on pick
+  $("load").addEventListener("click", () => loadCase($("case-id").value || $("case-select").value));
+  $("income-method").addEventListener("change", (e) => { renderGroup("income", e.target.value); markDirty(); });
+  $("topup-type").addEventListener("change", (e) => { renderGroup("topup", e.target.value); markDirty(); });
+  $("token-save").addEventListener("click", () => { tokenSet($("token").value.trim()); init(); });
+
+  $("save").addEventListener("click", async () => {
+    hide($("entry-msg"));
+    try {
+      const saved = await call("PUT", `/cases/${encodeURIComponent(CASE.case_id)}/inputs`, collect());
+      DIRTY = false; CASE.saved = saved; $("save-note").textContent = `Saved ${new Date(saved.saved_at).toLocaleString()}`;
+      show($("entry-msg"), "Saved.", true);
+    } catch (e) { show($("entry-msg"), errorText(e)); }
+  });
+  $("trigger").addEventListener("click", async () => {
+    hide($("entry-msg")); $("trigger").disabled = true;
+    try {
+      // what is on screen is what is checked (saved or not); nothing entered -> the saved entries
+      const r = await call("POST", "/check", {case_id: CASE.case_id, ...collect()});
+      renderResult(r);
+      if (DIRTY) show($("entry-msg"), "Checked the figures on screen — they are not saved yet.", true);
+    } catch (e) { show($("entry-msg"), errorText(e)); }
+    finally { $("trigger").disabled = false; }
+  });
+
+  async function init() {
+    try {
+      FORM = await call("GET", "/form");
+      const list = await call("GET", "/cases");
+      $("case-select").innerHTML = `<option value="">— select —</option>` +
+        (list.cases || []).map((c) => `<option value="${esc(c.case_id)}">${esc(c.case_id)} · ${esc((c.product || "").replace(/_/g, " "))}${c.label ? " · " + esc(c.label) : ""}</option>`).join("");
+      $("token-box").style.display = tokenGet() ? "none" : $("token-box").style.display;
+    } catch (e) { show($("case-msg"), errorText(e)); }
+  }
+  init();
+})();
+</script>
+</body>
+</html>

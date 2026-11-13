@@ -55,3 +55,11 @@ def append_line(path: Path, line: str) -> None:
     rotate_if_needed(path)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(line + "\n")
+    # the same line in the audit database too (app/agent_db/audit_store.py; LOS_AUDIT_DSN), queued -- the file above
+    # is written first and stays the copy; the database never fails or slows the caller
+    try:
+        from app.agent_db import audit_store
+
+        audit_store.from_file_line(path, line)
+    except Exception:  # noqa: BLE001
+        pass

@@ -1,0 +1,40 @@
+/* The summary at the top of the results page, and the screens for many co-applicants. Tokens from styles.css. */
+
+.ai-top { margin-top: -6px; }
+.ai-top .ai-card-inner { padding: 22px 26px 24px; }
+.ai-top .ai-orb { width: 50px; height: 50px; border-radius: 16px; }
+.ai-top .ai-titles h2 { font-size: 18px; }
+.ai-top .ai-text { position: relative; font-size: 16.5px; line-height: 1.75; padding-left: 26px; max-width: none; }
+.ai-quote { position: absolute; left: 0; top: -10px; font-size: 44px; line-height: 1; font-weight: 800;
+  background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+.glance { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 16px; padding: 12px; border-radius: 14px;
+  background: var(--surface-2); border: 1px dashed var(--line-2); }
+.glance-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 10px; border-radius: 999px; border: 1px solid;
+  font-size: 12.5px; background: var(--surface); animation: rise .35s ease-out backwards; }
+.glance-chip:nth-child(2) { animation-delay: .05s; } .glance-chip:nth-child(3) { animation-delay: .1s; }
+.glance-chip:nth-child(4) { animation-delay: .15s; } .glance-chip:nth-child(n+5) { animation-delay: .2s; }
+.glance-chip.tone-ok, .glance-chip.tone-warn, .glance-chip.tone-bad, .glance-chip.tone-info, .glance-chip.tone-na { background: var(--surface); }
+.glance-dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent); }
+.glance-who { font-weight: 800; color: var(--ink); }
+.glance-name { color: var(--muted); }
+.glance-chip b { font-weight: 800; }
+
+/* a few people: the result cards wrap two by two (many people: desk.css, the compact list) */
+.form-card-head { min-width: 0; }
+.person-tabs { min-width: 0; }
+.result-grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+.action-people { align-items: center; }
+
+@media (max-width: 860px) {
+  .result-grid.cols-2 { grid-template-columns: 1fr; }
+  .ai-top .ai-text { font-size: 15px; }
+}
+
+/* the summary in points */
+.ai-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ai-points li { position: relative; padding-left: 18px; }
+.ai-points li::before { content: ""; position: absolute; left: 3px; top: .62em; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--grad); }
+.results-tools { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ai-top .ai-points { padding-left: 0; font-size: 15px; line-height: 1.55; }

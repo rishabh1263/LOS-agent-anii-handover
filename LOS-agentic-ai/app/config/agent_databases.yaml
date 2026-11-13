@@ -1,0 +1,303 @@
+# =====================================================================================================================
+# EVERY AGENT'S OWN POSTGRESQL DATABASE (2026-10-28, owner: "real pgadmin me postgres me … sab alag alag db … aage jaake
+# humko sirf real data connect connection env me").
+#
+# Each agent reaches its database through ONE environment variable (its DSN, in .env -- never in this file, never
+# logged). A laptop, a pgAdmin test server and production differ only in those variables. Nothing falls back silently:
+# an agent whose DSN is missing says so (demo mode may still use its local store, as before).
+#
+# scripts/setup_agent_databases.py creates the databases on a server (AGENT_DB_ADMIN_DSN, a user allowed to CREATE
+# DATABASE), applies every agent's versioned migrations, and with --seed-demo loads the demo rows (is_demo = true).
+# In production: --purge-demo removes every demo row; real rows (is_demo = false) are never touched.
+# =====================================================================================================================
+
+admin_dsn_env: AGENT_DB_ADMIN_DSN
+
+# ONE DATABASE FOR EVERY AGENT (owner 2026-11-02: "schemas alag alag hoga lekin db ek hi sabka under los_agentic"):
+# LOS_AGENTIC_DSN names it; each agent keeps its tables, migrations and functions in ITS OWN SCHEMA (below), so
+# pgAdmin shows los_agentic -> Schemas -> eligibility, docs_policy, bank_verification, ... An agent's own variable
+# (dsn_env) still overrides it: a database of its own with its tables in `public`, the layout before 2026-11-02
+# (scripts/move_agents_to_los_agentic.py copies such databases into the schemas).
+shared_dsn_env: LOS_AGENTIC_DSN
+shared_database: los_agentic
+
+databases:
+  eligibility:
+    schema: eligibility
+    dsn_env: ELIGIBILITY_DSN
+    legacy_dsn_env: DATABASE_URL          # the name the eligibility agent used before 2026-10-28 (read with a warning)
+    database: los_eligibility
+    title: "Eligibility"
+    loggers: [app.agents.eligibility]
+  docs_policy:
+    schema: docs_policy
+    dsn_env: DOCS_POLICY_DSN
+    database: los_docs_policy
+    title: "Credit document policy (Document Desk)"
+    loggers: [app.agents.docs_verify_credit_agent]
+    # an evaluation of an LOS demo case (app/store/demo_seed.py: every demo id starts DEMO-) is a demo row
+    demo_case_prefixes: ["DEMO-"]
+  bank_verification:
+    schema: bank_verification
+    dsn_env: BANK_VERIFICATION_DSN
+    database: los_bank_verification
+    title: "Bank verification"
+    loggers: [app.agents.credit.bank_verification]
+  crime_verification:
+    schema: crime_verification
+    dsn_env: CRIME_VERIFICATION_DSN
+    database: los_crime_verification
+    title: "Crime record verification"
+    loggers: [app.agents.credit.crime_verification]
+  legal_verification:
+    schema: legal_verification
+    dsn_env: LEGAL_VERIFICATION_DSN
+    database: los_legal_verification
+    title: "Legal collateral verification"
+    loggers: [app.agents.credit.legal_verification]
+  chatbot:
+    schema: chatbot
+    dsn_env: CHATBOT_DSN
+    database: los_chatbot
+    title: "Chatbot (applicant copilot)"
+    loggers: [app.agents.applicant, app.observability.turn_log]
+    demo_case_prefixes: ["DEMO-"]
+  # THE DEDUPE AGENT'S OWN SCHEMA (owner 2026-11-03: "dedupe ka alag schema kro jese saare agents k hai"):
+  # its decisions, customer history checks, its two policies (rules), its API responses and its logs
+  # (app/agent_db/dedupe_store.py). Before 2026-11-03 these were in `audit`; scripts/move_dedupe_to_own_schema.py
+  # copies those rows over.
+  dedupe:
+    schema: dedupe
+    dsn_env: DEDUPE_DSN
+    database: los_dedupe
+    title: "Dedupe and customer history"
+    loggers: [app.agents.dedupe]
+    demo_case_prefixes: ["DEMO-"]
+    # which JSONL file feeds which table (app/agent_db/audit_store.py routes each file to the agent listing it)
+    sources:
+      dedupe_decisions: { env: DEDUPE_AUDIT_PATH, default: runtime/audit/dedupe_decisions.jsonl }
+      customer_history: { env: CUSTOMER_HISTORY_AUDIT_PATH, default: runtime/audit/customer_history.jsonl }
+  # THE COMMON AUDIT SCHEMA, for every agent (owner 2026-11-03: "audit ko common rakho saare agents ke liye"): the
+  # trails that are not one agent's own -- every agent run (harness), issuer checks, field corrections, risk
+  # decisions. Every line appended to one of these JSONL files is ALSO stored here, one clean table per source
+  # (app/agent_db/audit_store.py). The files stay as they are.
+  # schema common_audit (renamed from `audit` 2026-11-03, scripts/setup_common_audit.py); its agent key stays `audit`
+  # (LOS_AUDIT_DSN, rule sets, logs) so nothing else is renamed. audit_events here = every agent's audit (below).
+  audit:
+    schema: common_audit
+    dsn_env: LOS_AUDIT_DSN
+    database: los_audit
+    title: "Common audit trails (agent runs, issuer checks, field corrections, risk)"
+    loggers: [app.agents.fraud_risk, app.agents.runtime, app.agents.verification]
+    demo_case_prefixes: ["DEMO-"]
+    # which JSONL file feeds which table: the file's env variable (and its default path, as each agent has it)
+    sources:
+      risk_decisions: { env: FRAUD_RISK_AUDIT_PATH, default: runtime/audit/risk_decisions.jsonl }
+      agent_runs: { env: AGENT_RUN_AUDIT_PATH, default: runtime/audit/agent_runs.jsonl }
+      issuer_verifications: { env: ISSUER_VERIFICATION_AUDIT_PATH, default: runtime/audit/issuer_verification.jsonl }
+
+# the connection pool of each agent database
+pool:
+  min_size: 0
+  max_size: 8
+  timeout_seconds: 10                 # a database that is down answers "unavailable" fast, never hangs a request
+  connect_timeout_seconds: 5
+
+# application logs in the agent's own database (table agent_logs). WARNING and above only: INFO stays on the console so
+# the table holds what someone must look at. Every message is masked (PAN, Aadhaar, account, phone, e-mail, tokens,
+# keys) and cut; a write never blocks or fails a request (a bounded queue, written in the background; full = dropped
+# and counted).
+logs:
+  enabled: true
+  level: WARNING
+  max_message_chars: 2000
+  max_traceback_chars: 6000
+  queue_size: 5000
+  batch_size: 200
+  flush_seconds: 2
+  retention_days: 90
+
+# =====================================================================================================================
+# THE RULES LIVE IN THE DATABASE (owner 2026-11-02: "rules db me config rahenge sabke"; SQL approved the same day).
+# Each rule set below is read from its agent's schema (app/agent_db/rule_store.py): rule_sets holds every version
+# ever loaded, rule_set_active the version in force, rule_set_changes who switched it, when and why (append-only).
+# The FILE is only where a version comes from: scripts/rules.py import / activate puts a new one in force, with the
+# person's name and the reason. Wording and demo data stay files.
+# =====================================================================================================================
+rules:
+  environment_env: ENVIRONMENT
+  environment_default: production        # unset -> production (fail closed, as authentication reads it)
+  production_environments: [production, prod]
+  # a newly activated version is in force everywhere within this many seconds -- no restart
+  cache_seconds: 60
+  # outside production only: a rule set with NO version in the database yet is loaded once from its file and put in
+  # force (said in the log). Production refuses instead: scripts/rules.py import --activate, by a named person.
+  import_missing_outside_production: true
+  # outside production only, and only with no database configured at all: the file is read directly (a laptop
+  # without PostgreSQL). Production without the database refuses.
+  file_without_database_outside_production: true
+  # file_sections: a set's DEPLOYMENT settings (where its database / folders are, timeouts, the local model, who may
+  # do what) -- always read from its file, never from the database: they differ per environment, and the database's
+  # own place cannot live in the database. Everything else in the set is a business rule, read from the database.
+  sets:
+    eligibility_policy:
+      agent: eligibility
+      title: "Eligibility policy"
+      file: app/config/eligibility_config.yaml
+      file_env: ELIGIBILITY_CONFIG_PATH
+      validator: app.agents.eligibility.config:validate_rules
+      file_sections: [postgres, los, explanation]
+      status_key: status
+      confirmed: [CONFIRMED]
+      version_key: version
+    docs_policy:                          # one rule set PER FILE: docs_policy:<file name>
+      agent: docs_policy
+      title: "Credit document policy"
+      folder: app/agents/docs_verify_credit_agent/policies
+      folder_env: DOCS_CREDIT_POLICY_DIR
+      pattern: "*.credit.json"
+      validator: app.agents.docs_verify_credit_agent.config.policy_loader:validate_rules
+      status_key: status
+      confirmed: [APPROVED]
+      version_key: version
+    bank_verification_policy:
+      agent: bank_verification
+      title: "Bank verification policy"
+      file: app/config/credit_underwriting/bank_verification.yaml
+      file_sections: [storage, uploads, background, scans, server, security, ai_summary, los_cases]
+      status_key: status
+      confirmed: [CONFIRMED]
+      version_key: version
+    crime_verification_policy:
+      agent: crime_verification
+      title: "Crime record verification policy"
+      file: app/config/credit_underwriting/crime_verification.yaml
+      file_sections: [storage, access, ui, ai_summary, report]
+      status_key: status
+      confirmed: [CONFIRMED]
+      version_key: version
+    legal_verification_policy:
+      agent: legal_verification
+      title: "Legal verification policy"
+      file: app/config/credit_underwriting/legal_verification.yaml
+      file_sections: [storage, access, ui, ai_summary, report, user_names, los_nav]
+      status_key: status
+      confirmed: [CONFIRMED]
+      version_key: version
+    dedupe_policy:                        # in the dedupe agent's own schema (until 2026-11-03: audit)
+      agent: dedupe
+      title: "Dedupe policy"
+      file: app/config/dedupe_policy.yaml
+      file_env: DEDUPE_POLICY_PATH
+      validator: app.agents.dedupe.config:validate_rules
+      status_key: signed_off
+      confirmed: [true]
+      version_key: policy_version
+    customer_history_policy:              # dedupe's customer history check, in schema dedupe too
+      agent: dedupe
+      title: "Customer history policy"
+      file: app/config/customer_history_policy.yaml
+      file_env: CUSTOMER_HISTORY_POLICY_PATH
+      validator: app.agents.dedupe.history_policy:validate_rules
+      status_key: signed_off
+      confirmed: [true]
+      version_key: policy_version
+
+# =====================================================================================================================
+# EVERY AGENT'S API RESPONSES, IN ITS SCHEMA (owner 2026-11-02: "response bhi dalna h db me"; app/agent_db/
+# responses.py): table api_responses -- the route, status, caller, time and the JSON body (identifiers masked).
+# =====================================================================================================================
+# =====================================================================================================================
+# EVERY AGENT'S AUDIT IN ONE PLACE TOO (owner 2026-11-03: "audit wale me sab agents k honge na" -> "haa"):
+# common_audit.audit_events holds a copy of every audit row of every agent, in one shape. Each agent keeps writing its own
+# audit table exactly as before; a database trigger on that table (app/agent_db/common_audit.py) copies each new row
+# here -- the agent's write never fails because of it (a failed copy is a WARNING in the server log). Works when the
+# agent's schema and `audit` are in the SAME database (LOS_AGENTIC_DSN); an agent on a database of its own is skipped.
+#
+# Per source: the column (or SQL expression over the row `r`) for each common field; null = the source has none.
+# `event_type` may be a quoted constant. `details` = the whole row as JSON minus the lifted columns and `exclude`.
+# =====================================================================================================================
+common_audit:
+  enabled: true
+  # the schema is databases.audit.schema (common_audit)
+  table: audit_events
+  sources:
+    - { agent: eligibility, table: audit_events, id: event_id, occurred_at: occurred_at, case_id: case_id,
+        application_id: null, actor: actor, event_type: event_type, outcome: outcome, request_id: request_id }
+    - { agent: docs_policy, table: audit_events, id: event_id, occurred_at: occurred_at, case_id: case_id,
+        application_id: null, actor: actor, event_type: event_type, outcome: outcome, request_id: request_id }
+    - { agent: bank_verification, table: audit_events, id: event_id, occurred_at: at, case_id: case_id,
+        application_id: null, actor: actor, event_type: event, outcome: null, request_id: null }
+    - { agent: crime_verification, table: crime_verification_audit, id: event_id, occurred_at: at, case_id: case_id,
+        application_id: application_id, actor: actor, event_type: event_type, outcome: null, request_id: null }
+    - { agent: legal_verification, table: legal_verification_audit, id: event_id, occurred_at: at, case_id: case_id,
+        application_id: application_id, actor: actor, event_type: event_type, outcome: null, request_id: null }
+    # the chat's own words never leave the chatbot schema
+    - { agent: chatbot, table: chat_audit, id: audit_id, occurred_at: occurred_at, case_id: case_id,
+        application_id: applicant_id, actor: subject, event_type: intent, outcome: status, request_id: request_id,
+        exclude: [message_excerpt] }
+    - { agent: dedupe, table: audit_events, id: event_id, occurred_at: occurred_at, case_id: case_id,
+        application_id: null, actor: actor, event_type: event_type, outcome: outcome, request_id: request_id }
+    - { agent: dedupe, table: audit_dedupe_decisions, id: audit_id, occurred_at: occurred_at, case_id: case_id,
+        application_id: null, actor: null, event_type: "'DEDUPE_DECISION'", outcome: recommendation,
+        request_id: request_id }
+    - { agent: dedupe, table: audit_customer_history, id: audit_id, occurred_at: occurred_at, case_id: case_id,
+        application_id: null, actor: null, event_type: "'CUSTOMER_HISTORY_CHECK'", outcome: outcome,
+        request_id: request_id }
+    - { agent: audit, table: audit_risk_decisions, id: audit_id, occurred_at: occurred_at, case_id: null,
+        application_id: application_id, actor: null, event_type: "'RISK_DECISION'", outcome: final_outcome,
+        request_id: request_id }
+    - { agent: audit, table: audit_issuer_verifications, id: audit_id, occurred_at: occurred_at, case_id: case_id,
+        application_id: applicant_id, actor: null, event_type: "'ISSUER_VERIFICATION'", outcome: document_verdict,
+        request_id: request_id }
+    - { agent: audit, table: audit_agent_runs, id: audit_id, occurred_at: occurred_at, case_id: null,
+        application_id: null, actor: agent_id, event_type: "'AGENT_RUN'", outcome: status, request_id: request_id }
+    # TEAMMATES' AGENTS (their own schemas in this database; owner 2026-11-04 "jo pending aur missing h usko thik
+    # kro"). Their tables hold PAN, names, addresses and raw vendor data: `include` is an ALLOWLIST -- only these
+    # columns are copied, never a value that identifies a person.
+    - { agent: collateral_verification, schema: collateral_check, table: collateral_verification_results, id: id,
+        occurred_at: created_at, case_id: null, application_id: application_number, actor: null,
+        event_type: "'COLLATERAL_VERIFICATION'", outcome: overall, request_id: run_id,
+        include: [application_id, data_source, vendor_final_status, overall] }
+    - { agent: itr_verification, schema: itr_verification, table: verification_results, id: id,
+        occurred_at: created_at, case_id: null, application_id: null, actor: null,
+        event_type: "'ITR_VERIFICATION'", outcome: decision, request_id: run_id,
+        include: [assessment_year, final_status, decision, overall_score, vendor_final_status] }
+    - { agent: fraud_screening, schema: fraud_detection, table: fraud_results, id: result_id,
+        occurred_at: created_at, case_id: null, application_id: application_number, actor: null,
+        event_type: "'FRAUD_SCREENING'", outcome: risk_level, request_id: null,
+        include: [application_id, risk_level, is_potential_fraud, hybrid_flag] }
+    - { agent: property_valuation, schema: property_valuation, table: property_valuation_agent_results,
+        id: result_id, occurred_at: created_at, case_id: null, application_id: application_id, actor: null,
+        event_type: "'PROPERTY_VALUATION'", outcome: agent_status, request_id: null,
+        include: [collateral_property_id, verification_id, agent_version, vendor_status, agent_status,
+                  total_rules_checked, total_rules_passed, total_rules_triggered, critical_issues_count,
+                  major_issues_count, minor_issues_count] }
+    - { agent: office_verification, schema: office_residence_verification, table: office_rule_results, id: id,
+        occurred_at: created_at, case_id: null, application_id: application_id, actor: null,
+        event_type: "'OFFICE_VERIFICATION'", outcome: overall_recommendation, request_id: null,
+        include: [participant_id, vendor_name, overall_recommendation, overall_criticality, risk_score,
+                  rules_evaluated, rules_triggered] }
+    - { agent: residence_verification, schema: office_residence_verification, table: residence_rule_results, id: id,
+        occurred_at: created_at, case_id: null, application_id: application_id, actor: null,
+        event_type: "'RESIDENCE_VERIFICATION'", outcome: overall_recommendation, request_id: null,
+        include: [participant_id, vendor_name, overall_recommendation, overall_criticality, risk_score,
+                  rules_evaluated, rules_triggered] }
+    - { agent: audit, table: audit_field_corrections, id: audit_id, occurred_at: occurred_at, case_id: case_id,
+        application_id: null, actor: corrected_by, event_type: "'FIELD_CORRECTION'", outcome: null,
+        request_id: request_id }
+
+responses:
+  enabled: true
+  # the decisions and changes (a GET only reads what is already stored)
+  methods: [POST, PUT, PATCH, DELETE]
+  # a larger body is recorded as a note, not stored
+  max_body_bytes: 1000000
+  # route prefix -> the agent schema that keeps its responses (the longest prefix wins)
+  routes:
+    /api/v1/eligibility: eligibility
+    /api/v1/credit/document-readiness: docs_policy
+    /api/v1/credit/dedupe: dedupe
+    /api/v1/bank-verification: bank_verification
+    /api/v1/credit/crime-verification: crime_verification
+    /api/v1/credit/legal-verification: legal_verification

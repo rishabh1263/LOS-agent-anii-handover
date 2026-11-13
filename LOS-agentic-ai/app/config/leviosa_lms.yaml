@@ -1,0 +1,58 @@
+# LEVIOSA AS THE LMS -- one loan's live record by PR code (app/agents/dedupe/leviosa.py), read like MIFIN.
+#
+# Owner, 2026-10-23: "data Leviosa se bhi aata hai" -- for dedupe, Leviosa gives the LOAN ACCOUNT data (the LMS slot:
+# status, principal outstanding, EMI, DPD, overdue, dates). NO LEVIOSA SAMPLE OR API DOCUMENT EXISTS IN THIS REPOSITORY
+# YET: every name below is UNVERIFIED -- our own field names as placeholders -- and is changed HERE, never in code,
+# once a sample response arrives. Nothing from Leviosa is guessed: a field it does not send is UNAVAILABLE, never 0.
+#
+# THE LIVE CALL: LMS_PROVIDER=leviosa, LEVIOSA_LMS_URL (with {prospect_code}), LEVIOSA_LMS_TOKEN (bearer, optional).
+# URL unset -> every lookup is UNAVAILABLE (the screen says "LMS not reachable"; the totals are not calculated).
+
+contract_version: "unverified-2026-10-23"
+interpretation_status: UNVERIFIED          # becomes VERIFIED only after a real sample is mapped
+
+client:
+  timeout_seconds: 6
+  retries: 2                 # timeouts / 5xx only; never a 4xx or a parsed answer
+  backoff_seconds: 0.4
+  not_found_status: [404]    # "this loan is not in Leviosa": the loan's detail is NOT_FOUND, not an outage
+
+response:
+  # where the loan object sits in the reply, as a list of keys ([] = the reply itself). UNVERIFIED.
+  record_path: []
+  # the key that echoes the PR code; a reply for another loan is refused (never shown against this one). UNVERIFIED.
+  prospect_code_field: prospect_code
+
+# OUR FIELD (lms.FIELDS) <- LEVIOSA'S KEY. UNVERIFIED placeholders until the sample arrives.
+fields:
+  status: status
+  principal_outstanding: principal_outstanding
+  emi: emi
+  dpd_current: dpd_current
+  dpd_max_12m: dpd_max_12m
+  overdue_amount: overdue_amount
+  disbursed_on: disbursed_on
+  closed_on: closed_on
+  settled: settled
+  written_off: written_off
+  tenure_months: tenure_months
+  emi_bounces_12m: emi_bounces_12m          # EMIs bounced in the last 12 months (R08)
+
+# Leviosa's status words -> ours (lms.STATUSES). Only these; any other value is UNKNOWN and reported, never guessed.
+status_map:
+  ACTIVE: ACTIVE
+  LIVE: ACTIVE
+  CLOSED: CLOSED
+  SETTLED: SETTLED
+  WRITTEN_OFF: WRITTEN_OFF
+  WRITTEN-OFF: WRITTEN_OFF
+  CANCELED: CANCELED
+  CANCELLED: CANCELED
+
+# yes / no values for settled / written_off (anything else is reported, not read as "no")
+booleans:
+  "yes": ["Y", "YES", "TRUE", "1"]
+  "no": ["N", "NO", "FALSE", "0"]
+
+# accepted date formats; a date in none of them is reported and left out
+date_formats: ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d"]

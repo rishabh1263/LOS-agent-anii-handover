@@ -1,0 +1,58 @@
+# The demo dashboard (docs-credit-frontend/): how the rules are grouped and described.
+# Nothing here changes a result: the rules and statuses come from the evaluation.
+
+# the dashboard's sections: which rules sit together (every rule exactly once)
+sections:
+  - id: coverage
+    name: "Document coverage"
+    help: "Is every required document on file, for every person?"
+    rules: [RULE-01, RULE-02, RULE-03, RULE-04, RULE-05]
+  - id: quality
+    name: "Validity and quality"
+    help: "Are the documents recent, complete and usable?"
+    rules: [RULE-06, RULE-07, RULE-08, RULE-11]
+  - id: controls
+    name: "Approvals and data"
+    help: "Approved exceptions and the audit trail"
+    rules: [RULE-09, RULE-10]
+
+# how a document requirement is named in the checklist (anything not listed: its name in sentence case)
+labels:
+  PAN: "PAN"
+  ADDRESS_PROOF: "Address proof"
+  BANK_STATEMENT: "Bank statement"
+  SIGNATURE: "Signature"
+  INCOME_PROOF: "Income proof"
+  EMPLOYMENT_PROOF: "Employment proof"
+  BUSINESS_PROOF_1: "Business photo 1"
+  BUSINESS_PROOF_2: "Business photo 2"
+  PROPERTY_DOCUMENT: "Property title deed"
+  PROPERTY_OWNERSHIP_PROOF: "Property ownership proof"
+
+# one line per rule: what it checks, in plain words (shown under the rule's name)
+rule_help:
+  RULE-01: "The product's document list for this stage"
+  RULE-02: "Each person on the loan has their own documents"
+  RULE-03: "Every required document is on file"
+  RULE-04: "Extra documents the case's details call for"
+  RULE-05: "Only accepted document types count"
+  RULE-06: "Statement months, slip and ID dates"
+  RULE-07: "Documents that must come with another"
+  RULE-08: "Earlier-stage documents reused, not asked again"
+  RULE-09: "Exceptions approved through maker-checker"
+  RULE-10: "Every check recorded for audit"
+  RULE-11: "File type and size of each uploaded file"
+
+# what each rule does, in a few plain sentences (shown when a rule is opened on the dashboard)
+rule_explain:
+  RULE-01: "Finds this product's required document list for the credit stage, from the product document policy. If that policy contradicts itself, the case is held until the policy team fixes it."
+  RULE-02: "Checks every person on the loan separately. A co-applicant needs their own PAN, address proof, employment proof and signature; one person's document never counts for another."
+  RULE-03: "Every required document must be on file and verified. A missing one is asked from the customer."
+  RULE-04: "Some documents depend on the case's details, such as a self-employed applicant needing an ITR and business photos. If a detail like the employment type is not filled in, those documents cannot be checked yet."
+  RULE-05: "Only the document types the policy accepts count. If the customer gave something else (for example an electricity bill as address proof), it is reported, and an exception can be raised."
+  RULE-06: "Checks dates: the bank statement covers enough months and is recent, the salary slip is recent, and an ID such as a passport has not expired. A date that cannot be read is never treated as fine."
+  RULE-07: "Some documents must come with another one, such as an ITR with its computation of income. Missing ones are listed but do not block."
+  RULE-08: "Documents collected at an earlier stage (FOS / CPA) are reused, so the customer is not asked twice. Whether they are still recent is checked under Period and Freshness."
+  RULE-09: "When a document cannot be provided, a sales officer can raise an exception (a deviation from the deviation master). Another person with the authority, such as the ACM or RCM, approves or rejects it through maker-checker. Only an APPROVED exception that the policy maps to that document counts as done. Pending means wait; rejected or withdrawn means the document is still needed. This agent never raises or approves one itself."
+  RULE-10: "Every check is saved with the policy version and the inputs it used, so any answer can be traced and audited later."
+  RULE-11: "Checks each UPLOADED file: its real type (read from the file, not its name) and its size. Too large, too small to be a readable scan, or the wrong type means a new upload is needed. A document that is missing has no file to check, so it is not counted here: it shows as missing under Missing Documents / Applicant Coverage."

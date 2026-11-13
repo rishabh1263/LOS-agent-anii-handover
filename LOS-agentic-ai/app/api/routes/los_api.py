@@ -1220,5 +1220,13 @@ async def correct_document_field(case_id: str, document_id: str, body: FieldCorr
                                      "reason": body.reason, "by": actor, "at": now}) + "\n")
     except OSError:
         logger.warning("correction label not written request_id=%s", request_id)
+    try:                                       # the audit database: who, which field, why -- never the values
+        from app.agent_db import audit_store
+
+        audit_store.field_correction(request_id=request_id, case_id=case_id, document_id=document_id,
+                                     document_type=document.document_type, source_id=document.source_id,
+                                     field=body.field, reason=body.reason, corrected_by=actor)
+    except Exception:  # noqa: BLE001 - the correction stands; the label file and case event have it
+        logger.warning("correction audit row not queued request_id=%s", request_id)
     return {"request_id": request_id, "case_id": case_id, "document_id": document_id, "field": body.field,
             "status": "CORRECTED", "original_kept": previous_value is not None}

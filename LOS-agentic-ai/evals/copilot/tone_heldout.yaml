@@ -1,0 +1,47 @@
+# TONE HELD-OUT SET (written 2026-11-06 BEFORE the tone model and its training examples existed). NEVER train on it:
+# scripts/train_answer_act.py --model tone drops any training row equal to a sentence here.
+#   ABUSIVE     an insult / slur / swearing AT the assistant or a person          -> a calm boundary, nothing answered
+#   FRUSTRATED  annoyed, impatient, mild exclamations -- NOT an insult             -> answered normally
+#   NORMAL      an ordinary message, friendly fillers included ("bhai", "yaar")    -> answered normally
+# The costly mistake is NORMAL / FRUSTRATED read as ABUSIVE (an officer's real question refused), so hard negatives
+# are here on purpose.
+items:
+  # ---- ABUSIVE
+  - { q: "hatt saale?", tone: ABUSIVE }
+  - { q: "chal be nikal", tone: ABUSIVE }
+  - { q: "tu pagal hai kya", tone: ABUSIVE }
+  - { q: "abe gadhe sahi jawab de", tone: ABUSIVE }
+  - { q: "you stupid bot", tone: ABUSIVE }
+  - { q: "shut up you useless piece of junk", tone: ABUSIVE }
+  - { q: "kya bakwas kar raha hai be", tone: ABUSIVE }
+  - { q: "bewakoof machine", tone: ABUSIVE }
+  - { q: "go to hell", tone: ABUSIVE }
+  - { q: "teri aisi ki taisi", tone: ABUSIVE }
+  - { q: "dumb idiot cant even answer", tone: ABUSIVE }
+  - { q: "चुप कर बेवकूफ", tone: ABUSIVE }
+  - { q: "nalayak bot hai tu", tone: ABUSIVE }
+  - { q: "saala kuch kaam ka nahi", tone: ABUSIVE }
+  # ---- FRUSTRATED (answered normally)
+  - { q: "what the hell is this", tone: FRUSTRATED }
+  - { q: "this is so slow", tone: FRUSTRATED }
+  - { q: "why is it still not done, so annoying", tone: FRUSTRATED }
+  - { q: "kitni der lagegi yaar", tone: FRUSTRATED }
+  - { q: "ugh this is taking forever", tone: FRUSTRATED }
+  - { q: "kuch samajh nahi aa raha", tone: FRUSTRATED }
+  - { q: "I already told you twice", tone: FRUSTRATED }
+  - { q: "damn the upload failed again", tone: FRUSTRATED }
+  - { q: "kab tak wait karu main", tone: FRUSTRATED }
+  - { q: "this answer is not helpful", tone: FRUSTRATED }
+  # ---- NORMAL (answered normally) -- incl. friendly fillers and words that look rough but are not
+  - { q: "bhai pending kya hai", tone: NORMAL }
+  - { q: "yaar PAN upload ho gaya kya", tone: NORMAL }
+  - { q: "what is the status of this case", tone: NORMAL }
+  - { q: "case cpa me kyu nahi ja raha", tone: NORMAL }
+  - { q: "boss next step kya hai", tone: NORMAL }
+  - { q: "thanks a lot", tone: NORMAL }
+  - { q: "hello", tone: NORMAL }
+  - { q: "the applicant's name is Saleem", tone: NORMAL }
+  - { q: "kill the old request and start again", tone: NORMAL }
+  - { q: "is the bank statement rejected", tone: NORMAL }
+  - { q: "ok bro", tone: NORMAL }
+  - { q: "आवेदन की स्थिति क्या है?", tone: NORMAL }

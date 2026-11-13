@@ -243,6 +243,8 @@ SIGNALS: dict[str, SignalDef] = {d.name: d for d in (
     _declared_vs_recorded_income(),
     _field_signal("eligibility.status", "eligibility.get", "status", "status", "eligibility"),
     _field_signal("risk.final_outcome", "risk.get", "final_outcome", "final_outcome", "risk"),
+    _field_signal("repayment.verdict", "repayment.get", "verdict", "verdict", "repayment"),
+    _field_signal("document_readiness.status", "document_readiness.get", "status", "status", "document_policy"),
     _kyc_status(),
     _documents_not_passed(),
     _bureau_vs_declared_obligations(),

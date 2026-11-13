@@ -110,4 +110,4 @@ def test_hi_on_a_new_chat_is_a_short_greeting_with_what_needs_attention(client, 
     # to "show my cases" / GET /api/v1/fos/notifications (copilot_reply.yaml greeting.case_summary: false)
     make_case(client, "Rahul Sharma")
     md = say(client, "hi")
-    assert md.startswith(("Hello!", "Hi!")) and "need action" not in md and "(ask:" in md, md
+    assert md.startswith(("Hello!", "Hi!", "Good morning!", "Good afternoon!", "Good evening!")) and "need action" not in md and "(ask:" in md, md

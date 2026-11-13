@@ -257,6 +257,54 @@ verification:
 signature:
   enabled: true
 
+  # A READABLE CURSIVE NAME on an uploaded / captured signature (owner 2026-10-17: VERIFIED). true: a name the OCR
+  # can read is a signature when its letters are joined like handwriting; only TYPED-looking text -- separate,
+  # uniform letters on one baseline -- goes to review (or is rejected when the OCR is also sure it is text).
+  # false: any readable name goes to a person (a name typed in a script font cannot be told apart reliably).
+  # Env override SIGNATURE_READABLE_NAME_VERIFIED. A DRAWN signature never runs the typed-text test.
+  readable_name_verified: true
+  # ...a NAME, not a page: more letters / digits than this read by the OCR is a document (a PAN card reads ~160),
+  # which goes to review whatever its letters look like. A long Indian name with initials fits in 40.
+  name_max_chars: 40
+  # A PICTURE, NOT A SIGNATURE (2026-10-22: a colourful clip-art of a feather and hands was VERIFIED). A signature is
+  # one ink on paper: even a blue / red pen colours only a few % of the image. Rejected when more than
+  # `picture_colour_share` of the image is strongly coloured, or when `picture_hue_groups`+ distinct colours each
+  # cover over 2 % with more than `picture_mixed_share` coloured. Not applied to a signature drawn on the app canvas.
+  picture_colour_share: 0.25
+  picture_hue_groups: 3
+  picture_mixed_share: 0.10
+  # ...and a signature is mostly PAPER (white / grey / shadowed, little colour); a picture is mostly coloured.
+  # Rejected when less than this share of the image is plain (paper-like) -- a sticky-note colour still passes.
+  picture_min_paper: 0.45
+  # ...measured AFTER the camera's colour cast is taken out (2026-10-28: a phone photo of a black-pen signature, warm
+  # cast over the whole paper, was REJECTED as a picture): the paper is made neutral, each channel scaled by at most
+  # this much (1.0 = off). A real picture's light parts are already near white, so its colours stay.
+  picture_white_balance_max: 1.5
+  # PADDING AROUND THE PHOTO (2026-10-28: a clear pen signature photographed on grey paper, saved inside WHITE bands
+  # by the phone gallery, was REJECTED as blurred -- the white bands made the paper look darker, so the strokes read
+  # soft: 0.267 against 0.27; without the bands 0.41, VERIFIED -- and the band's border read as ink cut at the edge).
+  # Before the checks, a band at the edge that is PURE white or black (a gallery / screenshot band; never paper, a
+  # shadow or a canvas) is trimmed
+  # when every line of it is one flat colour (std <= padding_line_std_max) that differs from the paper in the middle
+  # by at least padding_min_difference grey levels -- a canvas or a scan (band = paper) is never trimmed, and at least
+  # padding_min_keep of each side's length always stays.
+  padding_trim: true
+  # SHARPNESS (edge steepness; measured 2026-10-15: clean 0.446-1.19, Gaussian blur r=1 0.305-0.441, r=2 0.189-0.283,
+  # r=3 0.132-0.186). Below blur_reject: REJECTED as blurred; below blur_review: a person looks. Owner 2026-10-28
+  # "zyaada strict mt kro": reject lowered 0.27 -> 0.24 (only clearly unreadable blur); review kept at 0.36 so a soft
+  # photo is never VERIFIED silently -- a person looks (the safety tests hold this). The gallery-band trim above was
+  # the real fix for the owner's photo (0.267 -> 0.41).
+  # A FAINT SIGNATURE (2026-10-28, live test: a light-pencil signature was REJECTED as blank): no ink under the normal
+  # line (128) but strokes under this lighter one, covering at least faint_min_share of the image -> MANUAL_REVIEW
+  # (low contrast), never REJECTED as blank. A page with nothing on it stays blank.
+  faint_ink_level: 200
+  faint_min_share: 0.001
+  blur_reject: 0.24
+  blur_review: 0.36
+  padding_line_std_max: 4.0
+  padding_min_difference: 20
+  padding_min_keep: 0.3
+
   # Input modes. A signature embedded in a PAN/DL/passport is a different
   # intake path from an applicant uploading a signature image on its own,
   # but both run through the one service.

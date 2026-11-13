@@ -532,6 +532,31 @@ def _ocr_page(image, lang: str) -> str:
         return ""
 
 
+def _ocr_workers() -> int:
+    try:
+        return max(1, min(8, int(os.getenv("SALE_DEED_OCR_WORKERS", "") or 4)))
+    except ValueError:
+        return 4
+
+
+class _EnglishPages:
+    """The English OCR of each page, started ahead in a bounded pool and taken in page order; `close()` cancels
+    the pages not yet started once the scan stops (so a cover on page 1 still costs about one page)."""
+
+    def __init__(self, images: list) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        workers = min(_ocr_workers(), len(images))
+        self._pool = ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix="deed-ocr")
+        self._futures = [self._pool.submit(_ocr_page, image, "eng") for image in images]
+
+    def __getitem__(self, index: int) -> str:
+        return self._futures[index].result()
+
+    def close(self) -> None:
+        self._pool.shutdown(wait=False, cancel_futures=True)
+
+
 def extract_sale_deed(path: str) -> SaleDeedResult:
     """
     Read a Sale Deed's e-Stamp certificate cover page, if it has one.
@@ -592,9 +617,6 @@ def extract_sale_deed(path: str) -> SaleDeedResult:
         )
 
     pages = len(images)
-    text = ""
-    page_found = 0
-    language = None
 
     # Pages are SCORED, not taken first-match.
     #
@@ -604,8 +626,23 @@ def extract_sale_deed(path: str) -> SaleDeedResult:
     # page that yields a plausible reference wins outright and stops the scan
     # -- the common case stays one OCR pass -- while a weaker match is kept
     # only as a fallback and the scan continues.
-    best_score = -1
 
+    # THE ENGLISH PASS OF EVERY RENDERED PAGE, READ IN PARALLEL (2026-10-14). Tesseract runs as its own process, so
+    # pages read together really do run together (SALE_DEED_OCR_WORKERS, default 4); the scoring below still walks
+    # the pages IN ORDER and stops where it always did, so the chosen page and its text are unchanged -- only the
+    # wait is shorter (a 6-page scanned deed: ~5.8 s, one page after another).
+    english_pages = _EnglishPages(images)
+    try:
+        text, page_found, language = _scan_pages(images, english_pages)
+    finally:
+        english_pages.close()
+    return _deed_result(text, page_found, language, pages, budget, started)
+
+
+def _scan_pages(images: list, english_pages: "_EnglishPages") -> tuple[str, int, str | None]:
+    """Score the pages in order (the unchanged loop): the best e-Stamp page's text, its number and language."""
+    text, page_found, language = "", 0, None
+    best_score = -1
     for index, image in enumerate(images, start=1):
         english = ""
 
@@ -619,7 +656,7 @@ def extract_sale_deed(path: str) -> SaleDeedResult:
                 if not hindi_enabled() or not _has_devanagari(english):
                     continue
 
-            candidate = _ocr_page(image, lang)
+            candidate = english_pages[index - 1] if lang == "eng" else _ocr_page(image, lang)
             if lang == "eng":
                 english = candidate
 
@@ -642,7 +679,11 @@ def extract_sale_deed(path: str) -> SaleDeedResult:
                 break
         if best_score >= _STRONG_PAGE_SCORE:
             break
+    return text, page_found, language
 
+
+def _deed_result(text: str, page_found: int, language: str | None, pages: int, budget: int,
+                 started: float) -> SaleDeedResult:
     if not text:
         return SaleDeedResult(
             status=SaleDeedStatus.UNSUPPORTED,

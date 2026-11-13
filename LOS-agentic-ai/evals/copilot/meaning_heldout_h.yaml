@@ -1,0 +1,197 @@
+# HELD-OUT SET H (2026-10-16): written blind by a separate agent (never saw the catalogue or the term files). Only
+# measures routing (python -m evals.copilot.routing_eval --sets h). Never copy these sentences into config.
+items:
+  # case_status
+  - { q: "is case ka status kya h abhi", intent: case_status }
+  - { q: "bhai file kahan tak pahuchi", intent: case_status }
+  - { q: "whats the current status of this application", intent: case_status }
+  - { q: "इस केस का स्टेटस बताओ", intent: case_status }
+  - { q: "status update de do iss case ka pls", intent: case_status }
+
+  # case_summary
+  - { q: "pura case ek baar summary me samjha do", intent: case_summary }
+  - { q: "give me a quick overview of this file", intent: case_summary }
+  - { q: "case ka short brief chahiye manager ko batana h", intent: case_summary }
+
+  # pending_documents
+  - { q: "konse docs pending h abhi", intent: pending_documents }
+  - { q: "kya kya baki hai upload karna", intent: pending_documents }
+  - { q: "which documents are still missing", intent: pending_documents }
+  - { q: "abhi kaunse kagaz chahiye aur", intent: pending_documents }
+  - { q: "कौन से डॉक्यूमेंट बाकी हैं", intent: pending_documents }
+  - { q: "kuthle documents baki ahet", intent: pending_documents }
+
+  # why_stuck
+  - { q: "case aage kyu nahi badh raha", intent: why_stuck }
+  - { q: "ye file atki kyu h yaar", intent: why_stuck }
+  - { q: "why is this case blocked", intent: why_stuck }
+  - { q: "kya problem h jo case ruka hua h", intent: why_stuck }
+  - { q: "केस क्यों रुका हुआ है", intent: why_stuck }
+
+  # next_step
+  - { q: "ab aage kya karna h mujhe", intent: next_step }
+  - { q: "next step kya h is case me", intent: next_step }
+  - { q: "what should i do next on this one", intent: next_step }
+  - { q: "ab mera kaam kya h is file pe", intent: next_step }
+  - { q: "pudhe kay karaycha", intent: next_step }
+
+  # cpa_readiness
+  - { q: "kya ye case cpa bhej sakte h abhi", intent: cpa_readiness }
+  - { q: "cpa ke liye ready h kya file", intent: cpa_readiness }
+  - { q: "can i push this to CPA now", intent: cpa_readiness }
+  - { q: "is case ko central processing me daal du kya", intent: cpa_readiness }
+  - { q: "क्या ये केस CPA में जा सकता है", intent: cpa_readiness }
+
+  # kyc_status
+  - { q: "kyc hua ki nahi", intent: kyc_status }
+  - { q: "naam aur dob sab docs me match kar raha h kya", intent: kyc_status }
+  - { q: "kyc result kya aaya cust ka", intent: kyc_status }
+  - { q: "is there any name mismatch between pan and aadhaar", intent: kyc_status }
+  - { q: "केवाईसी पास हुआ क्या", intent: kyc_status }
+
+  # document_status
+  - { q: "pan card verify hua kya", intent: document_status }
+  - { q: "bank stmt ka kya status h", intent: document_status }
+  - { q: "salary slip accept hui ya nahi", intent: document_status }
+  - { q: "whats the status of the ITR", intent: document_status }
+  - { q: "voter id theek se upload hua na", intent: document_status }
+  - { q: "signature wala doc ok h?", intent: document_status }
+
+  # document_rejection
+  - { q: "pan reject kyu hua", intent: document_rejection }
+  - { q: "bank statement kis wajah se reject hua", intent: document_rejection }
+  - { q: "why was the DL rejected", intent: document_rejection }
+
+  # case_record
+  - { q: "statement me closing balance kitna h", intent: case_record }
+  - { q: "salary slip me net pay kya likha h", intent: case_record }
+  - { q: "pan pe father ka naam kya h", intent: case_record }
+  - { q: "DL kab tak valid h", intent: case_record }
+  - { q: "bank statement kis period ka h", intent: case_record }
+
+  # uploaded_documents
+  - { q: "ab tak konse docs upload ho gaye", intent: uploaded_documents }
+  - { q: "kya koi doc reject hua h", intent: uploaded_documents }
+  - { q: "which docs are already verified", intent: uploaded_documents }
+  - { q: "upload kiye hue documents ki list dikhao", intent: uploaded_documents }
+  - { q: "कौन कौन से डॉक्यूमेंट अपलोड हो चुके हैं", intent: uploaded_documents }
+
+  # loan_amount
+  - { q: "loan amt kitna dala h", intent: loan_amount }
+  - { q: "how much loan has the customer asked for", intent: loan_amount }
+
+  # applicant_name
+  - { q: "applicant ka pura naam kya h", intent: applicant_name }
+  - { q: "cust ka naam batao", intent: applicant_name }
+
+  # applicant_contact
+  - { q: "customer ka mobile no kya h", intent: applicant_contact }
+  - { q: "applicant ki dob aur email bata do", intent: applicant_contact }
+  - { q: "cust ka address kya likha h form pe", intent: applicant_contact }
+
+  # application_details
+  - { q: "kaunsa product liya h aur tenure kitna", intent: application_details }
+  - { q: "form me employment type kya bhara h", intent: application_details }
+
+  # case_stage
+  - { q: "case abhi kis stage pe h", intent: case_stage }
+  - { q: "which stage is this file in", intent: case_stage }
+
+  # time_in_stage
+  - { q: "kitne din se isi stage me pada h", intent: time_in_stage }
+  - { q: "how long has it been sitting in this stage", intent: time_in_stage }
+
+  # case_history
+  - { q: "ab tak is case me kya kya hua", intent: case_history }
+  - { q: "show me the history of this case", intent: case_history }
+
+  # query_status
+  - { q: "koi query raise hui h kya case pe", intent: query_status }
+  - { q: "cpa ne kya queries daali h", intent: query_status }
+
+  # customer_message
+  - { q: "customer ko msg bana do pending docs ke liye", intent: customer_message }
+  - { q: "draft a whatsapp message to the customer asking for salary slips", intent: customer_message }
+  - { q: "ग्राहक को भेजने के लिए मैसेज लिख दो", intent: customer_message }
+
+  # collect_from_customer
+  - { q: "cust se kya kya lena h list de do", intent: collect_from_customer }
+  - { q: "kal visit pe customer se kya collect karu", intent: collect_from_customer }
+
+  # work_queue
+  - { q: "aaj pehle kaunsa case uthau", intent: work_queue }
+  - { q: "which of my cases should i work on first", intent: work_queue }
+
+  # portfolio_pending
+  - { q: "mere saare cases jisme kuch pending h dikhao", intent: portfolio_pending }
+  - { q: "list my files that have something pending", intent: portfolio_pending }
+
+  # portfolio_count
+  - { q: "mere kitne cases me docs pending h", intent: portfolio_count }
+  - { q: "how many of my files are waiting on documents", intent: portfolio_count }
+
+  # portfolio_kyc
+  - { q: "mere kaunse cases me kyc issue h", intent: portfolio_kyc }
+  - { q: "kyc mismatch wale mere cases batao", intent: portfolio_kyc }
+
+  # process_create_case
+  - { q: "naya case kaise banate h", intent: process_create_case }
+  - { q: "how do i create a new application", intent: process_create_case }
+
+  # process_upload
+  - { q: "doc upload kaise kare app me", intent: process_upload }
+  - { q: "डॉक्यूमेंट कैसे अपलोड करें", intent: process_upload }
+
+  # process_fix_rejected
+  - { q: "reject hua doc dobara kaise dalu", intent: process_fix_rejected }
+  - { q: "how to fix a rejected document generally", intent: process_fix_rejected }
+
+  # process_stages
+  - { q: "loan process me kaun kaun se stages hote h", intent: process_stages }
+  - { q: "explain the stages a case goes through", intent: process_stages }
+
+  # process_move_to_cpa
+  - { q: "case cpa me move kaise karte h", intent: process_move_to_cpa }
+  - { q: "what is the procedure to send a file to CPA", intent: process_move_to_cpa }
+
+  # knowledge_term
+  - { q: "foir ka matlab kya hota h", intent: knowledge_term }
+  - { q: "LTV kya hai", intent: knowledge_term }
+  - { q: "what does NACH mean", intent: knowledge_term }
+
+  # knowledge_documents
+  - { q: "gas bill chalega kya address proof me", intent: knowledge_documents }
+  - { q: "rent agreement address proof ke liye valid h?", intent: knowledge_documents }
+  - { q: "is form 16 accepted as income proof", intent: knowledge_documents }
+
+  # policy_value
+  - { q: "max tenure kitna de sakte h", intent: policy_value }
+  - { q: "minimum salary kitni chahiye loan ke liye", intent: policy_value }
+  - { q: "processing fee kitni lagti h", intent: policy_value }
+
+  # credit_decision
+  - { q: "ye loan approve kar do", intent: credit_decision }
+  - { q: "kya ye case sanction hoga", intent: credit_decision }
+  - { q: "will credit reject this one", intent: credit_decision }
+
+  # calculator
+  - { q: "5 lakh ka emi kitna 12% pe 3 saal ke liye", intent: calculator }
+  - { q: "salary 40000 aur emi 15000 to foir kitna", intent: calculator }
+
+  # small_talk
+  - { q: "hello bhai", intent: small_talk }
+  - { q: "tum kya kya kar sakte ho", intent: small_talk }
+  - { q: "नमस्ते", intent: small_talk }
+
+  # thanks
+  - { q: "thanks yaar", intent: thanks }
+  - { q: "dhanyavad", intent: thanks }
+
+  # acknowledgement
+  - { q: "ok samajh gaya", intent: acknowledgement }
+  - { q: "theek h", intent: acknowledgement }
+
+  # out_of_scope
+  - { q: "aaj match kaun jeeta", intent: out_of_scope }
+  - { q: "kal mumbai me barish hogi kya", intent: out_of_scope }
+  - { q: "ek joke suna do", intent: out_of_scope }

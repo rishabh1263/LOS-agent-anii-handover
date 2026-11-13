@@ -1,0 +1,8 @@
+# ENGLISH SUMMARY DEV (2026-10-14): the case card. Same case as heldout_en2 (Rahul Sharma, PERSONAL_LOAN; verified
+# PAN, Salary Slip, Bank Statement; pending Address Proof, Signature). A DEV set.
+conversations:
+  - id: su_card
+    turns:
+      - q: "summary of this case"
+        all: [[rahul], [stage], [address proof], [signature], [cpa], [upload]]
+        never: ["has not been uploaded. ", "item(s) blocking"]

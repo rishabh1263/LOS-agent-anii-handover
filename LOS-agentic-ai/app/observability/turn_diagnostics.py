@@ -82,6 +82,12 @@ def summary(reply: dict[str, Any], request: Any) -> dict[str, Any]:
                       "status": "cited" if sources else (str(basis.get("source")) if basis.get("source") else None)},
         "planner": planner.get("status") if isinstance(planner, dict) else None,
         "case_in_scope": bool(reply.get("case_id")),
+        # the conversation outcome code ("NEGATION" for a bare "no" answered with the acknowledgement wording)
+        # the STRUCTURED TASK (semantics/task.py): scope / operation / filters / reference kind -- codes only
+        "task": (getattr(state, "task", None).public() if state is not None and getattr(state, "task", None) is not None
+                 else None),
+        "outcome": ((understanding.get("conversation") or {}).get("outcome")
+                    if isinstance(understanding.get("conversation"), dict) else None),
     }
 
 

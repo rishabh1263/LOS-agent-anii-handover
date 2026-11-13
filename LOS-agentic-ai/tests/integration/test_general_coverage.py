@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 BANK = yaml.safe_load((ROOT / "evals" / "general_questions.yaml").read_text(encoding="utf-8"))["categories"]
 
 CLASSES = [
+    # ELIGIBILITY IS NOT THE CHATBOT'S (owner, 2026-10-13): a limit / eligibility question gets the redirect line
+    ("eligibility_service", re.compile(r"Eligibility service", re.I)),
     ("case", re.compile(r"Which case is this about|Open a case first|which case", re.I)),
     ("unknown", re.compile(r"I don't know|I do not know|not in the knowledge base|isn't in the knowledge base|don't have (?:that|this) "
                            r"information|couldn't find|could not find|no answer", re.I)),

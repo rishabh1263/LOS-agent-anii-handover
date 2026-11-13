@@ -1,0 +1,105 @@
+# QWEN AGENT -- DEV conversations (2026-10-13). Tune on these; the held-out set (agent_heldout.yaml) is frozen.
+#
+# The case (built fresh by evals/copilot/agent_eval.py): Rahul Sharma, PERSONAL_LOAN. Verified: PAN, Salary Slip,
+# Bank Statement. Pending: Address Proof, Signature. No co-applicant. Address proof accepts Driving Licence, Passport,
+# Voter ID.
+#
+# A turn passes when the answer contains EVERY `all` group (each group: any one of its phrases, case-insensitive),
+# none of `never`, and -- with `question: true` -- asks a question back.
+conversations:
+  - id: d_pending_followup
+    turns:
+      - q: "is case me kya pending hai?"
+        all: [[address proof], [signature]]
+        never: [approved, rejected]
+      - q: "aur co-applicant ka?"
+        all: [[co-applicant, co applicant]]
+        never: [show more, "Showing"]
+  - id: d_faq_followup
+    turns:
+      - q: "address proof me kya de sakte hai?"
+        all: [[voter id], [passport], [driving licence, driving license]]
+      - q: "voter id chalega?"
+        all: [[voter id], ["haan", "yes", "accepted", "chalega", "chalta", "valid", "can be"]]
+        never: ["not accepted", "nahi chalega", "what would you like to do"]
+  - id: d_documents_chain
+    turns:
+      - q: "PAN verify hua kya?"
+        all: [[pan], [verified, "verify ho", "verify hua"]]
+        never: [voter id]
+      - q: "aur salary slip?"
+        all: [[salary slip], [verified, "verify", "pass"]]
+        never: ["Showing"]
+      - q: "bank statement ka kya status hai?"
+        all: [[bank statement], [verified, "verify", "pass"]]
+  - id: d_blocked_next
+    turns:
+      - q: "case kyu atka hai?"
+        all: [[address proof, signature]]
+      - q: "iske baad kya karna hai?"
+        all: [[address proof, upload]]
+  - id: d_process
+    turns:
+      - q: "FOS se CPA kaise bhejte hai?"
+        all: [[cpa]]
+        never: ["I don't know", "don't have"]
+  - id: d_unclear
+    turns:
+      - q: "kuch samajh nahi aa raha"
+        question: true
+  - id: d_upload_howto
+    turns:
+      - q: "signature kaise upload kare?"
+        all: [[upload]]
+  # --- 2026-10-14: the Hinglish / Hindi / Marathi pass (same ground as the English dev set) ---
+  - id: d_definition
+    turns:
+      - q: "KYC check kya hota hai?"
+        all: [[kyc]]
+        never: ["which case", "kaunsa case"]
+      - q: "CPA me case kab jata hai?"
+        all: [[cpa]]
+        never: ["I don't know"]
+  - id: d_stages
+    turns:
+      - q: "credit ke baad kya aata hai?"
+        all: [[rcu]]
+      - q: "uske baad?"
+        all: [[bops]]
+  - id: d_bare_doc
+    turns:
+      - q: "salary slip"
+        all: [[salary slip], [verified, verify, pass]]
+      - q: "aur signature?"
+        all: [[signature], [pending, missing, upload, baaki, nahi]]
+        never: ["verified ho"]
+  - id: d_accepted
+    turns:
+      - q: "address proof ke liye passport chalega?"
+        all: [[passport], ["haan", "yes", "accepted", "chalega", "chalta", "valid", "can be"]]
+        never: ["not accepted", "nahi chalega"]
+  - id: d_coapp_then_his
+    turns:
+      - q: "co-applicant hai kya?"
+        all: [[co-applicant, co applicant]]
+      - q: "uski date of birth kya hai?"
+        never: ["no co-applicant", "co-applicant nahi", "koi co-applicant"]
+  - id: d_eligibility
+    turns:
+      - q: "rahul eligible hai kya loan ke liye?"
+        all: [[eligibility, eligible]]
+        never: ["/api", ".py", "foir"]
+  - id: d_confused
+    turns:
+      - q: "mujhe kuch samajh nahi aa raha, tum dekh lo"
+        question: true
+  - id: d_hindi_script
+    turns:
+      - q: "क्या पैन वेरिफाई हो गया?"
+        all: [[pan, पैन], [verified, वेरिफाई, सत्यापित, सत्यापन, पास, verify]]
+      - q: "क्या बाकी है?"
+        all: [[address proof, पता, पते, एड्रेस], [signature, हस्ताक्षर, सिग्नेचर]]
+  - id: d_marathi
+    turns:
+      - q: "या केसमध्ये काय बाकी आहे?"
+        all: [[address proof, पत्ता, पत्त्याचा, ॲड्रेस, अॅड्रेस, एड्रेस], [signature, स्वाक्षरी, सही, सिग्नेचर]]

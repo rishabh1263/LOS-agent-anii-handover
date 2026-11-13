@@ -1,0 +1,100 @@
+# CREDIT UNDERWRITING -- REPAYMENT POLICY (bank analysis + eligibility case data, 2026-10-19)
+#
+# ONE QUESTION: can this applicant repay the proposed EMI? Answered the way a CPA / credit officer reads a bank
+# statement, in 5 rules. Rules only -- the code measures, this file decides.
+#
+# Each rule: `refer_*` limits send the case to an officer (REFER); `decline_*` limits make it NOT_RECOMMENDED.
+# Verdict: any decline -> NOT_RECOMMENDED; else any refer -> REFER; else RECOMMENDED.
+# signed_off: true = these limits are approved (2026-10-19); set it false to mark every report "demo policy" again.
+
+version: "2026-10-19"
+signed_off: true                  # signed off by the owner 2026-10-19 (limits as listed below)
+
+# the window the rules read: the last N FULL months of the statement (a part month is never averaged in)
+window_months: 6
+
+rules:
+  # 1. Is the bank data enough, and is it the applicant's own account?
+  DATA_COMPLETE:
+    label: "Bank data complete and the applicant's own"
+    min_full_months: 6              # refer below
+    max_balance_breaks: 1           # months where opening + credits - debits != closing (refer above)
+    holder_must_match: true         # account holder name vs applicant name (refer when they differ)
+
+  # 2. Has every EMI / cheque gone through? (bounces and missed EMIs)
+  REPAYMENT_TRACK:
+    label: "Clean repayment track (no bounces, no missed EMIs)"
+    refer_bounces_window: 0         # inward EMI / cheque / ECS bounces in the window: refer above
+    decline_bounces_window: 2       #   ... decline above
+    refer_missed_emis: 0            # months an ongoing EMI did not go out (from the obligation map): refer above
+    decline_missed_emis: 2          #   ... decline above
+
+  # 3. With EVERY EMI the bank shows (declared or not) plus the new one, does the income still carry it?
+  TRUE_FOIR:
+    label: "FOIR with all EMIs seen in the bank"
+    refer_above_pct: 50             # same limit as eligibility_config.yaml foir_limit_pct
+    decline_above_pct: 65
+
+  # 4. Does the account actually hold enough money around the month to pay the EMI?
+  BALANCE_COVER:
+    label: "Average bank balance covers the new EMI"
+    eod_days: [5, 10, 15, 20, 25]   # the days averaged into ABB
+    refer_below_times_emi: 1.5      # ABB / proposed EMI
+    decline_below_times_emi: 0.5
+
+  # 5. Does money really come in as declared?
+  INCOME_SUPPORT:
+    label: "Bank inflow supports the declared income"
+    refer_below_pct: 70             # median monthly genuine inflow / declared net monthly income
+    decline_below_pct: 35
+
+# THE ELIGIBILITY DECISION CAPS THE VERDICT: a case eligibility rejected is never "recommended" because its bank
+# account looks fine. Eligibility decision -> the best verdict this report may give.
+eligibility_gate:
+  APPROVED: RECOMMENDED
+  CONDITIONAL: RECOMMENDED      # eligible for a lower amount: the EMI checked is that amount's
+  REFER: REFER
+  DATA_MISSING: REFER
+  REJECTED: NOT_RECOMMENDED
+
+# A LOS case the eligibility table does not hold: the eligibility verdict RECORDED on the case (PASS / REVIEW / FAIL)
+# read as an eligibility decision for the cap above. Nothing recorded -> DATA_MISSING (never recommended).
+recorded_eligibility:
+  PASS: APPROVED
+  REVIEW: REFER
+  FAIL: REJECTED
+  SKIPPED: DATA_MISSING
+
+# OBLIGATION MAP (karz ka naksha): how a loan is recognised in the transactions
+obligations:
+  emi_amount_tolerance_pct: 5       # debits within this % of each other = the same EMI
+  emi_min_months: 3                 # a debit seen in at least this many months is an EMI
+  emi_min_amount: 500               # smaller repeating debits (subscriptions) are not EMIs
+  emi_modes: [NACH, ECS, ACH, SI, UPI, NEFT, IMPS, OTHERS]
+  lender_words: [finance, fin, finserv, fincorp, capital, credit, loan, loans, bank, nbfc, emi, lending, money,
+                 cash, paisa, rupee, kredit, bajaj, hdfc, icici, axis, kotak, tata, idfc, muthoot, manappuram,
+                 fullerton, home first, aavas, sbfc]
+
+# NOT RULES -- shown as points to the officer, never deciding on their own
+observations:
+  new_loans_months: 6               # loans disbursed in the last N months
+  cash_deposit_share_pct: 30        # cash deposits above this share of credits
+  top_payer_share_pct: 50           # one counterparty above this share of credits
+  spike_times_median: 3             # a month's inflow above N x the median month
+  falling_balance_pct: 40           # ABB of the last 3 months this much below the first 3
+
+
+# OUR TWO INSIGHTS (not in the vendor report; insights.py) -- they never decide on their own
+insights:
+  emi_day: 5                        # the new EMI's day when the customer has no current EMI to take the day from
+  dry_run_max_short_months: 0       # months the new EMI would NOT have cleared before it is a point to watch
+  surplus_short_max_pct: 20         # the new EMI exceeds the real monthly savings by more than this % of the
+                                    # declared income -> a point to watch (a small gap is normal: spending adjusts)
+
+# THE VENDOR REPORT, READ SECTION BY SECTION (sections.py) -- the limits behind each section's flags
+sections:
+  top_n: 3                          # top payers / payees / categories shown
+  salary_regular_min_share: 0.8     # salary in at least this share of the months = regular
+  low_balance_times_emi: 1          # a daily balance below this x the new EMI counts as a low-balance day
+  deficit_month_flag: 2             # months where money out > money in, at or above which it is flagged
+  cash_withdrawal_share_pct: 30     # cash / ATM withdrawals above this share of money out

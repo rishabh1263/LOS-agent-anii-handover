@@ -104,6 +104,10 @@ from app.api.routes.eligibility_api import router as eligibility_router
 from app.api.routes.los_api import router as los_router
 from app.api.routes.ops import router as ops_router
 from app.api.routes.verification_api import router as verification_router
+from app.api.routes.passbook_api import router as passbook_router
+from app.api.routes.marksheet_api import router as marksheet_router
+from app.api.routes.pan_api import router as pan_router
+from app.api.routes.hrms_api import router as hrms_router
 from app.llm.config import ollama_host, ollama_model
 from app.security.auth import auth_health, require_jwt, validate_auth_configuration
 
@@ -166,6 +170,70 @@ def _prepare_demo() -> None:
         print(f"DEMO PREPARE FAILED: {type(exc).__name__}: {exc}")
 
 
+class _McpMount:
+    """
+    THE CASE MCP SERVER MOUNTED IN THIS SERVICE (2026-10-13). Run as its own process it needed its own .env, fought
+    the API for the embedded vector store's lock and for the schema-migration lock, and the API kept a dead session
+    after it restarted. Mounted here (`/mcp`, streamable HTTP) it shares this process's configuration, store and
+    lifecycle; the tool calls are still MCP JSON-RPC and every call is still re-authorised from the caller's token.
+    LOS_MCP_HTTP_MOUNT=false leaves it unmounted (404).
+    """
+
+    def __init__(self) -> None:
+        self.inner = None
+
+    @staticmethod
+    def enabled() -> bool:
+        return (_os.getenv("LOS_MCP_HTTP_MOUNT") or "true").strip().lower() not in {"false", "0", "no", "off"}
+
+    def serving(self):
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def run():
+            if not self.enabled():
+                yield
+                return
+            from mcp.server.fastmcp.server import StreamableHTTPASGIApp
+            from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
+            from app.mcp.case_server import server
+
+            # A SESSION MANAGER OF ITS OWN for this lifespan: the shared FastMCP object (its settings and its own
+            # lazily-built manager, used by `python -m app.mcp.case_server` and the protocol tests) is never touched
+            # DNS-REBINDING PROTECTION STAYS ON: localhost only by default; a deployment behind a host name lists it
+            # in LOS_MCP_ALLOWED_HOSTS (comma separated, e.g. "los.internal:443")
+            security = server.settings.transport_security
+            extra = [h.strip() for h in (_os.getenv("LOS_MCP_ALLOWED_HOSTS") or "").split(",") if h.strip()]
+            if extra and security is not None:
+                security = security.model_copy(update={
+                    "allowed_hosts": list(dict.fromkeys([*security.allowed_hosts, *extra]))})
+            manager = StreamableHTTPSessionManager(
+                app=server._mcp_server, event_store=server._event_store, retry_interval=server._retry_interval,
+                json_response=server.settings.json_response, stateless=server.settings.stateless_http,
+                security_settings=security, max_request_body_size=server.settings.max_request_body_size)
+            try:
+                async with manager.run():
+                    self.inner = StreamableHTTPASGIApp(manager)
+                    print("case MCP server    : mounted at /mcp (streamable HTTP)")
+                    yield
+            finally:
+                self.inner = None
+
+        return run()
+
+    async def __call__(self, scope, receive, send):
+        if self.inner is None:
+            from starlette.responses import JSONResponse as _NotMounted
+
+            await _NotMounted({"detail": "MCP is not mounted."}, status_code=404)(scope, receive, send)
+            return
+        await self.inner(scope, receive, send)
+
+
+_MCP_PROXY = _McpMount()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Validate configuration and load the OCR models before serving."""
@@ -191,6 +259,13 @@ async def lifespan(app: FastAPI):
                 raise
             print(f"auth configuration : INCOMPLETE ({exc}) -- development only")
 
+    # PRODUCTION NEVER RUNS DEMO ELIGIBILITY RULES (2026-10-13). Outside development a config that is not CONFIRMED
+    # stops startup here (fail closed); in development the demo config is named once at startup, with its data source.
+    from app.agents.eligibility import config as _eligibility_config
+
+    print(f"eligibility rules  : {_eligibility_config.validate_for_startup()} "
+          f"-- data: {_eligibility_config.provider_name()}")
+
     # MANDATORY SIGNATURE RULE MISCONFIGURED (step 5c): flag on with no valid
     # activation date blocks EVERY case (fail closed). Said loudly at startup,
     # and /ready reports it, so it is noticed at once rather than case by case.
@@ -208,6 +283,30 @@ async def lifespan(app: FastAPI):
     from app.observability import tracing as _tracing
 
     _tracing.configure_tracing()
+
+    # PASSBOOK OCR WARMUP (PP-OCRv6 small), in the background on the OCR workers that will run it, so the first
+    # passbook request does not pay the model load. Config is checked here: a missing key stops startup by name.
+    from app.agents.passbook import config as _passbook_config
+
+    _passbook_config.get()
+    from app.agents.marksheet import config as _marksheet_config
+
+    _marksheet_config.get()            # the marksheet service shares the passbook OCR engine (warmed below)
+    if (_os.getenv("PASSBOOK_WARMUP", "true") or "true").lower() == "true":
+        def _warm_passbook() -> None:
+            try:
+                from app.agents.document_agent.ocr import get_ocr_executor
+                from app.agents.passbook import engine as _passbook_engine
+
+                pool = get_ocr_executor()
+                for future in [pool.submit(_passbook_engine.warm) for _ in range(pool._max_workers)]:
+                    future.result(timeout=120)
+            except Exception as exc:  # noqa: BLE001 - a cold engine costs only its first request
+                logger.info("Passbook OCR warmup skipped (%s)", type(exc).__name__)
+
+        import threading as _pb_threading
+
+        _pb_threading.Thread(target=_warm_passbook, name="passbook-warmup", daemon=True).start()
 
     # RETRIEVAL WARMUP, in the background. The first Copilot request
     # otherwise pays the vector store client's import and connection
@@ -274,6 +373,18 @@ async def lifespan(app: FastAPI):
 
                 if meaning.enabled():               # off in the test suite: no model is loaded there
                     availability.warm_in_background()
+                    # MEASURED 2026-10-13: the first REAL prompt after a load took 35 s (weights paged in, the
+                    # chooser's ~1 000-token prompt read cold); warm, 1.2 s. One real call here pays that before the
+                    # first officer does.
+                    meaning.prime()
+                    from app.agents.applicant.copilot.capabilities import qwen_agent
+
+                    qwen_agent.prime()             # LAST: the agent's prefix is the one Ollama holds when serving
+                    # THE NATURAL LINE'S PROMPT TOO (2026-10-15): cold it needs ~6-11 s and its 4 s budget drops it;
+                    # with OLLAMA_NUM_PARALLEL=4 each prompt keeps its own slot, so once read it stays ~1.1 s
+                    from app.agents.applicant.copilot.answering import polish as _polish
+
+                    _polish.prime()
 
             for name, run in (("vector_store", vector_store), ("embedder", embedder),
                               ("knowledge_index", knowledge_index), ("understanding", understanding),
@@ -299,6 +410,20 @@ async def lifespan(app: FastAPI):
         print(f"POLICY LOAD FAILED : {exc}")
         print("=" * 58 + "\n")
         raise
+
+    # THE DEDUPE POLICY AND ITS HMAC KEY, at start-up: a broken policy, an unsigned one in production, or a production
+    # start without LOS_IDENTITY_HMAC_KEY stops the server by name -- never a first request that fails
+    from app.agents.dedupe import config as _dedupe_config
+    from app.agents.dedupe import identity as _dedupe_identity
+
+    try:
+        _dedupe_identity.require_in_production()
+        _dedupe = _dedupe_config.get_policy()
+    except Exception as exc:
+        print(f"DEDUPE POLICY FAILED: {exc}")
+        print("=" * 58 + "\n")
+        raise
+    print(f"dedupe policy      : {_dedupe['policy_version']} (signed off: {bool(_dedupe.get('signed_off'))})")
 
     signed = bool(policy.get("signed_off", False))
     rules = policy.get("rules", {})
@@ -362,6 +487,44 @@ async def lifespan(app: FastAPI):
     else:
         print("OCR warmup         : disabled")
 
+    # THE CARD WARM-UP (2026-11-05), in the background: the engine warm-up above reads a blank canvas, so only the text
+    # DETECTOR is warmed -- the recogniser met its first real text lines inside the first request (measured after a
+    # restart: first PAN 7.9 s of OCR, the next ones 0.6-0.9 s; first passport 4.3 s, then 1.3-1.6 s). One SYNTHETIC
+    # card of each kind (samples/synthetic, generated -- no real person) is read end to end through the same pipeline
+    # the requests use. DOCUMENT_CARD_WARMUP=false switches it off; a missing sample is skipped.
+    if (_os.getenv("DOCUMENT_CARD_WARMUP", "true") or "true").lower() == "true":
+        def _warm_cards() -> None:
+            from pathlib import Path as _P
+
+            from app.agents.document_agent import extract_document as _extract
+
+            folder = _P(__file__).resolve().parent / "samples" / "synthetic" / "dev"
+            for name in ("pan_en_clean_0.jpg", "voter_id_en_clean_0.jpg", "driving_licence_hi_clean_0.jpg",
+                         "passport_en_phone_1.jpg"):
+                try:
+                    if (folder / name).is_file():
+                        _extract(str(folder / name))
+                except Exception as exc:  # noqa: BLE001 - a cold card costs only its first request
+                    logger.info("Card warm-up %s skipped (%s)", name, type(exc).__name__)
+
+        import threading as _card_threading
+
+        _card_threading.Thread(target=_warm_cards, name="card-warmup", daemon=True).start()
+
+    # The bank-statement table workers (separate processes): started in the background now, so the first long
+    # native statement does not pay their start-up inside its upload (2026-10-14; warm 104 pages: 4.8 s).
+    if (_os.getenv("BANK_STATEMENT_TABLE_WARMUP", "true") or "true").lower() == "true":
+        try:
+            import threading as _threading
+
+            from app.agents.bank_statement.extract import warm_page_readers, warm_table_pool
+
+            _threading.Thread(target=warm_table_pool, name="table-pool-warmup", daemon=True).start()
+            # the scanned-page readers' OCR engines, likewise (one per reader thread)
+            _threading.Thread(target=warm_page_readers, name="page-reader-warmup", daemon=True).start()
+        except Exception as exc:  # noqa: BLE001 - the first statement starts the pool instead
+            logger.warning("Table pool warmup not started: %r", exc)
+
     # The summary model, for the same reason as the OCR engines: Ollama
     # unloads an idle model, so without this the FIRST request pays the load,
     # overruns the 1.5s budget, and marks the provider unavailable for the
@@ -417,6 +580,45 @@ async def lifespan(app: FastAPI):
         print(f"applicant agent    : enabled  (LLM {_applicant_config.llm_enabled()})")
     else:
         print("applicant agent    : disabled")
+    # ELIGIBILITY DEMO DATA IN DEVELOPMENT: DATABASE_URL names a port the embedded dev PostgreSQL may no longer use
+    # after a reboot -> the app's own embedded server, `eligibility` database + schema.sql (dev only; never prod)
+    try:
+        from app.agents.eligibility.data import dev_db as _elig_dev_db
+
+        _elig_dsn = _elig_dev_db.ensure()
+        if _elig_dsn:
+            print("eligibility data   : DATABASE_URL unreachable -> embedded dev PostgreSQL, database 'eligibility'")
+    except Exception as exc:  # noqa: BLE001 - the eligibility screen reports it; the app still starts
+        print(f"eligibility data   : not prepared ({type(exc).__name__})")
+    # EVERY AGENT'S WARNING+ LOGS IN ITS OWN DATABASE (app/agent_db/logs.py; config agent_databases.yaml): one handler
+    # per agent whose DSN is set; masked, queued, never blocks a request
+    try:
+        if "pytest" not in __import__("sys").modules:
+            from app.agent_db import logs as _agent_logs
+
+            _logged = _agent_logs.install()
+            print(f"agent logs in DB   : {', '.join(sorted(_logged)) or 'none (no agent DSN set)'}")
+    except Exception as exc:  # noqa: BLE001 - logs stay on the console; the app still starts
+        print(f"agent logs in DB   : not installed ({type(exc).__name__})")
+    # EVERY AGENT'S AUDIT IN ONE COMMON TABLE (common_audit.audit_events; app/agent_db/common_audit.py): the triggers
+    # on each agent's audit table, idempotent; never fails start-up
+    try:
+        if "pytest" not in __import__("sys").modules:
+            from app.agent_db import common_audit as _common_audit
+
+            print(f"common audit       : {_common_audit.ensure_at_startup()}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"common audit       : not installed ({type(exc).__name__})")
+    # THE SUMMARY MODEL WARM BEFORE THE FIRST OFFICER ASKS (background; never delays startup, never fails it)
+    try:
+        import threading as _threading
+
+        from app.agents.eligibility.output import summary as _elig_explain
+
+        if _elig_explain.enabled() and "pytest" not in __import__("sys").modules:
+            _threading.Thread(target=_elig_explain.warm, name="eligibility-explain-warm", daemon=True).start()
+    except Exception:  # noqa: BLE001
+        pass
 
     _prepare_demo()
 
@@ -488,7 +690,9 @@ async def lifespan(app: FastAPI):
             keep_warm_task = asyncio.create_task(_keep_warm.run_forever())
             print(f"model keep-warm    : every {_keep_warm.interval_seconds():.0f} s")
 
-    yield
+    # THE CASE MCP SERVER, IN THIS SERVICE (/mcp): a fresh session manager per lifespan (FastMCP runs one only once)
+    async with _MCP_PROXY.serving():
+        yield
 
     if keep_warm_task is not None:
         keep_warm_task.cancel()
@@ -502,6 +706,16 @@ async def lifespan(app: FastAPI):
         from app.store import ocr_queue
 
         ocr_queue.stop_worker()
+    except Exception:
+        pass
+
+    # the queued agent-database rows (logs, chatbot audit / turns) written before the process goes
+    try:
+        from app.agent_db import logs as _agent_logs
+        from app.agent_db import writer as _agent_writer
+
+        _agent_writer.close_all()
+        _agent_logs.uninstall()
     except Exception:
         pass
 
@@ -577,6 +791,9 @@ app = FastAPI(
 from app.api import errors as _errors  # noqa: E402
 
 _errors.install(app)
+from app.agent_db import responses as _responses  # noqa: E402
+
+_responses.install(app)                       # every agent API response in its schema (api_responses)
 
 
 @app.middleware("http")
@@ -687,6 +904,30 @@ app.include_router(
     dependencies=[Depends(require_jwt)],
     responses=COMMON_ERRORS,
 )
+app.include_router(
+    passbook_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+app.include_router(
+    marksheet_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+app.include_router(
+    pan_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+app.include_router(
+    hrms_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
 
 app.include_router(
     los_router,
@@ -753,6 +994,86 @@ app.include_router(
     dependencies=[Depends(require_jwt)],
     responses=COMMON_ERRORS,
 )
+
+# Dedupe, UNDER THE CREDIT UNDERWRITING AGENT: ONE API, POST /api/v1/credit/dedupe -- the LOS's own dedupe, the MIFIN
+# match, the loan history and the policy outcome in one answer; scoped (los.dedupe.read or the credit underwriting
+# scope) and case-owned; other customers' matched cases are redacted.
+from app.api.routes.dedupe_api import router as dedupe_router  # noqa: E402
+
+app.include_router(
+    dedupe_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+
+# Credit document readiness: the Credit Document Policy Agent (a sub-agent of
+# credit underwriting) -- open document requirements for the CREDIT stage.
+from app.agents.docs_verify_credit_agent.api.routes import router as docs_credit_router  # noqa: E402
+
+app.include_router(
+    docs_credit_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+
+# Bank verification (owner 2026-10-26: "backend 8010 chalega"), a sub-agent of credit underwriting: API 1 process,
+# API 2 finalize, read-only views (app/agents/credit/bank_verification). DEMO MODE in its config: synthetic data,
+# simulated AA / branch / roles. Its screen is served at /bank-verification/ (the built frontend, when present).
+from app.agents.credit.bank_verification.api import router as bank_verification_router  # noqa: E402
+
+app.include_router(
+    bank_verification_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+from pathlib import Path as _BvPath  # noqa: E402
+
+_BANK_VERIFICATION_UI = _BvPath(__file__).resolve().parent / "app/agents/credit/bank_verification/frontend/dist"
+if _BANK_VERIFICATION_UI.is_dir():
+    from fastapi.staticfiles import StaticFiles as _BvStatic  # noqa: E402
+
+    app.mount("/bank-verification", _BvStatic(directory=_BANK_VERIFICATION_UI, html=True), name="bank-verification-ui")
+
+# Crime record verification, a sub-agent of credit underwriting: API 1 initiate (after the confirmation popup), API 2
+# finalize, read-only views (app/agents/credit/crime_verification) under /api/v1/credit/crime-verification. Its own
+# PostgreSQL database; DEMO MODE in its config: synthetic applications, mock CrimeCheck provider. Screen at
+# /crime-verification/ (the built frontend, when present).
+from app.agents.credit.crime_verification.api import router as crime_verification_router  # noqa: E402
+
+app.include_router(
+    crime_verification_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+_CRIME_VERIFICATION_UI = _BvPath(__file__).resolve().parent / "app/agents/credit/crime_verification/frontend/dist"
+if _CRIME_VERIFICATION_UI.is_dir():
+    from fastapi.staticfiles import StaticFiles as _CvStatic  # noqa: E402
+
+    app.mount("/crime-verification", _CvStatic(directory=_CRIME_VERIFICATION_UI, html=True),
+              name="crime-verification-ui")
+
+# Legal collateral verification, a sub-agent of credit underwriting (app/agents/credit/legal_verification): the CPA
+# uploads the Sale Deed and enters its details (no OCR), sends the case to a legal agency, the agency submits its
+# Verification Report (CERSAI search included), ten rules compare the three sources, the CPA decides. Its own
+# PostgreSQL database (LEGAL_VERIFICATION_DSN); screen at /legal-verification/ (the built frontend, when present).
+from app.agents.credit.legal_verification.api import router as legal_verification_router  # noqa: E402
+
+app.include_router(
+    legal_verification_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_jwt)],
+    responses=COMMON_ERRORS,
+)
+_LEGAL_VERIFICATION_UI = _BvPath(__file__).resolve().parent / "app/agents/credit/legal_verification/frontend/dist"
+if _LEGAL_VERIFICATION_UI.is_dir():
+    from fastapi.staticfiles import StaticFiles as _LvStatic  # noqa: E402
+
+    app.mount("/legal-verification", _LvStatic(directory=_LEGAL_VERIFICATION_UI, html=True),
+              name="legal-verification-ui")
 
 # JEV: the semantic decision layer -- typed decisions on authoritative state,
 # gated actions, never a domain status. Case ownership checked per route.
@@ -941,6 +1262,7 @@ def mount_dev_identity_provider(target: FastAPI) -> bool:
 
 
 mount_dev_identity_provider(app)
+app.mount("/mcp", _MCP_PROXY)                 # the case MCP server in this service (see _McpMount)
 
 
 app.include_router(auth_router)

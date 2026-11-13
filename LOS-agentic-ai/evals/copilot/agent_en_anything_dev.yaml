@@ -1,0 +1,67 @@
+# "ASK ANYTHING ABOUT THE CASE / ITS DOCUMENTS" -- coverage probe (2026-10-15, owner: "i can ask anything case, docs
+# it can ans"). A DEV set: broad officer questions about the open case and its documents. A turn fails when the bot
+# refuses, says it cannot help, or asks back on a clear question. Same case as heldout_en2 (Rahul Sharma, PERSONAL_LOAN;
+# PAN uploaded + verified; Salary Slip and Bank Statement verified; Address Proof and Signature pending).
+conversations:
+  - id: an_case_facts
+    turns:
+      - q: "what is the loan amount"
+        all: [["5,00,000", "500000", "5 lakh", "₹5"]]
+      - q: "what product is this"
+        all: [[personal loan, personal]]
+      - q: "what is the tenure"
+        all: [[month]]
+      - q: "who is the applicant"
+        all: [[rahul]]
+      - q: "when was this case created"
+        never: [can't, cannot, outside, not able, don't have]
+      - q: "what stage is it in and since when"
+        all: [[stage, fos, verification]]
+      - q: "what is the applicant's date of birth"
+        never: [can't, cannot, outside, not able]
+      - q: "what's his employment type"
+        never: [can't, cannot, outside, not able]
+
+  - id: an_doc_contents
+    turns:
+      - q: "what name is on the pan card"
+        never: [can't, cannot, outside, not able]
+      - q: "what does the salary slip say"
+        never: [can't, cannot, outside, not able]
+      - q: "which bank is the statement from"
+        never: [can't, cannot, outside, not able]
+      - q: "what is the dob on the pan"
+        never: [can't, cannot, outside, not able]
+      - q: "show me the pan details"
+        never: [can't, cannot, outside, not able]
+
+  - id: an_doc_meta
+    turns:
+      - q: "when was the pan uploaded"
+        never: [can't, cannot, outside, not able]
+      - q: "how many documents are uploaded"
+        never: [can't, cannot, outside, not able]
+      - q: "which documents are verified"
+        all: [[pan], [salary slip, salary], [bank statement, bank]]
+      - q: "is anything rejected"
+        never: [can't, cannot, outside, not able]
+      - q: "why is the pan only verified and not confirmed by the issuer"
+        never: [outside, not able]
+
+  - id: an_history
+    turns:
+      - q: "what has happened on this case so far"
+        never: [can't, cannot, outside, not able]
+      - q: "who created this case"
+        never: [outside]
+      - q: "how long has it been at this stage"
+        never: [can't, cannot, outside, not able]
+
+  - id: an_kyc
+    turns:
+      - q: "is kyc done"
+        all: [[kyc]]
+      - q: "what exactly is the kyc issue"
+        all: [[name, pan, review]]
+      - q: "what should i do about it"
+        never: [can't, cannot, outside, not able]

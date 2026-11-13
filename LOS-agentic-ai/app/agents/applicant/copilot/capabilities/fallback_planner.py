@@ -19,6 +19,8 @@ never filled in. Config: intent_catalogue.yaml `planner`.
 """
 from __future__ import annotations
 
+from app.llm import turn_budget as _tb
+
 import asyncio
 import json
 import logging
@@ -150,15 +152,16 @@ async def _ollama(prefix: str, content: str, timeout: float) -> dict:
             "options": with_num_ctx({"temperature": 0.0, "num_predict": int(cfg().get("num_predict", 160))})}
     if model.startswith("qwen3"):
         body["think"] = False
+    _tb.check("fallback_planner")      # an earlier model call of this turn failed: answer without it (app/llm/turn_budget.py)
     async with httpx.AsyncClient(timeout=timeout + 0.5) as client:
-        response = await client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body)
+        response = await _tb.guarded(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), "fallback_planner")
         response.raise_for_status()
         return response.json()
 
 
 def _model_ready() -> bool:
     from app.llm import availability
-    from app.llm.memory import free_gb
+    from app.llm.memory import free_gb_for_model as free_gb
 
     free = free_gb()
     if free is not None and free < float(cfg().get("min_free_ram_gb", 2.0)):

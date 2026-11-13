@@ -40,7 +40,7 @@ def test_a_greeting_reads_no_case_data(client, spied, greeting):
     md = say(client, greeting, chat=f"g-{greeting}")
     assert reads == [], reads
     assert not any(i in md for i in ids) and "need action" not in md and "pending" not in md.lower(), md
-    assert md.split()[0].rstrip("!.?,") in ("Hello", "Hi"), md
+    assert md.split()[0].rstrip("!.?,") in ("Hello", "Hi", "Good", "Namaste"), md
 
 
 @pytest.mark.parametrize("word", ["thanks", "okay", "haan", "nahi", "yes", "no", "ji"])
@@ -48,7 +48,7 @@ def test_a_bare_acknowledgement_with_nothing_asked_reads_nothing(client, spied, 
     ids, reads = spied
     md = say(client, word, chat=f"a-{word}")
     assert reads == [] and not any(i in md for i in ids), (reads, md)
-    assert md.startswith(("Okay.", "Sure.")), md
+    assert md.startswith(("Okay.", "Sure.", "You're welcome", "Happy to help")), md
     assert "what would you like to know about" not in md.lower() and "only help with" not in md.lower(), md
 
 

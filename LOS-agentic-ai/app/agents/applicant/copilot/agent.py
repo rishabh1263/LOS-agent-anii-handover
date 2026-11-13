@@ -28,7 +28,7 @@ import time
 import uuid
 from typing import Any
 
-from app.agents.applicant import audit, case_memory_facts, config, counters, facts, eligibility_facts, grounding, income_facts, knowledge_answer, permissions, routing, status_facts, history, ledger, actions, delay
+from app.agents.applicant import audit, case_memory_facts, config, counters, facts, grounding, income_facts, knowledge_answer, permissions, routing, status_facts, history, ledger, actions, delay
 from app.agents.applicant.copilot.facts import document_facts
 from app.agents.applicant.copilot.routing import subjects
 from app.agents.applicant.copilot.answering.answer import (
@@ -329,7 +329,9 @@ def _case_qualifier(case_id: str | None, party_id: str | None,
         if not clause:
             return ""
 
-        verb = ("was declined" if decision == "REJECT"
+        # A REJECT recorded by a document check holds the case; it is not the
+        # credit decision, so the sentence never says "declined" (2026-10-23).
+        verb = ("is on hold" if decision == "REJECT"
                 else "is under review")
         return f"However, your application {verb} because {clause}."
     except Exception:
@@ -395,7 +397,11 @@ def _slot_requirement(document_type: str, results: dict[str, Any]) -> str:
                     f"{slot_name}, which is {need} for this application")
             return said + (f"; {slot_name} {state.replace('it ', '', 1)}." if state else ".")
         said = f"{name} is {need} for this application"
-        return said + (f", and {state}." if state else ".")
+        said += (f", and {state}." if state else ".")
+        if len(accepts) > 1:
+            said += str(config.chatbot("slot_options").get("sentence") or "").format(
+                options=", ".join(_readable(a) for a in accepts))
+        return said
     if checklist:
         # the recorded checklist is the answer: a document on no row is not asked for
         return f"{_readable(wanted)} is not on this application's checklist, so it isn't required."
@@ -1062,9 +1068,11 @@ async def answer_question(
                   confidence=classification.confidence,
                   normalized=bool(classification.normalized),
                   followed_up=bool(getattr(resolution, "rewritten", False)))
+    _pronoun_carried = False
     if named_subject is None and intent_override is None:
         # "uska kya baaki hai?" right after an answer about the co-applicant: the co-applicant
         named_subject = subjects.carried(message, followup.Context.from_payload(context).last_subject)
+        _pronoun_carried = named_subject is not None
     intent = classification.intent
     _routing_ms[0] = round((time.perf_counter() - routing_started) * 1000, 2)
 
@@ -1174,6 +1182,49 @@ async def answer_question(
                 message = routed_message
                 # ONE MODEL CALL PER TURN: a routed turn is worded from templates, never rephrased
                 compose_with_model = False
+    elif (intent is not Intent.UNKNOWN and intent_override is None and intent not in WRITE_INTENTS
+          and not followup.is_bare(message) and resolution.reason != followup.EXPLAIN_REASON
+          and getattr(resolution, "rewritten", False) is False):
+        # QWEN'S SECOND OPINION (owner, 2026-10-13: "question samjhne ka kaam Qwen karega"). The rules read the
+        # question, but only with the confidence config `router.second_opinion` lists (e.g. medium / low): Qwen
+        # reads it too. Agree -> answered at once. Disagree -> both readings offered as one tap each, never a
+        # guess. Qwen unavailable / slow -> the rules' reading stands.
+        from app.agents.applicant.copilot.semantics import llm_router
+
+        if classification.confidence in llm_router.second_opinion_levels():
+            chosen, llm_trace = await llm_router.route(message, followup.Context.from_payload(context))
+            llm_trace["second_opinion"] = True
+            understanding_trace["llm"] = llm_trace
+            if chosen is not None and not chosen.options and chosen.question:
+                rerouted, routed_subject, routed_message = _classify_typed(chosen.question, has_case=bool(case_id))
+                if rerouted.intent is not Intent.UNKNOWN and rerouted.intent is not intent \
+                        and rerouted.intent not in WRITE_INTENTS and llm_router.mode() == "llm_first":
+                    # QWEN'S READING WINS: the same path as a typed question, party detection included
+                    llm_trace["question"] = chosen.question
+                    llm_trace["overrode"] = intent.value
+                    classification = rerouted
+                    classification.matched_on = f"llm_router:{chosen.tool}"
+                    intent = classification.intent
+                    frame = getattr(classification, "frame", None)
+                    named_subject = routed_subject
+                    message = routed_message
+                elif rerouted.intent is not Intent.UNKNOWN and rerouted.intent is not intent \
+                        and rerouted.intent not in WRITE_INTENTS:
+                    mine = llm_router.canonical_question(intent)
+                    choices = [q for q in dict.fromkeys([chosen.question, mine]) if q][:2]
+                    if len(choices) == 2:
+                        audit.record(request_id=request_id, subject=caller.subject, applicant_id=applicant_id,
+                                     case_id=case_id, intent=Intent.UNKNOWN.value, tools=[],
+                                     status="CLARIFICATION", message=message)
+                        return envelope(
+                            intent=Intent.UNKNOWN.value,
+                            category=routing.QueryCategory.UNSUPPORTED.value,
+                            query_type=QueryType.CLARIFICATION.value,
+                            clarification_required={"reason": "ROUTER_SECOND_OPINION",
+                                                    "question": "Which of these did you mean?", "options": choices},
+                            suggested_questions=choices,
+                            answer="Which of these did you mean?\n" + "\n".join(f"- {c}" for c in choices),
+                        )
 
     # A follow-up whose pronoun the previous turn cannot settle ("why is it
     # still pending?" after two pending documents) is asked back, not guessed.
@@ -1555,6 +1606,11 @@ async def answer_question(
                          "You are not authorized to access this case.",
                          http_status=403)
 
+    if _pronoun_carried and named_subject is subjects.Kind.CO \
+            and not any(p.role is subjects.Kind.CO for p in parties_on_case or []):
+        # "his mobile number" on a case WITH NO co-applicant (2026-10-13: "There is no co-applicant" after an earlier
+        # co-applicant answer): a carried pronoun can only mean the applicant -- only a NAMED role is ever refused
+        named_subject = None
     subject = subjects.resolve(named_subject, parties_on_case)
     if intent is Intent.APPLICANT_PROFILE and named_subject is subjects.Kind.PRIMARY:
         subject = None      # the profile IS the primary applicant's own record
@@ -1835,21 +1891,12 @@ async def answer_question(
         quoted = True
 
     elif intent is Intent.ELIGIBILITY:
-        # READ, NOT COMPUTED, and no model on this path at any setting.
-        # A FOIR is the one figure in this system most likely to be
-        # repeated back confidently and wrongly: it is a percentage, it
-        # sounds like arithmetic anyone could redo, and redoing it from
-        # a chat turn's context would produce a second answer for one
-        # applicant.
-        memory = case_memory_facts.case_memory(case_id or "", party_id)
-        answer, case_sources = eligibility_facts.answer(memory, eligibility_facts.want(message))
-        case_memory_block = memory
-        # THE AGENT'S RESULT, STRUCTURED, for the frontend -- verbatim
-        _erecorded = eligibility_facts.structured(memory)
-        if _erecorded:
-            from app.agents.applicant.copilot.answering import structured as _estructured
-
-            _estructured.put("eligibility", None, _erecorded)
+        # ELIGIBILITY IS NOT THE CHATBOT'S (owner, 2026-10-13: "eligibility ko chatbot se alag rakhna hai"). The
+        # decision is the Eligibility service's (POST /api/v1/eligibility/check); the chat reads nothing of it and
+        # says where it lives -- one line from config (applicant_agent.yaml chatbot.eligibility.redirect).
+        # English here; the localizer translates it (languages.yaml fixed_sentences) like every fixed line
+        answer = str((config.chatbot("eligibility") or {}).get("redirect") or "")
+        case_sources = []
         source, llm_ms = "deterministic", 0.0
 
     elif intent is Intent.DOCUMENT_DETAILS:
@@ -1901,6 +1948,18 @@ async def answer_question(
                 answer, case_sources = case_memory_facts.kyc_answer(
                     memory, want=(classification.fields or {}).get("want") or "result",
                     party_id=_primary if len(_parties) > 1 else None, primary_id=_primary)
+                _kyc_rows = [r for r in (memory.get("findings") or []) if isinstance(r, dict)
+                             and str(r.get("finding_kind") or "").upper() == "KYC"]
+                if case_id and not _kyc_rows:
+                    # NO FORMAL KYC RESULT YET -- but the KYC gate's own checks (the ones readiness lists) say
+                    # what is open: the same story as "why is it stuck" (2026-10-15)
+                    answer = _kyc_gate_answer(case_id) or answer
+                elif case_id and str(_kyc_rows[-1].get("status") or "").upper() in ("PASS", "SUCCESS", "VERIFIED"):
+                    # A PASS ON WHAT IT COULD COMPARE: the gate's checks still open are said too -- never "passed"
+                    # beside "why is it stuck: KYC not complete" (2026-10-23)
+                    _open = _kyc_gate_answer(case_id, pending=True)
+                    if _open:
+                        answer = answer.rstrip() + " " + _open
         else:
             answer, case_sources = case_memory_facts.explain(memory)
         case_memory_block = memory
@@ -2091,7 +2150,13 @@ async def answer_question(
         # no reference signature ... However, your application is under review
         # because there is no reference signature ..." (2026-10-05).
         reason = recorded.split(" because ", 1)[-1].rstrip(".").strip().lower() if recorded else ""
-        if recorded and not (reason and reason in answer.lower()):
+        # NOT BESIDE A VERIFIED DOCUMENT that was asked about by name: "PAN is
+        # verified. However, the application is on hold because the bank
+        # statement ..." read as the PAN's verdict (2026-10-23).
+        asked = results.get("documents.verification")
+        one_verified = (isinstance(asked, dict) and asked.get("found")
+                        and str(asked.get("status")).upper() in {"VERIFIED", "PASS"})
+        if recorded and not one_verified and not (reason and reason in answer.lower()):
             answer = answer.rstrip() + " " + recorded
 
     # "WHAT IS PENDING, AND WHY?" -- the recorded reason of each pending item
@@ -3473,6 +3538,36 @@ async def confirm_action(
 
 
 __all__ = ["AgentError", "answer_question", "confirm_action"]
+
+
+def _kyc_gate_answer(case_id: str, *, pending: bool = False) -> str | None:
+    """The KYC gate's own open checks (the KYC group of the readiness report), as one sentence -- None when every
+    check passes or the report cannot be read (the recorded-KYC answer then stands). `pending`: also the checks not
+    run yet (a recorded PASS that compared only some fields)."""
+    try:
+        from app.agents.applicant.copilot.answering import readiness_report
+
+        report = readiness_report.build(case_id)
+    except Exception:  # noqa: BLE001 - unreadable: the recorded-KYC answer stands
+        return None
+    items = [i for g in report.get("groups") or [] if g.get("group") == "KYC" for i in g.get("items") or []]
+    failed = [i["label"] for i in items if str(i.get("kind")) == "KYC_FAILED"]
+    review = [i["label"] for i in items if str(i.get("kind")) == "KYC_REVIEW"]
+    # its OWN next step (the generic "KYC runs once the identity documents are uploaded" contradicted uploaded ones)
+    if failed:
+        return (readiness_report._label("kyc_answer_gate_failed", items=", ".join(dict.fromkeys(failed)))
+                + "\n\n👉 " + readiness_report._label("kyc_answer_gate_failed_next"))
+    if review:
+        return (readiness_report._label("kyc_answer_gate_review", items=", ".join(dict.fromkeys(review)))
+                + "\n\n👉 " + readiness_report._label("kyc_answer_gate_review_next"))
+    waiting = [i["label"] for i in items if str(i.get("kind")) == "KYC_PENDING"]
+    if pending and waiting:
+        # one party's checks: its name once, not on every item ("Applicant: date of birth, Applicant: address")
+        heads = {str(w).split(": ", 1)[0] for w in waiting if ": " in str(w)}
+        if len(heads) == 1 and all(": " in str(w) for w in waiting):
+            waiting = [str(w).split(": ", 1)[1] for w in waiting]
+        return readiness_report._label("kyc_answer_gate_pending", items=", ".join(dict.fromkeys(waiting)))
+    return None
 
 
 def _application_match_answer(case_id: str | None, party_id: str | None,

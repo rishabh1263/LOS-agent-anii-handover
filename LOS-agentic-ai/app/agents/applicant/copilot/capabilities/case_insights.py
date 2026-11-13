@@ -72,6 +72,23 @@ def _from_list(text: str, listed: list[str] | None) -> list[str]:
     return picked if len(picked) >= 2 else []
 
 
+def _missing_document(message: str) -> str | None:
+    """
+    The ONE document a count asks about as missing ("... missing the bank statement?", "kitne cases mein signature nahi
+    aaya"): the document named (meaning.document_in: documents.yaml aliases + the checklist, the readable name the
+    document view uses) AND a missing word (case_list.yaml insights.document_missing_cues). Else None.
+    """
+    from app.agents.applicant.copilot.semantics import meaning
+
+    said = " " + " ".join(re.sub(r"[^\w\s]", " ", str(message or "").lower()).split()) + " "
+    if not any(re.search(p, said) for p in _cfg().get("document_missing_cues") or []):
+        return None
+    try:
+        return meaning.document_in(message)
+    except Exception:  # noqa: BLE001 - no document config: not a document count
+        return None
+
+
 def _say(key: str, lang: str, **values: Any) -> str:
     from app.agents.applicant.copilot.capabilities import product_flow
 
@@ -84,7 +101,9 @@ def _rows(claims: dict[str, Any]) -> list[dict[str, Any]]:
     from app.store import get_repository
 
     subject = case_list._subject(claims)
-    limit = int(_cfg().get("max_cases", 200))
+    # THE SAME CASES AS THE LIST (Phase 4 audit): a count over the first 200 while the list read 2000 said
+    # "N of your 200 cases" to an officer holding more -- the list's own scan limit, never a smaller one
+    limit = max(int(_cfg().get("max_cases", 200)), int(case_list.cfg().get("scan_limit", 2000)))
     apps = case_list._owned(claims, get_repository().list_granted_cases(subject, limit=limit))
     amounts = {a.case_id: getattr(a, "loan_amount", None) for a in apps}
     # the recorded loan amount rides along (AMOUNT ranking); the cached row itself is never changed
@@ -139,13 +158,28 @@ def answer(message: str, claims: dict[str, Any], request_id: str, lang: str = "e
         return general._reply(request_id, "CASE_INSIGHT", _say("no_cases", lang), category="CASE_ONLY")
     text = " ".join(str(message or "").lower().split())
     if kind == COUNT:
-        filters = (case_list.cfg().get("phrases") or {}).get("filter") or {}
-        from app.agents.applicant import normalize
+        from app.agents.applicant.copilot.semantics import task as _task
 
-        # as typed, then normalised ("kitni files ATKI hain" -> "stuck": the configured filter words are English)
-        plain = " ".join(normalize.normalise(text).text.lower().split())
-        key = next((k for t in dict.fromkeys([text, plain]) for k, phrases in filters.items()
-                    if case_list._has(t, phrases)), None)
+        # the filter the words name, as typed and normalised ("kitni files ATKI hain" -> "stuck"); several named
+        # ("kitne case KYC mein ATKE hain"): the specific reason first (semantics/task.filter_in, task.filter_priority)
+        key = _task.filter_in(text)
+        document = _missing_document(message) if key in (None, "documents_pending") else None
+        if document is not None:
+            # ONE DOCUMENT over the cases ("how many applications are missing the bank statement?"): counted from each
+            # own case's document view (pending / to re-upload), never estimated
+            scored = [(r, _metrics(r)) for r in rows]
+            bare = lambda name: re.sub(r"\s*\([^)]*\)", "", str(name)).strip().lower()      # noqa: E731
+            chosen_m = [(r, m) for r, m in scored if bare(document) in {bare(d) for d in m["documents"] or []}]
+            unknown = sum(1 for _, m in scored if m["pending"] is None)
+            lines = [_say("count", lang, n=len(chosen_m), total=len(rows),
+                          what=_say("document_missing", lang, document=document))]
+            lines += [_line(r, m, lang) for r, m in chosen_m[: int(_cfg().get("max_listed", 5))]]
+            if unknown:
+                lines.append(_say("unreadable", lang, n=unknown))
+            reply = general._reply(request_id, "CASE_INSIGHT", "\n".join(lines), category="CASE_ONLY")
+            reply.update(query_type="CASE_INSIGHT", response_source="STRUCTURED",
+                         tools_invoked=["case.list", "documents.get"], insight={"kind": kind, "document": document})
+            return reply
         if key is None:
             return None                         # "how many cases" alone: the list answers it (its own count line)
         rule = (case_list.cfg().get("filters") or {}).get(key) or {}

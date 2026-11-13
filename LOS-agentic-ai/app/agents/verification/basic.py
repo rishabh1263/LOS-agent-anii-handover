@@ -578,9 +578,7 @@ def _verdict_from_text_ungated(
         match = pattern[0].search(spaced)
 
         identifier = (
-            match.group(0)
-            if match
-            else None
+            match.group(0) if match else _repaired_pan(detected, spaced)
         )
 
         checks.append(
@@ -726,6 +724,18 @@ _PAN_ANCHORS: dict[str, tuple[str, ...]] = {
 
 #: A card's text, with headroom for noisy OCR and a photo overlay.
 PAN_CARD_MAX_CHARS = 450
+#: THE BACK OF A PAN CARD photographed with its front (one image or a two-page PDF): the back prints a lost-card
+#: notice and the issuing service's address -- ~300 more characters. A genuine front + back read 456 > 450 and was
+#: REJECTED as "a longer document" (2026-10-16). With the back's own wording present the card is allowed that much
+#: more; a long document that merely quotes PAN captions does not print a PAN card's back.
+PAN_CARD_BACK_ALLOWANCE = 500
+_PAN_BACK_MARKERS = ("IFTHISCARDISLOST", "LOSTCARDISFOUND", "PLEASEINFORMRETURNTO", "PANSERVICESUNIT",
+                     "INCOMETAXPANSERVICES", "PROTEANEGOV", "NSDLEGOVERNANCE", "UTIITSL",
+                     "UTIINFRASTRUCTURETECHNOLOGY")
+
+
+def _pan_back_present(compact: str) -> bool:
+    return sum(marker in compact for marker in _PAN_BACK_MARKERS) >= 2
 
 #: Anchors beyond the issuer that establish identity.
 PAN_MIN_SUPPORTING_ANCHORS = 2
@@ -767,7 +777,7 @@ def pan_identity(text: str) -> tuple[str, str | None, list[str], int]:
     fuzzy_text = compact[:FUZZY_WINDOW]
     index = build_index(fuzzy_text)
     characters = len(compact)
-    card_sized = characters <= PAN_CARD_MAX_CHARS
+    card_sized = characters <= PAN_CARD_MAX_CHARS + (PAN_CARD_BACK_ALLOWANCE if _pan_back_present(compact) else 0)
 
     # TOLERANT ON A CARD, EXACT ON ANYTHING LONGER. A photocopied card reads
     # "GOVT OF INDLA" and "INOOME TAXDEPARTMENT"; demanding exact captions
@@ -837,11 +847,76 @@ def _malformed_pan(text: str, tokens) -> str | None:
     return None
 
 
+
+# OCR's letter / digit confusions, undone ONLY where the PAN format leaves no doubt: positions 1-5 and 10 are
+# letters, 6-9 digits. Measured 2026-10-16: genuine PANs read "CLVPK48971" (the final I as 1) were REJECTED as
+# IDENTIFIER_NOT_FOUND while the extractor, which repairs by position, read them right.
+_PAN_TO_LETTER = {"0": "O", "1": "I", "2": "Z", "5": "S", "6": "G", "8": "B"}
+_PAN_TO_DIGIT = {"O": "0", "Q": "0", "D": "0", "I": "1", "L": "1", "Z": "2", "S": "5", "G": "6", "B": "8"}
+
+
+def _repaired_pan(detected, spaced: str) -> str | None:
+    """A PAN-length word that becomes a valid PAN once each position holds its own kind of character; None
+    otherwise. Never changes a letter into another letter or a digit into another digit."""
+    if detected is not DocumentClass.PAN:
+        return None
+    strict = _IDENTIFIERS[DocumentClass.PAN][0]
+    for word in re.findall(r"[A-Z0-9]{10}", (spaced or "").upper()):
+        fixed = "".join(_PAN_TO_LETTER.get(c, c) if i in (0, 1, 2, 3, 4, 9) else _PAN_TO_DIGIT.get(c, c)
+                        for i, c in enumerate(word))
+        if fixed != word and strict.fullmatch(fixed):
+            return fixed
+    return None
+
+_PAN_RIGHT_HEADER = re.compile(r"GOVT|GOVERNMENT|OFINDIA")
+_PAN_LEFT_HEADER = re.compile(r"INCOMETAX|PERMANENTACCOUNTNUMBER")
+_PAN_DATE = re.compile(r"\d{2}\s*[/.-]\s*\d{2}\s*[/.-]\s*\d{4}")
+# A cut runs THROUGH the print: the nearest text sits within this share of a text line's height of the frame edge.
+_PAN_EDGE_MARGIN = 0.35
+
+
+def pan_card_incomplete(tokens, image_size) -> str | None:
+    """Why this PAN photo shows only PART of the card, or None when nothing says so (2026-10-16).
+
+    MEASURED on 9 real and 48 synthetic full PANs (every quality) against left / right / top / bottom halves and a
+    cut-off bottom quarter. Two signals, each with no false alarm on a full card:
+      * "GOVT. OF INDIA" (the top-right header) read on 9 / 9 real and 48 / 48 synthetic full cards. Missing while
+        the top-left header IS read -> the right side of the card is not in the image (a left half: every field of
+        a PAN sits on its left, so a left half used to pass with all four fields).
+      * a required printed value missing (the date of birth or the PAN) AND text running into the top or bottom edge
+        -> the card is cut there. Margins alone are NOT used: tight black-and-white scans put text at the edge.
+    Neither header read at all is a poor read, not a cut card: the normal REVIEW handles it."""
+    toks = [t for t in tokens or [] if (t.x1 - t.x0) > 0 and (t.y1 - t.y0) > 0]
+    if len(toks) < 3 or not image_size:
+        return None
+    raw = " ".join(str(getattr(t, "text", "") or "") for t in toks)
+    compact = re.sub(r"[^A-Z]", "", raw.upper())
+    left = bool(_PAN_LEFT_HEADER.search(compact)) or "आयकर" in raw
+    right = bool(_PAN_RIGHT_HEADER.search(compact)) or "सरकार" in raw
+    if left and not right:
+        return "the right side of the card (GOVT. OF INDIA) is not in the image"
+    height = sorted(t.y1 - t.y0 for t in toks)[len(toks) // 2] or 1.0
+    top = min(t.y0 for t in toks) / height
+    bottom = (image_size[1] - max(t.y1 for t in toks)) / height
+    has_pan = bool(re.search(r"[A-Z]{5}\d{4}[A-Z]", re.sub(r"[^A-Z0-9]", "", raw.upper())))
+    if (not _PAN_DATE.search(raw) or not has_pan) and min(top, bottom) < _PAN_EDGE_MARGIN:
+        return "the card is cut at the " + ("bottom" if bottom <= top else "top") + " and printed values are missing"
+    return None
+
+
 def _gate_pan(result: "QuickVerification", text: str,
-              tokens=None) -> "QuickVerification":
+              tokens=None, image_size=None) -> "QuickVerification":
     """Apply the identity gate to a PAN verdict. Only ever downgrades."""
     if result.document_class is not DocumentClass.PAN:
         return result
+
+    incomplete = pan_card_incomplete(tokens, image_size) if tokens and image_size else None
+    result.checks.append(QuickCheck(name="pan_card_complete", passed=incomplete is None,
+                                    detail=incomplete or "whole card in the image"))
+    if incomplete:
+        if "PAN_CARD_INCOMPLETE" not in result.reason_codes:
+            result.reason_codes.append("PAN_CARD_INCOMPLETE")
+        result.status = "FAIL"
 
     outcome, code, anchors, characters = pan_identity(text)
     result.checks.append(QuickCheck(
@@ -885,7 +960,7 @@ def quick_verify_from_tokens(
         tokens, image=image, requested_class=requested_class,
         classification=classification)
     text = " ".join(str(getattr(t, "text", "") or "") for t in (tokens or []))
-    return _gate_pan(result, text, tokens or [])
+    return _gate_pan(result, text, tokens or [], getattr(image, "size", None))
 
 
 def _verdict_from_text(
@@ -1213,10 +1288,8 @@ def _quick_verify_from_tokens(
             )
 
             identifier = (
-                match.group(0)
-                if match
-                else None
-            )
+            match.group(0) if match else _repaired_pan(detected, spaced)
+        )
 
             checks.append(
                 QuickCheck(
@@ -1818,9 +1891,7 @@ def quick_verify(
         )
 
         identifier = (
-            match.group(0)
-            if match
-            else None
+            match.group(0) if match else _repaired_pan(detected, spaced)
         )
 
         checks.append(

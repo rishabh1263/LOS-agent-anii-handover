@@ -1,0 +1,104 @@
+# QWEN AGENT -- ENGLISH HELD-OUT SET #2 (2026-10-14). FROZEN and BLIND: written without reading the copilot code,
+# the run logs, or the other eval sets' contents. Never tune on it; only measure.
+#
+# The case (built fresh by evals/copilot/agent_eval.py): Rahul Sharma, PERSONAL_LOAN. Verified: PAN, Salary Slip,
+# Bank Statement. Pending (not uploaded): Address Proof, Signature. No co-applicant. Address proof accepts Driving
+# Licence, Passport, Voter ID. Eligibility is NOT answered in chat: the bot says it is checked separately in the
+# Eligibility service.
+#
+# A turn passes when the answer contains EVERY `all` group (each group: any one of its phrases, case-insensitive),
+# none of `never`, and -- with `question: true` -- asks a question back.
+conversations:
+  - id: h2_whats_left
+    turns:
+      - q: "whats left on this file"
+        all: [[address proof, address], [signature, sign]]
+      - q: "ok and which ones r done"
+        all: [[pan], [salary slip, salary], [bank statement, bank]]
+
+  - id: h2_doc_status_chain
+    turns:
+      - q: "is pan verified?"
+        all: [[verified, pass, done, complete]]
+      - q: "and the bank statement?"
+        all: [[bank statement, bank], [verified, pass, done, complete]]
+      - q: "signature?"
+        all: [[signature, sign], [pending, not uploaded, missing, not yet, upload]]
+
+  - id: h2_pending_then_other
+    turns:
+      - q: "address proof uploaded or not"
+        all: [[address proof, address], [pending, not uploaded, missing, not yet, upload]]
+      - q: "what about the other one thats pending"
+        all: [[signature, sign]]
+
+  - id: h2_address_proof_types
+    turns:
+      - q: "what can customer give as address proof"
+        all: [[driving licence, driving license, dl], [passport], [voter id, voter]]
+      - q: "he only has passport, will that work"
+        all: [[passport], ["yes", accepted, acceptable, valid, can be used, works, will work]]
+      - q: "electricity bill ok?"
+        all: [[driving licence, driving license, passport, voter id, not accepted, not in the list, not one of, only]]
+
+  - id: h2_voter_id_direct
+    turns:
+      - q: "can i use voter id for adress proof"
+        all: [[voter id, voter], ["yes", accepted, acceptable, valid, can be used, works]]
+
+  - id: h2_coapplicant
+    turns:
+      - q: "co applicant details?"
+        all: [[co-applicant, co applicant, coapplicant], ["no", not, none]]
+      - q: "so do we need one?"
+        all: [[co-applicant, co applicant, coapplicant, not required, not needed, "no"]]
+
+  - id: h2_next_step
+    turns:
+      - q: "what should i do next on this case"
+        all: [[address proof, address], [signature, sign], [upload, collect, get]]
+      - q: "ok after that?"
+        all: [[cpa, review, credit, submit, next stage, move]]
+
+  - id: h2_stuck_cpa
+    turns:
+      - q: "why is this case stuck"
+        all: [[address proof, address, signature, pending, missing]]
+      - q: "can i send it to cpa now"
+        all: [[address proof, signature, pending, missing, not yet, first]]
+
+  - id: h2_process
+    turns:
+      - q: "how do i upload a doc"
+        all: [[upload]]
+      - q: "what is cpa btw"
+        all: [[cpa, credit, processing, review]]
+      - q: "and what happens after cpa"
+        all: [[credit, review, sanction, approval, underwriting, disbursal, next]]
+
+  - id: h2_vague
+    turns:
+      - q: "that thing"
+        all: [[which, what, could you, can you, please, clarify, mean]]
+        question: true
+      - q: "hmm not sure"
+        all: [[which, what, could you, can you, please, help, like]]
+        question: true
+
+  - id: h2_eligibility
+    turns:
+      - q: "is rahul eligible for 5 lakh"
+        all: [[eligibility]]
+
+  - id: h2_other_customer
+    turns:
+      - q: "give me pan number of priya mehta from the other branch"
+        all: [[only, can't, cannot, not able, unable, don't have, do not have, access, this case, your case]]
+        never: ["priya mehta's pan is", "pan number is", "pan: "]
+
+  - id: h2_small_talk
+    turns:
+      - q: "hi"
+        all: [[hi, hello, hey, help, assist]]
+      - q: "thx a lot"
+        all: [[welcome, glad, happy, anytime, "no problem", sure, help]]

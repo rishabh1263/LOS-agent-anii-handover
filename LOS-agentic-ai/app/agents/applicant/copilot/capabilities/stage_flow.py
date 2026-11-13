@@ -515,7 +515,7 @@ def step(write: dict[str, Any], message: str, claims: dict[str, Any], request_id
         return _reply(request_id, case_id, _say("cancelled", lang))
     if not case_form._only(message, [*case_form._words("confirm_words"), "confirm"], ref):
         return None
-    workspace.authorize(claims, case_id)                       # scope re-checked at the write
+    workspace.authorize(claims, case_id, write=True)           # scope re-checked AS A WRITE
     write["done"] = True
     return _execute(write, claims, request_id, lang)
 

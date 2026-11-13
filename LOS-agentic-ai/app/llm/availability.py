@@ -180,6 +180,32 @@ def mark_slow(reason: str = "") -> None:
 _WARMING: dict[str, float] = {}
 
 
+_LOADED: dict[str, tuple[float, bool]] = {}
+
+
+def model_loaded(model: str, ttl: float = 2.0) -> bool | None:
+    """Whether Ollama holds `model` in memory now (/api/ps, ~0 ms; cached `ttl` s). None when it cannot be asked --
+    the caller then calls as before. A call to a model that is NOT loaded only starts a load its short budget cannot
+    wait for (and the timeout aborts that load): the caller warms it in the background instead."""
+    import json as _json
+    import urllib.request
+
+    from app.llm.config import ollama_host
+
+    now = time.monotonic()
+    hit = _LOADED.get(model)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    try:
+        with urllib.request.urlopen(f"{ollama_host().rstrip('/')}/api/ps", timeout=0.5) as response:  # noqa: S310
+            names = {str(m.get("name") or m.get("model")) for m in _json.load(response).get("models") or []}
+    except Exception:  # noqa: BLE001 - cannot tell: the caller calls as before
+        return None
+    loaded = model in names
+    _LOADED[model] = (now, loaded)
+    return loaded
+
+
 def warm_in_background(model: str | None = None) -> bool:
     """
     THE COLD-MODEL LOOP. A call that times out while Ollama is still LOADING the model disconnects, Ollama drops the
@@ -192,7 +218,7 @@ def warm_in_background(model: str | None = None) -> bool:
     import urllib.request
 
     from app.agents.los.summary import keep_alive
-    from app.llm.config import ollama_host, ollama_model
+    from app.llm.config import ollama_host, ollama_model, with_num_ctx
 
     name = str(model or ollama_model())
     now = time.monotonic()
@@ -202,7 +228,10 @@ def warm_in_background(model: str | None = None) -> bool:
 
     def run() -> None:
         try:
-            body = _json.dumps({"model": name, "prompt": "", "keep_alive": keep_alive()}).encode()
+            # THE SAME CONTEXT SIZE EVERY CALL ASKS FOR (2026-10-28: loaded without it, Ollama chose 4096; the next
+            # 2048 call reloaded the model, timed out at 4 s and aborted that load -- the loop this exists to end)
+            body = _json.dumps({"model": name, "prompt": "", "keep_alive": keep_alive(),
+                                "options": with_num_ctx(None)}).encode()
             request = urllib.request.Request(f"{ollama_host().rstrip('/')}/api/generate", data=body,
                                              headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(request, timeout=120) as response:   # noqa: S310 - the configured local host

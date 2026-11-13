@@ -357,6 +357,12 @@ CATALOGUE: dict[str, str] = {
     "SIGNATURE_PRESENCE_TOO_MANY_STROKES": "The signature has unusually many separate marks; a person will check it.",
     "SIGNATURE_PRESENCE_LOW_CONTRAST": "The signature is too faint to judge; a person will check it.",
     "SIGNATURE_PRESENCE_OCR_UNAVAILABLE": "The typed-text check could not run; a person will check the signature.",
+    "SIGNATURE_PRESENCE_BLURRED": "The signature is blurred; please upload a sharp photo or scan.",
+    "SIGNATURE_PRESENCE_CUT_OFF": "The signature is cut off at the edge; please upload the full signature with some margin.",
+    "SIGNATURE_PRESENCE_SLIGHTLY_BLURRED": "The signature is a little blurred; a person will check it.",
+    "SIGNATURE_PRESENCE_TOUCHES_EDGES": "The signature touches the image edges and may be cut; a person will check it.",
+    "SIGNATURE_PRESENCE_NOT_A_SIGNATURE": "This is a document or page, not a signature; upload only the signature.",
+    "SIGNATURE_PRESENCE_PICTURE": "This is a picture, not a signature; upload a photo or scan of the signature on paper.",
     "SIGNATURE_ABSENT": "No signature was found where one was expected.",
     "SIGNATURE_BLANK": "The signature area on this document is empty.",
     "SIGNATURE_STRIP_BLANK": (

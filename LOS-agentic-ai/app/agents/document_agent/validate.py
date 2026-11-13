@@ -16,8 +16,11 @@ from app.agents.document_agent.schemas import ValidationStatus
 PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 
 # 4th character encodes holder type. P=Individual, C=Company, H=HUF, F=Firm,
-# A=AOP, T=Trust, B=BOI, L=Local authority, J=Artificial juridical, G=Government.
-PAN_HOLDER_TYPES = set("PCHFATBLJGE")
+# A=AOP, T=Trust, B=BOI, L=Local authority, J=Artificial juridical, G=Government,
+# E=LLP, K=Krish (trust). The ONE list: classify.py and fields/pan.py build their
+# patterns from it, so a PAN the extractor accepts is never one validation rejects.
+PAN_HOLDER_CHARS = "ABCEFGHJKLPT"
+PAN_HOLDER_TYPES = set(PAN_HOLDER_CHARS)
 
 # DL: two-letter state code, two-digit RTO, then 9-13 alphanumerics.
 DL_RE = re.compile(r"^[A-Z]{2}[0-9]{2}[0-9A-Z]{9,13}$")

@@ -102,6 +102,8 @@ class OCREngine(Protocol):
     def read_array(
         self,
         array: np.ndarray,
+        *,
+        upright: bool = False,
     ) -> tuple[list[OCRToken], float]:
         ...
 
@@ -124,6 +126,23 @@ def _to_box_token(text, confidence, box) -> OCRToken:
     )
 
 
+def angle_cls_mode() -> str:
+    """DOCUMENT_OCR_ANGLE_CLS: RapidOCR's per-line 180-degree classifier -- "true" (every pass), "false" (never), or
+    "retry" (the default: off on the FIRST pass, on for every retry).
+
+    MEASURED 2026-10-14 on a real voter card: 4646 ms with it, 340 ms without. 2026-10-15 on the real + synthetic
+    identity set (46 documents): off everywhere took real PAN P50 5.3 s -> 1.7 s with no field lost, but one tilted
+    licence then needed 4 passes instead of 2 and lost a field. "retry" keeps both: a card the first pass reads is
+    never classified; a card that needs another pass gets the classifier on that pass."""
+    mode = (os.getenv("DOCUMENT_OCR_ANGLE_CLS", "retry") or "retry").strip().lower()
+    return mode if mode in ("true", "false", "retry") else "retry"
+
+
+def _angle_cls() -> bool:
+    """Whether a pass that is not told otherwise runs the classifier (everything but mode "false")."""
+    return angle_cls_mode() != "false"
+
+
 class RapidOCREngine:
     """
     RapidOCR / PP-OCRv4 based OCR engine.
@@ -139,7 +158,8 @@ class RapidOCREngine:
 
     name = "rapidocr-onnxruntime(PP-OCRv4)"
 
-    def __init__(self) -> None:
+    def __init__(self, threads: int | None = None) -> None:
+        """`threads`: intra-op threads for THIS engine (a dedicated pool sizes its own); None = the shared default."""
         _load_environment()
 
         # BOUNDED, not unbounded.
@@ -160,10 +180,11 @@ class RapidOCREngine:
         #
         # DOCUMENT_OCR_THREADS still overrides this, and 0 restores the old
         # unbounded behaviour.
-        threads = _int_env(
-            "DOCUMENT_OCR_THREADS",
-            _default_ocr_threads(),
-        )
+        if threads is None:
+            threads = _int_env(
+                "DOCUMENT_OCR_THREADS",
+                _default_ocr_threads(),
+            )
 
         try:
             from rapidocr_onnxruntime import RapidOCR
@@ -275,7 +296,7 @@ class RapidOCREngine:
             image
         )
 
-        result, _ = self._engine(array)
+        result, _ = self._engine(array) if _angle_cls() else self._engine(array, use_cls=False)
 
         elapsed_ms = (
             time.perf_counter() - started
@@ -293,16 +314,21 @@ class RapidOCREngine:
     def read_array(
         self,
         array: np.ndarray,
+        *,
+        upright: bool = False,
     ) -> tuple[list[OCRToken], float]:
         """
         OCR an already decoded/preprocessed image array.
 
         The measured time covers actual RapidOCR inference.
+
+        `upright=True` (a printed statement page) skips the per-line 180-degree classifier: MEASURED 2026-10-14 on a
+        4-page scanned SBI statement, 23.0 s -> 13.6 s with 99.65 % of the text identical. ID cards keep it.
         """
 
         started = time.perf_counter()
 
-        result, _ = self._engine(array)
+        result, _ = self._engine(array, use_cls=False) if (upright or not _angle_cls()) else self._engine(array)
 
         elapsed_ms = (
             time.perf_counter() - started
@@ -444,6 +470,8 @@ class TesseractEngine:
     def read_array(
         self,
         array: np.ndarray,
+        *,
+        upright: bool = False,  # noqa: ARG002 - RapidOCR's option; Tesseract has no per-line classifier
     ) -> tuple[list[OCRToken], float]:
         """
         Run Tesseract OCR against an image array.
@@ -819,6 +847,13 @@ def _no_spinning_sessions() -> None:
             options = original(config)
             if os.getenv("DOCUMENT_OCR_SPINNING", "false").strip().lower() != "true":
                 options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+            # THE CPU MEMORY ARENA (DOCUMENT_OCR_ARENA, default on). RapidOCR turns it off, so every image of a new
+            # size -- every real upload -- had its buffers allocated from scratch: the first read of an image cost
+            # 2-3x a repeat of the same one. MEASURED 2026-10-15, 300 real samples, one engine, 4 threads, identical
+            # OCR text: P50 1664 -> 589 ms, P95 2650 -> 993 ms. The price is memory: ~760 MB per engine, flat after
+            # ~150 images (was ~120 MB) -- size DOCUMENT_OCR_WORKERS to the host; false restores the old behaviour.
+            if os.getenv("DOCUMENT_OCR_ARENA", "true").strip().lower() == "true":
+                options.enable_cpu_mem_arena = True
             return options
 
         infer_engine.OrtInferSession._init_sess_opts = staticmethod(_options)

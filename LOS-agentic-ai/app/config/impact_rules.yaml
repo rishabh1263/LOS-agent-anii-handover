@@ -51,6 +51,8 @@ rules:
                          basis: "a KYC PAN disagreement is routed to a reviewer"}
   INCOME_INCONSISTENT:  {impact: KYC_REVIEW, effect: CASE_REVIEW, blocking_from: kyc_policy.income, action: MANUAL_REVIEW,
                          basis: "a KYC income inconsistency is routed to a reviewer"}
+  IDENTITY_DOCUMENT_MISSING: {impact: KYC_REVIEW, effect: CASE_REVIEW, blocking: false, action: MANUAL_REVIEW,
+                         basis: "no identity document among the KYC sources holds the case at REVIEW"}
   INSUFFICIENT_SOURCES: {impact: KYC_REVIEW, effect: CASE_REVIEW, blocking: false, action: MANUAL_REVIEW,
                          basis: "fewer sources than the KYC pass floor needs holds the case at REVIEW"}
 

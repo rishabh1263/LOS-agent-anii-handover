@@ -117,6 +117,9 @@ _FIELD_MESSAGE = {
     "INSUFFICIENT_SOURCES":
         "There was not enough comparable information across the documents "
         "to reach a conclusion.",
+    "IDENTITY_DOCUMENT_MISSING":
+        "No identity document was provided, so the applicant's identity "
+        "could not be established.",
     "KYC_DISABLED":
         "Cross-document identity checking is switched off.",
 }

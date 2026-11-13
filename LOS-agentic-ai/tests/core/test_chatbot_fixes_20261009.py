@@ -97,7 +97,10 @@ def test_readiness_line_has_one_full_stop(monkeypatch):
             {"id": "SIG", "label": "Signature", "status": "PENDING", "reason": "Signature has not been uploaded.",
              "fix": "Upload the signature", "kind": "DOCUMENT_PENDING"}]}]}
     text = readiness_report.render(report)
-    assert "uploaded.." not in text and "has not been uploaded." in text
+    # one full stop, never "uploaded.." -- the line is now the short list the owner asked for (2026-10-14):
+    # "⏳ **Signature** — not uploaded yet"
+    assert "uploaded.." not in text and ".." not in text
+    assert "Signature" in text and "not uploaded yet" in text
 
 
 def test_document_actions_list_every_other_kyc_field(monkeypatch):

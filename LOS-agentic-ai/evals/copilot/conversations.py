@@ -203,7 +203,9 @@ SCENARIOS = [
     # U. very short queries
     s("U", "u1", t("name", clarify=True), t("2", VERIF | PROFILE | {"DOCUMENT_DETAILS"}, outcome="OPTION_RESOLVED")),
     s("U", "u2", t("income", clarify=True)),
-    s("U", "u3", t("PAN", clarify=True), t("is it verified", VERIF, outcome="OPTION_RESOLVED")),
+    # owner 2026-10-13: "context malum ho toh sirf docs likhne pe bhi samajh jana chahiye" -- a bare document name on an
+    # open case is that document's status (capabilities/bare_document.py), never a "what about PAN?" question
+    s("U", "u3", t("PAN", VERIF), t("is it verified", VERIF)),
     s("U", "u4", t("address", clarify=True)),
     s("U", "u5", t("mobile", clarify=True), t("1", PROFILE, outcome="OPTION_RESOLVED")),
     s("U", "u6", t("What is my application status?", STATUS), t("status", STATUS)),

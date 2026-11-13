@@ -93,7 +93,8 @@ CASES: list[dict[str, Any]] = [
     {"id": "rag_weak_2", "family": "rag", "turns": [
         {"q": "Can an NRI apply for a home loan through this process?", "kind": "no_answer"}]},
     {"id": "rag_weak_3", "family": "rag", "turns": [
-        {"q": "What is the minimum CIBIL score needed to get a personal loan approved?", "kind": "no_answer"}]},
+        {"q": "What is the minimum CIBIL score needed to get a personal loan approved?", "kind": "any",
+         "any": ["Eligibility service"]}]},      # eligibility limits: the Eligibility service's (2026-10-13)
     {"id": "rag_mixed", "family": "rag", "turns": [
         {"q": "Why is my application under review and what does KYC mean?", "kind": "any",
          "any": ["R SHARMA", "RAHUL SHARMA"]}]},

@@ -298,6 +298,20 @@ def is_greeting(text: str) -> bool:
     return True
 
 
+def _salutation(spec: dict[str, Any], lang: str, now: Any = None) -> str | None:
+    """GOOD MORNING / AFTERNOON / EVENING by the officer's local time (owner, 2026-10-14; config greeting.time_of_day:
+    a fixed UTC offset -- India keeps no daylight saving -- and the slots' end hours). None when off."""
+    if not spec.get("enabled"):
+        return None
+    from datetime import datetime, timedelta, timezone
+
+    local = now or datetime.now(timezone(timedelta(minutes=int(spec.get("utc_offset_minutes", 330)))))
+    for slot in spec.get("slots") or []:
+        if local.hour < int(slot.get("until", 24)):
+            return str(slot.get(lang) or slot.get("en") or "") or None
+    return None
+
+
 def greeting(claims: dict[str, Any], lang: str, seed: int = 0) -> str:
     """
     Short. A GREETING READS NO CASE DATA unless configured (copilot_reply.yaml greeting.case_summary, default false,
@@ -306,6 +320,9 @@ def greeting(claims: dict[str, Any], lang: str, seed: int = 0) -> str:
     """
     g = _cfg().get("greeting") or {}
     if not g.get("case_summary", False):
+        salute = _salutation(g.get("time_of_day") or {}, lang)
+        if salute:
+            return _say((g.get("time_of_day") or {}).get("text"), lang, seed, salute=salute)
         return _say(g.get("plain"), lang, seed)
     from app.agents.applicant.copilot.capabilities import case_list
 

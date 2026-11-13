@@ -278,9 +278,9 @@ def test_p10_eligibility_is_read_not_computed(client, repo):
 
     body = answered(client, "What is my eligibility status?")
 
+    # ELIGIBILITY IS NOT THE CHATBOT'S (owner, 2026-10-13): even with a result recorded, the chat states none of it
     assert body["intent"] == "ELIGIBILITY"
-    assert "23.93%" in body["answer"]
-    assert body["grounded"] is True
+    assert "Eligibility service" in body["answer"] and "23.93" not in body["answer"]
 
 
 def test_p11_risk_stays_downstream_and_discloses_nothing(client, repo):

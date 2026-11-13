@@ -54,12 +54,12 @@ planner:
   # one short line per tool in the planner prompt (a short prompt is what keeps the plan inside the budget)
   hints:
     case_status: overall status of the case
-    pending_documents: documents still pending or missing
-    why_stuck: why the case is blocked
+    pending_documents: documents still pending or missing -- what the customer must still bring or upload
+    why_stuck: why the case is stuck, blocked or not moving forward
     next_step: what the officer should do next
     cpa_readiness: is it ready for CPA, what blocks it
     kyc_status: KYC result, name / DOB matches
-    document_status: status of one named document
+    document_status: ONE named document -- is it uploaded, verified, pending or rejected (signature uploaded?, is pan verified)
     document_rejection: why a named document was rejected
     loan_amount: loan amount applied for
     applicant_name: applicant's name
@@ -67,10 +67,12 @@ planner:
     case_stage: current stage of the case
     time_in_stage: how long in the current stage
     case_history: what has happened so far
-    uploaded_documents: documents already uploaded
+    uploaded_documents: the LIST of every document uploaded so far with its status (which ones are done) -- not for one named document
   min_free_ram_gb: 2.0
+  prime_message: "Case open: yes.\nMESSAGE: hello"          # the warm-up turn that loads the prompt into the cache
+  likely_label: "LIKELY (similar wording, may be wrong):"   # full-catalogue mode: the retrieval hints' label
   # READ-ONLY intents only: no upload / draft / hold / collect / write
-  tools: [case_status, pending_documents, why_stuck, next_step, cpa_readiness, kyc_status, document_status,
+  tools: [case_status, case_summary, pending_documents, why_stuck, next_step, cpa_readiness, kyc_status, document_status,
           document_rejection, loan_amount, applicant_name, application_details, case_stage, time_in_stage,
           case_history, uploaded_documents]
   not_answered: "I could not look up: {what}."
@@ -94,6 +96,11 @@ planner:
     case_id. Give "document" only for a tool that needs one. If no tool fits, reply {"calls": []}. Never answer the
     question yourself. Reply only JSON {"calls": [{"tool": "...", "case_id": "...", "document": "...", "party": "..."}]}.
 
+# THE PARAPHRASE FILES read into the meaning bank (besides each intent's examples above). intent_terms_field.yaml
+# (2026-10-16): curated field-officer Hinglish / shorthand / typo phrasings and Devanagari, measured on held-out set G
+# (python -m evals.copilot.routing_eval). Add a phrasing there -- never in code -- and retrain the classifier.
+paraphrase_files: [intent_paraphrases.yaml, intent_terms_field.yaml]
+
 # THE LOS MEANING ADAPTER (2026-10-12; scripts/train_meaning_adapter.py): a linear map trained on the examples above,
 # applied to the frozen embeddings. ON only when it beats the plain embeddings on the held-out set E
 # (evals/copilot/meaning_heldout_e.yaml) with no regression in the semantic / conversation evals.
@@ -101,7 +108,17 @@ adapter:
   enabled: true
   path: models/meaning_adapter.npy
 
+# THE MEANING CLASSIFIER (2026-10-14; scripts/train_meaning_classifier.py): softmax regression on the adapted
+# embeddings; it only REORDERS the k-NN ranking (cosine + weight * log p), scores stay cosines. Frozen held-out
+# top-1: E k-NN 0.95 -> blend 0.95, F 0.75 -> 0.817. Retrain after adding examples / labelled turns.
+classifier:
+  enabled: true
+  path: models/meaning_classifier.npz
+  weight: 0.1
+
 model:                              # the CHOOSER (never an answer writer): small prompt, JSON {"i": id}
+  name: qwen3:4b-instruct-2507-q4_K_M      # 2026-10-13: the 4B instruct model (see applicant_agent.yaml router)
+  full_catalogue: false                   # true: Qwen chooses from EVERY intent (a ~1 000-token prompt: 2-4 s per turn once the opener evicts its cache) -- off, measured 2026-10-13
   timeout_seconds: 4.0
   num_predict: 20
   min_free_ram_gb: 2.0
@@ -116,18 +133,30 @@ intents:
     kind: case
     description: The overall status of the open case or application.
     canonical: "What is the status of this case?"
-    examples: [is applicant ka status batao, iska status kya hai, is case ka status, applicant ka status kya hai, iska kya scene hai, kya scene hai is case ka, status batao, is file ka status, what is the status of this case, case status, where does this case stand, status update please,
+    examples: [list every document on this case, show me every document, kaun kaun se documents hai,
+               sab documents verify ho gaye kya, documents verified hain kya, saare docs verified hai,
+               is applicant ka status batao, iska status kya hai, is case ka status, applicant ka status kya hai, iska kya scene hai, kya scene hai is case ka, status batao, is file ka status, what is the status of this case, case status, where does this case stand, status update please,
                what's happening with this application, how is the case doing, any update on this file,
                current status of the application, is anything happening on this case, give me the case status]
+  case_summary:
+    # 2026-10-15: the agent had no summary tool -- "summary of this case" mid-chat went to case_record (a free-text
+    # model answer, 10 s timeout) instead of the engine's summary card (instant)
+    kind: case
+    description: ONLY when a SUMMARY or OVERVIEW of the whole case is asked for (not its status, stage or where it stands -- that is case_status).
+    canonical: "Give me a complete summary of this case"
+    examples: [summary of this case, case summary, give me a summary, summarise this case, full summary of the case,
+               overview of this case, is case ka summary, iska summary do, poora case batao, case ka overview]
   pending_documents:
     kind: case
+    one_document_intent: document_status    # one document named -> its status (2026-10-14)
     party_aware: true
     description: Which documents or items are still pending, missing or not uploaded on the case.
     canonical: "What is pending?"
     canonical_party: "What is pending for the co-applicant?"
     examples: [agar document already upload hai toh, documents upload ho gaye hain toh, what if the documents are already uploaded, sab upload ho chuka hai, kya pending hai, aur kya pending hai, uska pending point kya tha, kya kya pending hai, iske liye document chahiye ya sirf clarification, what is pending, which documents are pending, what is missing, what's left to upload, what do I still need,
                docs, documents, pending docs, which papers are still required from the customer, anything missing on this file,
-               what documents are still needed, what is not uploaded yet, what else do I need to collect]
+               what documents are still needed, what is not uploaded yet, what else do I need to collect,
+               which documents are still missing, which ones are still pending, which ones have not come yet, what is still not uploaded, abhi kya baaki hai, kaunse documents baaki hai, अभी क्या बाकी है, कौन से दस्तावेज़ बाकी हैं, इस केस में क्या पेंडिंग है, कोणती कागदपत्रे बाकी आहेत, या फाईलमध्ये काय राहिले आहे, काय पेंडिंग आहे]
   why_stuck:
     kind: case
     description: Why the case is blocked, held or not moving forward.
@@ -166,7 +195,8 @@ intents:
                did the salary slip pass verification, is the ITR ok, PAN status, was the driving licence accepted,
                has the customer uploaded the passport, is the signature verified,
                no I meant the bank statement, I meant the PAN, sorry I meant the address proof, no the bank statement,
-               I was asking about the bank statement, not that I meant the driving licence]
+               I was asking about the bank statement, not that I meant the driving licence,
+               bank statement verify ho gaya kya, kya PAN verify ho gaya, PAN verify hua ya nahi, address proof ka status kya hai, salary slip pass hua kya, aadhaar verify hua ya nahi, "aur bank statement?", "aur PAN ka?", पैन का स्टेटस क्या है, बैंक स्टेटमेंट वेरिफाई हुआ क्या, पॅन व्हेरिफाय झाले का, बँक स्टेटमेंटची स्थिती काय आहे]
   document_rejection:
     kind: case
     needs: document
@@ -213,11 +243,16 @@ intents:
                how far along is this application, how far has this case progressed, what's the progress on this case]
   uploaded_documents:
     kind: case
+    one_document_intent: document_status    # one document named -> its status (2026-10-14)
     party_aware: true
     description: Which documents have already been uploaded or collected on the case.
     canonical: "Which documents have been uploaded?"
     examples: [which documents have been uploaded, which documents did we already collect, what have we collected so far,
-               what documents do we have, documents received so far, which papers has the customer given]
+               which documents are already done, what is completed so far, which ones are complete, what is done already,
+               which ones have been verified, which are already submitted,
+               what documents do we have, documents received so far, which papers has the customer given,
+               has anything been rejected, was any document rejected, did any document fail verification,
+               are all the documents verified, kuch reject hua kya, koi document reject hua]
   time_in_stage:
     kind: case
     description: How long the case has been in its current stage, or how long it has taken so far.
@@ -236,16 +271,29 @@ intents:
     examples: [query status, what queries are open, show the queries, did the customer reply to the query, status of my query]
   eligibility:
     kind: case
-    description: The eligibility result of the case (affordability, FOIR, income checks).
+    description: The eligibility result of the case (affordability, FOIR, the EMI on this loan, income checks).
     canonical: "What is the eligibility status?"
+    # 2026-10-28 (live: "emi kitni banegi roughly" answered the loan amount): THIS case's EMI, no numbers typed --
+    # numbers typed ("EMI for 5 lakh at 12%") stay the calculator
     examples: [is the customer eligible, eligibility status, does the income qualify, what is the FOIR on this case,
-               can the customer afford this loan]
+               can the customer afford this loan, what will the EMI be on this case, is case ki EMI kya hogi,
+               monthly installment for this loan, customer ki kist kitni aayegi, EMI estimate for this applicant]
   customer_message:
     kind: case
     description: Draft a message to send the customer about what they must provide.
     canonical: "Draft a message to the customer"
     examples: [draft a message to the customer, what should I tell the customer, write a message for the customer,
                message for the client about missing documents]
+  # 2026-11-06 (live eval: "is there a co-applicant on this case" had no reading and the planner asked "do you mean
+  # KYC / pending?"): whether THIS case has a co-applicant, and who -- the engine's co-applicant answer
+  co_applicant:
+    kind: case
+    description: Whether the open case has a co-applicant, and who it is.
+    canonical: "Is there a co-applicant?"
+    examples: [does this file have a co-applicant, any co-applicant on this file, is anyone applying jointly on this loan,
+               co-applicant hai kya is case mein, is case mein co-borrower hai, koi co-applicant hai,
+               has a co-borrower been added to this application, who is the joint applicant here,
+               does the applicant have a co-applicant, is this a joint application]
   collect_from_customer:
     kind: case
     description: The list of everything to collect from the customer.
@@ -258,7 +306,11 @@ intents:
     kind: process
     description: The general steps to move a case from FOS to CPA (not about one case).
     canonical: "how to move to cpa"
-    examples: [how do I move a case to CPA, what are the steps to send a file to CPA, process for CPA handoff]
+    examples: [how do I move a case to CPA, what are the steps to send a file to CPA, process for CPA handoff,
+               when does a case go to CPA, when a case goes to cpa, when does a case move to CPA,
+               when is a file sent to CPA, what is needed to move a case to CPA, when can a case be moved to CPA,
+               case CPA mein kab jaata hai, file CPA ko kab jaati hai,
+               case ko CPA me kaise bheje, CPA ko file kaise bhejna hai, केस को CPA में कैसे भेजें, केस CPA ला कसे पाठवायचे]
   process_verify_documents:
     kind: process
     description: How documents are verified in general.
@@ -273,7 +325,8 @@ intents:
     kind: process
     description: How to upload documents.
     canonical: "how do i upload documents"
-    examples: [how do I upload documents, how to upload a file, where do I attach the documents]
+    examples: [how do I upload documents, how to upload a file, where do I attach the documents,
+               document kaise upload karte hai, PAN kaise upload karu, file kaise attach kare, दस्तावेज़ कैसे अपलोड करें, कागदपत्र कसे अपलोड करायचे]
   work_queue:
     kind: list
     description: Which of the officer's cases to work on first; the cases that need action, in priority order.
@@ -324,7 +377,42 @@ intents:
     kind: clarify_action
     description: The officer asks to do or process something without saying which action.
     examples: [usko process kar do, process it, isko aage badhao, kar do, do it, handle this, isko complete kar do,
-               jo karna hai kar do, process this case]
+               jo karna hai kar do, process this case,
+               # an action asked with no action named (Phase 3 hardening): never an acknowledgement
+               take care of it, deal with this, look after this, isko dekh lo, manage this for me]
+  # UPLOAD NOW, NO DOCUMENT NAMED (owner, 2026-10-14 live: "i want to upload docs please give me option to upload"
+  # got the how-to steps): what is still pending, each with its Upload button (the pending answer carries them)
+  # ASK ANYTHING ABOUT THE CASE (owner, 2026-10-15: "i can ask anything case, docs, it can answer"): a specific fact
+  # of THIS case or one of its documents that no fixed answer covers -- answered from the case's masked fact sheet by
+  # the model and FACT-CHECKED (capabilities/snapshot_qa.py; fos_api answers it before the engine)
+  case_record:
+    kind: case
+    description: A specific recorded fact of this case or one of its documents -- a date, who / when, a document's own details or fields, a count.
+    # no canonical: answered directly from the fact sheet (never re-asked as another question)
+    examples: [when was this case created, who created this case, when was the pan uploaded, when was the salary slip uploaded,
+               which bank is the statement from, what name is on the pan card, what is the dob on the pan, what does the pan say,
+               show me the pan details, what is the salary on the salary slip, which company does he work for,
+               what is the employer name, what is the account number on the bank statement, when was it verified,
+               what is his mobile number, what is the email on the application, what address is recorded,
+               how many documents are verified, how many documents are on the case, what period does the bank statement cover,
+               which month is the salary slip for, what is the net pay on the salary slip, kab upload hua pan,
+               pan pe naam kya hai, salary slip kis company ki hai, statement kis bank ka hai,
+               # 2026-10-16: a document's DETAILS asked in Hinglish / plainly were read as unclear and went to Qwen,
+               # which dropped the fields (paraphrases -- the test questions themselves are not copied here)
+               statement ki puri details dikhao, salary slip ke details batao na, licence ke details kya hain,
+               voter card pe kya kya likha hai, itr ki puri details, pan card se kya kya mila,
+               sabhi documents ki puri details, har document ki details dikhao, all documents ke details batao,
+               show the details of every document, give me the details read from each document,
+               what details did we read from the bank statement, details of the driving licence]
+  upload_pending:
+    kind: case
+    party_aware: true
+    description: The officer wants to upload documents now without naming one -- show what is pending with its Upload buttons.
+    canonical: "What is pending?"
+    examples: [i want to upload documents, i want to upload docs, give me the option to upload, show me the upload
+               buttons, let me upload the documents, i need to upload docs now, where are the upload buttons,
+               upload the pending documents, give me upload option, i have the documents let me upload them,
+               mujhe documents upload karne hai, docs upload karne hai, upload option do, upload ka option dikhao]
   upload_document:
     kind: upload
     needs: document
@@ -356,7 +444,7 @@ intents:
                another lender gives a better rate can we take over the loan, customer wants to move his loan from another bank]
   knowledge_documents:
     kind: knowledge
-    description: Which documents are needed or accepted in general (not for one case).
+    description: Whether a document is accepted / valid / allowed ("chalega?") for a requirement such as address or identity proof, and which documents are needed or accepted in general.
     # 2026-10-09 human test: with a case open these were rewritten to "What is the status of the Signature?" -- a RULE
     # question ("is X mandatory", "how many months", "X instead of Y") is knowledge, the case answer is a different ask
     examples: [which documents are accepted as address proof, documents required for a home loan, is aadhaar mandatory,
@@ -364,7 +452,8 @@ intents:
                is signature mandatory, is the signature required, is bank statement compulsory, do i need a bank statement,
                how many months bank statement, how many months of bank statement are needed, kitne mahine ka statement chahiye,
                can i upload aadhaar instead of pan, can voter id be used instead of passport, is pan mandatory for a loan,
-               is salary slip required, which address proof is valid]
+               is salary slip required, which address proof is valid,
+               address proof ke liye kaunse documents chalte hai, address proof mein kya kya chalega, id proof me kya de sakte hain, पते के प्रमाण के लिए कौन से दस्तावेज़ चलते हैं, पत्त्याच्या पुराव्यासाठी कोणती कागदपत्रे चालतात]
 
   # ---------------------------------------------------------------- policy, decision, calculator
   policy_value:
@@ -385,8 +474,25 @@ intents:
   # ---------------------------------------------------------------- conversation
   small_talk:
     kind: small_talk
-    description: Greetings, thanks, acknowledgements, asking what the bot can do.
-    examples: [hi, hello, thanks, thank you, ok, okay, what can you help with, who are you, good morning]
+    description: Greetings and hellos, asking how the bot is, asking what the bot can do.
+    examples: [hi, hello, what can you help with, who are you, good morning, hey, good evening, how are you,
+               # common Indian greetings (Phase 3 hardening): the embeddings put a bare "namaste" next to case intents
+               namaste, namaste ji, ram ram, pranam, salaam, jai shri krishna, adaab, hello bhai]
+  # ACKNOWLEDGEMENT / THANKS (Phase 2, 2026-10-12): an answer to the bot's last reply, NOT a hello -- "great, thanks"
+  # was answered with "Hello! How can I help you today?" because small talk held both. kind ack -> the general layer's
+  # own THANKS / ACKNOWLEDGEMENT answer via `canonical` (conversation_general.yaml phrases.ack / thanks); no case read.
+  acknowledgement:
+    kind: ack
+    description: The officer acknowledges the last answer (okay, understood, noted, fine) -- not a greeting, not a question.
+    canonical: "ok"
+    examples: [ok, okay, got it, noted, understood, makes sense, fine, ok cool, ok ji, accha ji, theek hai, samjha,
+               samajh aa gaya, done, perfect, sounds good, ok will do, haan theek hai]
+  thanks:
+    kind: ack
+    description: The officer thanks the bot.
+    canonical: "thanks"
+    examples: [thanks, thank you, thank you so much, thanks for the help, many thanks, dhanyavaad,
+               thanks yaar, thx, that helped thanks, great that was helpful, perfect thank you]
   out_of_scope:
     kind: out_of_scope
     description: Anything not about loans, cases, documents or banking.
@@ -400,8 +506,69 @@ intents:
                raise a query address mismatch, move to CPA, create a new case, change the loan amount to 600000,
                top 5 cases, last 3 cases, "1", "yes", "no"]
 
+# THE STRUCTURED TASK (Phase 2, 2026-10-12; semantics/task.py): scope / operation / filters / reference of a turn in
+# its conversation, built from the signals above (no extra model call). Used to re-ask only what the words alone
+# mis-route (a portfolio follow-up, a correction to another row of the list, a NO with softeners) and for the turn
+# diagnostics. Off -> every message goes on as typed.
+task:
+  enabled: true
+  # "no, I meant the second one" / "sorry, the KYC ones": a correction -- the rest replaces part of the last request
+  correction_leads: ["no", nope, nah, nahi, nahin, not, sorry, actually, galat]
+  correction_fillers: [i, meant, mean, mera, matlab, tha, thi, the, that, sorry, actually, ji, bhai, rather, instead, was,
+                       talking, about, i m, im]
+  # a NO with only softeners ("nah not really", "nahi ji bas"): the conversation's NEGATION
+  negation_words: [nah, naah, nope, not, nothing, never, mat]
+  softeners: [ji, bhai, sir, really, thanks, thank, you, bas, abhi, now, yet, at, all, else, kuch, aur, its, it, s, fine]
+  # a portfolio follow-up starts like this ("what about ...", "and ...", "only ...") or is a correction / count
+  followup_leads: [what, and, how, only, sirf, just, aur, about, then, also, but, same, those, these]
+  followup_max_words: 9
+  # ...and it must refer to the cases (one of these, a count word) or say nothing but the filter
+  followup_refers: [ones, one, wale, wali, waale, those, these, them, cases, files, applications, case, file]
+  followup_vocabulary: [the, a, an, with, for, of, about, cpa, issue, issues, problem, problems, only, just, sirf]
+  # an acknowledgement / small-talk reading stands only for a short message with none of these (typos included)
+  social_max_words: 5
+  # an object to act on makes it a request ("take care of THIS"), never an acknowledgement
+  action_objects: [this, it, isko, ise, usko, use, ye, yeh, that, these]
+  # a QUESTION selecting among the officer's cases ("WHICH applications can go to CPA now?") is never the move / open
+  # command its verbs resemble: these selectors + a plural case noun (case_list.yaml case_nouns, people_plural)
+  selectors: [which, kaunse, kaunsi, kaun, kin, kinke, kinki, kitne, kitni, many]
+  people_plural: [customers, borrowers, applicants, loans, clients]
+  # the conversation classifier's WHOLE-message social kinds (app/agents/applicant/conversation.py): answered as
+  # small talk, never asked back as vague and never re-read as a case question
+  social_kinds: [GREETING, GOODBYE]          # thanks / ok stay with meaning + the general layer ("thik hai ji")
+  question_words: [what, wat, wht, whats, wats, which, why, how, when, where, who, whose, kya, kyu, kyun, kab, kahan,
+                   kaun, kaunsa, kaunsi, kitna, kitne, kitni, kaise, here, pending, pendng, status, staus, show, is, are,
+                   can, does, did, has, have]
+  # ONE case pointed at -- never the portfolio, whatever the plural ("which documents are pending for THIS application")
+  singular_pointer: ['\b(this|is|iss|ye|yeh|isi|current) (case|file|application|applicant|customer|borrower|loan|one)\b',
+                     '\b(iska|iski|iske|isme|ismein|here|yahan|yaha)\b']
+  # the portfolio filter's ROOT words (a closed set of filter values, like document aliases), matched at a word start
+  filter_roots:
+    kyc_issue: [kyc, identity check, identity verification]
+    documents_pending: [document, docs, paperwork, kagaz, kaagaz, papers]
+    ready_for_cpa: [ready, taiyar, can go to cpa, good to go]
+    stuck: [stuck, atk, overdue, delayed, past the stage target]
+  # several named: the specific reason before the generic state
+  filter_priority: [kyc_issue, documents_pending, ready_for_cpa, stuck, needs_action]
+  # (operation, filter) -> the deterministic question (answered by case_insights COUNT / the case list)
+  filter_phrase: {kyc_issue: "kyc issue", documents_pending: "documents pending", ready_for_cpa: "ready for cpa",
+                  stuck: "stuck", needs_action: "needs action"}
+  canonicals: {count: "how many cases {filter}?", list: "show {filter} cases"}
+  # A ROLE IN THE WORKFLOW is asked with these ("WHO reviews the file once it reaches CPA?", "kaun check karta hai"):
+  # the approved stage / workflow knowledge, never the open case's own readiness (who is ON the case is not a role verb)
+  role_words: [who, kaun, kon, kisko, kiske]
+  role_verbs: [review, reviews, approve, approves, check, checks, verify, verifies, sign, signs, sanction, sanctions,
+               decide, decides, handle, handles, assess, assesses, dekhta, dekhte, karta, karte]
+  # AN ACTION ASKED WITHOUT SAYING WHICH ("sort this out for me", "ye sambhal lo"): a short request with an object to
+  # act on (action_objects), no question, and no action / topic any capability or the engine's rules recognise ->
+  # "which action?" with the supported options (control.ask_which_action); an action is never invented
+  unnamed_action_max_words: 6
+
 # DECISION THRESHOLDS (cosine on nomic-embed-text, measured on the golden set; recalibrate when the model changes)
 decide:
+  # QWEN DECIDES EVERY READING (owner, 2026-10-13): the embedding narrows to `model_candidates`, Qwen picks one
+  # or none; a clear embedding winner answers only when Qwen cannot run
+  model_always: false        # PAUSED with the chatbot work (2026-10-13): true = Qwen decides every reading
   accept: 0.78        # top intent at least this AND ahead of the next by `margin` -> executed, no model
   margin: 0.04
   floor: 0.55         # below this for every intent: not understood -> the model decides (or the old rules on fallback)
@@ -423,6 +590,15 @@ decide:
     count_words: ['\b(how many|count|number of|total|kitne|kitni|kitna)\b']
     kyc_words: ['\bkyc\b', '\bidentity check\b']
     intents: {list: portfolio_pending, count: portfolio_count, kyc_list: portfolio_kyc, kyc_count: portfolio_kyc_count}
+    # THE STATUS CUE FROM THE MEANING (Phase 2): a case-STATUS reading of a message about the cases (plural) is that
+    # status over the cases -- typos / words the cue list lacks ("show my pendng cases", "files CPA ke liye ready")
+    status_intents: [pending_documents, why_stuck, case_status, kyc_status, cpa_readiness, document_status]
+    # the officer's OWN cases named: a selection question over them is the portfolio even on a knowledge reading
+    # THE FILTER FROM THE READING when the words name none ("which applications are ELIGIBLE to move to CPA?"):
+    # a case-status reading over the cases is that status's own list filter (case_list.yaml filters)
+    status_filters: {cpa_readiness: ready_for_cpa, kyc_status: kyc_issue, pending_documents: documents_pending,
+                     why_stuck: stuck}
+    owned_words: ['\b(my|mine|mere|meri|mera|humare|hamare|our)\b']
   # CLOSE CALL, DECIDED INTERNALLY (2026-10-12, meaning._clarify): two CLOSE readings of a confusable pair, neither
   # ahead by `margin` -> the previous turn's reading continues, else BOTH are answered (no buttons). A pair is
   # added here only from measured confusions (evals / router misses); never a clear lead.

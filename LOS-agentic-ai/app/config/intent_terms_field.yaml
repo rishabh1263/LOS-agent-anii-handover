@@ -1,0 +1,347 @@
+# FIELD-OFFICER TERMS (curated 2026-10-16) -- read into the meaning bank via intent_catalogue.yaml paraphrase_files.
+# How officers really type on a phone: Hinglish, short forms (docs, stmt, cust, mob, pls, h, kr), typos, Devanagari
+# and Marathi. Each line is an example of its intent's MEANING, not a keyword rule: the embedding bank + classifier
+# generalise from them, and Qwen still decides anything unclear.
+#
+# PAIRS THAT GET CONFUSED are written side by side on purpose (pending vs uploaded, status vs stage, why-stuck vs
+# next-step, this case vs the how-to, one document's status vs its fields).
+#
+# RULES: never copy a sentence from evals/copilot/meaning_heldout_*.yaml (measured only); after editing, retrain
+# (python scripts/train_meaning_classifier.py) and measure (python -m evals.copilot.routing_eval).
+paraphrases:
+  kyc_status:
+  - kyc ka kya scene hai
+  - kyc pass hua kya is customer ka
+  - kyc me koi dikkat hai kya
+  - kyc theek se ho gaya na
+  - kyc fail to nahi hua
+  - kyc complete hai ya pending
+  - naam match ho raha hai sab documents me
+  - pan aur aadhaar pe naam same hai kya
+  - janam tithi sab documents me ek jaisi hai kya
+  - dob mismatch to nahi hai
+  - documents aur form ki details match ho rahi hai
+  - kahi naam alag to nahi likha
+  - name mismatch hai kya kisi doc me
+  - kyc chk kro
+  - kyc ok?
+  - identity verification ho gaya kya
+  - केवाईसी का स्टेटस बताओ
+  - केवाईसी पास हुआ या नहीं
+  - नाम सब कागज़ों में एक जैसा है क्या
+  - केवायसी पूर्ण झाले का
+  pending_documents:
+  - abhi kya kya bacha hai
+  - kaunse kagaz reh gaye
+  - kya kya nahi aaya abhi tak
+  - konse docs bache hai
+  - kitne documents abhi aane baaki hai
+  - pending list do
+  - jo docs missing hai woh batao
+  - aur kya chahiye is file ke liye
+  - is case me kya adhoora hai
+  - kya submit karna reh gaya
+  - pnding docs
+  - missng documents list
+  - docs baki h kya
+  - अभी कौन से दस्तावेज़ नहीं आए
+  - कौन सा कागज़ रह गया है
+  - अजून कोणती कागदपत्रे यायची आहेत
+  uploaded_documents:
+  - kya kya aa gaya hai ab tak
+  - kaunse docs mil chuke hai
+  - upload hue documents ki list
+  - jo jo upload ho gaya woh dikhao
+  - sab documents verify hue kya
+  - saare docs pass ho gaye
+  - koi document reject hua hai kya
+  - kuch fail to nahi hua documents me
+  - kitne docs upload ho chuke
+  - docs ka status ek saath dikhao
+  - konse documents verified hai
+  - अब तक कौन से दस्तावेज़ अपलोड हुए
+  - कोणती कागदपत्रे अपलोड झाली आहेत
+  document_status:
+  - pan theek hai kya
+  - pan verify hua ki nahi
+  - bank stmt ka status
+  - bank statement pass hua kya
+  - salary slip verify hui
+  - payslip ok hai na
+  - itr verify ho gaya
+  - dl verified hai kya
+  - driving licence ka kya hua
+  - voter id pass hua
+  - passport verify hua ya nahi
+  - address proof ka kya status hai
+  - signature verify ho gaya kya
+  - पैन वेरिफाई हुआ या नहीं
+  - बैंक स्टेटमेंट पास हुआ क्या
+  document_rejection:
+  - pan kyu reject ho gaya
+  - pan me kya problem thi
+  - bank statement kyon fail hua
+  - salary slip reject hone ka reason
+  - address proof me kya galat tha
+  - itr kis wajah se reject hua
+  - dl kyu nahi chala
+  - passport fail kyu hua
+  - reject ka karan batao pan ka
+  - पैन रिजेक्ट क्यों हुआ
+  case_record:
+  - pan pe father ka naam kya hai
+  - pan me dob kya likha hai
+  - pan number kya hai is customer ka
+  - bank statement me closing balance kya hai
+  - statement ka period kya hai
+  - account number kya hai statement me
+  - salary slip me net pay kitna hai
+  - gross salary kitni hai slip pe
+  - employer ka naam kya hai salary slip me
+  - dl ki expiry date kya hai
+  - licence kab expire hoga
+  - itr me total income kitni hai
+  - assessment year kya hai itr ka
+  - voter id pe address kya hai
+  - pan ki details dikhao
+  - pan card ka data batao
+  - bank statement ki saari details batao
+  - documents se kya kya data mila
+  - har document ki details do
+  case_status:
+  - is case ka kya haal hai
+  - file kaha tak aayi
+  - koi update hai kya is file pe
+  - case ka status batao bhai
+  - application kaisi chal rahi hai
+  - sab theek chal raha hai is case me
+  - file ka update do
+  - stts kya hai
+  - status pls
+  - इस केस का क्या हाल है
+  - या केसची स्थिती काय आहे
+  case_summary:
+  - poori file ka saar batao
+  - ek line me pura case batao
+  - is case ka short summary do
+  - is file ka overview do
+  - sab kuch ek saath batao is case ka
+  - case ke baare me sab batao
+  - summary de do
+  - इस केस का सारांश दो
+  why_stuck:
+  - case kyu ruka hua hai
+  - file aage kyun nahi ja rahi
+  - kya cheez rok rahi hai is case ko
+  - kis karan se atka hai
+  - case hold pe kyu hai
+  - ye move kyu nahi ho raha
+  - problem kya hai is file me
+  - kya adchan hai
+  - केस आगे क्यों नहीं बढ़ रहा
+  - केस का अटका है
+  next_step:
+  - ab mujhe kya karna hai
+  - aage kya kru
+  - mera agla step kya hai
+  - is case pe ab kya action lu
+  - ab kya karna padega
+  - next kya karna hai bhai
+  - mujhe kya karna chahiye ab
+  - agla kaam batao
+  - अब मुझे क्या करना है
+  - आता पुढे काय करायचे
+  cpa_readiness:
+  - cpa bhej du kya
+  - cpa ke liye ready hai kya
+  - cpa me push kar sakte hai
+  - credit team ko bhej sakte hai kya ab
+  - aage bhejne layak hai kya file
+  - file cpa jaane ke liye tayyar hai
+  - cpa me move ho jayega kya
+  - kya cpa ke liye kuch bacha hai
+  - क्या ये सीपीए के लिए तैयार है
+  case_stage:
+  - abhi kis stage me hai file
+  - case kis level pe pahucha
+  - file kiske paas hai abhi
+  - fos pe hi hai ya aage gayi
+  - credit tak pahuchi kya
+  - konse stage pe hai
+  - फाइल अभी किस स्टेज पर है
+  time_in_stage:
+  - kitne din ho gaye is stage pe
+  - kab se atka hua hai
+  - kitne dino se pending hai file
+  - is stage me kitna time laga
+  - kitne din se fos pe hai
+  case_history:
+  - is case me ab tak kya hua
+  - file ki timeline dikhao
+  - case me kaun kaun se events hue
+  - case ki history batao
+  - pehle kya kya hua tha is file pe
+  query_status:
+  - is case pe query raise hui hai kya
+  - query ka status kya hai
+  - kaunsi queries khuli hai
+  - raised query ka kya hua
+  - query ka jawab aaya kya
+  loan_amount:
+  - kitne ka loan hai
+  - loan kitna chahiye customer ko
+  - amount kitna dala hai
+  - loan amount kya hai bhai
+  - kitna paisa maanga hai
+  - loan ki rakam kya hai
+  - लोन कितने का है
+  applicant_name:
+  - customer kaun hai
+  - ye kis customer ka case hai
+  - applicant ka naam batao
+  - kiska case hai ye
+  - borrower ka naam kya hai
+  - ग्राहक का नाम क्या है
+  applicant_contact:
+  - customer ka number do
+  - cust ka phone no
+  - mobile number batao customer ka
+  - customer ka email kya hai
+  - customer kaha rehta hai
+  - customer ka address do
+  - customer ki dob kya hai
+  - ग्राहक का मोबाइल नंबर
+  application_details:
+  - form me kya kya bhara hai
+  - application ki details dikhao
+  - tenure kitna liya hai
+  - kaunsa product hai
+  - naukri ya business kya likha hai form me
+  customer_message:
+  - customer ko message bhejna hai draft karo
+  - customer ke liye sms likh do
+  - whatsapp pe kya bheju customer ko likh do
+  - customer ko reminder message bana do
+  collect_from_customer:
+  - customer se kya kya lena hai
+  - visit pe customer se kya collect karu
+  - customer ke ghar jaake kya kya lana hai
+  - collect karne ki list do
+  work_queue:
+  - pehle kaunsi file uthau
+  - aaj kis case pe kaam karna chahiye
+  - sabse urgent case kaunsa hai
+  - priority me konsa case hai
+  portfolio_pending:
+  - mere kaunse cases me kuch pending hai
+  - jin cases me docs baaki hai unki list
+  - pending wale cases dikhao
+  portfolio_count:
+  - kitne cases me documents baaki hai
+  - kitni files me kuch pending hai
+  - mere kitne case adhoore hai
+  portfolio_kyc:
+  - kin cases me kyc problem hai
+  - kyc fail wale cases dikhao
+  - kis kis file me naam mismatch hai
+  process_create_case:
+  - naya case kaise banaye
+  - nayi file kaise kholte hai
+  - new application kaise create kare
+  - case banane ka tarika batao
+  process_upload:
+  - document kaise upload kare
+  - upload karne ka tarika kya hai
+  - photo kaise daalu app me
+  - kagaz kaise chadhaye system me
+  process_fix_rejected:
+  - reject hua document kaise sahi kare
+  - rejected document ka kya karna hota hai
+  - reject doc dobara kaise bheje
+  process_stages:
+  - loan me kaun kaun se stage hote hai
+  - file kis kis stage se guzarti hai
+  - cpa ke baad kya hota hai
+  - loan process ke steps kya hai
+  process_move_to_cpa:
+  - file cpa me kaise bhejte hai
+  - cpa me bhejne ke steps
+  - case ko aage kaise bheju generally
+  knowledge_term:
+  - foir kya hota hai
+  - ltv ka matlab
+  - cibil kya hai
+  - emi ka full form
+  - nach mandate kya hai
+  - abb kya hota hai banking me
+  - sanction letter kya hota hai
+  knowledge_documents:
+  - gas bill chalega kya address proof ke liye
+  - rent agreement valid hai address proof me
+  - aadhaar chalega id proof me
+  - passport address proof ke liye le sakte hai
+  - kaunse documents address proof me chalte hai
+  - id proof ke liye kya kya valid hai
+  - bijli ka bill address proof chalega
+  policy_value:
+  - maximum tenure kitna hai
+  - company ki minimum income policy kya hai
+  - interest rate kitna hai
+  - processing fee kitni hai
+  - max loan kitna mil sakta hai
+  - cibil cut off kya hai company ka
+  credit_decision:
+  - credit wale approve karenge kya
+  - sanction ho jayega ye case
+  - approve kar do
+  - reject hoga kya ye file
+  calculator:
+  - 3 lakh 2 saal ka emi batao
+  - 10 lakh pe 5 saal ki emi kitni
+  - foir calculate karo 40000 income 15000 emi
+  small_talk:
+  - hello
+  - hi bhai
+  - kaise ho
+  - tum kaun ho
+  - kya madad kar sakte ho
+  - tum kya kar sakte ho mere liye
+  thanks:
+  - dhanyavaad
+  - thank u bhai
+  - thnx
+  - shukriya ji
+  - bahut shukriya
+  acknowledgement:
+  - accha theek hai
+  - samajh gaya
+  - ok noted
+  - thik h
+  out_of_scope:
+  - weather kaisa hai aaj
+  - cricket score kya hai
+  - koi movie batao
+  - joke sunao na
+  - election kaun jeetega
+  - khana kaha milega accha
+  # 2026-10-18: general knowledge, coding, investment advice, travel / health -- clearly not the LOS
+  - which country has the largest population
+  - who invented the telephone
+  - how far is the moon from earth
+  - what is the national animal of india
+  - translate this sentence into french
+  - help me write a java function
+  - fix the bug in my sql query
+  - write me an excel macro
+  - which stock should i buy today
+  - where should i invest my savings
+  - is gold a good investment this year
+  - which sip gives the best returns
+  - bitcoin ka rate kya hai
+  - paise kahan invest karu
+  - konsa share kharidu
+  - plan a trip to goa for me
+  - suggest a good hotel in delhi
+  - what should i eat to lose weight
+  - mujhe sir dard ki dawai batao
+  - duniya ka sabse uncha pahad kaunsa hai

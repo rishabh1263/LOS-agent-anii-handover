@@ -1,0 +1,49 @@
+# QWEN AGENT -- HELD-OUT conversations (2026-10-13). FROZEN: written before any tuning, md5 in
+# runs/agent_heldout.md5. Never tune on these; run them only for the final measurement.
+#
+# The same case as agent_dev.yaml: Rahul Sharma, PERSONAL_LOAN. Verified: PAN, Salary Slip, Bank Statement.
+# Pending: Address Proof, Signature. No co-applicant. Address proof accepts Driving Licence, Passport, Voter ID.
+conversations:
+  - id: h_missing_then_why
+    turns:
+      - q: "abhi kaunse documents baaki hain is file me?"
+        all: [[address proof], [signature]]
+        never: [approved]
+      - q: "ye dono kab tak chahiye?"
+        never: ["days", "hours", "within"]
+  - id: h_accepted_passport
+    turns:
+      - q: "address proof ke liye kya kya chalta hai"
+        all: [[passport], [voter id]]
+      - q: "passport de diya toh theek hai na?"
+        all: [[passport], ["haan", "yes", "accepted", "chalega", "chalta", "theek", "valid", "can be"]]
+        never: ["not accepted"]
+  - id: h_doc_status_chain
+    turns:
+      - q: "bank statement verified hai?"
+        all: [[bank statement], [verified, verify, pass]]
+      - q: "and the PAN?"
+        all: [[pan], [verified, verify, pass]]
+        never: [bank statement is pending]
+  - id: h_english_status
+    turns:
+      - q: "what's holding this application up?"
+        all: [[address proof, signature]]
+      - q: "ok so what should I do now"
+        all: [[address proof, signature, upload]]
+  - id: h_aadhaar_question
+    turns:
+      - q: "aadhaar address proof me chalega kya?"
+        never: ["Showing"]
+  - id: h_kyc
+    turns:
+      - q: "kyc theek hai is customer ka?"
+        all: [[kyc]]
+  - id: h_process_stages
+    turns:
+      - q: "loan file ke stages kya kya hote hain?"
+        all: [[fos, cpa]]
+  - id: h_vague
+    turns:
+      - q: "help"
+        question: true

@@ -1,0 +1,77 @@
+# QWEN AGENT -- ENGLISH DEV conversations (2026-10-13, owner: "at least make English smooth first"). Tune on these;
+# the held-out set (agent_heldout.yaml) is frozen and never tuned on.
+#
+# The case (built fresh by evals/copilot/agent_eval.py): Rahul Sharma, PERSONAL_LOAN. Verified: PAN, Salary Slip,
+# Bank Statement. Pending: Address Proof, Signature. No co-applicant. Address proof accepts Driving Licence, Passport,
+# Voter ID.
+#
+# A turn passes when the answer contains EVERY `all` group (each group: any one of its phrases, case-insensitive),
+# none of `never`, and -- with `question: true` -- asks a question back.
+conversations:
+  - id: e_greeting
+    turns:
+      - q: "hi"
+        never: ["address proof", "signature", "verified"]
+      - q: "what's pending on this case?"
+        all: [[address proof], [signature]]
+        never: [approved, rejected]
+      - q: "and the co-applicant?"
+        all: [[co-applicant, co applicant]]
+        never: ["Showing"]
+  - id: e_faq_followup
+    turns:
+      - q: "what can I submit as address proof?"
+        all: [[voter id], [passport], [driving licence, driving license]]
+      - q: "is a voter ID fine?"
+        all: [[voter id], ["yes", "accepted", "valid", "can be", "works"]]
+        never: ["not accepted", "what would you like to do"]
+  - id: e_documents_chain
+    turns:
+      - q: "has the PAN been verified?"
+        all: [[pan], [verified]]
+        never: [voter id]
+      - q: "what about the salary slip?"
+        all: [[salary slip], [verified, pass]]
+        never: ["Showing"]
+      - q: "and the bank statement?"
+        all: [[bank statement], [verified, pass]]
+  - id: e_blocked_next
+    turns:
+      - q: "why is this case stuck?"
+        all: [[address proof, signature]]
+      - q: "what should I do next?"
+        all: [[address proof, upload, signature]]
+  - id: e_documents_list
+    turns:
+      - q: "which documents have been uploaded?"
+        all: [[pan], [salary slip], [bank statement]]
+      - q: "which ones are still missing?"
+        all: [[address proof], [signature]]
+        never: ["salary slip is missing", "pan is missing"]
+  - id: e_process
+    turns:
+      - q: "how do I send a case from FOS to CPA?"
+        all: [[cpa]]
+        never: ["I don't know", "don't have"]
+      - q: "who reviews it after that?"
+        all: [[cpa, credit]]
+        never: ["I don't know"]
+  - id: e_unclear
+    turns:
+      - q: "I don't understand anything"
+        question: true
+      - q: "can you handle it"
+        question: true
+  - id: e_upload_howto
+    turns:
+      - q: "how do I upload the signature?"
+        all: [[upload]]
+  - id: e_status
+    turns:
+      - q: "what's the status of this application?"
+        all: [[pending, address proof, signature, document]]
+        never: [approved, rejected]
+  - id: e_thanks
+    turns:
+      - q: "thanks, that helps"
+        never: ["address proof", "I don't know"]

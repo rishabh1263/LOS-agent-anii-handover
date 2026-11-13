@@ -131,7 +131,8 @@ def _financial(ctx: UnderwritingContext, observations: dict[str, Observation],
 
     eligibility, income, bank = data("eligibility.get|"), data("income.get|"), \
         data("bank_behaviour.get|")
-    risk, documents = data("risk.get|"), data("documents.get|")
+    risk, documents, repayment = data("risk.get|"), data("documents.get|"), data("repayment.get|")
+    readiness = data("document_readiness.get|")
     diff = resolved.get(("income.declared_vs_recorded_diff_pct", None))
     return {
         "declared_monthly_income": ctx.declared_monthly_income,
@@ -145,6 +146,10 @@ def _financial(ctx: UnderwritingContext, observations: dict[str, Observation],
             "final_outcome", "risk_category", "risk_score") if k in risk} or None,
         "banking_recorded": {k: v for k, v in bank.items()
                              if k not in ("statements",)} or None,
+        "repayment_recorded": repayment or None,
+        "document_readiness_recorded": {k: readiness.get(k) for k in (
+            "status", "credit_underwriting_allowed", "recommended_action", "open_requirements",
+            "blocking_open", "policy_version") if k in readiness} or None,
         "documents_recorded": {k: documents.get(k) for k in (
             "document_count", "verified_pass_count", "not_passed_count",
             "unverified_count") if k in documents} or None,

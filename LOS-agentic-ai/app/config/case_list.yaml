@@ -7,19 +7,22 @@ enabled: true
 page_size: 5         # one chat reply never shows more than one page
 max_page_size: 20
 cache_ttl_seconds: 30 # per user: the computed row statuses of their cases
+row_workers: 8       # rows / ownership checks computed in parallel (the case store pool holds 16)
+parallel_from: 20    # a shorter list is computed inline
 
 # the default order (owner 2026-10-08): the officer's 5 MOST RECENT cases first. "needs_action" stays available
 # ("KYC wale", "atke hue", the table's sort); the list never shows more than one page
 default_sort: recent
 sorts:
-  needs_action: { order: [KYC, DOCS, OTHER, READY], then: recent }
+  needs_action: { order: [KYC, DOCS, GATE, OTHER, READY], then: recent }
   recent: { by: updated_at, desc: true }
   oldest: { by: created_at, desc: false }
   longest_in_stage: { by: days_in_stage, desc: true }
 
-# filters: a row status kind (KYC / DOCS / READY / OTHER), "over target" (timeline), a stage, a product
+# filters: a row status kind (KYC / DOCS / READY / GATE / OTHER), "over target" (timeline), a stage, a product.
+# READY = the CPA move gate PASSES (workspace._move_gate_passes); GATE = requirements met, the gate does not pass
 filters:
-  needs_action: { kinds: [KYC, DOCS] }
+  needs_action: { kinds: [KYC, DOCS, GATE] }
   kyc_issue: { kinds: [KYC] }
   documents_pending: { kinds: [DOCS] }
   ready_for_cpa: { kinds: [READY] }
@@ -70,7 +73,11 @@ phrases:
   # a number said as a word
   # "the first one" / "the second case" after a list: that row (negative = from the end)
   ordinals: { first one: 1, second one: 2, third one: 3, last one: -1, first case: 1, second case: 2, third case: 3,
-              1st one: 1, 2nd one: 2, 3rd one: 3, top one: 1 }
+              1st one: 1, 2nd one: 2, 3rd one: 3, top one: 1,
+              # Hinglish ordinals (Phase 2): "teesre wale ka status", "nahi, doosra wala"
+              pehla wala: 1, pehle wala: 1, pehle wale: 1, doosra wala: 2, dusra wala: 2, doosre wala: 2,
+              doosre wale: 2, dusre wale: 2, teesra wala: 3, teesre wala: 3, teesre wale: 3, aakhri wala: -1,
+              last wala: -1 }
   numbers: { ek: 1, one: 1, do: 2, two: 2, teen: 3, three: 3, char: 4, chaar: 4, four: 4, paanch: 5, panch: 5,
              five: 5, chhe: 6, six: 6, saat: 7, seven: 7, aath: 8, eight: 8, nau: 9, nine: 9, das: 10, ten: 10 }
 
@@ -188,8 +195,16 @@ insights:
     amount_needs: ['\b(case|cases|file|files|application|applications|applicant|applicants|customer|customers|kis|kiska|kiske|which one)\b']
     count: ['\bhow many\b.*\b(cases?|files?|applications?)\b','\b(kitne|kitni)\b.*\b(cases?|files?|applications?)\b',
             '\bnumber of\b.*\b(cases?|files?|applications?)\b', '\bcount\b.*\b(cases?|files?)\b']
+  # ONE DOCUMENT counted over the cases ("how many applications are missing the bank statement?"): a document named
+  # + one of these (matched on the padded, lower-cased words)
+  document_missing_cues: [' missing ', ' pending ', ' not uploaded ', ' not been uploaded ', ' without ', ' lack ',
+                          ' lacking ', ' nahi ', ' nahin ', ' baaki ', ' baki ', ' don t have ', ' haven t ',
+                          ' still need ', ' yet to ', ' due ']
   texts:
     count: { en: "{n} of your {total} cases: {what}.", hi-Latn: "Aapke {total} mein se {n} cases: {what}." }
+    document_missing: { en: "{document} still pending", hi-Latn: "{document} abhi baaki" }
+    unreadable: { en: "{n} case(s) could not be read and are not counted.",
+                  hi-Latn: "{n} case padhe nahi ja sake, isliye gine nahi gaye." }
     closest: { en: "Closest to CPA (fewest items left first):", hi-Latn: "CPA ke sabse kareeb (sabse kam kaam baaki):" }
     none_at_fos: { en: "None of your cases is at FOS, so none is waiting to move to CPA.",
                    hi-Latn: "Aapka koi case FOS par nahi hai, isliye koi CPA ke liye ruka nahi hai." }

@@ -1,0 +1,545 @@
+{
+  "note": "Config for the Fill sample button. Every value it produces is SYNTHETIC and drawn at random from these pools and ranges. The backend's form-schema rules still win (choices, min/max, age): anything outside them is clamped or left out.",
+  "customer_type_weights": {
+    "New": 0.5,
+    "Existing": 0.5
+  },
+  "names": {
+    "note": "first and middle names are drawn from the SAME gender pool, so a name never mixes genders",
+    "male": {
+      "first": [
+        "Aarav",
+        "Vihaan",
+        "Aditya",
+        "Arjun",
+        "Rohan",
+        "Karan",
+        "Siddharth",
+        "Nikhil",
+        "Rahul",
+        "Amit",
+        "Saurabh",
+        "Pranav",
+        "Ishaan",
+        "Manish",
+        "Deepak",
+        "Vikram",
+        "Harsh",
+        "Yash",
+        "Abhishek",
+        "Gaurav"
+      ],
+      "middle": [
+        "Kumar",
+        "Prasad",
+        "Nath",
+        "Chandra",
+        "Mohan",
+        "Raj"
+      ]
+    },
+    "female": {
+      "first": [
+        "Ananya",
+        "Diya",
+        "Priya",
+        "Sneha",
+        "Kavya",
+        "Pooja",
+        "Neha",
+        "Riya",
+        "Shruti",
+        "Meera",
+        "Aishwarya",
+        "Swati",
+        "Nandini",
+        "Tanvi",
+        "Kirti",
+        "Divya",
+        "Shreya",
+        "Isha",
+        "Pallavi",
+        "Anjali"
+      ],
+      "middle": [
+        "Kumari",
+        "Devi",
+        "Rani",
+        "Lata"
+      ]
+    },
+    "gender_weights": {
+      "male": 0.55,
+      "female": 0.45
+    },
+    "last": [
+      "Sharma",
+      "Verma",
+      "Gupta",
+      "Agarwal",
+      "Patil",
+      "Deshmukh",
+      "Kulkarni",
+      "Joshi",
+      "Iyer",
+      "Nair",
+      "Reddy",
+      "Rao",
+      "Chauhan",
+      "Rathore",
+      "Mehta",
+      "Shah",
+      "Desai",
+      "Pandey",
+      "Mishra",
+      "Yadav",
+      "Singh",
+      "Jain",
+      "Bansal",
+      "Kapoor",
+      "Malhotra",
+      "Bhatt",
+      "Menon",
+      "Pillai",
+      "Saxena",
+      "Tiwari"
+    ],
+    "middle_probability": 0.15
+  },
+  "address": {
+    "unit_formats": [
+      "Flat {n}",
+      "House No. {n}",
+      "Plot {n}",
+      "B-{n}",
+      "{n}/{m}"
+    ],
+    "unit_number": [
+      1,
+      999
+    ],
+    "buildings": [
+      "Shanti Niwas",
+      "Sai Residency",
+      "Green Park Apartments",
+      "Ganesh Kripa",
+      "Sunrise Heights",
+      "Lakshmi Sadan",
+      "Om Shivam Society",
+      "Royal Enclave",
+      "Krishna Kunj",
+      "Silver Oak Towers"
+    ],
+    "cities": [
+      {
+        "city": "Pune",
+        "state": "Maharashtra",
+        "pincode": [
+          411001,
+          411062
+        ],
+        "localities": [
+          "Kothrud",
+          "Baner",
+          "Hadapsar",
+          "Wakad",
+          "Aundh"
+        ]
+      },
+      {
+        "city": "Nashik",
+        "state": "Maharashtra",
+        "pincode": [
+          422001,
+          422013
+        ],
+        "localities": [
+          "Gangapur Road",
+          "College Road",
+          "Indira Nagar",
+          "Panchavati"
+        ]
+      },
+      {
+        "city": "Jaipur",
+        "state": "Rajasthan",
+        "pincode": [
+          302001,
+          302039
+        ],
+        "localities": [
+          "Malviya Nagar",
+          "Vaishali Nagar",
+          "Mansarovar",
+          "C-Scheme"
+        ]
+      },
+      {
+        "city": "Indore",
+        "state": "Madhya Pradesh",
+        "pincode": [
+          452001,
+          452020
+        ],
+        "localities": [
+          "Vijay Nagar",
+          "Palasia",
+          "Rajendra Nagar",
+          "Bhawarkua"
+        ]
+      },
+      {
+        "city": "Ahmedabad",
+        "state": "Gujarat",
+        "pincode": [
+          380001,
+          380061
+        ],
+        "localities": [
+          "Navrangpura",
+          "Satellite",
+          "Maninagar",
+          "Bopal"
+        ]
+      },
+      {
+        "city": "Lucknow",
+        "state": "Uttar Pradesh",
+        "pincode": [
+          226001,
+          226031
+        ],
+        "localities": [
+          "Gomti Nagar",
+          "Aliganj",
+          "Indira Nagar",
+          "Hazratganj"
+        ]
+      },
+      {
+        "city": "Hyderabad",
+        "state": "Telangana",
+        "pincode": [
+          500001,
+          500096
+        ],
+        "localities": [
+          "Kukatpally",
+          "Madhapur",
+          "Ameerpet",
+          "LB Nagar"
+        ]
+      },
+      {
+        "city": "Bengaluru",
+        "state": "Karnataka",
+        "pincode": [
+          560001,
+          560103
+        ],
+        "localities": [
+          "Jayanagar",
+          "Whitefield",
+          "Indiranagar",
+          "HSR Layout"
+        ]
+      },
+      {
+        "city": "Coimbatore",
+        "state": "Tamil Nadu",
+        "pincode": [
+          641001,
+          641049
+        ],
+        "localities": [
+          "RS Puram",
+          "Peelamedu",
+          "Saibaba Colony",
+          "Gandhipuram"
+        ]
+      },
+      {
+        "city": "Nagpur",
+        "state": "Maharashtra",
+        "pincode": [
+          440001,
+          440037
+        ],
+        "localities": [
+          "Dharampeth",
+          "Sitabuldi",
+          "Manish Nagar",
+          "Sadar"
+        ]
+      }
+    ]
+  },
+  "mobile": {
+    "first_digit": [
+      "6",
+      "7",
+      "8",
+      "9"
+    ]
+  },
+  "email": {
+    "probability": 0.75,
+    "domains": [
+      "example.com",
+      "example.in",
+      "example.org"
+    ]
+  },
+  "age": [
+    23,
+    58
+  ],
+  "employment_weights": {
+    "SALARIED": 0.6,
+    "SELF_EMPLOYED": 0.4
+  },
+  "monthly_income": {
+    "SALARIED": [
+      25000,
+      250000
+    ],
+    "SELF_EMPLOYED": [
+      40000,
+      400000
+    ],
+    "round_to": 500
+  },
+  "obligations_share_of_income": [
+    0.03,
+    0.35
+  ],
+  "max_foir": 0.55,
+  "product_weights": {
+    "PERSONAL_LOAN": 0.4,
+    "HOME_LOAN": 0.3,
+    "LOAN_AGAINST_PROPERTY": 0.3
+  },
+  "products": {
+    "PERSONAL_LOAN": {
+      "amount": [
+        100000,
+        2000000
+      ],
+      "round_to": 10000,
+      "tenure_months": [
+        12,
+        60
+      ],
+      "tenure_step": 12,
+      "interest_rate_pct": [
+        10.5,
+        21
+      ]
+    },
+    "HOME_LOAN": {
+      "amount": [
+        1000000,
+        10000000
+      ],
+      "round_to": 50000,
+      "tenure_months": [
+        120,
+        300
+      ],
+      "tenure_step": 12,
+      "interest_rate_pct": [
+        8.4,
+        11.5
+      ],
+      "loan_to_value": [
+        0.55,
+        0.8
+      ]
+    },
+    "LOAN_AGAINST_PROPERTY": {
+      "amount": [
+        500000,
+        8000000
+      ],
+      "round_to": 50000,
+      "tenure_months": [
+        60,
+        180
+      ],
+      "tenure_step": 12,
+      "interest_rate_pct": [
+        10,
+        15
+      ],
+      "loan_to_value": [
+        0.35,
+        0.6
+      ]
+    }
+  },
+  "property_value_round_to": 100000,
+  "interest_rate_step": 0.05,
+  "existing": {
+    "parameter_weights": {
+      "PAN": 0.4,
+      "Mobile No": 0.3,
+      "AP Code": 0.2,
+      "PR Code": 0.1
+    },
+    "use_known_customer_probability": 0.75,
+    "known_customers_note": "Synthetic customers of the demo MIFIN/LMS sources (app/config/demo/mifin_demo.yaml), so an Existing sample usually finds a history. The rest get a random, well-formed identifier that is most likely unknown. The demo's MIFIN-error case is NOT here (mifin_demo.yaml case 6): Fill sample gives a normal answer; the error path is covered by the E2E test (N09).",
+    "known_customers": [
+      {
+        "PAN": "ABCPK4321L",
+        "Mobile No": "9876501111",
+        "AP Code": "AP00731942",
+        "PR Code": "PR02184467"
+      },
+      {
+        "PAN": "BCDPM5678N",
+        "Mobile No": "9876502222",
+        "AP Code": "AP00745218",
+        "PR Code": "PR02407753"
+      },
+      {
+        "PAN": "CDEPN2468Q",
+        "Mobile No": "9876503333",
+        "AP Code": "AP00752673"
+      },
+      {
+        "PAN": "DEFPR1357S",
+        "Mobile No": "9876504444",
+        "AP Code": "AP00768031",
+        "PR Code": "PR02455102"
+      },
+      {
+        "Mobile No": "9876505555"
+      },
+      {
+        "PAN": "FGHPT8642U",
+        "AP Code": "AP00783315",
+        "PR Code": "PR02490017"
+      }
+    ],
+    "random_formats": {
+      "AP Code": {
+        "prefix": "AP",
+        "digits": 8
+      },
+      "PR Code": {
+        "prefix": "PR",
+        "digits": 8
+      }
+    },
+    "pan_holder_type": "P"
+  },
+  "property_type_weights": {
+    "RESIDENTIAL": 0.6,
+    "COMMERCIAL": 0.3,
+    "INDUSTRIAL": 0.1
+  },
+  "property_type_optional_probability": 0.5,
+  "lookup": {
+    "note": "Fill sample on Check an existing case: who is checked and the declared customer type.",
+    "party_weights": {
+      "Applicant": 0.7,
+      "Co-Applicant": 0.3
+    },
+    "customer_type_weights": {
+      "Existing": 0.85,
+      "New": 0.15
+    }
+  },
+  "co_applicants": {
+    "note": "Fill sample co-applicants: how many (weights), relationship pool, age range; a share use a demo MIFIN customer's PAN so the dedupe check finds them; some have no PAN (an incomplete check). Synthetic only.",
+    "count_weights": {
+      "0": 0.35,
+      "1": 0.45,
+      "2": 0.2
+    },
+    "relationships": {
+      "male": [
+        "Spouse",
+        "Father",
+        "Brother",
+        "Son"
+      ],
+      "female": [
+        "Spouse",
+        "Mother",
+        "Sister",
+        "Daughter"
+      ]
+    },
+    "pan_probability": 0.8,
+    "known_pan_probability": 0.35,
+    "known_pans": [
+      "ABCPK4321L",
+      "CDEPN2468Q",
+      "DEFPR1357S"
+    ],
+    "age_offset_by_relationship": {
+      "Spouse": [
+        -6,
+        6
+      ],
+      "Father": [
+        22,
+        35
+      ],
+      "Mother": [
+        20,
+        32
+      ],
+      "Brother": [
+        -8,
+        8
+      ],
+      "Sister": [
+        -8,
+        8
+      ],
+      "Son": [
+        -35,
+        -20
+      ],
+      "Daughter": [
+        -35,
+        -20
+      ]
+    },
+    "age_limits": [
+      18,
+      80
+    ]
+  },
+  "sourcing": {
+    "note": "SYNTHETIC sample values for the free-text Loan Purpose / Applicant Type until the business sends the lists. Document Received Date: a random day within document_received_days_ago; co-origination yes with co_origination_probability.",
+    "loan_purposes": [
+      "Business Expansion",
+      "Working Capital",
+      "Home Purchase",
+      "Home Construction",
+      "Home Renovation",
+      "Debt Consolidation",
+      "Education",
+      "Medical Expenses",
+      "Marriage"
+    ],
+    "applicant_types": [
+      "Individual",
+      "Individual",
+      "Individual",
+      "Individual",
+      "Individual",
+      "Individual",
+      "Proprietorship"
+    ],
+    "aadhaar_linked_probability": 0.8,
+    "document_received_days_ago": [
+      0,
+      30
+    ],
+    "co_origination_probability": 0.2
+  }
+}

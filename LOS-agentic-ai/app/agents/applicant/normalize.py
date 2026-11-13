@@ -114,10 +114,16 @@ lend lends lending lender lenders lent borrow borrows borrowed borrowing custom 
 """.split())
 
 
+def _keep() -> frozenset[str]:
+    """Real words the fuzzy layer must never "correct" (applicant_agent.yaml chatbot.normalization.keep): "stock" is
+    not a typo of "stuck" -- a stock statement is a lending document (2026-10-18)."""
+    return frozenset(str(w).strip().lower() for w in _settings().get("keep") or [] if str(w).strip())
+
+
 def _fuzzy(token: str, vocabulary: frozenset[str]) -> str | None:
     lowered = token.lower()
     if (len(lowered) < _MIN_FUZZY_LENGTH or lowered in vocabulary
-            or lowered in _COMMON or token.isupper()):
+            or lowered in _COMMON or lowered in _keep() or token.isupper()):
         return None
     # AN INFLECTION IS NOT A TYPO. "statuses" is close to "status", and
     # "correcting" it turned "what are application statuses?" -- a
@@ -129,6 +135,97 @@ def _fuzzy(token: str, vocabulary: frozenset[str]) -> str | None:
     if not match or match[0] == lowered:
         return None
     return match[0]
+
+
+_VOWELS = re.compile(r"[aeiou]")
+
+
+def _skeleton(word: str) -> str:
+    """The consonants in order, doubles collapsed: "pending" -> "pndng", "statement" -> "stmnt"."""
+    letters = _VOWELS.sub("", word.lower())
+    return re.sub(r"(.)\1+", r"\1", letters)
+
+
+@lru_cache(maxsize=4)
+def _domain_words(_key: int = 0) -> dict[str, frozenset[str]]:
+    """
+    THE WORDS THIS BOT KNOWS, from its own configuration (no list written for this): the normaliser vocabulary + the
+    intent catalogue's examples and paraphrases + the document names -- indexed by consonant skeleton, for SMS-style
+    typing ("pndng", "stmt", "sgntr", "vrfd").
+    """
+    words: set[str] = set(_vocabulary())
+    try:
+        from app.agents.applicant.copilot.semantics import meaning
+
+        cat = meaning.catalogue().get("intents") or {}
+        for spec in cat.values():
+            for example in (spec or {}).get("examples") or []:
+                words.update(w.lower() for w in _WORD.findall(str(example)))
+        extra = (meaning._load("intent_paraphrases.yaml").get("paraphrases") or {})
+        for rows in extra.values():
+            for example in rows or []:
+                words.update(w.lower() for w in _WORD.findall(str(example)))
+        for alias, _name in meaning._documents():
+            words.update(w.lower() for w in _WORD.findall(alias))
+    except Exception:  # pragma: no cover - the catalogue is a convenience here
+        pass
+    index: dict[str, set[str]] = {}
+    for w in words:
+        if len(w) >= 4 and w.isascii():
+            index.setdefault(_skeleton(w), set()).add(w)
+    return {"words": frozenset(words), **{k: frozenset(v) for k, v in index.items()}}
+
+
+def _sms(token: str, known: dict[str, frozenset[str]]) -> str | None:
+    """
+    SMS-STYLE TYPING (2026-10-14 officer set: "pndng docs", "bank stmt", "sig wala"): a token with at most one vowel
+    whose consonant skeleton is the skeleton of exactly ONE known word becomes that word. Never a known word, a short
+    token (< 3 letters), ALL-CAPS (an acronym: "PAN", "DL"), or digits.
+    """
+    lowered = token.lower()
+    if len(lowered) < 3 or token.isupper() or lowered in known["words"] or lowered in _COMMON:
+        return None
+    vowels = len(_VOWELS.findall(lowered))
+    # SMS spelling drops the vowels: none at all ("pndng", "sts"), or one in a long word ("signtr"); a short word WITH
+    # a vowel is a real word ("net" is not "note", 2026-10-14)
+    if vowels > 1 or (vowels == 1 and len(lowered) < 5):
+        return None
+    skeleton = _skeleton(lowered)
+    if len(skeleton) < 3:
+        return None                      # "hmm" -> "hm" is a filler, never "home" (conversation eval i1, 2026-10-14)
+    found = known.get(skeleton) or frozenset()
+    found = frozenset(w for w in found if w[0] == lowered[0])          # the first letter is always typed
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def correct_typos(message: str) -> Normalised:
+    """
+    WORD-LEVEL CORRECTION ONLY (the chat pipeline's entry, fos_api): SMS-style skeletons and close misspellings
+    ("verfied", "adress") -> the known word. No language rewrite, no synonym phrases -- the message keeps its words and
+    language; only misspelt words change. Config chatbot.normalization.entry_typos (default on).
+    """
+    text = " ".join(str(message or "").split())
+    if not text or not _settings().get("enabled", True) or not _settings().get("entry_typos", True):
+        return Normalised(text)
+    known = _domain_words()
+    curated = _vocabulary()
+    keep = _keep()
+    changes: list[tuple[str, str]] = []
+
+    def correct(match: re.Match[str]) -> str:
+        token = match.group(0)
+        # a word the bot's own examples use ("karta", "krta", "bacha") is never changed; a close misspelling is
+        # corrected only TO the curated vocabulary -- the examples hold Hinglish spellings ("krta") that are not the
+        # right target for a correct word ("karta" -> "krta" broke a Hinglish question, 2026-10-14)
+        if token.lower() in known["words"] or token.lower() in keep:
+            return token
+        fixed = _sms(token, known) or _fuzzy(token, curated)
+        if fixed is None or fixed == token.lower():
+            return token
+        changes.append((token, fixed))
+        return fixed
+    text = _WORD.sub(correct, text)
+    return Normalised(text, tuple(changes))
 
 
 def normalise(message: str) -> Normalised:
@@ -177,4 +274,4 @@ def reload() -> None:
     _compiled.cache_clear()
 
 
-__all__ = ["Normalised", "normalise", "reload"]
+__all__ = ["Normalised", "correct_typos", "normalise", "reload"]

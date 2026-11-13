@@ -1,0 +1,59 @@
+# =====================================================================================================================
+# THE DEMO ACTIVITY that `scripts/setup_agent_databases.py --seed-demo` adds after each agent's demo rows, so EVERY
+# table of every agent database holds realistic demo data (owner 2026-10-28: "store all dummy data there in pg also in
+# clean way taki bs config rakhna"). Everything here is synthetic and marked is_demo (directly, or through the demo
+# case it belongs to): `--purge-demo --yes` removes it all. Each agent runs its OWN code paths (the same services the
+# screens call), so the rows are exactly what real use writes.
+# =====================================================================================================================
+
+actor: "demo-seed"                  # who the audit trails name for this activity
+
+eligibility:
+  enabled: true
+  check_demo_cases: true            # one eligibility check per demo case -> eligibility_runs + audit_events
+  # an officer's saved figures for a few cases -> eligibility_inputs + audit_events
+  saved_entries:
+    - { case_id: CASE-E11D00000009, entries: { requested_amount: 600000, tenure_months: 48 } }
+    - { case_id: CASE-E11D00000010, entries: { requested_amount: 7000000, tenure_months: 240, rate_percent: 9.0 } }
+    - { case_id: CASE-E11D00000014, entries: { requested_amount: 400000, tenure_months: 24 } }
+
+bank_verification:
+  enabled: true
+  # every demo case processed (runs, rule_results, extractions, summaries); false = the screen's start state (nothing
+  # verified yet, AA-failure statements left for the officer to upload)
+  process_every_case: true
+  # demo scenarios the agency then finalizes with its report -> decisions + the report document
+  finalize_scenarios: [CLEAN_AA_SUCCESS, OWNERSHIP_NEGATIVE, AA_STATEMENT_MISMATCH]
+  # the AI summary of each processed case, written by the agent's own worker with the local model (Qwen); the model
+  # not running -> none are stored (never a made-up one) and the screen writes them when a case is opened
+  ai_summaries: true
+
+crime_verification:
+  enabled: true
+  # demo applications verified through the (demo) provider -> cases, subjects, results, summaries, audit;
+  # "*" = every demo application whose details are complete
+  verify_applications: ["*"]
+  download_reports: true            # each result's PDF report generated once -> crime_verification_reports
+  # the case's plain-words AI summary through the agent's own worker (local model); the model not running -> the
+  # worker records "unavailable" and the screen / report use the rules-written summary, as always
+  ai_summaries: true
+
+docs_policy:
+  enabled: true
+  # LOS demo cases evaluated by the Document Desk (read from the LOS case store; nothing is written there)
+  cases: [DEMO-CASE-001, DEMO-CASE-002, DEMO-CASE-003, DEMO-CASE-004, DEMO-CASE-005, DEMO-CASE-006, DEMO-CASE-007,
+          DEMO-CASE-008]
+
+chatbot:
+  enabled: true
+  # demo conversations: each turn -> chat_turns_log + chat_audit; `rating` -> chat_feedback; `resolves` (an unclear
+  # question the next turn answered) -> chat_labelled_turns. Questions are the officer's words, already masked.
+  turns:
+    - { minutes_ago: 95, chat: demo-chat-1, case_id: DEMO-CASE-004, q: "what documents are pending for this case", intent: PENDING_DOCUMENTS, layer: L1, outcome: answered, ms: 340, rating: up }
+    - { minutes_ago: 94, chat: demo-chat-1, case_id: DEMO-CASE-004, q: "kya bank statement aa gaya", intent: DOCUMENT_STATUS, layer: L1, outcome: answered, ms: 410 }
+    - { minutes_ago: 92, chat: demo-chat-1, case_id: DEMO-CASE-004, q: "status batao", intent: VAGUE_OPTIONS, layer: L2, outcome: asked, ms: 820 }
+    - { minutes_ago: 91, chat: demo-chat-1, case_id: DEMO-CASE-004, q: "case ka stage kya hai", intent: CASE_STAGE, layer: L1, outcome: answered, ms: 300, resolves: "status batao" }
+    - { minutes_ago: 60, chat: demo-chat-2, case_id: DEMO-CASE-001, q: "is the applicant eligible", intent: ELIGIBILITY, layer: L1, outcome: answered, ms: 520, rating: up }
+    - { minutes_ago: 58, chat: demo-chat-2, case_id: DEMO-CASE-001, q: "foir kitna hai", intent: ELIGIBILITY, layer: L1, outcome: answered, ms: 480 }
+    - { minutes_ago: 30, chat: demo-chat-3, case_id: DEMO-CASE-006, q: "show me the co applicant kyc", intent: KYC_STATUS, layer: L1, outcome: answered, ms: 390, rating: down, reason: "wanted the PAN status first" }
+    - { minutes_ago: 29, chat: demo-chat-3, case_id: DEMO-CASE-006, q: "what is the weather today", intent: NOT_IN_SCOPE, layer: L0, outcome: fallback, ms: 120 }

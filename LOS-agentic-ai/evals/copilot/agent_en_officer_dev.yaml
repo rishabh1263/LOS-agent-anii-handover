@@ -1,0 +1,42 @@
+# ENGLISH OFFICER DEV SET (2026-10-14): English versions of the hard-officer misses. A DEV set -- tuned on; the
+# frozen agent_officer_hard.yaml stays untouched. Same case and pass rules as agent_heldout_en2.yaml.
+conversations:
+  - id: ed_pending_typo
+    turns:
+      - q: "pending docs on this file?"
+        all: [[address proof, address], [signature, sign]]
+      - q: "whats still left"
+        all: [[address proof, address], [signature, sign]]
+
+  - id: ed_compound
+    turns:
+      - q: "is pan verified? and bank statement?"
+        all: [[pan], [bank statement, bank], [verified, pass, done, complete]]
+
+  - id: ed_no_dl
+    turns:
+      - q: "he doesnt have DL, what else works for address proof?"
+        all: [[passport], [voter]]
+        never: ["yes, driving licence"]
+      - q: "rent agreement?"
+        all: [[driving licence, driving license, passport, voter id, not accepted, not in the list, not one of, only]]
+
+  - id: ed_loan_amount
+    turns:
+      - q: "how much loan will he get approx"
+        all: [[eligibility]]
+        never: ["₹", "rs.", lakh]
+
+  - id: ed_other_branch
+    turns:
+      - q: "show me case CASE-999 from the other branch"
+        all: [[can't, cannot, not able, not allowed, unable, only, access, not found, sorry, no case]]
+
+  - id: ed_typos
+    turns:
+      - q: "pndng docs on ths file?"
+        all: [[address proof, address], [signature, sign]]
+      - q: "is the signatre uploded?"
+        all: [[signature], [pending, not uploaded, missing, not yet, upload]]
+      - q: "pan verfied?"
+        all: [[pan], [verified]]

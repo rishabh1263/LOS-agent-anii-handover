@@ -14,6 +14,7 @@ gaps, exceptions, no approval / rejection).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, timedelta
 from typing import Any, Callable
 
 from app.agents.runtime.evals.contracts import EvalCase, Expectations
@@ -44,12 +45,45 @@ RISK = {"risk": {"risk_category": "LOW", "risk_score": 12, "final_outcome": "PAS
                  "flags": []}}
 
 
+# THE CREDIT-STAGE DOCUMENT SET (docs_verify_credit_agent, document_readiness.get): dated relative to the run so the
+# period / freshness rules hold whenever the suite runs. A case that is not about documents carries the full set.
+_TODAY = date.today()
+_BANK_END = _TODAY - timedelta(days=5)
+# 6 months of statement: comfortably more than the 3 the product policy asks for
+_BANK_PERIOD = {"period_start": (_BANK_END - timedelta(days=200)).isoformat(), "period_end": _BANK_END.isoformat()}
+_LAST_MONTH = (_TODAY.replace(day=1) - timedelta(days=1)).strftime("%B %Y").upper()
+
+
+def _doc(source: str, kind: str, party: str, fields: dict | None = None) -> dict:
+    return {"source_id": source, "type": kind, "verification": "PASS", "party_id": party,
+            **({"extraction": {"fields": fields}} if fields else {})}
+
+
+def credit_docs(party: str = "APP-EVAL", *, slip: bool = True) -> list[dict]:
+    """Address proof, signature and (optionally) a recent salary slip for the applicant."""
+    out = [_doc(f"passport-{party}.jpg", "PASSPORT", party,
+                {"valid_until": (_TODAY + timedelta(days=900)).isoformat()}),
+           _doc(f"sign-{party}.png", "SIGNATURE", party)]
+    if slip:
+        out.append(_doc(f"slip-{party}.pdf", "SALARY_SLIP", party, {"pay_period": _LAST_MONTH}))
+    return out
+
+
+def co_docs(party: str = "APP-EVAL-CO") -> list[dict]:
+    """The co-applicant's own full set: the same checklist as the applicant (credit document policy CO_APPLICANT)."""
+    return [_doc(f"pan-{party}.jpg", "PAN", party), _doc(f"voter-{party}.jpg", "VOTER_ID", party),
+            _doc(f"sign-{party}.png", "SIGNATURE", party),
+            _doc(f"slip-{party}.pdf", "SALARY_SLIP", party, {"pay_period": _LAST_MONTH}),
+            _doc(f"bank-{party}.pdf", "BANK_STATEMENT", party, dict(_BANK_PERIOD))]
+
+
 def bank_doc(extra_signals: dict | None = None, *, income_evidence: bool = True) -> dict:
     fields: dict[str, Any] = {"evidence": {"reconciled": True, "transaction_count": 20,
                                            **(extra_signals or {})}}
     if income_evidence:
         fields["income_evidence"] = {"type": "SALARY_CREDIT", "estimated_monthly_amount": 64000,
                                      "recurring_credit_count": 3, "confidence": 0.9}
+    fields.update(_BANK_PERIOD)
     return {"source_id": "bank.pdf", "type": "BANK_STATEMENT", "verification": "PASS",
             "party_id": APP, "extraction": {"fields": fields}}
 
@@ -194,7 +228,7 @@ def every_finding_grounded(output: dict) -> list[str]:
 # the cases
 # ==========================================================================
 
-def _expect(*checks, required=(), unnecessary=(), exact=None, max_calls=10, retries=0,
+def _expect(*checks, required=(), unnecessary=(), exact=None, max_calls=12, retries=0,
             **kw) -> Expectations:
     return Expectations(
         statuses=("SUCCEEDED",), required_tools=tuple(required),
@@ -207,9 +241,10 @@ def _expect(*checks, required=(), unnecessary=(), exact=None, max_calls=10, retr
         output_checks=(demo_labelled, every_finding_grounded, *checks), **kw)
 
 
-FULL = {"documents": [bank_doc(), PAN_DOC], **KYC, **INCOME, **ELIGIBILITY, **RISK}
+FULL = {"documents": [bank_doc(), PAN_DOC, *credit_docs()], **KYC, **INCOME, **ELIGIBILITY, **RISK}
 CLEAN_TOOLS = ("application.get", "documents.get", "kyc.get", "income.get",
-               "bank_behaviour.get", "eligibility.get", "risk.get", ("bureau.get", APP))
+               "bank_behaviour.get", "eligibility.get", "risk.get", ("bureau.get", APP), "repayment.get",
+               "document_readiness.get")
 
 CASES: list[tuple[EvalCase, Setup]] = [
     (EvalCase("clean_salaried", "credit_agent", "Clean salaried applicant, all evidence",
@@ -231,7 +266,7 @@ CASES: list[tuple[EvalCase, Setup]] = [
      Setup(result=FULL, bureau={APP: "DEMO-BUREAU-WEAK-REPAYMENT"})),
     (EvalCase("banking_anomaly", "credit_agent", "Returned transactions on the statement",
               _expect(status_is("REVIEW_REQUIRED"), has_finding("UW_BNK_RETURNS", "REVIEW"))),
-     Setup(result={**FULL, "documents": [bank_doc({"returned_transaction_count": 3}), PAN_DOC]},
+     Setup(result={**FULL, "documents": [bank_doc({"returned_transaction_count": 3}), PAN_DOC, *credit_docs()]},
            bureau={APP: "DEMO-BUREAU-CLEAN"})),
     (EvalCase("income_discrepancy", "credit_agent",
               "Recorded income-consistency check did not pass",
@@ -243,17 +278,19 @@ CASES: list[tuple[EvalCase, Setup]] = [
                                                   "reason_codes": ["INCOME_MISMATCH"]}},
            bureau={APP: "DEMO-BUREAU-CLEAN"})),
     (EvalCase("missing_bank_statement", "credit_agent",
-              "No bank statement: banking is an explicit optional gap",
-              _expect(status_is("READY_FOR_DECISION"), gap_mentions("banking"),
+              "No bank statement: banking is an explicit optional gap; the credit document policy flags it",
+              _expect(status_is("REVIEW_REQUIRED"), gap_mentions("banking"),
+                      has_finding("UW_DOCS_ACTION_REQUIRED", "REVIEW"),
                       income_resolved_by("income.get"), no_finding("UW_BNK_RETURNS"))),
-     Setup(result={**FULL, "documents": [PAN_DOC]}, bureau={APP: "DEMO-BUREAU-CLEAN"})),
+     Setup(result={**FULL, "documents": [PAN_DOC, *credit_docs()]}, bureau={APP: "DEMO-BUREAU-CLEAN"})),
     (EvalCase("missing_salary_slip", "credit_agent",
               "No slip / consistency check: income from recorded bank evidence (replan)",
-              _expect(status_is("READY_FOR_DECISION"), income_resolved_by("bank_behaviour.get"),
+              _expect(status_is("REVIEW_REQUIRED"), income_resolved_by("bank_behaviour.get"),
+                      has_finding("UW_DOCS_ACTION_REQUIRED", "REVIEW"),
                       no_finding("UW_INC_DECLARED_VS_RECORDED"),
                       required=("income.get", "bank_behaviour.get"),
                       unnecessary=("financial_documents.get",))),
-     Setup(result={"documents": [bank_doc(), PAN_DOC], **KYC, **ELIGIBILITY, **RISK},
+     Setup(result={"documents": [bank_doc(), PAN_DOC, *credit_docs(slip=False)], **KYC, **ELIGIBILITY, **RISK},
            bureau={APP: "DEMO-BUREAU-CLEAN"})),
     (EvalCase("itr_only_self_employed", "credit_agent",
               "Self-employed, ITR only: income from the VERIFIED ITR's recorded figure",
@@ -262,7 +299,9 @@ CASES: list[tuple[EvalCase, Setup]] = [
                       required=("bank_behaviour.get", "financial_documents.get"),
                       unnecessary=("income.get",))),
      Setup(employment="SELF_EMPLOYED", declared_income=None,
-           result={"documents": [ITR_DOC, PAN_DOC], **KYC, **ELIGIBILITY, **RISK},
+           result={"documents": [ITR_DOC, PAN_DOC, bank_doc(income_evidence=False), *credit_docs(slip=False),
+                                 _doc("shop-1.jpg", "BUSINESS_PROOF_1", APP), _doc("shop-2.jpg", "BUSINESS_PROOF_2", APP)],
+                   **KYC, **ELIGIBILITY, **RISK},
            bureau={APP: "DEMO-BUREAU-CLEAN"})),
     (EvalCase("missing_bureau", "credit_agent", "No bureau record for the applicant",
               _expect(status_is("DATA_INSUFFICIENT"), gap_mentions("NO_BUREAU_RECORD"),
@@ -278,7 +317,7 @@ CASES: list[tuple[EvalCase, Setup]] = [
                       has_finding("UW_BUR_THIN_HISTORY", "REVIEW", CO),
                       has_finding("UW_BUR_SCORE_STRONG", "POSITIVE", APP),
                       required=(("bureau.get", APP), ("bureau.get", CO)))),
-     Setup(co=True, result={**FULL,
+     Setup(co=True, result={**FULL, "documents": [*FULL["documents"], *co_docs()],
                             "primary_applicant": {"party_id": APP, "kyc": KYC["kyc"]},
                             "co_applicant": {"party_id": CO, "kyc": KYC["kyc"]}},
            bureau={APP: "DEMO-BUREAU-CLEAN", CO: "DEMO-BUREAU-THIN"})),
@@ -298,7 +337,7 @@ CASES: list[tuple[EvalCase, Setup]] = [
                       has_finding("UW_BUR_SCORE_STRONG", "POSITIVE", CO),
                       has_finding("UW_REC_ELIGIBILITY_PASS"),
                       required=(("bureau.get", APP), ("bureau.get", CO)))),
-     Setup(co=True, result={**FULL, "documents": [bank_doc(), PAN_DOC, ITR_DOC],
+     Setup(co=True, result={**FULL, "documents": [bank_doc(), PAN_DOC, ITR_DOC, *credit_docs(), *co_docs()],
                             "primary_applicant": {"party_id": APP, "kyc": KYC["kyc"]},
                             "co_applicant": {"party_id": CO, "kyc": KYC["kyc"]}},
            bureau={APP: "DEMO-BUREAU-CLEAN", CO: "DEMO-BUREAU-CLEAN"})),

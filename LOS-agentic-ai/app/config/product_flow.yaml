@@ -186,7 +186,20 @@ case_form:
   draft_ttl_seconds: 1800            # an unconfirmed draft is dropped after this
   required: [full_name, mobile, date_of_birth, address, product, loan_amount]
   order: [full_name, mobile, date_of_birth, address, email, product, loan_amount, employment_type, tenure_months,
-          interest_rate_pct, declared_monthly_income, declared_monthly_obligations, property_value]
+          interest_rate_pct, declared_monthly_income, declared_monthly_obligations, property_value, property_type,
+          loan_purpose, applicant_type, mobile_aadhaar_linked, document_received_date, co_origination]
+  # CO-APPLICANTS on the create form (POST /fos/applicants co_applicants[]); stored by co_applicants.record_intake.
+  # No mobile: the co-applicant table has no mobile column. The rules are the applicant's own (full_name, date_of_birth).
+  co_applicants:
+    max: 3
+    fields:
+      - { name: full_name, label: { en: "Co-applicant name", hi-Latn: "Co-applicant ka naam", hi: "सह-आवेदक का नाम", mr: "सह-अर्जदाराचे नाव" }, required: true,
+          rules: { pattern: "^[A-Za-z\\u0900-\\u097F .'-]{2,}$" } }
+      - { name: date_of_birth, label: { en: "Date of birth", hi-Latn: "Date of birth", hi: "जन्म तिथि", mr: "जन्मतारीख" }, rules: { date: true, min_age: 18, max_age: 80 } }
+      - { name: pan, label: { en: "PAN", hi-Latn: "PAN", hi: "पैन", mr: "पॅन" }, rules: { pattern: "^[A-Z]{5}[0-9]{4}[A-Z]$", upper: true } }
+      - { name: relationship, label: { en: "Relationship to applicant", hi-Latn: "Applicant se rishta", hi: "आवेदक से संबंध", mr: "अर्जदाराशी नाते" }, rules: {} }
+  # property_type: its choices and whether a product needs it are NOT listed here -- they come from the eligibility
+  # terms (eligibility_config.yaml property_types / default_property_type), the same terms the create API checks
   formats:
     mobile: { pattern: "^[6-9]\\d{9}$", strip: "[\\s+-]|^91(?=\\d{10}$)" }
     email: { pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
@@ -198,6 +211,9 @@ case_form:
     declared_monthly_income: { number: true }
     declared_monthly_obligations: { number: true }
     property_value: { number: true }
+    mobile_aadhaar_linked: { boolean: true }      # a yes / no checkbox about the mobile; never an Aadhaar number
+    document_received_date: { date: true, not_future: true }   # migration 0012
+    co_origination: { boolean: true, control: yes_no }        # migration 0012: Yes / No, unanswered = not captured
   choices:
     employment_type: [SALARIED, SELF_EMPLOYED]
   labels:
@@ -217,6 +233,12 @@ case_form:
                                     mr: "मासिक ईएमआय (रु)" }
     property_value: { en: "Property value (Rs)", hi-Latn: "Property value (Rs)", hi: "संपत्ति मूल्य (रु)",
                       mr: "मालमत्ता मूल्य (रु)" }
+    property_type: { en: "Property type", hi-Latn: "Property type", hi: "संपत्ति का प्रकार", mr: "मालमत्तेचा प्रकार" }
+    loan_purpose: { en: "Loan Purpose", hi-Latn: "Loan Purpose", hi: "ऋण का उद्देश्य", mr: "कर्जाचा उद्देश" }
+    applicant_type: { en: "Applicant Type", hi-Latn: "Applicant Type", hi: "आवेदक का प्रकार", mr: "अर्जदाराचा प्रकार" }
+    document_received_date: { en: "Document Received Date", hi-Latn: "Document Received Date", hi: "दस्तावेज़ प्राप्ति तिथि", mr: "कागदपत्रे मिळाल्याची तारीख" }
+    co_origination: { en: "Co-origination", hi-Latn: "Co-origination", hi: "सह-उत्पत्ति (को-ओरिजिनेशन)", mr: "को-ओरिजिनेशन" }
+    mobile_aadhaar_linked: { en: "Is it Aadhaar Linked Mobile No", hi-Latn: "Kya mobile Aadhaar se linked hai", hi: "क्या मोबाइल आधार से जुड़ा है", mr: "मोबाईल आधारशी जोडलेला आहे का" }
   ask:
     en: "Please enter the **{label}**{hint}."
     hi-Latn: "Kripya **{label}** batayein{hint}."
@@ -293,6 +315,10 @@ case_form:
               hi: "10 अंकों का मोबाइल नंबर लिखें", mr: "10 अंकी मोबाईल नंबर लिहा" }
     date: { en: "enter the date as YYYY-MM-DD", hi-Latn: "tareekh YYYY-MM-DD mein likhiye",
             hi: "तारीख YYYY-MM-DD में लिखें", mr: "तारीख YYYY-MM-DD मध्ये लिहा" }
+    pan: { en: "enter a PAN like ABCDE1234F (5 letters, 4 digits, 1 letter)", hi-Latn: "PAN aise likhiye: ABCDE1234F",
+           hi: "PAN ऐसे लिखें: ABCDE1234F", mr: "PAN असा लिहा: ABCDE1234F" }
+    future: { en: "the date cannot be in the future", hi-Latn: "tareekh aage ki nahi ho sakti",
+              hi: "तारीख भविष्य की नहीं हो सकती", mr: "तारीख भविष्यातील असू शकत नाही" }
     age: { en: "the age must be between {min} and {max}", hi-Latn: "umar {min} se {max} ke beech honi chahiye",
            hi: "उम्र {min} से {max} के बीच होनी चाहिए", mr: "वय {min} ते {max} दरम्यान असावे" }
     choice: { en: "choose one of: {choices}", hi-Latn: "inmein se chuniye: {choices}", hi: "इनमें से चुनें: {choices}",
@@ -302,6 +328,8 @@ case_form:
              hi: "{min} से {max} के बीच होना चाहिए", mr: "{min} ते {max} दरम्यान असावे" }
     too_long: { en: "it is too long (max {max} characters)", hi-Latn: "bahut lamba hai (max {max} akshar)",
                 hi: "बहुत लंबा है (अधिकतम {max} अक्षर)", mr: "खूप लांब आहे (कमाल {max} अक्षरे)" }
+  # the create API's answer when the same Idempotency-Key opens the same case again ({case_id})
+  already_created: { en: "Case {case_id} was already opened by this request (same Idempotency-Key); no new case was created." }
   start:
     en: "Let's create a new case. I'll ask for the same details as the form. You can type cancel any time."
     hi-Latn: "Chaliye naya case banate hain. Main form wali hi details poochunga. Kabhi bhi cancel likh sakte hain."
@@ -321,6 +349,11 @@ case_form:
     hi-Latn: "{name} ke liye **{case_id}** ban gaya. Documents chahiye: {n}."
     hi: "{name} के लिए **{case_id}** बन गया। दस्तावेज़ चाहिए: {n}।"
     mr: "{name} साठी **{case_id}** तयार झाली. हवी असलेली कागदपत्रे: {n}."
+  # the SAME draft confirmed again (a double click / a retried Confirm): never a second case (Phase 4, 2026-10-13)
+  already_created: { en: "**{case_id}** was already created from this draft; nothing new was created.",
+                     hi-Latn: "Is draft se **{case_id}** pehle hi ban chuka hai; naya case nahi banaya." }
+  already_creating: { en: "This case is already being created; please wait a moment.",
+                      hi-Latn: "Yeh case abhi ban raha hai; thoda ruk jaiye." }
   cancelled: { en: "Okay, nothing was created.", hi-Latn: "Theek hai, kuch nahi banaya gaya.",
                hi: "ठीक है, कुछ नहीं बनाया गया।", mr: "ठीक आहे, काहीही तयार केले नाही." }
   edit_cancelled: { en: "Okay, nothing was changed.", hi-Latn: "Theek hai, kuch nahi badla.",
@@ -395,6 +428,7 @@ import:
     declared_monthly_income: [monthly income, income]
     declared_monthly_obligations: [monthly obligations, emis, obligations]
     property_value: [property value]
+    property_type: [property type, property kind]
   texts:
     summary:
       en: "{ok} of {total} rows are valid. {bad} row(s) have errors."
@@ -475,12 +509,26 @@ name_lookup:
 out_of_scope:
   off_topic_words: [ipl, cricket, match, score, football, weather, mausam, movie, film, song, gaana, joke, chutkula,
                     news, khabar, politics, election, prime minister, recipe, horoscope, rashifal, bitcoin, share price,
-                    stock market, lottery, girlfriend, boyfriend, game, games, क्रिकेट, मौसम, फ़िल्म, चुटकुला]
+                    stock market, lottery, girlfriend, boyfriend, game, games, क्रिकेट, मौसम, फ़िल्म, चुटकुला,
+                    # investment advice and coding / trivia requests (2026-10-18: "best mutual fund to invest in?" was
+                    # answered as an unconfigured lender POLICY value; "write a python program" waited on Qwen)
+                    mutual fund, mutual funds, stock tips, share tips, crypto, cryptocurrency, python program,
+                    python code, javascript, capital city]
+  # LOS PHRASES THAT CONTAIN AN OFF-TOPIC WORD ("score", "match", "game" ...): a message with one of these is a LOS
+  # question, never off-topic (2026-10-23: "minimum cibil score required" was refused because of "score", and
+  # "does the PAN match" would have been refused because of "match").
+  in_domain_phrases: [cibil score, cibil, credit score, bureau score, credit bureau, risk score, pan match, name match,
+                      dob match, signature match, photo match, face match, address match, match the pan, match the name,
+                      does the pan match, does the name match, matching, mismatch, not matching,
+                      # KYC is never off-topic: "what is my KYC score?", "did my KYC match?" (party_kyc evals, 2026-10-23)
+                      kyc, k y c, did not match, didn't match, didnt match, match nahi, match hua]
+  # the conversation reader's off-topic kind counts too (conversation.py; "write me a poem", "capital of france")
+  use_conversation_reader: true
+  # ONE WORDING for every clear off-topic message (2026-10-18: three different lines for the same kind of question);
+  # the evals detect its opening sentence; the rest says it the way a colleague would (2026-10-24: "naturally")
   text:
-    en: ["I can only help with your cases, documents, KYC and moving to CPA.",
-         "That's outside what I can help with. I can help with your cases, documents, KYC and CPA."]
-    hi-Latn: ["Main sirf aapke cases, documents, KYC aur CPA mein madad kar sakta hoon.",
-              "Yeh mere daayre se bahar hai. Main cases, documents, KYC aur CPA mein madad kar sakta hoon."]
+    en: ["That's outside what I can help with. I'm here for your loan cases though, so ask me about documents, KYC or getting a case to CPA."]
+    hi-Latn: ["Yeh mere daayre se bahar hai. Main aapke cases, documents, KYC aur CPA mein madad kar sakta hoon."]
     hi: ["मैं सिर्फ़ आपके केस, दस्तावेज़, KYC और CPA में मदद कर सकता हूँ।"]
     mr: ["मी फक्त तुमच्या केस, कागदपत्रे, KYC आणि CPA मध्ये मदत करू शकतो."]
   next: { en: "My cases", hi-Latn: "Mere cases", hi: "मेरे केस", mr: "माझ्या केस" }
@@ -489,12 +537,16 @@ out_of_scope:
 stage_move:
   phrases: [stage badal, stage change, change the stage, change stage, approve the loan, approve kar, approve karo,
             disburse, reject this, reject kar, mark verified, kyc pass kar, kyc bypass, skip kyc, bypass kyc,
-            stage update, update the stage]
+            stage update, update the stage,
+            # deleting / cancelling a case is never a chat action either (2026-10-28, live: "delete this case" was
+            # answered "which of these did you mean?")
+            delete this case, delete the case, delete case, case delete, remove this case, cancel this case,
+            case cancel kar, case delete kar, case hata do]
   text:
-    en: "I can't approve, reject, disburse or skip a check from chat, a person does that. Here is where it stands:"
-    hi-Latn: "Main chat se approve, reject, disburse ya koi check skip nahi kar sakta, yeh ek vyakti karta hai. Abhi ki sthiti:"
-    hi: "मैं चैट से मंज़ूरी, अस्वीकृति, वितरण या कोई जाँच छोड़ना नहीं कर सकता, यह एक व्यक्ति करता है। अभी की स्थिति:"
-    mr: "मी चॅटमधून मंजुरी, नकार, वितरण किंवा तपासणी वगळणे करू शकत नाही, हे एक व्यक्ती करते. सध्याची स्थिती:"
+    en: "I can't approve, reject, disburse, delete a case or skip a check from chat, a person does that. Here is where it stands:"
+    hi-Latn: "Main chat se approve, reject, disburse, case delete ya koi check skip nahi kar sakta, yeh ek vyakti karta hai. Abhi ki sthiti:"
+    hi: "मैं चैट से मंज़ूरी, अस्वीकृति, वितरण, केस हटाना या कोई जाँच छोड़ना नहीं कर सकता, यह एक व्यक्ति करता है। अभी की स्थिति:"
+    mr: "मी चॅटमधून मंजुरी, नकार, वितरण, केस हटवणे किंवा तपासणी वगळणे करू शकत नाही, हे एक व्यक्ती करते. सध्याची स्थिती:"
 
 # ---- THE FOS <-> CPA WORKFLOW (owner, 2026-10-08) -- read by capabilities/stage_flow.py --------------------------
 # At FOS, anything wrong (KYC mismatch, rejected / missing document) -> a query to the CUSTOMER (one query listing
@@ -826,7 +878,17 @@ link_policy:
   uploads_outside_budget: true
   never_upload: [UNKNOWN, UNIDENTIFIED]
   # these replies always end with the Upload buttons of every document still pending / to re-upload
-  pending_uploads_on: [UPLOAD_DOCUMENT, DOCUMENTS_UPLOADED]
+  pending_uploads_on: [UPLOAD_DOCUMENT, DOCUMENTS_UPLOADED, FULL_SUMMARY]
+  # ...and these, about ONE named document ("pan", "is the signature uploaded?"), end with THAT document's Upload
+  # button when it is still pending / to re-upload (owner, 2026-10-14: the status and the button together)
+  named_document_upload_on: [DOCUMENT_VERIFICATION, DOCUMENT_STATUS, AGENT_ANSWER]
+  # ...and ANY case answer whose text says one of these ends with the Upload buttons of every document still pending /
+  # to re-upload (owner, 2026-10-14: the KYC status said "upload the documents" with no button). Only the case's own
+  # pending documents become buttons, so a verified one never gets one.
+  upload_cue_words: [pending, upload, not uploaded, missing, re-upload, reupload, still to collect, collect]
+  no_upload_buttons_on: [GUARDRAIL_BLOCKED, CLARIFICATION, VAGUE_OPTIONS, WHICH_ACTION, DID_YOU_MEAN, SMALL_TALK,
+                         GREETING, THANKS, ACKNOWLEDGEMENT, GOODBYE, FRUSTRATED, CASE_LIST, FAQ, FAQ_ANSWER,
+                         PROCESS_STAGES, DOCUMENT_ACCEPTED, VAGUE_UPLOAD]
   download_label: { en: "Download:", hi-Latn: "Download:", hi: "डाउनलोड:", mr: "डाउनलोड:" }
 
 # ---- the frontend's routes for the UI actions (FINAL FIX D): POST /api/v1/fos/action answers show_in_ui /

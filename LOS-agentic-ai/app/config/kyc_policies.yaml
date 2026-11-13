@@ -170,6 +170,10 @@ decision:
   # Fewer comparable sources than this and the result cannot be a PASS: there
   # was nothing to cross-check against.
   min_sources_for_pass: 2
+  # A PASS needs at least ONE identity document among the sources (2026-10-13). Without one -- e.g. a salary
+  # slip and a bank statement whose names agree -- the documents may agree with each other but nothing
+  # establishes WHO the applicant is: PENDING / IDENTITY_DOCUMENT_MISSING, never PASS. Empty list = off.
+  identity_document_types: [PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT, AADHAAR]
 
 # ---------------------------------------------------------------------------
 # FATHER'S NAME

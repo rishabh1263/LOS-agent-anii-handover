@@ -164,10 +164,45 @@ def build(case_id: str, repository: Any = None) -> dict[str, Any]:
             "unblock_order": [i["id"] for i in todo], "next_fix": next((i["fix"] for i in todo if i.get("fix")), None)}
 
 
+def _compact(report: dict[str, Any]) -> str:
+    """Pending documents only (each named once, co-applicant marked), one line for details to record, one KYC line
+    when KYC failed or needs a reviewer, then the next step. KYC that has not run yet is not listed: it runs on its
+    own once the documents are in."""
+    items = [i for g in report.get("groups") or [] if g.get("counted", True) for i in g["items"]
+             if i["status"] != PASS]
+    co = {i["id"] for g in report.get("groups") or [] if g["group"] == "CO_APPLICANT_DOCUMENTS" for i in g["items"]}
+    state = {"DOCUMENT_PENDING": ("⏳", "compact_missing"), "DOCUMENT_FAILED": ("❌", "compact_failed"),
+             "DOCUMENT_REVIEW": ("🔍", "compact_review")}
+    lines, seen = [_label("compact_heading")], set()
+    for i in sorted(items, key=lambda i: list(state).index(i["kind"]) if i["kind"] in state else 9):
+        if i["kind"] not in state:
+            continue
+        name = i["label"].split(": ", 1)[-1]
+        name = (_label("group_co_applicant_documents") + ": " + name) if i["id"] in co else name
+        if name in seen:
+            continue
+        seen.add(name)
+        icon, key = state[i["kind"]]
+        lines.append(f"- {icon} **{name}** — {_label(key)}")
+
+    def names(kind: str) -> str:
+        return ", ".join(dict.fromkeys(i["label"].split(": ", 1)[-1] for i in items if i["kind"] == kind))
+
+    for kind, key in (("FIELD_PENDING", "compact_fields"), ("KYC_FAILED", "compact_kyc_failed"),
+                      ("KYC_REVIEW", "compact_kyc_review"), ("GATE", "compact_other")):
+        if names(kind):
+            lines.append("- " + _label(key, items=names(kind)))
+    if report.get("next_fix"):
+        lines += ["", "👉 " + _label("next_step", fix=report["next_fix"])]
+    return "\n".join(lines)
+
+
 def render(report: dict[str, Any]) -> str:
     """Answer first, then the failing items per group (fastest unblock first), passed items in one line."""
     if report.get("ready"):
         return _label("heading_ready")
+    if _cfg().get("compact", False):
+        return _compact(report)
     lines = [_label("heading_not_ready", passed=report.get("passed", 0), total=report.get("total", 0))]
     order = {i: n for n, i in enumerate(report.get("unblock_order") or [])}
     # EACH DOCUMENT NAMED ONCE (2026-10-11): a missing signature is already a failing row of the party's document

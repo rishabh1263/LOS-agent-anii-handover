@@ -1,0 +1,87 @@
+# One README per agent folder, written by scripts/build_los_agentic.py (the builder renders README.md from this).
+# Every fact here is checked against the code: endpoints from the service's OpenAPI, tables from the migrations.
+eligibility:
+  title: Eligibility
+  what: >-
+    Decides whether a case is eligible and for how much: the five rules (age, income, credit score, FOIR, DPD / write-offs),
+    the product's LTV grid and income method, then APPROVED / CONDITIONAL / REFER / REJECTED / DATA_MISSING with the
+    eligible amount and EMI. A local model (optional) writes the plain-words explanation; it never decides.
+  rules: "eligibility_policy (conf/eligibility_config.yaml is the seed)"
+  tables: "eligibility_cases, eligibility_inputs, eligibility_runs (rule_set_hash), audit_events, rule_sets, rule_set_active, rule_set_changes, agent_logs"
+  endpoints:
+    - "POST /api/v1/eligibility/check -- check a case (saved as a run)"
+    - "POST /api/v1/eligibility/check-form -- the same check from a form"
+    - "GET /api/v1/eligibility/runs/{run_id} -- one saved check"
+    - "GET /api/v1/eligibility/{case_id} -- the decision recorded on a LOS case"
+    - "GET/PUT /api/v1/eligibility/cases/... -- the screen's cases and the officer's entries"
+    - "POST /api/v1/eligibility/explain, /explain/stream -- the plain-words explanation"
+docs_policy:
+  title: Credit document policy (Document Desk)
+  what: >-
+    Which documents the credit stage still needs for a case: eleven policy rules (product requirements, co-applicants,
+    freshness, waivers, cross-stage reuse ...) over the case's stored documents. COMPLETE only when nothing blocking is
+    open. One policy file per product in policies/ (the seed of each version).
+  rules: "docs_policy:<file> -- one rule set per policy file"
+  tables: "docs_policy_evaluations (rule_set_hash), docs_policy_requirement_results, audit_events, rule_sets, rule_set_active, rule_set_changes, agent_logs"
+  endpoints:
+    - "POST /api/v1/credit/document-readiness/{case_id} -- the open requirements"
+    - "POST /api/v1/credit/document-readiness/{case_id}/rules -- every rule's PASS / WARN / FAIL"
+dedupe:
+  title: Dedupe (and customer history)
+  what: >-
+    Finds the applicant elsewhere: the LOS's own cases, MiFin and the LMS, on PAN, mobile, customer id, loan account ...;
+    then the policy's outcome (PROCEED / HOLD_FOR_REVIEW / BLOCK / UNABLE_TO_DECIDE) with reason codes. Matched values
+    of other customers are never returned in full.
+  rules: "dedupe_policy, customer_history_policy (conf/*.yaml are the seeds)"
+  tables: "in its own schema dedupe (since 2026-11-03): audit_dedupe_decisions (rule_set_hash), audit_customer_history, rule_sets, rule_set_active, rule_set_changes, api_responses, agent_logs"
+  endpoints:
+    - "POST /api/v1/credit/dedupe -- one parameter"
+    - "POST /api/v1/credit/dedupe/all -- every parameter at once"
+    - "GET /api/v1/credit/dedupe/{request_id}/reason -- the 3-point reason of one check"
+bank_verification:
+  title: Bank verification
+  what: >-
+    Reads the bank statement (PDF / CSV: the text layer first, OCR for a scan), checks it with eight rules (bank details,
+    ownership, balances, duplicates, source cross-check, integrity, transactions, risk), lets the agency finalize, and
+    writes the report. Account numbers are masked everywhere.
+  rules: "bank_verification_policy (conf/bank_verification.yaml is the seed; its storage / uploads / server sections stay in the file)"
+  tables: "cases, sources, documents, extractions, runs (rule_set_hash), rule_results, decisions, summaries, audit_events, rule_sets, rule_set_active, rule_set_changes, agent_logs"
+  endpoints:
+    - "POST /api/v1/bank-verification/process -- API 1: read the statement and run the eight rules"
+    - "POST /api/v1/bank-verification/{case_id}/finalize -- API 2: the agency finalizes"
+    - "GET /api/v1/bank-verification/cases, /cases/{case_id}, /history, /report, /summary"
+crime_verification:
+  title: Crime record verification
+  what: >-
+    The criminal-record check of the applicant and every co-applicant through the vendor: initiate (after the officer
+    confirms), the vendor's result per person (risk level, cases), review when the risk requires it, finalize, report.
+  rules: "crime_verification_policy (conf/crime_verification.yaml is the seed)"
+  tables: "crime_verification_applications, _parties, _cases, _subjects, _results (rule_set_hash), _reports, _summaries, _audit, rule_sets, rule_set_active, rule_set_changes, agent_logs"
+  endpoints:
+    - "PUT /api/v1/credit/crime-verification/applications/{id} -- the LOS pushes an application"
+    - "POST /api/v1/credit/crime-verification/initiate -- API 1"
+    - "POST /api/v1/credit/crime-verification/{case_id}/finalize -- API 2"
+    - "GET .../cases/{case_id}, /status, /report, /summary, /audit"
+legal_verification:
+  title: Legal verification (collateral)
+  what: >-
+    The legal check of the property: the documents (sale deed, EC, title chain ...), the agency's report, the checks
+    (title, encumbrance, registration, names, address), a recommendation (CLEAR_FOR_REVIEW / REVIEW_REQUIRED /
+    ESCALATE) and the officer's decision.
+  rules: "legal_verification_policy (conf/legal_verification.yaml is the seed)"
+  tables: "legal_verification_applications, _cases, _documents, _corrections, _agency_reports, _runs (rule_set_hash), _summaries, _audit, rule_sets, rule_set_active, rule_set_changes, agent_logs"
+  endpoints:
+    - "PUT /api/v1/credit/legal-verification/applications/{id} -- the LOS pushes an application"
+    - "POST .../applications/{id}/documents, /send, /agency-report, /validate, /decision"
+    - "GET .../applications/{id}, /summary, /report"
+underwriting:
+  title: Credit underwriting (the parent agent)
+  what: >-
+    Reads what the agents before it recorded (eligibility, documents, bank, dedupe, risk ...) and a bureau report,
+    interprets them under the underwriting policy and writes an evidence-linked UNDERWRITING ASSESSMENT for the decision
+    maker. It never approves or rejects, and never recomputes what another agent owns. Runs on the agent runtime
+    (shared/runtime): planner, tools, limits, trajectory.
+  rules: "the underwriting policy (shared/config/credit_underwriting/policy.yaml)"
+  tables: "the LOS case store (findings)"
+  endpoints:
+    - "served by the LOS server (8010): POST /api/v1/credit/underwriting/run, GET /api/v1/credit/{case_id} -- its tools read KYC, income and financial results that live in the full LOS, so it is not served on its own here"

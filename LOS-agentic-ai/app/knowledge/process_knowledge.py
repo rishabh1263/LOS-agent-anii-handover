@@ -238,11 +238,13 @@ def describe(stage: str | None, label: str | None = None) -> str | None:
     def lower_first(text: str) -> str:
         return text[:1].lower() + text[1:]
 
-    return (f"According to the configured stage guide (a sample process description, not a "
-            f"policy document), the {name} stage works like this: {guide.purpose} "
+    # the answer first, where it comes from last (2026-10-25: the source preamble led every stage answer)
+    return (f"{guide.purpose} "
             f"It checks that {lower_first(guide.checks.rstrip('.'))}. "
             f"A file is held back by {lower_first(guide.blockers.rstrip('.'))}. "
-            f"{guide.transition}")
+            f"{guide.transition}\n\n"
+            f"_Source: the configured stage guide for {name} (a sample process description, not a policy "
+            f"document)._")
 
 
 def guides() -> tuple[StageGuide, ...]:

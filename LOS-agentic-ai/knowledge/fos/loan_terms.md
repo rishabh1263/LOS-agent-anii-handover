@@ -8,7 +8,7 @@ language: en
 source: LOS curated knowledge (this repository) -- general lending practice; company terms are in the product policy and the sanction letter
 derived_from:
 - app/config/stage_lifecycle.yaml
-- app/config/eligibility_policy.yaml
+- app/config/eligibility_config.yaml
 - app/config/documents.yaml
 related:
 - fos.fos_workflow

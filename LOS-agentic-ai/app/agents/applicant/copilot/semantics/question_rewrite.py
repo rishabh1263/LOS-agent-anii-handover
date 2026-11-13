@@ -22,6 +22,8 @@ LOGGED for the weekly review (beside evals/knowledge_gaps.yaml): original (maske
 
 from __future__ import annotations
 
+from app.llm import turn_budget as _tb
+
 import asyncio
 import json
 import logging
@@ -153,7 +155,7 @@ async def rewrite(message: str, *, previous: str | None = None, request_id: str 
             return _CACHE[key], trace
     if generator is None:
         from app.llm import availability
-        from app.llm.memory import free_gb
+        from app.llm.memory import free_gb_for_model as free_gb
 
         free = free_gb()
         if free is not None and free < _num("min_free_ram_gb", 2.0):
@@ -215,8 +217,9 @@ async def _ollama_chat(prefix: str, content: str, timeout: float) -> dict:
             "options": with_num_ctx({"temperature": 0.0, "num_predict": int(_num("num_predict", 48))})}
     if model.startswith("qwen3"):
         body["think"] = False
+    _tb.check("question_rewrite")      # an earlier model call of this turn failed: answer without it (app/llm/turn_budget.py)
     async with httpx.AsyncClient(timeout=timeout + 0.5) as client:
-        response = await client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body)
+        response = await _tb.guarded(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), "question_rewrite")
         response.raise_for_status()
         return response.json()
 

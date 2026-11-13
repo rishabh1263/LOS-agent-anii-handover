@@ -1,0 +1,77 @@
+# =====================================================================================================================
+# PRODUCTION PREFLIGHT (scripts/preflight_production.py) -- one command before go-live: every line PASS, or the
+# deployment is not ready. Values of variables are NEVER printed (only "set" / "not set" / the allowed words).
+# Every check is listed here; the script holds no names or values of its own.
+# =====================================================================================================================
+
+environment:
+  env: ENVIRONMENT
+  must_be: [production, prod]
+
+# must be set (a value of any kind)
+required_env:
+  LOS_AGENTIC_DSN: "the one database of every agent (los_agentic)"
+  LOS_STORE_DSN: "the LOS case store (cases, parties, documents)"
+  JWT_ISSUER: "who issues the officers' tokens"
+  JWT_AUDIENCE: "the audience the tokens are issued for"
+  JWT_JWKS_URL: "where the token signing keys are published"
+  QDRANT_URL: "the vector database (the knowledge index)"
+
+# must have one of these values
+must_be:
+  AUTH_ENABLED: ["true"]
+  LOS_STORE_BACKEND: [postgres]
+
+# must NOT have these values (unset is fine) -- every demo / unsigned / sample switch
+must_not_be:
+  ALLOW_DEMO_BUREAU: ["true", "1", "yes", "on"]
+  ELIGIBILITY_ALLOW_DEMO_POLICY: ["true", "1", "yes", "on"]
+  ALLOW_UNSIGNED_DEDUPE_POLICY: ["true", "1", "yes", "on"]
+  ALLOW_UNSIGNED_CUSTOMER_HISTORY_POLICY: ["true", "1", "yes", "on"]
+  ALLOW_UNSIGNED_RISK_POLICY: ["true", "1", "yes", "on"]
+  ALLOW_UNSIGNED_UNDERWRITING_POLICY: ["true", "1", "yes", "on"]
+  DOCS_CREDIT_ALLOW_SAMPLE_POLICY: ["true", "1", "yes", "on"]
+  QDRANT_ALLOW_EMBEDDED_IN_PRODUCTION: ["true", "1", "yes", "on"]
+  LOS_DEMO_SEED_ENABLED: ["true", "1", "yes", "on"]
+  LOS_DEMO_INDEX_ENABLED: ["true", "1", "yes", "on"]
+  MIFIN_PROVIDER: [demo]
+  LMS_PROVIDER: [demo, leviosa-demo]
+
+# the per-agent database variables: in production every agent uses LOS_AGENTIC_DSN (its schema); one of these set
+# means that agent writes to another database
+should_not_be_set: [ELIGIBILITY_DSN, DOCS_POLICY_DSN, BANK_VERIFICATION_DSN, CRIME_VERIFICATION_DSN,
+                    LEGAL_VERIFICATION_DSN, CHATBOT_DSN, LOS_AUDIT_DSN, DATABASE_URL]
+
+# what the running code would use, asked from the code itself ("module:function" -> its answer must not be one of)
+effective:
+  - title: "credit bureau provider"
+    call: app.agents.credit.config:bureau_provider
+    must_not_be: [demo]
+    fix: "set CREDIT_BUREAU_PROVIDER to the contracted bureau once its adapter is in place"
+
+# the rules IN FORCE (from the database): values that must not be there in production. A path may use * for "every
+# key at this level".
+rules:
+  must_be_confirmed: true            # every rule set's version in force is CONFIRMED / APPROVED / signed off
+  values_not_allowed:
+    bank_verification_policy:
+      demo_mode: [true]
+    crime_verification_policy:
+      demo_mode: [true]
+      "vendors.*.provider": [mock_crimecheck]
+    legal_verification_policy:
+      demo_mode: [true]
+
+# every table of every agent schema: no demo rows left (scripts/setup_agent_databases.py --purge-demo --yes)
+no_demo_rows: true
+# every audit table has its append-only trigger (per agent schema)
+audit_tables:
+  eligibility: [audit_events, rule_set_changes]
+  docs_policy: [audit_events, rule_set_changes]
+  bank_verification: [audit_events, rule_set_changes]
+  crime_verification: [crime_verification_audit, rule_set_changes]
+  legal_verification: [legal_verification_audit, rule_set_changes]
+  dedupe: [audit_dedupe_decisions, audit_customer_history, dedupe_checks, dedupe_scenario_results, dedupe_matches,
+           audit_events, rule_set_changes]
+  audit: [audit_dedupe_decisions, audit_customer_history, audit_risk_decisions, audit_agent_runs,
+          audit_issuer_verifications, audit_field_corrections, rule_set_changes, audit_events]

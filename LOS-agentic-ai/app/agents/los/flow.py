@@ -1472,155 +1472,62 @@ def _income_consistency_for(documents: list[dict[str, Any]]) -> dict[str, Any]:
         bank_evidence=bank_evidence, salary_slip=salary_slip)
 
 
-def _eligibility_inputs(
-    income: dict[str, Any], application: Any, *, date_of_birth: str | None = None,
-    kyc_status: str | None = None,
-) -> "EligibilityInputs":
+async def _eligibility_for(case_id: str | None) -> dict[str, Any] | None:
     """
-    What affordability is assessed from, assembled and nothing more.
+    The case's eligibility decision, through the registered agent -- from STRUCTURED applicant data, never documents.
 
-    THE INCOME IS THE INCOME PIPELINE'S, NOT A NEW ONE. It comes out of
-    the income consistency result, which itself read only figures the
-    released-extraction gate allowed and the income policy accepted. The
-    salary slip's stated net pay is preferred where there is one: an
-    employer stating a salary is a stronger claim than credits nobody
-    labelled, and where only the credits exist the provenance says so.
+    THE DATA COMES FROM THE CONFIGURED DataProvider BY CASE ID (app/agents/eligibility/providers.py): no income figure
+    read from an uploaded document reaches it. ROUTED THROUGH `run_agent` like every specialist, so a decision made
+    inside this pipeline is the same one the agent gives when called on its own.
 
-    THE LOAN TERMS ARE THE APPLICATION'S. Absent ones stay absent --
-    parsing is the engine's job and a missing tenure is a missing tenure.
+    None when the provider has no data for the case, cannot be read, or is not connected -- the pipeline then publishes
+    no eligibility stage, and nothing is decided for the applicant.
     """
-    from app.agents.eligibility.schemas import (
-        EligibilityInputs, IncomeSource, ObligationsSource, PropertyValueSource,
-    )
-
-    slip = (income or {}).get("salary_slip") or {}
-    bank = (income or {}).get("bank_statement") or {}
-
-    monthly_income = None
-    source = IncomeSource.NONE
-
-    if slip.get("amount"):
-        monthly_income = slip["amount"]
-        source = (IncomeSource.SALARY_SLIP_GROSS
-                  if "GROSS" in str(slip.get("figure") or "")
-                  else IncomeSource.SALARY_SLIP_NET)
-    elif bank.get("estimated_monthly_amount"):
-        monthly_income = bank["estimated_monthly_amount"]
-        source = IncomeSource.BANK_RECURRING_CREDIT
-
-    # DECLARED OBLIGATIONS ARE PASSED AS DECLARED, and whether a declared
-    # figure may be used at all is decided by eligibility_policy.yaml,
-    # which does not accept one by default. Capturing a number and using
-    # a number are separate decisions and this is only the first.
-    declared = getattr(application, "declared_monthly_obligations", None)
-    # `application` is None on a case's first pass; getattr covers it and
-    # every field below reads as absent, which is what it is.
-
-    return EligibilityInputs(
-        monthly_income=_as_number(monthly_income),
-        income_source=source,
-        income_consistency_status=(income or {}).get("status"),
-        monthly_obligations=_as_number(declared),
-        obligations_source=(ObligationsSource.DECLARED if declared
-                            else ObligationsSource.NONE),
-        loan_amount=_as_number(getattr(application, "loan_amount", None)),
-        tenure_months=_as_int(getattr(application, "tenure_months", None)),
-        interest_rate_pct=_as_number(
-            getattr(application, "interest_rate_pct", None)),
-        product=getattr(application, "product", None),
-        # Captured on the application at intake; the policy decides
-        # whether it is a criterion at all.
-        employment_type=getattr(application, "employment_type", None),
-        # Declared at intake; the policy decides whether LTV applies at all
-        # and whether a declared value is an accepted source.
-        property_value=_as_number(getattr(application, "property_value", None)),
-        property_value_source=(
-            PropertyValueSource.DECLARED
-            if getattr(application, "property_value", None)
-            else PropertyValueSource.NONE),
-        # PREREQUISITES, AS RECORDED: the party's date of birth from intake and
-        # the party's own KYC verdict from this run. The policy decides whether
-        # either is a criterion; absent stays absent.
-        date_of_birth=(str(date_of_birth).strip() or None) if date_of_birth else None,
-        kyc_status=(str(kyc_status).strip().upper() or None) if kyc_status else None,
-    )
-
-
-def _as_number(value: Any) -> float | None:
-    """A captured figure as a number, or nothing. Never a default."""
-    if value is None:
+    if not case_id:
         return None
-    try:
-        return float(str(value).replace(",", "").strip())
-    except (TypeError, ValueError):
-        return None
-
-
-def _as_int(value: Any) -> int | None:
-    number = _as_number(value)
-    return int(number) if number is not None else None
-
-
-async def _eligibility_for(
-    income: dict[str, Any], case_id: str | None, *, party_id: str | None = None,
-    kyc_status: str | None = None,
-) -> dict[str, Any] | None:
-    """
-    One party's affordability verdict, through the registered agent.
-
-    ROUTED THROUGH `run_agent` RATHER THAN CALLED DIRECTLY, the same way
-    the specialist capabilities are: the agent is then configurable,
-    disableable and audited exactly like every other one, and an
-    eligibility verdict produced inside a document pipeline is the same
-    verdict as one produced by calling the agent on its own.
-
-    ASSESSED EVEN WITH NO APPLICATION RECORD, and this is deliberate.
-    `/api/v1/los/process` writes the application row AFTER the pipeline
-    runs, so on a case's first pass there is nothing to read -- and
-    returning None there made the stage vanish from that response
-    entirely, while the same case processed a second time reported it.
-    One case, two different answers, decided by whether anyone had
-    uploaded to it before.
-
-    An absent application means absent loan terms, which the engine
-    already handles: it reports LOAN_AMOUNT_MISSING and
-    EMI_INPUTS_MISSING and assesses nothing. That is the truth about
-    the case, and it is available on the first pass as well as the
-    second.
-    """
     from app.orchestration.graph import run_agent
 
-    application = None
-    if case_id:
-        try:
-            from app.store import get_repository
-
-            application = get_repository().get_application(case_id)
-        except Exception:
-            application = None
-
-    date_of_birth = None
-    try:
-        from app.store import get_repository as _dob_repo
-
-        person = _dob_repo().get_applicant(party_id or getattr(application, "applicant_id", None) or "")
-        date_of_birth = getattr(person, "date_of_birth", None)
-    except Exception:  # noqa: BLE001 - no record: absent, reported by the policy if it needs one
-        date_of_birth = None
-    inputs = _eligibility_inputs(income, application, date_of_birth=date_of_birth,
-                                 kyc_status=kyc_status)
-
-    state = await run_agent(
-        agent_id="eligibility_agent",
-        payload=inputs.model_dump(mode="json"),
-        request_id=f"elig_{case_id}",
-    )
+    state = await run_agent(agent_id="eligibility_agent", payload={"case_id": case_id}, request_id=f"elig_{case_id}")
     result = (state or {}).get("result") or {}
+    if result.get("error"):
+        logger.info("eligibility: not assessed for %s (%s)", case_id, result["error"])
     return result.get("eligibility")
 
 
+async def _dedupe_for(case_id: str | None, kyc_parties: list) -> Any:
+    """
+    The fraud agent's DedupeResult for this case (app/agents/dedupe), or None.
+
+    THIS RUN'S PANs COUNT. Ingest stores this run's extractions only after the flow returns, so the parties' PANs
+    are handed over from the documents in hand -- ONLY the fields the verification gate released
+    (`_released_for_matching`), the same gate profile matching reads. NEVER RAISES: any failure is None, and the risk
+    agent reports its data gap as it did before.
+    """
+    if not case_id:
+        return None
+    try:
+        from app.agents.dedupe import config as dedupe_config
+        from app.agents.dedupe import service as dedupe_service
+
+        from app.agents.fraud_risk.config import enabled as risk_enabled
+
+        if not dedupe_config.enabled() or not risk_enabled():
+            return None
+        current: dict[str, dict[str, Any]] = {}
+        for party, owned in kyc_parties:
+            for result in _released_for_matching(owned):
+                fields = (result.get("extraction") or {}).get("fields") or {}
+                pan = fields.get("pan_number") or fields.get("pan")
+                if pan:
+                    current.setdefault(party.party_id, {})["pan_number"] = pan
+        return await asyncio.to_thread(dedupe_service.fraud_dedupe, case_id, current_identifiers=current)
+    except Exception as exc:  # noqa: BLE001 - the dedupe never takes the document pipeline down
+        logger.warning("Dedupe unavailable for %s: %r", case_id, exc)
+        return None
+
+
 def _risk_for(
-    eligibility: dict[str, Any], case_id: str | None,
+    eligibility: dict[str, Any], case_id: str | None, dedupe: Any = None,
 ) -> dict[str, Any] | None:
     """
     The risk assessment, reading the affordability verdict just produced.
@@ -1658,6 +1565,9 @@ def _risk_for(
         # that says nothing a reader did not already have. The risk
         # agent's own route still sets it from what its caller sent.
         request = FraudRiskRequest(
+            # THE LOS DEDUPE RESULT (app/agents/dedupe): None when it could not run -- the fraud agent then reports
+            # its usual DEDUPE_MATCH data gap, exactly as before the dedupe agent existed
+            dedupe=dedupe,
             eligibility={
                 "status": eligibility.get("status"),
                 "foir_pct": (eligibility.get("foir") or {}).get("value_pct"),
@@ -1968,23 +1878,22 @@ async def process_application(
     # stage can see.
     party_eligibility: dict[str, dict[str, Any]] = {}
     party_risk: dict[str, dict[str, Any]] = {}
-    if cross_document_checks and party_income:
-        for party, _owned in kyc_parties:
-            try:
-                verdict = await _eligibility_for(
-                    party_income.get(party.party_id) or {}, case_id, party_id=party.party_id,
-                    kyc_status=(party_kyc.get(party.party_id) or {}).get("status"))
-            except Exception as exc:
-                # An affordability failure must not take a document
-                # pipeline down with it.
-                logger.warning("Eligibility unavailable for %s: %r",
-                               party.party_id, exc)
-                verdict = None
-            if verdict:
-                party_eligibility[party.party_id] = verdict
-                risk = _risk_for(verdict, case_id)
-                if risk:
-                    party_risk[party.party_id] = risk
+    if cross_document_checks and kyc_parties:
+        # ONE DECISION PER CASE, from the case's structured data (never this upload's documents); published under the
+        # primary party, where the case store and the readers have always found it
+        primary = kyc_parties[0][0]
+        try:
+            verdict = await _eligibility_for(case_id)
+        except Exception as exc:
+            # An eligibility failure must not take a document pipeline down with it.
+            logger.warning("Eligibility unavailable for %s: %r", case_id, exc)
+            verdict = None
+        if verdict:
+            party_eligibility[primary.party_id] = verdict
+            dedupe = await _dedupe_for(case_id, kyc_parties)
+            risk = _risk_for(verdict, case_id, dedupe)
+            if risk:
+                party_risk[primary.party_id] = risk
 
     # ---------------------------------------------------------------
     # Overall verdict: the worst of every document and the KYC result.

@@ -1,0 +1,772 @@
+{
+ "api_version": "1.0",
+ "request_id": "ddp_example0000000000000000000000",
+ "case_id": "CASE-EXAMPLE0001",
+ "stage": null,
+ "searched_parameter": "MOBILE",
+ "customer_status": "EXISTING",
+ "customer_type_check": {
+  "declared": "EXISTING",
+  "result": "CONSISTENT",
+  "searched": "LOS case store only"
+ },
+ "requested": {
+  "product": "PERSONAL_LOAN",
+  "amount_rupees": "500000"
+ },
+ "los_dedupe": {
+  "search": {
+   "request_id": "dds_b8dcabfaab7b4b5e975c3b0af4165997",
+   "parameter": "MOBILE",
+   "strength": "SUPPORTING",
+   "policy": {
+    "policy_id": "DEDUPE",
+    "policy_version": "0.2.0-UNSIGNED",
+    "signed_off": false
+   },
+   "status": "NO_MATCH",
+   "reason_codes": [
+    "NO_MOBILE_MATCH_IN_LOS"
+   ],
+   "matches": [],
+   "customer_records": 0,
+   "customer_type_check": {
+    "declared": "EXISTING",
+    "result": "EXISTING_NOT_FOUND_IN_LOS",
+    "searched": "LOS case store only"
+   },
+   "coverage": {
+    "mode": "SCAN",
+    "cases_scanned": 1,
+    "truncated": false,
+    "partial": false
+   },
+   "timings_ms": {
+    "total_ms": 7.7
+   }
+  },
+  "case": {
+   "status": "INSUFFICIENT_DATA",
+   "recommendation": "DATA_UNAVAILABLE",
+   "recommendations": [
+    "DATA_UNAVAILABLE",
+    "CONTINUE_STANDARD_ONBOARDING"
+   ],
+   "parties": [
+    {
+     "party_id": "APP-EXAMPLE01",
+     "role": "PRIMARY_APPLICANT",
+     "status": "INSUFFICIENT_DATA",
+     "parameters_available": [],
+     "reason_codes": [
+      "NO_PAN_AND_NO_MOBILE"
+     ],
+     "matches": []
+    }
+   ],
+   "applications": {
+    "same_customer_other_cases": 0,
+    "same_product_other_cases": 0,
+    "hours_since_previous_same_product": null
+   },
+   "documents": {
+    "files_on_case": 0,
+    "reused_on_other_customers_cases": 0,
+    "reused_on_same_customer_cases": 0,
+    "reuse": [],
+    "files_missing_from_store": 0
+   },
+   "shared_signals": {
+    "mobile_shared_with_other_customer_records": 0
+   },
+   "scenarios": [
+    {
+     "scenario": "S01_NEW_CUSTOMER_CANDIDATE",
+     "status": "NOT_DETECTED",
+     "evidence": {
+      "searched": "LOS case store only"
+     }
+    },
+    {
+     "scenario": "S02_EXISTING_CUSTOMER",
+     "status": "NOT_DETECTED",
+     "evidence": {
+      "other_cases": 0
+     }
+    },
+    {
+     "scenario": "S09_ROLE_CHANGE",
+     "status": "NOT_DETECTED",
+     "evidence": {
+      "matches": 0
+     }
+    },
+    {
+     "scenario": "S10_SIMULTANEOUS_APPLICATION",
+     "status": "NOT_DETECTED",
+     "evidence": {
+      "same_product_cases": 0
+     }
+    },
+    {
+     "scenario": "S11_IDENTITY_CONFLICT",
+     "status": "NOT_DETECTED",
+     "evidence": {
+      "other_customer_records": 0
+     }
+    },
+    {
+     "scenario": "S11_POSSIBLE_MATCH",
+     "status": "NOT_DETECTED",
+     "evidence": {
+      "records_sharing_only_mobile": 0
+     }
+    },
+    {
+     "scenario": "S12_DOCUMENT_REUSE",
+     "status": "NOT_DETECTED",
+     "evidence": {
+      "files": 0
+     }
+    },
+    {
+     "scenario": "S15_PARTIAL_HISTORY",
+     "status": "DETECTED",
+     "evidence": {
+      "partial": false,
+      "identity_available": false
+     }
+    },
+    {
+     "scenario": "S03_REPEAT_LOAN",
+     "status": "NOT_EVALUATED",
+     "evidence": {
+      "reason": "DATA_UNAVAILABLE",
+      "needs_source": "LOAN_MANAGEMENT_SYSTEM"
+     }
+    },
+    {
+     "scenario": "S04_TOP_UP",
+     "status": "NOT_EVALUATED",
+     "evidence": {
+      "reason": "DATA_UNAVAILABLE",
+      "needs_source": "LOAN_MANAGEMENT_SYSTEM"
+     }
+    },
+    {
+     "scenario": "S05_BALANCE_TRANSFER",
+     "status": "NOT_EVALUATED",
+     "evidence": {
+      "reason": "DATA_UNAVAILABLE",
+      "needs_source": "LOAN_MANAGEMENT_SYSTEM"
+     }
+    },
+    {
+     "scenario": "S06_MULTIPLE_ACTIVE_LOANS",
+     "status": "NOT_EVALUATED",
+     "evidence": {
+      "reason": "DATA_UNAVAILABLE",
+      "needs_source": "LOAN_MANAGEMENT_SYSTEM"
+     }
+    },
+    {
+     "scenario": "S07_HISTORICAL_DEFAULT",
+     "status": "NOT_EVALUATED",
+     "evidence": {
+      "reason": "DATA_UNAVAILABLE",
+      "needs_source": "LOAN_MANAGEMENT_SYSTEM"
+     }
+    },
+    {
+     "scenario": "S08_CLOSURE_CONFLICT",
+     "status": "NOT_EVALUATED",
+     "evidence": {
+      "reason": "DATA_UNAVAILABLE",
+      "needs_source": "LOAN_MANAGEMENT_SYSTEM"
+     }
+    },
+    {
+     "scenario": "S13_BORROWING_PATTERN",
+     "status": "NOT_EVALUATED",
+     "evidence": {
+      "reason": "DATA_UNAVAILABLE",
+      "needs_source": "CREDIT_BUREAU"
+     }
+    },
+    {
+     "scenario": "S14_COLLATERAL_REUSE",
+     "status": "NOT_EVALUATED",
+     "evidence": {
+      "reason": "DATA_UNAVAILABLE",
+      "needs_source": "COLLATERAL_REGISTRY"
+     }
+    },
+    {
+     "scenario": "S17_TOP_UP_AFTER_RESTRUCTURING",
+     "status": "NOT_EVALUATED",
+     "evidence": {
+      "reason": "DATA_UNAVAILABLE",
+      "needs_source": "LOAN_MANAGEMENT_SYSTEM"
+     }
+    },
+    {
+     "scenario": "S18_FRAUD_CASE_CLEARED",
+     "status": "NOT_EVALUATED",
+     "evidence": {
+      "reason": "DATA_UNAVAILABLE",
+      "needs_source": "RCU_CASE_SYSTEM"
+     }
+    }
+   ],
+   "rule_counts": {
+    "TRIGGERED": 0,
+    "NOT_TRIGGERED": 6,
+    "NOT_EVALUATED": 14,
+    "EVALUATION_FAILED": 0
+   },
+   "completeness": {
+    "complete": false,
+    "not_evaluated": [
+     {
+      "rule_id": "P05_DUPLICATE_WINDOW",
+      "reason": "THRESHOLD_UNCONFIGURED"
+     },
+     {
+      "rule_id": "P15_CONCURRENT_CREATE",
+      "reason": "THRESHOLD_UNCONFIGURED"
+     },
+     {
+      "rule_id": "P03_ACTIVE_LOANS_EXPOSURE",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P04_REPAYMENT_HISTORY",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P07_FRAUD_CASE_OUTCOMES",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P09_BANK_LIABILITY_CONSISTENCY",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P10_COLLATERAL_REUSE",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P11_TOP_UP",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P12_CLOSURE_RECONCILIATION",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P16_REPEAT_LOAN",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P17_BALANCE_TRANSFER",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P18_BORROWING_FREQUENCY",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P19_RESTRUCTURED_LOAN",
+      "reason": "DATA_UNAVAILABLE"
+     },
+     {
+      "rule_id": "P20_FRAUD_CASE_RESOLUTION",
+      "reason": "DATA_UNAVAILABLE"
+     }
+    ],
+    "note": "NO_MATCH covers only the rules evaluated and the LOS case store searched; it is not a clean dedupe result while any rule is not evaluated."
+   },
+   "coverage": {
+    "mode": "SCAN",
+    "cases_scanned": 0,
+    "scan_limit": 2000,
+    "truncated": false,
+    "documents_truncated": false,
+    "partial": false,
+    "failed_sources": [],
+    "sources": [
+     {
+      "source": "LOS_CASE_STORE",
+      "available": true
+     },
+     {
+      "source": "LOS_DOCUMENT_STORE",
+      "available": true
+     },
+     {
+      "source": "LOAN_MANAGEMENT_SYSTEM",
+      "available": false,
+      "reason": "No loan-account, disbursement, repayment, DPD or closure records exist in this LOS (pre-sanction system)."
+     },
+     {
+      "source": "CREDIT_BUREAU",
+      "available": false,
+      "reason": "Only the demo bureau exists (app/agents/credit/bureau); demo data is never customer history."
+     },
+     {
+      "source": "RCU_CASE_SYSTEM",
+      "available": false,
+      "reason": "No RCU case entity with outcomes exists (app/agents/los/stage_registry.py)."
+     },
+     {
+      "source": "COLLATERAL_REGISTRY",
+      "available": false,
+      "reason": "Property identifiers are not stored per case; no lien / CERSAI source."
+     }
+    ],
+    "serialised": true
+   },
+   "policy": {
+    "policy_id": "DEDUPE",
+    "policy_version": "0.2.0-UNSIGNED",
+    "signed_off": false
+   }
+  }
+ },
+ "history": {
+  "customer": {
+   "match": "CONFIRMED_MATCH",
+   "customer_ref": "AP******18",
+   "match_basis": {
+    "strong_flag": true,
+    "potential_flag": false,
+    "score": 8,
+    "score_threshold": null,
+    "interpretation_status": "UNVERIFIED"
+   },
+   "searched_identifier_matches": true,
+   "identity_fields_present": [
+    "DOB",
+    "FNAME",
+    "LNAME",
+    "MOBILE",
+    "PAN"
+   ],
+   "warnings": []
+  },
+  "is_demo": true,
+  "sources": [
+   {
+    "source": "MIFIN",
+    "status": "AVAILABLE",
+    "is_demo": true,
+    "contract_version": "reference-2026-10-22"
+   },
+   {
+    "source": "LMS",
+    "status": "AVAILABLE",
+    "is_demo": true,
+    "loans_resolved": 3
+   }
+  ],
+  "loans": [
+   {
+    "prospect_ref": "PR******53",
+    "scheme": "ME NEW CUSTOMER",
+    "source_status": "DISBURSED",
+    "status_class": "UNKNOWN",
+    "amounts": {
+     "sanctioned_amount": "500000",
+     "os_principal": "312400",
+     "os_interest": "2150",
+     "os_othercharges": "0"
+    },
+    "currency": "INR",
+    "amount_problems": [],
+    "duplicates_collapsed": 0,
+    "conflicting_duplicate": false,
+    "lms_status": "FOUND",
+    "lms": {
+     "status": "ACTIVE",
+     "principal_outstanding": "312400",
+     "emi": "11200",
+     "dpd_current": 0,
+     "dpd_max_12m": 0,
+     "overdue_amount": "0",
+     "disbursed_on": "2024-03-15",
+     "tenure_months": 60
+    },
+    "lms_unavailable_fields": [
+     "closed_on",
+     "settled",
+     "written_off"
+    ],
+    "lms_problems": [],
+    "effective_status": "ACTIVE",
+    "status_source": "LMS",
+    "resolved": true
+   },
+   {
+    "prospect_ref": "PR******46",
+    "scheme": "LAP",
+    "source_status": "CLOSED",
+    "status_class": "UNKNOWN",
+    "amounts": {
+     "sanctioned_amount": "800000",
+     "os_principal": "0",
+     "os_interest": "0",
+     "os_othercharges": "0"
+    },
+    "currency": "INR",
+    "amount_problems": [],
+    "duplicates_collapsed": 0,
+    "conflicting_duplicate": false,
+    "lms_status": "FOUND",
+    "lms": {
+     "status": "CLOSED",
+     "principal_outstanding": "0",
+     "dpd_max_12m": 0,
+     "disbursed_on": "2019-07-01",
+     "closed_on": "2023-06-30",
+     "settled": false,
+     "written_off": false
+    },
+    "lms_unavailable_fields": [
+     "emi",
+     "dpd_current",
+     "overdue_amount",
+     "tenure_months"
+    ],
+    "lms_problems": [],
+    "effective_status": "CLOSED",
+    "status_source": "LMS",
+    "resolved": true
+   },
+   {
+    "prospect_ref": "PR******28",
+    "scheme": "ME BT TOPUP",
+    "source_status": "CANCELED",
+    "status_class": "CANCELED",
+    "amounts": {
+     "sanctioned_amount": "200000",
+     "os_principal": "200000",
+     "os_interest": null,
+     "os_othercharges": "0"
+    },
+    "currency": "INR",
+    "amount_problems": [],
+    "duplicates_collapsed": 0,
+    "conflicting_duplicate": false,
+    "lms_status": "NOT_FOUND",
+    "lms": null,
+    "lms_unavailable_fields": [
+     "status",
+     "principal_outstanding",
+     "emi",
+     "dpd_current",
+     "dpd_max_12m",
+     "overdue_amount",
+     "disbursed_on",
+     "closed_on",
+     "settled",
+     "written_off",
+     "tenure_months"
+    ],
+    "lms_problems": [],
+    "effective_status": "CANCELED",
+    "status_source": "MIFIN",
+    "resolved": true
+   }
+  ],
+  "loan_count": 3,
+  "fields_not_in_mifin": [
+   "DISBURSEMENT_DATE",
+   "CLOSURE_DATE",
+   "EMI",
+   "REPAYMENT_LEDGER",
+   "DPD",
+   "OVERDUE",
+   "SETTLEMENT",
+   "WRITE_OFF",
+   "TOPUP_HISTORY"
+  ],
+  "history_status": "COMPLETE",
+  "aggregates": {
+   "by_status": {
+    "ACTIVE": 1,
+    "CLOSED": 1,
+    "CANCELED": 1
+   },
+   "active_loans": 1,
+   "unknown_status_loans": 0,
+   "conflicting_duplicates": 0,
+   "active_exposure": {
+    "status": "COMPLETE",
+    "value": "312400",
+    "loans_counted": 1,
+    "loans_missing": [],
+    "loans_status_unknown": [],
+    "loans_conflicting": [],
+    "currency": "INR"
+   },
+   "monthly_emi_burden": {
+    "status": "COMPLETE",
+    "value": "11200",
+    "loans_counted": 1,
+    "loans_missing": [],
+    "loans_status_unknown": [],
+    "loans_conflicting": [],
+    "currency": "INR"
+   },
+   "worst_dpd_12m": {
+    "value": 0,
+    "loans_reporting": 2,
+    "status": "COMPLETE"
+   },
+   "adverse_events": {
+    "settled": 0,
+    "written_off": 0,
+    "status": "COMPLETE"
+   }
+  },
+  "timings_ms": {
+   "total_ms": 24.9
+  }
+ },
+ "evaluation": {
+  "policy": {
+   "policy_id": "CUSTOMER_HISTORY",
+   "policy_version": "0.1.0-UNSIGNED",
+   "signed_off": false
+  },
+  "outcome": "REVIEW_REQUIRED",
+  "reason_codes": [
+   "POLICY_NOT_CONFIGURED:H07_EXISTING_LOAN_COUNT",
+   "POLICY_NOT_CONFIGURED:H08_TOTAL_EXPOSURE",
+   "POLICY_NOT_CONFIGURED:H09_EMI_BURDEN",
+   "POLICY_NOT_CONFIGURED:H10_DPD"
+  ],
+  "next_actions": [
+   "Apply the existing-loan limit once the business owner sets it.",
+   "Apply the customer-exposure limit once the business owner sets it.",
+   "Apply the EMI-burden limit once the business owner sets it.",
+   "Apply the DPD limit once the business owner sets it."
+  ],
+  "rules": [
+   {
+    "rule_id": "H01_SOURCE_AVAILABLE",
+    "policy_version": "0.1.0-UNSIGNED",
+    "description": "MIFIN answered (not unavailable, errored or malformed).",
+    "signal": "source.mifin_unavailable",
+    "value": false,
+    "severity": "HIGH",
+    "confirmation_status": "UNCONFIRMED",
+    "evidence": {
+     "source": "loan_history",
+     "history_status": "COMPLETE"
+    },
+    "outcome": "NOT_TRIGGERED",
+    "reason": null
+   },
+   {
+    "rule_id": "H02_IDENTITY_RESOLVED",
+    "policy_version": "0.1.0-UNSIGNED",
+    "description": "The match is confirmed (not potential or ambiguous).",
+    "signal": "match.unresolved",
+    "value": false,
+    "severity": "MEDIUM",
+    "confirmation_status": "UNCONFIRMED",
+    "evidence": {
+     "source": "loan_history",
+     "history_status": "COMPLETE"
+    },
+    "outcome": "NOT_TRIGGERED",
+    "reason": null
+   },
+   {
+    "rule_id": "H03_HISTORY_COMPLETE",
+    "policy_version": "0.1.0-UNSIGNED",
+    "description": "Every loan's state is known from the LMS (history COMPLETE, or no previous loans / no match).",
+    "signal": "history.incomplete",
+    "value": false,
+    "severity": "MEDIUM",
+    "confirmation_status": "UNCONFIRMED",
+    "evidence": {
+     "source": "loan_history",
+     "history_status": "COMPLETE"
+    },
+    "outcome": "NOT_TRIGGERED",
+    "reason": null
+   },
+   {
+    "rule_id": "H04_NO_CONFLICTING_RECORDS",
+    "policy_version": "0.1.0-UNSIGNED",
+    "description": "No prospect / loan reference appears twice with different facts.",
+    "signal": "history.conflicting_records",
+    "value": 0,
+    "severity": "HIGH",
+    "confirmation_status": "UNCONFIRMED",
+    "evidence": {
+     "source": "loan_history",
+     "history_status": "COMPLETE"
+    },
+    "outcome": "NOT_TRIGGERED",
+    "reason": null
+   },
+   {
+    "rule_id": "H05_NO_UNKNOWN_LOAN_STATUS",
+    "policy_version": "0.1.0-UNSIGNED",
+    "description": "No loan whose state neither the LMS nor a mapped MIFIN status confirms.",
+    "signal": "history.unknown_status_loans",
+    "value": 0,
+    "severity": "MEDIUM",
+    "confirmation_status": "UNCONFIRMED",
+    "evidence": {
+     "source": "loan_history",
+     "history_status": "COMPLETE"
+    },
+    "outcome": "NOT_TRIGGERED",
+    "reason": null
+   },
+   {
+    "rule_id": "H06_ADVERSE_HISTORY",
+    "policy_version": "0.1.0-UNSIGNED",
+    "description": "A previous loan was settled or written off (LMS).",
+    "signal": "history.adverse_events",
+    "value": 0,
+    "severity": "HIGH",
+    "confirmation_status": "UNCONFIRMED",
+    "evidence": {
+     "source": "loan_history",
+     "history_status": "COMPLETE"
+    },
+    "outcome": "NOT_TRIGGERED",
+    "reason": null
+   },
+   {
+    "rule_id": "H07_EXISTING_LOAN_COUNT",
+    "policy_version": "0.1.0-UNSIGNED",
+    "description": "Live loans at or above the approved existing-loan limit.",
+    "signal": "history.active_loans",
+    "value": 1,
+    "severity": "MEDIUM",
+    "confirmation_status": "UNCONFIGURED",
+    "evidence": {
+     "source": "loan_history",
+     "history_status": "COMPLETE"
+    },
+    "outcome": "NOT_EVALUATED",
+    "reason": "THRESHOLD_UNCONFIGURED",
+    "reason_code": "POLICY_NOT_CONFIGURED",
+    "next_action": "Apply the existing-loan limit once the business owner sets it."
+   },
+   {
+    "rule_id": "H08_TOTAL_EXPOSURE",
+    "policy_version": "0.1.0-UNSIGNED",
+    "description": "Live exposure plus the requested amount above the approved customer-exposure limit (rupees).",
+    "signal": "exposure.with_requested",
+    "value": "812400",
+    "severity": "HIGH",
+    "confirmation_status": "UNCONFIGURED",
+    "evidence": {
+     "source": "loan_history",
+     "history_status": "COMPLETE"
+    },
+    "outcome": "NOT_EVALUATED",
+    "reason": "THRESHOLD_UNCONFIGURED",
+    "reason_code": "POLICY_NOT_CONFIGURED",
+    "next_action": "Apply the customer-exposure limit once the business owner sets it."
+   },
+   {
+    "rule_id": "H09_EMI_BURDEN",
+    "policy_version": "0.1.0-UNSIGNED",
+    "description": "Existing monthly EMI above the approved limit (rupees).",
+    "signal": "history.monthly_emi",
+    "value": "11200",
+    "severity": "MEDIUM",
+    "confirmation_status": "UNCONFIGURED",
+    "evidence": {
+     "source": "loan_history",
+     "history_status": "COMPLETE"
+    },
+    "outcome": "NOT_EVALUATED",
+    "reason": "THRESHOLD_UNCONFIGURED",
+    "reason_code": "POLICY_NOT_CONFIGURED",
+    "next_action": "Apply the EMI-burden limit once the business owner sets it."
+   },
+   {
+    "rule_id": "H10_DPD",
+    "policy_version": "0.1.0-UNSIGNED",
+    "description": "Worst DPD in the last 12 months above the approved limit (days).",
+    "signal": "history.worst_dpd_12m",
+    "value": 0,
+    "severity": "HIGH",
+    "confirmation_status": "UNCONFIGURED",
+    "evidence": {
+     "source": "loan_history",
+     "history_status": "COMPLETE"
+    },
+    "outcome": "NOT_EVALUATED",
+    "reason": "THRESHOLD_UNCONFIGURED",
+    "reason_code": "POLICY_NOT_CONFIGURED",
+    "next_action": "Apply the DPD limit once the business owner sets it."
+   }
+  ],
+  "rule_counts": {
+   "TRIGGERED": 0,
+   "NOT_TRIGGERED": 6,
+   "NOT_EVALUATED": 4,
+   "EVALUATION_FAILED": 0
+  },
+  "complete": false
+ },
+ "outcome": "REVIEW_REQUIRED",
+ "reason_codes": [
+  "POLICY_NOT_CONFIGURED:H07_EXISTING_LOAN_COUNT",
+  "POLICY_NOT_CONFIGURED:H08_TOTAL_EXPOSURE",
+  "POLICY_NOT_CONFIGURED:H09_EMI_BURDEN",
+  "POLICY_NOT_CONFIGURED:H10_DPD"
+ ],
+ "next_actions": [
+  "Apply the existing-loan limit once the business owner sets it.",
+  "Apply the customer-exposure limit once the business owner sets it.",
+  "Apply the EMI-burden limit once the business owner sets it.",
+  "Apply the DPD limit once the business owner sets it."
+ ],
+ "completeness": {
+  "complete": false,
+  "history_status": "COMPLETE",
+  "sources": [
+   {
+    "source": "MIFIN",
+    "status": "AVAILABLE",
+    "is_demo": true,
+    "contract_version": "reference-2026-10-22"
+   },
+   {
+    "source": "LMS",
+    "status": "AVAILABLE",
+    "is_demo": true,
+    "loans_resolved": 3
+   }
+  ]
+ },
+ "policy": {
+  "policy_id": "CUSTOMER_HISTORY",
+  "policy_version": "0.1.0-UNSIGNED",
+  "signed_off": false
+ },
+ "is_demo": true,
+ "serialised": true,
+ "explanation": {
+  "text": "MIFIN confirmed an existing customer (AP******18). 3 previous loan record(s) were found: 1 active, 1 canceled, 1 closed. Live exposure is Rs 312400 with a monthly EMI of Rs 11200. 4 policy check(s) could not be evaluated (missing approved limits or unverified data). The case needs review before a credit decision. Next: Apply the existing-loan limit once the business owner sets it. (Demo data.)",
+  "source": "DETERMINISTIC",
+  "fallback_reason": "LLM_UNAVAILABLE"
+ },
+ "timings_ms": {
+  "total_ms": 130.6
+ },
+ "audit": {
+  "recorded": true
+ }
+}

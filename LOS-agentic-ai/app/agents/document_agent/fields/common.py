@@ -137,6 +137,15 @@ def _find_label_across_tokens(
     return None
 
 
+def _label_end(key: str, patterns: list[str]) -> int | None:
+    """Where the earliest matching caption ENDS in a compacted token, or None when none of `patterns` occurs."""
+    found = [(key.find(p), -len(p), p) for p in patterns if p and p in key]
+    if not found:
+        return None
+    start, neg_len, _ = min(found)                 # the earliest caption; the longest one when two start together
+    return start - neg_len
+
+
 def find_label(
     tokens: list[OCRToken],
     patterns: list[str],
@@ -155,10 +164,15 @@ def find_label(
 
     for token in ordered:
         key = compact(token.text)
-        if any(e in key for e in exclude):
+        hit = _label_end(key, patterns)
+        if hit is None:
             continue
-        if any(p in key for p in patterns):
-            return token
+        # AN EXCLUDED CAPTION COUNTS ONLY IN THE LABEL PART, never inside the value that follows it (2026-11-04):
+        # "Elector'sName:AMITPATIL" was skipped because the surname PATIL contains the husband caption PATI, and
+        # every Voter ID of a PATIL lost its holder's name (then a second engine filled it with "ELECTION").
+        if any(0 <= key.find(e) < hit for e in exclude):
+            continue
+        return token
 
     # A caption split across two tokens.
     #
@@ -189,6 +203,11 @@ def find_label(
         if any(e in key for e in exclude):
             continue
         for pattern in patterns:
+            # THE FIRST LETTER EATEN by the Devanagari caption before it (2026-11-04): a bilingual licence reads
+            # "fa/ssueDate:19-10-2019" -- "ISSUEDATE" lost its I, and the issue date was MISSING on 16 / 36
+            # synthetic dev licences. Only the leading letter, only for captions of 9+ letters.
+            if len(pattern) >= 9 and pattern[1:] in key:
+                return token
             if len(pattern) < 10:
                 continue
             tolerance = 1 if len(pattern) < 14 else 2

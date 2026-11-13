@@ -173,4 +173,22 @@ def emit(record: dict[str, Any]) -> None:
         pass
 
 
-__all__ = ["build", "emit"]
+def public(record: dict[str, Any]) -> dict[str, Any]:
+    """THE COPY OF THE TURN RECORD THAT GOES BACK TO THE CLIENT (2026-10-17, red team: every answer's JSON carried
+    the internal tool names -- documents.checklist, workflow.pending_items -- and the model route). Only the fields
+    config copilot_reply.yaml `observability.public_fields` lists; the FULL record is still logged (emit). With
+    COPILOT_TURN_DIAGNOSTICS on (development only) the full record is returned, as before."""
+    from app.observability import turn_diagnostics
+
+    if turn_diagnostics.enabled():
+        return record
+    try:
+        from app.agents.applicant.copilot.answering import contract
+
+        allowed = set((contract.cfg().get("observability") or {}).get("public_fields") or [])
+    except Exception:  # noqa: BLE001 - no config: the strictest copy
+        allowed = set()
+    return {k: v for k, v in record.items() if k in allowed}
+
+
+__all__ = ["build", "emit", "public"]

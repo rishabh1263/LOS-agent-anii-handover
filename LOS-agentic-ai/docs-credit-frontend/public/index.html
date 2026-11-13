@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Credit Document Desk</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230e8f8a'/%3E%3Cpath d='M10 8h8l4 4v12H10z' stroke='white' stroke-width='2.4' fill='none' stroke-linejoin='round'/%3E%3Cpath d='M13 17l2.5 2.5L20 15' stroke='white' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/styles.css?v=34">
+  <script src="/theme.js?v=23"></script>
+  <script src="/app.js?v=23" defer></script>
+</head>
+<body class="is-empty">
+  <!-- ============================== RAIL: search + the rules ============================== -->
+  <aside class="rail" aria-label="Search and rules">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 3.5h7l4 4V20.5H7z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M9.5 13l2 2 4-4.5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="grow"><div class="brand-title">Credit Document Desk</div><div class="brand-sub">Readiness for underwriting</div></div>
+      <button class="theme-btn" type="button" id="theme-btn" aria-label="Switch to dark mode" title="Switch to dark mode"></button>
+    </div>
+
+    <form class="search" id="search" autocomplete="off" role="search">
+      <label class="search-label" for="case-input">Case ID</label>
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input id="case-input" name="case" type="text" placeholder="CASE-…" spellcheck="false" aria-label="Case ID">
+        <kbd>/</kbd>
+      </div>
+      <button class="btn-brand" type="submit">Check documents</button>
+      <p class="search-error" id="search-error" role="alert" hidden></p>
+    </form>
+
+    <div class="recent" id="recent" hidden></div>
+
+    <nav class="rules" id="rules" aria-label="Rule checks"></nav>
+
+    <div class="rail-foot" id="rail-foot">
+      <span><i class="dot ok"></i>Pass</span><span><i class="dot warn"></i>To collect</span>
+      <span><i class="dot bad"></i>Critical</span><span><i class="dot na"></i>N/A</span>
+    </div>
+  </aside>
+
+  <!-- ============================== MAIN ============================== -->
+  <main class="main" id="main">
+    <div class="loadbar" aria-hidden="true"></div>
+    <!-- before a case is open -->
+    <section class="welcome" id="welcome">
+      <div class="welcome-inner">
+        <span class="eyebrow">Credit stage</span>
+        <h1>Is this loan file ready for underwriting?</h1>
+        <p>Enter a case ID on the left. Every person on the loan is checked document by document against the credit
+          document policy: what is missing, what is fake or rejected, and what the customer can still be asked for.</p>
+        <div class="legend-cards">
+          <div class="lc bad"><b>Critical</b><span>A required document is missing, rejected, or does not match (possibly fake). The case goes to the credit manager.</span></div>
+          <div class="lc warn"><b>To collect</b><span>On file but old, short, unreadable or still being verified. The case moves ahead; ask the customer.</span></div>
+          <div class="lc ok"><b>Verified</b><span>On file and verified. Nothing to do.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- the case -->
+    <header class="case-head" id="case-head"></header>
+    <section class="banner" id="banner"></section>
+    <section class="body">
+      <div class="people" id="people"></div>
+      <aside class="brief" id="brief"></aside>
+    </section>
+  </main>
+
+  <!-- details drawer: one document, or one rule -->
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawer-title" role="dialog">
+    <div class="drawer-head">
+      <div>
+        <div class="drawer-kicker" id="drawer-kicker"></div>
+        <h2 id="drawer-title"></h2>
+        <p class="drawer-help" id="drawer-help"></p>
+      </div>
+      <button class="icon-btn" type="button" id="drawer-close" aria-label="Close">✕</button>
+    </div>
+    <div class="drawer-stat" id="drawer-stat"></div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

@@ -1,0 +1,92 @@
+# Every sentence the rules write, the rules' names and the error messages, in one place.
+# Templates are Python str.format: {what} / {who} / {name} are filled by the engine; a date field takes a format
+# after a colon ({when:%d %b %Y}). Keep each placeholder a template already uses; a missing key or an unknown
+# placeholder stops the service at start-up (config/reasons.py checks them), never mid-evaluation.
+# The policy's own values (days, months, limits, accepted types) come from policies/*.credit.json.
+
+# the eleven rules, as the API and the dashboard name them
+rule_names:
+  RULE-01: "Product Requirements"
+  RULE-02: "Applicant Coverage"
+  RULE-03: "Missing Documents"
+  RULE-04: "Conditional Requirements"
+  RULE-05: "Alternative Documents"
+  RULE-06: "Period and Freshness"
+  RULE-07: "Supporting Documents"
+  RULE-08: "Cross-Stage Reconciliation"
+  RULE-09: "Exceptions and Waivers"
+  RULE-10: "Compliance and Audit"
+  RULE-11: "File Size and Format"
+
+# whose document: a role on the case -> the words in a reason (a role not listed: "the <role in words>")
+parties:
+  PRIMARY_APPLICANT: "the applicant"
+  CO_APPLICANT: "the co-applicant"
+
+reasons:
+  # RULE-01
+  product_list_found: "The {product} document list for this stage was found ({count} required documents)."
+  product_conflict: "The product policy contradicts itself on {slot}: {detail}"
+  # RULE-02
+  coverage_unknown: "The Credit document policy does not say what {who} must provide."
+  # RULE-04
+  condition_unknown: "The applicant's {details} is not filled in, so the documents that depend on it ({needs}) cannot be checked."
+  # RULES 2, 3, 4, 5, 8, 9 -- one slot of one person
+  reused: "The {what} of {who} from an earlier stage is reused."
+  collected_at_stage: "The {what} of {who} was collected at this stage, as required."
+  verified: "The {what} of {who} is verified."
+  waived: "The {what} of {who} is waived by approved deviation {code}."
+  exception_pending: "An exception for the {what} of {who} ({code}) is awaiting approval."
+  not_accepted: "{Who} gave {given}, which is not accepted as {what}. Accepted: {accepted}."
+  missing: "The {what} of {who} is missing. Accepted: {accepted}."
+  stale_for_stage: "The {what} of {who} was collected before the credit stage; the policy needs one collected at this stage."
+  stage_entry_unknown: "When the case entered this stage is not recorded, so whether the {what} was collected at this stage cannot be told."
+  pending_verification: "The {what} of {who} is uploaded and waiting for verification."
+  under_review: "The {what} of {who} is with a reviewer."
+  rejected: "The {what} of {who} was rejected; a new one is needed. Accepted: {accepted}."
+  mismatch: "The {what} of {who} is marked verified but its verification result failed."
+  unknown_state: "The {what} of {who} is in a state the policy does not recognise."
+  # RULE-06
+  no_min_months: "The product policy sets no minimum months for the {name}."
+  period_unreadable: "The {name} of {who} period could not be read, so its coverage of {months} months is unknown."
+  period_short: "The {name} of {who} covers {start:%d %b %Y} to {end:%d %b %Y}; {months} months are needed."
+  no_min_count: "The product policy sets no minimum count for the {name}."
+  count_short: "{have} verified {name}(s) of {who} on file; {count} are needed."
+  date_unreadable: "The {name} of {who} date ({field}) could not be read, so its freshness is unknown."
+  too_old: "The {name} of {who} is dated {when:%d %b %Y}, {age} days old; it must be within {max_age} days."
+  no_expiry_field: "The product policy names no expiry field for the {name}."
+  expiry_unreadable: "The {name} of {who} expiry date could not be read."
+  expired: "The {name} of {who} expired on {expiry:%d %b %Y}."
+  period_ok: "The {name} of {who} meets the period and freshness rule."
+  # RULE-07
+  supporting_ok: "The {what} has its supporting {need}."
+  supporting_pending: "The {need} supporting the {what} is awaiting verification."
+  supporting_missing: "{Who} gave the {what}; it needs its {need}."
+  # RULE-11
+  file_not_stored: "The {name} file of {who} is not stored, so its size and format cannot be checked."
+  file_problems: "The {name} file of {who} cannot be used: {problems}."
+  file_wrong_format: "it is a {format} file; allowed: {allowed}"
+  file_too_large: "it is {size_mb:.1f} MB; the limit is {max_mb:g} MB"
+  file_too_small: "it is only {size_kb:.0f} KB, too small to be a readable scan (at least {min_kb:g} KB)"
+  file_ok: "The {name} file is a {format} of {size}."
+  size_mb: "{mb:.1f} MB"
+  size_kb: "{kb:.0f} KB"
+  # RULE-10 (the rules board)
+  audit_recorded: "Recorded as evaluation {evaluation_id}"
+  audit_not_recorded: "The evaluation could not be recorded."
+  audit_event: "Credit document readiness {status} ({open} open requirement(s))"
+
+# error answers (the HTTP status stays with the code that raises it)
+errors:
+  no_product_requirements: "The product document policy has no requirements for {product}."
+  policy_dir_missing: "The Credit document policy directory does not exist."
+  policy_invalid: "The Credit document policy {file} is invalid: {detail}"
+  no_product: "The application has no product, so no policy can apply."
+  no_policy: "No Credit document policy is in force for {product} at the {stage} stage."
+  policy_ambiguous: "More than one Credit document policy applies: {names}."
+  policy_not_approved: "The Credit document policy {policy} is a SAMPLE and is not allowed in the {environment} environment."
+  case_not_found: "No application exists for this case."
+  store_unavailable: "The case records could not be read ({error})."
+  timeout: "The evaluation did not finish in time."
+  audit_unavailable: "The evaluation could not be recorded ({error})."
+  insufficient_scope: "This operation requires one of the scopes: {scopes}."

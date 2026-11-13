@@ -39,7 +39,7 @@ class AgentConfig(BaseModel):
 
     # LLM settings. Applies to summary generation only for Agent 2; the
     # deterministic engine never calls a model.
-    model: str = "qwen3:30b"
+    model: str = "qwen3:4b-instruct-2507-q4_K_M"
     temperature: float = 0.1
     prompt_version: str = "v1"
 

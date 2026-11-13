@@ -1,0 +1,5226 @@
+{
+ "config": {
+  "user": {
+   "id": "cpa.mumbai",
+   "name": "cpa.mumbai",
+   "permissions": [
+    "correct_extraction",
+    "decide",
+    "download_report",
+    "edit_application",
+    "initiate",
+    "upload",
+    "validate",
+    "view",
+    "waive"
+   ]
+  },
+  "screen": {
+   "brand": {
+    "title": "Legal Verification",
+    "subtitle": "Credit underwriting"
+   },
+   "nav": {
+    "label": "Main navigation",
+    "worklist": "Worklist",
+    "case": "Case and documents",
+    "verification": "Agency and verification",
+    "decision": "Decision",
+    "collapse": "Collapse sidebar",
+    "los": "Loan application"
+   },
+   "user": {
+    "cpa": "CPA",
+    "agency": "Legal agency"
+   },
+   "common": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "collapse": "Collapse section",
+    "expand": "Expand section",
+    "failed": "The request could not be completed. Try again.",
+    "network": "The server could not be reached. Check your connection and try again."
+   },
+   "loader": {
+    "brand": "SBFC",
+    "start": "Opening the desk\n",
+    "open": "Opening the case\nLoading the documents\nReading the agency report\nGathering rule results\n",
+    "upload": "Uploading the file\nChecking the file type\nSaving it securely\nAdding it to the case\n",
+    "deed": "Saving the details\nRecording the changes\n",
+    "validate": "Matching the owners\nChecking the Sale Deed\nComparing addresses\nTracing the title chain\nChecking registration\nSearching for charges\nChecking documents\nCross-checking the agency\n",
+    "send": "Preparing the case\nSending to the agency\nReceiving the agency's report\n",
+    "report": "Building the report\nAdding rule results\nLaying out the pages\n",
+    "decide": "Recording the decision\n",
+    "save": "Saving the details\nSaving the legal vendor\n",
+    "switch_application": "Opening the application\n",
+    "switch_report": "Opening the agency report\n",
+    "switch_rules": "Lining up the checks\n",
+    "switch_final": "Opening the final status\n",
+    "switch_geo": "Finding the location\n",
+    "switch_summary": "Reading the checks\nWriting the summary\n",
+    "submit_report": "Saving the answers\n",
+    "generate_report": "Reading the agency's answers\nChecking owners and registration\nTracing the title chain\nChecking encumbrance and CERSAI\nWeighing the legal opinion\nWriting the agency report\nAttaching the report\nComparing with the Application Details\nWriting the summary\n",
+    "waive": "Recording the waiver\n",
+    "switch_case": "Opening the application\nGathering the documents\n",
+    "switch_verification": "Opening the agency report\nLining up the checks\n",
+    "switch_decision": "Opening the decision\nLoading the history\n"
+   },
+   "worklist": {
+    "kicker": "Credit underwriting · Collateral",
+    "validated": "validated",
+    "tiles": {
+     "total": "Applications",
+     "new": "Awaiting initiation",
+     "agency": "With agency",
+     "escalate": "Escalate",
+     "review": "Review required",
+     "clear": "Clear for review"
+    },
+    "title": "Legal verification worklist",
+    "subtitle": "Applications whose collateral needs a legal check. Open one to work on it.",
+    "search": "Search by application ID or applicant",
+    "applicant": "Applicant",
+    "property": "Property",
+    "loan": "Loan",
+    "status": "Status",
+    "recommendation": "Recommendation",
+    "agency": "Agency",
+    "not_run": "Not validated",
+    "none": "No applications",
+    "none_text": "Nothing matches, or no application is open to you."
+   },
+   "case": {
+    "case_id": "Enter case / application ID",
+    "open": "Open",
+    "assigned": "Assigned to",
+    "application_id": "Application ID",
+    "product": "Product",
+    "stage": "Stage",
+    "los_status": "Status",
+    "final_status": "Final status",
+    "options": "Options",
+    "verifications": "Verifications",
+    "back": "Back to the worklist",
+    "open_failed": "The case could not be opened",
+    "loan": "Loan",
+    "validate": "Run validation",
+    "validated": "Validation complete.",
+    "download": "Download report",
+    "downloaded": "Report downloaded."
+   },
+   "overview": {
+    "progress": "Verification progress"
+   },
+   "steps": {
+    "documents": "Documents",
+    "agency": "Sent to agency",
+    "report": "Agency report",
+    "validation": "Validation",
+    "decision": "Decision"
+   },
+   "reco": {
+    "title": "Recommendation",
+    "not_run": "Not validated yet",
+    "not_run_text": "Upload the Sale Deed and run the validation to see the recommendation.",
+    "findings": "Key findings",
+    "no_findings": "No mismatch and nothing to review.",
+    "missing": "Missing evidence",
+    "next": "Next action:"
+   },
+   "summary": {
+    "title": "Summary",
+    "writing": "AI is writing",
+    "none": "No summary yet",
+    "none_text": "The summary appears after the first validation."
+   },
+   "steps_hint": {
+    "application_open": "Fill the form, upload, initiate",
+    "application_done": "Sent to the agency",
+    "application_waiting": "Fill the form, upload, initiate",
+    "report_open": "Waiting for the agency",
+    "report_done": "Report received",
+    "report_waiting": "Initiate first",
+    "rules_done": "Checks complete",
+    "rules_waiting": "After the agency report",
+    "rules_open": "Ready to run",
+    "final_open": "Record your decision",
+    "final_done": "Decided",
+    "final_waiting": "After the checks",
+    "geo_open": "No location yet",
+    "geo_done": "Location recorded",
+    "geo_waiting": "No location yet",
+    "summary_open": "Recommendation and points",
+    "summary_done": "Recommendation and points",
+    "summary_waiting": "After the checks"
+   },
+   "application_groups": {
+    "case": "Application",
+    "complete_address": "Complete Property Address"
+   },
+   "sections": {
+    "application": "Application Details",
+    "documents": "Sale Deed and Supporting Documents",
+    "report": "Verification Report",
+    "rules": "Automated Rule Results",
+    "final": "Final Status",
+    "geo": "Geo Location Details",
+    "summary": "Summary & Recommendation"
+   },
+   "geo": {
+    "none": "No geo-tagged location has been recorded for this property."
+   },
+   "application": {
+    "title": "Application and property",
+    "edit": "Edit application details",
+    "save": "Save application details",
+    "saved": "Application details saved.",
+    "form_note": "As received from the LOS. Edit what is wrong; every change is recorded.",
+    "changed": "Changed",
+    "unsaved": "Unsaved changes",
+    "progress": "{done} of {total} filled",
+    "pan_note": "Stored masked: only the last 4 characters are kept.",
+    "subtitle": "As received from the LOS",
+    "applicant": "Applicant",
+    "reference": "Application ID",
+    "product": "Product",
+    "loan": "Loan amount",
+    "property_type": "Property type",
+    "branch": "Branch",
+    "owners": "Property owners",
+    "address": "Property address",
+    "vendor": "Legal vendor",
+    "vendor_name": "Legal Vendor Name",
+    "select_agency": "Select agency",
+    "vendor_saved": "Saved: {agency}"
+   },
+   "actions": {
+    "note": "Save keeps the legal vendor; Initiate sends the case to it; Waive records that no legal verification is needed.",
+    "sent_note": "Sent to {agency}. Follow its report under Agency and verification.",
+    "waive": "Waive",
+    "save": "Save",
+    "initiate": "Initiate",
+    "why_sent": "Initiate is done: the case is already with {agency}.",
+    "why_report": "Initiate is done: the agency's report is already in.",
+    "why_closed": "The case is closed: nothing more can be sent.",
+    "why_no_deed": "To initiate, upload the Sale Deed below first.",
+    "why_no_vendor": "To initiate, choose the Legal Vendor Name first.",
+    "why_not_allowed": "Your role cannot initiate a legal verification.",
+    "saved": "Legal vendor saved.",
+    "saved_all": "Saved.",
+    "ready_title": "Ready to send to the legal agency?",
+    "sent_title": "With {agency}",
+    "waive_title": "Waive the legal verification?",
+    "waive_note": "No legal check will be done on this collateral. The reason is recorded with your name and the time.",
+    "waive_reason": "Reason for waiving",
+    "waive_confirm": "Waive verification",
+    "waived": "Legal verification waived.",
+    "waived_title": "Legal verification waived",
+    "waived_by": "By {who} on {when}"
+   },
+   "docs": {
+    "title": "Sale Deed and supporting documents",
+    "subtitle": "Upload the documents, then enter the Sale Deed details from the document.",
+    "kind": "Document type",
+    "choose": "Choose file",
+    "drop": "Drop a PDF, JPG or PNG here, or click to choose (up to {mb} MB)",
+    "drop_title": "Upload {kind}",
+    "upload": "Upload",
+    "reading": "Uploading…",
+    "uploaded": "{kind} uploaded.",
+    "bad_type": "Upload a PDF, JPG or PNG file.",
+    "too_large": "The file is larger than {mb} MB.",
+    "on_file": "Documents on file ({n})",
+    "none": "No documents yet",
+    "none_text": "Start with the Sale Deed.",
+    "view": "View",
+    "deed_fields": "Sale Deed details",
+    "no_deed": "No Sale Deed yet",
+    "no_deed_text": "Upload it, then enter its details here.",
+    "not_read": "Not entered",
+    "enter": "Enter Sale Deed details",
+    "edit": "Edit Sale Deed details",
+    "deed_title": "Sale Deed details",
+    "deed_note": "Enter the details exactly as they appear on the Sale Deed. A change to a value already entered needs a reason and is recorded.",
+    "deed_saved": "Sale Deed details saved.",
+    "reason_for_change": "Reason for the change",
+    "changes_need_reason": "You changed {n} value(s) already entered: give a reason.",
+    "save": "Save details",
+    "fill_sample": "Fill sample",
+    "correct_field": "Correct {field}",
+    "correct_title": "Correct: {field}",
+    "correct_note": "The value entered first is kept. The correction is recorded with your name, the time and the reason.",
+    "read_value": "Entered earlier",
+    "new_value": "Correct value",
+    "reason": "Reason",
+    "reason_hint": "For example: the scan was misread",
+    "save_correction": "Save correction",
+    "corrected": "Correction saved and recorded."
+   },
+   "agency": {
+    "title": "Agency verification",
+    "subtitle": "The legal agency checks the title and returns its Verification Report.",
+    "choose": "Legal agency",
+    "initiate": "Initiate verification",
+    "need_deed": "Upload the Sale Deed first.",
+    "sent": "Sent by {who} on {when}",
+    "awaiting": "Report awaited",
+    "report_in": "Report received {when}",
+    "view": "View report",
+    "fill": "Fill agency report",
+    "resubmit": "Update report",
+    "opinion": "Title opinion",
+    "encumbrance": "Encumbrance found",
+    "cersai": "CERSAI charge",
+    "searches": "CERSAI searches",
+    "confirm_title": "Send this case to the agency?",
+    "confirm_text": "The case will be sent to {agency} for legal verification.",
+    "confirm_owner": "Owners on record: {owners}",
+    "confirm_property": "Property: {address}",
+    "confirm_docs": "{n} document(s) on file",
+    "confirm_owner_label": "Owners on record",
+    "confirm_property_label": "Property",
+    "confirm_next": "Next: the agency fills its Verification Report. You then generate the agency report, our checks compare it with the Application Details, and the AI writes the summary.",
+    "confirm": "Confirm and send",
+    "sent_ok": "Sent to the agency.",
+    "not_sent": "Not sent to an agency yet",
+    "not_sent_text": "Choose the legal vendor in Case and documents, then Initiate.",
+    "submitted": "Agency report submitted. The rules ran on it."
+   },
+   "report": {
+    "fill_title": "Verification Report",
+    "generated": "Generated from the answers",
+    "generated_note": "After you submit, you can generate the agency report from these answers, with a full analysis.",
+    "analysis": "Analysis in the report",
+    "generate": "Generate report",
+    "card_title": "Agency report",
+    "popup_title": "The agency's report is in",
+    "popup_text": "Generate the agency report from the agency's analysis and attach it. Our checks then compare it with the Application Details, and the AI writes the summary.",
+    "popup_later": "Not now",
+    "answers": "All answers in the report",
+    "edit_answers": "Edit answers",
+    "no_file": "No report file attached yet.",
+    "download": "Download agency report",
+    "download_file": "Download",
+    "downloaded": "Report downloaded.",
+    "generate_title": "Report submitted. Generate the agency report?",
+    "generate_text": "The answers are analysed point by point against the application, and the report is written and attached to the case.",
+    "generated_ok": "Agency report generated and attached",
+    "awaited": "The agency's Verification Report has not been submitted yet.",
+    "files": "Agency's report files",
+    "no_files": "No report file attached yet.",
+    "attach": "Attach the agency's report (PDF)",
+    "rules_after": "The automated rules run as soon as the report is submitted.",
+    "required": "Required",
+    "owner_n": "Owner {n}",
+    "view_title": "Agency Verification Report",
+    "view_sub": "{agency} · submitted by {who} on {when}",
+    "note": "Answer from the original documents and searches. Fields marked * are required.",
+    "choose": "Select",
+    "choose_type": "Choose the property type first.",
+    "missing": "{n} required answer(s) missing",
+    "submit": "Submit report",
+    "fill_sample": "Fill sample",
+    "chain": {
+     "date": "Date",
+     "from_owner": "From",
+     "to_owner": "To",
+     "document": "Document",
+     "add": "Add transfer",
+     "remove": "Remove row"
+    },
+    "people": {
+     "first": "First name",
+     "middle": "Middle name",
+     "last": "Last name",
+     "add": "Add owner",
+     "remove": "Remove owner"
+    },
+    "searches": {
+     "search_type": "Search type",
+     "searched_at": "Search time",
+     "reference": "Reference no.",
+     "parameters": "Parameters",
+     "result": "Result",
+     "add": "Add search",
+     "remove": "Remove row"
+    }
+   },
+   "rules": {
+    "nothing_compared": "No values to compare yet",
+    "missing_value": {
+     "APPLICATION": "Not in the application",
+     "AGENCY": "Not reported by the agency",
+     "AGENT": "Not found on the file",
+     "SALE_DEED": "Not entered",
+     "CORRECTED": "Not entered"
+    },
+    "title": "Automated rule results",
+    "subtitle": "Ten checks across the application, the Sale Deed and the agency report",
+    "run": "Run validation",
+    "filter": "Filter the results",
+    "all": "All",
+    "group": {
+     "FAIL": "Mismatches",
+     "REVIEW": "Needs review",
+     "PASS": "Passed"
+    },
+    "run_by": "Last run by {who}",
+    "not_run": "Not validated yet",
+    "not_run_text": "Run the validation to compare the application, the Sale Deed and the agency report.",
+    "not_run_wait": "The results appear once the validation has run.",
+    "checked": "Checked",
+    "match": "Match",
+    "mismatch": "Mismatch",
+    "unknown": "Not confirmed",
+    "why": "Why it matters",
+    "missing": "Missing evidence",
+    "action": "Recommended action"
+   },
+   "decision": {
+    "locked_title": "The decision opens after the checks",
+    "locked_text": "Once the agency's report is in and the rules have run, the outcome (escalate, review or clear) and the AI summary appear here, and you record your decision.",
+    "title": "CPA decision",
+    "subtitle": "Your decision on the legal verification, recorded with the evidence",
+    "choose": "Decision",
+    "remarks": "Remarks",
+    "remarks_hint": "What you checked and why",
+    "remarks_needed": "remarks required",
+    "remarks_required": "Remarks are required for this decision.",
+    "pick": "Choose a decision.",
+    "blocked": "Not available while the recommendation is Escalate.",
+    "submit": "Submit decision",
+    "recorded": "Decision recorded.",
+    "by": "By {who} on {when}",
+    "not_yet": "No decision yet",
+    "validate_first": "Run the validation first.",
+    "no_permission": "Recording a decision needs the credit underwriting permission.",
+    "rules_pending": "The agency's latest report has not been checked yet: generate it in the Verification Report, then decide."
+   },
+   "audit": {
+    "title": "Audit history",
+    "subtitle": "Everything that happened to this case",
+    "none": "No activity yet",
+    "all": "Show all ({n})",
+    "less": "Show less"
+   }
+  },
+  "statuses": {
+   "NEW": "New",
+   "DOCUMENTS_UPLOADED": "Documents uploaded",
+   "WITH_AGENCY": "With agency",
+   "REPORT_RECEIVED": "Agency report received",
+   "VALIDATED": "Validated",
+   "DECIDED": "Decided",
+   "WAIVED": "Waived"
+  },
+  "rule_statuses": {
+   "FAIL": "Mismatch",
+   "REVIEW": "Needs review",
+   "PASS": "Match",
+   "NOT_APPLICABLE": "Not applicable"
+  },
+  "sources": {
+   "APPLICATION": "Application",
+   "SALE_DEED": "Sale Deed",
+   "CORRECTED": "Corrected",
+   "AGENCY": "Agency report",
+   "AGENT": "Agent check"
+  },
+  "recommendations": {
+   "CLEAR_FOR_REVIEW": "Clear for review",
+   "REVIEW_REQUIRED": "Review required",
+   "ESCALATE": "Escalate"
+  },
+  "document_kinds": [
+   {
+    "id": "SALE_DEED",
+    "label": "Sale Deed"
+   },
+   {
+    "id": "PREVIOUS_DEED",
+    "label": "Previous title deed"
+   },
+   {
+    "id": "ENCUMBRANCE_CERTIFICATE",
+    "label": "Encumbrance Certificate"
+   },
+   {
+    "id": "TITLE_SEARCH_REPORT",
+    "label": "Title search report"
+   },
+   {
+    "id": "PROPERTY_TAX_RECEIPT",
+    "label": "Property tax receipt"
+   },
+   {
+    "id": "APPROVED_PLAN",
+    "label": "Approved building plan"
+   },
+   {
+    "id": "OCCUPANCY_CERTIFICATE",
+    "label": "Occupancy certificate"
+   },
+   {
+    "id": "SOCIETY_NOC",
+    "label": "Society NOC"
+   },
+   {
+    "id": "LAND_RECORD_EXTRACT",
+    "label": "Land record extract (7/12 / RoR)"
+   },
+   {
+    "id": "MUTATION_ENTRY",
+    "label": "Mutation entry"
+   },
+   {
+    "id": "OTHER",
+    "label": "Other document"
+   },
+   {
+    "id": "AGENCY_REPORT",
+    "label": "Agency's legal report"
+   }
+  ],
+  "max_mb": 25,
+  "allowed_types": [
+   "application/pdf",
+   "image/jpeg",
+   "image/png"
+  ],
+  "agencies": [
+   {
+    "id": "LEX_ASSOCIATES",
+    "name": "Lex & Associates (Advocates)"
+   },
+   {
+    "id": "TITLEWISE",
+    "name": "TitleWise Legal Services"
+   },
+   {
+    "id": "NYAYA_PARTNERS",
+    "name": "Nyaya Partners LLP"
+   }
+  ],
+  "default_agency": "LEX_ASSOCIATES",
+  "decisions": [
+   {
+    "id": "PROCEED",
+    "label": "Proceed — legal verification acceptable",
+    "remarks_required": false
+   },
+   {
+    "id": "SEND_BACK_TO_AGENCY",
+    "label": "Send back to agency",
+    "remarks_required": true
+   },
+   {
+    "id": "ESCALATE_TO_LEGAL",
+    "label": "Escalate to legal team",
+    "remarks_required": true
+   },
+   {
+    "id": "REJECT_COLLATERAL",
+    "label": "Reject the collateral",
+    "remarks_required": true
+   }
+  ],
+  "proceed_allowed_for": [
+   "CLEAR_FOR_REVIEW",
+   "REVIEW_REQUIRED"
+  ],
+  "deed_fields": [
+   {
+    "id": "owner_names",
+    "label": "Owner (buyer) names"
+   },
+   {
+    "id": "seller_names",
+    "label": "Seller names"
+   },
+   {
+    "id": "document_type",
+    "label": "Document type"
+   },
+   {
+    "id": "sale_deed_number",
+    "label": "Sale Deed number"
+   },
+   {
+    "id": "sale_deed_date",
+    "label": "Registration date"
+   },
+   {
+    "id": "sub_registrar_office",
+    "label": "Sub-Registrar office"
+   },
+   {
+    "id": "property_address",
+    "label": "Property described"
+   },
+   {
+    "id": "district",
+    "label": "District"
+   },
+   {
+    "id": "pin_code",
+    "label": "PIN code"
+   },
+   {
+    "id": "area",
+    "label": "Area"
+   },
+   {
+    "id": "consideration",
+    "label": "Consideration"
+   }
+  ],
+  "form": {
+   "sections": [
+    {
+     "id": "report_header",
+     "label": "The report",
+     "fields": [
+      {
+       "id": "report_date",
+       "label": "Report date",
+       "type": "date",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "report_reference",
+       "label": "Report / file reference no.",
+       "type": "text",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "advocate_name",
+       "label": "Advocate / legal vendor who signed",
+       "type": "text",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "addressed_to",
+       "label": "Addressed to (bank and branch)",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      }
+     ]
+    },
+    {
+     "id": "owner_document",
+     "label": "Property owner and document details",
+     "fields": [
+      {
+       "id": "owners",
+       "label": "Property owner (as per property papers)",
+       "type": "people",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "property_belongs_to",
+       "label": "Property belongs to",
+       "type": "select",
+       "options": [
+        {
+         "id": "APPLICANT",
+         "label": "Applicant"
+        },
+        {
+         "id": "CO_APPLICANT",
+         "label": "Co-applicant"
+        },
+        {
+         "id": "APPLICANT_AND_CO_APPLICANT",
+         "label": "Applicant and co-applicant"
+        },
+        {
+         "id": "GUARANTOR",
+         "label": "Guarantor"
+        },
+        {
+         "id": "THIRD_PARTY",
+         "label": "Third party"
+        }
+       ],
+       "required": true,
+       "columns": []
+      },
+      {
+       "id": "documents_examined",
+       "label": "Documents examined by the agency",
+       "type": "table",
+       "required": true,
+       "columns": [
+        {
+         "id": "instrument",
+         "type": "select",
+         "label": "Document",
+         "options": [
+          {
+           "id": "ALLOTMENT",
+           "label": "Allotment"
+          },
+          {
+           "id": "SALE_DEED",
+           "label": "Sale Deed"
+          },
+          {
+           "id": "GIFT_DEED",
+           "label": "Gift Deed"
+          },
+          {
+           "id": "PARTITION_DEED",
+           "label": "Partition Deed"
+          },
+          {
+           "id": "CONVEYANCE_DEED",
+           "label": "Conveyance Deed"
+          },
+          {
+           "id": "RELEASE_DEED",
+           "label": "Release Deed"
+          },
+          {
+           "id": "WILL_PROBATE",
+           "label": "Will / probate"
+          },
+          {
+           "id": "DECLARATION_DEED",
+           "label": "Declaration Deed"
+          },
+          {
+           "id": "RECTIFICATION_DEED",
+           "label": "Rectification Deed"
+          },
+          {
+           "id": "TRANSFER_LETTER",
+           "label": "Transfer letter"
+          },
+          {
+           "id": "OTHER",
+           "label": "Other"
+          }
+         ]
+        },
+        {
+         "id": "reg_no",
+         "type": "text",
+         "label": "Reg. no.",
+         "options": []
+        },
+        {
+         "id": "date",
+         "type": "date",
+         "label": "Date",
+         "options": []
+        },
+        {
+         "id": "executed_by",
+         "type": "text",
+         "label": "Executed by",
+         "options": []
+        },
+        {
+         "id": "in_favour_of",
+         "type": "text",
+         "label": "In favour of",
+         "options": []
+        },
+        {
+         "id": "copy",
+         "type": "select",
+         "label": "Original / copy",
+         "options": [
+          {
+           "id": "ORIGINAL",
+           "label": "Original"
+          },
+          {
+           "id": "PHOTOCOPY",
+           "label": "Photocopy"
+          },
+          {
+           "id": "CERTIFIED_COPY",
+           "label": "Certified copy"
+          }
+         ]
+        },
+        {
+         "id": "page",
+         "type": "text",
+         "label": "Page",
+         "options": []
+        }
+       ],
+       "options": []
+      },
+      {
+       "id": "documents_provided",
+       "label": "Documents provided for verification",
+       "type": "textarea",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "property_history",
+       "label": "Tracing the title / property history",
+       "type": "textarea",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "document_type",
+       "label": "Document type",
+       "type": "select",
+       "options": [
+        {
+         "id": "SALE_DEED",
+         "label": "Sale Deed"
+        },
+        {
+         "id": "GIFT_DEED",
+         "label": "Gift Deed"
+        },
+        {
+         "id": "PARTITION_DEED",
+         "label": "Partition Deed"
+        },
+        {
+         "id": "CONVEYANCE_DEED",
+         "label": "Conveyance Deed"
+        },
+        {
+         "id": "RELEASE_DEED",
+         "label": "Release Deed"
+        }
+       ],
+       "required": true,
+       "columns": []
+      },
+      {
+       "id": "sale_deed_number",
+       "label": "Current Sale Deed no.",
+       "type": "text",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "sale_deed_date",
+       "label": "Date of current Sale Deed",
+       "type": "date",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "sub_registrar_office",
+       "label": "Sub Registrar",
+       "type": "text",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "property_doc_years",
+       "label": "No. of years of property documents",
+       "type": "number",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "property_type",
+       "label": "Type of property",
+       "type": "select",
+       "options": [
+        {
+         "id": "RESIDENTIAL_FLAT",
+         "label": "Residential flat"
+        },
+        {
+         "id": "INDEPENDENT_HOUSE",
+         "label": "Independent house"
+        },
+        {
+         "id": "RESIDENTIAL_PLOT",
+         "label": "Residential plot"
+        },
+        {
+         "id": "COMMERCIAL",
+         "label": "Commercial property"
+        },
+        {
+         "id": "WAREHOUSE",
+         "label": "Ware House"
+        }
+       ],
+       "required": true,
+       "columns": []
+      },
+      {
+       "id": "title_search",
+       "label": "Title search",
+       "type": "textarea",
+       "required": false,
+       "options": [],
+       "columns": []
+      }
+     ]
+    },
+    {
+     "id": "property_identity",
+     "label": "Property identification and boundaries",
+     "fields": [
+      {
+       "id": "project_scheme",
+       "label": "Building / project / scheme",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "unit_no",
+       "label": "Unit / house / shop no.",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "area",
+       "label": "Area (with unit)",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "revenue_survey_no",
+       "label": "Revenue Survey No.",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "city_survey_no",
+       "label": "City Survey No.",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "city_survey_ward",
+       "label": "City Survey Ward",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "sheet_no",
+       "label": "Sheet No.",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "tp_scheme_no",
+       "label": "Town Planning Scheme No.",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "final_plot_no",
+       "label": "Final Plot No.",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "village",
+       "label": "Village / mouje",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "boundary_north",
+       "label": "Boundary: North",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "boundary_south",
+       "label": "Boundary: South",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "boundary_east",
+       "label": "Boundary: East",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "boundary_west",
+       "label": "Boundary: West",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      }
+     ]
+    },
+    {
+     "id": "mortgage",
+     "label": "Mortgage and disbursal requirements",
+     "fields": [
+      {
+       "id": "registered_mortgage",
+       "label": "Registered mortgage required",
+       "type": "yesno",
+       "required": true,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "mortgage_type",
+       "label": "Mortgage to be created",
+       "type": "select",
+       "options": [
+        {
+         "id": "EQUITABLE",
+         "label": "Equitable mortgage (deposit of title deeds)"
+        },
+        {
+         "id": "REGISTERED",
+         "label": "Registered mortgage"
+        }
+       ],
+       "required": false,
+       "columns": []
+      },
+      {
+       "id": "signing_authority",
+       "label": "Signing authority",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "documents_required",
+       "label": "Documents the bank must take",
+       "type": "table",
+       "required": false,
+       "columns": [
+        {
+         "id": "document",
+         "type": "text",
+         "label": "Document",
+         "options": []
+        },
+        {
+         "id": "stage",
+         "type": "select",
+         "label": "When",
+         "options": [
+          {
+           "id": "PRIOR_TO_MORTGAGE",
+           "label": "Before the mortgage"
+          },
+          {
+           "id": "POST_DISBURSAL",
+           "label": "After disbursal"
+          }
+         ]
+        },
+        {
+         "id": "copy",
+         "type": "select",
+         "label": "Original / copy",
+         "options": [
+          {
+           "id": "ORIGINAL",
+           "label": "Original"
+          },
+          {
+           "id": "PHOTOCOPY",
+           "label": "Photocopy"
+          },
+          {
+           "id": "CERTIFIED_COPY",
+           "label": "Certified copy"
+          }
+         ]
+        }
+       ],
+       "options": []
+      },
+      {
+       "id": "documents_required_prior",
+       "label": "Documents required prior to the creation of mortgage",
+       "type": "textarea",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "documents_post_disbursal",
+       "label": "Documents required at the time of post-disbursal creation of mortgage",
+       "type": "textarea",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "title_docs_checked",
+       "label": "Title docs checked for last 13 years",
+       "type": "yesno",
+       "required": true,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "conclusion",
+       "label": "Conclusion / observation, if any",
+       "type": "textarea",
+       "required": false,
+       "options": [],
+       "columns": []
+      }
+     ]
+    },
+    {
+     "id": "location",
+     "label": "Property location",
+     "fields": [
+      {
+       "id": "state",
+       "label": "State",
+       "type": "text",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "district",
+       "label": "District",
+       "type": "text",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "taluka",
+       "label": "Taluka",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      }
+     ]
+    },
+    {
+     "id": "legal_opinion",
+     "label": "Legal opinion and title checks",
+     "fields": [
+      {
+       "id": "title_traced_adequately",
+       "label": "Has the history and flow of title been traced adequately?",
+       "type": "yesno",
+       "required": true,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "chain_maintained",
+       "label": "Is the chain of title from previous owner(s) to present holder(s) maintained throughout and up to date?",
+       "type": "yesno",
+       "required": true,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "ec_verified",
+       "label": "Has the Encumbrance Certificate / Search Report for the last 13 years been verified?",
+       "type": "yesno",
+       "required": true,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "flat_title_certified",
+       "label": "Flats / apartments: is the title certified clear and marketable with reference to applicable special enactments?",
+       "type": "yesnona",
+       "required": true,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        },
+        {
+         "id": "na",
+         "label": "Not applicable"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "flat_undivided_share",
+       "label": "Flats / apartments with no special enactment: does the title include the undivided share in land and the rights to common areas and amenities?",
+       "type": "yesnona",
+       "required": true,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        },
+        {
+         "id": "na",
+         "label": "Not applicable"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "equitable_mortgage_possible",
+       "label": "Can an equitable mortgage be created on the listed documents?",
+       "type": "yesno",
+       "required": true,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "title_clear_marketable",
+       "label": "Is the applicant's title clear, marketable and free from encumbrances and claims of minors or HUF?",
+       "type": "yesno",
+       "required": true,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "roc_search",
+       "label": "Company as titleholder: has the ROC Register of Charges search been done?",
+       "type": "yesnona",
+       "required": true,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        },
+        {
+         "id": "na",
+         "label": "Not applicable"
+        }
+       ],
+       "columns": []
+      }
+     ]
+    },
+    {
+     "id": "certificate",
+     "label": "Certificate / legal opinion",
+     "fields": [
+      {
+       "id": "opinion_text",
+       "label": "Certificate, in the advocate's words",
+       "type": "textarea",
+       "required": true,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "opinion_conditions",
+       "label": "Conditions the opinion is subject to",
+       "type": "table",
+       "required": false,
+       "columns": [
+        {
+         "id": "condition",
+         "type": "text",
+         "label": "Condition",
+         "options": []
+        }
+       ],
+       "options": []
+      },
+      {
+       "id": "sarfaesi_enforceable",
+       "label": "Enforceable under the SARFAESI Act?",
+       "type": "yesnona",
+       "required": false,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        },
+        {
+         "id": "na",
+         "label": "Not applicable"
+        }
+       ],
+       "columns": []
+      }
+     ]
+    },
+    {
+     "id": "searches",
+     "label": "Search reports and title chain",
+     "fields": [
+      {
+       "id": "search_from_year",
+       "label": "Search period from (year)",
+       "type": "number",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "search_to_year",
+       "label": "Search period to (year)",
+       "type": "number",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "search_sro",
+       "label": "Sub-Registrar office searched",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "search_receipt_no",
+       "label": "Search receipt no.",
+       "type": "text",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "search_date",
+       "label": "Search date",
+       "type": "date",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "title_history",
+       "label": "Title chain, oldest first",
+       "type": "table",
+       "required": false,
+       "columns": [
+        {
+         "id": "date",
+         "type": "date",
+         "label": "Date",
+         "options": []
+        },
+        {
+         "id": "instrument",
+         "type": "select",
+         "label": "Instrument",
+         "options": [
+          {
+           "id": "ALLOTMENT",
+           "label": "Allotment"
+          },
+          {
+           "id": "SALE_DEED",
+           "label": "Sale Deed"
+          },
+          {
+           "id": "GIFT_DEED",
+           "label": "Gift Deed"
+          },
+          {
+           "id": "PARTITION_DEED",
+           "label": "Partition Deed"
+          },
+          {
+           "id": "CONVEYANCE_DEED",
+           "label": "Conveyance Deed"
+          },
+          {
+           "id": "RELEASE_DEED",
+           "label": "Release Deed"
+          },
+          {
+           "id": "WILL_PROBATE",
+           "label": "Will / probate"
+          },
+          {
+           "id": "DECLARATION_DEED",
+           "label": "Declaration Deed"
+          },
+          {
+           "id": "RECTIFICATION_DEED",
+           "label": "Rectification Deed"
+          },
+          {
+           "id": "TRANSFER_LETTER",
+           "label": "Transfer letter"
+          },
+          {
+           "id": "OTHER",
+           "label": "Other"
+          }
+         ]
+        },
+        {
+         "id": "reg_no",
+         "type": "text",
+         "label": "Reg. no.",
+         "options": []
+        },
+        {
+         "id": "from_owner",
+         "type": "text",
+         "label": "From",
+         "options": []
+        },
+        {
+         "id": "to_owner",
+         "type": "text",
+         "label": "To",
+         "options": []
+        },
+        {
+         "id": "document",
+         "type": "text",
+         "label": "Supporting document",
+         "options": []
+        }
+       ],
+       "options": []
+      },
+      {
+       "id": "ec_from",
+       "label": "EC period from",
+       "type": "date",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "ec_to",
+       "label": "EC period to",
+       "type": "date",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "ec_entries",
+       "label": "Entries in the Encumbrance Certificate",
+       "type": "table",
+       "required": false,
+       "columns": [
+        {
+         "id": "date",
+         "type": "date",
+         "label": "Date",
+         "options": []
+        },
+        {
+         "id": "nature",
+         "type": "select",
+         "label": "Nature",
+         "options": [
+          {
+           "id": "TRANSFER",
+           "label": "Transfer"
+          },
+          {
+           "id": "MORTGAGE",
+           "label": "Mortgage / deposit of title deeds"
+          },
+          {
+           "id": "FURTHER_CHARGE",
+           "label": "Further charge"
+          },
+          {
+           "id": "RELEASE",
+           "label": "Release / reconveyance"
+          },
+          {
+           "id": "CORRECTION",
+           "label": "Correction / declaration"
+          },
+          {
+           "id": "LEASE",
+           "label": "Lease"
+          },
+          {
+           "id": "OTHER",
+           "label": "Other"
+          }
+         ]
+        },
+        {
+         "id": "doc_no",
+         "type": "text",
+         "label": "Doc. no.",
+         "options": []
+        },
+        {
+         "id": "executant",
+         "type": "text",
+         "label": "Executant",
+         "options": []
+        },
+        {
+         "id": "claimant",
+         "type": "text",
+         "label": "Claimant / in favour of",
+         "options": []
+        },
+        {
+         "id": "amount",
+         "type": "text",
+         "label": "Amount",
+         "options": []
+        },
+        {
+         "id": "page",
+         "type": "text",
+         "label": "Page",
+         "options": []
+        }
+       ],
+       "options": []
+      },
+      {
+       "id": "encumbrance_found",
+       "label": "Encumbrance / charge found",
+       "type": "yesno",
+       "required": false,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "encumbrance_details",
+       "label": "Encumbrance details",
+       "type": "textarea",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "cersai_records_found",
+       "label": "Active CERSAI charge found",
+       "type": "yesno",
+       "required": false,
+       "options": [
+        {
+         "id": "yes",
+         "label": "Yes"
+        },
+        {
+         "id": "no",
+         "label": "No"
+        }
+       ],
+       "columns": []
+      },
+      {
+       "id": "cersai_details",
+       "label": "CERSAI charge details",
+       "type": "textarea",
+       "required": false,
+       "options": [],
+       "columns": []
+      },
+      {
+       "id": "cersai_searches",
+       "label": "CERSAI searches performed",
+       "type": "searches",
+       "required": false,
+       "options": [],
+       "columns": []
+      }
+     ]
+    }
+   ],
+   "table_words": {
+    "add": "Add row",
+    "remove": "Remove row"
+   },
+   "check_states": [
+    {
+     "id": "DONE",
+     "label": "Done"
+    },
+    {
+     "id": "NOT_DONE",
+     "label": "Not done"
+    },
+    {
+     "id": "ADVERSE",
+     "label": "Adverse"
+    },
+    {
+     "id": "NOT_APPLICABLE",
+     "label": "Not applicable"
+    }
+   ],
+   "search_types": [
+    {
+     "id": "DEBTOR_BASED",
+     "label": "Debtor-based search"
+    },
+    {
+     "id": "ASSET_BASED",
+     "label": "Asset-based search"
+    },
+    {
+     "id": "AUTHENTICATION_BASED",
+     "label": "Authentication-based search"
+    }
+   ],
+   "legal_checks": {
+    "RESIDENTIAL_FLAT": [
+     {
+      "id": "flat_title_certified",
+      "label": "Flats / apartments: is the title certified clear and marketable with reference to applicable special enactments?"
+     },
+     {
+      "id": "flat_undivided_share",
+      "label": "Flats / apartments with no special enactment: does the title include the undivided share in land and the rights to common areas and amenities?"
+     },
+     {
+      "id": "equitable_mortgage_possible",
+      "label": "Can an equitable mortgage be created on the listed documents?"
+     },
+     {
+      "id": "roc_search",
+      "label": "Company as titleholder: has the ROC Register of Charges search been done?"
+     }
+    ],
+    "INDEPENDENT_HOUSE": [
+     {
+      "id": "equitable_mortgage_possible",
+      "label": "Can an equitable mortgage be created on the listed documents?"
+     },
+     {
+      "id": "roc_search",
+      "label": "Company as titleholder: has the ROC Register of Charges search been done?"
+     }
+    ],
+    "RESIDENTIAL_PLOT": [
+     {
+      "id": "equitable_mortgage_possible",
+      "label": "Can an equitable mortgage be created on the listed documents?"
+     },
+     {
+      "id": "roc_search",
+      "label": "Company as titleholder: has the ROC Register of Charges search been done?"
+     }
+    ],
+    "COMMERCIAL": [
+     {
+      "id": "equitable_mortgage_possible",
+      "label": "Can an equitable mortgage be created on the listed documents?"
+     },
+     {
+      "id": "roc_search",
+      "label": "Company as titleholder: has the ROC Register of Charges search been done?"
+     }
+    ],
+    "WAREHOUSE": [
+     {
+      "id": "equitable_mortgage_possible",
+      "label": "Can an equitable mortgage be created on the listed documents?"
+     },
+     {
+      "id": "roc_search",
+      "label": "Company as titleholder: has the ROC Register of Charges search been done?"
+     }
+    ]
+   }
+  },
+  "rules": [
+   {
+    "id": "R1",
+    "name": "Owner Details Match",
+    "explain": "Does the owner on the Sale Deed, as the agency reports it, match the property-owner details recorded in the application?"
+   },
+   {
+    "id": "R2",
+    "name": "Sale Deed Looks Consistent",
+    "explain": "Is the document readable and complete? Are there suspicious changes, missing pages or inconsistent details that need checking?"
+   },
+   {
+    "id": "R3",
+    "name": "Property Address Matches",
+    "explain": "Does the property location the agency reports from the Sale Deed match the address recorded in the application?"
+   },
+   {
+    "id": "R4",
+    "name": "Ownership History",
+    "explain": "Do the available documents show how ownership passed from previous owners to the current owner, without unexplained gaps?"
+   },
+   {
+    "id": "R5",
+    "name": "Registration Details",
+    "explain": "Has the agency reported the Sale Deed number, registration date and Sub-Registrar office, and are they valid?"
+   },
+   {
+    "id": "R6",
+    "name": "Loan, Mortgage and Other Claims",
+    "explain": "Does the available search evidence identify any existing mortgage, legal claim, lien or other encumbrance on the property?"
+   },
+   {
+    "id": "R7",
+    "name": "Required Documents and Search Period",
+    "explain": "Are the required historical property documents and title-search records available for the configured period?"
+   },
+   {
+    "id": "R8",
+    "name": "Property-Specific Legal Checks",
+    "explain": "Have the legal checks applicable to this property type been completed, based on the configured requirements and available evidence?"
+   },
+   {
+    "id": "R9",
+    "name": "Agency Report Cross-Check",
+    "explain": "Did the agency report the correct owner, property details, documents and findings when compared against the original evidence?"
+   },
+   {
+    "id": "R10",
+    "name": "Overall Risk and Next Action",
+    "explain": "Looking at all checks together, what needs attention, what evidence is missing, and what should the CPA do next?"
+   }
+  ],
+  "ui": {
+   "path": "/legal-verification",
+   "activity_visible": 6,
+   "switch_ms": 650,
+   "loader_line_ms": 1300,
+   "typewriter": {
+    "type_ms": 95,
+    "erase_ms": 45,
+    "hold_ms": 2200,
+    "rest_ms": 500
+   },
+   "show_reset": false,
+   "show_fill_sample": true
+  },
+  "show_reset": false,
+  "show_fill_sample": true,
+  "los_nav": [
+   {
+    "id": "home",
+    "label": "Home",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "case_login",
+    "label": "Case Login",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "dedupe",
+    "label": "Dedupe Details",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "financial",
+    "label": "Financial",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "bureau",
+    "label": "Bureau Analysis",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "cam_summary",
+    "label": "CAM Summary",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "verifications",
+    "label": "Verifications",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "property_visit",
+    "label": "Property Visit",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "credit_visit",
+    "label": "Credit Visit Report",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "property_valuation",
+    "label": "Property Valuation",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "legal_verification",
+    "label": "Legal Verification",
+    "link": "#/",
+    "active": true
+   },
+   {
+    "id": "collateral_check",
+    "label": "Collateral Check",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "references",
+    "label": "References",
+    "link": "",
+    "active": false
+   },
+   {
+    "id": "insurance_pricing",
+    "label": "Insurance & Pricing",
+    "link": "",
+    "active": false
+   }
+  ],
+  "application_fields": [
+   {
+    "id": "property_type",
+    "label": "Property Type",
+    "options": [
+     {
+      "id": "RESIDENTIAL_FLAT",
+      "label": "Residential flat"
+     },
+     {
+      "id": "INDEPENDENT_HOUSE",
+      "label": "Independent house"
+     },
+     {
+      "id": "RESIDENTIAL_PLOT",
+      "label": "Residential plot"
+     },
+     {
+      "id": "COMMERCIAL",
+      "label": "Commercial property"
+     },
+     {
+      "id": "WAREHOUSE",
+      "label": "Ware House"
+     }
+    ]
+   },
+   {
+    "id": "property_usage",
+    "label": "Property Usage",
+    "options": [
+     {
+      "id": "Residential",
+      "label": "Residential"
+     },
+     {
+      "id": "Self-occupied residential",
+      "label": "Self-occupied residential"
+     },
+     {
+      "id": "Commercial",
+      "label": "Commercial"
+     },
+     {
+      "id": "Industrial",
+      "label": "Industrial"
+     },
+     {
+      "id": "Mixed use",
+      "label": "Mixed use"
+     },
+     {
+      "id": "Agricultural",
+      "label": "Agricultural"
+     }
+    ]
+   },
+   {
+    "id": "property_nature",
+    "label": "Property Nature",
+    "options": [
+     {
+      "id": "Freehold",
+      "label": "Freehold"
+     },
+     {
+      "id": "Leasehold",
+      "label": "Leasehold"
+     }
+    ]
+   },
+   {
+    "id": "document",
+    "label": "Document",
+    "options": [
+     {
+      "id": "Sale Deed",
+      "label": "Sale Deed"
+     },
+     {
+      "id": "Gift Deed",
+      "label": "Gift Deed"
+     },
+     {
+      "id": "Partition Deed",
+      "label": "Partition Deed"
+     },
+     {
+      "id": "Conveyance Deed",
+      "label": "Conveyance Deed"
+     },
+     {
+      "id": "Release Deed",
+      "label": "Release Deed"
+     },
+     {
+      "id": "Allotment Letter",
+      "label": "Allotment Letter"
+     }
+    ]
+   },
+   {
+    "id": "owner_first_name",
+    "label": "Property Owner First Name",
+    "options": null
+   },
+   {
+    "id": "owner_middle_name",
+    "label": "Property Owner Middle Name",
+    "options": null
+   },
+   {
+    "id": "owner_last_name",
+    "label": "Property Owner Last Name",
+    "options": null
+   },
+   {
+    "id": "flat_no",
+    "label": "Flat No./House No.",
+    "options": null
+   },
+   {
+    "id": "address_line1",
+    "label": "Address Line 1",
+    "options": null
+   },
+   {
+    "id": "address_line2",
+    "label": "Address Line 2",
+    "options": null
+   },
+   {
+    "id": "project_name",
+    "label": "Project Name/Colony Name/Building Name",
+    "options": null
+   },
+   {
+    "id": "landmark",
+    "label": "Nearest Landmark",
+    "options": null
+   },
+   {
+    "id": "city",
+    "label": "City/Town/Village",
+    "options": null
+   },
+   {
+    "id": "district",
+    "label": "District",
+    "options": null
+   },
+   {
+    "id": "state",
+    "label": "State",
+    "options": [
+     {
+      "id": "Andhra Pradesh",
+      "label": "Andhra Pradesh"
+     },
+     {
+      "id": "Assam",
+      "label": "Assam"
+     },
+     {
+      "id": "Bihar",
+      "label": "Bihar"
+     },
+     {
+      "id": "Chhattisgarh",
+      "label": "Chhattisgarh"
+     },
+     {
+      "id": "Delhi",
+      "label": "Delhi"
+     },
+     {
+      "id": "Goa",
+      "label": "Goa"
+     },
+     {
+      "id": "Gujarat",
+      "label": "Gujarat"
+     },
+     {
+      "id": "Haryana",
+      "label": "Haryana"
+     },
+     {
+      "id": "Himachal Pradesh",
+      "label": "Himachal Pradesh"
+     },
+     {
+      "id": "Jharkhand",
+      "label": "Jharkhand"
+     },
+     {
+      "id": "Karnataka",
+      "label": "Karnataka"
+     },
+     {
+      "id": "Kerala",
+      "label": "Kerala"
+     },
+     {
+      "id": "Madhya Pradesh",
+      "label": "Madhya Pradesh"
+     },
+     {
+      "id": "Maharashtra",
+      "label": "Maharashtra"
+     },
+     {
+      "id": "Odisha",
+      "label": "Odisha"
+     },
+     {
+      "id": "Punjab",
+      "label": "Punjab"
+     },
+     {
+      "id": "Rajasthan",
+      "label": "Rajasthan"
+     },
+     {
+      "id": "Tamil Nadu",
+      "label": "Tamil Nadu"
+     },
+     {
+      "id": "Telangana",
+      "label": "Telangana"
+     },
+     {
+      "id": "Uttar Pradesh",
+      "label": "Uttar Pradesh"
+     },
+     {
+      "id": "Uttarakhand",
+      "label": "Uttarakhand"
+     },
+     {
+      "id": "West Bengal",
+      "label": "West Bengal"
+     }
+    ]
+   },
+   {
+    "id": "pin_code",
+    "label": "Pin Code",
+    "options": null
+   },
+   {
+    "id": "owner_pan",
+    "label": "Owner's PAN No.",
+    "options": null
+   },
+   {
+    "id": "applicant_pan",
+    "label": "Applicant's PAN No.",
+    "options": null
+   }
+  ],
+  "application_form": [
+   {
+    "id": "property",
+    "label": "Property",
+    "fields": [
+     "property_type",
+     "property_usage",
+     "property_nature",
+     "document"
+    ]
+   },
+   {
+    "id": "owner",
+    "label": "Property owner",
+    "fields": [
+     "owner_first_name",
+     "owner_middle_name",
+     "owner_last_name"
+    ]
+   },
+   {
+    "id": "address",
+    "label": "Property address",
+    "fields": [
+     "flat_no",
+     "address_line1",
+     "address_line2",
+     "project_name",
+     "landmark",
+     "district",
+     "pin_code",
+     "city",
+     "state"
+    ]
+   },
+   {
+    "id": "identity",
+    "label": "PAN and legal vendor",
+    "fields": [
+     "owner_pan",
+     "applicant_pan"
+    ]
+   }
+  ],
+  "title_search_years": 13,
+  "agency_kinds": [
+   "AGENCY_REPORT"
+  ]
+ },
+ "worklist": {
+  "applications": [
+   {
+    "application_id": "LGV-2026-012",
+    "applicant_name": "Fatima Khan",
+    "branch": "MUM",
+    "loan_amount": 2950000.0,
+    "property_type_label": "Residential flat",
+    "status": "NEW",
+    "status_label": "New",
+    "agency_name": null,
+    "recommendation": null,
+    "recommendation_label": null
+   },
+   {
+    "application_id": "LGV-2026-011",
+    "applicant_name": "Suresh Pillai",
+    "branch": "MUM",
+    "loan_amount": 5200000.0,
+    "property_type_label": "Independent house",
+    "status": "NEW",
+    "status_label": "New",
+    "agency_name": null,
+    "recommendation": null,
+    "recommendation_label": null
+   },
+   {
+    "application_id": "LGV-2026-010",
+    "applicant_name": "Anil Patil",
+    "branch": "MUM",
+    "loan_amount": 6400000.0,
+    "property_type_label": "Ware House",
+    "status": "NEW",
+    "status_label": "New",
+    "agency_name": null,
+    "recommendation": null,
+    "recommendation_label": null
+   },
+   {
+    "application_id": "LGV-2026-009",
+    "applicant_name": "Meera Joshi",
+    "branch": "MUM",
+    "loan_amount": 3100000.0,
+    "property_type_label": "Commercial property",
+    "status": "NEW",
+    "status_label": "New",
+    "agency_name": null,
+    "recommendation": null,
+    "recommendation_label": null
+   },
+   {
+    "application_id": "LGV-2026-008",
+    "applicant_name": "Imran Shaikh",
+    "branch": "MUM",
+    "loan_amount": 2200000.0,
+    "property_type_label": "Residential plot",
+    "status": "NEW",
+    "status_label": "New",
+    "agency_name": null,
+    "recommendation": null,
+    "recommendation_label": null
+   },
+   {
+    "application_id": "LGV-2026-007",
+    "applicant_name": "Rohan Deshpande",
+    "branch": "MUM",
+    "loan_amount": 4850000.0,
+    "property_type_label": "Residential flat",
+    "status": "NEW",
+    "status_label": "New",
+    "agency_name": null,
+    "recommendation": null,
+    "recommendation_label": null
+   },
+   {
+    "application_id": "LGV-2026-006",
+    "applicant_name": "Karan Mehta",
+    "branch": "MUM",
+    "loan_amount": 5200000.0,
+    "property_type_label": "Residential flat",
+    "status": "WITH_AGENCY",
+    "status_label": "With agency",
+    "agency_name": "Nyaya Partners LLP",
+    "recommendation": null,
+    "recommendation_label": null
+   },
+   {
+    "application_id": "LGV-2026-005",
+    "applicant_name": "Sneha Iyer",
+    "branch": "MUM",
+    "loan_amount": 3600000.0,
+    "property_type_label": "Residential flat",
+    "status": "NEW",
+    "status_label": "New",
+    "agency_name": null,
+    "recommendation": null,
+    "recommendation_label": null
+   },
+   {
+    "application_id": "LGV-2026-004",
+    "applicant_name": "Rohit Malhotra",
+    "branch": "MUM",
+    "loan_amount": 6000000.0,
+    "property_type_label": "Commercial property",
+    "status": "VALIDATED",
+    "status_label": "Validated",
+    "agency_name": "Lex & Associates (Advocates)",
+    "recommendation": "ESCALATE",
+    "recommendation_label": "Escalate"
+   },
+   {
+    "application_id": "LGV-2026-003",
+    "applicant_name": "Farah Siddiqui",
+    "branch": "MUM",
+    "loan_amount": 2800000.0,
+    "property_type_label": "Residential plot",
+    "status": "VALIDATED",
+    "status_label": "Validated",
+    "agency_name": "Nyaya Partners LLP",
+    "recommendation": "REVIEW_REQUIRED",
+    "recommendation_label": "Review required"
+   },
+   {
+    "application_id": "LGV-2026-002",
+    "applicant_name": "Vikas Shetty",
+    "branch": "MUM",
+    "loan_amount": 3000000.0,
+    "property_type_label": "Independent house",
+    "status": "VALIDATED",
+    "status_label": "Validated",
+    "agency_name": "TitleWise Legal Services",
+    "recommendation": "ESCALATE",
+    "recommendation_label": "Escalate"
+   },
+   {
+    "application_id": "LGV-2026-001",
+    "applicant_name": "Aditya Kulkarni",
+    "branch": "MUM",
+    "loan_amount": 4500000.0,
+    "property_type_label": "Residential flat",
+    "status": "VALIDATED",
+    "status_label": "Validated",
+    "agency_name": "Lex & Associates (Advocates)",
+    "recommendation": "CLEAR_FOR_REVIEW",
+    "recommendation_label": "Clear for review"
+   }
+  ]
+ },
+ "escalate": {
+  "application": {
+   "application_id": "LGV-2026-002",
+   "applicant_name": "Vikas Shetty",
+   "branch": "MUM",
+   "view": [
+    {
+     "id": "case",
+     "label": "Application",
+     "fields": [
+      {
+       "id": "applicant_name",
+       "label": "Applicant Name",
+       "value": "Vikas Shetty"
+      },
+      {
+       "id": "reference_id",
+       "label": "Reference ID",
+       "value": "LGV-2026-002"
+      },
+      {
+       "id": "external_id",
+       "label": "External ID",
+       "value": "NA"
+      },
+      {
+       "id": "product",
+       "label": "Product",
+       "value": "Loan Against Property"
+      },
+      {
+       "id": "loan_amount",
+       "label": "Loan amount",
+       "value": "₹30,00,000"
+      },
+      {
+       "id": "stage",
+       "label": "Stage",
+       "value": "Credit assessment"
+      },
+      {
+       "id": "los_status",
+       "label": "Status",
+       "value": "Queue"
+      },
+      {
+       "id": "assigned_to",
+       "label": "Assigned to",
+       "value": "Rahul Desai"
+      },
+      {
+       "id": "collateral_no",
+       "label": "Collateral",
+       "value": "Collateral 1"
+      }
+     ]
+    },
+    {
+     "id": "property",
+     "label": "Property",
+     "fields": [
+      {
+       "id": "property_type",
+       "label": "Property Type",
+       "value": "Independent house"
+      },
+      {
+       "id": "property_usage",
+       "label": "Property Usage",
+       "value": "Residential"
+      },
+      {
+       "id": "property_nature",
+       "label": "Property Nature",
+       "value": "Freehold"
+      },
+      {
+       "id": "document",
+       "label": "Document",
+       "value": "Sale Deed"
+      }
+     ]
+    },
+    {
+     "id": "owner",
+     "label": "Property owner",
+     "fields": [
+      {
+       "id": "owner_first_name",
+       "label": "Property Owner First Name",
+       "value": "Vikas"
+      },
+      {
+       "id": "owner_middle_name",
+       "label": "Property Owner Middle Name",
+       "value": null
+      },
+      {
+       "id": "owner_last_name",
+       "label": "Property Owner Last Name",
+       "value": "Shetty"
+      },
+      {
+       "id": "owner_pan",
+       "label": "Owner's PAN No.",
+       "value": "XXXXXX107B"
+      },
+      {
+       "id": "applicant_pan",
+       "label": "Applicant's PAN No.",
+       "value": "XXXXXX107B"
+      }
+     ]
+    },
+    {
+     "id": "address",
+     "label": "Property address",
+     "fields": [
+      {
+       "id": "flat_no",
+       "label": "Flat No./House No.",
+       "value": "House 18"
+      },
+      {
+       "id": "address_line1",
+       "label": "Address Line 1",
+       "value": "Gulmohar Lane"
+      },
+      {
+       "id": "address_line2",
+       "label": "Address Line 2",
+       "value": "Wakad"
+      },
+      {
+       "id": "project_name",
+       "label": "Project Name/Colony Name/Building Name",
+       "value": "Gulmohar Colony"
+      },
+      {
+       "id": "landmark",
+       "label": "Nearest Landmark",
+       "value": "Opp. City Library"
+      },
+      {
+       "id": "city",
+       "label": "City/Town/Village",
+       "value": "Pimpri-Chinchwad"
+      },
+      {
+       "id": "district",
+       "label": "District",
+       "value": "Pune"
+      },
+      {
+       "id": "state",
+       "label": "State",
+       "value": "Maharashtra"
+      },
+      {
+       "id": "pin_code",
+       "label": "Pin Code",
+       "value": "411057"
+      },
+      {
+       "id": "complete_address",
+       "label": "Complete Property Address",
+       "value": "House 18, Gulmohar Lane, Wakad, Pimpri-Chinchwad 411057"
+      }
+     ]
+    }
+   ],
+   "edit": {
+    "property_type": "INDEPENDENT_HOUSE",
+    "property_usage": "Residential",
+    "property_nature": "Freehold",
+    "document": "Sale Deed",
+    "owner_first_name": "Vikas",
+    "owner_middle_name": null,
+    "owner_last_name": "Shetty",
+    "flat_no": "House 18",
+    "address_line1": "Gulmohar Lane",
+    "address_line2": "Wakad",
+    "project_name": "Gulmohar Colony",
+    "landmark": "Opp. City Library",
+    "city": "Pimpri-Chinchwad",
+    "district": "Pune",
+    "state": "Maharashtra",
+    "pin_code": "411057",
+    "owner_pan": "XXXXXX107B",
+    "applicant_pan": "XXXXXX107B"
+   },
+   "geo": [
+    {
+     "id": "latitude",
+     "label": "Latitude",
+     "value": "18.5074"
+    },
+    {
+     "id": "longitude",
+     "label": "Longitude",
+     "value": "73.8077"
+    },
+    {
+     "id": "geo_address",
+     "label": "Geo-tagged address",
+     "value": "House 18, Gulmohar Lane, Wakad, Pimpri-Chinchwad 411057"
+    },
+    {
+     "id": "captured_by",
+     "label": "Captured by",
+     "value": "Rahul Desai"
+    },
+    {
+     "id": "captured_at",
+     "label": "Captured at",
+     "value": "2026-10-20 11:30"
+    }
+   ],
+   "collaterals": [
+    "Collateral 1"
+   ],
+   "assigned_to": "Rahul Desai",
+   "los_status": "Queue",
+   "collateral_no": "Collateral 1",
+   "product": "Loan Against Property",
+   "loan_amount": 3000000.0,
+   "stage": "Credit assessment",
+   "property_type": "INDEPENDENT_HOUSE",
+   "property_type_label": "Independent house",
+   "property_address": "House 18, Gulmohar Lane, Wakad, Pimpri-Chinchwad 411057",
+   "property_pin": "411057",
+   "owner_names": [
+    "Vikas Shetty"
+   ]
+  },
+  "case": {
+   "case_id": "LGV-BBEAA6E66B",
+   "status": "VALIDATED",
+   "status_label": "Validated",
+   "agency": "TITLEWISE",
+   "agency_name": "TitleWise Legal Services",
+   "sent_by": "credit.officer",
+   "sent_at": "2026-10-30T08:55:02.877220+00:00",
+   "decision": null,
+   "decision_label": null,
+   "decision_remarks": null,
+   "decided_by": null,
+   "decided_at": null,
+   "selected_agency": "TITLEWISE",
+   "waive_reason": null,
+   "waived_by": null,
+   "waived_at": null
+  },
+  "documents": [
+   {
+    "document_id": "DOC-33A3A8598A",
+    "kind": "SALE_DEED",
+    "kind_label": "Sale Deed",
+    "file_name": "sale_deed.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 1074,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.852341+00:00"
+   },
+   {
+    "document_id": "DOC-8B8A57B90F",
+    "kind": "ENCUMBRANCE_CERTIFICATE",
+    "kind_label": "Encumbrance Certificate",
+    "file_name": "encumbrance_certificate.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 974,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.852341+00:00"
+   },
+   {
+    "document_id": "DOC-74BBE8EF55",
+    "kind": "PROPERTY_TAX_RECEIPT",
+    "kind_label": "Property tax receipt",
+    "file_name": "property_tax_receipt.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 970,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.852341+00:00"
+   },
+   {
+    "document_id": "DOC-AF90A2D8FC",
+    "kind": "APPROVED_PLAN",
+    "kind_label": "Approved building plan",
+    "file_name": "approved_plan.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 974,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.852341+00:00"
+   },
+   {
+    "document_id": "DOC-CEC444CA3E",
+    "kind": "AGENCY_REPORT",
+    "kind_label": "Agency's legal report",
+    "file_name": "title-verification-summary-LGV-2026-002.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 133685,
+    "pages": 4,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.893904+00:00"
+   }
+  ],
+  "deed": [
+   {
+    "field": "owner_names",
+    "label": "Owner (buyer) names",
+    "value": "Prakash Shetty",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "seller_names",
+    "label": "Seller names",
+    "value": "Anil Deshpande",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "document_type",
+    "label": "Document type",
+    "value": "Sale Deed",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "sale_deed_number",
+    "label": "Sale Deed number",
+    "value": "HVL-2/1107/2015",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "sale_deed_date",
+    "label": "Registration date",
+    "value": "2015-02-11",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "sub_registrar_office",
+    "label": "Sub-Registrar office",
+    "value": "Sub-Registrar Haveli 2",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "property_address",
+    "label": "Property described",
+    "value": "House 18, Gulmohar Lane, Wakad, Pune",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "district",
+    "label": "District",
+    "value": null,
+    "source": null
+   },
+   {
+    "field": "pin_code",
+    "label": "PIN code",
+    "value": "411057",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "area",
+    "label": "Area",
+    "value": null,
+    "source": null
+   },
+   {
+    "field": "consideration",
+    "label": "Consideration",
+    "value": null,
+    "source": null
+   }
+  ],
+  "deed_document_id": "DOC-33A3A8598A",
+  "agency_report": {
+   "report_id": "LAR-D377C30160",
+   "agency": "TITLEWISE",
+   "submitted_by": "credit.officer",
+   "submitted_at": "2026-10-30T08:55:02.884418+00:00",
+   "answers": {
+    "ec_to": "2026-09-25",
+    "state": "Maharashtra",
+    "owners": [
+     {
+      "last": "Shetty",
+      "first": "Prakash",
+      "middle": ""
+     }
+    ],
+    "taluka": "Haveli",
+    "ec_from": "2008-01-01",
+    "district": "Pune",
+    "conclusion": "Title is clear and marketable.",
+    "roc_search": "na",
+    "ec_verified": "yes",
+    "owner_names": [
+     "Prakash Shetty"
+    ],
+    "report_date": "2026-09-25",
+    "opinion_text": "Title is clear and marketable.",
+    "title_search": "Search taken at the Sub-Registrar office for the full period; no adverse entry noted.",
+    "advocate_name": "Adv. Sanjay Kulkarni",
+    "document_type": "SALE_DEED",
+    "property_type": "INDEPENDENT_HOUSE",
+    "title_history": [
+     {
+      "date": "1988-05-09",
+      "reg_no": "",
+      "document": "Sale Deed",
+      "to_owner": "Anil Deshpande",
+      "from_owner": "Govind Joshi",
+      "instrument": "SALE_DEED"
+     },
+     {
+      "date": "2015-02-11",
+      "reg_no": "HVL-2/1107/2015",
+      "document": "Sale Deed",
+      "to_owner": "Prakash Shetty",
+      "from_owner": "Anil Deshpande",
+      "instrument": "SALE_DEED"
+     }
+    ],
+    "sale_deed_date": "2015-02-11",
+    "search_to_year": 2026,
+    "cersai_searches": [
+     {
+      "result": "No relevant results",
+      "reference": "CS-200410",
+      "parameters": "Asset: Immovable; Debtor: Individual",
+      "search_type": "DEBTOR_BASED",
+      "searched_at": "2026-09-25 16:02"
+     }
+    ],
+    "chain_maintained": "yes",
+    "property_history": "Traced from the first allotment to the present owner; see the transfers below.",
+    "report_reference": "LV/2026/0021",
+    "sale_deed_number": "HVL-2/1107/2015",
+    "search_from_year": 2008,
+    "encumbrance_found": "no",
+    "signing_authority": "The owner(s) in person",
+    "documents_examined": [
+     {
+      "copy": "ORIGINAL",
+      "date": "1988-05-09",
+      "page": "1",
+      "reg_no": "",
+      "instrument": "SALE_DEED",
+      "executed_by": "Govind Joshi",
+      "in_favour_of": "Anil Deshpande"
+     },
+     {
+      "copy": "ORIGINAL",
+      "date": "2015-02-11",
+      "page": "2",
+      "reg_no": "HVL-2/1107/2015",
+      "instrument": "SALE_DEED",
+      "executed_by": "Anil Deshpande",
+      "in_favour_of": "Prakash Shetty"
+     }
+    ],
+    "documents_provided": "Sale Deed, Encumbrance Certificate, property tax receipt",
+    "property_doc_years": 38,
+    "title_docs_checked": "yes",
+    "property_belongs_to": "APPLICANT",
+    "registered_mortgage": "no",
+    "cersai_records_found": "no",
+    "flat_title_certified": "na",
+    "flat_undivided_share": "na",
+    "sub_registrar_office": "Haveli 2",
+    "title_clear_marketable": "yes",
+    "title_traced_adequately": "yes",
+    "documents_post_disbursal": "Memorandum of deposit of title deeds and CERSAI filing",
+    "documents_required_prior": "Original Sale Deed, previous title deeds, latest tax receipt",
+    "equitable_mortgage_possible": "yes"
+   },
+   "document_id": "DOC-CEC444CA3E",
+   "analysis": [
+    {
+     "text": "The owners on the property papers (Prakash Shetty) differ from the application (Vikas Shetty).",
+     "tone": "bad"
+    },
+    {
+     "text": "The property type is Independent house, as in the application.",
+     "tone": "ok"
+    },
+    {
+     "text": "Registered as document no. HVL-2/1107/2015 on 11 Feb 2015 at Haveli 2.",
+     "tone": "info"
+    },
+    {
+     "text": "The agency examined 2 document(s), 2 of them original.",
+     "tone": "info"
+    },
+    {
+     "text": "The property lies in Pune, Maharashtra, as in the application.",
+     "tone": "ok"
+    },
+    {
+     "text": "The title runs without a break through 2 transfer(s) from Govind Joshi, over 38 year(s).",
+     "tone": "ok"
+    },
+    {
+     "text": "The title documents for the last 13 years were checked.",
+     "tone": "ok"
+    },
+    {
+     "text": "No encumbrance in the Encumbrance Certificate over 18 year(s).",
+     "tone": "ok"
+    },
+    {
+     "text": "1 CERSAI search(es), no charge found.",
+     "tone": "ok"
+    },
+    {
+     "text": "All 8 legal-opinion questions are answered Yes or Not applicable.",
+     "tone": "ok"
+    },
+    {
+     "text": "Before the mortgage is created: Original Sale Deed, previous title deeds, latest tax receipt.",
+     "tone": "info"
+    },
+    {
+     "text": "The title is declared clear and marketable, yet 1 finding(s) above are adverse.",
+     "tone": "bad"
+    }
+   ]
+  },
+  "run": {
+   "run_id": "RUN-A9EA9C57AF",
+   "run_at": "2026-10-30T08:55:03.139473+00:00",
+   "run_by": "credit.officer",
+   "rules": [
+    {
+     "id": "R1",
+     "why": "The person offering the property may not be its owner on record.",
+     "name": "Owner Details Match",
+     "action": "VERIFY_OWNER_IDENTITY",
+     "number": 1,
+     "reason": "The owner the agency reports on the Sale Deed differs from the application: Vikas Shetty, Prakash Shetty.",
+     "status": "FAIL",
+     "explain": "Does the owner on the Sale Deed, as the agency reports it, match the property-owner details recorded in the application?",
+     "missing": [],
+     "severity": "CRITICAL",
+     "action_text": "Verify the property owner's identity against the original Sale Deed and ID documents.",
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Owner 1",
+       "match": false,
+       "values": {
+        "AGENCY": "Prakash Shetty",
+        "APPLICATION": "Vikas Shetty"
+       }
+      }
+     ],
+     "status_label": "Mismatch",
+     "severity_label": "Critical"
+    },
+    {
+     "id": "R10",
+     "why": "The recommendation explains; the CPA decides.",
+     "name": "Overall Risk and Next Action",
+     "action": "VERIFY_OWNER_IDENTITY",
+     "number": 10,
+     "reason": "2 mismatch(es), 0 item(s) to review, 7 check(s) passed.",
+     "status": "FAIL",
+     "explain": "Looking at all checks together, what needs attention, what evidence is missing, and what should the CPA do next?",
+     "missing": [],
+     "severity": "CRITICAL",
+     "action_text": "Verify the property owner's identity against the original Sale Deed and ID documents.",
+     "comparisons": [],
+     "status_label": "Mismatch",
+     "severity_label": "Critical"
+    },
+    {
+     "id": "R9",
+     "why": "The agency's opinion is relied on; it must agree with the documents.",
+     "name": "Agency Report Cross-Check",
+     "action": "CLARIFY_WITH_AGENCY",
+     "number": 9,
+     "reason": "The agency says the title is clear, but 1 check(s) found a problem.",
+     "status": "FAIL",
+     "explain": "Did the agency report the correct owner, property details, documents and findings when compared against the original evidence?",
+     "missing": [],
+     "severity": "HIGH",
+     "action_text": "Send the differences to the agency and ask it to correct or explain its report.",
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Type of property",
+       "match": true,
+       "values": {
+        "AGENCY": "Independent house",
+        "APPLICATION": "Independent house"
+       }
+      },
+      {
+       "note": "1 check(s) found a problem",
+       "label": "Is the applicant's title clear, marketable and free from encumbrances and claims of minors or HUF?",
+       "match": false,
+       "values": {
+        "AGENCY": "Yes"
+       }
+      }
+     ],
+     "status_label": "Mismatch",
+     "severity_label": "High"
+    },
+    {
+     "id": "R2",
+     "why": null,
+     "name": "Sale Deed Looks Consistent",
+     "action": null,
+     "number": 2,
+     "reason": "The Sale Deed file opens, its details are consistent and nothing about the file needs a look.",
+     "status": "PASS",
+     "explain": "Is the document readable and complete? Are there suspicious changes, missing pages or inconsistent details that need checking?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "File",
+       "match": true,
+       "values": {
+        "AGENT": "1 page(s)"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R3",
+     "why": null,
+     "name": "Property Address Matches",
+     "action": null,
+     "number": 3,
+     "reason": "The district and state the agency reports match the application.",
+     "status": "PASS",
+     "explain": "Does the property location the agency reports from the Sale Deed match the address recorded in the application?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "District",
+       "match": true,
+       "values": {
+        "AGENCY": "Pune",
+        "APPLICATION": "Pune"
+       }
+      },
+      {
+       "note": null,
+       "label": "State",
+       "match": true,
+       "values": {
+        "AGENCY": "Maharashtra",
+        "APPLICATION": "Maharashtra"
+       }
+      },
+      {
+       "note": null,
+       "label": "Taluka",
+       "match": null,
+       "values": {
+        "AGENCY": "Haveli",
+        "APPLICATION": "House 18, Gulmohar Lane, Wakad, Pimpri-Chinchwad 411057"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R4",
+     "why": null,
+     "name": "Ownership History",
+     "action": null,
+     "number": 4,
+     "reason": "The chain runs from Govind Joshi to the current owner over 38.5 year(s), without gaps.",
+     "status": "PASS",
+     "explain": "Do the available documents show how ownership passed from previous owners to the current owner, without unexplained gaps?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": "Sale Deed",
+       "label": "Transfer 1",
+       "match": true,
+       "values": {
+        "AGENCY": "1988-05-09: Govind Joshi → Anil Deshpande"
+       }
+      },
+      {
+       "note": "Sale Deed",
+       "label": "Transfer 2",
+       "match": true,
+       "values": {
+        "AGENCY": "2015-02-11: Anil Deshpande → Prakash Shetty"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R5",
+     "why": null,
+     "name": "Registration Details",
+     "action": null,
+     "number": 5,
+     "reason": "The agency reports the Sale Deed number, a valid registration date and the Sub-Registrar office.",
+     "status": "PASS",
+     "explain": "Has the agency reported the Sale Deed number, registration date and Sub-Registrar office, and are they valid?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Current Sale Deed no.",
+       "match": true,
+       "values": {
+        "AGENCY": "HVL-2/1107/2015"
+       }
+      },
+      {
+       "note": null,
+       "label": "Date of current Sale Deed",
+       "match": true,
+       "values": {
+        "AGENCY": "2015-02-11"
+       }
+      },
+      {
+       "note": null,
+       "label": "Sub Registrar",
+       "match": true,
+       "values": {
+        "AGENCY": "Haveli 2"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R6",
+     "why": null,
+     "name": "Loan, Mortgage and Other Claims",
+     "action": null,
+     "number": 6,
+     "reason": "The Encumbrance Certificate / search report for 18.7 year(s) is verified, CERSAI shows no active charge, and no charge is reported.",
+     "status": "PASS",
+     "explain": "Does the available search evidence identify any existing mortgage, legal claim, lien or other encumbrance on the property?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Has the Encumbrance Certificate / Search Report for the last 13 years been verified?",
+       "match": true,
+       "values": {
+        "AGENCY": "Yes"
+       }
+      },
+      {
+       "note": null,
+       "label": "EC period from – EC period to",
+       "match": true,
+       "values": {
+        "AGENCY": "2008-01-01 – 2026-09-25"
+       }
+      },
+      {
+       "note": null,
+       "label": "Encumbrance / charge found",
+       "match": true,
+       "values": {
+        "AGENCY": "No"
+       }
+      },
+      {
+       "note": null,
+       "label": "CERSAI charge",
+       "match": true,
+       "values": {
+        "AGENCY": "No"
+       }
+      },
+      {
+       "note": "Debtor-based search: No relevant results",
+       "label": "CERSAI searches",
+       "match": true,
+       "values": {
+        "AGENCY": "1 search(es) performed"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R7",
+     "why": null,
+     "name": "Required Documents and Search Period",
+     "action": null,
+     "number": 7,
+     "reason": "All 4 required documents are on file and the title documents were checked for the last 13 years.",
+     "status": "PASS",
+     "explain": "Are the required historical property documents and title-search records available for the configured period?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Sale Deed",
+       "match": true,
+       "values": {
+        "AGENT": "Uploaded"
+       }
+      },
+      {
+       "note": null,
+       "label": "Encumbrance Certificate",
+       "match": true,
+       "values": {
+        "AGENT": "Uploaded"
+       }
+      },
+      {
+       "note": null,
+       "label": "Property tax receipt",
+       "match": true,
+       "values": {
+        "AGENT": "Uploaded"
+       }
+      },
+      {
+       "note": null,
+       "label": "Approved building plan",
+       "match": true,
+       "values": {
+        "AGENT": "Uploaded"
+       }
+      },
+      {
+       "note": null,
+       "label": "Title docs checked for last 13 years",
+       "match": true,
+       "values": {
+        "AGENCY": "Yes"
+       }
+      },
+      {
+       "note": null,
+       "label": "No. of years of property documents",
+       "match": true,
+       "values": {
+        "AGENCY": "38"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R8",
+     "why": null,
+     "name": "Property-Specific Legal Checks",
+     "action": null,
+     "number": 8,
+     "reason": "All 2 legal checks for this property type (Independent house) are done.",
+     "status": "PASS",
+     "explain": "Have the legal checks applicable to this property type been completed, based on the configured requirements and available evidence?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Can an equitable mortgage be created on the listed documents?",
+       "match": true,
+       "values": {
+        "AGENCY": "Yes"
+       }
+      },
+      {
+       "note": null,
+       "label": "Company as titleholder: has the ROC Register of Charges search been done?",
+       "match": true,
+       "values": {
+        "AGENCY": "Not applicable"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    }
+   ],
+   "overview": {
+    "counts": {
+     "failed": 2,
+     "passed": 7,
+     "review": 0,
+     "critical": 1
+    },
+    "missing": [],
+    "findings": [
+     "Owner Details Match: The owner the agency reports on the Sale Deed differs from the application: Vikas Shetty, Prakash Shetty.",
+     "Agency Report Cross-Check: The agency says the title is clear, but 1 check(s) found a problem."
+    ],
+    "next_action": "VERIFY_OWNER_IDENTITY",
+    "recommendation": "ESCALATE",
+    "next_action_text": "Verify the property owner's identity against the original Sale Deed and ID documents.",
+    "recommendation_note": "A critical mismatch or several failed checks: escalate before going further.",
+    "recommendation_label": "Escalate"
+   }
+  },
+  "events": [
+   {
+    "event_id": 19,
+    "actor": "credit.officer",
+    "event": "VALIDATION_RUN",
+    "label": "Validation run",
+    "detail": "Escalate",
+    "at": "2026-10-30T08:55:03.139473+00:00"
+   },
+   {
+    "event_id": 18,
+    "actor": "credit.officer",
+    "event": "AGENCY_REPORT_GENERATED",
+    "label": "Agency report generated and attached",
+    "detail": "",
+    "at": "2026-10-30T08:55:02.893904+00:00"
+   },
+   {
+    "event_id": 17,
+    "actor": "credit.officer",
+    "event": "AGENCY_REPORT_SUBMITTED",
+    "label": "Agency report submitted",
+    "detail": "TitleWise Legal Services",
+    "at": "2026-10-30T08:55:02.884418+00:00"
+   },
+   {
+    "event_id": 16,
+    "actor": "credit.officer",
+    "event": "SENT_TO_AGENCY",
+    "label": "Sent to agency",
+    "detail": "TitleWise Legal Services",
+    "at": "2026-10-30T08:55:02.877220+00:00"
+   },
+   {
+    "event_id": 15,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Approved building plan",
+    "at": "2026-10-30T08:55:02.852341+00:00"
+   },
+   {
+    "event_id": 14,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Property tax receipt",
+    "at": "2026-10-30T08:55:02.852341+00:00"
+   },
+   {
+    "event_id": 13,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Encumbrance Certificate",
+    "at": "2026-10-30T08:55:02.852341+00:00"
+   },
+   {
+    "event_id": 12,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Sale Deed",
+    "at": "2026-10-30T08:55:02.852341+00:00"
+   },
+   {
+    "event_id": 11,
+    "actor": "credit.officer",
+    "event": "CASE_OPENED",
+    "label": "Case opened",
+    "detail": "",
+    "at": "2026-10-30T08:55:02.852341+00:00"
+   }
+  ],
+  "can": {
+   "upload": true,
+   "correct": true,
+   "send": false,
+   "submit_report": false,
+   "validate": true,
+   "attach_report": false,
+   "generate_report": false,
+   "decide": true,
+   "download": true,
+   "save": false,
+   "waive": false,
+   "edit_application": true
+  }
+ },
+ "clean": {
+  "application": {
+   "application_id": "LGV-2026-001",
+   "applicant_name": "Aditya Kulkarni",
+   "branch": "MUM",
+   "view": [
+    {
+     "id": "case",
+     "label": "Application",
+     "fields": [
+      {
+       "id": "applicant_name",
+       "label": "Applicant Name",
+       "value": "Aditya Kulkarni"
+      },
+      {
+       "id": "reference_id",
+       "label": "Reference ID",
+       "value": "LGV-2026-001"
+      },
+      {
+       "id": "external_id",
+       "label": "External ID",
+       "value": "NA"
+      },
+      {
+       "id": "product",
+       "label": "Product",
+       "value": "Home Loan"
+      },
+      {
+       "id": "loan_amount",
+       "label": "Loan amount",
+       "value": "₹45,00,000"
+      },
+      {
+       "id": "stage",
+       "label": "Stage",
+       "value": "Credit assessment"
+      },
+      {
+       "id": "los_status",
+       "label": "Status",
+       "value": "Queue"
+      },
+      {
+       "id": "assigned_to",
+       "label": "Assigned to",
+       "value": "Priya Nair"
+      },
+      {
+       "id": "collateral_no",
+       "label": "Collateral",
+       "value": "Collateral 1"
+      }
+     ]
+    },
+    {
+     "id": "property",
+     "label": "Property",
+     "fields": [
+      {
+       "id": "property_type",
+       "label": "Property Type",
+       "value": "Residential flat"
+      },
+      {
+       "id": "property_usage",
+       "label": "Property Usage",
+       "value": "Residential"
+      },
+      {
+       "id": "property_nature",
+       "label": "Property Nature",
+       "value": "Freehold"
+      },
+      {
+       "id": "document",
+       "label": "Document",
+       "value": "Sale Deed"
+      }
+     ]
+    },
+    {
+     "id": "owner",
+     "label": "Property owner",
+     "fields": [
+      {
+       "id": "owner_first_name",
+       "label": "Property Owner First Name",
+       "value": "Aditya"
+      },
+      {
+       "id": "owner_middle_name",
+       "label": "Property Owner Middle Name",
+       "value": null
+      },
+      {
+       "id": "owner_last_name",
+       "label": "Property Owner Last Name",
+       "value": "Kulkarni"
+      },
+      {
+       "id": "owner_pan",
+       "label": "Owner's PAN No.",
+       "value": "XXXXXX821A"
+      },
+      {
+       "id": "applicant_pan",
+       "label": "Applicant's PAN No.",
+       "value": "XXXXXX821A"
+      }
+     ]
+    },
+    {
+     "id": "address",
+     "label": "Property address",
+     "fields": [
+      {
+       "id": "flat_no",
+       "label": "Flat No./House No.",
+       "value": "Flat 702"
+      },
+      {
+       "id": "address_line1",
+       "label": "Address Line 1",
+       "value": "Sai Darshan CHS, Plot 14"
+      },
+      {
+       "id": "address_line2",
+       "label": "Address Line 2",
+       "value": "Sector 21"
+      },
+      {
+       "id": "project_name",
+       "label": "Project Name/Colony Name/Building Name",
+       "value": "Sai Darshan CHS"
+      },
+      {
+       "id": "landmark",
+       "label": "Nearest Landmark",
+       "value": "Near Central Park"
+      },
+      {
+       "id": "city",
+       "label": "City/Town/Village",
+       "value": "Navi Mumbai"
+      },
+      {
+       "id": "district",
+       "label": "District",
+       "value": "Raigad"
+      },
+      {
+       "id": "state",
+       "label": "State",
+       "value": "Maharashtra"
+      },
+      {
+       "id": "pin_code",
+       "label": "Pin Code",
+       "value": "410210"
+      },
+      {
+       "id": "complete_address",
+       "label": "Complete Property Address",
+       "value": "Flat 702, Sai Darshan CHS, Plot 14, Sector 21, Kharghar, Navi Mumbai 410210"
+      }
+     ]
+    }
+   ],
+   "edit": {
+    "property_type": "RESIDENTIAL_FLAT",
+    "property_usage": "Residential",
+    "property_nature": "Freehold",
+    "document": "Sale Deed",
+    "owner_first_name": "Aditya",
+    "owner_middle_name": null,
+    "owner_last_name": "Kulkarni",
+    "flat_no": "Flat 702",
+    "address_line1": "Sai Darshan CHS, Plot 14",
+    "address_line2": "Sector 21",
+    "project_name": "Sai Darshan CHS",
+    "landmark": "Near Central Park",
+    "city": "Navi Mumbai",
+    "district": "Raigad",
+    "state": "Maharashtra",
+    "pin_code": "410210",
+    "owner_pan": "XXXXXX821A",
+    "applicant_pan": "XXXXXX821A"
+   },
+   "geo": [
+    {
+     "id": "latitude",
+     "label": "Latitude",
+     "value": "19.0330"
+    },
+    {
+     "id": "longitude",
+     "label": "Longitude",
+     "value": "73.0297"
+    },
+    {
+     "id": "geo_address",
+     "label": "Geo-tagged address",
+     "value": "Flat 702, Sai Darshan CHS, Plot 14, Sector 21, Kharghar, Navi Mumbai 410210"
+    },
+    {
+     "id": "captured_by",
+     "label": "Captured by",
+     "value": "Priya Nair"
+    },
+    {
+     "id": "captured_at",
+     "label": "Captured at",
+     "value": "2026-10-20 11:30"
+    }
+   ],
+   "collaterals": [
+    "Collateral 1"
+   ],
+   "assigned_to": "Priya Nair",
+   "los_status": "Queue",
+   "collateral_no": "Collateral 1",
+   "product": "Home Loan",
+   "loan_amount": 4500000.0,
+   "stage": "Credit assessment",
+   "property_type": "RESIDENTIAL_FLAT",
+   "property_type_label": "Residential flat",
+   "property_address": "Flat 702, Sai Darshan CHS, Plot 14, Sector 21, Kharghar, Navi Mumbai 410210",
+   "property_pin": "410210",
+   "owner_names": [
+    "Aditya Kulkarni",
+    "Neha Kulkarni"
+   ]
+  },
+  "case": {
+   "case_id": "LGV-17E1D89F63",
+   "status": "VALIDATED",
+   "status_label": "Validated",
+   "agency": "LEX_ASSOCIATES",
+   "agency_name": "Lex & Associates (Advocates)",
+   "sent_by": "credit.officer",
+   "sent_at": "2026-10-30T08:55:02.575054+00:00",
+   "decision": null,
+   "decision_label": null,
+   "decision_remarks": null,
+   "decided_by": null,
+   "decided_at": null,
+   "selected_agency": "LEX_ASSOCIATES",
+   "waive_reason": null,
+   "waived_by": null,
+   "waived_at": null
+  },
+  "documents": [
+   {
+    "document_id": "DOC-8AF9D1F18A",
+    "kind": "SALE_DEED",
+    "kind_label": "Sale Deed",
+    "file_name": "sale_deed.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 1099,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.385850+00:00"
+   },
+   {
+    "document_id": "DOC-17DE2AA2CC",
+    "kind": "ENCUMBRANCE_CERTIFICATE",
+    "kind_label": "Encumbrance Certificate",
+    "file_name": "encumbrance_certificate.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 988,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.385850+00:00"
+   },
+   {
+    "document_id": "DOC-AF9853CA91",
+    "kind": "PROPERTY_TAX_RECEIPT",
+    "kind_label": "Property tax receipt",
+    "file_name": "property_tax_receipt.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 986,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.385850+00:00"
+   },
+   {
+    "document_id": "DOC-B164A85422",
+    "kind": "SOCIETY_NOC",
+    "kind_label": "Society NOC",
+    "file_name": "society_noc.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 975,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.385850+00:00"
+   },
+   {
+    "document_id": "DOC-6B89C42E4A",
+    "kind": "PREVIOUS_DEED",
+    "kind_label": "Previous title deed",
+    "file_name": "previous_deed.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 987,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.385850+00:00"
+   },
+   {
+    "document_id": "DOC-69932367D0",
+    "kind": "AGENCY_REPORT",
+    "kind_label": "Agency's legal report",
+    "file_name": "title-verification-summary-LGV-2026-001.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 134268,
+    "pages": 4,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:02.612560+00:00"
+   }
+  ],
+  "deed": [
+   {
+    "field": "owner_names",
+    "label": "Owner (buyer) names",
+    "value": "Aditya Kulkarni, Neha Kulkarni",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "seller_names",
+    "label": "Seller names",
+    "value": "Ramesh Bhosale",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "document_type",
+    "label": "Document type",
+    "value": "Sale Deed",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "sale_deed_number",
+    "label": "Sale Deed number",
+    "value": "PVL-3/4821/2019",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "sale_deed_date",
+    "label": "Registration date",
+    "value": "2019-08-14",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "sub_registrar_office",
+    "label": "Sub-Registrar office",
+    "value": "Sub-Registrar Panvel 3",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "property_address",
+    "label": "Property described",
+    "value": "Flat 702, Sai Darshan CHS, Plot 14, Sector 21, Kharghar, Navi Mumbai",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "district",
+    "label": "District",
+    "value": null,
+    "source": null
+   },
+   {
+    "field": "pin_code",
+    "label": "PIN code",
+    "value": "410210",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "area",
+    "label": "Area",
+    "value": "68.5 sq m carpet",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "consideration",
+    "label": "Consideration",
+    "value": "5200000",
+    "source": "SALE_DEED"
+   }
+  ],
+  "deed_document_id": "DOC-8AF9D1F18A",
+  "agency_report": {
+   "report_id": "LAR-856AB90683",
+   "agency": "LEX_ASSOCIATES",
+   "submitted_by": "credit.officer",
+   "submitted_at": "2026-10-30T08:55:02.593510+00:00",
+   "answers": {
+    "ec_to": "2026-09-30",
+    "state": "Maharashtra",
+    "owners": [
+     {
+      "last": "Kulkarni",
+      "first": "Aditya",
+      "middle": ""
+     },
+     {
+      "last": "Kulkarni",
+      "first": "Neha",
+      "middle": ""
+     }
+    ],
+    "taluka": "Panvel",
+    "ec_from": "2010-01-01",
+    "district": "Raigad",
+    "conclusion": "Title traced for 34 years. No adverse entries.",
+    "roc_search": "na",
+    "ec_verified": "yes",
+    "owner_names": [
+     "Aditya Kulkarni",
+     "Neha Kulkarni"
+    ],
+    "report_date": "2026-09-30",
+    "opinion_text": "Title traced for 34 years. No adverse entries.",
+    "title_search": "Search taken at the Sub-Registrar office for the full period; no adverse entry noted.",
+    "advocate_name": "Adv. Meera Iyer",
+    "document_type": "SALE_DEED",
+    "property_type": "RESIDENTIAL_FLAT",
+    "title_history": [
+     {
+      "date": "1992-03-02",
+      "reg_no": "",
+      "document": "Lease Deed",
+      "to_owner": "Shree Sai Developers",
+      "from_owner": "CIDCO",
+      "instrument": "SALE_DEED"
+     },
+     {
+      "date": "2004-06-18",
+      "reg_no": "",
+      "document": "Agreement for Sale",
+      "to_owner": "Ramesh Bhosale",
+      "from_owner": "Shree Sai Developers",
+      "instrument": "SALE_DEED"
+     },
+     {
+      "date": "2019-08-14",
+      "reg_no": "PVL-3/4821/2019",
+      "document": "Sale Deed",
+      "to_owner": "Aditya Kulkarni and Neha Kulkarni",
+      "from_owner": "Ramesh Bhosale",
+      "instrument": "SALE_DEED"
+     }
+    ],
+    "sale_deed_date": "2019-08-14",
+    "search_to_year": 2026,
+    "cersai_searches": [
+     {
+      "result": "No relevant results",
+      "reference": "CS-100231",
+      "parameters": "Asset: Immovable; Debtor: Individual",
+      "search_type": "DEBTOR_BASED",
+      "searched_at": "2026-09-30 11:20"
+     },
+     {
+      "result": "No relevant results",
+      "reference": "CS-100232",
+      "parameters": "Asset: Immovable; PIN 410210",
+      "search_type": "ASSET_BASED",
+      "searched_at": "2026-09-30 11:24"
+     }
+    ],
+    "chain_maintained": "yes",
+    "property_history": "Traced from the first allotment to the present owner; see the transfers below.",
+    "report_reference": "LV/2026/0011",
+    "sale_deed_number": "PVL3-4821-2019",
+    "search_from_year": 2010,
+    "encumbrance_found": "no",
+    "signing_authority": "The owner(s) in person",
+    "documents_examined": [
+     {
+      "copy": "ORIGINAL",
+      "date": "1992-03-02",
+      "page": "1",
+      "reg_no": "",
+      "instrument": "SALE_DEED",
+      "executed_by": "CIDCO",
+      "in_favour_of": "Shree Sai Developers"
+     },
+     {
+      "copy": "ORIGINAL",
+      "date": "2004-06-18",
+      "page": "2",
+      "reg_no": "",
+      "instrument": "SALE_DEED",
+      "executed_by": "Shree Sai Developers",
+      "in_favour_of": "Ramesh Bhosale"
+     },
+     {
+      "copy": "ORIGINAL",
+      "date": "2019-08-14",
+      "page": "3",
+      "reg_no": "PVL-3/4821/2019",
+      "instrument": "SALE_DEED",
+      "executed_by": "Ramesh Bhosale",
+      "in_favour_of": "Aditya Kulkarni and Neha Kulkarni"
+     }
+    ],
+    "documents_provided": "Sale Deed, Encumbrance Certificate, property tax receipt",
+    "property_doc_years": 34,
+    "title_docs_checked": "yes",
+    "property_belongs_to": "APPLICANT",
+    "registered_mortgage": "no",
+    "cersai_records_found": "no",
+    "flat_title_certified": "yes",
+    "flat_undivided_share": "yes",
+    "sub_registrar_office": "SRO Panvel-3",
+    "title_clear_marketable": "yes",
+    "title_traced_adequately": "yes",
+    "documents_post_disbursal": "Memorandum of deposit of title deeds and CERSAI filing",
+    "documents_required_prior": "Original Sale Deed, previous title deeds, latest tax receipt",
+    "equitable_mortgage_possible": "yes"
+   },
+   "document_id": "DOC-69932367D0",
+   "analysis": [
+    {
+     "text": "The owners on the property papers (Aditya Kulkarni, Neha Kulkarni) are the owners named in the application.",
+     "tone": "ok"
+    },
+    {
+     "text": "The property type is Residential flat, as in the application.",
+     "tone": "ok"
+    },
+    {
+     "text": "Registered as document no. PVL3-4821-2019 on 14 Aug 2019 at SRO Panvel-3.",
+     "tone": "info"
+    },
+    {
+     "text": "The agency examined 3 document(s), 3 of them original.",
+     "tone": "info"
+    },
+    {
+     "text": "The property lies in Raigad, Maharashtra, as in the application.",
+     "tone": "ok"
+    },
+    {
+     "text": "The title runs without a break through 3 transfer(s) from CIDCO, over 34 year(s).",
+     "tone": "ok"
+    },
+    {
+     "text": "The title documents for the last 13 years were checked.",
+     "tone": "ok"
+    },
+    {
+     "text": "No encumbrance in the Encumbrance Certificate over 16 year(s).",
+     "tone": "ok"
+    },
+    {
+     "text": "2 CERSAI search(es), no charge found.",
+     "tone": "ok"
+    },
+    {
+     "text": "All 8 legal-opinion questions are answered Yes or Not applicable.",
+     "tone": "ok"
+    },
+    {
+     "text": "Before the mortgage is created: Original Sale Deed, previous title deeds, latest tax receipt.",
+     "tone": "info"
+    },
+    {
+     "text": "In the agency's opinion the title is clear and marketable.",
+     "tone": "ok"
+    }
+   ]
+  },
+  "run": {
+   "run_id": "RUN-CA69825F6A",
+   "run_at": "2026-10-30T08:55:02.837713+00:00",
+   "run_by": "credit.officer",
+   "rules": [
+    {
+     "id": "R1",
+     "why": null,
+     "name": "Owner Details Match",
+     "action": null,
+     "number": 1,
+     "reason": "Every owner in the application is the buyer on the Sale Deed.",
+     "status": "PASS",
+     "explain": "Does the owner on the Sale Deed, as the agency reports it, match the property-owner details recorded in the application?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Owner 1",
+       "match": true,
+       "values": {
+        "AGENCY": "Aditya Kulkarni",
+        "APPLICATION": "Aditya Kulkarni"
+       }
+      },
+      {
+       "note": null,
+       "label": "Owner 2",
+       "match": true,
+       "values": {
+        "AGENCY": "Neha Kulkarni",
+        "APPLICATION": "Neha Kulkarni"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R2",
+     "why": null,
+     "name": "Sale Deed Looks Consistent",
+     "action": null,
+     "number": 2,
+     "reason": "The Sale Deed file opens, its details are consistent and nothing about the file needs a look.",
+     "status": "PASS",
+     "explain": "Is the document readable and complete? Are there suspicious changes, missing pages or inconsistent details that need checking?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "File",
+       "match": true,
+       "values": {
+        "AGENT": "1 page(s)"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R3",
+     "why": null,
+     "name": "Property Address Matches",
+     "action": null,
+     "number": 3,
+     "reason": "The district and state the agency reports match the application.",
+     "status": "PASS",
+     "explain": "Does the property location the agency reports from the Sale Deed match the address recorded in the application?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "District",
+       "match": true,
+       "values": {
+        "AGENCY": "Raigad",
+        "APPLICATION": "Raigad"
+       }
+      },
+      {
+       "note": null,
+       "label": "State",
+       "match": true,
+       "values": {
+        "AGENCY": "Maharashtra",
+        "APPLICATION": "Maharashtra"
+       }
+      },
+      {
+       "note": null,
+       "label": "Taluka",
+       "match": null,
+       "values": {
+        "AGENCY": "Panvel",
+        "APPLICATION": "Flat 702, Sai Darshan CHS, Plot 14, Sector 21, Kharghar, Navi Mumbai 410210"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R4",
+     "why": null,
+     "name": "Ownership History",
+     "action": null,
+     "number": 4,
+     "reason": "The chain runs from CIDCO to the current owner over 34.7 year(s), without gaps.",
+     "status": "PASS",
+     "explain": "Do the available documents show how ownership passed from previous owners to the current owner, without unexplained gaps?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": "Lease Deed",
+       "label": "Transfer 1",
+       "match": true,
+       "values": {
+        "AGENCY": "1992-03-02: CIDCO → Shree Sai Developers"
+       }
+      },
+      {
+       "note": "Agreement for Sale",
+       "label": "Transfer 2",
+       "match": true,
+       "values": {
+        "AGENCY": "2004-06-18: Shree Sai Developers → Ramesh Bhosale"
+       }
+      },
+      {
+       "note": "Sale Deed",
+       "label": "Transfer 3",
+       "match": true,
+       "values": {
+        "AGENCY": "2019-08-14: Ramesh Bhosale → Aditya Kulkarni and Neha Kulkarni"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R5",
+     "why": null,
+     "name": "Registration Details",
+     "action": null,
+     "number": 5,
+     "reason": "The agency reports the Sale Deed number, a valid registration date and the Sub-Registrar office.",
+     "status": "PASS",
+     "explain": "Has the agency reported the Sale Deed number, registration date and Sub-Registrar office, and are they valid?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Current Sale Deed no.",
+       "match": true,
+       "values": {
+        "AGENCY": "PVL3-4821-2019"
+       }
+      },
+      {
+       "note": null,
+       "label": "Date of current Sale Deed",
+       "match": true,
+       "values": {
+        "AGENCY": "2019-08-14"
+       }
+      },
+      {
+       "note": null,
+       "label": "Sub Registrar",
+       "match": true,
+       "values": {
+        "AGENCY": "SRO Panvel-3"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R6",
+     "why": null,
+     "name": "Loan, Mortgage and Other Claims",
+     "action": null,
+     "number": 6,
+     "reason": "The Encumbrance Certificate / search report for 16.7 year(s) is verified, CERSAI shows no active charge, and no charge is reported.",
+     "status": "PASS",
+     "explain": "Does the available search evidence identify any existing mortgage, legal claim, lien or other encumbrance on the property?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Has the Encumbrance Certificate / Search Report for the last 13 years been verified?",
+       "match": true,
+       "values": {
+        "AGENCY": "Yes"
+       }
+      },
+      {
+       "note": null,
+       "label": "EC period from – EC period to",
+       "match": true,
+       "values": {
+        "AGENCY": "2010-01-01 – 2026-09-30"
+       }
+      },
+      {
+       "note": null,
+       "label": "Encumbrance / charge found",
+       "match": true,
+       "values": {
+        "AGENCY": "No"
+       }
+      },
+      {
+       "note": null,
+       "label": "CERSAI charge",
+       "match": true,
+       "values": {
+        "AGENCY": "No"
+       }
+      },
+      {
+       "note": "Debtor-based search: No relevant results; Asset-based search: No relevant results",
+       "label": "CERSAI searches",
+       "match": true,
+       "values": {
+        "AGENCY": "2 search(es) performed"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R7",
+     "why": null,
+     "name": "Required Documents and Search Period",
+     "action": null,
+     "number": 7,
+     "reason": "All 4 required documents are on file and the title documents were checked for the last 13 years.",
+     "status": "PASS",
+     "explain": "Are the required historical property documents and title-search records available for the configured period?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Sale Deed",
+       "match": true,
+       "values": {
+        "AGENT": "Uploaded"
+       }
+      },
+      {
+       "note": null,
+       "label": "Encumbrance Certificate",
+       "match": true,
+       "values": {
+        "AGENT": "Uploaded"
+       }
+      },
+      {
+       "note": null,
+       "label": "Property tax receipt",
+       "match": true,
+       "values": {
+        "AGENT": "Uploaded"
+       }
+      },
+      {
+       "note": null,
+       "label": "Society NOC",
+       "match": true,
+       "values": {
+        "AGENT": "Uploaded"
+       }
+      },
+      {
+       "note": null,
+       "label": "Title docs checked for last 13 years",
+       "match": true,
+       "values": {
+        "AGENCY": "Yes"
+       }
+      },
+      {
+       "note": null,
+       "label": "No. of years of property documents",
+       "match": true,
+       "values": {
+        "AGENCY": "34"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R8",
+     "why": null,
+     "name": "Property-Specific Legal Checks",
+     "action": null,
+     "number": 8,
+     "reason": "All 4 legal checks for this property type (Residential flat) are done.",
+     "status": "PASS",
+     "explain": "Have the legal checks applicable to this property type been completed, based on the configured requirements and available evidence?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Flats / apartments: is the title certified clear and marketable with reference to applicable special enactments?",
+       "match": true,
+       "values": {
+        "AGENCY": "Yes"
+       }
+      },
+      {
+       "note": null,
+       "label": "Flats / apartments with no special enactment: does the title include the undivided share in land and the rights to common areas and amenities?",
+       "match": true,
+       "values": {
+        "AGENCY": "Yes"
+       }
+      },
+      {
+       "note": null,
+       "label": "Can an equitable mortgage be created on the listed documents?",
+       "match": true,
+       "values": {
+        "AGENCY": "Yes"
+       }
+      },
+      {
+       "note": null,
+       "label": "Company as titleholder: has the ROC Register of Charges search been done?",
+       "match": true,
+       "values": {
+        "AGENCY": "Not applicable"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R9",
+     "why": null,
+     "name": "Agency Report Cross-Check",
+     "action": null,
+     "number": 9,
+     "reason": "The agency's report agrees with the application and the other checks.",
+     "status": "PASS",
+     "explain": "Did the agency report the correct owner, property details, documents and findings when compared against the original evidence?",
+     "missing": [],
+     "severity": null,
+     "action_text": null,
+     "comparisons": [
+      {
+       "note": null,
+       "label": "Type of property",
+       "match": true,
+       "values": {
+        "AGENCY": "Residential flat",
+        "APPLICATION": "Residential flat"
+       }
+      },
+      {
+       "note": null,
+       "label": "Is the applicant's title clear, marketable and free from encumbrances and claims of minors or HUF?",
+       "match": true,
+       "values": {
+        "AGENCY": "Yes"
+       }
+      }
+     ],
+     "status_label": "Match",
+     "severity_label": null
+    },
+    {
+     "id": "R10",
+     "why": null,
+     "name": "Overall Risk and Next Action",
+     "action": "READY_FOR_DECISION",
+     "number": 10,
+     "reason": "0 mismatch(es), 0 item(s) to review, 9 check(s) passed.",
+     "status": "PASS",
+     "explain": "Looking at all checks together, what needs attention, what evidence is missing, and what should the CPA do next?",
+     "missing": [],
+     "severity": null,
+     "action_text": "Review the evidence and record your decision.",
+     "comparisons": [],
+     "status_label": "Match",
+     "severity_label": null
+    }
+   ],
+   "overview": {
+    "counts": {
+     "failed": 0,
+     "passed": 9,
+     "review": 0,
+     "critical": 0
+    },
+    "missing": [],
+    "findings": [],
+    "next_action": "READY_FOR_DECISION",
+    "recommendation": "CLEAR_FOR_REVIEW",
+    "next_action_text": "Review the evidence and record your decision.",
+    "recommendation_note": "Every applicable check agrees. The CPA reviews and decides; the agent does not declare the title clear.",
+    "recommendation_label": "Clear for review"
+   }
+  },
+  "events": [
+   {
+    "event_id": 10,
+    "actor": "credit.officer",
+    "event": "VALIDATION_RUN",
+    "label": "Validation run",
+    "detail": "Clear for review",
+    "at": "2026-10-30T08:55:02.837713+00:00"
+   },
+   {
+    "event_id": 9,
+    "actor": "credit.officer",
+    "event": "AGENCY_REPORT_GENERATED",
+    "label": "Agency report generated and attached",
+    "detail": "",
+    "at": "2026-10-30T08:55:02.612560+00:00"
+   },
+   {
+    "event_id": 8,
+    "actor": "credit.officer",
+    "event": "AGENCY_REPORT_SUBMITTED",
+    "label": "Agency report submitted",
+    "detail": "Lex & Associates (Advocates)",
+    "at": "2026-10-30T08:55:02.593510+00:00"
+   },
+   {
+    "event_id": 7,
+    "actor": "credit.officer",
+    "event": "SENT_TO_AGENCY",
+    "label": "Sent to agency",
+    "detail": "Lex & Associates (Advocates)",
+    "at": "2026-10-30T08:55:02.575054+00:00"
+   },
+   {
+    "event_id": 6,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Previous title deed",
+    "at": "2026-10-30T08:55:02.385850+00:00"
+   },
+   {
+    "event_id": 5,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Society NOC",
+    "at": "2026-10-30T08:55:02.385850+00:00"
+   },
+   {
+    "event_id": 4,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Property tax receipt",
+    "at": "2026-10-30T08:55:02.385850+00:00"
+   },
+   {
+    "event_id": 3,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Encumbrance Certificate",
+    "at": "2026-10-30T08:55:02.385850+00:00"
+   },
+   {
+    "event_id": 2,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Sale Deed",
+    "at": "2026-10-30T08:55:02.385850+00:00"
+   },
+   {
+    "event_id": 1,
+    "actor": "credit.officer",
+    "event": "CASE_OPENED",
+    "label": "Case opened",
+    "detail": "",
+    "at": "2026-10-30T08:55:02.385850+00:00"
+   }
+  ],
+  "can": {
+   "upload": true,
+   "correct": true,
+   "send": false,
+   "submit_report": false,
+   "validate": true,
+   "attach_report": false,
+   "generate_report": false,
+   "decide": true,
+   "download": true,
+   "save": false,
+   "waive": false,
+   "edit_application": true
+  }
+ },
+ "fresh": {
+  "application": {
+   "application_id": "LGV-2026-005",
+   "applicant_name": "Sneha Iyer",
+   "branch": "MUM",
+   "view": [
+    {
+     "id": "case",
+     "label": "Application",
+     "fields": [
+      {
+       "id": "applicant_name",
+       "label": "Applicant Name",
+       "value": "Sneha Iyer"
+      },
+      {
+       "id": "reference_id",
+       "label": "Reference ID",
+       "value": "LGV-2026-005"
+      },
+      {
+       "id": "external_id",
+       "label": "External ID",
+       "value": "NA"
+      },
+      {
+       "id": "product",
+       "label": "Product",
+       "value": "Home Loan"
+      },
+      {
+       "id": "loan_amount",
+       "label": "Loan amount",
+       "value": "₹36,00,000"
+      },
+      {
+       "id": "stage",
+       "label": "Stage",
+       "value": "Credit assessment"
+      },
+      {
+       "id": "los_status",
+       "label": "Status",
+       "value": "Queue"
+      },
+      {
+       "id": "assigned_to",
+       "label": "Assigned to",
+       "value": "Priya Nair"
+      },
+      {
+       "id": "collateral_no",
+       "label": "Collateral",
+       "value": "Collateral 1"
+      }
+     ]
+    },
+    {
+     "id": "property",
+     "label": "Property",
+     "fields": [
+      {
+       "id": "property_type",
+       "label": "Property Type",
+       "value": "Residential flat"
+      },
+      {
+       "id": "property_usage",
+       "label": "Property Usage",
+       "value": "Residential"
+      },
+      {
+       "id": "property_nature",
+       "label": "Property Nature",
+       "value": "Freehold"
+      },
+      {
+       "id": "document",
+       "label": "Document",
+       "value": "Sale Deed"
+      }
+     ]
+    },
+    {
+     "id": "owner",
+     "label": "Property owner",
+     "fields": [
+      {
+       "id": "owner_first_name",
+       "label": "Property Owner First Name",
+       "value": "Sneha"
+      },
+      {
+       "id": "owner_middle_name",
+       "label": "Property Owner Middle Name",
+       "value": null
+      },
+      {
+       "id": "owner_last_name",
+       "label": "Property Owner Last Name",
+       "value": "Iyer"
+      },
+      {
+       "id": "owner_pan",
+       "label": "Owner's PAN No.",
+       "value": "XXXXXX512E"
+      },
+      {
+       "id": "applicant_pan",
+       "label": "Applicant's PAN No.",
+       "value": "XXXXXX512E"
+      }
+     ]
+    },
+    {
+     "id": "address",
+     "label": "Property address",
+     "fields": [
+      {
+       "id": "flat_no",
+       "label": "Flat No./House No.",
+       "value": "Flat B-1104"
+      },
+      {
+       "id": "address_line1",
+       "label": "Address Line 1",
+       "value": "Lakeview Towers"
+      },
+      {
+       "id": "address_line2",
+       "label": "Address Line 2",
+       "value": "Powai"
+      },
+      {
+       "id": "project_name",
+       "label": "Project Name/Colony Name/Building Name",
+       "value": "Lakeview Towers"
+      },
+      {
+       "id": "landmark",
+       "label": "Nearest Landmark",
+       "value": "Near Hiranandani Gardens"
+      },
+      {
+       "id": "city",
+       "label": "City/Town/Village",
+       "value": "Mumbai"
+      },
+      {
+       "id": "district",
+       "label": "District",
+       "value": "Mumbai Suburban"
+      },
+      {
+       "id": "state",
+       "label": "State",
+       "value": "Maharashtra"
+      },
+      {
+       "id": "pin_code",
+       "label": "Pin Code",
+       "value": "400076"
+      },
+      {
+       "id": "complete_address",
+       "label": "Complete Property Address",
+       "value": "Flat B-1104, Lakeview Towers, Powai, Mumbai 400076"
+      }
+     ]
+    }
+   ],
+   "edit": {
+    "property_type": "RESIDENTIAL_FLAT",
+    "property_usage": "Residential",
+    "property_nature": "Freehold",
+    "document": "Sale Deed",
+    "owner_first_name": "Sneha",
+    "owner_middle_name": null,
+    "owner_last_name": "Iyer",
+    "flat_no": "Flat B-1104",
+    "address_line1": "Lakeview Towers",
+    "address_line2": "Powai",
+    "project_name": "Lakeview Towers",
+    "landmark": "Near Hiranandani Gardens",
+    "city": "Mumbai",
+    "district": "Mumbai Suburban",
+    "state": "Maharashtra",
+    "pin_code": "400076",
+    "owner_pan": "XXXXXX512E",
+    "applicant_pan": "XXXXXX512E"
+   },
+   "geo": [
+    {
+     "id": "latitude",
+     "label": "Latitude",
+     "value": "19.1176"
+    },
+    {
+     "id": "longitude",
+     "label": "Longitude",
+     "value": "72.9060"
+    },
+    {
+     "id": "geo_address",
+     "label": "Geo-tagged address",
+     "value": "Flat B-1104, Lakeview Towers, Powai, Mumbai 400076"
+    },
+    {
+     "id": "captured_by",
+     "label": "Captured by",
+     "value": "Priya Nair"
+    },
+    {
+     "id": "captured_at",
+     "label": "Captured at",
+     "value": "2026-10-20 11:30"
+    }
+   ],
+   "collaterals": [
+    "Collateral 1"
+   ],
+   "assigned_to": "Priya Nair",
+   "los_status": "Queue",
+   "collateral_no": "Collateral 1",
+   "product": "Home Loan",
+   "loan_amount": 3600000.0,
+   "stage": "Credit assessment",
+   "property_type": "RESIDENTIAL_FLAT",
+   "property_type_label": "Residential flat",
+   "property_address": "Flat B-1104, Lakeview Towers, Powai, Mumbai 400076",
+   "property_pin": "400076",
+   "owner_names": [
+    "Sneha Iyer"
+   ]
+  },
+  "case": {
+   "case_id": "LGV-77F461B41A",
+   "status": "NEW",
+   "status_label": "New",
+   "agency": null,
+   "agency_name": null,
+   "sent_by": null,
+   "sent_at": null,
+   "decision": null,
+   "decision_label": null,
+   "decision_remarks": null,
+   "decided_by": null,
+   "decided_at": null,
+   "selected_agency": null,
+   "waive_reason": null,
+   "waived_by": null,
+   "waived_at": null
+  },
+  "documents": [],
+  "deed": null,
+  "deed_document_id": null,
+  "agency_report": null,
+  "run": null,
+  "events": [
+   {
+    "event_id": 36,
+    "actor": "credit.officer",
+    "event": "CASE_OPENED",
+    "label": "Case opened",
+    "detail": "",
+    "at": "2026-10-30T08:55:04.606548+00:00"
+   }
+  ],
+  "can": {
+   "upload": true,
+   "correct": true,
+   "send": false,
+   "submit_report": false,
+   "validate": false,
+   "attach_report": false,
+   "generate_report": false,
+   "decide": false,
+   "download": false,
+   "save": true,
+   "waive": true,
+   "edit_application": true
+  }
+ },
+ "with_agency": {
+  "application": {
+   "application_id": "LGV-2026-006",
+   "applicant_name": "Karan Mehta",
+   "branch": "MUM",
+   "view": [
+    {
+     "id": "case",
+     "label": "Application",
+     "fields": [
+      {
+       "id": "applicant_name",
+       "label": "Applicant Name",
+       "value": "Karan Mehta"
+      },
+      {
+       "id": "reference_id",
+       "label": "Reference ID",
+       "value": "LGV-2026-006"
+      },
+      {
+       "id": "external_id",
+       "label": "External ID",
+       "value": "NA"
+      },
+      {
+       "id": "product",
+       "label": "Product",
+       "value": "Home Loan"
+      },
+      {
+       "id": "loan_amount",
+       "label": "Loan amount",
+       "value": "₹52,00,000"
+      },
+      {
+       "id": "stage",
+       "label": "Stage",
+       "value": "Credit assessment"
+      },
+      {
+       "id": "los_status",
+       "label": "Status",
+       "value": "Queue"
+      },
+      {
+       "id": "assigned_to",
+       "label": "Assigned to",
+       "value": "Rahul Desai"
+      },
+      {
+       "id": "collateral_no",
+       "label": "Collateral",
+       "value": "Collateral 1"
+      }
+     ]
+    },
+    {
+     "id": "property",
+     "label": "Property",
+     "fields": [
+      {
+       "id": "property_type",
+       "label": "Property Type",
+       "value": "Residential flat"
+      },
+      {
+       "id": "property_usage",
+       "label": "Property Usage",
+       "value": "Residential"
+      },
+      {
+       "id": "property_nature",
+       "label": "Property Nature",
+       "value": "Freehold"
+      },
+      {
+       "id": "document",
+       "label": "Document",
+       "value": "Sale Deed"
+      }
+     ]
+    },
+    {
+     "id": "owner",
+     "label": "Property owner",
+     "fields": [
+      {
+       "id": "owner_first_name",
+       "label": "Property Owner First Name",
+       "value": "Karan"
+      },
+      {
+       "id": "owner_middle_name",
+       "label": "Property Owner Middle Name",
+       "value": null
+      },
+      {
+       "id": "owner_last_name",
+       "label": "Property Owner Last Name",
+       "value": "Mehta"
+      },
+      {
+       "id": "owner_pan",
+       "label": "Owner's PAN No.",
+       "value": "XXXXXX315F"
+      },
+      {
+       "id": "applicant_pan",
+       "label": "Applicant's PAN No.",
+       "value": "XXXXXX315F"
+      }
+     ]
+    },
+    {
+     "id": "address",
+     "label": "Property address",
+     "fields": [
+      {
+       "id": "flat_no",
+       "label": "Flat No./House No.",
+       "value": "Flat 305"
+      },
+      {
+       "id": "address_line1",
+       "label": "Address Line 1",
+       "value": "Palm Grove"
+      },
+      {
+       "id": "address_line2",
+       "label": "Address Line 2",
+       "value": "Sector 8"
+      },
+      {
+       "id": "project_name",
+       "label": "Project Name/Colony Name/Building Name",
+       "value": "Palm Grove"
+      },
+      {
+       "id": "landmark",
+       "label": "Nearest Landmark",
+       "value": "Near Vashi Station"
+      },
+      {
+       "id": "city",
+       "label": "City/Town/Village",
+       "value": "Vashi"
+      },
+      {
+       "id": "district",
+       "label": "District",
+       "value": "Thane"
+      },
+      {
+       "id": "state",
+       "label": "State",
+       "value": "Maharashtra"
+      },
+      {
+       "id": "pin_code",
+       "label": "Pin Code",
+       "value": "400703"
+      },
+      {
+       "id": "complete_address",
+       "label": "Complete Property Address",
+       "value": "Flat 305, Palm Grove, Sector 8, Vashi, Navi Mumbai 400703"
+      }
+     ]
+    }
+   ],
+   "edit": {
+    "property_type": "RESIDENTIAL_FLAT",
+    "property_usage": "Residential",
+    "property_nature": "Freehold",
+    "document": "Sale Deed",
+    "owner_first_name": "Karan",
+    "owner_middle_name": null,
+    "owner_last_name": "Mehta",
+    "flat_no": "Flat 305",
+    "address_line1": "Palm Grove",
+    "address_line2": "Sector 8",
+    "project_name": "Palm Grove",
+    "landmark": "Near Vashi Station",
+    "city": "Vashi",
+    "district": "Thane",
+    "state": "Maharashtra",
+    "pin_code": "400703",
+    "owner_pan": "XXXXXX315F",
+    "applicant_pan": "XXXXXX315F"
+   },
+   "geo": [
+    {
+     "id": "latitude",
+     "label": "Latitude",
+     "value": "19.0771"
+    },
+    {
+     "id": "longitude",
+     "label": "Longitude",
+     "value": "72.9986"
+    },
+    {
+     "id": "geo_address",
+     "label": "Geo-tagged address",
+     "value": "Flat 305, Palm Grove, Sector 8, Vashi, Navi Mumbai 400703"
+    },
+    {
+     "id": "captured_by",
+     "label": "Captured by",
+     "value": "Rahul Desai"
+    },
+    {
+     "id": "captured_at",
+     "label": "Captured at",
+     "value": "2026-10-20 11:30"
+    }
+   ],
+   "collaterals": [
+    "Collateral 1"
+   ],
+   "assigned_to": "Rahul Desai",
+   "los_status": "Queue",
+   "collateral_no": "Collateral 1",
+   "product": "Home Loan",
+   "loan_amount": 5200000.0,
+   "stage": "Credit assessment",
+   "property_type": "RESIDENTIAL_FLAT",
+   "property_type_label": "Residential flat",
+   "property_address": "Flat 305, Palm Grove, Sector 8, Vashi, Navi Mumbai 400703",
+   "property_pin": "400703",
+   "owner_names": [
+    "Karan Mehta"
+   ]
+  },
+  "case": {
+   "case_id": "LGV-843D235977",
+   "status": "WITH_AGENCY",
+   "status_label": "With agency",
+   "agency": "NYAYA_PARTNERS",
+   "agency_name": "Nyaya Partners LLP",
+   "sent_by": "credit.officer",
+   "sent_at": "2026-10-30T08:55:04.644990+00:00",
+   "decision": null,
+   "decision_label": null,
+   "decision_remarks": null,
+   "decided_by": null,
+   "decided_at": null,
+   "selected_agency": "NYAYA_PARTNERS",
+   "waive_reason": null,
+   "waived_by": null,
+   "waived_at": null
+  },
+  "documents": [
+   {
+    "document_id": "DOC-8766AE1DC1",
+    "kind": "SALE_DEED",
+    "kind_label": "Sale Deed",
+    "file_name": "sale_deed.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 1063,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:04.611816+00:00"
+   },
+   {
+    "document_id": "DOC-48BD227D17",
+    "kind": "ENCUMBRANCE_CERTIFICATE",
+    "kind_label": "Encumbrance Certificate",
+    "file_name": "encumbrance_certificate.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 974,
+    "pages": 1,
+    "read_status": "STORED",
+    "read_label": "Uploaded",
+    "notes": [],
+    "uploaded_by": "credit.officer",
+    "uploaded_at": "2026-10-30T08:55:04.611816+00:00"
+   }
+  ],
+  "deed": [
+   {
+    "field": "owner_names",
+    "label": "Owner (buyer) names",
+    "value": "Karan Mehta",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "seller_names",
+    "label": "Seller names",
+    "value": "Sunil Rao",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "document_type",
+    "label": "Document type",
+    "value": "Sale Deed",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "sale_deed_number",
+    "label": "Sale Deed number",
+    "value": "VSH-2/3315/2020",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "sale_deed_date",
+    "label": "Registration date",
+    "value": "2020-12-09",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "sub_registrar_office",
+    "label": "Sub-Registrar office",
+    "value": "Sub-Registrar Vashi 2",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "property_address",
+    "label": "Property described",
+    "value": "Flat 305, Palm Grove, Sector 8, Vashi, Navi Mumbai",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "district",
+    "label": "District",
+    "value": null,
+    "source": null
+   },
+   {
+    "field": "pin_code",
+    "label": "PIN code",
+    "value": "400703",
+    "source": "SALE_DEED"
+   },
+   {
+    "field": "area",
+    "label": "Area",
+    "value": null,
+    "source": null
+   },
+   {
+    "field": "consideration",
+    "label": "Consideration",
+    "value": null,
+    "source": null
+   }
+  ],
+  "deed_document_id": "DOC-8766AE1DC1",
+  "agency_report": null,
+  "run": null,
+  "events": [
+   {
+    "event_id": 40,
+    "actor": "credit.officer",
+    "event": "SENT_TO_AGENCY",
+    "label": "Sent to agency",
+    "detail": "Nyaya Partners LLP",
+    "at": "2026-10-30T08:55:04.644990+00:00"
+   },
+   {
+    "event_id": 39,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Encumbrance Certificate",
+    "at": "2026-10-30T08:55:04.611816+00:00"
+   },
+   {
+    "event_id": 38,
+    "actor": "credit.officer",
+    "event": "DOCUMENT_UPLOADED",
+    "label": "Document uploaded",
+    "detail": "Sale Deed",
+    "at": "2026-10-30T08:55:04.611816+00:00"
+   },
+   {
+    "event_id": 37,
+    "actor": "credit.officer",
+    "event": "CASE_OPENED",
+    "label": "Case opened",
+    "detail": "",
+    "at": "2026-10-30T08:55:04.611816+00:00"
+   }
+  ],
+  "can": {
+   "upload": false,
+   "correct": false,
+   "send": false,
+   "submit_report": true,
+   "validate": false,
+   "attach_report": true,
+   "generate_report": false,
+   "decide": false,
+   "download": false,
+   "save": false,
+   "waive": false,
+   "edit_application": false
+  }
+ },
+ "summary": {
+  "available": true,
+  "run_id": "RUN-A9EA9C57AF",
+  "points": [
+   "Critical: Owner Details Match — The owner the agency reports on the Sale Deed differs from the application: Vikas Shetty, Prakash Shetty.",
+   "Agency vs documents: The agency says the title is clear, but 1 check(s) found a problem.",
+   "Passed: Sale Deed Looks Consistent, Property Address Matches, Ownership History, Registration Details, Loan, Mortgage and Other Claims, Required Documents and Search Period, Property-Specific Legal Checks",
+   "Next action: Verify the property owner's identity against the original Sale Deed and ID documents."
+  ],
+  "source": "rules",
+  "pending": false,
+  "label": "Summary",
+  "note": "Written from the rule results."
+ }
+}

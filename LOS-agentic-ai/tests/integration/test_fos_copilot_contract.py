@@ -322,8 +322,10 @@ def test_suggestions_respond_to_what_is_wrong_with_the_case(client, case,
 UNRECOGNISED = [
     "wibble wobble zort",
     "asdfghjkl",
-    "tell me about the weather",
+    "qwrtpz lkjhgf mnbv",
 ]
+# "tell me about the weather" was here: an OFF-TOPIC question is now declined on purpose (NOT_IN_SCOPE, the general
+# layer's polite line -- test_copilot_downstream_routing.py), not met with a clarification. Checked separately below.
 
 
 @pytest.mark.parametrize("message", UNRECOGNISED)
@@ -350,6 +352,13 @@ def test_an_unrecognised_question_still_reports_that_it_failed(client, case,
 
     assert body["errors"]
     assert body["errors"][0]["code"] == "UNSUPPORTED_REQUEST"
+
+
+def test_an_off_topic_question_is_declined_and_never_answered_with_the_case(client, case):
+    body = query(client, case, "tell me about the weather")
+    assert body["intent"] == "NOT_IN_SCOPE" and body["query_type"] == "CONVERSATION", body
+    assert "outside what I can help with" in body["answer"]
+    assert "pending" not in body["answer"].lower() and "CASE-" not in body["answer"]
 
 
 def test_the_clarification_options_are_questions_the_copilot_answers(client,

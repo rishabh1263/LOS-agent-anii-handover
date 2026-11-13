@@ -70,8 +70,8 @@ def allowed_stages() -> tuple[str, ...]:
 
 
 def max_tool_calls() -> int:
-    """The hard bound on tool executions in one run."""
-    return int(_get("max_iterations", 10))
+    """The hard bound on tool executions in one run: `max_tool_calls`, else the orchestrator's `max_iterations`."""
+    return int(_get("max_tool_calls", None) or _get("max_iterations", 10))
 
 
 def max_replans() -> int:
