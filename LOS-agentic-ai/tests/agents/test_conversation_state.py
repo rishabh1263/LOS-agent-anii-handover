@@ -107,3 +107,16 @@ def test_the_same_clarification_is_not_asked_a_third_time():
     assert second.outcome == conv.OPTION_RESOLVED
     assert second.message == "What is pending for the co-applicant?"
     assert state.pending_clarification is None
+
+
+def test_a_co_applicant_the_case_does_not_have_is_never_the_next_subject():
+    # "is there a co-applicant?" -> none (the subject carries a "missing" note): "his date of birth" next is the
+    # applicant's (2026-10-14), never the co-applicant's again
+    state = conv.ConversationState(conversation_id="c1", subject_key="s1", case_id="case")
+    reply = {"intent": "APPLICANT_PROFILE", "category": "CASE", "answer": "There is no co-applicant on this case.",
+             "subject": {"kind": "CO", "note": "no co-applicant on this case"}}
+    conv.update_from_response(state, "is there a co-applicant?", reply, conv.Reading(conv.NEW_TOPIC, "x"))
+    assert state.last_subject_party == "PRIMARY_APPLICANT"
+    reply["subject"] = {"kind": "CO"}
+    conv.update_from_response(state, "what is pending for the co-applicant?", reply, conv.Reading(conv.NEW_TOPIC, "x"))
+    assert state.last_subject_party == "CO_APPLICANT"

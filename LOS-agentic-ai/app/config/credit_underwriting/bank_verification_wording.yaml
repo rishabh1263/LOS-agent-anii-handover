@@ -1,0 +1,411 @@
+# =====================================================================================================================
+# BANK VERIFICATION -- EVERY WORD THE USER READS, every rule name and every flag severity.
+# The code holds only logic: change a sentence, a label or a severity here; no code change, no restart of the logic.
+# {placeholders} are filled by the rule; keep them when rewording.
+# STATUS: DEMO_DUMMY / UNCONFIRMED wording.
+# =====================================================================================================================
+
+common:
+  statement: "Statement"
+  aa_data: "AA data"
+  not_in_source: "not in the {source}"
+  form: "Application form"
+  not_entered: "not entered on the form"
+  not_on_statement: "not printed / not readable on the statement"
+  not_confirmed: "read from the statement, not yet checked by the CPA"
+  confirmed: "read from the statement and checked by the CPA"
+  no_statement_missing: "Readable bank statement"
+  date_format: "%d-%m-%Y"
+  no_date: "no date"
+  no_amount: "no amount"
+  no_side: "no side"
+  sides: { CREDIT: "Credit", DEBIT: "Debit" }
+  join: ", "
+
+# case statuses as the screens show them; `after_run` maps the R8 status of a run to the case status
+case_status:
+  after_run: { PASS: READY_FOR_FINALIZATION, FAIL: REVIEW_REQUIRED, REVIEW_REQUIRED: REVIEW_REQUIRED,
+               NOT_APPLICABLE: REVIEW_REQUIRED }
+  seeded: PENDING_VERIFICATION
+  final: [POSITIVE, NEGATIVE, WAIVED]
+  labels:
+    PENDING_VERIFICATION: "Pending verification"
+    READING: "Reading statement"
+    READY_FOR_FINALIZATION: "Ready for agency finalization"
+    REVIEW_REQUIRED: "Review required"
+    POSITIVE: "Positive"
+    NEGATIVE: "Negative"
+    WAIVED: "Waived"
+
+rules:
+  R1:
+    name: "Bank Details Matching"
+    fields: { bank_name: "Bank name", account_number: "Account number", account_type: "Account type" }
+    no_statement: "No readable bank statement, so the bank details could not be checked against it."
+    pass: "Bank name, account number and account type match the statement."
+    fail_one: "The {fields} on the form differs from the statement."
+    fail_many: "The {fields} on the form differ from the statement."
+    review: "Could not confirm the {fields}: missing on the form or not readable on the statement."
+    masked_match: "the statement prints only the last {digits} digits; they match"
+    masked_differ: "the visible digits on the statement differ"
+    numbers_differ: "the account numbers differ"
+    evidence: ["Application form", "Bank statement header"]
+    flags:
+      BANK_DETAILS_MISMATCH: { severity: MEDIUM }
+      ACCOUNT_NUMBER_MISMATCH: { severity: HIGH }
+  R2:
+    name: "Latest Three Transactions Matching"
+    row: "Transaction {n}"
+    no_statement: "No readable bank statement, so the latest transactions could not be checked."
+    no_rows: "No transactions could be read from the statement; they need manual entry and agency checking."
+    no_rows_missing: "Statement transactions"
+    only_n: "the statement has only {n} transaction(s)"
+    incomplete: "incomplete: date, amount and debit / credit are all needed"
+    pass: "All {n} entered transactions match the statement's latest transactions."
+    fail: "{rows} not found among the statement's latest {n} transactions."
+    review: "Some transaction rows are blank or incomplete, so they could not be confirmed."
+    end_not_read: "the end of the statement was not read, so its latest transactions are not certain"
+    review_end: "The end of the statement could not be read, so the latest transactions cannot be confirmed."
+    end_not_read_missing: "The statement's last page (its latest transactions)"
+    recent_unread: "a recent statement row could not be read, so the latest transactions are not certain"
+    review_recent_unread: "A recent row of the statement could not be read, so the latest transactions cannot be confirmed."
+    recent_unread_missing: "The statement's latest rows, typed from the statement and checked"
+    not_found: "no transaction with this date and amount among the statement's latest {n}"
+    differs_one: "the {parts} differs"
+    differs_many: "the {parts} differ"
+    parts: { date: "date", amount: "amount", direction: "debit / credit" }
+    evidence: ["Application form", "Statement transactions (latest by date)"]
+    flags:
+      LATEST_TRANSACTION_MISMATCH: { severity: MEDIUM }
+  R3:
+    name: "Statement Integrity and Tampering Detection"
+    no_file: "No statement file was provided, so its integrity is unknown."
+    aa_only: "No statement uploaded: the account data came from the Account Aggregator (bank-sourced), so there is no file to check. Upload the statement to have it checked and compared with the AA data."
+    no_file_missing: "Bank statement file"
+    invalid: "The file is not a readable bank statement: {notes}"
+    unreadable: "The statement could not be read: {notes}"
+    unreadable_missing: "Readable bank statement (or manual entry checked by the agency)"
+    readable: "Readable: {with_text} of {pages} page(s) carry text."
+    producer: "Metadata: producer '{producer}'."
+    in_period: "Every transaction falls inside the printed statement period."
+    reader_note: "{note}"
+    pass: "The statement is readable and nothing about the file looks edited."
+    review: "Integrity signals need a person to check: {signals}"
+    file_evidence: "{kind} file, {pages} page(s), {with_text} with text"
+    flags:
+      NOT_A_STATEMENT: { severity: MEDIUM, text: "The uploaded file is not a statement." }
+      INCOMPLETE_EXTRACTION: { severity: LOW, text: "Only part of the statement could be read; the rest needs manual entry." }
+      READ_FROM_SCAN: { severity: LOW, text: "The statement is a scan read by OCR; confirm the figures with the original." }
+      EDITING_TOOL_IN_METADATA: { severity: MEDIUM, text: "The PDF metadata names an editing / conversion tool ({tool}). This is not proof of tampering; confirm the statement with the bank." }
+      MODIFIED_AFTER_CREATION: { severity: MEDIUM, text: "The PDF was modified {days} day(s) after it was created." }
+      TRANSACTION_OUTSIDE_PERIOD: { severity: MEDIUM, text: "{n} transaction(s) are dated outside the printed statement period." }
+  R4:
+    name: "Customer Account Ownership Verification"
+    applicant: "Applicant"
+    holder: "Holder on statement / AA"
+    supporting_note: "supporting evidence only -- a printed name does not prove ownership"
+    pass: "The agency's branch verification confirmed the applicant owns the account."
+    fail: "The agency's branch verification did NOT confirm ownership."
+    review: "Ownership is pending the agency's branch confirmation; the statement alone cannot prove it."
+    review_missing: "Branch confirmation of account ownership"
+    evidence: "Agency branch verification: {status}"
+    flags:
+      HOLDER_NAME_DIFFERS: { severity: MEDIUM, text: "The account holder name on the statement differs from the applicant's name." }
+      OWNERSHIP_NOT_CONFIRMED: { severity: HIGH, text: "The branch did not confirm that the applicant owns this account." }
+  R5:
+    name: "Transaction Continuity and Balance Validation"
+    source_statement: "statement"
+    source_aa: "AA data"
+    no_rows: "No transactions were available from the statement or AA, so balances could not be checked."
+    no_rows_missing: "Statement transactions with balances"
+    computed: "Opening + credits - debits"
+    printed_closing: "Printed closing balance"
+    off_by: "off by {amount}"
+    running: "Running balances"
+    printed: "{n} printed"
+    breaks: "Breaks in the chain"
+    break_row: "{date} {side} {amount}: balance {balance}, expected {expected}"
+    nothing: "The {source} has no opening / closing balance and no running balances, so continuity cannot be checked."
+    nothing_missing: "Opening and closing balance, or running balances"
+    fail: "The {source}'s balances do not add up: {problems}"
+    fail_closing: "opening + credits - debits {computed} vs printed closing balance {closing}"
+    fail_running: "{n} running-balance break(s)"
+    partial: "The running balances are consistent, but the {source} has no opening / closing balance to check the totals against."
+    partial_missing: "Opening and closing balance"
+    pass: "Opening + credits - debits equals the closing balance{running} ({source})."
+    pass_running: " and every running balance follows"
+    evidence: "Arithmetic over {n} transaction(s) from the {source}"
+    flags:
+      BALANCE_INCONSISTENT: { severity: HIGH }
+  R6:
+    name: "AA vs. Uploaded Statement Cross-Verification"
+    fields: { bank_name: "Bank name", account_number: "Account number", account_type: "Account type", ifsc: "IFSC",
+              account_holder: "Account holder", opening_balance: "Opening balance", closing_balance: "Closing balance",
+              transactions: "Transactions" }
+    aa_suffix: " (AA)"
+    only: "Only {have} is available; the cross-check needs both AA data and a readable statement."
+    have_aa: "AA data"
+    have_statement: "the statement"
+    have_none: "neither source"
+    missing_or_masked: "missing or masked in one source"
+    in_period: "{n} in common period"
+    only_in_aa: "only in AA: {rows}"
+    only_in_statement: "only in statement: {rows}"
+    pass: "The AA data and the statement agree on the account details and every transaction in their common period."
+    fail: "AA data and the statement differ on: {fields}."
+    review: "AA data and the statement agree where both can be read; some fields are missing or masked in one source."
+    evidence: ["Account Aggregator data", "Bank statement"]
+    flags:
+      SOURCE_MISMATCH: { severity: HIGH }
+  R7:
+    name: "Duplicate Statement and Document Reuse Detection"
+    no_file: "No statement file, so there is nothing to compare for reuse."
+    exact: "The identical file is already on file in {cases}."
+    exact_tail: " This is a reason to check, not proof of fraud."
+    similar: "A statement for the same account with the same transactions (different file) is on file in {cases}."
+    similar_tail: " It may be a re-download or a reused document."
+    pass: "No other case holds this statement (checked {n} statement(s) on file)."
+    hash_evidence: "File fingerprint checked"
+    fingerprint_evidence: "Content fingerprint: account + transactions"
+    flags:
+      EXACT_DUPLICATE_DOCUMENT: { severity: HIGH }
+      SIMILAR_DOCUMENT: { severity: MEDIUM }
+  R8:
+    name: "Automated Risk Assessment and Explainable Reporting"
+    nothing: "No rule could run: there is no data to verify yet."
+    failed: "{n} check(s) failed: {rules}."
+    review: "{n} check(s) need a person: {rules}."
+    pass: "Every applicable check passed."
+    counted: "{passed} of {applicable} applicable checks passed."
+    next: "Next: {action}"
+    mismatch: "{label}: {left} vs {right}"
+    score_note: "checks_passed / checks_applicable counts rules; it is not a probability of fraud or ownership."
+
+# what the statement reader says about a file
+reader:
+  empty: "The file is empty."
+  too_large: "The file is larger than {mb} MB."
+  wrong_type: "Only {types} files are accepted; this file is not one."
+  type_mismatch: "The file is named .{suffix} but its content is {kind}."
+  damaged: "The PDF could not be opened; it may be damaged or incomplete."
+  encrypted: "The PDF is password-protected; it cannot be read without the password."
+  no_pages: "The PDF has no pages."
+  too_many_pages: "The PDF has {pages} pages; statements over {limit} pages are not read here."
+  no_text: "The PDF is a scan or a photo, so it could not be read. Enter the bank details and transactions manually."
+  scan_read: "Read from a scanned statement ({pages} page(s)); scanned figures should be checked against the original."
+  scan_unreadable: "The scanned statement could not be read clearly. Enter the bank details and transactions manually."
+  pages_without_text: "{n} of {pages} pages have no text layer; their transactions were not read."
+  row_no_amount: "Row {n} ({date}) has no readable amount; it was left out."
+  balance_disagrees: "{n} row(s) disagree with the printed running balance."
+  csv_not_utf8: "The CSV is not UTF-8 text."
+  csv_columns: "The CSV needs the columns date, debit, credit (and optionally narration, reference, balance)."
+  csv_row: "CSV row {n}: {problem}; it was left out."
+  csv_one_side: "exactly one of debit / credit must be filled"
+  csv_bad_date: "date {value} is not a date"
+  csv_bad_balance: "The CSV's opening / closing balance is not an amount."
+
+# what the services answer when they refuse (the error codes stay fixed; the words are here)
+errors:
+  CASE_NOT_FOUND: "No open bank verification case {case_id}."
+  CASE_FINALIZED: "{case_id} is already finalized ({status}); a finalized case is not changed again."
+  AA_ONLY: "Waive and Retrigger are for a case with Account Aggregator data. Without it, run the verification on the statement."
+  WAIVE_REASON_REQUIRED: "Say why the bank verification is waived."
+  UNEXPECTED_FILE: "A file was sent but statement_source is {source}; send UPLOAD to use the file."
+  REPORT_FILE: "Report: {problem}"
+  STATEMENT_FILE_REQUIRED: "statement_source is UPLOAD but no file was sent."
+  NO_SEEDED_STATEMENT: "This case has no seeded statement; upload one."
+  NO_STATEMENT_ON_FILE: "This case has no statement on file yet; upload one."
+  STATEMENT_BEING_READ: "The statement is still being read. The result will appear here when it is ready."
+  NO_AA_DATA: "AA_SUCCESS was chosen but no Account Aggregator data exists for this case. Use AA_FAILURE and upload the statement."
+  IDEMPOTENCY_KEY_REUSED: "This Idempotency-Key was already used with a different request."
+  UNKNOWN_AGENCY: "No agency {agency_id}."
+  AGENCY_NOT_ASSIGNED: "This case is assigned to {agency}; only that agency can submit its decision."
+  NOT_PROCESSED: "Run verification (process) before finalizing."
+  UNKNOWN_CHECKLIST_ITEM: "Unknown checklist item(s): {items}."
+  UNKNOWN_REPORT: "report_document_id is not a report of this case."
+  MANDATORY_EVIDENCE_MISSING: "Finalization needs: {missing}."
+  DOCUMENT_NOT_FOUND: "No such document on this case."
+  DEMO_ONLY: "This action is not available."
+  STORE_NOT_CONFIGURED: "Bank verification is not connected to its database yet. Ask the administrator to configure it."
+  NOT_FOUND: "No API route /{path}."
+  LOGIN_REQUIRED: "Please sign in to continue."
+  UNKNOWN_ROLE: "Unknown role {role}."
+  AGENCY_NOT_IDENTIFIED: "Your sign-in does not say which agency you belong to."
+  NOT_YOUR_AGENCY: "An agency can submit decisions and reports for itself only."
+  FORBIDDEN_FOR_ROLE: "The {role} role may not {permission}."
+  VALIDATION_ERROR: "The request is not valid."
+  UNSUPPORTED_MEDIA_TYPE: "Send application/json or multipart/form-data."
+  NOT_JSON: "The body is not valid JSON."
+  MULTIPART_REQUEST_FIELD: "multipart needs a `request` field holding the JSON request."
+
+# the agency's report checked against the case (services/report_check.py)
+agency_report:
+  title: "Report check"
+  on_screen: "On screen"
+  answer_yes: "Yes"
+  answer_no: "No"
+  pass: "The report names this case and agrees with it."
+  fail: "The report does not agree with the case: {items}."
+  review: "The report does not show: {items}."
+  unreadable: "The report could not be read; upload a clearer copy."
+  fields:
+    readable: "Report readable"
+    report_kind: "Agency's own report"
+    case_ref: "Case / application number"
+    report_date: "Report date"
+    applicant_name: "Customer name"
+    account_number: "Account number"
+    bank_name: "Bank"
+    ownership: "Ownership result"
+    agency: "Agency"
+    account_type: "Account type"
+    transaction: "Transaction {n}"
+    transactions: "Latest transactions"
+  notes:
+    not_found: "not found in the report"
+    unreadable: "no readable text"
+    other_case: "the report is for another case"
+    own_report: "this is the system's own verification report, not the agency's"
+    future: "dated in the future"
+    too_old: "older than {days} days"
+    masked: "masked on the report: its last {n} digits compared"
+    masked_short: "masked on the report with too few digits to compare"
+    not_on_screen: "not among the latest transactions on screen"
+    differs: "the {parts} differs"
+    parts: { date: "date", amount: "amount", direction: "debit / credit" }
+
+# finalize: what is missing, why a POSITIVE is blocked, what is negative
+finalize:
+  missing_checklist: "Checklist answers for: {items}"
+  missing_rationale: "A decision rationale of at least {n} characters"
+  missing_report: "The agency's verification report"
+  report_check_failed: "The report check did not pass: {reason}"
+  negative_ownership: "Branch did not confirm the applicant owns the account."
+  negative_mismatch: "Agency found a mismatch: {item}."
+  negative_needs_finding: "A negative decision needs a recorded finding: ownership NOT_CONFIRMED or a checklist MISMATCH."
+  interim: "The agency saved an interim update (review required)."
+  conflict: "The agency's own findings are negative; a POSITIVE conflicts with them: {findings}"
+  ownership_not_confirmed: "Account ownership is {status}, not CONFIRMED."
+  visit_not_completed: "The branch visit is {status}, not COMPLETED."
+  checklist_not_verified: "Checklist items not VERIFIED: {items}."
+  rule_failed: "{name} failed: {reason} Correct the inputs and re-run, or record a Negative with the finding."
+  rule_unresolved: "{name} needs review and is not yet confirmed in the agency checklist."
+  statement_not_readable: "There is no readable bank statement on the case; upload a readable one before a POSITIVE."
+
+# the report
+report:
+  title: "Bank Verification Report — {case_id}"
+  modes: { AA_SUCCESS: "AA received", AA_FAILURE: "AA not received" }
+  sections: { assessment: "Assessment", rules: "Rule-wise results", discrepancies: "Discrepancies",
+              flags: "Risk flags", missing: "Missing evidence", actions: "Human actions still required",
+              decision: "Ownership and final decision", history: "Case history" }
+  columns: { rule: "Rule", name: "Name", status: "Status", explanation: "Explanation", when: "When (UTC)",
+             who: "Who", what: "What" }
+  none: "None"
+  no_decision: "No agency decision yet. Ownership: PENDING."
+  footer: "Decisions follow the configured verification rules; no automated model approves or rejects an account."
+  colours: { PASS: "#17663a", FAIL: "#b42318", REVIEW_REQUIRED: "#b54708", NOT_APPLICABLE: "#555555",
+             POSITIVE: "#17663a", NEGATIVE: "#b42318", default: "#555555" }
+
+# ---- the summary in easy words (services/summary_service.py) ---------------------------------------------------------
+ai_summary:
+  label_ai: "AI summary"
+  label_rules: "Summary"
+  note_ai: "Written by the local AI from the rule results. It explains; it does not decide."
+  note_rules: "Written from the rule results."
+  pending: "The AI summary is being written; this one is from the rule results."
+  source:
+    AA_SUCCESS: "Account Aggregator data and the bank statement"
+    AA_FAILURE: "the bank statement and details entered by hand"
+  # one difference inside a check, with its values (handed to the model and used by the rules-written summary)
+  difference: "{label}: {left} vs {right_label} {right}{note}"
+  statement:
+    COMPLETE: "read fully"
+    PARTIAL: "read in part"
+    UNREADABLE: "could not be read"
+    INVALID: "not a bank statement"
+    NONE: "not on file"
+  instructions: |
+    You explain a bank account verification result to a loan officer in plain, simple English.
+    You get the case facts as JSON. "counts" says exactly how many checks passed, found a problem, or need a
+    person: use those numbers, never guess. "problems_found" lists each failed check with "what_differs": the exact
+    values that did not match (what was entered vs what the statement or Account Aggregator shows).
+    "needs_a_person" lists each check that could not be confirmed, with why and what is missing.
+    Write 2 to 5 short sentences, no lists, no headings. Start directly with the result:
+    1. the result: "<passed> of <checks_run> checks passed for <applicant>", then how many found a problem and how
+       many need a person (skip a count that is 0). Use the numbers in "counts" exactly;
+    2. for EACH problem, one short sentence saying what differs with the given values, for example "Transaction <n>
+       was entered as Credit but the statement shows Debit." Never write only "some details did not match";
+    3. the items that need a person and why, in one sentence (group them when the reason is the same).
+    Do NOT list the checks in "passed" and do NOT write a next step: the screen already shows both.
+    If there is no "problems_found", say no check found a problem and never invent one; the same for
+    "needs_a_person". Use only the facts given. Do not add any number, date or amount that is not in the facts;
+    copy values exactly as given, in plain words (write "entered as X but the statement shows Y").
+    Never say the loan or account is approved, rejected, safe, fake or fraud; the checks do not decide that.
+    Do not mention JSON, rule codes like R1, or field names with underscores.
+  # a summary containing any of these is refused (the rules-written one is shown instead)
+  banned_words: [approved, approve, rejected, reject, fraud, fraudulent, fake, forged, guaranteed, definitely, safe to lend]
+  # the rules-written summary: headline by the overall result + the open items + the next step
+  fallback:
+    PASS: "Every check that could run has passed for {applicant}."
+    FAIL: "Some checks for {applicant} did not match and need attention."
+    REVIEW_REQUIRED: "Nothing for {applicant} has failed, but some items still need a person before a final result."
+    NOT_APPLICABLE: "There is not enough data yet to check {applicant}'s bank account."
+    counted: "{passed} of {total} checks passed."
+    problem: "{check}: {what}."
+    open: "Needs a person: {items}."
+    next: "Next step: {action}"
+    final: "The agency has recorded the final result: {status}."
+
+# every rule in easy words, by its status -- the screen's simple checklist (always shown, covers all eight)
+plain:
+  status: { PASS: "OK", FAIL: "Problem", REVIEW_REQUIRED: "Needs a person", NOT_APPLICABLE: "Not needed" }
+  rules:
+    R1:
+      name: "Bank details"
+      PASS: "Bank name, account number and account type match the statement."
+      FAIL: "The bank details typed in the form do not match the statement."
+      REVIEW_REQUIRED: "Some bank details could not be confirmed from the statement."
+      NOT_APPLICABLE: "Bank details were not checked."
+    R2:
+      name: "Last 3 transactions"
+      PASS: "The last 3 transactions in the form match the statement."
+      FAIL: "One or more of the last transactions in the form do not match the statement."
+      REVIEW_REQUIRED: "Some transactions are missing or could not be read, so they could not be confirmed."
+      NOT_APPLICABLE: "Transactions were not checked."
+    R3:
+      name: "Statement looks genuine"
+      PASS: "The statement file is readable and nothing suggests it was edited."
+      FAIL: "The uploaded file is not a proper bank statement."
+      REVIEW_REQUIRED: "The statement could not be fully read, or something about the file needs a closer look."
+      NOT_APPLICABLE: "No statement file to check."
+    R4:
+      name: "Account belongs to customer"
+      PASS: "The bank branch confirmed the account belongs to the customer."
+      FAIL: "The bank branch said the account does not belong to the customer."
+      REVIEW_REQUIRED: "Waiting for the bank branch to confirm the account belongs to the customer."
+      NOT_APPLICABLE: "Ownership was not checked."
+    R5:
+      name: "Balances add up"
+      PASS: "Opening balance, money in, money out and closing balance all add up."
+      FAIL: "The balances on the statement do not add up."
+      REVIEW_REQUIRED: "Balances could only be partly checked."
+      NOT_APPLICABLE: "There were no balances to check."
+    R6:
+      name: "AA data vs statement"
+      PASS: "The Account Aggregator data and the statement say the same thing."
+      FAIL: "The Account Aggregator data and the statement do not agree."
+      REVIEW_REQUIRED: "AA data and the statement agree where both could be read."
+      NOT_APPLICABLE: "Only one source was available, so there was nothing to compare."
+    R7:
+      name: "Statement not reused elsewhere"
+      PASS: "This statement has not been used in any other case."
+      FAIL: "This statement has been used before."
+      REVIEW_REQUIRED: "The same or a very similar statement is already in another case; please check why."
+      NOT_APPLICABLE: "No statement file to compare."
+    R8:
+      name: "Overall"
+      PASS: "Everything that could be checked is fine."
+      FAIL: "Some checks found problems."
+      REVIEW_REQUIRED: "Some items still need a person before a final result."
+      NOT_APPLICABLE: "Nothing could be checked yet."

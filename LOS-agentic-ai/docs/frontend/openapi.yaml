@@ -131,6 +131,60 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
       security:
       - HTTPBearer: []
+  /api/v1/fos/action:
+    post:
+      tags:
+      - FOS
+      summary: 'Run any action: link from a chat reply (FINAL FIX D) -- a file, a
+        UI route, or the chat reply'
+      description: "ONE endpoint for every `[Label](action:...)` the bot emits. The\
+        \ answer depends on the action:\n\n  download / download_list / handoff_note\
+        \ / view_document  -> the FILE (Content-Disposition: attachment;\n       \
+        \                                                        filename=...), scope-checked\
+        \ and audited\n  show_in_ui / show_list_in_ui / new_case                 \
+        \ -> {\"type\": \"open_ui\", \"route\": \"...\"}\n  upload               \
+        \                                    -> {\"type\": \"upload\", \"document_type\"\
+        , \"party\"}\n  copy                                                     ->\
+        \ {\"type\": \"copy\", \"ref\"}\n  anything else (open_case, list_more, confirm_write\
+        \ ...)  -> {\"type\": \"reply\", request_id, markdown, tts}\n\n401 no / bad\
+        \ token, 403 a link for someone else, 404 not your case (or does not exist),\
+        \ 409 not ready,\n422 not an action link, 429 too many downloads."
+      operationId: run_action_api_v1_fos_action_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: No token, or a token that is expired, malformed, for another
+            audience, or signed by an unknown key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the scope, stage or case ownership does
+            not permit this. A case you cannot access and a case that does not exist
+            answer the same way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The request failed validation, or a document could not be used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - HTTPBearer: []
   /api/v1/fos/actions:
     get:
       tags:
@@ -189,6 +243,54 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateCaseRequest'
+            examples:
+              personal_loan:
+                summary: Personal loan (no property fields)
+                value:
+                  applicant:
+                    full_name: Rahul Sharma
+                    mobile: '9876543210'
+                    date_of_birth: '1990-04-12'
+                    address: Pune, Maharashtra
+                  application:
+                    product: PERSONAL_LOAN
+                    loan_amount: 500000
+                    tenure_months: 60
+                    employment_type: SALARIED
+                    declared_monthly_obligations: 10000
+              home_loan:
+                summary: Home loan (residential property; valuation / purchase price)
+                value:
+                  applicant:
+                    full_name: Rahul Sharma
+                    mobile: '9876543210'
+                    date_of_birth: '1990-04-12'
+                    address: Pune, Maharashtra
+                  application:
+                    product: HOME_LOAN
+                    loan_amount: 2000000
+                    tenure_months: 240
+                    employment_type: SALARIED
+                    declared_monthly_obligations: 0
+                    property_type: RESIDENTIAL
+                    valuation_value: 3000000
+                    purchase_price: 2800000
+              loan_against_property:
+                summary: Loan against property (property type required)
+                value:
+                  applicant:
+                    full_name: Rahul Sharma
+                    mobile: '9876543210'
+                    date_of_birth: '1990-04-12'
+                    address: Pune, Maharashtra
+                  application:
+                    product: LOAN_AGAINST_PROPERTY
+                    loan_amount: 3000000
+                    tenure_months: 120
+                    employment_type: SELF_EMPLOYED
+                    declared_monthly_obligations: 5000
+                    property_type: COMMERCIAL
+                    valuation_value: 8000000
         required: true
       responses:
         '201':
@@ -824,6 +926,13 @@ paths:
         come back null or empty.
 
 
+        **Streaming:** `"stream": true` (or `Accept: text/event-stream`) returns the
+        same answer as Server-Sent Events. **Feedback:** `{"action": "FEEDBACK", "reply_to":
+        <request_id>, "rating": "up"|"down", "reason"?}` records a 👍 / 👎 on an earlier
+        answer and returns `{request_id, status: RECORDED | NOT_RECORDED, reply_to,
+        rating}`.
+
+
         **Actions:** `GET_APPLICANT`, `GET_APPLICATION_STATUS`, `GET_DOCUMENTS`, `GET_DOCUMENT_CHECKLIST`,
         `GET_VERIFICATION_STATUS`, `GET_PENDING_ITEMS`, `GET_NEXT_ACTION`, `GET_CASE_360`,
         `CHECK_CPA_READINESS`, `UPLOAD_DOCUMENT`, `CUSTOM_QUERY`. Render the dropdown
@@ -842,6 +951,22 @@ paths:
                   case_id: CASE-7DFE2F497522
                   action: CUSTOM_QUERY
                   message: What documents are pending?
+              ask_streamed:
+                summary: 'CUSTOM_QUERY, streamed (SSE) — the same call with stream:
+                  true'
+                value:
+                  applicant_id: APP-3D51FFAC6342
+                  case_id: CASE-7DFE2F497522
+                  action: CUSTOM_QUERY
+                  message: What documents are pending?
+                  stream: true
+              feedback:
+                summary: FEEDBACK — 👍 / 👎 on an earlier answer (its request_id)
+                value:
+                  action: FEEDBACK
+                  reply_to: fos_0123456789abcdef0123456789abcdef
+                  rating: down
+                  reason: wrong document named
               documents:
                 summary: GET_DOCUMENTS — what has been uploaded
                 value:
@@ -1069,14 +1194,10 @@ paths:
       - FOS
       summary: 'The FOS copilot as Server-Sent Events: status lines while it works,
         then the answer (step 7)'
-      description: 'The same JSON request as /fos/copilot (COPILOT_STREAMING, default
-        off -> 404). Events: `status`
+      description: 'KEPT FOR EXISTING CLIENTS: the same as POST /fos/copilot with
+        `"stream": true` (or
 
-        (at once, then every tick_seconds), then `answer` (the full /fos/copilot response
-        + `latency`) or
-
-        `error` (an HTTP status + detail). One pipeline: the answer IS the /fos/copilot
-        answer.'
+        `Accept: text/event-stream`). COPILOT_STREAMING, default off -> 404.'
       operationId: copilot_stream_api_v1_fos_copilot_stream_post
       requestBody:
         content:
@@ -1921,6 +2042,32 @@ paths:
                 title: Response Ready Ready Get
 components:
   schemas:
+    ActionRequest:
+      properties:
+        href:
+          type: string
+          maxLength: 600
+          title: Href
+          examples:
+          - action:download?format=xlsx&case=CASE-852C1A2B3C4D
+        chat_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Chat Id
+        reply_language:
+          anyOf:
+          - type: string
+            maxLength: 12
+          - type: 'null'
+          title: Reply Language
+      type: object
+      required:
+      - href
+      title: ActionRequest
+      description: One `action:` link from a reply, exactly as it appeared in the
+        markdown.
     AddressInput:
       properties:
         raw:
@@ -2338,7 +2485,7 @@ components:
           title: Declared Monthly Obligations
           description: 'What the applicant says they already repay each month. DECLARED,
             and recorded as declared: whether a declared figure may be used in an
-            affordability calculation is a policy decision, set in eligibility_policy.yaml,
+            affordability calculation is a policy decision, set in eligibility_config.yaml,
             and it is not accepted by default.'
           examples:
           - 8000
@@ -2365,6 +2512,36 @@ components:
             product, where LTV is NOT_APPLICABLE.
           examples:
           - 8000000
+        property_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Property Type
+          description: RESIDENTIAL / COMMERCIAL / INDUSTRIAL -- selects the LTV limit
+            for a secured product.
+          examples:
+          - RESIDENTIAL
+        purchase_price:
+          anyOf:
+          - type: number
+          - type: string
+          - type: 'null'
+          title: Purchase Price
+          description: The agreed price of the property being bought (agreement to
+            sell). With a valuation, the LOWER of the two is the property value. Never
+            an old sale deed's consideration.
+          examples:
+          - 7500000
+        valuation_value:
+          anyOf:
+          - type: number
+          - type: string
+          - type: 'null'
+          title: Valuation Value
+          description: The value on the valuation report. Without one, a declared
+            value gives an indicative LTV.
+          examples:
+          - 7800000
       type: object
       title: ApplicationDetails
     ApplicationOverview:
@@ -2436,6 +2613,113 @@ components:
         the issues are each party''s own recorded reason codes, tagged with
 
         whose they are. Nothing here ranks or re-derives any of it.'
+    Body_check_form_api_v1_eligibility_check_form_post:
+      properties:
+        case_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$
+          title: Case Id
+          description: e.g. CASE-E11D00000010
+        product:
+          $ref: '#/components/schemas/ProductChoice'
+          default: CASE (the case's own product)
+        requested_amount:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Requested Amount
+          description: Loan amount (Rs); empty = the case's
+        tenure_months:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Tenure Months
+          description: Tenure in months; empty = the case's
+        rate_percent:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Rate Percent
+          description: Rate % a year; empty = the case's
+        income_method:
+          $ref: '#/components/schemas/IncomeMethod'
+          default: DECLARED (use the case's declared income)
+        income_amount:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Income Amount
+          description: SALARIED gross salary (Rs/month) | ITR income as per ITR (Rs/year)
+            | CASH_PROFIT profit after tax (Rs/year) | GROSS_PROFIT turnover (Rs/year)
+        income_adjustment:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Income Adjustment
+          description: SALARIED PF deduction, added back | ITR tax, subtracted | CASH_PROFIT
+            depreciation + partner interest + remuneration, added | GROSS_PROFIT gross
+            margin as per financials
+        other_deduction:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Other Deduction
+          description: 'SALARIED only: other deductions (Rs/month)'
+        other_income:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Other Income
+          description: 'Other income -- GROSS_PROFIT: rental income'
+        topup_type:
+          $ref: '#/components/schemas/TopupType'
+          default: NONE
+        topup_pos:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Topup Pos
+          description: 'BT: outstanding taken over | INTERNAL: current outstanding
+            (Rs)'
+        topup_mob:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Topup Mob
+          description: Months on book of the existing loan
+        previous_sanction:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Previous Sanction
+          description: 'INTERNAL only: previous sanction (Rs)'
+        original_tenure_months:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Original Tenure Months
+          description: 'INTERNAL only: original tenure (months)'
+        collateral:
+          $ref: '#/components/schemas/CollateralChoice'
+          default: DEFAULT (product limit)
+        occupancy:
+          $ref: '#/components/schemas/OccupancyChoice'
+          default: DEFAULT (product limit)
+        existing_exposure:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Existing Exposure
+          description: Other loans already on this property (Rs)
+        detail:
+          type: boolean
+          title: Detail
+          description: The full working instead of the compact answer
+          default: false
+      type: object
+      required:
+      - case_id
+      title: Body_check_form_api_v1_eligibility_check_form_post
     Body_extract_document_upload_api_v1_extract_document_post:
       properties:
         file:
@@ -2481,6 +2765,40 @@ components:
       required:
       - file
       title: Body_extract_financial_api_v1_financial_extract_post
+    Body_extract_passbook_api_v1_passbook_extract_passbook_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          description: Passbook first page
+          format: binary
+      type: object
+      required:
+      - file
+      title: Body_extract_passbook_api_v1_passbook_extract_passbook_post
+    Body_hrms_passbook_extract_api_v1_hrms_passbook_extract_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          format: binary
+      type: object
+      required:
+      - file
+      title: Body_hrms_passbook_extract_api_v1_hrms_passbook_extract_post
+    Body_hrms_passbook_verify_api_v1_hrms_passbook_verify_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          format: binary
+      type: object
+      required:
+      - file
+      title: Body_hrms_passbook_verify_api_v1_hrms_passbook_verify_post
     Body_import_validate_api_v1_fos_imports_post:
       properties:
         file:
@@ -2700,6 +3018,39 @@ components:
       required:
       - file
       title: Body_process_document_api_api_v1_document_agent_post
+    Body_resume_verify_extract_api_v1_hrms_resume_verify_extract_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          description: 'Resume: PDF, DOCX or a photo / scan'
+          format: binary
+        expected_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expected Name
+          description: Name HR holds (optional)
+        year_10th:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Year 10Th
+        year_12th:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Year 12Th
+        graduation_year:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Graduation Year
+      type: object
+      required:
+      - file
+      title: Body_resume_verify_extract_api_v1_hrms_resume_verify_extract_post
     Body_verify_document_api_v1_verify_post:
       properties:
         file:
@@ -2721,6 +3072,30 @@ components:
       required:
       - file
       title: Body_verify_document_api_v1_verify_post
+    Body_verify_extract_pan_api_v1_pan_verify_extract_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          description: PAN image or PDF
+          format: binary
+      type: object
+      required:
+      - file
+      title: Body_verify_extract_pan_api_v1_pan_verify_extract_post
+    Body_verify_extract_passbook_api_v1_passbook_verify_extract_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          description: Passbook first page (photo or PDF)
+          format: binary
+      type: object
+      required:
+      - file
+      title: Body_verify_extract_passbook_api_v1_passbook_verify_extract_post
     Body_verify_financial_api_v1_financial_verify_post:
       properties:
         file:
@@ -2733,6 +3108,35 @@ components:
       required:
       - file
       title: Body_verify_financial_api_v1_financial_verify_post
+    Body_verify_passbook_api_v1_passbook_verify_passbook_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          description: Passbook first page
+          format: binary
+      type: object
+      required:
+      - file
+      title: Body_verify_passbook_api_v1_passbook_verify_passbook_post
+    Body_verify_signature_api_v1_hrms_signature_verify_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+          description: The signature as an image (JPG / PNG / WEBP / BMP) or a PDF
+          format: binary
+        source:
+          type: string
+          title: Source
+          description: 'How it was made: upload | draw | capture'
+          default: upload
+      type: object
+      required:
+      - file
+      title: Body_verify_signature_api_v1_hrms_signature_verify_post
     CaseDataResponse:
       properties:
         case_id:
@@ -2844,6 +3248,120 @@ components:
       - name
       - passed
       title: Check
+    CheckRequest:
+      properties:
+        requested_amount:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Requested Amount
+          description: Loan amount to check (Rs); absent = the case's.
+        tenure_months:
+          anyOf:
+          - type: integer
+            maximum: 480.0
+            minimum: 1.0
+          - type: 'null'
+          title: Tenure Months
+          description: Tenure in months; absent = the case's.
+        rate_percent:
+          anyOf:
+          - type: number
+            maximum: 60.0
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Rate Percent
+          description: Rate % a year; absent = the case's, else the product's.
+        product:
+          anyOf:
+          - type: string
+            maxLength: 48
+          - type: 'null'
+          title: Product
+          description: Check the case for ANOTHER product (e.g. LOAN_AGAINST_PROPERTY
+            instead of the case's HOME_LOAN). Absent = the case's own product. One
+            of the configured products (eligibility_config.yaml `products`), else
+            422.
+        income:
+          anyOf:
+          - $ref: '#/components/schemas/app__agents__eligibility__domain__requests__IncomeInput'
+          - type: 'null'
+          description: 'Income working: {"method": SALARIED | ITR | CASH_PROFIT |
+            GROSS_PROFIT, ...fields}. SALARIED: gross_salary, other_income, other_deduction,
+            pf_deduction (monthly). ITR: income_as_per_itr, tax, other_income (annual).
+            CASH_PROFIT: profit_after_tax, depreciation, interest_to_partners, remuneration_to_partners,
+            remuneration_to_directors, other_income (annual). GROSS_PROFIT: turnover,
+            gross_margin, rental_income (annual). The computed MONTHLY income replaces
+            the declared one. A field of another method, a negative or non-numeric
+            figure, or a missing required figure -> 422.'
+        topup:
+          anyOf:
+          - $ref: '#/components/schemas/TopupInput'
+          - type: 'null'
+          description: 'Top-up: {"type": BT_TOPUP, pos, mob} or {"type": INTERNAL_TOPUP,
+            previous_sanction, pos, mob, original_tenor_months}. Caps the loan (limit
+            TOPUP); an internal top-up''s outstanding counts in LTV.'
+        collateral_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collateral Type
+          description: RESIDENTIAL / COMMERCIAL / INDUSTRIAL
+        occupancy_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Occupancy Type
+          description: SELF_OCCUPIED / RENTED / VACANT
+        existing_exposure:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Existing Exposure
+          description: Other loans already on the same property (Rs)
+        case_id:
+          type: string
+          maxLength: 64
+          minLength: 1
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$
+          title: Case Id
+          examples:
+          - CASE-E11D00000011
+        detail:
+          type: boolean
+          title: Detail
+          description: 'The FULL working (loan, ratios, rules, income lines, exposure,
+            reasons); default: the compact answer -- decision, summary, offer, checks,
+            what it would take, next steps, one-line working.'
+          default: false
+        use_saved:
+          type: boolean
+          title: Use Saved
+          description: 'When no entries are sent, use the entries SAVED for the case
+            (eligibility screen: Save, then Trigger eligibility).'
+          default: true
+        explain:
+          type: boolean
+          title: Explain
+          description: Add a one-or-two-sentence `explanation` written by the local
+            model (never changes the decision; absent when the model is unavailable).
+          default: false
+        language:
+          type: string
+          pattern: ^(en|hi)$
+          title: Language
+          description: 'The explanation''s language: en / hi (Hinglish).'
+          default: en
+      type: object
+      required:
+      - case_id
+      title: CheckRequest
+      example:
+        case_id: CASE-E11D00000010
     CheckResult:
       properties:
         check:
@@ -2892,6 +3410,14 @@ components:
       - FAIL
       - SKIPPED
       title: CheckStatus
+    CollateralChoice:
+      type: string
+      enum:
+      - DEFAULT (product limit)
+      - RESIDENTIAL
+      - COMMERCIAL
+      - INDUSTRIAL
+      title: CollateralChoice
     ConfirmRequest:
       properties:
         action:
@@ -4097,6 +4623,14 @@ components:
           examples:
           - email: rahul@example.com
             loan_amount: 600000
+        expected:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Expected
+          examples:
+          - full_name: Rahul Shrma
       type: object
       required:
       - changes
@@ -4690,44 +5224,15 @@ components:
         changes the NAME, DATE_OF_BIRTH, PAN, FATHER_NAME or ADDRESS
 
         verdicts, the KYC score, the case decision or the next action.'
-    IncomeInput:
-      properties:
-        monthly_net_salary:
-          anyOf:
-          - type: number
-          - type: string
-            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
-          - type: 'null'
-          title: Monthly Net Salary
-        monthly_gross_salary:
-          anyOf:
-          - type: number
-          - type: string
-            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
-          - type: 'null'
-          title: Monthly Gross Salary
-        average_monthly_credit:
-          anyOf:
-          - type: number
-          - type: string
-            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
-          - type: 'null'
-          title: Average Monthly Credit
-        declared_annual_income:
-          anyOf:
-          - type: number
-          - type: string
-            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
-          - type: 'null'
-          title: Declared Annual Income
-      type: object
-      title: IncomeInput
-      description: 'Income signals, named exactly as the Financial Agent emits them.
-
-
-        This mirrors app.agents.financial.schemas.IncomeSignals so a caller can
-
-        forward that object through without reshaping it.'
+    IncomeMethod:
+      type: string
+      enum:
+      - DECLARED (use the case's declared income)
+      - SALARIED
+      - ITR
+      - CASH_PROFIT
+      - GROSS_PROFIT
+      title: IncomeMethod
     IncomeSignals:
       properties:
         declared_annual_income:
@@ -5671,6 +6176,14 @@ components:
       - processing_ms
       title: LosProcessResponse
       description: One applicant's documents, processed end to end.
+    OccupancyChoice:
+      type: string
+      enum:
+      - DEFAULT (product limit)
+      - SELF_OCCUPIED
+      - RENTED
+      - VACANT
+      title: OccupancyChoice
     PairComparison:
       properties:
         left_source_id:
@@ -5985,6 +6498,101 @@ components:
         verification already reached; nothing here can change an outcome. The
 
         four buckets always sum to `total_documents`.'
+    PopupInputs:
+      properties:
+        requested_amount:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Requested Amount
+          description: Loan amount to check (Rs); absent = the case's.
+        tenure_months:
+          anyOf:
+          - type: integer
+            maximum: 480.0
+            minimum: 1.0
+          - type: 'null'
+          title: Tenure Months
+          description: Tenure in months; absent = the case's.
+        rate_percent:
+          anyOf:
+          - type: number
+            maximum: 60.0
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Rate Percent
+          description: Rate % a year; absent = the case's, else the product's.
+        product:
+          anyOf:
+          - type: string
+            maxLength: 48
+          - type: 'null'
+          title: Product
+          description: Check the case for ANOTHER product (e.g. LOAN_AGAINST_PROPERTY
+            instead of the case's HOME_LOAN). Absent = the case's own product. One
+            of the configured products (eligibility_config.yaml `products`), else
+            422.
+        income:
+          anyOf:
+          - $ref: '#/components/schemas/app__agents__eligibility__domain__requests__IncomeInput'
+          - type: 'null'
+          description: 'Income working: {"method": SALARIED | ITR | CASH_PROFIT |
+            GROSS_PROFIT, ...fields}. SALARIED: gross_salary, other_income, other_deduction,
+            pf_deduction (monthly). ITR: income_as_per_itr, tax, other_income (annual).
+            CASH_PROFIT: profit_after_tax, depreciation, interest_to_partners, remuneration_to_partners,
+            remuneration_to_directors, other_income (annual). GROSS_PROFIT: turnover,
+            gross_margin, rental_income (annual). The computed MONTHLY income replaces
+            the declared one. A field of another method, a negative or non-numeric
+            figure, or a missing required figure -> 422.'
+        topup:
+          anyOf:
+          - $ref: '#/components/schemas/TopupInput'
+          - type: 'null'
+          description: 'Top-up: {"type": BT_TOPUP, pos, mob} or {"type": INTERNAL_TOPUP,
+            previous_sanction, pos, mob, original_tenor_months}. Caps the loan (limit
+            TOPUP); an internal top-up''s outstanding counts in LTV.'
+        collateral_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collateral Type
+          description: RESIDENTIAL / COMMERCIAL / INDUSTRIAL
+        occupancy_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Occupancy Type
+          description: SELF_OCCUPIED / RENTED / VACANT
+        existing_exposure:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Existing Exposure
+          description: Other loans already on the same property (Rs)
+      type: object
+      title: PopupInputs
+      description: 'THE OFFICER''S ENTRIES for a case (eligibility screen / Swagger):
+        all optional; absent = the case''s own data.
+
+        The same model validates a check and a saved draft (PUT /cases/{case_id}/inputs),
+        so both refuse the same
+
+        mistakes with the same 422.'
+      example:
+        collateral_type: RESIDENTIAL
+        income:
+          income_as_per_itr: 1500000
+          method: ITR
+          other_income: 0
+          tax: 150000
+        occupancy_type: SELF_OCCUPIED
+        rate_percent: 9.5
+        requested_amount: 3000000
+        tenure_months: 240
     ProcessedDocument:
       properties:
         source_id:
@@ -6298,6 +6906,14 @@ components:
           default: 0
       type: object
       title: ProcessingTimes
+    ProductChoice:
+      type: string
+      enum:
+      - CASE (the case's own product)
+      - PERSONAL_LOAN
+      - HOME_LOAN
+      - LOAN_AGAINST_PROPERTY
+      title: ProductChoice
     ProfileFieldMatch:
       properties:
         field:
@@ -6651,6 +7267,7 @@ components:
       - NORMALISED_MATCH
       - PARTIAL_ADDRESS_MATCH
       - INSUFFICIENT_SOURCES
+      - IDENTITY_DOCUMENT_MISSING
       - INSUFFICIENT_DATA
       - CHECK_DISABLED
       title: ReasonCode
@@ -6752,7 +7369,7 @@ components:
           - type: 'null'
         income:
           anyOf:
-          - $ref: '#/components/schemas/IncomeInput'
+          - $ref: '#/components/schemas/app__agents__kyc__schemas__IncomeInput'
           - type: 'null'
         field_quality:
           anyOf:
@@ -6940,6 +7557,109 @@ components:
       - refresh_token
       - expires_in
       title: TokenResponse
+    TopupInput:
+      properties:
+        type:
+          type: string
+          title: Type
+        pos:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Pos
+        mob:
+          anyOf:
+          - type: integer
+            maximum: 600.0
+            minimum: 0.0
+          - type: 'null'
+          title: Mob
+        previous_sanction:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Previous Sanction
+        original_tenor_months:
+          anyOf:
+          - type: integer
+            maximum: 600.0
+            minimum: 1.0
+          - type: 'null'
+          title: Original Tenor Months
+        applied_pct:
+          anyOf:
+          - type: number
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Applied Pct
+        bank_name:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Bank Name
+        lan_number:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Lan Number
+        loan_type:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Loan Type
+        original_amount:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Original Amount
+        additional_loan_amount:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Additional Loan Amount
+        total_tenor_months:
+          anyOf:
+          - type: integer
+            maximum: 600.0
+            minimum: 1.0
+          - type: 'null'
+          title: Total Tenor Months
+        loan_tenor_months:
+          anyOf:
+          - type: integer
+            maximum: 600.0
+            minimum: 1.0
+          - type: 'null'
+          title: Loan Tenor Months
+      additionalProperties: false
+      type: object
+      required:
+      - type
+      title: TopupInput
+      description: A top-up (BT top-up / internal top-up); its fields per calc/topup.py,
+        its types per config.
+    TopupType:
+      type: string
+      enum:
+      - NONE
+      - BT_TOPUP
+      - INTERNAL_TOPUP
+      title: TopupType
     TtsRequest:
       properties:
         text:
@@ -7116,6 +7836,294 @@ components:
       - UNCERTAIN
       - NOT_APPLICABLE
       title: FieldStatus
+    app__agents__eligibility__domain__requests__IncomeInput:
+      properties:
+        method:
+          type: string
+          title: Method
+        company_name:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Company Name
+        salary_credit_mode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Salary Credit Mode
+        designation:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Designation
+        total_experience_years:
+          anyOf:
+          - type: number
+            maximum: 60.0
+            minimum: 0.0
+          - type: 'null'
+          title: Total Experience Years
+        form16_income:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Form16 Income
+        audited:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Audited
+        other_additional_label:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Other Additional Label
+        clubbed_relationship:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Clubbed Relationship
+        gross_sales:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Gross Sales
+        commission_income:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Commission Income
+        agricultural_income:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Agricultural Income
+        interest_income:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Interest Income
+        other_additional_income:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Other Additional Income
+        clubbed_income:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Clubbed Income
+        material_cost:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Material Cost
+        salary_expenses:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Salary Expenses
+        admin_expenses:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Admin Expenses
+        operating_expenses:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Operating Expenses
+        business_rent:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Business Rent
+        other_business_expenses:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Other Business Expenses
+        living_expenses:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Living Expenses
+        education_expenses:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Education Expenses
+        conveyance_expenses:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Conveyance Expenses
+        residential_rent:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Residential Rent
+        existing_loan_emi:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Existing Loan Emi
+        other_personal_expenses:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Other Personal Expenses
+        gross_salary:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Gross Salary
+        pf_deduction:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Pf Deduction
+        other_deduction:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Other Deduction
+        other_income:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Other Income
+        income_as_per_itr:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Income As Per Itr
+        tax:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Tax
+        profit_after_tax:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: -100000000000000.0
+          - type: 'null'
+          title: Profit After Tax
+        depreciation:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Depreciation
+        interest_to_partners:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Interest To Partners
+        remuneration_to_partners:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Remuneration To Partners
+        remuneration_to_directors:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Remuneration To Directors
+        turnover:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Turnover
+        gross_margin:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Gross Margin
+        rental_income:
+          anyOf:
+          - type: number
+            maximum: 100000000000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Rental Income
+      additionalProperties: false
+      type: object
+      required:
+      - method
+      title: IncomeInput
+      description: The income working; amounts in rupees -- annual or monthly per
+        config income_methods.*.period.
     app__agents__kyc__schemas__FieldStatus:
       type: string
       enum:
@@ -7135,6 +8143,44 @@ components:
         house number is not a pass and is not a failure, and reporting it as
 
         either loses the only thing a reviewer needed to know.'
+    app__agents__kyc__schemas__IncomeInput:
+      properties:
+        monthly_net_salary:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Monthly Net Salary
+        monthly_gross_salary:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Monthly Gross Salary
+        average_monthly_credit:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Average Monthly Credit
+        declared_annual_income:
+          anyOf:
+          - type: number
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          - type: 'null'
+          title: Declared Annual Income
+      type: object
+      title: IncomeInput
+      description: 'Income signals, named exactly as the Financial Agent emits them.
+
+
+        This mirrors app.agents.financial.schemas.IncomeSignals so a caller can
+
+        forward that object through without reshaping it.'
     FosAction:
       description: 'Everything the copilot endpoint can be asked to do.
 
@@ -7304,6 +8350,20 @@ components:
           default: false
           description: 'Start this chat fresh: nothing remembered from before.'
           title: New Chat
+          type: boolean
+        stream:
+          default: false
+          description: 'Reply as Server-Sent Events (status lines while it works,
+            then the answer) instead of one JSON body. The same as sending `Accept:
+            text/event-stream`. COPILOT_STREAMING.'
+          title: Stream
+          type: boolean
+        with_sources:
+          default: false
+          description: 'Add `sources` [{type, document, section, title}] to a handbook
+            answer: the handbook file and section retrieval cited for it. Left out
+            on case answers and refusals.'
+          title: With Sources
           type: boolean
         context:
           anyOf:

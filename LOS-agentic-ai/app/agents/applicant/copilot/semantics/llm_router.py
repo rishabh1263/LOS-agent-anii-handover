@@ -28,6 +28,8 @@ one clarifying question.
 
 from __future__ import annotations
 
+from app.llm import turn_budget as _tb
+
 import json
 import logging
 import os
@@ -81,6 +83,53 @@ def enabled() -> bool:
         if value is not None and value.strip():
             return value.strip().lower() in _ON
     return bool(_config().get("enabled", True))
+
+
+def mode() -> str:
+    """
+    WHO UNDERSTANDS THE QUESTION (owner, 2026-10-13). `fallback`: the rules, Qwen only for what they cannot read.
+    `second_opinion`: Qwen also reads what the rules read with a confidence in `second_opinion` -- disagreement is
+    asked back. `llm_first`: Qwen reads EVERY question and its reading wins; the rules answer only when Qwen is
+    unavailable / slow / off. Env COPILOT_ROUTER_MODE wins over config `mode`.
+    """
+    value = (os.getenv("COPILOT_ROUTER_MODE") or str(_config().get("mode") or "fallback")).strip().lower()
+    return value if value in ("fallback", "second_opinion", "llm_first") else "fallback"
+
+
+def second_opinion_levels() -> set[str]:
+    """The rule confidences Qwen re-reads: every one under llm_first, config `second_opinion` otherwise."""
+    if mode() == "llm_first":
+        return {"high", "medium", "low"}
+    if mode() != "second_opinion":
+        return set()
+    return {str(level).lower() for level in (_config().get("second_opinion") or ["medium", "low"])}
+
+
+_CANONICAL: dict[str, str] = {}
+
+
+def canonical_question(intent: Any) -> str | None:
+    """A question that reads as `intent` (the catalogue's canonical one), for a one-tap option. None when none does."""
+    key = str(getattr(intent, "value", intent))
+    if not _CANONICAL:
+        try:
+            import yaml
+            from pathlib import Path
+
+            from app.agents.applicant.copilot.semantics.intents import understand
+
+            path = Path(__file__).resolve().parents[4] / "config" / "intent_catalogue.yaml"
+            catalogue = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("intents") or {}
+            for spec in catalogue.values():
+                question = str((spec or {}).get("canonical") or "").strip()
+                if not question.endswith("?") or "{" in question:
+                    continue                           # a template or a command is not a one-tap question
+                read = understand(question, has_case=True).intent.value
+                if read != "UNKNOWN":
+                    _CANONICAL.setdefault(read, question)
+        except Exception:  # noqa: BLE001 - no option text: the caller does not offer this reading
+            logger.debug("canonical questions unavailable", exc_info=True)
+    return _CANONICAL.get(key)
 
 
 def deprecated_flag_in_use() -> bool:
@@ -382,6 +431,11 @@ async def route(message: str, context: Any = None, *, generator: Any = None,
     injectable for tests; the default posts to Ollama.
     """
     trace: dict[str, Any] = {"consulted": False, "status": "SKIPPED", "ms": 0.0}
+    from app.agents.applicant.copilot.capabilities import qwen_agent as _qa
+
+    if _qa.spent():
+        trace["status"] = "AGENT_SPENT"
+        return None, trace
     if not enabled():
         trace["status"] = "DISABLED"
         return None, trace
@@ -406,7 +460,8 @@ async def route(message: str, context: Any = None, *, generator: Any = None,
         if match is not None:
             trace.update(bank_tool=match.tool, bank_score=match.score)
             candidate = _routed_from_match(match, text, context)
-            if candidate is not None and embedding_router.confident(match):
+            # llm_first: the example bank is only Qwen's second voice (AGREEMENT below), never the decision
+            if candidate is not None and embedding_router.confident(match) and mode() != "llm_first":
                 trace.update(status="EMBEDDING", tool=candidate.tool)
                 _log(trace)
                 return candidate, trace
@@ -419,7 +474,7 @@ async def route(message: str, context: Any = None, *, generator: Any = None,
         return routed, trace
     if generator is None:
         from app.llm import availability
-        from app.llm.memory import free_gb
+        from app.llm.memory import free_gb_for_model as free_gb
 
         free = free_gb()
         if free is not None and free < min_free_ram_gb():
@@ -585,8 +640,9 @@ async def _ollama_chat(prefix: str, content: str, timeout: float, schema: dict |
     }
     if model.startswith("qwen3"):
         body["think"] = False                               # a tool choice, not a reasoning trace
+    _tb.check("router")      # an earlier model call of this turn failed: answer without it (app/llm/turn_budget.py)
     async with httpx.AsyncClient(timeout=timeout + 0.5) as client:
-        response = await client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body)
+        response = await _tb.guarded(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), "router")
         response.raise_for_status()
         return response.json()
 

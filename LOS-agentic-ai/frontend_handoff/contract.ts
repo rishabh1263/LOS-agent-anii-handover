@@ -1,9 +1,9 @@
 /**
- * LOS chatbot frontend contract, version 1.0 (frontend_handoff/API_CONTRACT.md).
+ * LOS chatbot frontend contract, version 1.1 (frontend_handoff/API_CONTRACT.md).
  * Hand-written from the live OpenAPI (openapi.json) and the reply contract; pinned by the backend contract test.
  */
 
-export const CONTRACT_VERSION = '1.0'
+export const CONTRACT_VERSION = '1.1'
 export const CONTRACT_HEADER = 'X-Contract-Version'
 
 /** Typed text or a button press, in one chat. */
@@ -20,6 +20,40 @@ export interface ChatRequest {
   applicant_id?: string
   /** a link's href posted back instead of /fos/action */
   action_link?: string
+  /** true = the reply as Server-Sent Events from this same endpoint (StreamEvent) */
+  stream?: boolean
+  /** true = a handbook answer also carries `sources` */
+  with_sources?: boolean
+}
+
+/** Where a handbook answer came from (only with with_sources: true). No URL / page: the handbook has neither. */
+export interface ChatSource {
+  type: 'handbook' | 'configuration'
+  /** the handbook file, e.g. "address_proof"; the configured fact's kind for type "configuration" */
+  document: string
+  /** a real heading of that file, or null */
+  section: string | null
+  /** show this as the chip */
+  title: string
+}
+
+/** A 👍 / 👎 on an earlier reply -- POST /api/v1/fos/copilot. */
+export interface FeedbackRequest {
+  action: 'FEEDBACK'
+  /** the request_id of the reply being rated */
+  reply_to: string
+  rating: 'up' | 'down'
+  /** optional, <= 1000 chars; masked and cut by the server */
+  reason?: string
+  chat_id?: string
+}
+
+/** The answer to a FeedbackRequest -- not a chat reply, never shown in the chat. */
+export interface FeedbackResult {
+  request_id: string
+  status: 'RECORDED' | 'NOT_RECORDED'
+  reply_to: string
+  rating: 'up' | 'down'
 }
 
 export type ChatAction =
@@ -38,6 +72,8 @@ export interface ChatReply {
   request_id: string
   markdown: string
   tts: string
+  /** only when the request sent with_sources: true AND the answer came from the handbook */
+  sources?: ChatSource[]
 }
 
 /** POST /api/v1/fos/action */
@@ -54,7 +90,7 @@ export type ActionResult =
   | ({ type: 'reply' } & ChatReply)
   | { type: 'file'; blob: Blob; filename: string; inline: boolean }
 
-/** Server-sent events of POST /api/v1/fos/copilot/stream, in order. */
+/** Server-sent events of POST /api/v1/fos/copilot with stream: true, in order. */
 export type StreamEvent =
   | { event: 'typing'; data: { request_id: string; ms: number } }
   | { event: 'status'; data: { request_id: string; text: string; ms: number } }

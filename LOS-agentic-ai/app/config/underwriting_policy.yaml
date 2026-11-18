@@ -39,6 +39,13 @@ evidence_plan:
   - {category: eligibility,   required: true,  scope: case,  sources: [eligibility.get]}
   - {category: risk,          required: false, scope: case,  sources: [risk.get]}
   - {category: bureau,        required: true,  scope: party, sources: [bureau.get]}
+  # the vendor bank analysis read with the eligibility data (config/credit_underwriting); not required: a case
+  # whose analysis has not arrived is assessed without it and the report says so. LAST, so an
+  # optional read never spends the tool budget a required one needs
+  - {category: repayment,     required: false, scope: case,  sources: [repayment.get]}
+  # the Credit Document Policy Agent (app/agents/docs_verify_credit_agent): which document requirements of the
+  # Credit document policy are still open. Optional and last for the same reason as repayment.
+  - {category: document_policy, required: false, scope: case, sources: [document_readiness.get]}
 
 # Employment-specific plan changes (still only allowed sources).
 by_employment:
@@ -229,6 +236,62 @@ rules:
     inputs: [eligibility.status]
     operator: eq
     threshold: PASS
+    severity: INFO
+    finding_status: POSITIVE
+  # ---- repayment report (vendor bank analysis + eligibility; its 5 rules: credit_underwriting/policy.yaml) ----
+  - <<: *demo
+    rule_id: UW_BANK_REPAYMENT_NOT_RECOMMENDED
+    category: BANKING
+    description: "The bank analysis says the proposed EMI cannot be repaid"
+    inputs: [repayment.verdict]
+    operator: eq
+    threshold: NOT_RECOMMENDED
+    severity: HIGH
+    finding_status: NEGATIVE
+  - <<: *demo
+    rule_id: UW_BANK_REPAYMENT_REFER
+    category: BANKING
+    description: "The bank analysis needs an officer's review before the EMI can be relied on"
+    inputs: [repayment.verdict]
+    operator: eq
+    threshold: REFER
+    severity: MEDIUM
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_BANK_REPAYMENT_RECOMMENDED
+    category: BANKING
+    description: "The bank analysis supports the proposed EMI"
+    inputs: [repayment.verdict]
+    operator: eq
+    threshold: RECOMMENDED
+    severity: INFO
+    finding_status: POSITIVE
+  # ---- credit document readiness (docs_verify_credit_agent; its own policy: policies/*.credit.json) --------------
+  - <<: *demo
+    rule_id: UW_DOCS_ACTION_REQUIRED
+    category: CROSS_SOURCE
+    description: "Required credit-stage documents are missing, stale or unverified"
+    inputs: [document_readiness.status]
+    operator: eq
+    threshold: ACTION_REQUIRED
+    severity: HIGH
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_DOCS_EXCEPTION_PENDING
+    category: CROSS_SOURCE
+    description: "A document requirement rests on an exception still awaiting approval"
+    inputs: [document_readiness.status]
+    operator: eq
+    threshold: EXCEPTION_PENDING
+    severity: MEDIUM
+    finding_status: REVIEW
+  - <<: *demo
+    rule_id: UW_DOCS_COMPLETE
+    category: CROSS_SOURCE
+    description: "Every credit-stage document requirement is satisfied or validly waived"
+    inputs: [document_readiness.status]
+    operator: eq
+    threshold: COMPLETE
     severity: INFO
     finding_status: POSITIVE
   - <<: *demo

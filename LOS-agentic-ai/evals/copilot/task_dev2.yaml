@@ -1,0 +1,21 @@
+# DEV SET 2 (hardening phase 3, 2026-10-12): the directive's own sentences + development examples. Tuned on.
+# eH2 / eH3 expect ABSTAIN: the approved handbook has no salaried-specific FOIR rule (the 50 % limit is for every
+# product) and no salary-slip period (only a glossary example) -- the directive: no authoritative answer -> abstain.
+items:
+  - { id: eP1, cat: portfolio_list, style: en, ctx: none, q: "which of my customers still owe me documents?", expect: { scope: portfolio, op: list } }
+  - { id: eP2, cat: portfolio_list, style: en, ctx: none, q: "which applications can go to CPA now?", expect: { scope: portfolio, op: list, filter: ready_for_cpa } }
+  - { id: eP3, cat: portfolio_list, style: typo, ctx: none, q: "show my oldst cases", expect: { scope: portfolio, op: list } }
+  - { id: eP4, cat: portfolio_list, style: typo, ctx: none, q: "show my pendng cases", expect: { scope: portfolio, op: list } }
+  - { id: eF1, cat: followup, style: en, ctx: listed, before: ["show the stuck cases"], q: "and the ones with documents pending?", expect: { scope: portfolio, op: list, filter: documents_pending } }
+  - { id: eG1, cat: greeting, style: hinglish, ctx: none, q: "namaste ji", expect: { scope: conversation, op: greet } }
+  - { id: eG2, cat: greeting, style: typo, ctx: none, q: "helo there", expect: { scope: conversation, op: greet } }
+  - { id: eG3, cat: greeting, style: hinglish, ctx: none, q: "ram ram bhai", expect: { scope: conversation, op: greet } }
+  - { id: eU1, cat: ambiguous, style: en, ctx: open, q: "take care of this", expect: { scope: none, op: clarify } }
+  - { id: eU2, cat: farewell, style: en, ctx: open, q: "take care", expect: { scope: conversation, op: farewell } }
+  - { id: eH1, cat: handbook, style: en, ctx: open, q: "What happens after a case goes to CPA?", expect: { scope: knowledge, op: explain } }
+  - { id: eC1, cat: count, style: en, ctx: none, q: "How many applications are missing the bank statement?", expect: { scope: portfolio, op: count } }
+  - { id: eH2, cat: handbook, style: en, ctx: none, q: "what FOIR applies to salaried borrowers?", expect: { scope: knowledge, op: abstain } }
+  - { id: eH3, cat: handbook, style: hinglish, ctx: none, q: "salary slip kitne mahine ki chahiye", expect: { scope: knowledge, op: abstain } }
+  - { id: eH4, cat: handbook, style: en, ctx: none, q: "what does the customer need to submit for a personal loan?", expect: { scope: knowledge, op: explain } }
+  - { id: eS1, cat: single_case, style: en, ctx: open, q: "which documents are pending for this application?", expect: { scope: one_case, op: retrieve } }
+  - { id: eS2, cat: single_case, style: en, ctx: open, q: "is this case ready for CPA?", expect: { scope: one_case, op: retrieve } }

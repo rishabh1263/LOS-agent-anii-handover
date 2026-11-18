@@ -33,33 +33,11 @@ _LOCK = threading.Lock()
 #: The message is kept only as far as is useful for recognising the request.
 _MESSAGE_CHARS = 120
 
-#: Identifiers a person may type into a question, and what replaces them in
-#: the audit excerpt. The excerpt exists to show WHAT KIND of question was
-#: asked; the values themselves are in the case store, behind authorisation.
-_REDACTIONS = (
-    (re.compile(r"\b[A-Za-z]{5}\d{4}[A-Za-z]\b"), "[PAN]"),
-    (re.compile(r"(?i)\b(account|a/c|acct|acc)(\s*(no\.?|number|#))?[\s:.-]*\d[\d -]{7,20}\d"),
-     r"\1 [ACCOUNT]"),
-    (re.compile(r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b"), "[AADHAAR]"),
-    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"), "[EMAIL]"),
-    (re.compile(r"(?<!\d)(?:\+?91[\s-]?)?[6-9]\d{9}(?!\d)"), "[PHONE]"),
-    (re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+"), "[TOKEN]"),
-    # A CREDENTIAL PASTED INTO A QUESTION -- "is my api_key=sk-... valid" is
-    # refused by the input guardrail, and must not then be written to the
-    # audit trail that recorded the refusal.
-    (re.compile(r"\bBearer\s+[\w.~+/-]{12,}", re.IGNORECASE), "[TOKEN]"),
-    (re.compile(r"\b(sk|pk|rk)-[A-Za-z0-9]{16,}|\bAKIA[0-9A-Z]{16}\b"), "[KEY]"),
-    (re.compile(r"\b(api[_-]?key|secret|password|passwd|client_secret|"
-                r"access_token|refresh_token|token)\s*[:=]\s*\S+", re.IGNORECASE),
-     r"\1=[REDACTED]"),
-)
-
-
-def redact(text: str) -> str:
-    """The text with personal identifiers and bearer tokens masked."""
-    for pattern, replacement in _REDACTIONS:
-        text = pattern.sub(replacement, text)
-    return text
+#: Identifiers a person may type into a question, and what replaces them in the audit excerpt. The excerpt exists to
+#: show WHAT KIND of question was asked; the values themselves are in the case store, behind authorisation. The patterns
+#: live in app/agent_db/redact.py, shared with the agent_logs handler, so both mask exactly the same things.
+from app.agent_db.redact import REDACTIONS as _REDACTIONS  # noqa: E402
+from app.agent_db.redact import redact  # noqa: E402,F401
 
 
 def audit_enabled() -> bool:
@@ -140,6 +118,13 @@ def record(
         # REDACTED, THEN TRIMMED: trimming first could cut an identifier
         # in half and leave a fragment the pattern no longer recognises.
         entry["message_excerpt"] = redact(str(message))[:_MESSAGE_CHARS]
+
+    try:
+        from app.agents.applicant import chat_store
+
+        chat_store.audit(entry)                     # the chatbot database too (CHATBOT_DSN), in the background
+    except Exception as exc:  # pragma: no cover - defensive: the file below still keeps the line
+        logger.warning("Applicant Agent audit: database copy not queued: %r", exc)
 
     try:
         path = audit_path()

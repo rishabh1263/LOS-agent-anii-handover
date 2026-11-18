@@ -180,11 +180,11 @@ def test_pending_documents_are_grounded(client):
     assert ask(client, "Which documents are pending?")["grounded"] is True
 
 
-def test_an_unassessed_eligibility_is_not_grounded(client):
-    """'Not evaluated' rests on nothing recorded."""
+def test_an_eligibility_question_is_redirected_and_not_grounded(client):
+    """Eligibility is not the chatbot's (owner, 2026-10-13): the redirect line, resting on no case record."""
     body = ask(client, "Am I eligible?")
 
-    assert "not been evaluated" in body["answer"]
+    assert "Eligibility service" in body["answer"]
     assert body["grounded"] is False
 
 

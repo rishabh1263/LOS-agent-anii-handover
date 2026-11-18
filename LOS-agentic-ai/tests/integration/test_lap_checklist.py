@@ -16,7 +16,8 @@ def _slots(client, case_id):
 
 
 def test_lap_requires_the_property_document_and_every_kyc_slot(client, prod):
-    _, case_id = make_case(client, "Lap Applicant", product="LOAN_AGAINST_PROPERTY")
+    # LAP has no default property type (eligibility_config.yaml): opening a case needs one -- test_form_property_type.py
+    _, case_id = make_case(client, "Lap Applicant", product="LOAN_AGAINST_PROPERTY", property_type="RESIDENTIAL")
     slots = _slots(client, case_id)
     for slot in ("PAN", "ADDRESS_PROOF", "BANK_STATEMENT", "SIGNATURE", "PROPERTY_DOCUMENT"):
         assert slots.get(slot) is True, (slot, slots)

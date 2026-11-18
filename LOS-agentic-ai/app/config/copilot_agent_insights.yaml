@@ -1,0 +1,166 @@
+# =====================================================================================================================
+# COPILOT AGENT INSIGHTS (2026-11-04, owner: "chatbot ... cpu only ... accurate ans ... new agentic concept"; code
+# app/agents/applicant/copilot/capabilities/agent_insights.py). The officer asks about the AGENTS' results:
+#
+#   one case, every agent      "what do the agents say about LOS-DUMMY-0005?" / "sab agents ka result batao"
+#   one agent, one case        "fraud risk of LOS-DUMMY-0025" / "dedupe result of this case"
+#   credit readiness           "is case CASE-SEED-LOS-DUMMY-0007 ready for credit?"
+#   portfolio over the agents  "how many cases are high fraud risk?" / "which cases need attention from any agent?"
+#   follow-ups                 "which ones?" / "and the valuation details?"
+#
+# PLANNER SMALL, TOOLS FIXED, ANSWER CHECKED: the words are read in code (these lists), the facts come from each agent's
+# own table through ONE generated, read-only, parameterised query per agent (identifiers from here, validated), the
+# reply is a template filled with those facts, and every number in it is checked against them before it is sent.
+# No model call on this path -- it is as accurate on a CPU laptop as anywhere. Only the officer's OWN cases are read
+# (the case list's grants, re-checked per case).
+# =====================================================================================================================
+enabled: true
+cache_seconds: 30                    # the officer's own case list, kept this long (a revoked grant shows within 30 s)
+max_listed: 12                       # a list longer than this shows the first ones and says how many more
+followup_ttl_seconds: 1800
+
+# HOW A LOS CASE IS FOUND IN AN AGENT'S TABLE
+#   case_id             the agent stores the LOS case id
+#   application_number  the agent stores the seed application number: the LOS case id without case_prefix
+#   application_id      the agent stores the seed application's numeric id (public.loan_applications)
+links:
+  case_prefix: "CASE-SEED-"          # app/config/los_seed_import.yaml case_id_prefix
+  application_table: public.loan_applications
+  application_number_column: application_number
+  application_id_column: application_id
+
+# THE AGENTS, in the order a case's results are shown. `verdict`: the column holding the agent's result; `attention`:
+# results that need an officer's look (a result in `ok` is clear; any other is shown as it is, never judged).
+# `details`: extra columns shown beside the verdict (never an identifier). `next`: the next step when it needs attention.
+agents:
+  dedupe:
+    label: "Dedupe"
+    run_noun: check                  # "14 checks in all"
+    words: [dedupe, de-dupe, duplicate, duplicates, customer history, mifin, existing customer]
+    table: dedupe.dedupe_checks
+    link: case_id
+    key_column: case_id
+    verdict: outcome
+    time: checked_at
+    details: {customer_status: "customer", customer_type_result: "customer type check"}
+    ok: [READY_FOR_DECISION]
+    attention: [REVIEW_REQUIRED, DATA_INSUFFICIENT]
+    next: "Open the dedupe check and resolve the reasons shown."
+  fraud_screening:
+    label: "Fraud screening"
+    words: [fraud, frauds, aml, pep, fraud risk, fraud screening]
+    table: fraud_detection.fraud_results
+    link: application_number
+    key_column: application_number
+    verdict: risk_level
+    time: created_at
+    details: {is_potential_fraud: "potential fraud"}
+    ok: [LOW]
+    attention: [HIGH, MEDIUM, CRITICAL]
+    next: "Refer the case to RCU / fraud control before going further."
+  collateral_verification:
+    label: "Collateral verification"
+    words: [collateral, collateral check, collateral verification, leviosa collateral]
+    table: collateral_check.collateral_verification_results
+    link: application_number
+    key_column: application_number
+    verdict: overall
+    time: created_at
+    details: {vendor_final_status: "vendor status"}
+    ok: [APPROVE, APPROVED, PASS]
+    attention: [REFER, REJECT, FAIL, REVIEW]
+    next: "Review the collateral report with the vendor's findings."
+  property_valuation:
+    label: "Property valuation"
+    words: [valuation, property valuation, valuer, property value]
+    table: property_valuation.property_valuation_agent_results
+    link: application_id
+    key_column: application_id
+    verdict: agent_status
+    time: created_at
+    details: {vendor_status: "vendor status", critical_issues_count: "critical issues"}
+    ok: [LOW_RISK, CLEAR, PASS]
+    attention: [HIGH_RISK, MEDIUM_RISK, REFER, FAIL]
+    next: "Ask the valuer to clear the critical issues or get a second valuation."
+  office_verification:
+    label: "Office verification"
+    words: [office verification, office visit, business visit, office check]
+    table: office_residence_verification.office_rule_results
+    link: application_id
+    key_column: application_id
+    verdict: overall_recommendation
+    time: created_at
+    details: {overall_criticality: "criticality"}
+    ok: [PASS]
+    attention: [REFER, REVIEW, FAIL, REJECT]
+    next: "Review the office visit findings with the field team."
+  residence_verification:
+    label: "Residence verification"
+    words: [residence verification, residence visit, home visit, residence check]
+    table: office_residence_verification.residence_rule_results
+    link: application_id
+    key_column: application_id
+    verdict: overall_recommendation
+    time: created_at
+    details: {overall_criticality: "criticality"}
+    ok: [PASS]
+    attention: [REFER, REVIEW, FAIL, REJECT]
+    next: "Review the residence visit findings with the field team."
+  eligibility:
+    label: "Eligibility"
+    words: [eligibility result, eligibility agent, eligibility check result, eligibility run]
+    table: eligibility.eligibility_runs
+    link: case_id
+    key_column: case_id
+    verdict: decision
+    time: created_at
+    details: {}
+    ok: [APPROVED]
+    attention: [REJECTED, REFER, CONDITIONAL, DATA_MISSING]
+    next: "Open the eligibility screen and check the failing rule."
+  document_verification:
+    label: "Document verification"
+    words: [document verification, docs policy, document policy, document readiness, documents check]
+    table: docs_policy.docs_policy_evaluations
+    link: case_id
+    key_column: case_id
+    verdict: overall_status
+    time: evaluated_at
+    details: {requirements_open: "open items"}
+    ok: [READY, COMPLETE, ALL_SATISFIED]
+    attention: [ACTION_REQUIRED, NOT_READY, INCOMPLETE, BLOCKED, REFER]
+    next: "Open the document checklist and clear the open items."
+
+# THE AGENTS A CASE NEEDS BEFORE IT GOES TO CREDIT (readiness): every one has run and none needs attention.
+credit_ready_needs: [dedupe, fraud_screening, collateral_verification, property_valuation, office_verification,
+                     residence_verification]
+
+# THE OFFICER'S WORDS (lower case; matched as whole words / phrases)
+words:
+  all_agents: [all agents, all agent, every agent, any agent, any of the agents, agents say, agent results, agents result, agent result,
+               agents report, agent report, sab agents, saare agents, sare agents, sabhi agents, case 360,
+               agents ka result, agents ne kya, agent status, agents status, all agent results, all the agents]
+  readiness: [ready for credit, go to credit, move to credit, credit ready, ready to go, send to credit,
+              ready hai, credit ke liye, tayyar, clear for credit, for credit, good to go, ok to go,
+              fit for credit, ready for sanction, credit me bhej, to credit]
+  not_run: [not run, have not run, haven't run, not been run, which agents, pending agents, missing agents,
+            agents baaki, nahi chala, nahi chale]
+  count: [how many, kitne, kitna, count, number of, total]
+  runs: [checks, check, runs, run, done, been done, chale, chala]
+  list: [which, list, show me the cases, kaun se, kaunse, konse, kon se, names, cases are, which ones]
+  attention: [need attention, needs attention, attention chahiye, attention, flagged, high risk, risky, review, refer, problem,
+              issues, issue, concern, red flag, potential fraud]
+  high: [high, high risk, high-risk]
+  followup_list: [which ones, which one, list them, show them, kaun se, kaunse, konse, names, unke naam, wo kaun]
+  this_case: [this case, is case, iska, iske, this one, current case, ye case, yeh case]
+  # a case-level question about ONE agent says it wants the agent's result ("what collateral documents are needed"
+  # is not one)
+  # "can I send X to credit?" asks WHETHER it may go (readiness), it does not send it
+  asks_whether: [can i, can we, should i, should we, may i, kya main, kya hum, kya mai]
+  # a question that starts like a definition is the handbook's ("what is collateral verification?")
+  definition: [what is, what are, what does, what do you mean, meaning of, define, explain, how does,
+               kya hota, matlab kya]
+  # an action on a document / case is another layer's ("upload the valuation report")
+  actions: [upload, attach, download, send, share, create, delete, remove, rename, move, generate, export, email]
+  result: [result, results, report, status, risk, outcome, verdict, say, says, said, found, finding, findings, kya bola,
+           kya aaya, kya hua, flagged, score, decision, details, check]

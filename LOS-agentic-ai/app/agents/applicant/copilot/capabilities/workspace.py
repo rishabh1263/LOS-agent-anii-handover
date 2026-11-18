@@ -181,15 +181,17 @@ def my_cases(claims: dict[str, Any]) -> list[Any]:
     return out
 
 
-def authorize(claims: dict[str, Any], case_id: str) -> None:
+def authorize(claims: dict[str, Any], case_id: str, *, write: bool = False) -> None:
     """
     THE ORDINARY OWNERSHIP CHECK, THEN the conversation layer -- in that order.
     `authorize_conversation` alone checks nothing for a non-service caller (it is a
     layer ON TOP of `authorize`); found by the 6-MVP refusal test. Raises AccessDenied.
+    `write=True` at every WRITE (a confirmed edit / query / move): a read-only service
+    principal may read a case, never change it (Phase 4 audit, 2026-10-13).
     """
     from app.security import access
 
-    access.authorize_claims(claims, case_id=case_id)
+    access.authorize_claims(claims, case_id=case_id, write=write)
     access.authorize_conversation(_subject(claims), access.get_scopes(claims), case_id=case_id)
 
 
@@ -272,7 +274,13 @@ def _row_status(application: Any) -> tuple[str, str]:
         applicant = repository.get_applicant(application.applicant_id)
         ready = workflow.readiness(applicant, application, repository.list_documents(application.case_id))
         if ready["status"] == "READY_FOR_CPA":
-            return _label("row_ready"), "READY"
+            # "READY FOR CPA" ONLY WHEN THE MOVE ITSELF WOULD PASS (Phase 3, 2026-10-13): the case is at a stage
+            # whose chat move goes to CPA and the SAME live gate the move checks (stage_flow.gate ->
+            # stage_gate.evaluate_live: readiness, KYC when LOS_FOS_CPA_KYC_RULE, open queries / deviations) says
+            # PASS -- never inferred from the readiness alone. A gate that cannot be read is NOT ready (fail closed).
+            if _move_gate_passes(application.case_id):
+                return _label("row_ready"), "READY"
+            return _label("row_gate"), "GATE"
         docs = [i for i in ready.get("blocking_items") or [] if str(i.get("type", "")).upper() == "DOCUMENT"]
         # DISTINCT DOCUMENTS per party (2026-10-11): the Signature slot and the mandatory-signature rule are two
         # blocking items for ONE document -- the row said "5 docs pending" for 4
@@ -284,6 +292,19 @@ def _row_status(application: Any) -> tuple[str, str]:
     except Exception:  # noqa: BLE001
         pass
     return _label("row_other"), "OTHER"
+
+
+def _move_gate_passes(case_id: str) -> bool:
+    """The chat's own move to CPA would pass now: a stage that moves to CPA, and its live gate PASS (fail closed)."""
+    from app.agents.applicant.copilot.capabilities import stage_flow
+
+    try:
+        moves = (stage_flow._cfg().get("chat_moves") or {}).get(stage_flow._stage(case_id)) or []
+        if "CPA" not in {str(t).upper() for t in moves}:
+            return False                    # already at CPA or beyond: not "ready for CPA"
+        return stage_flow.gate(case_id).get("status") == "PASS"
+    except Exception:  # noqa: BLE001 - the gate unreadable is never a pass
+        return False
 
 
 def _main_blocker(application: Any) -> str | None:
@@ -328,12 +349,23 @@ def greeting_reply(claims: dict[str, Any], request_id: str, state) -> dict[str, 
                   query_type="CONVERSATION",
                   # the trace says what really ran: no tool unless the greeting read the case list
                   tools_invoked=[] if plain else ["application.list"])
-    if _faq.enabled():
-        # the options for where the officer is: the open case's own, else the no-case ones
+    # a greeting is conversation, not a case answer (_base labels every reply CASE_ONLY; conversation eval o3 / x3)
+    if plain:
+        reply["category"] = "CONVERSATION"
+    from app.agents.applicant.copilot.capabilities import natural_chat as _natural
+
+    if _faq.enabled() and not _natural.enabled():
+        # the options for where the officer is: the open case's own, else the no-case ones (no menu in natural chat:
+        # a hello is answered like a person would, owner 2026-11-02)
         shown = _faq.render(_faq.items(getattr(state, "active_case_id", None), lang,
                                        int(_faq.cfg().get("max_items_on_greeting", 4))), lang).split("\n")
         reply["faq_block"] = "\n".join(shown[1:])
     return reply
+
+
+def _after_list(state) -> bool:
+    """The chat's last task was the portfolio (a list / count of the officer's cases): a bare "more" continues it."""
+    return ((getattr(state, "flow", None) or {}).get("last_task") or {}).get("scope") == "portfolio"
 
 
 def _from_last_list(state) -> bool:
@@ -343,14 +375,13 @@ def _from_last_list(state) -> bool:
 
 
 def _names_a_stage(text: str) -> bool:
-    """The message names a LOS stage (stage_lifecycle.yaml stages: FOS, CPA, CREDIT, ...)."""
-    from pathlib import Path
-
-    import yaml
+    """The message names a LOS stage (FOS, CPA, CREDIT, ...): the chatbot's own stage names (applicant_agent.yaml
+    stages.labels) -- never the stage-transition service or its configuration."""
+    from app.agents.applicant import config
 
     try:
-        path = Path(__file__).resolve().parents[4] / "config" / "stage_lifecycle.yaml"
-        stages = {str(s).lower() for s in (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("stages") or {}}
+        labels = config.chatbot("stages").get("labels") or {}
+        stages = {str(s).lower() for s in labels} | {str(v).lower() for v in labels.values()}
     except Exception:  # noqa: BLE001 - no stage list: nothing is a stage
         return False
     return bool(set(_norm(text).split()) & stages)
@@ -886,9 +917,13 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
         if closed:
             reply["answer"] = _label("closed", case_id=closed) + "\n\n" + reply["answer"]
         return done(reply)
+    # A REQUEST ON A CASE (case_id given) pages the list only right after the list: "more" after the loan tenure is
+    # about that answer (2026-11-06 live eval: it opened page 2 of the officer's 516-case list)
     if action == "CUSTOM_QUERY" and _case_list.enabled() and state.list_query and not state.active_case_id \
+            and (not case_id or _after_list(state)) \
             and (((_says("more", text) or _case_list._has(text, (_case_list.cfg().get("phrases") or {}).get("next")))
-                  and len(_norm(text).split()) <= 3) or _case_list.only_pages_the_list(text)):
+                  and len(_norm(text).split()) <= 3 and not _case_list.aur_followup(text))
+                 or _case_list.only_pages_the_list(text)):
         return done(_list(claims, request_id, state, text, more=True))
     if action == "CUSTOM_QUERY" and _case_list.enabled() and state.list_query and _from_last_list(state) \
             and _case_list.only_pages_the_list(text) and _counted_page(text):
@@ -897,7 +932,8 @@ def handle(action: str, message: str, case_id: str | None, claims: dict[str, Any
         return done(_list(claims, request_id, state, text, more=True))
     # "aur dikhao" pages the LIST only while no case is open: inside a case, "tell me more" is about the last answer
     if action == "CUSTOM_QUERY" and state.listed_case_ids and not state.active_case_id \
-            and _says("more", text) and len(_norm(text).split()) <= 3:
+            and (not case_id or _after_list(state)) \
+            and _says("more", text) and len(_norm(text).split()) <= 3 and not _case_list.aur_followup(text):
         ids = [a.case_id for a in my_cases(claims)]
         first = state.listed_case_ids[0]
         size = int(_cfg().get("page_size", 10))

@@ -1,0 +1,291 @@
+# DEDUPE POLICY (Phase A: what the LOS's own data can answer)
+#
+# Same conventions as the underwriting policy (app/agents/credit/policy.py):
+#   - every rule reads exactly one signal from the closed set in app/agents/dedupe/config.py SIGNALS;
+#   - each rule ends as TRIGGERED / NOT_TRIGGERED / NOT_EVALUATED / EVALUATION_FAILED;
+#   - an unsigned policy (signed_off: false) is refused in production unless ALLOW_UNSIGNED_DEDUPE_POLICY=true.
+#
+# NO SBFC BUSINESS VALUE IS INVENTED HERE.
+#   - The "gt 0" thresholds are each rule's own definition (ANY other record), not a business limit.
+#   - Every threshold that would be a business value (time windows) is null = UNCONFIGURED. Such a rule is
+#     NOT_EVALUATED: it fails closed, it never passes.
+#   - The rules under not_implemented need sources this LOS does not have; they are NOT_EVALUATED / DATA_UNAVAILABLE in
+#     every response.
+
+policy_id: DEDUPE
+policy_version: "0.2.0-UNSIGNED"
+signed_off: false
+
+limits:
+  # SCAN MODE (migration 0010 not applied): the most recent cases read. A store holding more gives PARTIAL_ANALYSIS.
+  max_scan_cases: 2000
+  # other cases' stored files hashed for document-reuse detection in scan mode
+  max_scan_documents: 500
+
+# THE DEDUPE PARAMETERS (owner, 2026-10-22): PAN, mobile, AP code (= customer id), PR code (= loan account number)
+# -- nothing else. They are the MASTER Excel's dedupe parameters, so each maps 1:1 onto the fraud agent's DedupeResult
+# parameter names (fraud_parameter).
+#   strength STRONG: equal = the same person / account (MATCH)
+#   strength SUPPORTING: equal = POSSIBLE_MATCH only (a family shares a mobile) -- never an identity on its own
+#   field: where the LOS stores it. null = NOT STORED by this LOS: a search on it is INSUFFICIENT_DATA, and it is never
+#   reported as "no match".
+parameters:
+  PAN:
+    strength: STRONG
+    field: party_pan            # primary: gate-released PAN extraction; co-applicant: co_applicants.pan + extraction
+    fraud_parameter: pan
+    labels: ["PAN", "PAN No", "PAN Number"]
+  MOBILE:
+    strength: SUPPORTING
+    field: applicants.mobile    # primary applicant only; a co-applicant's mobile is not stored
+    fraud_parameter: mobile_no
+    labels: ["Mobile No", "Mobile", "Mobile Number"]
+  AP_CODE:                      # = customer id: PERMANENT, never changes (owner, 2026-10-22) -- the customer key
+    strength: STRONG
+    field: null                 # NOT STORED: the LOS has no customer id (applicant_id is its own record id, not the AP
+                                # code); needs the core / customer-master source
+    fraud_parameter: customer_id
+    needs_source: CUSTOMER_MASTER
+    labels: ["AP Code", "Customer ID", "Cust ID", "Customer Id"]
+  PR_CODE:                      # = loan account number: CREATED AT DISBURSEMENT (owner, 2026-10-22)
+    strength: STRONG
+    field: null                 # NOT STORED: this LOS ends before disbursement, so a case here never has one; a
+                                # previous loan's PR number needs the LMS. THE OFFICER'S USUAL VALUE for an EXISTING
+                                # customer (owner, 2026-10-22): INSUFFICIENT_DATA until the LMS is connected, never
+                                # "no match" or "new customer"
+    fraud_parameter: loan_account_no
+    needs_source: LOAN_MANAGEMENT_SYSTEM
+    labels: ["PR Code", "PR No", "PR Number", "Loan Account No", "LAN"]
+
+# THE FORM'S "Customer Type" (Application Details): checked against what the lookup found
+customer_types:
+  New: NEW
+  Existing: EXISTING
+
+# WHO the dedupe check is run for (the API's party_role; default the applicant). The form's Customer Type describes
+# the APPLICANT, so the customer-type check applies only to an applicant check.
+party_roles:
+  Applicant: APPLICANT
+  Co-Applicant: CO_APPLICANT
+
+# WHO may decide a POSSIBLE MIFIN match (same customer / not the same): any one of these scopes. The business owns
+# this list (proposed: a dedicated scope, plus the service write scope); a decision is a case event with the officer.
+# THE ONE DEDUPE STATUS (app/agents/dedupe/dedupe_status.py): the action recommended per status. BLOCK_DUPLICATE is
+# not used until the business authorises blocking; the LOS workflow stays the authority for progression.
+decision:
+  actions:
+    DUPLICATE_FOUND: MANUAL_REVIEW
+    POSSIBLE_DUPLICATE: MANUAL_REVIEW
+    NO_DUPLICATE_FOUND: CONTINUE
+    CHECK_INCOMPLETE: MANUAL_REVIEW
+  # The WORKFLOW recommendation per application-level status: PROCEED_TO_NEXT_STAGE / HOLD_FOR_REVIEW /
+  # BLOCK_APPLICATION. null = no approved rule -> UNABLE_TO_DECIDE with the question below (never an invented block).
+  # PROCEED means "continue through the normal LOS checks" -- never a credit approval.
+  workflow:
+    NO_DUPLICATE_FOUND: PROCEED_TO_NEXT_STAGE
+    POSSIBLE_DUPLICATE: HOLD_FOR_REVIEW
+    CHECK_INCOMPLETE: HOLD_FOR_REVIEW
+    DUPLICATE_FOUND: null
+  # A RULE THAT FOUND SOMETHING never leaves the application at PROCEED (owner 2026-10-23): a triggered customer-history
+  # rule (fraud case, EMI bounces, shared property, top-up, limits, DPD, adverse history, ...) or the applicant's PAN /
+  # name / DOB differing from the matched MIFIN record turns PROCEED into this recommendation, with this reason.
+  rule_findings:
+    recommendation: HOLD_FOR_REVIEW
+    reason: "The checks found something an officer must look at before the application moves on."
+  # ALL PARAMETERS AT ONCE (sir, 2026-10-24; app/agents/dedupe/all_parameters.py): every parameter with a value is
+  # checked; when two parameters name DIFFERENT MIFIN customers the case is held with this reason. The combined
+  # recommendation is otherwise the most serious one of the rows, in this order (first = most serious).
+  all_parameters:
+    order: [PAN, MOBILE, AP_CODE, PR_CODE]
+    conflict_recommendation: HOLD_FOR_REVIEW
+    conflict_reason_code: PARAMETERS_POINT_TO_DIFFERENT_CUSTOMERS
+    conflict_reason: "The identifiers on this application point to different customers in MIFIN."
+    precedence: [BLOCK_APPLICATION, UNABLE_TO_DECIDE, HOLD_FOR_REVIEW, PROCEED_TO_NEXT_STAGE]
+  questions:
+    DUPLICATE_FOUND: "Should a confirmed duplicate application be BLOCKED or HELD for review? (dedupe_policy.yaml decision.workflow.DUPLICATE_FOUND, business owner to set)"
+  texts:
+    reasons:
+      NO_DUPLICATE_FOUND: "Every required search ran and no duplicate application or identity conflict was found. An existing customer or earlier loan alone is not a duplicate."
+      POSSIBLE_DUPLICATE: "Records were found that need an officer's look (listed as evidence), but they do not establish a duplicate application."
+      CHECK_INCOMPLETE: "A required search could not run, so the absence of a duplicate cannot be claimed."
+      DUPLICATE_FOUND: "An approved rule establishes a duplicate application."
+    next_actions:
+      PROCEED_TO_NEXT_STAGE: "Continue with the normal LOS checks (documents, eligibility, credit underwriting). This is not a loan approval."
+      HOLD_FOR_REVIEW: "An authorised officer reviews the listed records and evidence before the application moves on."
+      BLOCK_APPLICATION: "Stop this application under the approved duplicate rule; any exception follows the maker-checker process."
+      UNABLE_TO_DECIDE: "Refer to the business owner: the policy does not yet say what to do in this situation."
+
+# THE TRIGGER (business requirement, 2026-10-22): the customer lookup (MIFIN + the LOS's own records) decides
+# whether the dedupe agent runs. A confirmed NEW customer: not invoked, the application continues through the normal
+# LOS checks. A failed / incomplete / conflicting lookup is NEVER treated as new (dedupe_status.trigger).
+trigger:
+  invoke_for_new: false
+  # a new applicant's co-applicants are still looked up; one that is not provably new invokes the agent.
+  # (The requirement names the applicant only; the business owner to confirm. Off = the applicant alone decides.)
+  include_co_applicants: true
+  new_customer_recommendation: PROCEED_TO_NEXT_STAGE
+  reasons:
+    NEW: "New customer: MIFIN has no record and no other LOS case holds this identifier, so the dedupe agent was not needed."
+    EXISTING: "Existing customer: the dedupe agent ran on the customer's records, loans and parties."
+    POSSIBLE_EXISTING: "MIFIN found a possible match: the dedupe agent ran and the match needs an officer's decision."
+    CONFLICTING: "The identity lookup is conflicting: the dedupe agent ran and the conflict needs review."
+    LOOKUP_FAILED: "The customer lookup did not complete, so the customer cannot be treated as new."
+    CO_APPLICANT_NOT_NEW: "The applicant is new, but a co-applicant is (or may be) an existing customer: the dedupe agent ran."
+
+# EVERY PARTY ON THE CASE is evaluated separately (party_eval.py) with its own identifiers on record, then aggregated.
+party_evaluation:
+  enabled: true
+  max_parties: 4                    # bounds the MIFIN lookups per check (applicant + up to 3 co-applicants)
+
+officer_confirmation:
+  scopes: [los.dedupe.confirm, los.write]
+  # AUTO-CONFIRM a possible match when the searched PAN / mobile, the name (first + last) and the date of birth all
+  # equal MIFIN's record. OFF until the business approves it; while off, the officer decides every possible match.
+  auto_confirm: false
+
+matching:
+  confidence:
+    strong_parameter: HIGH        # PAN (or a mapped AP / PR code) equal
+    supporting_only: LOW          # only the mobile equal
+  # ONE PAN, TWO NAMES (2026-11-03): on a PAN match the two parties' recorded names (applicants.full_name,
+  # co_applicants.name) are compared as word sets; a missing middle name / initial is the same person
+  # ("Rahul Sharma" within "Rahul K Sharma"). Names never leave the comparison. These words are not part of a name.
+  name_comparison:
+    ignore_words: [MR, MRS, MS, MISS, DR, SHRI, SMT, KUMARI, KU, SRI]
+
+sources:
+  - source: LOS_CASE_STORE
+    covers: [applications, applicants, co_applicants, gate_released_extractions]
+  - source: LOS_DOCUMENT_STORE
+    covers: [stored_file_hashes]
+  - source: LOAN_MANAGEMENT_SYSTEM
+    available: false
+    reason: "No loan-account, disbursement, repayment, DPD or closure records exist in this LOS (pre-sanction system)."
+  - source: CREDIT_BUREAU
+    available: false
+    reason: "Only the demo bureau exists (app/agents/credit/bureau); demo data is never customer history."
+  - source: RCU_CASE_SYSTEM
+    available: false
+    reason: "No RCU case entity with outcomes exists (app/agents/los/stage_registry.py)."
+  - source: COLLATERAL_REGISTRY
+    available: false
+    reason: "Property identifiers are not stored per case; no lien / CERSAI source."
+
+rules:
+  - rule_id: P01_IDENTITY_UNIQUENESS
+    description: "The PAN belongs to another customer record (another applicant id as primary applicant)."
+    inputs: [identity.other_customer_records]
+    operator: gt
+    threshold: 0
+    severity: HIGH
+    recommendation: IDENTITY_CONFLICT_REVIEW
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: P01_PAN_NAME_CONFLICT
+    description: "A party's PAN is held on another case (any role) under a different name: one PAN, two identities."
+    inputs: [identity.pan_name_conflicts]
+    operator: gt
+    threshold: 0
+    severity: HIGH
+    recommendation: IDENTITY_CONFLICT_REVIEW
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: P01_POSSIBLE_MATCH
+    description: "Only the mobile is shared with another customer record (no PAN in common)."
+    inputs: [identity.possible_matches]
+    operator: gt
+    threshold: 0
+    severity: LOW
+    recommendation: POSSIBLE_MATCH_REVIEW
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: P02_ROLE_HISTORY
+    description: "The person appears in the other role (applicant <-> co-applicant) on another case."
+    inputs: [identity.role_changes]
+    operator: gt
+    threshold: 0
+    severity: LOW
+    recommendation: ROLE_CHANGE_REVIEW
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: P05_SAME_PRODUCT_APPLICATION
+    description: "The same customer has another application for the same product."
+    inputs: [applications.other_cases_same_product]
+    operator: gt
+    threshold: 0
+    severity: MEDIUM
+    recommendation: SIMULTANEOUS_APPLICATION_REVIEW
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: P05_DUPLICATE_WINDOW
+    description: "Another same-product application was created within the configured window (hours)."
+    inputs: [applications.hours_since_previous_same_product]
+    operator: lte
+    # DEMO_DUMMY (owner 2026-10-23: "if it should be there, put it in config"): 30 days, until SBFC approves its window
+    threshold: 720
+    severity: MEDIUM
+    recommendation: DUPLICATE_APPLICATION
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: P06_DOCUMENT_REUSE
+    description: "A file on this case is byte-identical to a file on another customer's case."
+    inputs: [documents.reused_across_customers]
+    operator: gt
+    threshold: 0
+    severity: MEDIUM
+    recommendation: DOCUMENT_VERIFICATION_REQUIRED
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: P13_DATA_COMPLETENESS
+    description: "The history could not be read completely (scan bound reached or a source failed)."
+    inputs: [coverage.partial]
+    operator: eq
+    threshold: true
+    severity: INFO
+    recommendation: PARTIAL_ANALYSIS
+    confirmation_status: UNCONFIRMED
+
+  - rule_id: P15_CONCURRENT_CREATE
+    description: "Two same-product applications were created within the configured seconds of each other."
+    inputs: [applications.seconds_between_same_product_creates]
+    operator: lte
+    # DEMO_DUMMY (owner 2026-10-23): a double submit / two creates within a minute, until SBFC approves its window
+    threshold: 60
+    severity: MEDIUM
+    recommendation: DUPLICATE_APPLICATION
+    confirmation_status: UNCONFIRMED
+
+not_implemented:
+  - {rule_id: P03_ACTIVE_LOANS_EXPOSURE, needs: LOAN_MANAGEMENT_SYSTEM}
+  - {rule_id: P04_REPAYMENT_HISTORY, needs: LOAN_MANAGEMENT_SYSTEM}
+  - {rule_id: P07_FRAUD_CASE_OUTCOMES, needs: RCU_CASE_SYSTEM}
+  - {rule_id: P09_BANK_LIABILITY_CONSISTENCY, needs: LOAN_MANAGEMENT_SYSTEM}
+  - {rule_id: P10_COLLATERAL_REUSE, needs: COLLATERAL_REGISTRY}
+  - {rule_id: P11_TOP_UP, needs: LOAN_MANAGEMENT_SYSTEM}
+  - {rule_id: P12_CLOSURE_RECONCILIATION, needs: LOAN_MANAGEMENT_SYSTEM}
+  - {rule_id: P16_REPEAT_LOAN, needs: LOAN_MANAGEMENT_SYSTEM}
+  - {rule_id: P17_BALANCE_TRANSFER, needs: LOAN_MANAGEMENT_SYSTEM}
+  - {rule_id: P18_BORROWING_FREQUENCY, needs: CREDIT_BUREAU}
+  - {rule_id: P19_RESTRUCTURED_LOAN, needs: LOAN_MANAGEMENT_SYSTEM}
+  - {rule_id: P20_FRAUD_CASE_RESOLUTION, needs: RCU_CASE_SYSTEM}
+
+# Overall recommendation: the first entry present among the findings wins (most serious first).
+recommendation_precedence:
+  - DATA_UNAVAILABLE
+  - IDENTITY_CONFLICT_REVIEW
+  - DOCUMENT_VERIFICATION_REQUIRED
+  - DUPLICATE_APPLICATION
+  - SIMULTANEOUS_APPLICATION_REVIEW
+  - POSSIBLE_MATCH_REVIEW
+  - ROLE_CHANGE_REVIEW
+  - PARTIAL_ANALYSIS
+  - LINK_EXISTING_CUSTOMER
+  - CONTINUE_STANDARD_ONBOARDING
+
+# What the fraud agent's DedupeResult (app/agents/fraud_risk/schemas.py) receives. Only a PAN on ANOTHER customer record
+# is a "pan" match: the customer's own earlier cases and a role change are not, and the risk policy grades PAN CRITICAL.
+fraud_dedupe:
+  pan_match_from: P01_IDENTITY_UNIQUENESS
+  # a mobile shared with ANOTHER customer record goes to the fraud engine as mobile_no only when true (a family
+  # shares a number: by default it is reported here, not handed over as a match)
+  report_shared_mobile: false

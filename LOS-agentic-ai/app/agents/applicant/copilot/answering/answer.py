@@ -20,6 +20,13 @@ from typing import Any
 
 from app.agents.applicant.copilot.semantics.intents import Intent
 
+
+def _card(key: str) -> str:
+    """The case card's wording (copilot_reply.yaml case_card)."""
+    from app.agents.applicant.copilot.answering import contract
+
+    return str((contract.cfg().get("case_card") or {})[key])
+
 logger = logging.getLogger(__name__)
 
 
@@ -518,8 +525,16 @@ def _summary_text(view: dict[str, Any]) -> str:
     # Verification" -- and an identifier in a sentence is noise to
     # the officer reading it and a leak in any transcript. It stays
     # in the response, as a field, where a frontend can use it.
-    lines = [f"{name} — the application is at "
-             f"{_readable(view.get('stage'))}."]
+    # THE CASE CARD (owner, 2026-10-14: one run-on paragraph, "has not been uploaded" four times, the same documents
+    # again under "Next action", "5 item(s) blocking" with four listed): one short line per fact, the documents named
+    # once, the count = what is listed
+    from app.agents.applicant.copilot.facts.document_facts import _rupees
+
+    head = name
+    product = application.get("product")
+    amount = application.get("loan_amount") or application.get("requested_amount")
+    extra = ", ".join(x for x in (_readable(product) if product else "", _rupees(amount) if amount else "") if x)
+    lines = [head + (f" — {extra}" if extra else ""), f"Stage: {_readable(view.get('stage'))}"]
 
     verified = [d for d in documents if d.get("status") == "VERIFIED"]
     if verified:
@@ -529,22 +544,29 @@ def _summary_text(view: dict[str, Any]) -> str:
         # ONE NAME PER DOCUMENT TYPE: two verified PANs read "PAN (2)", never "PAN, PAN" (2026-10-09 human test)
         named = [_readable(d.get("document_type"))
                  + (" (co-applicant)" if two_party and d.get("party_role") == "CO_APPLICANT" else "") for d in verified]
-        lines.append("Completed: " + ", ".join(n + (f" ({named.count(n)})" if named.count(n) > 1 else "")
-                                               for n in dict.fromkeys(named)) + ".")
+        lines.append("✓ Done: " + ", ".join(n + (f" ({named.count(n)})" if named.count(n) > 1 else "")
+                                            for n in dict.fromkeys(named)))
 
-    # one sentence per blocker: the signature is both a checklist slot and the signature rule (Sprint 2 transcript:
-    # "Signature has not been uploaded. Signature has not been uploaded.")
-    outstanding = list(dict.fromkeys(b["detail"] for b in (readiness.get("blocking_items") or [])))
-    lines.append("Pending: " + " ".join(outstanding) if outstanding
-                 else "Pending: nothing.")
-
-    lines.append(f"Next action: {action.get('detail', 'None.')}")
-    lines.append(
-        "CPA readiness: Ready."
-        if readiness.get("status") == "READY_FOR_CPA"
-        else f"CPA readiness: Not ready — {readiness.get('blocking_count', 0)} item(s) blocking."
-    )
-    return " ".join(lines)
+    # one entry per blocker: the signature is both a checklist slot and the signature rule (Sprint 2 transcript:
+    # "Signature has not been uploaded. Signature has not been uploaded.") -- documents by NAME, the rest by detail
+    blocking = readiness.get("blocking_items") or []
+    missing = list(dict.fromkeys(_readable(b["slot"]) for b in blocking if b.get("slot")))
+    others = [d for d in dict.fromkeys(str(b.get("detail") or "").rstrip(".") for b in blocking if not b.get("slot"))
+              if d and not any(m.lower() in d.lower() for m in missing)]
+    if missing:
+        lines.append(f"⏳ Pending ({len(missing)}): " + ", ".join(missing))
+    if others:
+        lines.append("⚠ Also blocking: " + "; ".join(others))
+    detail = str(action.get("detail") or "").strip()
+    if missing and detail and all(m.split(" (")[0].lower() in detail.lower() for m in missing):
+        detail = _card("collect_documents").format(n=len(missing), s="s" if len(missing) > 1 else "")
+    if detail:
+        lines.append(f"Next: {detail}")
+    # the count is what is LISTED; when nothing could be listed, the readiness record's own count (never "0 to clear")
+    open_items = len(missing) + len(others) or int(readiness.get("blocking_count") or 0)
+    lines.append(_card("cpa_ready") if readiness.get("status") == "READY_FOR_CPA"
+                 else _card("cpa_not_ready_count").format(n=open_items) if open_items else _card("cpa_not_ready"))
+    return "\n".join(lines)
 
 
 def _result(results: dict[str, dict[str, Any]], capability: str) -> dict[str, Any] | None:

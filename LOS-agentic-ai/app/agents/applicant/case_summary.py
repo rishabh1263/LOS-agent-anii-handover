@@ -217,7 +217,7 @@ def _trimmed(text: str) -> str:
 
 
 async def summarise(envelope: dict[str, Any], *,
-                    timeout: float = 12.0) -> tuple[str, str]:
+                    timeout: float = 12.0, model: bool = True) -> tuple[str, str]:
     """
     A short summary, and where it came from.
 
@@ -231,7 +231,7 @@ async def summarise(envelope: dict[str, Any], *,
 
     from app.security import sensitivity
 
-    written = await _generate(state, timeout)
+    written = await _generate(state, timeout) if model else ""
     if not written:
         return sensitivity.mask_identifiers(fallback), STRUCTURED
 

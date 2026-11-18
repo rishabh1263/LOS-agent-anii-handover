@@ -67,7 +67,8 @@ def _client():
     s = settings()
     return boto3.client("bedrock-runtime", region_name=str(s["region"]), config=Config(
         connect_timeout=float(s.get("connect_timeout_s", 2)), read_timeout=float(s.get("read_timeout_s", 8)),
-        retries={"max_attempts": 1, "mode": "standard"}))
+        # total_max_attempts = 1 is ONE attempt; botocore's "max_attempts: 1" meant one RETRY (2 attempts)
+        retries={"total_max_attempts": 1, "mode": "standard"}))
 
 
 def tool_spec(tools: list[str]) -> dict[str, Any]:

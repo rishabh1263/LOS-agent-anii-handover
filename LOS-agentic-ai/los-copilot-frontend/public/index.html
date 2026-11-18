@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dedupe Agent · Dedupe & Loan History</title>
+  <script src="theme.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="shell">
+    <!-- ============================== navigation -->
+    <nav class="nav" aria-label="Main">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M7 21.5 14 8l5 9 3-5 3 9.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span><b>Dedupe Agent</b><small>Dedupe &amp; loan history</small></span>
+      </div>
+      <ul class="nav-list">
+        <li><button class="nav-item is-active" data-page="apply" aria-current="page">
+          <svg viewBox="0 0 24 24"><path d="M5 4h10l4 4v12H5z M14 4v5h5 M8 13h8 M8 17h5"/></svg>New application</button></li>
+        <li><button class="nav-item" data-page="lookup">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Check an existing case</button></li>
+        <li><button class="nav-item" data-page="result" id="nav-result" disabled>
+          <svg viewBox="0 0 24 24"><path d="M4 19V9 M10 19V5 M16 19v-7 M22 19H2"/></svg>Dedupe &amp; loan history</button></li>
+      </ul>
+      <div class="nav-foot">
+        <div class="conn" id="conn" role="status"><span class="dot"></span><span id="conn-text">Connecting…</span></div>
+        <div class="who" id="who" hidden><span class="avatar" aria-hidden="true">•</span><span id="who-text"></span></div>
+        <button class="ghost theme-toggle" id="theme" type="button" aria-label="Switch light / dark">
+          <svg viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg><span>Theme</span></button>
+      </div>
+    </nav>
+
+    <!-- ============================== main -->
+    <div class="main-wrap">
+      <header class="topbar">
+        <div class="crumbs"><span id="crumb-page">New application</span></div>
+        <div class="top-chips">
+          <span class="chip" id="chip-case" hidden></span>
+          <span class="chip" id="chip-stage" hidden></span>
+        </div>
+      </header>
+      <ol class="stepper" id="stepper" aria-label="LOS workflow stage"></ol>
+
+      <main id="main" tabindex="-1">
+        <!-- ======================== page: new application -->
+        <section class="page is-active" data-page="apply" aria-labelledby="h-apply">
+          <div class="page-head">
+            <div>
+              <h1 id="h-apply">New application</h1>
+              <p class="lead">Capture the applicant and the loan, then open the case. The existing-customer check
+                (dedupe and loan history) runs as soon as the case is open.</p>
+            </div>
+            <button type="button" class="btn ghost small sample-btn" id="sample-fill" hidden
+              title="Fill every field with a new random synthetic applicant"><svg viewBox="0 0 24 24"><path d="M12 3l2.2 5.3L20 9l-4.4 3.8L17 19l-5-3-5 3 1.4-6.2L4 9l5.8-.7z"/></svg>Fill sample</button>
+          </div>
+          <div class="skeleton-form" id="form-loading" aria-busy="true">
+            <div class="sk-card"></div><div class="sk-card"></div><div class="sk-card tall"></div>
+          </div>
+          <div class="state-box" id="form-error" hidden></div>
+
+          <form id="apply-form" class="form-grid" novalidate hidden>
+            <article class="card span-2" aria-labelledby="h-appdetails">
+              <header class="card-head"><span class="ico ico-brand"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8 M8 12h8 M8 16h5"/></svg></span>
+                <div><h2 id="h-appdetails">Application Details</h2><p>Amount, product, customer type and the dedupe identifier.</p></div></header>
+              <div class="fields three" id="fields-top"></div>
+              <p class="field-error" id="err-customerType" role="alert"></p>
+            </article>
+
+            <div hidden id="static-controls">
+              <div class="field" data-slot="customer_type">
+                <label for="customer-type">Customer Type <span class="req">*</span></label>
+                <select id="customer-type"><option value="">Choose…</option><option value="New">New</option><option value="Existing">Existing</option></select>
+                <p class="hint">Existing = already has an AP code / earlier loan.</p>
+              </div>
+              <div class="field" data-slot="dedupe_parameter" id="w-dedupe-parameter">
+                <label for="dedupe-parameter">Dedupe Parameter <span class="req">*</span></label>
+                <select id="dedupe-parameter"><option value="">Choose…</option></select>
+                <p class="hint" id="dedupe-parameter-hint"></p>
+                <p class="field-error" id="err-dedupeParameter" role="alert"></p>
+              </div>
+              <div class="field" data-slot="dedupe_value" id="w-dedupe-value">
+                <label for="dedupe-value">Dedupe Parameter Value <span class="req">*</span></label>
+                <input id="dedupe-value" autocomplete="off" spellcheck="false" disabled>
+                <p class="hint" id="dedupe-value-hint">Choose a parameter first.</p>
+                <p class="field-error" id="err-dedupeValue" role="alert"></p>
+              </div>
+              <div class="field all-values" data-slot="dedupe_all" id="w-dedupe-all" hidden>
+                <label>Also check (optional)</label>
+                <div class="all-grid">
+                  <input id="dedupe-all-ap_code" placeholder="Customer ID, e.g. AP00012345" autocomplete="off" spellcheck="false" aria-label="Customer ID">
+                  <input id="dedupe-all-pr_code" placeholder="Loan account, e.g. PR00012345" autocomplete="off" spellcheck="false" aria-label="Loan account">
+                </div>
+                <p class="hint">PAN and mobile come from this form. Every parameter with a value is checked.</p>
+                <p class="field-error" id="err-dedupeAll" role="alert"></p>
+              </div>
+            </div>
+
+            <article class="card span-2" aria-labelledby="h-applicant">
+              <header class="card-head"><span class="ico ico-violet"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2.2"/><path d="M6 16c.8-1.5 2-2.2 3-2.2s2.2.7 3 2.2 M14.5 10h4 M14.5 13h3"/></svg></span>
+                <div><h2 id="h-applicant">Primary Applicant KYC Details</h2><p>As on the applicant's KYC documents.</p></div></header>
+              <div class="fields three" id="fields-applicant"></div>
+            </article>
+
+            <article class="card span-2" id="coapp-card" aria-labelledby="h-coapp" hidden>
+              <header class="card-head"><span class="ico ico-violet"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><circle cx="17" cy="9" r="2.5"/><path d="M2.5 20c1-3.5 3.8-5.5 6.5-5.5s5.5 2 6.5 5.5 M15 14.8c2.6.2 4.8 1.9 5.6 4.7"/></svg></span>
+                <div><h2 id="h-coapp">Co-applicants</h2><p>Optional. Each co-applicant is checked separately by the dedupe agent.</p></div></header>
+              <div id="coapp-list" class="coapp-list"></div>
+              <button type="button" class="btn ghost small" id="coapp-add">+ Add co-applicant</button>
+            </article>
+
+            <article class="card span-2" id="loan-card" aria-labelledby="h-loan">
+              <header class="card-head"><span class="ico ico-teal"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5 M18 9.5v5"/></svg></span>
+                <div><h2 id="h-loan">Loan Details</h2><p>The product (and the property type where the product needs one).</p></div></header>
+              <div class="fields three" id="fields-application"></div>
+            </article>
+
+            <div class="form-bar span-2">
+              <p class="form-bar-note" id="form-summary" aria-live="polite"></p>
+              <button type="button" class="btn ghost" id="reset">Clear form</button>
+              <button type="submit" class="btn primary" id="submit">
+                <span class="spinner" aria-hidden="true"></span><span class="label">Open case &amp; run dedupe</span></button>
+            </div>
+          </form>
+        </section>
+
+        <!-- ======================== page: existing case -->
+        <section class="page" data-page="lookup" aria-labelledby="h-lookup">
+          <div class="page-head"><div>
+            <h1 id="h-lookup">Check an existing case</h1>
+            <p class="lead">Run the existing-customer check for a case you already own.</p></div>
+            <button type="button" class="btn ghost small sample-btn" id="lk-sample" hidden
+              title="Fill the check with the last case you opened and a random synthetic identifier"><svg viewBox="0 0 24 24"><path d="M12 3l2.2 5.3L20 9l-4.4 3.8L17 19l-5-3-5 3 1.4-6.2L4 9l5.8-.7z"/></svg>Fill sample</button></div>
+          <form class="card narrow" id="lookup-form" novalidate>
+            <div class="fields">
+              <div class="field"><label for="lk-case">Case ID <span class="req">*</span></label>
+                <input id="lk-case" placeholder="CASE-…" autocomplete="off" spellcheck="false">
+                <p class="field-error" id="err-lk-case" role="alert"></p></div>
+              <div class="field"><label for="lk-party">Check for</label>
+                <select id="lk-party"><option value="Applicant">Applicant</option><option value="Co-Applicant">Co-applicant</option></select>
+                <p class="hint">A co-applicant is checked the same way; the customer type applies to the applicant only.</p></div>
+              <div class="field"><label for="lk-type">Customer type</label>
+                <select id="lk-type"><option value="Existing">Existing</option><option value="New">New</option></select></div>
+              <div class="field"><label for="lk-parameter">Dedupe parameter <span class="req">*</span></label>
+                <select id="lk-parameter"><option value="">Choose…</option></select>
+                <p class="hint" id="lk-parameter-hint"></p></div>
+              <div class="field" id="w-lk-value"><label for="lk-value">Dedupe parameter value <span class="req">*</span></label>
+                <input id="lk-value" autocomplete="off" spellcheck="false">
+                <p class="field-error" id="err-lk-value" role="alert"></p></div>
+              <div class="field all-values" id="w-lk-all" hidden>
+                <label>Values to check (each optional)</label>
+                <div class="all-grid">
+                  <input id="lk-all-pan" placeholder="PAN (empty = case record)" autocomplete="off" spellcheck="false" aria-label="PAN">
+                  <input id="lk-all-mobile" placeholder="Mobile (empty = case record)" autocomplete="off" spellcheck="false" aria-label="Mobile">
+                  <input id="lk-all-ap_code" placeholder="Customer ID, e.g. AP00012345" autocomplete="off" spellcheck="false" aria-label="Customer ID">
+                  <input id="lk-all-pr_code" placeholder="Loan account, e.g. PR00012345" autocomplete="off" spellcheck="false" aria-label="Loan account">
+                </div>
+                <p class="field-error" id="err-lk-all" role="alert"></p></div>
+            </div>
+            <div class="form-bar inline">
+              <button type="submit" class="btn primary" id="lk-submit"><span class="spinner" aria-hidden="true"></span><span class="label">Run check</span></button>
+            </div>
+          </form>
+        </section>
+
+        <!-- ======================== page: result -->
+        <section class="page" data-page="result" aria-labelledby="h-result">
+          <div id="result-loading" class="result-skeleton" hidden aria-busy="true">
+            <div class="sk-hero"></div><div class="sk-row"><div></div><div></div><div></div><div></div></div><div class="sk-table"></div>
+          </div>
+          <div class="state-box" id="result-error" hidden></div>
+          <div id="result" hidden></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- ============================== dialogs + toasts -->
+  <dialog id="confirm" aria-labelledby="confirm-title">
+    <form method="dialog" class="dlg">
+      <h2 id="confirm-title">Open this case?</h2>
+      <p id="confirm-text">A case will be created for this applicant.</p>
+      <dl class="confirm-list" id="confirm-list"></dl>
+      <div class="dlg-actions"><button class="btn ghost" value="cancel">Go back</button>
+        <button class="btn primary" value="ok" id="confirm-ok">Open case</button></div>
+    </form>
+  </dialog>
+  <dialog id="signin" aria-labelledby="signin-title">
+    <form class="dlg" id="signin-form">
+      <h2 id="signin-title">Sign in</h2>
+      <p>Your session has ended or the backend needs you to sign in.</p>
+      <div class="field"><label for="si-user">Username</label><input id="si-user" autocomplete="username"></div>
+      <div class="field"><label for="si-pass">Password</label><input id="si-pass" type="password" autocomplete="current-password"></div>
+      <p class="field-error" id="si-error" role="alert"></p>
+      <div class="dlg-actions"><button type="button" class="btn ghost" id="si-cancel">Cancel</button>
+        <button type="submit" class="btn primary">Sign in</button></div>
+    </form>
+  </dialog>
+  <div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+  <script src="core.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

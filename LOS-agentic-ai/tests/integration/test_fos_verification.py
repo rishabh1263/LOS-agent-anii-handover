@@ -43,11 +43,11 @@ SAMPLES = Path(__file__).resolve().parents[2] / "samples" / "real_batch"
 #: A genuine PAN whose every required field is legible.
 PAN_COMPLETE = SAMPLES / "pan_bw2.jpg"
 
-#: A genuine PAN photographed on a phone. Its printed date of birth did not
-#: survive the photo, and the only date the page carries is the camera's own
-#: gallery caption. Kept deliberately: this is the case where a real document
-#: must still not pass, because a required field was never read.
-PAN_DOB_UNREADABLE = SAMPLES / "pan_bw1.jpg"
+#: A genuine PAN whose printed date of birth cannot be read: the case where a real document must still not pass,
+#: because a required field was never read. pan_bw1 used to be that case -- the old first OCR pass missed its DOB --
+#: but the date IS printed legibly and is now read (0.96), so that photo passes. The case is now built for certain:
+#: the same card with its printed date covered (tests/integration/pan_fixtures.py). 2026-10-16.
+from tests.integration.pan_fixtures import pan_with_unreadable_dob  # noqa: E402
 
 #: A genuine driving licence.
 DRIVING_LICENCE = SAMPLES / "dl1.jpg"
@@ -333,7 +333,7 @@ def test_a_genuine_pan_with_an_unread_date_of_birth_is_not_passed(client):
     that a human resolves is the strongest honest answer available.
     """
     applicant_id, case_id = open_case(client)
-    body = upload(client, applicant_id, case_id, PAN_DOB_UNREADABLE,
+    body = upload(client, applicant_id, case_id, pan_with_unreadable_dob(),
                   document_type="PAN").json()
 
     verification = body["verification"]

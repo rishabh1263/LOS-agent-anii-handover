@@ -1,8 +1,8 @@
-# LOS Chatbot — Frontend API Contract (version 1.0)
+# LOS Chatbot — Frontend API Contract (version 1.1)
 
 **One rule above all:** the chat has ONE endpoint, `POST /api/v1/fos/copilot`, and every reply is
 `{ request_id, markdown, tts }`. Do **not** call `/api/v1/copilot/query` and do **not** read `answer`. Every response carries
-the header **`X-Contract-Version: 1.0`**; if it differs from the version the app was built for, show a "please refresh"
+the header **`X-Contract-Version: 1.1`**; if it differs from the version the app was built for, show a "please refresh"
 banner and log it. The contract is pinned by `tests/integration/test_api_contract.py` (backend) — it fails if any shape
 below changes without a version bump (`frontend_handoff/contract_snapshot.json`).
 
@@ -26,6 +26,8 @@ Generated artifacts in this folder: `openapi.json` (live schema), `contract.ts` 
 | `case_id`, `applicant_id` | string | **only** when the UI has a case selected (e.g. a case page) | otherwise omit — the server resolves the case from the chat |
 | `action_link` | string | no | alternative to `/fos/action`: post a link's `href` here (`{"action_link": "action:open_case?id=…", "chat_id": …}`) |
 | `context` | object | no | never a string; usually omit |
+| `stream` | boolean | no | `true` = the reply as Server-Sent Events (section 3) from this same endpoint; `Accept: text/event-stream` does the same |
+| `with_sources` | boolean | no | `true` = a handbook answer also carries `sources` (below); recommended for a UI that shows a "Source" chip |
 
 **Upload** — same endpoint, `multipart/form-data`: `action=UPLOAD_DOCUMENT`, `files` (one or more; `file` for a single
 one), `chat_id`, optional `document_types` (one per file, same order — from the upload link's `document_type`; empty =
@@ -41,9 +43,23 @@ case. Do not set the `Content-Type` header yourself (the browser sets the bounda
 - `markdown`: render it (see section 2 for links). Tables, bold, lists, `>` quotes. No HTML.
 - `tts`: plain text for read-aloud (already short; never read the markdown).
 - `request_id`: keep it for replay (section 3) and support tickets.
+- `sources` (**only** when the request sent `"with_sources": true` **and** the answer came from the FOS handbook):
+  `[{ "type": "handbook" | "configuration", "document": "address_proof", "section": "Address proof" | null, "title": "FOS handbook -- Address proof (Address proof)" }]`,
+  at most 3. Show `title` as a chip. Only what retrieval cited for this answer, only a real handbook file and a real
+  heading of it — a case answer, a refusal or an off-topic question has **no** `sources` key. There is no URL and no
+  page number (the handbook has neither). Without `with_sources` the reply is exactly `{request_id, markdown, tts}`.
 
 **Do not** call `/api/v1/copilot/query` (a legacy wrapper) and do not read `answer`, `presentation`, `intent` — they are
 not part of the contract.
+
+### Feedback (👍 / 👎) — the same endpoint
+
+Request: `{ "action": "FEEDBACK", "reply_to": "<request_id of the reply>", "rating": "up" | "down", "reason": "…", "chat_id": "…" }`
+(`reason` optional, ≤ 1000 chars; it is masked and cut before it is kept).
+
+Response: `{ "request_id": "fos_…", "status": "RECORDED" | "NOT_RECORDED", "reply_to": "…", "rating": "up" }` — not a chat
+reply: do not append it to the chat. `NOT_RECORDED` (logging off) needs no message to the user. A bad `rating` → 422
+`INVALID_RATING`; a missing / malformed `reply_to` → 422 `INVALID_REQUEST`.
 
 ---
 
@@ -76,9 +92,11 @@ Response — one of:
 
 ---
 
-## 3. Streaming — `POST /api/v1/fos/copilot/stream`
+## 3. Streaming — `POST /api/v1/fos/copilot` with `"stream": true`
 
-Same request body as section 1. `text/event-stream`, events in this order:
+Same endpoint and body as section 1, plus `"stream": true` (or the header `Accept: text/event-stream`).
+`POST /api/v1/fos/copilot/stream` still works for older clients and does exactly the same. `text/event-stream`, events
+in this order:
 
 | Event | Payload | When |
 |---|---|---|
@@ -92,6 +110,7 @@ Same request body as section 1. `text/event-stream`, events in this order:
 - **Stop:** `POST /api/v1/fos/copilot/stop` `{ "chat_id": "…" }`.
 - **Reconnect:** `GET /api/v1/fos/copilot/replay/{request_id}` → the final `{request_id, markdown, tts}` (own requests only).
 - **Idempotency:** send `Idempotency-Key: <uuid>` on retries; the same key returns the stored reply, never a rerun.
+- **Opening a case** (`POST /api/v1/fos/applicants`, the UI form): send `Idempotency-Key`, ONE key per logical submission -- `chatClient.createCase(caseSubmission(previous, body))` does it. A retry with the same key and body returns the first case (`Idempotent-Replayed: true`); the same key with a DIFFERENT body is refused `409 IDEMPOTENCY_KEY_REUSED` (make a new submission); a request without a key is still accepted (rollout compatibility) but is NOT protected against double submits. `503 CREATE_BUSY`: the same case is being created by another request -- retry with the same key.
 - **Updates:** `GET /api/v1/fos/copilot/updates?chat_id=…&wait=25` (long-poll) → changes on cases this chat looked at.
 
 ---

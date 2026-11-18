@@ -1,0 +1,250 @@
+# =====================================================================================================================
+# BANK VERIFICATION -- DEMO DATA. Real bank names and IFSC prefixes (owner 2026-10-26: "bank name sab real rakho");
+# every person, account number (all start 9990) and reference here is fictional. demo_data/scenarios.py builds the statements, AA responses and forms from it;
+# the tests pin every scenario's `expect`, so the demo and the tests cannot drift apart.
+# =====================================================================================================================
+
+banks:
+  SBI: { name: "State Bank of India", ifsc_prefix: "SBIN0" }
+  HDFC: { name: "HDFC Bank", ifsc_prefix: "HDFC0" }
+  ICICI: { name: "ICICI Bank", ifsc_prefix: "ICIC0" }
+  AXIS: { name: "Axis Bank", ifsc_prefix: "UTIB0" }
+
+# how the synthetic statement PDF is laid out (demo_data/statements.py)
+statement_layout:
+  heading: "Statement of Account"
+  labels: { holder: "Account Holder", number: "Account Number", type: "Account Type", ifsc: "IFSC",
+            period: "Statement Period", opening: "Opening Balance", closing: "Closing Balance" }
+  columns: ["Date", "Narration", "Ref No", "Debit", "Credit", "Balance"]
+  footer: "This is a computer generated statement and does not require a signature."
+  metadata_title: "Statement of Account"
+  generator: "Core Banking Statement Service"
+  scanner: "Document Scanner"
+  fixed_date: "D:20261001090000+05'30'"         # fixed, so the same statement always has the same SHA-256
+  scan_dpi: 110
+  reference_prefix: "TXN"
+
+# one quarter of ordinary salaried activity; {employer} is the scenario's employer
+period: { start: 2026-07-01, end: 2026-09-30 }
+transactions:
+  - { date: 2026-07-01, narration: "NEFT SALARY {employer}", amount: "62000.00", side: CREDIT }
+  - { date: 2026-07-03, narration: "RENT TRANSFER IMPS", amount: "18500.00", side: DEBIT }
+  - { date: 2026-07-09, narration: "UPI GROCERY MART", amount: "3420.75", side: DEBIT }
+  - { date: 2026-07-15, narration: "EMI HOUSING LOAN", amount: "12500.00", side: DEBIT }
+  - { date: 2026-08-01, narration: "NEFT SALARY {employer}", amount: "62000.00", side: CREDIT }
+  - { date: 2026-08-04, narration: "RENT TRANSFER IMPS", amount: "18500.00", side: DEBIT }
+  - { date: 2026-08-18, narration: "UPI FUEL STATION", amount: "2850.00", side: DEBIT }
+  - { date: 2026-08-25, narration: "REV UPI FUEL STATION", amount: "2850.00", side: CREDIT }    # a reversal
+  - { date: 2026-09-01, narration: "NEFT SALARY {employer}", amount: "62000.00", side: CREDIT }
+  - { date: 2026-09-05, narration: "EMI HOUSING LOAN", amount: "12500.00", side: DEBIT }
+  - { date: 2026-09-21, narration: "ATM CASH WITHDRAWAL", amount: "5000.00", side: DEBIT }
+  - { date: 2026-09-21, narration: "UPI PHARMACY", amount: "1240.50", side: DEBIT }           # same day as above
+
+# the agency input the demo suggests on the finalize panel (a scenario's `agency` overrides any part of it)
+agency_default:
+  agency_id: AGY-NORTHSTAR
+  branch_visit: COMPLETED
+  ownership: CONFIRMED
+  requested_decision: POSITIVE
+  checklist_answer: VERIFIED          # every checklist item (config checklist) unless the scenario says otherwise
+  rationale: "Branch visit done; bank records, holder and the latest transactions were confirmed with the branch officer."
+  with_report: true
+
+case_defaults: { product: PERSONAL_LOAN, stage: CPA }
+seed_actor: "system"
+
+# a sample agency report (demo_data/reports.py): what a field agency's verification report prints. Seed reset writes
+# one correct report per scenario into <home>/sample_reports/ for the screen.
+agency_report_layout:
+  title: "Bank Account Verification Report"
+  labels:
+    case_ref: "Case ID"
+    application_ref: "Application No"
+    applicant_name: "Customer Name"
+    account_number: "Account Number"
+    bank_name: "Bank Name"
+    ownership: "Account Ownership"
+    report_date: "Date of Visit"
+    agency: "Agency Name"
+    account_type: "Account Type"
+    transaction: "Transaction {n}"
+    remarks: "Remarks"
+  ownership_words: { CONFIRMED: "Confirmed", NOT_CONFIRMED: "Not confirmed", PENDING: "Pending" }
+  remarks: "Branch records checked; customer met at the branch."
+historical_status: POSITIVE
+historical_agency: AGY-CLEARPATH
+
+# ---- the twelve scenarios --------------------------------------------------------------------------------------------
+# statement: render pdf | scanned | csv; producer / modified (metadata); same_file_as (byte-identical to that case);
+#            changes: closing_delta, balance_deltas {row index: amount}, account_holder
+# aa:        null (AA_FAILURE) | {} (the same data as the statement) | {changes: amounts {row: amount},
+#            closing_delta, account_holder}
+# form:      {} = filled from AA (AA_SUCCESS) | manual: true = typed from the statement (AA_FAILURE); then
+#            account_number / account_type / bank_name overrides, transactions {row (0 = latest): {field: value}}
+scenarios:
+  - code: CLEAN_AA_SUCCESS
+    title: "Clean AA Success"
+    case: { case_id: BV-2026-001, application_ref: APL-2026-10401, applicant_name: "Ishaan Verma", loan_amount: "650000" }
+    mode: AA_SUCCESS
+    account: { bank: SBI, number: "99901020304051", type: Savings, opening: "48250.00", employer: "ORBITAL SOFTWARE LLP" }
+    statement: { render: pdf }
+    aa: {}
+    form: {}
+    agency: {}
+    expect: { R1: PASS, R2: PASS, R3: PASS, R4: REVIEW_REQUIRED, R5: PASS, R6: PASS, R7: PASS, R8: REVIEW_REQUIRED,
+              action: AWAIT_OWNERSHIP_CONFIRMATION, final: POSITIVE }
+
+  - code: CLEAN_AA_FAILURE
+    title: "Clean AA Failure (manual upload + manual entry)"
+    case: { case_id: BV-2026-002, application_ref: APL-2026-10402, applicant_name: "Ritika Nair", loan_amount: "420000" }
+    mode: AA_FAILURE
+    account: { bank: HDFC, number: "99902114455661", type: Savings, opening: "21600.00", employer: "COASTLINE LOGISTICS" }
+    statement: { render: pdf }
+    aa: null
+    form: { manual: true }
+    agency: {}
+    expect: { R1: PASS, R2: PASS, R3: PASS, R4: REVIEW_REQUIRED, R5: PASS, R6: NOT_APPLICABLE, R7: PASS,
+              R8: REVIEW_REQUIRED, final: POSITIVE }
+
+  - code: BANK_ACCOUNT_MISMATCH
+    title: "Bank / account mismatch"
+    case: { case_id: BV-2026-003, application_ref: APL-2026-10403, applicant_name: "Farhan Qureshi", loan_amount: "300000" }
+    mode: AA_FAILURE
+    account: { bank: ICICI, number: "99903345566771", type: Savings, opening: "35500.00", employer: "NORTHGATE RETAIL" }
+    statement: { render: pdf }
+    aa: null
+    form: { manual: true, account_number: "99903345566717", account_type: Current }
+    agency: {}
+    expect: { R1: FAIL, R2: PASS, R3: PASS, R4: REVIEW_REQUIRED, R5: PASS, R6: NOT_APPLICABLE, R7: PASS, R8: FAIL,
+              action: CORRECT_OR_EXPLAIN_MISMATCH, final: REVIEW_REQUIRED }
+
+  - code: LATEST_TXN_MISMATCH
+    title: "Latest transaction mismatch"
+    case: { case_id: BV-2026-004, application_ref: APL-2026-10404, applicant_name: "Meera Pillai", loan_amount: "500000" }
+    mode: AA_FAILURE
+    account: { bank: AXIS, number: "99904456677881", type: Savings, opening: "52900.00", employer: "SUNRISE DIAGNOSTICS" }
+    statement: { render: pdf }
+    aa: null
+    form: { manual: true, transactions: { 1: { amount: "1420.50" }, 2: { direction: CREDIT } } }
+    agency: {}
+    expect: { R1: PASS, R2: FAIL, R3: PASS, R4: REVIEW_REQUIRED, R5: PASS, R6: NOT_APPLICABLE, R7: PASS, R8: FAIL,
+              final: REVIEW_REQUIRED }
+
+  - code: UNREADABLE_STATEMENT
+    title: "Unreadable statement (blurred scan)"
+    case: { case_id: BV-2026-005, application_ref: APL-2026-10405, applicant_name: "Devansh Rao", loan_amount: "250000" }
+    mode: AA_FAILURE
+    account: { bank: SBI, number: "99905567788991", type: Savings, opening: "18900.00", employer: "ALPINE TEXTILES" }
+    statement: { render: scanned, dpi: 18 }      # too blurred for OCR: the honest 'could not read'
+    aa: null
+    form: { manual: true }
+    agency: {}
+    expect: { R1: REVIEW_REQUIRED, R2: REVIEW_REQUIRED, R3: REVIEW_REQUIRED, R4: REVIEW_REQUIRED, R5: NOT_APPLICABLE,
+              R6: NOT_APPLICABLE, R7: PASS, R8: REVIEW_REQUIRED, action: REQUEST_READABLE_STATEMENT,
+              final: REVIEW_REQUIRED }
+
+  - code: BALANCE_INCONSISTENCY
+    title: "Balance inconsistency"
+    case: { case_id: BV-2026-006, application_ref: APL-2026-10406, applicant_name: "Sanya Kapoor", loan_amount: "380000" }
+    mode: AA_FAILURE
+    account: { bank: HDFC, number: "99906678899001", type: Savings, opening: "40100.00", employer: "BRIGHTPATH EDUCATION" }
+    statement: { render: pdf, changes: { closing_delta: "5000.00", balance_deltas: { 6: "900.00" } } }
+    aa: null
+    form: { manual: true }
+    agency: {}
+    expect: { R1: PASS, R2: PASS, R4: REVIEW_REQUIRED, R5: FAIL, R6: NOT_APPLICABLE, R7: PASS, R8: FAIL,
+              final: REVIEW_REQUIRED }
+
+  - code: AA_STATEMENT_MISMATCH
+    title: "AA vs uploaded statement mismatch"
+    case: { case_id: BV-2026-007, application_ref: APL-2026-10407, applicant_name: "Tanvir Ahmed", loan_amount: "275000" }
+    mode: AA_SUCCESS
+    account: { bank: ICICI, number: "99907789900111", type: Savings, opening: "27300.00", employer: "HARBOUR FREIGHT" }
+    statement: { render: pdf }
+    aa: { changes: { amounts: { 2: "3240.75" }, closing_delta: "180.00" } }     # an OLDER row differs (not the latest 3)
+    form: {}
+    agency: {}
+    expect: { R1: PASS, R2: PASS, R3: PASS, R4: REVIEW_REQUIRED, R5: PASS, R6: FAIL, R7: PASS, R8: FAIL,
+              final: REVIEW_REQUIRED }
+
+  - code: DUPLICATE_STATEMENT
+    title: "Duplicate statement detected"
+    case: { case_id: BV-2026-008, application_ref: APL-2026-10408, applicant_name: "Lavanya Iyer", loan_amount: "450000" }
+    mode: AA_FAILURE
+    account: { bank: AXIS, number: "99908890011221", type: Savings, opening: "61200.00", employer: "CEDAR HOSPITALITY" }
+    statement: { render: pdf, same_file_as: BV-2025-101 }
+    aa: null
+    form: { manual: true }
+    agency: {}
+    expect: { R1: PASS, R2: PASS, R3: PASS, R4: REVIEW_REQUIRED, R5: PASS, R6: NOT_APPLICABLE, R7: REVIEW_REQUIRED,
+              R8: REVIEW_REQUIRED, final: POSITIVE }
+
+  - code: OWNERSHIP_PENDING
+    title: "Ownership pending (branch visit scheduled)"
+    case: { case_id: BV-2026-009, application_ref: APL-2026-10409, applicant_name: "Kabir Sethi", loan_amount: "320000" }
+    mode: AA_SUCCESS
+    account: { bank: SBI, number: "99909901122331", type: Savings, opening: "33800.00", employer: "QUANTA FINSERV" }
+    statement: { render: pdf }
+    aa: {}
+    form: {}
+    agency:
+      ownership: PENDING
+      branch_visit: SCHEDULED
+      checklist: { account_holder: NOT_VERIFIED, latest_transactions: NOT_VERIFIED }
+      rationale: "Branch visit is scheduled; ownership not yet confirmed by the branch."
+    expect: { R1: PASS, R2: PASS, R3: PASS, R4: REVIEW_REQUIRED, R5: PASS, R6: PASS, R7: PASS, R8: REVIEW_REQUIRED,
+              final: REVIEW_REQUIRED }
+
+  - code: OWNERSHIP_NEGATIVE
+    title: "Negative ownership confirmation"
+    case: { case_id: BV-2026-010, application_ref: APL-2026-10410, applicant_name: "Nandini Joshi", loan_amount: "600000" }
+    mode: AA_SUCCESS
+    account: { bank: HDFC, number: "99901012233441", type: Savings, opening: "45700.00", employer: "VERTEX INFRA" }
+    statement: { render: pdf }
+    aa: {}
+    form: {}
+    agency:
+      ownership: NOT_CONFIRMED
+      requested_decision: NEGATIVE
+      checklist: { account_holder: MISMATCH }
+      rationale: "Branch records show the account belongs to a different customer; the applicant is not an account holder."
+    expect: { R1: PASS, R2: PASS, R3: PASS, R4: REVIEW_REQUIRED, R5: PASS, R6: PASS, R7: PASS, R8: REVIEW_REQUIRED,
+              final: NEGATIVE }
+
+  - code: MISSING_REPORT
+    title: "Missing verification report"
+    case: { case_id: BV-2026-011, application_ref: APL-2026-10411, applicant_name: "Aarav Bhatia", loan_amount: "350000" }
+    mode: AA_SUCCESS
+    account: { bank: ICICI, number: "99901112334455", type: Savings, opening: "29900.00", employer: "MAPLE AGRO" }
+    statement: { render: pdf }
+    aa: {}
+    form: {}
+    agency: { with_report: false }
+    expect: { R1: PASS, R2: PASS, R3: PASS, R4: REVIEW_REQUIRED, R5: PASS, R6: PASS, R7: PASS, R8: REVIEW_REQUIRED,
+              final: REPORT_REQUIRED }
+
+  - code: MULTIPLE_ISSUES
+    title: "Multiple simultaneous issues"
+    case: { case_id: BV-2026-012, application_ref: APL-2026-10412, applicant_name: "Pooja Deshmukh", loan_amount: "550000" }
+    mode: AA_SUCCESS
+    account: { bank: AXIS, number: "99901223445566", type: Savings, opening: "38400.00", employer: "GREENLEAF FOODS" }
+    statement:
+      render: pdf
+      producer: iLovePDF
+      modified: "D:20261009143000+05'30'"
+      changes: { balance_deltas: { 4: "-2000.00" }, account_holder: "Prakash Deshmukh" }   # printed holder: someone else
+    aa: { changes: { account_holder: "Pooja R Deshmukh", amounts: { 1: "18000.00" } } }
+    form: { account_type: Current, transactions: { 0: { amount: "1200.50" } } }
+    agency: {}
+    expect: { R1: FAIL, R2: FAIL, R3: REVIEW_REQUIRED, R4: REVIEW_REQUIRED, R5: FAIL, R6: FAIL, R7: PASS, R8: FAIL,
+              final: REVIEW_REQUIRED }
+
+# ---- cases closed earlier: the statement library rule 7 compares against --------------------------------------------
+historical:
+  - case: { case_id: BV-2025-101, application_ref: APL-2026-09111, applicant_name: "Vikram Choudhary", loan_amount: "300000" }
+    mode: AA_FAILURE
+    statement_of: DUPLICATE_STATEMENT            # the same statement as that scenario (the reused document)
+  - case: { case_id: BV-2025-102, application_ref: APL-2026-09112, applicant_name: "Rohan Saxena", loan_amount: "200000" }
+    mode: AA_FAILURE
+    account: { bank: SBI, number: "99901334556677", type: Savings, opening: "15500.00", employer: "PINNACLE MOTORS",
+               holder: "Rohan Saxena" }

@@ -1,0 +1,128 @@
+# THE TONE OF A MESSAGE (2026-11-06, owner: "koi bhi gaali dene pe ... dont hardcode anything"). LEARNED, not matched:
+# semantics/tone.py embeds the message (nomic-embed-text) + hashed word / char n-grams and a softmax classifier trained
+# on the EXAMPLES below (scripts/train_answer_act.py --model tone -> models/tone.npz). Measured on the frozen held-out
+# set evals/copilot/tone_heldout.yaml. abuse_lexicon.yaml stays for MASKING a word in what is shown; whether a message
+# is abusive is this model's reading (or a lexicon hit).
+#
+#   ABUSIVE     an insult, slur or swearing at the assistant or a person -> the boundary reply, nothing answered
+#   FRUSTRATED  annoyed / impatient / a mild exclamation -- not an insult -> answered as usual
+#   NORMAL      everything else, friendly fillers ("bhai", "yaar", "boss") included
+model:
+  path: models/tone.npz
+  # ABUSIVE blocks a turn, so it must be SURE: below this probability the message is answered as usual. 0.85 (was
+  # 0.75): live, short Hinglish requests ("ek ... hai") read ABUSIVE at 0.70-0.78; real insults read 0.90+
+  min_confidence: 0.85
+  # without the embedding model only the n-gram half reads the message (held-out 72% vs 92% with both): it must be far
+  # surer before a turn is refused ("Ye sambhal lo." -- a request to handle it -- read ABUSIVE at 0.78 on n-grams)
+  min_confidence_ngram: 0.9
+  hash_dims: 4096
+
+acts:
+  ABUSIVE:
+    meaning: "an insult, slur or swearing aimed at the assistant or a person"
+    examples:
+      - "you idiot"
+      - "abe chup"
+      - "tu bewakoof hai"
+      - "nikal yahan se"
+      - "saale kaam kar"
+      - "useless stupid bot"
+      - "shut up"
+      - "go away you fool"
+      - "kya faltu ki baat karta hai be"
+      - "gadha hai kya tu"
+      - "pagal bot"
+      - "you are a moron"
+      - "abe saale jawab de"
+      - "dimag kharab hai tera"
+      - "tere jaisa bekaar bot nahi dekha"
+      - "stupid machine"
+      - "screw you"
+      - "get lost"
+      - "bhaad me ja"
+      - "ullu ke patthe"
+      - "tu kisi kaam ka nahi saale"
+      - "chal hatt"
+      - "abe o pagal"
+      - "kamine bot"
+      - "you dumb thing"
+      - "what a stupid answer you idiot"
+      - "बेवकूफ बॉट"
+      - "चल हट यहाँ से"
+      - "तू पागल है"
+      - "निकल यहाँ से"
+  FRUSTRATED:
+    meaning: "annoyed, impatient, a mild exclamation -- not an insult"
+    examples:
+      - "why is this taking so long"
+      - "this is annoying"
+      - "come on, answer properly"
+      - "still not working"
+      - "I am tired of waiting"
+      - "kya yaar phir se error"
+      - "itna time kyu lag raha hai"
+      - "ye kab theek hoga"
+      - "what the heck happened"
+      - "seriously? again?"
+      - "not helpful at all"
+      - "I asked something else"
+      - "this makes no sense"
+      - "ugh, again the same answer"
+      - "bahut slow hai"
+      - "pata nahi kya ho raha hai"
+      - "why does it keep failing"
+      - "oh no not again"
+      - "समझ नहीं आ रहा"
+      - "कितना समय लगेगा"
+  NORMAL:
+    meaning: "an ordinary message"
+    examples:
+      - "what is pending on this case"
+      - "bhai status batao"
+      - "yaar next step kya hai"
+      - "boss PAN verify hua kya"
+      - "hi"
+      - "good morning"
+      - "thank you"
+      - "ok"
+      - "which documents are missing"
+      - "case ki stage kya hai"
+      - "loan amount kitna hai"
+      - "applicant ka naam Salim Khan hai"
+      - "kill this request and restart"
+      - "abort the upload"
+      - "show my cases"
+      - "why is the PAN rejected"
+      - "how do I add a co-applicant"
+      - "dude what is the status"
+      - "bro is KYC done"
+      - "can you check the bank statement"
+      - "i have one more question"
+      - "please help me with this case"
+      - "क्या पैन अपलोड हुआ?"
+      - "मेरे केस की स्थिति बताओ"
+      - "sab theek hai kya"
+      - "fine, thanks"
+      - "tum kar do"
+      - "aap dekh lo"
+      - "please handle it"
+      - "isko sambhal lijiye"
+      - "take care of this"
+      - "check kar lo bhai"
+      - "you do it for me"
+      # SHORT HINGLISH THAT IS NOT AN INSULT (2026-11-06 live eval: a short "ek ... hai" read ABUSIVE)
+      - "mera ek sawal tha"
+      - "ek baat batao"
+      - "kuch puchna hai"
+      - "ek cheez dekhni hai"
+      - "suno"
+      - "haan bolo"
+      - "achha theek hai"
+      - "batao na"
+      - "ek minute ruko"
+      - "aur ek baat"
+      - "ek kaam karo"
+      - "ye dekho zara"
+      - "bas itna hi"
+      - "chalo theek hai"
+      - "ek help chahiye"

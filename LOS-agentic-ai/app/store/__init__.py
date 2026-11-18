@@ -64,17 +64,24 @@ def _embedded_dsn() -> str:
     # stop the server fsyncs and replays WAL first (33 s measured, 2026-10-06),
     # the start "times out", and the app refused to boot while PostgreSQL went on
     # to become ready. Retried while recovery finishes, then the real error.
+    # A server another start launched may still be in recovery (postmaster.pid says "starting"): pgserver then has no
+    # postmaster info and get_uri() fails its assertion (seen 2026-10-23, a 60 s fsync) -- the same wait, not a crash.
     for attempt in range(6):
         try:
             server = pgserver.get_server(os.path.abspath(root), cleanup_mode=None)
+            uri = server.get_uri()
             break
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, AssertionError):
             if attempt == 5:
                 raise
+            # pgserver caches the half-started server per data dir: drop it, or the retry returns the same one
+            from pathlib import Path
+
+            pgserver.PostgresServer._instances.pop(Path(root).expanduser().resolve(), None)
             logger.warning("Embedded PostgreSQL still starting (crash recovery?) -- retrying")
             time.sleep(10)
     logger.warning("Case store: embedded development PostgreSQL at %s (set LOS_STORE_DSN for a real one)", root)
-    return server.get_uri()
+    return uri
 
 
 def _build_postgres() -> Repository:

@@ -20,6 +20,10 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import lru_cache
 
 from app.agents.document_agent.schemas import OCRToken
 
@@ -49,8 +53,63 @@ TARGET_CROP_HEIGHT = CROP_HEIGHTS[0]
 CROP_MODES = (7, 6)
 
 
+_SUPPRESSED: ContextVar[bool] = ContextVar("name_spacing_suppressed", default=False)
+
+
+@contextmanager
+def suppressed():
+    """No spacing recovery inside this block, for this request only (a first look whose fields may never be used)."""
+    token = _SUPPRESSED.set(True)
+    try:
+        yield
+    finally:
+        _SUPPRESSED.reset(token)
+
+
 def enabled() -> bool:
-    return os.getenv("DOCUMENT_NAME_SPACING", "true").lower() == "true"
+    return not _SUPPRESSED.get() and os.getenv("DOCUMENT_NAME_SPACING", "true").lower() == "true"
+
+
+# Where the Windows installer (UB-Mannheim, `winget install UB-Mannheim.TesseractOCR`) puts the program. It does
+# NOT add itself to PATH, so on a fresh laptop pytesseract found nothing and every name silently kept RapidOCR's
+# missing spaces ("RAHULSHARMA"). TESSERACT_CMD overrides; PATH is tried first.
+_WINDOWS_INSTALLS = (r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                     r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe")
+
+
+@lru_cache(maxsize=1)
+def tesseract_ready() -> bool:
+    """
+    Point pytesseract at the Tesseract program once: TESSERACT_CMD, else PATH, else the Windows installer's folder.
+    False when there is none -- said ONCE as a WARNING (names then keep RapidOCR's spacing), never per request.
+    """
+    try:
+        import pytesseract
+    except ImportError:
+        logger.warning("Name spacing OFF: pytesseract is not installed (pip install -r requirements.txt).")
+        return False
+    cmd = (os.getenv("TESSERACT_CMD") or "").strip()
+    # a service shipped with its own Tesseract (<service>/tools/tesseract): nothing to install, no PATH to set
+    bundled = os.path.join(os.path.dirname(os.path.abspath(__file__)), *[os.pardir] * 3, "tools", "tesseract",
+                           "tesseract.exe")
+    if not cmd and os.path.isfile(bundled):
+        cmd = os.path.normpath(bundled)
+    if not cmd and not shutil.which("tesseract"):
+        local = os.getenv("LOCALAPPDATA")                     # winget's per-user install lands here
+        per_user = (os.path.join(local, "Tesseract-OCR", "tesseract.exe"),
+                    os.path.join(local, "Programs", "Tesseract-OCR", "tesseract.exe")) if local else ()
+        cmd = next((c for c in (*_WINDOWS_INSTALLS, *per_user) if os.path.isfile(c)), "")
+    if cmd:
+        pytesseract.pytesseract.tesseract_cmd = cmd
+    try:
+        version = pytesseract.get_tesseract_version()
+    except Exception:  # noqa: BLE001 - not installed / not runnable
+        logger.warning("Name spacing OFF: the Tesseract program was not found, so names keep the OCR's spacing "
+                       "(RAHULSHARMA). Install it (Windows: winget install UB-Mannheim.TesseractOCR) or set "
+                       "TESSERACT_CMD to tesseract.exe, then restart.")
+        return False
+    logger.info("Name spacing on: Tesseract %s (%s)", version, pytesseract.pytesseract.tesseract_cmd)
+    return True
 
 
 def _letters(text: str) -> str:
@@ -69,11 +128,9 @@ def word_map(image) -> list[tuple[float, float, float, float, str]] | None:
     Returns None when Tesseract is unavailable; callers then keep the
     unspaced value.
     """
-    try:
-        import pytesseract
-    except ImportError:
-        logger.debug("pytesseract not installed; name spacing skipped.")
+    if not tesseract_ready():
         return None
+    import pytesseract
 
     try:
         data = pytesseract.image_to_data(
@@ -162,11 +219,12 @@ def recover(image, token: OCRToken, value: str | None = None) -> str | None:
     if len(original) < 6:
         return None
 
+    if not tesseract_ready():
+        return None
     try:
-        import pytesseract
         from PIL import Image
     except ImportError:
-        logger.debug("pytesseract not installed; name spacing recovery skipped.")
+        logger.debug("Pillow not installed; name spacing recovery skipped.")
         return None
 
     try:

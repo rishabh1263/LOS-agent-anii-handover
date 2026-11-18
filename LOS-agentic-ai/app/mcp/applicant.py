@@ -129,6 +129,8 @@ def _applicant_json(a) -> dict[str, Any]:
         "email": a.email,
         "date_of_birth": a.date_of_birth,
         "address": a.address,
+        # LOS Sourcing screen (migration 0011): yes / no / null = not captured. Additive.
+        "mobile_aadhaar_linked": getattr(a, "mobile_aadhaar_linked", None),
         "missing_fields": a.missing_fields(),
         "is_complete": a.is_complete(),
         "created_at": a.created_at.isoformat(),
@@ -154,6 +156,12 @@ def _application_json(app) -> dict[str, Any]:
         # Additive; null when not captured -- never defaulted.
         "tenure_months": getattr(app, "tenure_months", None),
         "interest_rate_pct": getattr(app, "interest_rate_pct", None),
+        # LOS Sourcing screen (migration 0011): free text, null when not captured. Additive.
+        "loan_purpose": getattr(app, "loan_purpose", None),
+        "applicant_type": getattr(app, "applicant_type", None),
+        # LOS Application Details (migration 0012): null when not captured. Additive.
+        "document_received_date": getattr(app, "document_received_date", None),
+        "co_origination": getattr(app, "co_origination", None),
         "missing_fields": app.missing_fields(),
         "created_at": app.created_at.isoformat(),
         "updated_at": app.updated_at.isoformat(),
@@ -466,9 +474,20 @@ async def eligibility_get(case_id: str) -> ToolEnvelope:
         for finding in memory.get("findings") or []:
             recorded = finding.get("eligibility")
             if isinstance(recorded, dict) and recorded:
-                return {"eligibility": recorded, "recorded": True}
+                # OUT OF DATE IS SAID (2026-10-13): the loan terms the verdict was computed for vs the application
+                # now -- the same answer through MCP and through GET /api/v1/eligibility (which reads this tool)
+                import asyncio
 
-        return {"eligibility": None, "recorded": False}
+                from app.agents.los import eligibility_refresh
+
+                try:
+                    # the recorded decision vs the data source now (a database read: off the event loop)
+                    stale = await asyncio.to_thread(eligibility_refresh.stale_fields, recorded, cid)
+                except Exception:  # noqa: BLE001 - advice only; the record is still returned
+                    stale = []
+                return {"eligibility": recorded, "recorded": True, "stale": bool(stale), "stale_fields": stale}
+
+        return {"eligibility": None, "recorded": False, "stale": False, "stale_fields": []}
 
     return await _envelope("eligibility.get", run)
 
@@ -533,6 +552,7 @@ async def applicant_create(
     date_of_birth: str | None = None,
     address: str | None = None,
     applicant_id: str | None = None,
+    mobile_aadhaar_linked: bool | None = None,
 ) -> ToolEnvelope:
     """Create an applicant. The identifier is generated unless supplied."""
 
@@ -551,6 +571,7 @@ async def applicant_create(
             email=(email or None),
             date_of_birth=(date_of_birth or None),
             address=(address or None),
+            mobile_aadhaar_linked=mobile_aadhaar_linked,
         )
         repo.save_applicant(record)
         return {"applicant": _applicant_json(record), "created": True}
@@ -620,11 +641,29 @@ async def application_create(
     declared_monthly_obligations: str | None = None,
     property_value: str | None = None,
     declared_monthly_income: str | None = None,
+    property_type: str | None = None,
+    purchase_price: str | None = None,
+    valuation_value: str | None = None,
+    loan_purpose: str | None = None,
+    applicant_type: str | None = None,
+    document_received_date: str | None = None,
+    co_origination: bool | None = None,
 ) -> ToolEnvelope:
     """Create an application for an existing applicant."""
 
     async def run() -> dict[str, Any]:
         from app.store.models import Application
+
+        def _received_date(raw: str | None) -> str | None:
+            """The form's rule (product_flow.yaml case_form.formats.document_received_date): a real date, not future."""
+            if not (raw or "").strip():
+                return None
+            from app.agents.applicant.copilot.capabilities import case_form
+
+            value, why = case_form.check("document_received_date", raw, "en")
+            if why:
+                raise InvalidInput(f"document_received_date: {why}", field="document_received_date")
+            return value
 
         aid = _require(applicant_id, "applicant_id")
         _plausible(loan_amount=loan_amount, property_value=property_value,
@@ -650,6 +689,13 @@ async def application_create(
                 declared_monthly_obligations or None),
             property_value=(property_value or None),
             declared_monthly_income=(declared_monthly_income or None),
+            property_type=((property_type or "").strip().upper() or None),
+            purchase_price=(purchase_price or None),
+            valuation_value=(valuation_value or None),
+            loan_purpose=(loan_purpose or None),
+            applicant_type=(applicant_type or None),
+            document_received_date=_received_date(document_received_date),
+            co_origination=co_origination,
         )
         _pin_policy(record)
         repo.save_application(record)
@@ -668,6 +714,9 @@ async def application_update(
     declared_monthly_obligations: str | None = None,
     property_value: str | None = None,
     declared_monthly_income: str | None = None,
+    property_type: str | None = None,
+    purchase_price: str | None = None,
+    valuation_value: str | None = None,
 ) -> ToolEnvelope:
     """Update basic application information."""
 
@@ -699,6 +748,9 @@ async def application_update(
             ("interest_rate_pct", interest_rate_pct),
             ("declared_monthly_obligations", declared_monthly_obligations),
             ("property_value", property_value),
+            ("property_type", (property_type or "").strip().upper() or None),
+            ("purchase_price", purchase_price),
+            ("valuation_value", valuation_value),
             ("declared_monthly_income", declared_monthly_income),
         ):
             if supplied is not None and str(supplied).strip():
@@ -714,7 +766,18 @@ async def application_update(
             raise InvalidInput("No fields were supplied to update.")
 
         repo.save_application(record)
-        return {"application": _application_json(record), "updated_fields": changed}
+        out: dict[str, Any] = {"application": _application_json(record), "updated_fields": changed}
+        # THE LOAN TERMS CHANGED: the recorded eligibility verdict is re-assessed for them (2026-10-13; the same
+        # agent and the recorded evidence -- app/agents/los/eligibility_refresh.py)
+        from app.agents.los import eligibility_refresh
+
+        if eligibility_refresh.affects(changed):
+            refreshed = await eligibility_refresh.refresh(cid, actor="mcp:application.update",
+                                                          request_id=f"mcp_{uuid.uuid4().hex}",
+                                                          reason="application.update: " + ", ".join(changed))
+            if refreshed is not None:
+                out["eligibility"] = refreshed
+        return out
 
     return await _envelope("application.update", run)
 

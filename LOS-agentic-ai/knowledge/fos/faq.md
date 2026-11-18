@@ -89,6 +89,12 @@ records.
 Images (JPEG, PNG) and PDFs. A scanned PDF is read by OCR; a digital PDF is
 read from its text layer, which is faster and more accurate.
 
+## What is the maximum file size for an upload?
+
+The maximum upload file size is 25 MB per file. Accepted file types are JPG,
+JPEG, PNG, BMP, TIFF, WEBP and PDF. A bigger file is refused before it is
+read: compress the photo, or scan at a lower resolution, and try again.
+
 ## The upload is slow. Why?
 
 OCR is the floor. A photographed document has to be rasterised and read

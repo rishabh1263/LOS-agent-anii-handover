@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 
 from app.agents.document_agent.schemas import DocumentType, OCRToken
+from app.agents.document_agent.validate import PAN_HOLDER_CHARS
 from app.core.text_match import fuzzy_contains
 
 # Full-strength markers plus the DEGRADED variants actually observed on a
@@ -34,7 +35,7 @@ _PAN_MARKERS = [
 # position four. It is far more specific than any printed caption, so it
 # classifies on its own when the captions are unreadable.
 _EPIC_NUMBER_RE = re.compile(r"\b[A-Z]{3}\d{7}\b")
-_PAN_NUMBER_RE = re.compile(r"\b[A-Z]{3}[ABCFGHLJPTK][A-Z]\d{4}[A-Z]\b")
+_PAN_NUMBER_RE = re.compile(rf"\b[A-Z]{{3}}[{PAN_HOLDER_CHARS}][A-Z]\d{{4}}[A-Z]\b")
 
 # The MRZ is the definitive passport marker: two 44-character lines over a
 # restricted alphabet appear on no other identity document.

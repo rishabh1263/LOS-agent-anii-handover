@@ -89,7 +89,11 @@ def structured(assessment: CreditAssessment) -> CreditMemo:
                 "recorded_salary_slip_amount": fin.get("recorded_salary_slip_amount"),
                 "income_consistency_recorded": fin.get("income_consistency_recorded"),
                 "findings": _rows(assessment, FindingCategory.INCOME_CONSISTENCY)},
-        repayment={"findings": _rows(assessment, FindingCategory.REPAYMENT)},
+        # the bank analysis's own answer (repayment.get), beside the bureau's repayment findings
+        repayment={"bank_analysis": {k: (fin.get("repayment_recorded") or {}).get(k) for k in (
+                       "verdict", "can_repay", "headline", "reasons", "suggestion")}
+                   if fin.get("repayment_recorded") else None,
+                   "findings": _rows(assessment, FindingCategory.REPAYMENT)},
         adverse={"findings": _rows(assessment, FindingCategory.ADVERSE,
                                    FindingCategory.CROSS_SOURCE)},
         exceptions={"exceptions": list(assessment.exceptions),

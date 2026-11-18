@@ -1,0 +1,89 @@
+# HELD-OUT ENGLISH conversations (2026-10-13). FROZEN once written: never tuned on. md5 recorded in runs/agent_heldout_en.md5.
+#
+# Case: Rahul Sharma, PERSONAL_LOAN. Verified: PAN, Salary Slip, Bank Statement. Pending: Address Proof, Signature.
+# No co-applicant. Address proof accepts Driving Licence, Passport, Voter ID.
+# Stages: FOS -> CPA -> Credit -> RCU -> BOPS -> HOPS -> Disbursement. Eligibility is redirected to the Eligibility service.
+conversations:
+  - id: h_en_pending_then_salary
+    turns:
+      - q: "which docs are still pending on this one"
+        all: [[address proof], [signature]]
+      - q: "ok and salary slip is done right?"
+        all: [[salary slip], [verified, passed, cleared, done, received, uploaded, complete]]
+        never: ["salary slip is pending"]
+
+  - id: h_en_signature_then_bank
+    turns:
+      - q: "signature uploaded?"
+        all: [[signature], [pending, not uploaded, not been uploaded, missing, not yet, outstanding, awaiting, required, still needed]]
+      - q: "what about bank stmt"
+        all: [[bank statement], [verified, passed, cleared, done, received, complete]]
+
+  - id: h_en_address_proof_options
+    turns:
+      - q: "what can the customer give as address proof"
+        all: [[driving licence, driving license], [passport], [voter id, voter]]
+      - q: "is voter id ok?"
+        all: [[voter], ["yes", accepted, allowed, valid, can be, works, fine, acceptable]]
+        never: ["not accepted"]
+      - q: "driving license also allowed?"
+        all: [[driving licence, driving license], ["yes", accepted, allowed, valid, can be, works, fine, acceptable]]
+        never: ["not accepted"]
+
+  - id: h_en_stuck_next_step
+    turns:
+      - q: "why is this case stuck"
+        all: [[address proof, signature]]
+      - q: "what do i do next"
+        all: [[address proof, signature, upload]]
+
+  - id: h_en_stage_flow
+    turns:
+      - q: "whats the process after fos"
+        all: [[cpa], [credit]]
+      - q: "who handles cpa?"
+        all: [[cpa]]
+      - q: "and after credit?"
+        all: [[rcu]]
+
+  - id: h_en_coapplicant
+    turns:
+      - q: "is there a co applicant on this file"
+        all: [[co-applicant, coapplicant, co applicant], ["no", none, not]]
+      - q: "ok so its only rahul then?"
+        all: [[rahul]]
+
+  - id: h_en_vague_check
+    turns:
+      - q: "can you check it"
+        question: true
+      - q: "the documents i mean"
+        all: [[address proof, signature]]
+
+  - id: h_en_confused
+    turns:
+      - q: "wait what?? im confused"
+        question: true
+      - q: "i mean why hasnt it moved ahead"
+        all: [[address proof, signature]]
+
+  - id: h_en_greeting_thanks
+    turns:
+      - q: "hi"
+        never: ["salary slip", "bank statement"]
+      - q: "thanks thats all"
+        never: ["salary slip", "bank statement"]
+
+  - id: h_en_eligibility
+    turns:
+      - q: "is rahul eligible for the loan?"
+        all: [[eligibility service]]
+      - q: "whats the max amount he can get"
+        all: [[eligibility service, eligibility]]
+
+  - id: h_en_pan_typo_then_address
+    turns:
+      - q: "pan verfied?"
+        all: [[pan], [verified, passed, cleared, done, complete]]
+      - q: "and adress proof?"
+        all: [[address proof], [pending, not uploaded, not been uploaded, missing, not yet, outstanding, awaiting, required, still needed]]

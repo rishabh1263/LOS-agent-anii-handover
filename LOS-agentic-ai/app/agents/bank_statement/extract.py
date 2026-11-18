@@ -212,7 +212,9 @@ def table_workers() -> int:
     exactly as before. One shared pool bounds the total across concurrent
     uploads.
     """
-    return max(0, _int_env("BANK_STATEMENT_TABLE_WORKERS", min(4, max(1, (os.cpu_count() or 2) - 1))))
+    # 2026-10-14, WARM pool, real 104-page native statement (1339 rows, reconciled every time): 4 workers 5.51 s,
+    # 6 -> 4.84 s, 8 -> 4.60 s. Six meets the 5 s target and leaves cores for the other documents of a request.
+    return max(0, _int_env("BANK_STATEMENT_TABLE_WORKERS", min(6, max(1, (os.cpu_count() or 2) - 1))))
 
 
 #: Fewer pages left than this are read in-line: starting the pool costs more.
@@ -228,6 +230,17 @@ def _table_pool():
             from concurrent.futures import ProcessPoolExecutor
             _POOL = ProcessPoolExecutor(max_workers=table_workers())
         return _POOL
+
+
+def warm_table_pool() -> None:
+    """Start the table worker processes now (server startup), not inside the first long statement's upload."""
+    if table_workers() <= 1:
+        return
+    try:
+        pool = _table_pool()
+        list(pool.map(abs, range(table_workers())))     # one trivial task per worker: each process is up
+    except Exception as exc:  # noqa: BLE001 - the first statement starts it instead, as before
+        logger.debug("Table pool warmup skipped: %s", type(exc).__name__)
 
 
 def _drop_pool() -> None:
@@ -544,17 +557,26 @@ class _ScannedPages:
     cold start (26.6 s -> 20.2 s) and it would occupy every OCR worker other documents in the request need.
     """
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, only: set[int] | None = None) -> None:
         self.path = path
+        self.only = set(only) if only else None      # 1-based pages to render; None = every page
         self._images: list | None = None
         self._tokens: dict[int, Any] = {}
         self._lock = threading.Lock()
 
     def images(self) -> list:
+        """The page images, one per page; a page outside `only` is None (never rendered)."""
         if self._images is None:
             from pdf2image import convert_from_path
+            if self.only is None:
+                self._images = convert_from_path(self.path, dpi=200)
+            else:
+                import pymupdf
 
-            self._images = convert_from_path(self.path, dpi=200)
+                with pymupdf.open(self.path) as doc:
+                    count = doc.page_count
+                self._images = [convert_from_path(self.path, dpi=200, first_page=i, last_page=i)[0]
+                                if i in self.only else None for i in range(1, count + 1)]
         return self._images
 
     @staticmethod
@@ -563,7 +585,7 @@ class _ScannedPages:
         from app.agents.document_agent.ocr import get_engine
 
         try:
-            return get_engine().read_array(PP.to_array(image.convert("RGB")))
+            return get_engine().read_array(PP.to_array(image.convert("RGB")), upright=_upright_pages())
         except Exception as exc:  # noqa: BLE001 - kept and re-raised per page, as each strategy reported it
             return exc
 
@@ -573,10 +595,17 @@ class _ScannedPages:
 
         images = self.images()
         with self._lock:
-            wanted = [i for i in dict.fromkeys(indexes) if i not in self._tokens and 1 <= i <= len(images)]
+            wanted = [i for i in dict.fromkeys(indexes) if i not in self._tokens and 1 <= i <= len(images)
+                      and images[i - 1] is not None]
         if not wanted:
             return
-        if not _PARALLEL_PAGES or len(wanted) == 1 or threading.current_thread().name.startswith(O._OCR_THREAD_PREFIX):
+        if len(wanted) > 1 and _page_workers() > 1 and isinstance(O.get_engine(), O.RapidOCREngine):
+            # SCANNED PAGES READ TOGETHER, EACH ON ITS OWN ENGINE (2026-10-14): a dedicated pool of page readers,
+            # one RapidOCR engine per thread (no session shared), sized for a page each (BANK_STATEMENT_PAGE_WORKERS
+            # x BANK_STATEMENT_PAGE_OCR_THREADS). MEASURED on the 4-page SBI scan, warm: 4 engines x 4 threads read
+            # the 4 pages ~4x faster than one engine page by page. Same pages, same OCR, same order kept below.
+            results = list(_page_pool().map(_read_page_dedicated, [images[i - 1] for i in wanted]))
+        elif not _PARALLEL_PAGES or len(wanted) == 1 or threading.current_thread().name.startswith(O._OCR_THREAD_PREFIX):
             results = [self._read(images[i - 1]) for i in wanted]
         else:
             pool = O.get_ocr_executor()
@@ -599,16 +628,64 @@ class _ScannedPages:
 
 _PARALLEL_PAGES = os.getenv("BANK_STATEMENT_PARALLEL_PAGES", "false").strip().lower() == "true"
 
+
+def _page_workers() -> int:
+    """Dedicated scanned-page readers (0/1 = the previous one-by-one read)."""
+    return max(0, _int_env("BANK_STATEMENT_PAGE_WORKERS", 4))
+
+
+_PAGE_POOL = None
+_PAGE_LOCAL = threading.local()
+
+
+def _page_pool():
+    global _PAGE_POOL
+    with _POOL_LOCK:
+        if _PAGE_POOL is None:
+            from concurrent.futures import ThreadPoolExecutor
+            _PAGE_POOL = ThreadPoolExecutor(max_workers=_page_workers(), thread_name_prefix="bank-page")
+        return _PAGE_POOL
+
+
+def _read_page_dedicated(image) -> Any:
+    """One page on this pool thread's OWN RapidOCR engine (built once per thread), upright pages."""
+    from app.agents.document_agent import ocr as O
+    from app.agents.document_agent import preprocess as PP
+
+    try:
+        engine = getattr(_PAGE_LOCAL, "engine", None)
+        if engine is None:
+            engine = _PAGE_LOCAL.engine = O.RapidOCREngine(threads=_int_env("BANK_STATEMENT_PAGE_OCR_THREADS", 4))
+        return engine.read_array(PP.to_array(image.convert("RGB")), upright=_upright_pages())
+    except Exception as exc:  # noqa: BLE001 - kept and re-raised per page, as each strategy reported it
+        return exc
+
+
+def warm_page_readers() -> None:
+    """Build every page reader's engine now (server startup), not inside the first scanned statement."""
+    if _page_workers() <= 1:
+        return
+    try:
+        from PIL import Image
+
+        blank = Image.new("RGB", (800, 1100), "white")
+        list(_page_pool().map(_read_page_dedicated, [blank] * _page_workers()))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Page reader warmup skipped: %s", type(exc).__name__)
+
 _PAGES: contextvars.ContextVar["_ScannedPages | None"] = contextvars.ContextVar("scanned_pages", default=None)
 
 
-def _scanned_pages(path: str) -> "_ScannedPages":
-    """The reader shared inside one extract_bank_statement call, or a fresh one for a direct caller."""
+def _scanned_pages(path: str, only: set[int] | None = None) -> "_ScannedPages":
+    """The reader shared inside one extract_bank_statement call, or a fresh one for a direct caller. `only`: the
+    pages that need OCR (a MIXED statement's scanned pages) -- the others are not rendered."""
     shared = _PAGES.get()
-    return shared if shared is not None and shared.path == path else _ScannedPages(path)
+    if shared is not None and shared.path == path and shared.only == (set(only) if only else None):
+        return shared
+    return _ScannedPages(path, only)
 
 
-def extract_via_grid(path: str, started: float) -> list[Transaction]:
+def extract_via_grid(path: str, started: float, only_pages: set[int] | None = None) -> list[Transaction]:
     """
     Read a scanned statement by reconstructing its printed table grid.
 
@@ -628,7 +705,7 @@ def extract_via_grid(path: str, started: float) -> list[Transaction]:
         logger.debug("Grid extraction unavailable: %s", exc)
         return []
 
-    pages = _scanned_pages(path)
+    pages = _scanned_pages(path, only_pages)
     try:
         images = pages.images()
     except Exception as exc:
@@ -646,6 +723,8 @@ def extract_via_grid(path: str, started: float) -> list[Transaction]:
     for index, image in enumerate(images, start=1):
         if index > cap:
             break
+        if image is None:                      # not a page this read was asked for
+            continue
         try:
             row_ys, col_xs = G.detect_grid(np.array(image.convert("L")))
         except Exception as exc:
@@ -704,7 +783,105 @@ def extract_via_grid(path: str, started: float) -> list[Transaction]:
     return out
 
 
-def extract_via_columns(path: str, started: float) -> list[Transaction]:
+def _upright_pages() -> bool:
+    """BANK_STATEMENT_OCR_ANGLE_CLS=true restores RapidOCR's per-line angle classifier on statement pages."""
+    return (os.getenv("BANK_STATEMENT_OCR_ANGLE_CLS", "false") or "false").strip().lower() != "true"
+
+
+def native_columns_enabled() -> bool:
+    """BANK_STATEMENT_NATIVE_COLUMNS (default on): a native PDF's positioned text -> the column reader first."""
+    # OPT-IN (2026-10-14): 0.06-1.5 s instead of 9-22 s, but measured not yet exact on every layout (a partial
+    # 9-of-39-row read balanced on its own) -- off until the reader is proven on the real statements
+    return (os.getenv("BANK_STATEMENT_NATIVE_COLUMNS", "false") or "false").strip().lower() == "true"
+
+
+def extract_via_native_columns(path: str) -> list[Transaction]:
+    """
+    A NATIVE (text-layer) STATEMENT READ FROM ITS WORDS' POSITIONS -- no OCR, no pdfplumber (2026-10-14).
+
+    MEASURED: pdfplumber's table geometry is ~0.75 s of pure-Python CPU per page, so a 104-page native statement
+    took ~21 s (or was deferred to the queue with 0 rows). PyMuPDF gives every text line WITH its box in native
+    code; those lines are exactly what OCR gives a scanned page, so the same column reader (`layout.cells_for_page`
+    -> `rows_to_transactions`) builds the rows. The CALLER keeps these rows ONLY when every row has an amount and
+    agrees with the running balance; otherwise the table path runs exactly as before.
+    """
+    try:
+        from app.agents.bank_statement import fastpdf
+        from app.agents.bank_statement import layout as L
+        from app.agents.bank_statement import tables as T
+        from app.agents.document_agent.schemas import OCRToken
+    except ImportError:
+        return []
+    if not fastpdf.available():
+        return []
+    out: list[Transaction] = []
+    carry: dict | None = None
+    header: list | None = None
+    dated_pages: set[int] = set()
+    read_pages: set[int] = set()
+    try:
+        with fastpdf._fitz().open(path) as doc:
+            page_count = doc.page_count
+            for index, page in enumerate(doc, start=1):
+                if index > page_cap():
+                    return []                            # over the cap: the existing path decides
+                tokens = []
+                for block in page.get_text("dict").get("blocks", []):
+                    for line in block.get("lines", []):
+                        # ONE TOKEN PER TEXT LINE, as OCR gives a scanned page (the reader was built on those)
+                        text = " ".join(str(sp.get("text") or "").strip() for sp in line.get("spans", [])).strip()
+                        if text:
+                            x0, y0, x1, y1 = line["bbox"]
+                            tokens.append(OCRToken(text=text, confidence=1.0, x0=x0, y0=y0, x1=x1, y1=y1))
+                if any(_DATE_TOKEN.search(t.text) for t in tokens):
+                    dated_pages.add(index)
+                own = L.header_of(tokens)
+                if own is not None:
+                    header = list(own[0])
+                elif header is not None and tokens:
+                    # A CONTINUATION PAGE PRINTS NO HEADER (2026-10-14, a real 104-page statement): its rows sit
+                    # in the columns the last header set, so that header is placed just above this page's first line
+                    top = min(t.y0 for t in tokens)
+                    lift = (max(h.y1 for h in header) - min(h.y0 for h in header)) + 2
+                    tokens = [h.model_copy(update={"y0": top - lift - (h.y1 - h.y0), "y1": top - lift})
+                              for h in header] + tokens
+                found = L.cells_for_page(tokens)
+                if found is None:
+                    continue
+                cells, mapping = found
+                page_rows, carry = T.rows_to_transactions(cells, mapping, index, carry, source="TEXT")
+                if page_rows:
+                    read_pages.add(index)
+                out.extend(page_rows)
+    except Exception as exc:  # noqa: BLE001 - the table path reads it instead
+        logger.debug("Native column read failed: %s", type(exc).__name__)
+        return []
+    if carry:
+        out.extend(T.flush(carry, page_count))
+    if dated_pages - read_pages - {1}:
+        # A PAGE WITH DATED LINES GAVE NO ROWS: the reader lost part of the table -- never a partial read that
+        # balances on its own (a 9-of-39-row read did); the table path reads it instead
+        return []
+    if out:
+        out, _ = T.orient_movements(out)
+    return out
+
+
+_DATE_TOKEN = re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{1,2}[ -](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[ -]\d{2,4}\b",
+                         re.IGNORECASE)
+
+
+def _native_rows_trusted(rows: list[Transaction]) -> bool:
+    """Every row has a read amount and agrees with the running balance -- else the table path reads it."""
+    from app.agents.bank_statement import tables as T
+
+    if len(rows) < 2:
+        return False
+    disagreeing, missing = T.annotate_against_balance(list(rows))
+    return disagreeing == 0 and missing == 0 and sum(r.balance is not None for r in rows) >= 0.9 * len(rows)
+
+
+def extract_via_columns(path: str, started: float, only_pages: set[int] | None = None) -> list[Transaction]:
     """
     Read a scanned statement from where its words sit on the page.
 
@@ -737,7 +914,7 @@ def extract_via_columns(path: str, started: float) -> list[Transaction]:
         logger.debug("Column extraction unavailable: %s", exc)
         return []
 
-    pages = _scanned_pages(path)
+    pages = _scanned_pages(path, only_pages)
     try:
         images = pages.images()
     except Exception as exc:
@@ -750,11 +927,13 @@ def extract_via_columns(path: str, started: float) -> list[Transaction]:
     budget = time_budget_ms()
     pages_read = 0
     if (time.perf_counter() - started) * 1000 <= budget:
-        pages.prefetch(list(range(1, min(len(images), cap) + 1)))
+        pages.prefetch([i for i in range(1, min(len(images), cap) + 1) if images[i - 1] is not None])
 
     for index, image in enumerate(images, start=1):
         if index > cap or (time.perf_counter() - started) * 1000 > budget:
             break
+        if image is None:                      # not a page this read was asked for
+            continue
 
         try:
             tokens, _ = pages.tokens(index)
@@ -1073,7 +1252,10 @@ def _drop_date_outliers(
 
     ordinals = sorted(r.date.toordinal() for r in rows)
     median = ordinals[len(ordinals) // 2]
-    kept = [r for r in rows if abs(r.date.toordinal() - median) <= 400]
+    # BANK_STATEMENT_DATE_WINDOW_DAYS (default 400): a caller reading multi-year statements raises it for its own
+    # read (raised_limits), e.g. the credit bank verification agent; every other caller keeps the year-ish window
+    window = _int_env("BANK_STATEMENT_DATE_WINDOW_DAYS", 400)
+    kept = [r for r in rows if abs(r.date.toordinal() - median) <= window]
     return kept, len(rows) - len(kept)
 
 
@@ -1108,7 +1290,22 @@ def _extract_bank_statement(path: str) -> BankStatementResult:
         )
 
     pages = len(texts)
-    kind = classify_source(pages, with_text)
+    # PER PAGE (2026-11-02, page_routing.py): a page is read from its text layer or OCR'd by its own shape -- a
+    # scan with a typed header is a scan, and one scanned page among digital ones is read, not skipped
+    ocr_pages: list[int] = []
+    try:
+        from app.agents.bank_statement import page_routing as R
+
+        routed = R.inspect_pages(path)
+        ocr_pages = [pg.number for pg in routed if pg.route == R.OCR]
+        with_text = len(routed) - len(ocr_pages)
+        kind = (SourceKind.SCANNED if ocr_pages and not with_text else
+                SourceKind.MIXED if ocr_pages else SourceKind.DIGITAL)
+    except Exception as exc:  # noqa: BLE001 - the page count of the text layer, as before
+        logger.warning("Page routing unavailable (%s); routing by text length", type(exc).__name__)
+        kind = classify_source(pages, with_text)
+        ocr_pages = [i for i, t in enumerate(texts, start=1) if len(t.strip()) < MIN_CHARS_PER_PAGE] \
+            if kind is SourceKind.MIXED else []
     joined = "\n".join(texts)
 
     result = BankStatementResult(
@@ -1155,6 +1352,11 @@ def _extract_bank_statement(path: str) -> BankStatementResult:
                 "the printed table grid."
             )
     table_budget_exhausted = False
+    if not rows and kind is SourceKind.DIGITAL and native_columns_enabled():
+        native = extract_via_native_columns(path)
+        if _native_rows_trusted(native):
+            rows, column_aware = native, True
+            result.warnings.append("Rows read from the text layer's column positions.")
     if not rows and kind is not SourceKind.SCANNED:
         rows, table_budget_exhausted = extract_via_tables(path, started)
         if rows:
@@ -1249,7 +1451,8 @@ def _extract_bank_statement(path: str) -> BankStatementResult:
         result.processing_ms = round((time.perf_counter() - started) * 1000, 2)
         return result
 
-    text_source = [] if rows else list(enumerate(texts, start=1))
+    ocr_set = set(ocr_pages)
+    text_source = [] if rows else [(i, t) for i, t in enumerate(texts, start=1) if i not in ocr_set]
     # The budget for THIS loop starts now. Time already spent rasterising and
     # OCR'ing is real work, not overrun, and charging it here meant a scanned
     # statement was truncated before a single page was parsed.
@@ -1264,7 +1467,20 @@ def _extract_bank_statement(path: str) -> BankStatementResult:
         if len(text.strip()) < MIN_CHARS_PER_PAGE:
             continue
         rows.extend(_rows_from_page(text, index))
-
+    # A MIXED STATEMENT'S SCANNED PAGES ARE READ (2026-11-02, audit G1): before, they were counted as unread and their
+    # transactions were missing from a statement that otherwise reported success
+    unread_pages: list[int] = []
+    if kind is SourceKind.MIXED and ocr_pages:
+        if len(ocr_pages) <= inline_ocr_pages():
+            extra = (extract_via_grid(path, started, only_pages=ocr_set)
+                     or extract_via_columns(path, started, only_pages=ocr_set))
+            read = {r.page for r in extra}
+            unread_pages = [i for i in ocr_pages if i not in read]
+            if extra:
+                rows.extend(extra)
+                result.warnings.append(f"{len(read)} scanned page(s) of this statement read by OCR.")
+        else:
+            unread_pages = list(ocr_pages)
     rows.sort(key=lambda r: (r.date, r.page))
     rows, dropped = _drop_date_outliers(rows)
 
@@ -1313,7 +1529,7 @@ def _extract_bank_statement(path: str) -> BankStatementResult:
 
         result.rows_not_read = serial_gaps(rows)
         if kind is SourceKind.MIXED:
-            result.pages_unread = max(0, pages - with_text)
+            result.pages_unread = len(unread_pages)
 
         balances = [r.balance for r in rows if r.balance is not None]
         if balances:
@@ -1417,9 +1633,14 @@ def _extract_bank_statement(path: str) -> BankStatementResult:
             "unverified."
         )
 
-    if kind is SourceKind.MIXED:
+    if kind is SourceKind.MIXED and unread_pages:
+        # NEVER AN APPARENT SUCCESS: pages that could not be read make the reading partial
+        result.pages_unread = len(unread_pages)
+        if result.status is ExtractionStatus.SUCCESS:
+            result.status = ExtractionStatus.PARTIAL
         result.warnings.append(
-            f"Only {with_text} of {pages} pages carry text; the remainder need OCR."
+            f"{len(unread_pages)} of {pages} page(s) could not be read (no text layer, OCR found no table): "
+            f"pages {', '.join(map(str, unread_pages[:20]))}."
         )
 
     result.processing_ms = round((time.perf_counter() - started) * 1000, 2)

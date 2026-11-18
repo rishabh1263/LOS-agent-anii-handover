@@ -150,6 +150,9 @@ class ReasonCode(str, Enum):
 
     # Overall
     INSUFFICIENT_SOURCES = "INSUFFICIENT_SOURCES"
+    # No identity document among the sources: names agreeing across a salary slip and a bank statement is not
+    # identity verification (2026-10-13)
+    IDENTITY_DOCUMENT_MISSING = "IDENTITY_DOCUMENT_MISSING"
     INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
     CHECK_DISABLED = "CHECK_DISABLED"
 

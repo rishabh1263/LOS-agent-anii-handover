@@ -1,0 +1,30 @@
+# CREDIT UNDERWRITING -- SERVICE SETTINGS (where the bank analysis lives, who may read it, 2026-10-19)
+# Rules are in policy.yaml; the vendor's field names in vendor_fields.yaml. Nothing here decides a case.
+
+# where each case's vendor bank analysis is kept
+store:
+  backend: files                    # files (development / demo) | postgres (production: the eligibility database)
+  files_dir: runtime/credit_bank_analysis   # one JSON per case, written by the upload API
+  demo_dir: samples/credit_bank_reports     # synthetic reports for the demo cases (read when a case has no upload)
+  postgres_table: credit_bank_analysis
+
+# the optional file on POST /api/v1/credit/assess/{case_id}
+upload:
+  max_bytes: 15728640               # 15 MB
+  accept: [.xlsx, .json]            # the vendor workbook, or our normalized JSON
+
+# who may call it (any one of these scopes; sending a file also needs one of them -- the read-all scope cannot)
+scopes: ["los.credit.underwrite", "agents:execute"]
+
+# the AI summary at the end of the answer (wording.yaml ai_summary holds the instructions and the guard words)
+ai_summary:
+  enabled: true
+  timeout_seconds: 0                # the answer does not wait for the AI (CPU Qwen takes 8-20 s): it goes out at
+                                    # once with the facts-built note + pending: true; the AI note is ready next time
+  model_timeout_seconds: 60         # the note keeps being written after that, and is ready the next time
+                                    # (CPU Qwen 4B: a 4-sentence note takes ~12-25 s)
+  max_chars: 700
+  sentences: 3                      # generation stops once this many sentences are complete
+  num_predict: 160
+  keep_alive: "30m"
+  cache_size: 256                   # the same facts -> the same summary at once

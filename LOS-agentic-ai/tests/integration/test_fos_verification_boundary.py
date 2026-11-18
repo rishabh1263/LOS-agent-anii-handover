@@ -33,10 +33,12 @@ from app.store.testing import fresh_repository
 
 SAMPLES = Path(__file__).resolve().parents[2] / "samples" / "real_batch"
 PAN_COMPLETE = SAMPLES / "pan_bw2.jpg"          # passes as PAN
-PAN_DOB_UNREADABLE = SAMPLES / "pan_bw1.jpg"    # REVIEW: DOB unread
+# REVIEW: DOB unread. pan_bw1 itself now reads its printed DOB (it IS legible) and passes; the unread-DOB case is
+# that same card with the printed date covered -- see tests/integration/pan_fixtures.py.
+from tests.integration.pan_fixtures import SOURCE as PAN_DOB_SOURCE, pan_with_unreadable_dob
 
 pytestmark = pytest.mark.skipif(
-    not (PAN_COMPLETE.exists() and PAN_DOB_UNREADABLE.exists()),
+    not (PAN_COMPLETE.exists() and PAN_DOB_SOURCE.exists()),
     reason="sample documents not available")
 
 FOS_SCOPES = [
@@ -160,7 +162,7 @@ def test_a_wrong_document_type_is_a_fail_and_leaves_nothing_behind(client, store
 def test_a_review_withholds_from_the_store_and_the_copilot(client, store):
     applicant_id, case_id = open_case(client)
 
-    verification = upload(client, applicant_id, case_id, PAN_DOB_UNREADABLE, "PAN")
+    verification = upload(client, applicant_id, case_id, pan_with_unreadable_dob(), "PAN")
 
     assert verification["verification"] == "REVIEW"
     assert verification["extraction_released"] is False
@@ -168,7 +170,7 @@ def test_a_review_withholds_from_the_store_and_the_copilot(client, store):
 
     body = ask(client, applicant_id, case_id, "What is my PAN name?")
     assert "under review" in body["answer"]  # the recorded REVIEW, in words
-    assert not any(n in body["answer"] for n in pipeline_names(PAN_DOB_UNREADABLE))
+    assert not any(n in body["answer"] for n in pipeline_names(pan_with_unreadable_dob()))
 
 
 def test_skipped_verification_releases_nothing(client, store, monkeypatch):
@@ -210,7 +212,7 @@ def test_the_los_route_applies_the_same_gate(make_token, store):
         return response.json()["documents"][0]
 
     passed = process(PAN_COMPLETE, "CASE-LOS-PASS")
-    held = process(PAN_DOB_UNREADABLE, "CASE-LOS-REVIEW")
+    held = process(pan_with_unreadable_dob(), "CASE-LOS-REVIEW")
 
     assert passed["verification"] == "PASS" and passed.get("extraction")
     assert held["verification"] == "REVIEW" and not held.get("extraction")

@@ -34,6 +34,7 @@ confirming that a case exists under someone else is itself a disclosure.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Callable, Iterable
 
 from fastapi import Depends, HTTPException, status
@@ -61,14 +62,18 @@ class AccessDenied(Exception):
 # ==========================================================================
 
 def read_all_scope() -> str:
-    from app.agents.applicant import config
-
+    try:
+        from app.agents.applicant import config
+    except ImportError:          # a standalone service (e.g. the marksheet zip) ships without the applicant agent
+        return os.getenv("LOS_READ_ALL_SCOPE") or "los.read"
     return config.read_all_scope()
 
 
 def write_all_scope() -> str:
-    from app.agents.applicant import config
-
+    try:
+        from app.agents.applicant import config
+    except ImportError:          # a standalone service (e.g. the marksheet zip) ships without the applicant agent
+        return os.getenv("LOS_WRITE_ALL_SCOPE") or "los.write"
     return config.write_all_scope()
 
 

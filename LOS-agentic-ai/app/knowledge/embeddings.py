@@ -195,6 +195,14 @@ class OllamaEmbedding(EmbeddingProvider):
             return []
 
         endpoint = self._url.rstrip("/") + "/api/embed"
+        shared = self._transport is _http_post and _same_host_as_llm(self._url)
+        # OLLAMA DOWN: the shared availability breaker (app/llm/availability.py) answers at once for its cooldown.
+        # Before (2026-11-02) every chat turn paid two ~2 s refused connections and then failed.
+        if shared:
+            from app.llm import availability
+
+            if not availability.provider_reachable():
+                raise EmbeddingError("Embeddings are unavailable from model " + self._model + ".")
 
         try:
             payload = self._transport(
@@ -205,6 +213,11 @@ class OllamaEmbedding(EmbeddingProvider):
             # The URL appears in the underlying error. Logged by type
             # only, and not re-raised onward.
             logger.warning("Ollama embedding failed: %s", type(exc).__name__)
+            # only a REFUSED connection means "not running" (urllib wraps it in URLError.reason); a slow one is not
+            if shared and isinstance(getattr(exc, "reason", exc), ConnectionRefusedError):
+                from app.llm import availability
+
+                availability.mark_unavailable(f"embedding {type(exc).__name__}")
             raise EmbeddingError(
                 "Embeddings are unavailable from model " + self._model + "."
             ) from None
@@ -264,6 +277,17 @@ def _http_post(url: str, body: dict, timeout: float) -> dict:
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.load(response)
+
+
+def _same_host_as_llm(url: str) -> bool:
+    """Whether the embeddings come from the chat model's Ollama (one breaker covers both)."""
+    from urllib.parse import urlparse
+
+    from app.llm import availability
+
+    endpoint = availability._endpoint()
+    parsed = urlparse(url)
+    return endpoint is not None and (parsed.hostname or "127.0.0.1", parsed.port or 11434) == endpoint
 
 
 def _int_env(name: str) -> int | None:

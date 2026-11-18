@@ -98,12 +98,56 @@ def _conversation_state_ddl() -> str:
             "CREATE INDEX IF NOT EXISTS idx_conversation_activity ON conversation_state (last_activity_at);")
 
 
+#: One row per eligibility assessment (POST /api/v1/eligibility/assessments): who asked, under which Idempotency-Key
+#: (a retried POST is the SAME assessment -- unique per caller), its case, its status and the clean result.
+_ELIGIBILITY_ASSESSMENTS_DDL = """
+CREATE TABLE IF NOT EXISTS eligibility_assessments (
+    assessment_id    TEXT PRIMARY KEY,
+    subject          TEXT NOT NULL,
+    idempotency_key  TEXT,
+    case_id          TEXT,
+    applicant_id     TEXT,
+    status           TEXT NOT NULL CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
+    result           TEXT,
+    error_code       TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_eligibility_assessment_key
+    ON eligibility_assessments (subject, idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_eligibility_assessment_case ON eligibility_assessments (case_id);
+"""
+
+
 MIGRATIONS: tuple[tuple[str, str, Any], ...] = (
     ("0001", "baseline: the case store schema", schema_ddl),
     ("0002", "copilot conversation state in the case store (multi-worker memory)", _conversation_state_ddl),
     ("0003", "REAL columns as DOUBLE PRECISION (Postgres REAL is 4-byte)",
      lambda: ("ALTER TABLE jev_runs ALTER COLUMN latency_ms TYPE DOUBLE PRECISION;\n"
               "ALTER TABLE conversation_state ALTER COLUMN last_activity_at TYPE DOUBLE PRECISION;")),
+    ("0007", "eligibility assessments: the asynchronous eligibility API's durable jobs (2026-10-13)",
+     lambda: _ELIGIBILITY_ASSESSMENTS_DDL),
+    # THE LTV GRID'S APPLICATION FIELDS on an EXISTING store (2026-10-13, real run on the dev store: "column
+    # property_type of relation applications does not exist" -- the additive column list only shapes a NEW schema)
+    ("0008", "applications: property_type, purchase_price, valuation_value (LTV grid)",
+     lambda: ("ALTER TABLE applications ADD COLUMN IF NOT EXISTS property_type TEXT;\n"
+              "ALTER TABLE applications ADD COLUMN IF NOT EXISTS purchase_price TEXT;\n"
+              "ALTER TABLE applications ADD COLUMN IF NOT EXISTS valuation_value TEXT;")),
+    # THE CO-APPLICANT'S EMPLOYMENT (2026-10-21, approved by the owner): a nullable column, existing rows NULL
+    ("0009", "applications: co_applicant_employment_type",
+     lambda: "ALTER TABLE applications ADD COLUMN IF NOT EXISTS co_applicant_employment_type TEXT;"),
+    # THE LOS SOURCING SCREEN'S FIELDS (2026-10-22, SQL shown to and approved by the owner): nullable, no default, no
+    # backfill. 0010 stays reserved for the party_identity proposal. mobile_aadhaar_linked is ONLY a yes / no about
+    # the applicant's mobile -- never an Aadhaar number.
+    ("0011", "applications: loan_purpose, applicant_type; applicants: mobile_aadhaar_linked",
+     lambda: ("ALTER TABLE applications ADD COLUMN IF NOT EXISTS loan_purpose TEXT;\n"
+              "ALTER TABLE applications ADD COLUMN IF NOT EXISTS applicant_type TEXT;\n"
+              "ALTER TABLE applicants ADD COLUMN IF NOT EXISTS mobile_aadhaar_linked BOOLEAN;")),
+    # THE LOS APPLICATION DETAILS SCREEN (2026-10-23, SQL shown to and approved by the owner): nullable, no default,
+    # no backfill -- a case opened before keeps NULL ("not captured", never "no").
+    ("0012", "applications: document_received_date, co_origination",
+     lambda: ("ALTER TABLE applications ADD COLUMN IF NOT EXISTS document_received_date DATE;\n"
+              "ALTER TABLE applications ADD COLUMN IF NOT EXISTS co_origination BOOLEAN;")),
 )
 
 
@@ -448,8 +492,15 @@ class PostgresRepository(sql_repo.SqlRepository):
             if self._initialised:
                 return
             conn = self._connect()
+            # THE MIGRATION LOCK LIVES ON ITS OWN CONNECTION, taken from the pool and held until it is released.
+            # _Connection borrows a pooled connection PER STATEMENT, so a session lock taken through it stayed on
+            # whichever connection ran the SELECT -- returned to the pool still holding it -- and the unlock ran on
+            # another session (a no-op): the lock then sat on a pooled connection for the life of the process and
+            # every other process's start-up waited on it for ever (seen 2026-10-21).
+            pool = self._pool_get()
+            holder = pool.getconn()
             try:
-                conn.execute("SELECT pg_advisory_lock(?)", (_LOCK_KEY,))
+                holder.execute("SELECT pg_advisory_lock(%s)", (_LOCK_KEY,))
                 conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations ("
                              "version TEXT PRIMARY KEY, description TEXT NOT NULL, "
                              "applied_at TIMESTAMPTZ NOT NULL DEFAULT now())")
@@ -469,11 +520,19 @@ class PostgresRepository(sql_repo.SqlRepository):
                 conn.rollback()
                 raise RepositoryError(f"Could not migrate the Postgres schema: {exc}") from exc
             finally:
+                # THE LOCK IS ALWAYS RELEASED, on the session that holds it; a failed migration's transaction is
+                # rolled back first so the work connection goes back to the pool clean.
                 try:
-                    conn.execute("SELECT pg_advisory_unlock(?)", (_LOCK_KEY,))
-                    conn.commit()
-                except Exception:  # noqa: BLE001
+                    conn.rollback()
+                except Exception:  # noqa: BLE001 - nothing to roll back
                     pass
+                try:
+                    holder.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_KEY,))
+                except Exception as exc:  # noqa: BLE001 - reported: a held lock blocks every other process
+                    logger.error("Postgres case store: the migration lock could not be released (%s)",
+                                 type(exc).__name__)
+                finally:
+                    pool.putconn(holder)
             self._initialised = True
             logger.info("Case store ready on PostgreSQL (%d migration(s))", len(MIGRATIONS))
 

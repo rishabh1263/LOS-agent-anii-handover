@@ -7,8 +7,13 @@ is refused with ToolNotAllowed before it runs. Every tool is READ-ONLY.
   existing MCP capabilities, through the MCP runtime (same authorisation,
   same tracing, same protocol/in-process transport as the Copilot):
       applicant.get, application.get, documents.get, eligibility.get
+  the credit stage's own MCP capability (app/mcp/credit.py):
+      repayment.get              -- vendor bank analysis + eligibility: the repayment report
   thin readers of recorded findings (adapters/):
       kyc.get, income.get, bank_behaviour.get, risk.get, financial_documents.get
+  the Credit Document Policy Agent (app/agents/docs_verify_credit_agent), its sub-agent:
+      document_readiness.get     -- open document requirements for this stage; the same evaluation as
+                                    POST /credit/document-readiness (it records that evaluation's audit, nothing else)
   the bureau provider (bureau/):
       bureau.get                 -- per party; transient failure retried once
 
@@ -54,6 +59,8 @@ TOOLS: dict[str, ToolSpec] = {spec.name: spec for spec in (
     ToolSpec("bank_behaviour.get", "banking", "case", "reader"),
     ToolSpec("risk.get", "risk", "case", "reader"),
     ToolSpec("financial_documents.get", "income", "case", "reader"),
+    ToolSpec("repayment.get", "repayment", "case", "mcp"),
+    ToolSpec("document_readiness.get", "document_policy", "case", "reader"),
     ToolSpec("bureau.get", "bureau", "party", "bureau"),
 )}
 
@@ -172,6 +179,10 @@ def _grade_mcp(name: str, envelope: Any, ctx: UnderwritingContext,
             tool=name, category=category, quality=Quality.PRESENT, data=eligibility,
             evidence=[_ref(EvidenceSource.ELIGIBILITY, "FINDING:FINANCIAL/ELIGIBILITY",
                            ctx.case_id, "status", eligibility.get("status"))])
+    if name == "repayment.get":
+        from app.agents.credit.adapters import repayment
+
+        return repayment.grade(result, ctx.case_id)
     return Observation(tool=name, party_id=party_id, category=category,
                        quality=Quality.PRESENT, data=result)
 
@@ -194,6 +205,7 @@ async def _run_mcp(name: str, ctx: UnderwritingContext, party_id: str | None,
 
 async def _run_reader(name: str, ctx: UnderwritingContext) -> tuple[Observation, str]:
     from app.agents.credit.adapters import bank, case_memory, financial_documents, risk
+    from app.agents.docs_verify_credit_agent.integrations import credit_underwriting_adapter
 
     readers: dict[str, Callable[[], Observation]] = {
         "kyc.get": lambda: case_memory.kyc_get(
@@ -203,6 +215,7 @@ async def _run_reader(name: str, ctx: UnderwritingContext) -> tuple[Observation,
         "risk.get": lambda: risk.risk_get(ctx.case_id),
         "financial_documents.get": lambda: financial_documents.financial_documents_get(
             ctx.case_id, ctx.applicant_id),
+        "document_readiness.get": lambda: credit_underwriting_adapter.document_readiness_get(ctx.case_id),
     }
     observation = await asyncio.to_thread(readers[name])
     return observation, "OK" if observation.quality is not Quality.MISSING else "NOT_FOUND"

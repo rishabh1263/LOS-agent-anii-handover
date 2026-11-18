@@ -152,8 +152,11 @@ _EXPAND_WHY = {
     "APPLICATION_STAGE": "Why is my application under review?",
     "DOCUMENTS_PENDING": "Why are my documents still pending?",
     "DOCUMENTS_MISSING": "Why are my documents still pending?",
-    "PENDING_ITEMS": "Why is my application under review?",
-    "READINESS": "Why is my application under review?",
+    # "why not?" after "is it ready for CPA?" / "what is pending" asks what blocks it -- the readiness blockers
+    # (intents.asks_why_blocked / asks_why_pending), not the recorded review reason (2026-11-06 live eval: it gave the
+    # case timeline and "no individual findings")
+    "PENDING_ITEMS": "Why is the case still pending?",
+    "READINESS": "Why can't this case move to CPA?",
 }
 _BARE_THEIRS = re.compile(r"^\s*(and\s+|aur\s+|what\s+about\s+|how\s+about\s+)?"
                           r"(theirs|their\s+one|unka|unki|unke|unka\s+kya|unki\s+kya|unke\s+bare\s+mein)"
@@ -1075,6 +1078,11 @@ def _match_option(text: str, options: list[Option]) -> tuple[list[int], Any]:
                        and not re.search(r"co-?\s?applicant", o.label, re.IGNORECASE)]
         if len(by_document) == 1:
             return by_document, c
+    if named_document and not any(_frames._document_type(o.label) == named_document for o in options) \
+            and any(_frames._document_type(o.label) for o in options):
+        # "PAN verify hua kya?" after "what about the Voter ID -- verify, upload, why?": it names ANOTHER document,
+        # so it is a new question -- never the Voter ID option its verb happens to match (live, 2026-10-13)
+        return [], c
 
     asked = profile.detect(text)
     if asked is not None and not asked.field.startswith("ALL"):
@@ -1797,6 +1805,10 @@ def update_from_response(state: ConversationState, message: str,
         state.last_subject_party = {"BOTH": "BOTH", "CO": "CO_APPLICANT", "CO_APPLICANT": "CO_APPLICANT",
                                     "SELF": "PRIMARY_APPLICANT", "PRIMARY": "PRIMARY_APPLICANT",
                                     "PRIMARY_APPLICANT": "PRIMARY_APPLICANT"}.get(whose)
+        if state.last_subject_party == "CO_APPLICANT" and isinstance(subject, dict) and subject.get("note"):
+            # THE CASE HAS NO CO-APPLICANT ("is there a co-applicant?" -> none): "his date of birth" next can only be
+            # the applicant's (2026-10-14), never "there is no co-applicant" again
+            state.last_subject_party = "PRIMARY_APPLICANT"
         party_id = _party_id_for(state, response)
         if party_id:
             state.active_party_id = party_id

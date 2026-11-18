@@ -86,6 +86,9 @@ class Applicant:
     email: str | None = None
     date_of_birth: str | None = None
     address: str | None = None
+    #: Whether the MOBILE is Aadhaar-linked (LOS Sourcing screen; migration 0011): yes / no / None = not captured.
+    #: A flag about the mobile only -- no Aadhaar number is ever taken or stored.
+    mobile_aadhaar_linked: bool | None = None
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
 
@@ -149,7 +152,7 @@ class Application:
     #: DECLARED, AND ONLY EVER TREATED AS DECLARED. Eligibility reads it
     #: through a policy allowlist that is empty by default, so capturing
     #: it does not by itself put it into a FOIR -- see
-    #: eligibility_policy.yaml.
+    #: eligibility_config.yaml.
     declared_monthly_obligations: str | None = None
 
     #: What the applicant says they EARN each month, as FOS captured it.
@@ -166,12 +169,27 @@ class Application:
     #: sources. Never derived from a sale deed's consideration price.
     property_value: str | None = None
 
+    #: The LTV grid's inputs (2026-10-13): RESIDENTIAL / COMMERCIAL / INDUSTRIAL; a valuation report's value; the
+    #: agreed purchase price of the property being BOUGHT (never an old sale deed's consideration). Stored as text,
+    #: parsed at the point of use, like the other terms.
+    property_type: str | None = None
+    purchase_price: str | None = None
+    valuation_value: str | None = None
+    #: The LOS Sourcing screen (2026-10-22, migration 0011): free text until the business sends the lists.
+    loan_purpose: str | None = None
+    applicant_type: str | None = None
+    #: The LOS Application Details screen (2026-10-23, migration 0012): ISO date; yes / no. None = not captured.
+    document_received_date: str | None = None
+    co_origination: bool | None = None
+
     #: The second party on this case, when there is one.
     #:
     #: Held on the APPLICATION rather than the applicant because a person
     #: can be a co-applicant on one case and a primary applicant on
     #: another; the relationship belongs to the case, not to either party.
     co_applicant_id: str | None = None
+    #: The co-applicant's employment (SALARIED / SELF_EMPLOYED), when one is on the case; None: not captured.
+    co_applicant_employment_type: str | None = None
 
     # -- the policy this case was assessed under --------------------------
     #
@@ -201,6 +219,11 @@ class Application:
         if (self.employment_type or "").strip():
             attributes["employment_type"] = self.employment_type.strip().upper()
         return attributes
+
+    def co_applicant_policy_attributes(self) -> dict[str, str]:
+        """What the policy engine may key on for the CO-APPLICANT (absent values left absent)."""
+        value = (self.co_applicant_employment_type or "").strip()
+        return {"employment_type": value.upper()} if value else {}
 
     def missing_fields(self) -> list[str]:
         return [
@@ -338,6 +361,10 @@ class FindingKind(str, Enum):
     #: An exception to a configured policy rule awaiting its approving
     #: authority. Raised only by a configured rule; never self-approved.
     DEVIATION = "DEVIATION"
+    #: The Credit document policy agent's readiness evaluation
+    #: (app/agents/docs_verify_credit_agent): every requirement-level outcome,
+    #: the policy version and the input hash. Not a credit verdict.
+    DOCUMENT_POLICY = "DOCUMENT_POLICY"
 
 
 @dataclass

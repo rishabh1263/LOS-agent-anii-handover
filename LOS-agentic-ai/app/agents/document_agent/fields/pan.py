@@ -26,7 +26,7 @@ from app.agents.document_agent.normalize import (
     normalize_date, normalize_name, normalize_pan,
 )
 from app.agents.document_agent.schemas import OCRToken
-from app.agents.document_agent.validate import plausible_dob
+from app.agents.document_agent.validate import PAN_HOLDER_CHARS, plausible_dob
 
 FALLBACK_MIN_CONFIDENCE = 0.80
 
@@ -49,7 +49,7 @@ _DOB_LABELS = ["DATEOFBIRTH", "DOB", "DATEOFBRTH", "BIRTH"]
 # A PAN reads AAAAA9999A, and the fourth character is a holder-type code from
 # a fixed set. Anything outside that set is not a PAN however well it matches
 # the shape.
-_PAN_EXACT = re.compile(r"^[A-Z]{3}[ABCFGHLJPTKE][A-Z]\d{4}[A-Z]$")
+_PAN_EXACT = re.compile(rf"^[A-Z]{{3}}[{PAN_HOLDER_CHARS}][A-Z]\d{{4}}[A-Z]$")
 
 # Tokens that are plainly something else. A camera timestamp overlay
 # ("18-08-2026 08:17") survived digit-to-letter repair and was emitted as a

@@ -1,0 +1,210 @@
+{
+  "_notice": "SAMPLE CONFIGURATION -- NOT THE LENDER'S APPROVED POLICY. Loan against property: the requirements come from the product checklist (applicant_agent.yaml LOAN_AGAINST_PROPERTY: the property's title deed at login) + the stage rules; this file adds 12 months of bank statement (secured on property the applicant already owns) and the rest as for personal loan.",
+  "policy_id": "CREDIT_DOCS_LOAN_AGAINST_PROPERTY",
+  "version": "LAP-CREDIT-0.1.0-SAMPLE",
+  "status": "SAMPLE",
+  "approval": {
+    "approved_by": null,
+    "approved_on": null,
+    "reference": null
+  },
+  "effective_from": "2026-10-01",
+  "effective_to": null,
+  "applies_to": {
+    "products": [
+      "LOAN_AGAINST_PROPERTY"
+    ],
+    "schemes": [],
+    "stage": "CREDIT"
+  },
+  "base": {
+    "_comment": "Rules 1, 3, 4, 5, 8: the case's requirements come from the EXISTING document policy engine (app/agents/policy: app/config/policies/<product>.yaml + app/config/stage_requirements.yaml, cumulative through this stage). This file adds only what that engine does not hold.",
+    "source": "PRODUCT_POLICY_ENGINE",
+    "through_stage": "CREDIT",
+    "blocking": true
+  },
+  "document_states": {
+    "_comment": "How a stored document's recorded state counts. Read from the document record, never re-verified here.",
+    "satisfied": [
+      "VERIFIED"
+    ],
+    "pending": [
+      "UPLOADED",
+      "PROCESSING"
+    ],
+    "under_review": [
+      "REVIEW"
+    ],
+    "rejected": [
+      "REJECTED"
+    ],
+    "verification_failed": [
+      "FAIL",
+      "FAILED",
+      "REJECTED",
+      "BLOCKED"
+    ]
+  },
+  "parties": {
+    "_comment": "Rule 2. PRIMARY_APPLICANT: the base requirements. CO_APPLICANT: the existing configured co-applicant checklist (applicant_agent.yaml readiness.co_applicant_documents). A role's requirements apply only to parties of that role present on the case.",
+    "PRIMARY_APPLICANT": {
+      "source": "base"
+    },
+    "CO_APPLICANT": {
+      "source": "base",
+      "blocking": true,
+      "exclude": [
+        "PROPERTY_DOCUMENT",
+        "PROPERTY_OWNERSHIP_PROOF"
+      ],
+      "_comment": "The co-applicant is checked on the applicant's own checklist; the property's documents are the case's."
+    }
+  },
+  "period_and_freshness": [
+    {
+      "rule_id": "PF_BANK_STATEMENT_PERIOD",
+      "document_types": [
+        "BANK_STATEMENT"
+      ],
+      "date_field": "period_end",
+      "max_age_days": 45,
+      "blocking": false,
+      "reason": "SAMPLE: the statement must cover 12 months and end within 45 days.",
+      "min_months": 12
+    },
+    {
+      "rule_id": "PF_SALARY_SLIP_RECENCY",
+      "document_types": [
+        "SALARY_SLIP"
+      ],
+      "date_field": "pay_period",
+      "max_age_days": 62,
+      "blocking": false,
+      "reason": "SAMPLE: the latest salary slip must be for a month ending within 62 days of the evaluation.",
+      "min_count": 1
+    },
+    {
+      "rule_id": "PF_ID_VALIDITY",
+      "document_types": [
+        "DRIVING_LICENCE",
+        "PASSPORT"
+      ],
+      "blocking": false,
+      "reason": "An expired identity document cannot satisfy a requirement.",
+      "expiry_field": "valid_until"
+    }
+  ],
+  "supporting_documents": [
+    {
+      "rule_id": "SD_ITR_COMPUTATION",
+      "when_present": "ITR",
+      "requires_one_of": [
+        "ITR_COMPUTATION"
+      ],
+      "blocking": false,
+      "reason": "SAMPLE: an ITR is read with its computation of income."
+    }
+  ],
+  "same_kind": {
+    "_comment": "Rule 5. Types a customer may offer for a slot that this policy does NOT accept: reported as not permitted, never counted. SAMPLE list.",
+    "ADDRESS_PROOF": [
+      "UTILITY_BILL",
+      "RENT_AGREEMENT",
+      "GAS_BILL"
+    ],
+    "INCOME_PROOF": [
+      "FORM_16",
+      "EMPLOYMENT_LETTER"
+    ]
+  },
+  "display_names": {
+    "_comment": "How a slot or document type is written in a reason. Anything not listed is written as lower-case words.",
+    "PAN": "PAN",
+    "ITR": "ITR",
+    "ITR_COMPUTATION": "ITR computation",
+    "GST_CERTIFICATE": "GST certificate",
+    "EMPLOYEE_ID": "employee ID",
+    "VOTER_ID": "voter ID",
+    "AADHAAR": "Aadhaar",
+    "BUSINESS_PROOF_1": "business photo 1",
+    "BUSINESS_PROOF_2": "business photo 2",
+    "PERSONAL_LOAN": "personal loan",
+    "PROPERTY_DOCUMENT": "property title deed",
+    "PROPERTY_OWNERSHIP_PROOF": "property ownership proof",
+    "SALE_DEED": "sale deed"
+  },
+  "cross_stage": {
+    "_comment": "Rule 8. Documents collected at an earlier stage (FOS / CPA) are reused and never asked for again. A type listed in collect_at_stage must be uploaded on or after the case entered this stage; none is listed (business decision 2026-10-21: the bank statement taken at FOS is accepted; RULE-06 still checks that it is recent).",
+    "reuse_from_stages": [
+      "FOS",
+      "CPA"
+    ],
+    "collect_at_stage": []
+  },
+  "exceptions": [
+    {
+      "rule_id": "EX_NON_STANDARD_ADDRESS_PROOF",
+      "slots": [
+        "ADDRESS_PROOF"
+      ],
+      "deviation_codes": [
+        "DVM-62A2A3"
+      ],
+      "reason": "SAMPLE mapping: deviation master 'Acceptance of Non-Standards documents as proof for ID/Age/Address' may waive the address proof requirement once APPROVED through the deviation / maker-checker path."
+    }
+  ],
+  "_critical_comment": "Critical (blocks underwriting) ONLY when a required document is missing, not of an accepted type, rejected by verification or mismatched (possibly fake), or waits on an exception. Everything else (an old or short statement, a file to re-upload, a document still being verified) is non-critical: the case can move ahead and the customer is asked for it.",
+  "critical_when": [
+    "MISSING",
+    "NOT_ACCEPTED",
+    "REJECTED",
+    "MISMATCH",
+    "EXCEPTION_PENDING"
+  ],
+  "unevaluated_conditions_block": false,
+  "file_rules": {
+    "_comment": "Rule 11. The stored file itself: real format (read from its bytes) and size. by_type overrides default. SAMPLE limits.",
+    "rule_id": "FILE_SIZE_FORMAT",
+    "default": {
+      "formats": [
+        "PDF",
+        "JPEG",
+        "PNG"
+      ],
+      "max_mb": 10,
+      "min_kb": 20
+    },
+    "by_type": {
+      "BANK_STATEMENT": {
+        "formats": [
+          "PDF"
+        ],
+        "max_mb": 25
+      },
+      "SIGNATURE": {
+        "formats": [
+          "JPEG",
+          "PNG"
+        ],
+        "max_mb": 2,
+        "min_kb": 5
+      }
+    },
+    "if_file_missing": "skip",
+    "blocking": false
+  },
+  "rules": {
+    "_comment": "Switch any rule off with false (RULE-10, the audit, cannot be). Also: env DOCS_CREDIT_RULES_OFF=RULE-07,RULE-11",
+    "RULE-01": true,
+    "RULE-02": true,
+    "RULE-03": true,
+    "RULE-04": true,
+    "RULE-05": true,
+    "RULE-06": true,
+    "RULE-07": true,
+    "RULE-08": true,
+    "RULE-09": true,
+    "RULE-10": true,
+    "RULE-11": true
+  }
+}

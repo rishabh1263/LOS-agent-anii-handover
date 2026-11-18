@@ -328,6 +328,13 @@ _LOCAL_SUBJECT = re.compile(
     r"का|की|के|बद्दल)\s*[?？।]*\s*$", re.IGNORECASE)
 
 
+#: "and the KYC?" / "aur KYC?" -- the same continuation as "what about KYC?" (Phase 4: it read as the glossary's
+#: Video KYC on an open case). A short topic only; "and show my cases" is a request of its own.
+_LOCAL_AND = re.compile(
+    r"^\s*(?:(and|aur|also|plus)\s+(the\s+|its\s+|their\s+|uska\s+|iska\s+|unka\s+)?|()(the\s+|its\s+|their\s+))"
+    r"([A-Za-z][A-Za-z _-]{1,30}?)\s*[?？।.!]*\s*$", re.IGNORECASE)
+
+
 def _in_english(text: str) -> str:
     if _LOCAL_WHY.match(text):
         return "why?"
@@ -336,6 +343,9 @@ def _in_english(text: str) -> str:
     subject = _LOCAL_SUBJECT.match(text)
     if subject:
         return f"what about {subject.group(1).strip()}?"
+    continued = _LOCAL_AND.match(text)
+    if continued and len(continued.group(5).split()) <= 3:
+        return f"what about {continued.group(5).strip()}?"
     return text
 
 
@@ -355,6 +365,32 @@ _AFTER_ELIGIBILITY = [
 ]
 
 
+def ordinal_document(message: str, documents: Any) -> str | None:
+    """
+    The message with "the first one" / "second one" / "last one" (case_list.yaml phrases.ordinals, the ones naming no
+    case) replaced by that document of the list the previous answer showed; None when there is no such reference or
+    fewer than two known documents were listed (one listed document is "it", resolved below).
+    """
+    listed = [d for d in (documents or []) if isinstance(d, str) and _is_known(d)]
+    if len(listed) < 2 or not message:
+        return None
+    from app.agents.applicant.copilot.capabilities import case_list
+
+    ordinals = (case_list.cfg().get("phrases") or {}).get("ordinals") or {}
+    for phrase, place in sorted(ordinals.items(), key=lambda kv: -len(str(kv[0]))):
+        words = str(phrase).lower().split()
+        if any(w in ("case", "cases", "file", "files") for w in words):
+            continue
+        found = re.search(r"\b(?:the\s+)?" + r"\s+".join(map(re.escape, words)) + r"\b", message, re.I)
+        if not found:
+            continue
+        index = int(place) - 1 if int(place) > 0 else len(listed) + int(place)
+        if not 0 <= index < len(listed):
+            return None
+        return message[:found.start()] + _readable(listed[index]) + message[found.end():]
+    return None
+
+
 def resolve(message: str, context: Context | None) -> Resolution:
     """
     Expand a bare follow-up into a question that stands on its own.
@@ -368,6 +404,9 @@ def resolve(message: str, context: Context | None) -> Resolution:
     if not text or context is None or context.is_empty():
         return Resolution(message=text)
     original = text
+    picked = ordinal_document(text, context.last_documents)
+    if picked:
+        return Resolution(message=picked, rewritten_from=text, reason="the listed document by its place")
     text = _in_english(text)
 
     # ONLY A SLOT THIS SERVICE RECOGNISES.
@@ -412,7 +451,17 @@ def resolve(message: str, context: Context | None) -> Resolution:
     # pending documents, document verification and next action (HTTP E2E,
     # 2026-10-05). Each is rewritten to the eligibility question it asks, which
     # the Eligibility Agent's recorded result answers.
-    if context.last_intent == "ELIGIBILITY":
+    # ...but only a SHORT follow-up that names nothing of its own (2026-10-28, live: after one EMI question every later
+    # "what should I do next on this file" / "what is the next step" was answered as eligibility). What a message names
+    # is the entity frame's (documents / party), never a word list; the length is config
+    # chatbot.eligibility.followup_max_words.
+    from app.agents.applicant import config as _cfg
+    from app.agents.applicant.copilot.semantics import entities as _entities
+
+    _short = len(bare.split()) <= int((_cfg.chatbot("eligibility") or {}).get("followup_max_words", 4))
+    _frame = _entities.extract(text).as_dict()
+    _names_own = bool(_frame.get("documents") or _frame.get("party"))
+    if context.last_intent == "ELIGIBILITY" and _short and not _names_own:
         for pattern, question, why in _AFTER_ELIGIBILITY:
             if pattern.search(bare) or pattern.search(text):
                 return Resolution(message=question, rewritten_from=original, reason=why)
@@ -801,8 +850,13 @@ def context_from_response(envelope: Mapping[str, Any]) -> dict[str, Any]:
         "last_aspect": ((understanding.get("requested") or {}).get("aspect")
                         if isinstance(understanding, Mapping) else None),
         # The party role the answer was about, for "and her documents?".
+        # A ROLE THE CASE DOES NOT HAVE ("is there a co-applicant?" -> none) is never the next turn's subject: "his
+        # mobile number" after it is the applicant's (2026-10-13), not "there is no co-applicant" again
         "last_subject": (subject.get("kind")
-                         if isinstance(subject, Mapping) else None),
+                         if isinstance(subject, Mapping) and not subject.get("note") else None),
+        # ...but WHICH role was found missing is kept: "so do we need one?" right after "no co-applicant" (2026-10-14)
+        "last_missing_party": (subject.get("kind")
+                               if isinstance(subject, Mapping) and subject.get("note") else None),
         # The semantic state of this turn, for the next one's referents.
         "last_task": frame.get("task"),
         "last_object": frame.get("object"),

@@ -54,7 +54,7 @@ def test_underwrite_runs_on_the_common_harness(store):
     assert out["evidence_status"] == "EVIDENCE_COMPLETE" and out["replayed"] is False
     assert out["demo"]["labels"] == ["DEMO", "NON_PRODUCTION", "UNCONFIRMED"]
     # the harness tracked every tool call, once
-    assert run.usage["tool_calls"] == 8 and run.usage["replans"] == 0
+    assert run.usage["tool_calls"] == 10 and run.usage["replans"] == 0     # 9 reads + document_readiness.get
     assert [t["tool"] for t in run.trajectory["tool_calls"]][0] == "application.get"
     # provenance reached the run, complete by the GENERIC check
     assert runner.provenance_problems(run.provenance) == []
@@ -170,7 +170,7 @@ def test_memo_accepts_valid_model_wording(store, monkeypatch):
     full_evidence(store)
 
     async def model(facts):
-        return ("The assessment is ready for decision, with 5 positive findings "
+        return ("The assessment is ready for decision, with 6 positive findings "
                 "and no finding needing review.")
 
     run = underwrite(memo_generator=model)
@@ -379,7 +379,12 @@ def test_api_provider_failure_is_data_insufficient_not_an_error(store, client, m
 
 def test_api_partial_evidence_names_the_gaps(store, client, make_token):
     seed(store, declared_monthly_obligations="0")
-    persist({"documents": [bank_doc()], **KYC, **INCOME, **ELIGIBILITY})     # no risk
+    from evals.credit.suite import _BANK_PERIOD, credit_docs
+
+    bank = bank_doc()
+    bank["extraction"]["fields"].update(_BANK_PERIOD)
+    pan = {"source_id": "pan.jpg", "type": "PAN", "verification": "PASS", "party_id": APP}
+    persist({"documents": [bank, pan, *credit_docs(APP)], **KYC, **INCOME, **ELIGIBILITY})     # no risk
     demo_bureau.assign(APP, "DEMO-BUREAU-CLEAN")
     r = client.post(ENDPOINT, json={"case_id": CASE}, headers=headers(make_token))
     result = r.json()["result"]

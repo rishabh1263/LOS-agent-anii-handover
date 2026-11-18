@@ -1,21 +1,11 @@
 """
-Eligibility: can this applicant afford the loan they asked for?
+Eligibility: is this applicant eligible for the loan asked for, and for how much?
 
-THE STAGE BETWEEN EVIDENCE AND RISK. Document verification asks whether a
-document is real, KYC whether the documents describe one person, income
-whether they agree about what arrives each month. This asks the first
-question that is about the LOAN: given a verified monthly income and a
-requested amount, does the affordability policy allow it.
-
-IT DECIDES NOTHING ABOUT THE LOAN. The result is one stage verdict --
-PASS, REVIEW, FAIL or SKIPPED -- with the reasons behind it. Approving
-and rejecting belong to a decision layer this package is not part of.
+Five config-driven rules over STRUCTURED applicant data (a DataProvider by case id -- never a document), a deterministic
+engine (no model) and one of APPROVED / CONDITIONAL / REFER / REJECTED / DATA_MISSING with the eligible amount, the
+EMI, the FOIR and every rule's outcome. See engine.py.
 """
 
-from app.agents.eligibility.schemas import (
-    EligibilityResult,
-    EligibilityStatus,
-    ReasonCode,
-)
+from app.agents.eligibility.domain.models import Decision, EligibilityInput, EligibilityResult, RuleResult
 
-__all__ = ["EligibilityResult", "EligibilityStatus", "ReasonCode"]
+__all__ = ["Decision", "EligibilityInput", "EligibilityResult", "RuleResult"]

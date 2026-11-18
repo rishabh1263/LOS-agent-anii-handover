@@ -147,11 +147,24 @@ def build(case_id: str, *, party: str | None = None, repository: Any = None) -> 
     review_reupload = bool(_policy().get("review_needs_reupload", False))
     reupload: list[dict[str, Any]] = []
     under_review: list[dict[str, Any]] = []
+    # UPLOADED AGAIN: a type that stays several-at-once (documents.yaml: bank statements, salary slips -- never
+    # superseded, a business rule kept) uploaded AGAIN for the same party after a rejection has done what "upload
+    # again" asked; the older rejection is history and only the newer document's own state counts (Phase 4 audit)
+    newest: dict[tuple[Any, str], Any] = {}
+    for d in stored:
+        key = (getattr(d, "party_id", None), str(d.document_type).upper())
+        at = getattr(d, "uploaded_at", None)
+        if at is not None and (key not in newest or at > newest[key]):
+            newest[key] = at
     for d in stored:
         status = _value(getattr(d, "status", "")).upper()
         role = _role(getattr(d, "party_role", None))
         row = {"party": role, "party_label": _ROLE_LABEL[role], "document_type": d.document_type,
                "label": _readable(d.document_type), "document_id": d.document_id}   # 6i: view / query targets
+        latest = newest.get((getattr(d, "party_id", None), str(d.document_type).upper()))
+        replaced = latest is not None and getattr(d, "uploaded_at", None) is not None and d.uploaded_at < latest
+        if replaced and (status == "REJECTED" or (status == "REVIEW" and review_reupload)):
+            continue
         if status == "REJECTED" or (status == "REVIEW" and review_reupload):
             reasons = [r for r in (_explained(c) for c in (getattr(d, "reason_codes", None) or [])) if r]
             reupload.append({**row, "reasons": reasons[:2],

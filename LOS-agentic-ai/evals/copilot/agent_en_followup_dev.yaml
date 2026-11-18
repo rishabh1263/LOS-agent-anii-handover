@@ -1,0 +1,59 @@
+# ENGLISH FOLLOW-UP DEV SET (2026-10-14): officer follow-ups that lean on the previous answer, and unclear messages
+# that must get a real clarifying question (never an echo). A DEV set -- tuned on. Same case / rules as heldout_en2.
+conversations:
+  - id: fu_it_status
+    turns:
+      - q: "what about the bank statement"
+        all: [[bank statement, bank], [verified, pass, done, complete]]
+      - q: "is it verified by the bank too?"
+        all: [[bank statement, bank, issuing, not been independently, confirmed]]
+      - q: "ok and the other pending one?"
+        all: [[address proof, address, signature, sign]]
+
+  - id: fu_why
+    turns:
+      - q: "can this go to cpa?"
+        all: [["no", not ready, not yet, pending]]
+      - q: "why?"
+        all: [[address proof, address, signature, sign]]
+      - q: "how do i fix that"
+        all: [[upload, collect, get]]
+
+  - id: fu_which_first
+    turns:
+      - q: "what's pending"
+        all: [[address proof, address], [signature, sign]]
+      - q: "which one should i do first"
+        all: [[address proof, address, signature, sign]]
+      - q: "what documents can he give for the first one"
+        all: [[driving licence, driving license, passport, voter]]
+
+  - id: fu_unclear
+    turns:
+      - q: "that thing we talked about"
+        question: true
+        never: ["about that thing", "about that thing we talked"]
+      - q: "the pending stuff"
+        all: [[address proof, address], [signature, sign]]
+
+  - id: fu_unclear_word
+    turns:
+      - q: "hmm the paper"
+        question: true
+        never: ["about hmm"]
+
+  - id: fu_name_check
+    turns:
+      - q: "whose case is this"
+        all: [[rahul]]
+      - q: "what loan is he applying for"
+        all: [[personal loan, personal]]
+      - q: "how much"
+        all: [["5,00,000", "500000", "5 lakh", "₹5"]]
+
+  - id: fu_upload_followup
+    turns:
+      - q: "signature uploaded?"
+        all: [[signature, sign], [pending, not uploaded, missing, not yet, upload]]
+      - q: "where do i upload it"
+        all: [[upload]]

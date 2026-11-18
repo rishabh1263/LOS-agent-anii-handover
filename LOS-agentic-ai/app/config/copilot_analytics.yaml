@@ -1,0 +1,163 @@
+# =====================================================================================================================
+# COPILOT ANALYTICS (2026-11-02, master prompt section 7): counts, totals, averages, min / max, group-by and period
+# comparisons over the officer's OWN cases. app/agents/applicant/copilot/capabilities/analytics.py.
+#
+# DETERMINISTIC AND READ-ONLY. The rows are the case list's own (authorised per case); every number is computed in code
+# from what the store recorded; the model never writes a query or a number. A metric / dimension not listed here is
+# not answered -- and a question about data the FOS stage does not record (branch, credit decision, overdue) is told
+# so, never estimated.
+# =====================================================================================================================
+enabled: true
+# period boundaries ("this month", "October") are taken in this zone; the store keeps UTC
+timezone: "Asia/Kolkata"
+# a period longer than this is refused (a typo like "since 1990" must not scan everything as if meant)
+max_period_days: 1100
+# at most this many groups in one reply (the rest summed as "others")
+max_groups: 12
+
+# ---- what makes a message an analytics question --------------------------------------------------------------------
+# matched as whole words / phrases on the lower-cased message
+operations:
+  count: ["how many", "number of", "count", "kitne", "kitni", "kitna", "total cases", "total applications"]
+  sum: ["total", "sum", "kul", "overall", "exposure"]
+  avg: ["average", "avg", "mean", "ausat", "typical"]
+  min: ["lowest", "minimum", "smallest", "least", "sabse kam"]
+  max: ["highest", "maximum", "largest", "biggest", "sabse zyada", "sabse jyada"]
+# "by stage", "stage-wise", "per product", "distribution", "breakdown"
+group_cues: ["by", "per", "wise", "distribution", "breakdown", "split", "grouped", "each"]
+# A COUNT WITH A FILTER WORD IS ANALYTICS TOO (2026-11-04): "how many cases are in FOS stage?" was answered with the
+# FOS definition -- a count + one of these words + a value the officer's cases carry is counted, never defined
+strong_filter_words: ["stage", "status", "product"]
+compare_cues: ["compare", "compared", "comparison", "vs", "versus", "against", "tulna", "mukabla", "than"]
+# the nouns of a case; a count needs one of these (or a metric) to be about cases
+case_nouns: ["case", "cases", "application", "applications", "file", "files", "loan", "loans", "lead", "leads",
+             "account", "accounts"]
+# a total / average / min / max is over the PORTFOLIO only with one of these (or a period / grouping): "maximum loan
+# amount for personal loan" is a policy question and is left to the handbook
+portfolio_words: ["cases", "applications", "files", "loans", "leads", "portfolio", "my cases", "all cases",
+                  "across", "overall", "exposure", "mere cases", "sab cases"]
+
+# ---- metrics: a recorded application field ---------------------------------------------------------------------------
+metrics:
+  cases:
+    label: "Cases"
+    definition: "the number of cases you can open (each loan application counts once)"
+  loan_amount:
+    field: loan_amount
+    label: "Loan amount"
+    unit: rupees
+    words: ["loan amount", "amount", "exposure", "loan value", "ticket size", "requested amount"]
+    definition: "the loan amount recorded on each case (as captured at FOS, not a sanctioned amount)"
+  tenure_months:
+    field: tenure_months
+    label: "Tenure"
+    unit: months
+    words: ["tenure"]
+    definition: "the tenure in months recorded on each case"
+  declared_monthly_income:
+    field: declared_monthly_income
+    label: "Declared monthly income"
+    unit: rupees
+    words: ["income", "salary", "monthly income"]
+    definition: "the monthly income the applicant declared (not verified income)"
+
+# ---- dimensions: what a result can be grouped / filtered by -----------------------------------------------------------
+dimensions:
+  stage:
+    label: "Stage"
+    words: ["stage", "stages"]
+  status:
+    label: "Status"
+    words: ["status", "statuses"]
+  situation:
+    label: "What it needs"
+    words: ["kyc issue", "issue", "issues", "what it needs", "action needed", "blocker", "blockers"]
+    # the case list's row kinds, in plain words
+    values: {KYC: "KYC issue", DOCS: "Documents pending", GATE: "Rules not met", READY: "Ready for CPA",
+             OTHER: "Other"}
+  product:
+    label: "Product"
+    words: ["product", "products", "loan type", "loan types", "scheme"]
+  employment_type:
+    field: employment_type
+    label: "Employment type"
+    words: ["employment", "employment type", "salaried or self employed"]
+  month:
+    label: "Month"
+    words: ["month", "monthly", "month-wise", "monthwise", "mahine"]
+
+# a dimension VALUE named in the message filters by it ("home loan cases", "cases in review"); matched against the
+# values the officer's own cases carry, with these spellings added
+value_aliases:
+  product:
+    HOME_LOAN: ["home loan", "home loans", "housing loan"]
+    PERSONAL_LOAN: ["personal loan", "personal loans", "pl"]
+    LAP: ["lap", "loan against property"]
+    BUSINESS_LOAN: ["business loan", "business loans"]
+  employment_type:
+    SALARIED: ["salaried"]
+    SELF_EMPLOYED: ["self employed", "self-employed", "business owners"]
+
+# ---- periods (case creation date) ------------------------------------------------------------------------------------
+periods:
+  today: ["today", "aaj"]
+  yesterday: ["yesterday", "kal"]
+  this_week: ["this week", "is hafte", "iss hafte"]
+  last_week: ["last week", "previous week", "pichle hafte", "pichhle hafte"]
+  this_month: ["this month", "is mahine", "iss mahine", "current month", "month to date", "mtd"]
+  last_month: ["last month", "previous month", "pichle mahine", "pichhle mahine"]
+  this_year: ["this year", "is saal", "iss saal", "ytd", "year to date"]
+  last_year: ["last year", "previous year", "pichle saal", "pichhle saal"]
+# "last 30 days", "past 7 days", "pichle 15 din"
+last_n_days: ['(?:last|past|pichle|pichhle)\s+(\d{1,3})\s+(?:days|din)']
+months: {january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4, may: 5, june: 6, jun: 6,
+         july: 7, jul: 7, august: 8, aug: 8, september: 9, sept: 9, sep: 9, october: 10, oct: 10, november: 11,
+         nov: 11, december: 12, dec: 12}
+
+# ---- follow-ups: "how many were rejected?", "compare with September", "and by product?" --------------------------------
+# a follow-up is short and refers back; it changes only what it names (period, metric, operation, grouping, a filter)
+followup:
+  max_words: 9
+  # a follow-up STARTS with one of these ("and the total amount?", "only home loans", "compare with September") ...
+  starts: ["and", "aur", "what about", "how about", "same", "now", "instead", "only", "sirf", "just", "compare",
+           "vs", "versus", "then", "also", "by"]
+  # ... or refers back to the counted cases ("how many WERE rejected", "of THEM how many ...")
+  refers: ["were", "was", "them", "those", "these", "of them", "unme", "unmein", "inme", "inmein"]
+  # ... or names only a period ("September?", "last month") in at most this many words
+  period_only_words: 4
+  # how long the last analytics question stays the context (seconds); it is a question, never its old numbers
+  ttl_seconds: 1800
+
+# ---- data the FOS stage does not record: said plainly, never estimated -----------------------------------------------
+unsupported:
+  branch:
+    words: ["branch", "branches", "region", "zone", "location wise"]
+    text: "Cases do not record a branch at this stage, so I can't count or compare by branch."
+  decision:
+    words: ["approved", "approval", "sanctioned", "sanction", "rejected", "rejection", "declined", "disbursed",
+            "disbursement amount"]
+    text: "A credit decision (approved, rejected, sanctioned or disbursed) is not recorded on FOS cases, so I can't
+      count it. I can count your cases by stage, status, product or what they need."
+  overdue:
+    words: ["overdue", "dpd", "npa", "delinquent", "bounce", "emi missed"]
+    text: "Repayment data (overdue, DPD, NPA) is not part of the loan origination records, so I can't count it."
+
+# ---- the reply ---------------------------------------------------------------------------------------------------------
+texts:
+  no_cases: "You have no cases to count yet."
+  none_in_period: "No cases were created {period}."
+  heading_count: "**{n}** {noun} {period_phrase}"
+  heading_value: "**{op_label} {metric_label}: {value}** {period_phrase}"
+  basis: "Based on {n} case(s){filters}; {definition}."
+  basis_missing: "{missing} case(s) left out: no {metric_label_lower} recorded."
+  period_phrase: "created {period} ({start} to {end})"
+  all_time: "across all your cases"
+  compare_heading: "**{metric_label}: {a_label} vs {b_label}**"
+  compare_row: "- {label}: {value}"
+  compare_change: "Change: {change}"
+  compare_change_pct: "Change: {change} ({pct})"
+  group_row: "- {label}: {value}"
+  others: "Others"
+  not_numeric: "The {metric_label_lower} is not recorded as a number on any of these cases, so I can't calculate it."
+  too_long: "That period is longer than I can count at once ({days} days). Please pick a shorter period."
+  op_labels: {count: "Count", sum: "Total", avg: "Average", min: "Lowest", max: "Highest"}

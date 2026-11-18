@@ -163,7 +163,7 @@ def test_risk_get_missing_is_missing_not_a_default(store):
 def test_g5_scope_and_stage_defaults_come_from_agents_yaml():
     assert credit_config.required_scope() == "los.credit.underwrite"
     assert credit_config.allowed_stages() == ("CREDIT",)
-    assert credit_config.max_tool_calls() == 10
+    assert credit_config.max_tool_calls() == 12          # agents.yaml, raised 10 -> 12 for document_readiness.get
     assert credit_config.max_replans() == 2
     assert credit_config.bureau_retries() == 1
 
@@ -358,7 +358,7 @@ def test_allowlist_is_read_only_and_exact():
     assert set(tools.TOOLS) == {
         "applicant.get", "application.get", "documents.get", "eligibility.get",
         "kyc.get", "income.get", "bank_behaviour.get", "risk.get", "bureau.get",
-        "financial_documents.get"}
+        "financial_documents.get", "repayment.get", "document_readiness.get"}
     assert not any(n.endswith((".create", ".update", ".delete")) for n in tools.TOOLS)
 
 

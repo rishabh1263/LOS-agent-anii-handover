@@ -255,6 +255,29 @@ def _looks_like_non_address(text: str) -> bool:
     return False
 
 
+#: The card's own furniture (header, issuer, boxes) -- printed captions, never address text.
+_CARD_CAPTIONS = ("DRIVINGLICENCE", "DRIVINGLICENSE", "INDIANUNION", "GOVERNMENTOF", "ISSUEDBY", "BLOODGROUP",
+                  "ORGANDONOR", "FIRSTISSUE", "SONDAUGHTER", "WIFEOF")
+
+
+def _is_caption(text: str) -> bool:
+    """
+    A line that carries one of THIS card's captions -- another field's label or the card's furniture -- is not
+    address text (2026-11-05, a real Maharashtra licence: the address swallowed "Name:...", "Son/Daughter/Wife of:...",
+    "Issue Date", "Indian Union Driving Licence", "Issued by Government of ...", "Blood Group", "Organ Donor", "Date
+    of first issue"). The captions are the label lists this module already reads its fields by; short ones (NAME,
+    DOB, DOI) count only at the start of the line, where a caption is printed.
+    """
+    key = compact(text)
+    if not key:
+        return False
+    long_caps = [c for c in (*_NAME_LABELS, *_GUARDIAN_LABELS, *_DOB_LABELS, *_DOI_LABELS, *_VALID_LABELS,
+                             *_DL_LABELS, *_CARD_CAPTIONS) if len(c) >= 6]
+    if any(c in key for c in long_caps):
+        return True
+    return any(key.startswith(c) for c in ("NAME", "DOB", "DOI"))
+
+
 def _extract_address(
     tokens: list[OCRToken], exclude: set[int] | None = None,
 ) -> tuple[str | None, OCRToken | None]:
@@ -276,7 +299,7 @@ def _extract_address(
     for token in following:
         if (token.cy - label.cy) > label.height * 12:
             break
-        if _looks_like_non_address(token.text):
+        if _looks_like_non_address(token.text) or _is_caption(token.text):
             continue
         parts.append(token.text)
 

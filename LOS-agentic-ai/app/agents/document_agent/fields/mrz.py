@@ -20,6 +20,8 @@ from datetime import date, datetime
 
 # The MRZ alphabet. '<' is the filler character.
 _MRZ_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<"
+# TD3 / TD2 name line: document code (P, V, A, C, I) + subtype, 3-letter issuing state, surname, then "<<".
+_NAME_LINE = re.compile(r"^[PVACI][A-Z<][A-Z<]{3}[A-Z]+<*[A-Z]*<<")
 
 # Weights cycle 7, 3, 1 across every checked field.
 _WEIGHTS = (7, 3, 1)
@@ -147,7 +149,7 @@ def clean_line(text: str) -> str:
     return "".join(c if c in _MRZ_CHARSET else "<" for c in upper)
 
 
-def find_mrz_lines(lines: list[str]) -> list[str] | None:
+def find_mrz_lines(lines: list[str], *, pad: bool = True) -> list[str] | None:
     """
     Locate the MRZ among OCR output.
 
@@ -163,7 +165,12 @@ def find_mrz_lines(lines: list[str]) -> list[str] | None:
             continue
         filler_ratio = cleaned.count("<") / len(cleaned)
         alnum_ratio = sum(c.isalnum() for c in cleaned) / len(cleaned)
-        if filler_ratio >= 0.08 and alnum_ratio >= 0.45:
+        # THE NAME LINE OF A SHORT NAME is mostly filler: "P<INDVERMA<<RAJESH<<<...<" is 15 letters in 44 (34 %), and
+        # the 45 % floor dropped it -- so every passport with a short name read NO fields and paid for six more OCR
+        # passes (measured 2026-10-15: 11 / 11 passports, 0 fields, ~17 s each). Its shape is unmistakable instead:
+        # document code, issuing state, surname, the "<<" separator.
+        name_line = _NAME_LINE.match(cleaned) is not None and alnum_ratio >= 0.12
+        if filler_ratio >= 0.08 and (alnum_ratio >= 0.45 or name_line):
             candidates.append(cleaned)
 
     if len(candidates) < 2:
@@ -173,6 +180,8 @@ def find_mrz_lines(lines: list[str]) -> list[str] | None:
     for size, count in ((TD3_LINE, 2), (TD2_LINE, 2), (TD1_LINE, 3)):
         block = [c for c in candidates if abs(len(c) - size) <= 3]
         if len(block) >= count:
+            if not pad:
+                return list(block[-count:])          # as read: the caller re-aligns (passport.align_td3_line2)
             return [c.ljust(size, "<")[:size] for c in block[-count:]]
     return None
 

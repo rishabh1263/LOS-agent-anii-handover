@@ -1279,6 +1279,10 @@ templates:
     hi: "कारण: {reason}।"
     hi-Latn: "Kaaran: {reason}."
     mr: "कारण: {reason}."
+  kyc_reason_IDENTITY_DOCUMENT_MISSING:
+    hi: "पहचान का कोई दस्तावेज़ नहीं मिला"
+    hi-Latn: "pehchaan ka koi document nahi mila"
+    mr: "ओळखीचे कोणतेही कागदपत्र मिळाले नाही"
   kyc_reason_INSUFFICIENT_SOURCES:
     hi: "तुलना के लिए पर्याप्त दस्तावेज़ नहीं हैं"
     hi-Latn: "compare karne ke liye kaafi documents nahi hain"
@@ -1382,6 +1386,10 @@ templates:
     hi: "फिर भी आवेदन समीक्षा में है, कारण: {reason}।"
     hi-Latn: "Phir bhi application review mein hai, kaaran: {reason}."
     mr: "तरीही अर्ज पुनरावलोकनात आहे, कारण: {reason}."
+  case_on_hold:
+    hi: "फिर भी आवेदन रुका हुआ है, कारण: {reason}।"
+    hi-Latn: "Phir bhi application hold par hai, kaaran: {reason}."
+    mr: "तरीही अर्ज थांबवलेला आहे, कारण: {reason}."
   case_declined:
     hi: "फिर भी आवेदन अस्वीकार हुआ, कारण: {reason}।"
     hi-Latn: "Phir bhi application decline hua, kaaran: {reason}."
@@ -1541,6 +1549,10 @@ templates:
 # A WHOLE ANSWER THAT IS ONE FIXED ENGLISH SENTENCE, in other languages
 # (answering/localize.py). Exact match only; seed, unreviewed.
 fixed_sentences:
+  "Eligibility is checked separately in the Eligibility service, not in this chat.":
+    hi: "पात्रता (eligibility) इस चैट में नहीं, अलग से Eligibility service में जाँची जाती है।"
+    hi-Latn: "Eligibility is chat mein nahi, alag se Eligibility service mein check hoti hai."
+    mr: "पात्रता (eligibility) या चॅटमध्ये नाही, स्वतंत्रपणे Eligibility service मध्ये तपासली जाते."
   "There is no co-applicant on this application.":
     hi: "इस आवेदन पर कोई सह-आवेदक नहीं है।"
     hi-Latn: "Is application par koi co-applicant nahi hai."

@@ -13,7 +13,7 @@ class _Engine:
     def __init__(self):
         self.reads = 0
 
-    def read_array(self, array):
+    def read_array(self, array, **_):
         self.reads += 1
         return [], None
 

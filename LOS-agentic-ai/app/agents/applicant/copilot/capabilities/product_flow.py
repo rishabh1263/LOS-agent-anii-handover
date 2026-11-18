@@ -304,8 +304,21 @@ def names_case_words(text: str) -> bool:
 
 
 def out_of_scope(text: str) -> bool:
-    """A message clearly outside the product (product_flow.yaml out_of_scope.off_topic_words; whole phrases)."""
-    return bool(_said(text, (cfg().get("out_of_scope") or {}).get("off_topic_words")))
+    """A message clearly outside the product (product_flow.yaml out_of_scope.off_topic_words; whole phrases) -- unless
+    it names a LOS phrase that happens to contain such a word (out_of_scope.in_domain_phrases: "cibil score")."""
+    spec = cfg().get("out_of_scope") or {}
+    if _said(text, spec.get("in_domain_phrases")):
+        return False
+    if _said(text, spec.get("off_topic_words")):
+        return True
+    if not spec.get("use_conversation_reader", True):
+        return False
+    # THE CONVERSATION READER'S OFF-TOPIC KIND too ("write me a poem", "what is the capital of france"; 2026-10-24:
+    # these waited ~10 s on Qwen and the rewrite, then got a second wording) -- it never fires on a LOS word
+    from app.agents.applicant import conversation
+
+    turn = conversation.classify(text)
+    return turn is not None and turn.kind == conversation.OFF_TOPIC
 
 
 def out_of_scope_reply(lang: str | None = None, seed: int = 0) -> tuple[str, str]:

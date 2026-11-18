@@ -51,6 +51,7 @@ _READABLE = {
     "ADDRESS_MISMATCH": "the address differs across documents",
     # What it means for the officer first, then the recorded fact behind
     # it -- the status answer says the same "more documents are needed".
+    "IDENTITY_DOCUMENT_MISSING": "an identity document (PAN plus an address proof) is still needed",
     "INSUFFICIENT_SOURCES": ("more documents are needed for verification: "
                              "there was only one document to compare"),
     "INCOME_SINGLE_SOURCE": "income is evidenced by only one document",
@@ -243,9 +244,9 @@ def _eligibility(finding: Any) -> dict[str, Any]:
     # subset here made the read endpoint differ from the response it was
     # reading. `evidence` is figures and their provenance -- no identity
     # data, no document content.
-    keep = ("state", "eligible", "status", "reason_codes", "foir", "ltv", "inputs", "policy",
-            "rules", "passed_rules", "failed_rules", "unevaluated_rules", "missing_information",
-            "blockers", "configuration_gaps", "next_actions")
+    keep = ("decision", "eligible", "eligible_amount", "requested_amount", "emi", "limiting_factor", "product",
+            "reasons", "missing_fields", "config", "state", "status", "reason_codes", "foir", "ltv", "inputs",
+            "rules", "missing_information", "next_actions")
     return {k: payload[k] for k in keep if payload.get(k) is not None}
 
 

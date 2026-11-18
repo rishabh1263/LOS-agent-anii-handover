@@ -1033,7 +1033,7 @@ class LosProcessResponse(BaseModel):
         ),
     )
     # Typed loosely on purpose. Each stage owns its own schema --
-    # `app.agents.eligibility.schemas.EligibilityResult` and
+    # `app.agents.eligibility.domain.models.EligibilityResult` and
     # `app.agents.fraud_risk.schemas.FraudRiskResponse` -- and restating
     # them here would be a second definition to keep in step with the
     # first. This documents that the keys exist and what they mean.

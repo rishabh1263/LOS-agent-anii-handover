@@ -1,0 +1,123 @@
+# =====================================================================================================================
+# THE SIMPLE PIPELINE (owner 2026-10-24: "GPU nahi hai, current setup pe simple pipeline banao";
+# app/agents/applicant/copilot/simple/pipeline.py).
+#
+#   message -> understand (meaning reader ~0.1 s + the named document / field / the last turn; no model)
+#           -> the intent's canonical question -> the engine (answer_question, the same records as always)
+#           -> the natural line from the same records (polish.fact_lines, no model) -> reply
+#
+# A message it is not sure about (score / margin below) goes on to the old pipeline unchanged, so turning this on can
+# only take questions away from the slow path, never answer one it does not understand.
+# =====================================================================================================================
+enabled: true
+case_open_only: true          # the ENGINE routes need an open case; small talk / definitions answer without one
+
+# FIRST IN THE CHAT (owner 2026-10-25: "make routing strong"): right after the input guardrail and the typo fix,
+# BEFORE the Qwen follow-up reader -- measured: that reader took messages this pipeline understands and spent 4-18 s
+# on them. Never while the chat waits on an answer (a "which case?" pick, a draft, a yes / no, an option number).
+front: true
+
+# A CLEAR READING THIS PIPELINE DOES NOT ANSWER ITSELF ("when was this case created", "is voter id ok", "will this
+# loan get approved"): the deterministic layers answer it -- it skips the Qwen follow-up reader and the Qwen agent.
+# Qwen reads only what is NOT clear. `never`: intents that stay Qwen's to read even when they score high.
+clear:
+  enabled: true
+  accept: 0.90
+  margin: 0.04
+  never: [ambiguous_action, hold_action, command]
+
+# SMALL TALK: the whole message is one of these kinds (conversation.classify) -> its fixed line, no model
+social:
+  kinds: [GREETING, THANKS, GOODBYE, ACKNOWLEDGEMENT]
+
+# A GLOSSARY ACRONYM ASKED BARE ("what is cpa", "foir kya hai") -> the glossary definition, case open or not
+definitions:
+  enabled: true
+
+# the meaning reader's top intent is taken when it scores at least `accept` and leads the next one by `margin`
+accept: 0.80
+margin: 0.04
+
+# TWO READERS MUST AGREE (2026-11-06, live eval with one chat_id per conversation: 16 / 120 wrong -- "how many are
+# pending" answered as the time in stage, "why are they pending?" as the case history; the embedding reader's scores
+# sit in a 0.83-0.99 band, so its threshold could not tell). The question this pipeline would ask the engine is read
+# again by the structural reader (semantics/intents.understand) and compared with that reader's reading of the
+# message itself: the same intent (or the same family below) -> answered here; different -> the engine answers the
+# message, from the structural reading. A message the structural reader does not understand never vetoes.
+agreement:
+  enabled: true
+  # structural readings too weak to veto (word-overlap fallback / handbook / general guess)
+  # (a field whose name is a glossary term -- "tenure kya hai" on an open case -- is the recorded value, not the term)
+  weak_matches: [null, "", examples, general_question, lending_term_definition]
+  weak_prefixes: ["handbook:", "example"]
+  # engine intents that are one question family
+  families:
+    - [PENDING_ITEMS, DOCUMENTS_PENDING, DOCUMENTS_MISSING, COMPLETENESS, APPLICANT_MISSING_INFO]
+    - [APPLICATION_STATUS, APPLICATION_STAGE, CASE_SNAPSHOT, FULL_SUMMARY]
+    - [APPLICANT_PROFILE, APPLICANT_DETAILS]
+    - [DOCUMENTS_UPLOADED, DOCUMENT_VERIFICATION, DOCUMENT_DETAILS]
+    - [READINESS, NEXT_ACTION]
+    - [STAGE_PROCESS, FOS_KNOWLEDGE, POLICY_EXPLANATION]
+
+# the catalogue intents (intent_catalogue.yaml) this pipeline answers through their canonical question
+intents: [case_status, case_summary, pending_documents, why_stuck, next_step, cpa_readiness, kyc_status,
+          document_status, document_rejection, loan_amount, applicant_name, application_details, case_stage,
+          uploaded_documents, time_in_stage, upload_pending, process_move_to_cpa, process_verify_documents,
+          process_upload, process_fix_rejected, process_stages, co_applicant]
+
+# A NAMED DOCUMENT ASKED ABOUT IN A FEW WORDS ("salary slip ok?", "signature uploaded?", "address proof?") is that
+# document's status on the open case -- unless the message asks what is ACCEPTED ("can he give a voter id",
+# "electricity bill chalega?"), which the old pipeline's checklist answers.
+named_document:
+  intent: document_status
+  max_words: 5
+  from_intents: [knowledge_documents, upload_document, case_record, document_status, document_rejection]
+  acceptance_words: [give, accept, accepted, acceptable, allowed, valid, instead, chalega, chalegi, chalta, can, could,
+                     which, kya kya, kaunsa, kaun sa, option, options, alternative, need, needed, required, zaruri]
+  # asking WHAT a document says or WHEN it came is its details / timeline, not its status
+  detail_words: [details, detail, say, says, said, read, when, date, number, value, kab]
+  # what the message reads as when it is ONLY the document ("address proof?")
+  bare_is_status: true
+
+# ONE RECORDED FIELD ("what is his date of birth", "what's his employment type"): the profile's own question
+field_question:
+  enabled: true
+  needs_question: true        # a "?" or a question word (intent_catalogue.yaml task.question_words)
+  canonical: "what is the {field}"
+  # the meaning reader at `sure` or above on one of these wins over a field guess ("how long ... at this stage")
+  sure: 0.95
+  unless_sure_of: [time_in_stage, case_stage, case_history, case_status, why_stuck, next_step, cpa_readiness]
+
+# FOLLOW-UPS that only make sense after the last answer: the whole message (lower case, no punctuation) -> the
+# intent to answer, by the last intent this pipeline answered. No last answer -> the old pipeline.
+# the ENGINE's intent of the last answer (sent back in the chat context) -> this pipeline's topic, for a follow-up
+# when this pipeline did not answer the last turn itself
+engine_intents:
+  PENDING_ITEMS: pending_documents
+  DOCUMENTS_PENDING: pending_documents
+  DOCUMENTS_MISSING: pending_documents
+  READINESS: cpa_readiness
+  APPLICATION_STATUS: case_status
+  APPLICATION_STAGE: case_status
+  NEXT_ACTION: next_step
+  KYC_RESULT: kyc_status
+  DOCUMENT_VERIFICATION: document_status
+# "and for the co-applicant?" right after one of these topics: the same question for the co-applicant (only the
+# topics whose catalogue entry is party_aware)
+party_followup:
+  enabled: true
+  max_words: 6
+  topics: [pending_documents, kyc_status, document_status, uploaded_documents, upload_pending]
+followups:
+  why:
+    phrases: [why, why so, why not, how come, kyu, kyun, kyon, kyu nahi, kyun nahi, reason]
+    after: { cpa_readiness: why_stuck, pending_documents: why_stuck, case_status: why_stuck, next_step: why_stuck,
+             kyc_status: why_stuck, document_status: why_stuck, upload_pending: why_stuck }
+  first:
+    phrases: [which one first, which first, what first, pehle kya, pehle kaunsa, kaunsa pehle, where do i start]
+    after: { pending_documents: next_step, cpa_readiness: next_step, upload_pending: next_step, case_status: next_step,
+             why_stuck: next_step }
+  fix:
+    phrases: [how do i fix that, how do i fix it, how to fix, fix kaise kare, kaise theek kare, what do i do, ab kya karu]
+    after: { cpa_readiness: next_step, why_stuck: next_step, pending_documents: next_step, document_status: next_step,
+             kyc_status: next_step, case_status: next_step }

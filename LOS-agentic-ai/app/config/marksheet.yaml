@@ -1,0 +1,220 @@
+# 10th / 12th MARKSHEET VERIFICATION + NAME (one API: POST /api/v1/marksheet/verify-marksheet) -- every rule, word
+# and limit the marksheet service uses. Read by app/agents/marksheet/config.py; a missing key stops startup by name.
+#
+# ORDER, CHEAPEST FIRST: file checks -> decode -> blank / blur on a small grey copy (no OCR, ~20 ms) -> ONE OCR pass
+# (the passbook PP-OCRv6-small engine) -> another document? -> education document? -> 10th or 12th -> the name.
+
+limits:
+  max_upload_bytes: 10485760          # 10 MB
+  max_pdf_pages: 4                    # a marksheet is one page; a scan may carry the back / a certificate page
+  max_image_pixels: 60000000
+  min_side_px: 200                    # smaller than this cannot be read
+  # an unsettled page (MANUAL_REVIEW) is read once more with this detector box score (default 0.5): pale / coloured
+  # print on a tinted page -- measured 2026-10-22, a pink SSC title line scored under 0.5 and was dropped, read at 0.99
+  # with 0.3. Remove the key to switch the second read off.
+  faint_text_box_thresh: 0.3
+  ocr_max_side: 1280                  # the page is read at this long side (1024 measured no faster: recognition dominates)
+  processing_timeout_seconds: 60      # a slow or busy machine still answers (2026-10-22: 15 s cut real marksheets)
+  result_cache_seconds: 300           # the same caller sending the same file again: no second OCR
+  result_cache_entries: 64
+
+# BEFORE OCR, on a 512 px grey copy (quality.py): a blank page or a smudge is refused in milliseconds.
+# MEASURED 2026-10-19 (synthetic set): pages with print had edges >= 0.018; blank / plain photo / smudged <= 0.004;
+# marks: blank and plain photo 0.000, a smudged marksheet 0.029.
+quality:
+  check_side_px: 512
+  edge_level: 40                      # |Laplacian| above this = a sharp edge (print)
+  min_edge_share: 0.008               # fewer edge pixels than this: nothing legible on the page
+  dark_offset: 40                     # a pixel this much darker than the page's mean = a mark (ink, sharp or not)
+  min_mark_share: 0.005               # no edges and fewer marks than this -> BLANK; no edges but marks -> BLURRY
+  min_text_boxes: 6                   # after OCR: fewer lines than this -> unreadable / not a document
+
+# ANOTHER DOCUMENT: any of these on the page -> NOT_MARKSHEET (named), whatever else it says
+other_documents:
+  INCOME TAX DEPARTMENT: PAN
+  PERMANENT ACCOUNT NUMBER: PAN
+  UNIQUE IDENTIFICATION AUTHORITY: AADHAAR
+  AADHAAR: AADHAAR
+  ELECTION COMMISSION: VOTER_ID
+  ELECTOR PHOTO IDENTITY: VOTER_ID
+  DRIVING LICENCE: DRIVING_LICENCE
+  DRIVING LICENSE: DRIVING_LICENCE
+  REPUBLIC OF INDIA: PASSPORT
+  PASSBOOK: PASSBOOK
+  IFSC: PASSBOOK
+  STATEMENT OF ACCOUNT: BANK_STATEMENT
+  OPENING BALANCE: BANK_STATEMENT
+  SALARY SLIP: SALARY_SLIP
+  PAY SLIP: SALARY_SLIP
+  PAYSLIP: SALARY_SLIP
+  NET PAY: SALARY_SLIP
+  BACHELOR OF: DEGREE
+  MASTER OF: DEGREE
+  DEGREE OF: DEGREE
+  SEMESTER: DEGREE
+  CURRICULUM VITAE: RESUME
+  RESUME: RESUME
+  WORK EXPERIENCE: RESUME
+  INVOICE: INVOICE
+  TAX INVOICE: INVOICE
+  GSTIN: INVOICE
+
+# AN EDUCATION DOCUMENT: weighted words, summed (a marksheet or a pass certificate of a school board)
+education:
+  min_score: 0.60
+  markers:
+    MARKS: 0.25
+    MARKSHEET: 0.35
+    MARK SHEET: 0.35
+    STATEMENT OF MARKS: 0.40
+    MARKS STATEMENT: 0.40
+    GRADE SHEET: 0.30
+    BOARD: 0.20
+    EXAMINATION: 0.20
+    ROLL NO: 0.20
+    ROLL NUMBER: 0.20
+    SUBJECT: 0.15
+    MAXIMUM: 0.10
+    OBTAINED: 0.10
+    TOTAL: 0.10
+    RESULT: 0.10
+    PASS: 0.10
+    DIVISION: 0.10
+    GRADE: 0.10
+    CERTIFICATE: 0.15
+    SCHOOL: 0.10
+    CANDIDATE: 0.15
+
+# WHICH CLASS: the most specific phrases first. 12th is checked before 10th: "SENIOR SECONDARY" contains
+# "SECONDARY", and a board's own name ("Central Board of Secondary Education") must not count as 10th.
+class_12:
+  - SENIOR SCHOOL CERTIFICATE
+  - SENIOR SECONDARY
+  - HIGHER SECONDARY
+  - HIGHER SECONDARY CERTIFICATE
+  - H.S.C
+  - HSC EXAMINATION
+  - INTERMEDIATE EXAMINATION
+  - INTERMEDIATE
+  - INDIAN SCHOOL CERTIFICATE
+  - PRE-UNIVERSITY
+  - PRE UNIVERSITY
+  - P.U.C
+  - CLASS XII
+  - CLASS 12
+  - STD XII
+  - STANDARD XII
+  - 12TH
+  - PLUS TWO
+class_10:
+  - SECONDARY SCHOOL EXAMINATION
+  - SECONDARY SCHOOL CERTIFICATE
+  - SECONDARY SCHOOL LEAVING CERTIFICATE
+  - S.S.L.C
+  - SSLC
+  - S.S.C
+  - SSC EXAMINATION
+  - HIGH SCHOOL EXAMINATION
+  - HIGH SCHOOL
+  - MATRICULATION
+  - MATRIC
+  - INDIAN CERTIFICATE OF SECONDARY EDUCATION
+  - CLASS X
+  - CLASS 10
+  - STD X
+  - STANDARD X
+  - 10TH
+# a class phrase read with an OCR slip ("SECONDARY SCH0OL CERTIFLCATE") still counts -- only phrases this long, only
+# in the exam title / page header, and only when no phrase was read exactly
+class_fuzzy:
+  min_letters: 14
+  ratio: 0.88
+# words that are part of a board's NAME, removed before the class is looked for
+# (short on purpose: a photo often cuts the header's ends -- "...HIGHER SECONDARY EDUCATI")
+board_name_noise:
+  - CENTRAL BOARD OF SECONDARY
+  - BOARD OF SECONDARY
+  - BOARD OF HIGHER SECONDARY
+  - SECONDARY AND HIGHER SECONDARY
+  - INDIAN SCHOOL CERTIFICATE EXAMINATIONS
+  - HIGH SCHOOL AND INTERMEDIATE
+  - SECONDARY EDUCATION EXAMINATION BOARD
+
+# THE BOARD (reported when found; never decides)
+boards:
+  CENTRAL BOARD OF SECONDARY EDUCATION: CBSE
+  CBSE: CBSE
+  COUNCIL FOR THE INDIAN SCHOOL CERTIFICATE: CISCE
+  INDIAN CERTIFICATE OF SECONDARY EDUCATION: CISCE
+  INDIAN SCHOOL CERTIFICATE: CISCE
+  NATIONAL INSTITUTE OF OPEN SCHOOLING: NIOS
+  MAHARASHTRA STATE BOARD: MAHARASHTRA
+  UTTAR PRADESH: UP
+  BIHAR SCHOOL EXAMINATION: BIHAR
+  KARNATAKA: KARNATAKA
+  TAMIL NADU: TAMIL_NADU
+  KERALA: KERALA
+  GUJARAT: GUJARAT
+  RAJASTHAN: RAJASTHAN
+  MADHYA PRADESH: MADHYA_PRADESH
+  WEST BENGAL: WEST_BENGAL
+  ANDHRA PRADESH: ANDHRA_PRADESH
+  TELANGANA: TELANGANA
+  PUNJAB: PUNJAB
+  HARYANA: HARYANA
+
+# THE CANDIDATE'S NAME: the value next to (or under) one of these labels; a parent's / guardian's name never counts
+name:
+  labels:
+    - NAME OF CANDIDATE
+    - CANDIDATE'S NAME
+    - CANDIDATES NAME
+    - CANDIDATE NAME
+    - NAME OF THE CANDIDATE
+    - NAME OF STUDENT
+    - STUDENT'S NAME
+    - STUDENT NAME
+    - NAME OF THE STUDENT
+    - THIS IS TO CERTIFY THAT
+    - CERTIFY THAT
+    - NAME
+  not_the_candidate:                  # a label with any of these is a parent's / school's name, never the candidate's
+    - FATHER
+    - MOTHER
+    - GUARDIAN
+    - PARENT
+    - SCHOOL
+    - CENTRE
+    - CENTER
+    - INSTITUTION
+    - BOARD
+    - EXAM
+  # a LONG label read with an OCR slip still counts ("This is to certity that" on a real Maharashtra SSC
+  # certificate): letters compared, at least `ratio` alike; only labels of `min_letters`+ letters (never "NAME")
+  fuzzy_labels:
+    min_letters: 10
+    ratio: 0.88
+  # a label's hint, read before the name, never part of it -- Maharashtra SSC / HSC print "CANDIDATE'S FULL NAME
+  # (SURNAME FIRST)" and OCR often drops a bracket or splits it over two lines ("(SURNAME" / "FIRST) PATIL ...").
+  # Dropped from the START of a value only (longest first), with any stray bracket.
+  hints: ["SURNAME FIRST", "SURNAME", "FIRST", "FULL NAME", "FULL", "IN FULL", "IN BLOCK LETTERS", "BLOCK LETTERS"]
+  # words that end a name read from a line ("RAHUL SHARMA Roll No 1234" -> "RAHUL SHARMA")
+  # quoted: a bare NO is a boolean in YAML
+  stop_words: ["ROLL", "NO", "NUMBER", "DATE", "DOB", "BIRTH", "SCHOOL", "FATHER", "MOTHER", "GUARDIAN", "SEAT", "ENROLMENT",
+               "ENROLLMENT", "REGISTRATION", "REG", "CLASS", "SON", "DAUGHTER", "OF", "HAS", "HAVE", "PASSED", "APPEARED", "SECURED", "IN", "AT", "THE"]
+  min_letters: 3
+  max_words: 5
+  min_confidence: 0.60                # OCR confidence of the name below this -> MANUAL_REVIEW
+  # a name the OCR ran together ("VIKRAMSHARMA") is re-spaced by Tesseract on its own box -- same letters only
+  respace_min_letters: 8
+  respace_max_tilt: 1.0               # degrees; a tilted page's boxes are not re-read
+
+# THE VERDICT
+verdict:
+  # VERIFIED: an education document, 10th or 12th, name read; MANUAL_REVIEW: an education document but the class
+  # or the name could not be read with confidence; NOT_MARKSHEET: another document; BLANK / UNREADABLE: refused
+  # before or by OCR
+  require_name_for_verified: true
+  # the candidate's name is returned ONLY with VERIFIED; any other status (WRONG_CLASS, MANUAL_REVIEW, NOT_MARKSHEET,
+  # BLANK, UNREADABLE) answers name.status NOT_EXTRACTED and no value (business decision 2026-10-21)
+  extract_only_when_verified: true

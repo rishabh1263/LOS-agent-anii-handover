@@ -7,7 +7,7 @@ domain: eligibility
 language: en
 source: LOS curated knowledge (this repository)
 derived_from:
-- app/config/eligibility_policy.yaml
+- app/config/eligibility_config.yaml
 related:
 - fos.cpa_readiness
 - fos.document_requirements

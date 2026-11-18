@@ -35,6 +35,8 @@ a clarification. When the parser is confident, the model is not called.
 
 from __future__ import annotations
 
+from app.llm import turn_budget as _tb
+
 import json
 import logging
 import re
@@ -186,6 +188,15 @@ def _tables() -> tuple[dict[str, str], dict[tuple[str, ...], str], int, frozense
     protected = frozenset(str(w).lower() for w in _config().get("protected") or [])
     products = frozenset(str(p).lower() for p in _config().get("products") or [])
     return words, phrases, longest, fuzzy, protected, products
+
+
+#: the PENDING concept's words that name a REVIEW state: "why is it under review?" asks for the recorded reason
+REVIEW_STATE_WORDS = ("under review", "in review", "review", "being reviewed")
+
+
+def is_review_state(found: list[tuple[str, str]]) -> bool:
+    """Whether the message's PENDING concept is a review state ("under review") rather than "pending" / "baaki"."""
+    return any(str(s).lower() in REVIEW_STATE_WORDS for s, c in found if c == "PENDING")
 
 
 def concepts_in(text: str) -> list[tuple[str, str]]:
@@ -374,8 +385,7 @@ def parse(message: str, *, original: str | None = None) -> SemanticFrame:
     # rules that own explanations (case history, policy) keep it.
     # "WHY IS IT UNDER REVIEW?" asks for the recorded reason (case history),
     # not for a list: a review-state word is not "pending" here.
-    review_state = any(str(s).lower() in ("under review", "in review", "review", "being reviewed")
-                       for s, c in found if c == "PENDING")
+    review_state = is_review_state(found)
     if "WHY" in present and not explain and not (
             frame.document_type and ({"PENDING", "STILL", "MISSING"} & present)
             and not review_state) and not (
@@ -544,6 +554,10 @@ def route(frame: SemanticFrame) -> str | None:
         if task is Task.LIST_REQUIREMENTS:
             if frame.scope is Scope.GENERAL:
                 return "FOS_KNOWLEDGE"          # the product's policy, not this case
+            if frame.document_type and Qualifier.STILL not in frame.qualifiers:
+                # ONE DOCUMENT NAMED: "what can he give for address proof" asks what that requirement ACCEPTS (the
+                # product's checklist), never the case's missing list (2026-10-23)
+                return "FOS_KNOWLEDGE"
             if Qualifier.STILL in frame.qualifiers or "SUBMIT" in frame.concepts:
                 # what still has to be GIVEN: the checklist's gaps
                 return "DOCUMENTS_MISSING"
@@ -876,8 +890,9 @@ async def _ollama_generate(message: str, timeout: float | None = None) -> str:
         "stream": False, "format": "json",
         "options": {"temperature": 0.0, "num_predict": 64},
     }
+    _tb.check("semantic_frame")      # an earlier model call of this turn failed: answer without it (app/llm/turn_budget.py)
     async with httpx.AsyncClient(timeout=(timeout or llm_timeout_seconds()) + 0.5) as client:
-        response = await client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body)
+        response = await _tb.guarded(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), "semantic_frame")
         response.raise_for_status()
         return str((response.json().get("message") or {}).get("content") or "")
 

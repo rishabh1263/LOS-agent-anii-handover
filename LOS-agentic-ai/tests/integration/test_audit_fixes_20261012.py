@@ -120,10 +120,10 @@ def test_a_small_talk_reading_is_a_greeting_and_reads_no_case(client, prod, read
     spies.clear()
     reading[q] = Decision(kind="small_talk", intent="small_talk", score=0.76, decided_by="embedding")
     md = say(client, q, f"st-{len(q)}")["markdown"]
-    assert md.split()[0].rstrip("!.,?") in ("Hello", "Hi") and spies == [] and not any(i in md for i in ids), (spies, md)
+    assert md.split()[0].rstrip("!.,?") in ("Hello", "Hi", "Good", "Namaste") and spies == [] and not any(i in md for i in ids), (spies, md)
 
 
-@pytest.mark.parametrize("q, starts", [("Hii", ("Hello", "Hi")), ("thanks", ("Okay", "Sure")), ("no", ("Okay", "Sure"))])
+@pytest.mark.parametrize("q, starts", [("Hii", ("Hello", "Hi", "Good", "Namaste")), ("thanks", ("Okay", "Sure", "You're", "Happy")), ("no", ("Okay", "Sure"))])
 def test_greeting_thanks_and_no_keep_their_own_answers(client, prod, reading, spies, q, starts):
     make_case(client, "St Keep One")
     spies.clear()

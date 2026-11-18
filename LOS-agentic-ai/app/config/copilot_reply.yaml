@@ -13,7 +13,16 @@ enabled: true
 # THE CONTRACT VERSION (frontend_handoff/API_CONTRACT.md): sent as the X-Contract-Version header on every /api/v1/fos/* and
 # /api/v1/copilot/* response. tests/integration/test_api_contract.py fails if the reply / request shape changes without
 # bumping it (frontend_handoff/contract_snapshot.json).
-contract_version: "1.0"
+contract_version: "1.1"
+
+# HANDBOOK SOURCES (contract 1.1, opt-in with "with_sources": true on the request): a knowledge reply gets
+# `sources: [{type, document, section, title}]` -- only what retrieval cited for that answer, only a real handbook
+# file and a real heading of it; a case answer, a refusal or an ungrounded retrieval gets none (the key is left out)
+sources:
+  enabled: true
+  max: 3
+  handbook_title: "FOS handbook -- {document}"
+  configuration_title: "Configured document policy"
 
 # ---- markdown -------------------------------------------------------------------------------------------------
 markdown:
@@ -263,6 +272,22 @@ greeting:
     hi-Latn: ["Namaste. {attention}", "Hello ji. {attention}"]
     hi: ["नमस्ते। {attention}"]
     mr: ["नमस्कार. {attention}"]
+  # GOOD MORNING / AFTERNOON / EVENING by local time (owner, 2026-10-14): slots in order, each up to (not incl.) its
+  # `until` hour; late night is a plain hello. India: UTC+5:30, no daylight saving. Off -> `plain` below.
+  time_of_day:
+    enabled: true
+    utc_offset_minutes: 330
+    slots:
+      - { until: 5, en: "Hello", hi-Latn: "Namaste", hi: "नमस्ते", mr: "नमस्कार" }
+      - { until: 12, en: "Good morning", hi-Latn: "Good morning", hi: "सुप्रभात", mr: "सुप्रभात" }
+      - { until: 17, en: "Good afternoon", hi-Latn: "Good afternoon", hi: "नमस्ते", mr: "नमस्कार" }
+      - { until: 22, en: "Good evening", hi-Latn: "Good evening", hi: "शुभ संध्या", mr: "शुभ संध्याकाळ" }
+      - { until: 24, en: "Hello", hi-Latn: "Namaste", hi: "नमस्ते", mr: "नमस्कार" }
+    text:
+      en: ["{salute}! How can I help you today?", "{salute}! What would you like to check today?"]
+      hi-Latn: ["{salute}! Aaj main aapki kya madad kar sakta hoon?", "{salute}! Aaj kya check karna hai?"]
+      hi: ["{salute}! आज मैं आपकी क्या मदद कर सकता हूँ?"]
+      mr: ["{salute}! आज मी तुमची काय मदत करू शकतो?"]
   # the greeting when case_summary is off: no number, no case
   plain:
     en: ["Hello! How can I help you today?", "Hi! What would you like to check today?"]
@@ -288,9 +313,143 @@ style:
 # ---- REPLY POLISH (answering/polish.py): the model REWORDS a prose answer, never adds or decides -------------------
 # used only when every check passes (numbers / ids / document names kept, nothing new, not longer); else the engine's
 # own words. Env COPILOT_POLISH overrides `enabled`.
+# ONE FAILED MODEL CALL ENDS THE MODEL FOR THE TURN (app/llm/turn_budget.py; 2026-10-28, measured live: one unclear
+# chat turn made 4-6 Qwen calls one after another -- the agent, the meaning chooser, the router, the snapshot answer,
+# the opening line -- most timing out at their own 2.5-6 s limit, 15-17 s for an answer that then came from the fast
+# path anyway). After the first model call of a turn times out / errors, the rest of that turn answers without it.
+turn_budget:
+  enabled: true
+  # ...and the model time one turn may spend IN ALL (s; 0 = no total limit): calls that each answered in time can add
+  # up (live 2026-10-28: agent choice + its second call + the opener = 16 s). Past it, no further model call this turn.
+  max_model_seconds: 6.0
+  # ...except a writing layer that runs first in its turn: general chat / natural conversation (where = "general";
+  # 5-7 s on a CPU host for 2-3 sentences, measured 2026-11-02). Its own timeout still applies.
+  layer_max_seconds: { general: 9.0, planner: 8.0 }
+  # a WORDING call (the opening line / the rewrite; the answer never depends on it) starts only with this much of the
+  # turn's model time left -- else the answer goes out as the engine wrote it, at once
+  min_seconds_for_wording: 2.5
+
 polish:
   enabled: true
-  min_chars: 80            # shorter answers are already short
+  # POINTS, WRITTEN BY QWEN (owner, 2026-10-13): every answer as 2-5 short bullets, at most 2 emoji, the user's
+  # language -- the facts still come only from the tools, and every check below still applies (else the engine's
+  # own text is shown)
+  # NATURAL ANSWERS ON (owner, 2026-10-14: "qwen naturally ans kare" -> opening line + card): Qwen's one natural
+  # line, checked (no figure / id / new decision word), then the engine's facts; slow / rejected -> the facts alone
+  # 2026-10-24 (owner: "nothing hardcoded, Qwen khud se naturally ans de"): NATURAL again -- Qwen rewrites the SHORT
+  # facts (polish.brief trim), proven by natural_accepted; slow / rejected -> the instant answer (fact line + brief).
+  # Was lead since:
+  style: natural           # 2026-10-15: "natural" (full rewrite, PROVEN by natural_accepted) measured on this CPU: model turns 8.7 s avg (35 s max), follow-ups 17->13/17 (Ollama prompt-cache thrash between the agent and the rewrite) -> back to lead (one natural line + the card). Use natural on a GPU.
+  # NATURAL STYLE: Qwen's full rewrite is shown only when it keeps every number and document, adds none, gives each
+  # document its own status, and adds no count / decision word; else the engine's card (no second model call)
+  natural_timeout_seconds: 5.0     # 2026-10-24: the short facts; past this the instant answer shows
+  natural_min_chars: 25            # natural mode words short answers too ("PAN is verified.")
+  num_predict_natural: 110
+  natural_max_growth: 1.4
+  natural_min_ratio: 0.3
+  # words a rewrite may add when the facts carry a "Next step:" line -- the order is already the engine's
+  natural_next_step_words: [first]
+  # a count said as a word is the same fact only when that number is in the facts ("both" for 2)
+  count_word_values: { one: 1, two: 2, both: 2, three: 3, four: 4, five: 5, six: 6, ek: 1, do: 2, dono: 2, teen: 3 }
+  # the status words, grouped: a rewrite may only say a group the facts say, and only for the documents that have it
+  status_groups:
+    verified: [verified, is verified, are verified, passed, cleared, done, complete, completed]
+    pending: [pending, not uploaded, missing, still to, yet to, outstanding, to collect, to upload, still open,
+              not been uploaded, hasn't been uploaded, haven't been uploaded]
+    rejected: [rejected, re-upload, reupload, failed]
+    review: [review, in review, under review, being checked, needs a reviewer]
+    not_ready: [not ready, isn't ready, not yet ready]
+    ready: [ready to hand, is ready, ready for cpa]
+  # THE NATURAL LINE FROM THE FACTS (owner 2026-10-15: "fewer model calls"; answering/fact_line.py): data answers open
+  # with a line built from the same records as the card -- instant, never a wrong fact. Explanations keep the model's
+  # line. A variant is picked from the question (same question -> same line). {pending} {done} {review} are document
+  # names joined with "and"; {is_are} / {done_is_are} agree with them; {name} is the applicant's first name.
+  fact_lines:
+    enabled: true
+    intents: [FULL_SUMMARY, PENDING_ITEMS, DOCUMENTS_PENDING, DOCUMENTS_MISSING, APPLICATION_STATUS, READINESS,
+              DOCUMENTS_UPLOADED]
+    texts:
+      pending:
+        - "{pending} {is_are} still pending, so it is not ready for CPA yet."
+        - "Just {pending} left before this file can move to CPA."
+        - "Still waiting on {pending} before this can go to CPA."
+      pending_named:
+        - "{name}'s file still needs {pending} before it can go to CPA."
+        - "Almost there for {name}: only {pending} left to collect."
+      other_blockers:
+        - "Documents are in, but it is not ready for CPA yet: {blockers}."
+      ready:
+        - "Everything is in, and this case is ready for CPA."
+        - "All set: every document is in and the file is ready for CPA."
+      uploaded_with_pending:
+        - "{done} {done_is_are} done; {pending} {is_are} still pending."
+        - "So far {done} {done_is_are} through, and {pending} {is_are} still to come."
+      uploaded_all:
+        - "{done} {done_is_are} all done."
+      in_review_only:
+        - "{review} {review_is_are} uploaded and being checked."
+      # "after doing all this, can it move to CPA?" (act CONDITIONAL): yes, if only documents block it; not yet,
+      # naming what else still blocks it -- never the list again
+      conditional_only_documents:
+        - "Yes. Once {pending} {is_are} uploaded and verified, nothing else is holding this file back from CPA."
+      conditional_with_blockers:
+        - "Not yet, even then. Besides {pending}, this still has to clear before CPA: {blockers}."
+      conditional_other_only:
+        - "Not yet. This still has to clear before CPA: {blockers}."
+      # the answer act (semantics/answer_act.py, learned) shapes a readiness answer: a yes / no first, a because, a
+      # when -- the facts are the same; the line answers the question that was asked
+      # "why are they pending?" when none of them was uploaded; "how many are pending?" -- the number first
+      why_not_uploaded:
+        - "{pending} {is_are} pending because {it_they} {has_have} not been uploaded yet."
+      count_pending:
+        - "{count} {document_s} still pending: {pending}."
+      yes_no_pending:
+        - "Not yet. {pending} {is_are} still pending."
+      yes_no_with_blockers:
+        - "Not yet. {pending} {is_are} still pending, and this has to clear too: {blockers}."
+      yes_no_other:
+        - "Not yet. This still has to clear first: {blockers}."
+      why_not_pending:
+        - "Because {pending} {is_are} still pending. Once {it_they} {is_are} uploaded and verified, it can move to CPA."
+      why_not_with_blockers:
+        - "Because {pending} {is_are} still pending, and this has to clear too: {blockers}."
+      why_not_other:
+        - "Because this still has to clear first: {blockers}."
+      when_pending:
+        - "As soon as {pending} {is_are} uploaded and verified; nothing else is holding it back."
+      when_with_blockers:
+        - "Once {pending} {is_are} uploaded and verified, and this clears: {blockers}."
+      when_other:
+        - "Once this clears: {blockers}."
+  lead_after_agent: true   # also after a Qwen tool choice (costs the agent's cached prompt ~0.5 s next turn)
+  # 2026-10-23 (owner: "2-3 sec, natural"): never more than 3 s for the line; slower -> the short facts without it
+  lead_timeout_seconds: 3.0
+  # TO THE POINT (owner, 2026-10-23: "less likhe around 2-3 lines but to point"; polish.brief): under the natural
+  # line only what it does not already say -- these housekeeping lines go, a point naming only documents the line
+  # names goes, at most max_points points, then the Next line
+  brief:
+    enabled: true
+    max_points: 2
+    skip_intents: [FULL_SUMMARY]     # "summary of this case": the whole card is the answer
+    hide:
+      - '^-?\s*Application name matches the verified\W*PAN'
+      - '^-?\s*\W*Name verified: .*Saved on the application\.'
+      - '^-?\s*Its issuing authority has not been independently confirmed\.$'
+
+  num_predict_lead: 40
+  lead_max_chars: 160
+  # the line never counts (a wrong count was said, 2026-10-14) and names only documents the facts also name
+  lead_documents: in_facts
+  lead_count_words: [one, two, three, four, five, six, both, couple, few, several, single, all, only, first,
+                     ek, do, teen, dono, sirf]
+  lead_max_emoji: 1
+  # an opener never promises a time, a contact or a step the facts do not say
+  lead_forbidden_words: [hours, hour, days, day, within, guarantee, guaranteed, call, contact, request, immediately, urgent]
+  model: qwen3:4b-instruct-2507-q4_K_M
+  max_emoji: 2
+  max_growth_points: 1.8
+  num_predict_points: 110   # ~13 tokens/s on this CPU: a short answer is a fast answer
+  min_chars: 140           # a one-fact answer ("PAN is verified.") stays instant: a lead would only repeat it
   timeout_seconds: 4.0     # slower -> the original (the officer never waits longer than this for wording)
   num_predict: 120
   min_free_ram_gb: 2.0
@@ -298,16 +457,230 @@ polish:
   min_ratio: 0.4           # nor one that drops most of it
   # ONLY these explanatory answers are reworded (an allowlist: a reworded disclaimer once changed its meaning --
   # "has not been independently confirmed" -> "needs to be confirmed next"); everything else keeps the engine's words
-  only_intents: [NEXT_ACTION, CASE_HISTORY, APPLICATION_STATUS, FULL_SUMMARY, APPLICATION_STAGE, STAGE_TIME]
+  # points style: EVERY answer except never_intents (empty = all). The prose-style allowlist was
+  # [NEXT_ACTION, CASE_HISTORY, APPLICATION_STATUS, FULL_SUMMARY, APPLICATION_STAGE, STAGE_TIME]
+  only_intents: []          # every answer (2026-10-14), except never_intents
   # answers whose wording is the contract (a refusal, a confirm question, the KYC tables ...) are never reworded
   never_intents: [GUARDRAIL_BLOCKED, WHICH_ACTION, VAGUE_OPTIONS, HOLD_ACTION, VAGUE_UPLOAD, CASE_OPENED, CASE_LIST,
-                  FAQ, FAQ_ANSWER, CALCULATOR, STAGE_MOVE_REFUSED, STAGE_MOVED, UPDATE_CASE_FORM]
+                  FAQ, FAQ_ANSWER, CALCULATOR, STAGE_MOVE_REFUSED, STAGE_MOVED, UPDATE_CASE_FORM,
+                  SMALL_TALK, GREETING, THANKS, ACKNOWLEDGEMENT, CLARIFICATION, GOODBYE, FRUSTRATED,
+                  ONLY_APPLICANT, DID_YOU_MEAN,
+                  # an off-topic refusal is instant and already worded naturally (2026-10-24: the rewrite made it 6 s)
+                  NOT_IN_SCOPE, OFF_TOPIC,
+                  # DATA CARDS get the line too (owner 2026-10-15, later: "keep line everywhere", "also natural");
+                  # a one-fact answer under min_chars stays instant. The KYC tables keep their exact wording.
+                  KYC_RESULT,
+                  # COMPUTED NUMBERS AND "NOT RECORDED" STATEMENTS (2026-11-02): the rewrite turned "a credit decision is
+                  # not recorded, so I can't count it" into "No cases were rejected" -- a claim no record supports
+                  CASE_ANALYTICS, CASE_INSIGHT,
+                  # THE AGENTS' RESULTS (2026-11-04): every number and verdict is checked against the agents' tables
+                  AGENT_INSIGHTS,
+                  # THE MODEL'S OWN ANSWER (natural conversation, 2026-11-02): rewording it is a second model call for
+                  # nothing -- measured: every general answer then waited for a polish that timed out
+                  GENERAL_CHAT, GENERAL_CHAT_UNAVAILABLE, SMALL_TALK, OUT_OF_DOMAIN]
   forbidden: ['\bas an ai\b', '\bI am (an|a) (ai|assistant|language model)\b', '\b(our|we) (bank|offer|charge)\b']
   # a DECISION word the engine did not write is never added by a rewording
-  no_new_words: [approved, approve, approval, sanctioned, rejected, reject, guaranteed, guarantee, eligible, fraud]
+  no_new_words: [approved, approve, approval, sanctioned, rejected, reject, guaranteed, guarantee, eligible, fraud,
+                 needed, required, mandatory, optional, compulsory,
+                 # "could not be checked against the PAN" is NOT "doesn't match" (2026-10-15): a match claim only
+                 # when the facts make one
+                 match, matched, matches, matching, mismatch, mismatched]
+  instructions_lead: >-
+    You are a friendly, experienced colleague helping a loan field officer. Write ONE natural, conversational
+    sentence (at most 18 words) that tells the officer the gist of the answer facts -- like a person would say it,
+    not a label or heading. Use ONLY the facts given; reply in the officer's language and style (English, Hindi or
+    Hinglish). No numbers, no IDs, no amounts, no dates. Never add advice, deadlines, reasons or steps the facts do not
+    state; never turn "not accepted" into "not needed". Name only documents the facts name, and do NOT count
+    anything (no "two", "both", "few") -- the details follow below your line. At most one emoji. Examples of the tone:
+    "Rahul's file is nearly there -- a little more to collect." / "Good news, that one is verified." /
+    "Not quite ready for CPA yet; some things are still open." / "That one won't work, but here's what will." /
+    "Here's where this file stands right now." Reply with the sentence only.
+  instructions_natural: >-
+    You are a friendly, experienced colleague of a loan field officer, chatting in a messaging app. Turn the FACTS
+    into what you would actually SAY: flowing sentences, warm and plain, the direct answer to their question first.
+    Use 1 to 3 sentences; never a heading, never a label like "Stage:" or "Done:", and a "- " list only when there are
+    more than four items. Reply in the officer's language and style (English, Hindi or Hinglish). Use ONLY the facts:
+    keep every number, amount, name, document name and term (CPA, FOS, KYC) exactly; give every document exactly the
+    status the facts give it; mention every document the facts mention and keep every line's point (a KYC
+    note included); you may leave out a case id. Never add a
+    document, number, count word ("two", "both"), reason, deadline, promise or advice that is not in the facts.
+    Example -- Facts: "Still pending: Address Proof, Signature. Next step: Clear these to move the case to CPA." ->
+    "Address Proof and Signature are still pending -- once they're in, the case can move to CPA."
+    Example -- Facts: "Rahul Sharma, Personal Loan, ₹5,00,000. Stage: Basic Document Verification. Done: PAN, Salary
+    Slip. Pending: Address Proof." -> "Rahul Sharma's Personal Loan of ₹5,00,000 is at Basic Document Verification;
+    PAN and Salary Slip are done and Address Proof is still pending."
+    Reply with the message only.
+  instructions_points: >-
+    You rewrite ONE answer that a loan-processing assistant is sending to a field officer about a loan case or its
+    documents. Write it as 2 to 4 short bullet points, each starting with "- ", under 60 words in total: the direct
+    answer first, then what to do next. You may add at most 2 emoji that fit the meaning. Keep the language of the message: English stays
+    English, Hinglish stays Hinglish. Keep every fact exactly: every number, amount, date, name, document name and
+    ID must appear unchanged. Do not add any fact, number, limit, reason, promise or advice that is not in the
+    message. Do not mention that you are rewriting. Reply with the bullet points only.
   instructions: >-
     You reword ONE message that a loan-processing assistant is sending to a field officer. Write it as a helpful
     colleague would say it: plain English, short sentences, the direct answer first, then what to do next. Keep every
     fact exactly: every number, amount, date, name, document name and ID must appear unchanged. Do not add any fact,
     reason, promise or advice that is not in the message. Do not mention that you are rewriting. Keep "Next step:"
     if it is there. Reply with the reworded message only.
+
+# ---------------------------------------------------------------------------------------------------------------------
+# QWEN CALLS THE TOOLS (owner, 2026-10-13; capabilities/qwen_agent.py). Qwen reads the officer's message with the last
+# few exchanges, calls the tools (the case lookups of the bounded planner's allow-list, accepted_documents, handbook)
+# or asks one follow-up question; it writes ONE opening line (polish lead rules) and the tools' facts follow. Off ->
+# the existing pipeline. Env COPILOT_QWEN_AGENT overrides `enabled`.
+# ---------------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------
+# THE TURN LOG (observability/turn_log.py, owner 2026-10-14 "nlp ka 1"): every chat turn, masked, no answer text;
+# a question the bot asked back + the officer's understood next turn -> an UNREVIEWED labelled example. Retraining
+# (scripts/train_meaning_classifier.py) uses reviewed rows only (scripts/review_labelled_turns.py).
+# ---------------------------------------------------------------------------------------------------------------------
+turn_log:
+  enabled: true
+  path: runtime/turn_log.jsonl
+  labelled_path: runtime/labelled_turns.jsonl
+  resolve_within_seconds: 300
+  max_mb: 20
+  # 👍 / 👎 ON AN ANSWER (POST /fos/copilot {"action": "FEEDBACK", "reply_to": <request_id>, "rating": ...}):
+  # one line per rating, joined to the turn above by `rid`; reviewed by a person before anything learns from it
+  feedback_path: runtime/feedback.jsonl
+  feedback_ratings: [up, down]
+  feedback_reason_max_chars: 300
+
+# WHAT A CLIENT SEES OF THE PER-TURN RECORD (app/observability/turn.py public). Internal tool names, the model
+# route / ledger and the decision layer stay in the server log only (red team 2026-10-17: they were in every answer's
+# JSON). COPILOT_TURN_DIAGNOSTICS=true (development) returns the full record.
+observability:
+  public_fields: [correlation_id, turn_id, turn_type, outcome, intent, category, query_type, language,
+                  clarification, guardrail, status, latency]
+
+agent:
+  enabled: true
+  # HYBRID (owner, 2026-10-13: "on karke fast kaise kare, aur accuracy bhi"): a message the fast matcher reads
+  # CLEARLY (intent_catalogue.yaml decide.accept / accept_with_lead, no model) is answered by the same tools
+  # directly; Qwen chooses the tools only for the unclear / multi-part / follow-up ones. Measured before: every
+  # message through Qwen = 7-25 s a turn, 3 timeouts, an incomplete checklist.
+  only_when_unclear: true
+  # the second call that words an opening line (~1.5-2.5 s): off -- the tools' facts are the answer
+  opener: false
+  model: qwen3:4b-instruct-2507-q4_K_M
+  # THE COMPACT CHOICE (2026-10-14; qwen_agent.compact): tools listed in the system text, one short JSON back --
+  # measured 1.8-2.6 s a choice vs 3.5-5.2 s with native tool calling. `native` = the tool-calling API.
+  choice: compact
+  think: false                # never the model's reasoning tokens: the choice only
+  compact_reply: >-
+    Reply ONLY with JSON: {"t": "<tool>", "d": "<the document, requirement or application field (product, loan
+    amount, tenure ...) the question is about, if any>"} -- for TWO questions in one message add "t2" and "d2";
+    or, ONLY for a greeting, thanks or goodbye, {"s": "<one short friendly reply in the officer's language and style,
+    using the (now: ...) greeting when they greet; offer help; no numbers, no case details>"}; or, if you cannot
+    tell what is meant, {"q": "<one short question naming the two or three things it could be>"}.
+  # QWEN READS EVERY MESSAGE (owner, 2026-10-14): security, a waiting question's reply, workspace commands and the
+  # eligibility redirect stay before it (fos_api._context_followup_turn); false = Qwen only for follow-ups
+  all_messages: false
+  # small talk in Qwen's own words ({"s": ...}), checked: short, no digit, none of these words
+  small_talk: true
+  small_talk_max_chars: 160
+  small_talk_timeout_seconds: 3.0
+  # A VERY SHORT UNCLEAR FIRST MESSAGE (owner, 2026-10-14): up to this many words, no conversation before it and no
+  # clear reading -> Qwen must ask back (this note is added to the message); an answer instead -> the options question
+  ask_first_max_words: 5
+  ask_first_note: "(This message is unclear on its own and nothing came before it: reply with {\"q\": ...} only.)"
+  small_talk_never: [pan, aadhaar, case, applicant, document, documents, loan amount, verified, pending, rejected,
+                     approved, sanctioned, account]
+  choose_timeout_seconds: 4.0   # past this the fast path answers (measured: its answers were right when Qwen ran late)
+  # the case tools Qwen sees (a shorter tool list is a shorter prompt); empty = the planner's whole allow-list
+  case_tools: [case_summary, pending_documents, document_status, document_rejection, why_stuck, next_step, kyc_status, case_status,
+               cpa_readiness, uploaded_documents, application_details]
+  opener_num_predict: 40
+  opener_instruction: >-
+    Now write ONE short opening line (at most 15 words) that answers my question from the tool results, in the same
+    language and style I used (English, Hindi or Hinglish). No numbers, no IDs, no dates, nothing the results do not
+    say. At most one emoji. Reply with the line only.
+  lead_timeout_seconds: 6.0
+  num_predict: 40
+  max_calls: 2
+  history_exchanges: 3
+  history_chars: 160          # per message: each history token is re-read next turn
+  # the history lives in the conversation store (Postgres row "agent:<chat_id>", masked + encrypted, same TTL), so
+  # every worker reads the same turns; false = this process's memory only (one worker)
+  shared_history: true
+  # a CLEARLY off-topic message (product_flow.yaml out_of_scope words, or an out_of_scope reading >= decide.accept)
+  # never waits for Qwen's choice: the pipeline refuses it at once (measured 2026-10-18: 4 s timeout, then refused)
+  skip_off_topic: true
+  # FOLLOW-UPS ARE QWEN'S (owner, 2026-10-14): on an open case with a conversation under way, a message naming no
+  # document / party / case of its own is read by Qwen WITH the history (fos_api._context_followup_turn); the history
+  # prompt is longer, so its own cap
+  followups_to_agent: true
+  # 2026-10-15 (owner): a CLEAR mid-chat question (fast matcher confident, no pronoun / continuation leaning on the last
+  # answer) skips Qwen -- one model call (the natural line) instead of two on this CPU. false = Qwen reads them all
+  clear_followups_skip: true
+  # THE RULE READING IS CLEAR TOO (2026-10-16): a message the rule reader names at HIGH confidence as one of these
+  # intents -- the case's OWN data -- is answered by the engine's tools, never re-read by Qwen ("bank statement ki
+  # details", "doc pending hai kya?" lost their fields / Hinglish through Qwen). Knowledge / policy readings are left
+  # out: too broad to trust ("kyc theek hai is customer ka?" read FOS_KNOWLEDGE). [] = only the meaning reader decides
+  rule_clear_intents: [DOCUMENTS_UPLOADED, DOCUMENTS_MISSING, DOCUMENTS_PENDING, DOCUMENT_VERIFICATION,
+                       DOCUMENT_DETAILS, PENDING_ITEMS, APPLICATION_STATUS, APPLICATION_STAGE, KYC_RESULT,
+                       FULL_SUMMARY, CASE_SNAPSHOT,
+                       # the officer's cases by position / trouble ("pichle case ka status", "kis case mein issue
+                       # hai?") and the open case's details ("details batao"): Qwen asked back instead (2026-10-16)
+                       CASE_PORTFOLIO, APPLICANT_PROFILE]
+  followup_timeout_seconds: 8.0
+  max_chats: 500
+  min_free_ram_gb: 1.5
+  instructions: >-
+    You are the assistant of a loan field officer (FOS) at an Indian lender. Use the tools to answer the officer's
+    LATEST message about documents, the open case, or how the loan process works; earlier messages tell you what a
+    short follow-up ("aur salary slip?", "voter id chalega?") refers to. Call the fewest tools, usually one. If the
+    message is unclear, do not call a tool: ask ONE short follow-up question in the officer's language. Never answer
+    from your own knowledge. Earlier assistant messages are what was already answered: "it", "that", "this one",
+    "the first one", "the other one", "why", "how do I fix it" refer to them -- resolve them from there and pass the
+    document / party explicitly to the tool. If you still cannot tell what is meant, ask ONE short question that
+    names the two or three things it could be. "The second one", "the other one", "the last one" point into a LIST
+    an earlier message showed; when no earlier message showed a list, do not guess a tool -- ask which one. What the customer must bring, collect, submit or be told to get is pending_documents;
+    accepted_documents is only for which document types are allowed.
+  case_open_note: >-
+    A case is open; the case tools answer about that case. "What is the tenure / rate / amount / employment" means
+    THIS case's recorded value (application_details), never a definition; any other specific fact of the case or its
+    documents (a date, who, a document's own details) is case_record. A question about a whole SIDE of the application
+    (its money, its terms, the loan as a whole) is application_details with NO field: the whole record answers it.
+  extra_tools:
+    accepted_documents:
+      description: which document TYPES are allowed for a requirement -- what he can give for address proof, is a voter id ok
+      args: { requirement: "the requirement or the document asked about, e.g. address proof, voter id" }
+      required: [requirement]
+    case_record:
+      description: ANY other specific fact of this case or one of its documents -- a date (created, uploaded, verified), who created it, a document's own details (name / DOB on the PAN, bank of the statement, salary, employer), contact details, counts
+      args: { question: "the officer's question, in their words" }
+      required: [question]
+    handbook:
+      description: how-to and process -- where / how to upload a document, the stages and which stage comes after another, moving to CPA, what a term means
+      args: { question: "the officer's question, in their words" }
+      required: [question]
+
+# ---------------------------------------------------------------------------------------------------------------------
+# THE CLEAN CARD (owner, 2026-10-13: "Swiggy / Zomato jaisa, clean, readable"; answering/card.py). Deterministic: icons
+# for the engine's own bold status words, one "Next" line, housekeeping lines dropped, long KYC tables summarised
+# unless the officer asks for the detail. Never adds a fact. Env COPILOT_CARD overrides `enabled`.
+# ---------------------------------------------------------------------------------------------------------------------
+card:
+  enabled: false       # PAUSED with the chatbot work (2026-10-13); env COPILOT_CARD=true to try it
+  icons: { verified: "✅", passed: "✅", pending: "⏳", rejected: "❌", failed: "❌", review: "⚠️", "in review": "⚠️" }
+  hide:
+    - '\s*Its issuing authority has not been independently confirmed\.'
+    - '\s*Issuing authority se iski alag se pushti nahi hui hai\.'
+    - '^Application name matches the verified PAN[^\n]*\n?'
+    - '^-?\s*Name verified: [^\n]*Saved on the application\.\n?'
+  summary_only_intents: [KYC_RESULT]
+  # with the card OFF too: these answers show their summary + detail_link unless the detail is asked (2026-10-24)
+  summary_only_always: false   # OFF: master spec 6 shows the A + B tables (test_master_6_kyc_ab)
+  detail_words: ['\bdetail', '\btable\b', '\bpoora\b', '\bpura\b', '\bfull\b', '\bsab\b', '\bcomplete\b']
+  detail_link: "[KYC details](ask:Show the KYC details table)"
+  bold_first_line_max: 90
+
+# THE CASE CARD'S CLOSING LINES (answering/answer.py, owner 2026-10-14: one short line per fact). {n} = documents /
+# items; {s} = "s" when more than one.
+case_card:
+  collect_documents: "Collect and upload the {n} document{s} above."
+  cpa_ready: "CPA: Ready to hand over."
+  cpa_not_ready_count: "CPA: Not ready — {n} to clear."
+  cpa_not_ready: "CPA: Not ready yet."

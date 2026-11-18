@@ -18,6 +18,8 @@ fallback (the second miss in a row -> the closest FAQ questions + the supervisor
 
 from __future__ import annotations
 
+from app.llm import turn_budget as _tb
+
 import difflib
 import os
 import re
@@ -354,6 +356,33 @@ def _log_gap(term: str, kind: str = "terms") -> None:
             pass
 
 
+def _downstream_route(message: str, case_in_scope: str | None) -> str | None:
+    """
+    The downstream agent this message belongs to (CREDIT_AGENT, DECISION_AGENT, KYC_AGENT, RISK_AGENT, RCU_AGENT ...),
+    or None. THE SAME DECISION THE ROUTER MAKES: the deterministic classifier (semantics/intents.understand) and the
+    `routing:` table of applicant_agent.yaml -- no word list of its own. A route to NONE (investment / product advice)
+    stays with this layer's polite out-of-scope line. 2026-10-22: this layer answered "should we approve this loan?"
+    as CLARIFICATION and "credit score?" as NOT_IN_SCOPE, BEFORE the router could route them (OUT_OF_SCOPE + route_to).
+    """
+    try:
+        from app.agents.applicant import config as _agent_config
+        from app.agents.applicant.copilot.semantics import intents as _intents
+
+        found = _intents.understand(str(message or ""), has_case=bool(case_in_scope))
+        if found.intent is not _intents.Intent.OUT_OF_SCOPE:
+            return None
+        # a CONCEPT / PROCESS question that names no case ("what is a sanction letter", "who approves the loan",
+        # "foreclosure charges kitne hai") is general knowledge -- the handbook / policy answers it here. Only a
+        # question about A case ("should we approve THIS loan?", "the applicant's credit score") goes downstream.
+        # 2026-10-23: the topic word alone routed 9 of the 12 wrong general answers away from the handbook.
+        if _general_question(message):
+            return None
+        target = str((_agent_config.routing_table().get(found.route_to or "") or {}).get("route_to") or "")
+        return target if target and target.upper() != "NONE" else None
+    except Exception:  # noqa: BLE001 - a classifier failure leaves this layer exactly as it was
+        return None
+
+
 async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
                  lang: str, case_in_scope: str | None = None, meaning_kind: str | None = None,
                  knowledge_hint: str | None = None) -> dict[str, Any] | None:
@@ -367,6 +396,16 @@ async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] |
         return None
     if meaning_kind == "case":
         return None                     # understood as a question about the case: the case engine answers it
+    if _downstream_route(message, case_in_scope):
+        if not (case_in_scope or getattr(_state(claims, context), "active_case_id", None)) and _decision(message):
+            # asking the bot to DECIDE, no case open ("will this loan get approved", "should I reject this customer"):
+            # the decline is the same for every case -- said now, never "which case is this about?" first
+            spec = cfg().get("decisions") or {}
+            return _reply(request_id, "CREDIT_DECISION_DECLINED", _pick(spec.get("text"), lang),
+                          block=_asks(_pick(spec.get("suggestions"), lang) or []), query_type="PROCESS_KNOWLEDGE")
+        return None                     # "should we approve this loan?", "credit score?": the downstream router answers
+    if (case_in_scope or getattr(_state(claims, context), "active_case_id", None)) and _one_recorded_field(message):
+        return None                     # "what is the tenure" on an open case: ITS tenure (the profile), not the glossary
     if _stage_process_question(message) and not _handbook_heading_answers(message, claims, context, case_in_scope):
         return None                     # "What does CPA verify?": the stage guide answers it (STAGE_PROCESS)
     parts = _parts(message)
@@ -390,6 +429,8 @@ async def answer(message: str, claims: dict[str, Any], context: dict[str, Any] |
 
     previous = str((getattr(state, "flow", None) or {}).get("last_general_q") or "") or None
     rewritten, trace = await question_rewrite.rewrite(message, previous=previous, request_id=request_id, lang=lang)
+    if rewritten and _downstream_route(rewritten, case_in_scope):
+        return None                     # the rewrite names a downstream question: the router answers it, not this layer
     if rewritten:
         again = await _fast(rewritten, claims, context, request_id, lang, case_in_scope)
         understood = again is not None and str(again.get("intent")) != "UNKNOWN_TERM"
@@ -429,6 +470,10 @@ def _needs_slow_path(message: str, reply: dict[str, Any] | None, state, claims: 
     """Not understood with confidence: "not in the knowledge base", or nothing matched and not a clear case question."""
     if reply is not None:
         return str(reply.get("intent")) == "UNKNOWN_TERM"
+    from app.agents.applicant.copilot.semantics import meaning
+
+    if meaning.social_reading(message):
+        return False                    # "thx a lot": small talk -- never re-worded by the model
     if case_in_scope or getattr(state, "active_case_id", None) or _pending(state, claims, context):
         return False                    # a case is in scope / a question is pending: the case logic reads it
     said = _plain(message)
@@ -471,6 +516,245 @@ def _remember(state, message: str, reply: dict[str, Any] | None) -> None:
     workspace._save(state)
 
 
+def acceptance(wanted: str, product: str | None, lang: str) -> str | None:
+    """One direct line: is document `wanted` accepted for this product (any product when None)? yes (as what) /
+    only for a co-applicant (and the applicant's options) / no. None when `wanted` is itself a requirement slot."""
+    from app.agents.applicant import config as agent_config
+    from app.agents.applicant.copilot.answering.answer import _readable
+
+    wanted = str(wanted or "").upper()
+    products = [product] if product else [p for p in agent_config.products() if str(p).lower() != "default"]
+    rows = [r for p in products for r in agent_config.checklist_for(p) or []]
+    if any(str(r.get("slot") or "").upper() == wanted for r in rows):
+        # A REQUIREMENT OF ITS OWN ("is the salary slip done / ok?", 2026-10-13 held-out: "Salary Slip is accepted as
+        # Salary Slip"): a status question for the case logic, never an acceptability answer
+        return None
+    for r in rows:
+        if wanted in [str(a).upper() for a in r.get("accepts") or []]:
+            return _say("accepted_short", lang, document=_readable(wanted), slot=_readable(r.get("slot")))
+    for r in agent_config.co_applicant_documents() or []:
+        if wanted in [str(a).upper() for a in r.get("accepts") or []]:
+            slot = str(r.get("slot") or "").upper()
+            mine = next((x for x in rows if str(x.get("slot") or "").upper() == slot), None)
+            options = ", ".join(_readable(a) for a in (mine or {}).get("accepts") or [])
+            return _say("coapp_only", lang, document=_readable(wanted), slot=_readable(slot), options=options or "-")
+    return _say("not_accepted", lang, document=_readable(wanted))
+
+
+def _lacked(said: str, names: dict, found: list[str]) -> str | None:
+    """The ONE found document the message says the customer LACKS -- the entity frame's negation reading
+    (semantics/entities.py: "DL nahi hai", "doesn't have a DL", "without passport"); the older phrase list
+    (phrases.acceptable_lacks) only as its fallback. Else None."""
+    from app.agents.applicant.copilot.semantics import entities
+
+    lacks = entities.extract(said).lacks
+    hit = next((c for c in lacks if c in found), None)
+    if hit:
+        return hit
+    for code in found:
+        for alias in names.get(code) or []:
+            a = _norm(alias).strip()
+            for phrase in (cfg().get("phrases") or {}).get("acceptable_lacks") or []:
+                p = _norm(str(phrase).replace("{doc}", a)).strip()
+                if "{doc}" in str(phrase) and re.search(rf"\b{re.escape(p)}\b", said):
+                    return code
+                if "{doc}" not in str(phrase) and re.search(
+                        rf"\b{re.escape(p)}\s+(?:a\s+|an\s+|the\s+|any\s+)?{re.escape(a)}\b", said):
+                    return code
+    return None
+
+
+_ACCEPT_MEMO: dict[str, float] = {}
+
+
+def _accepted(text: str, lang: str) -> str | None:
+    """"Is a voter ID fine?" -- yes, when the configured checklists accept that document for a slot of its own name
+    (applicant_agent.yaml documents.*.accepts). None when the message is not that question, names no known document,
+    or the document is no OPTION of any slot (the case logic answers those)."""
+    from app.agents.applicant import config as agent_config
+    from app.agents.applicant.copilot.answering.answer import _readable
+
+    # a LEADING "ok / so / hmm" acknowledges the last answer -- it is not "is it ok?" (config phrases.ack_lead)
+    leads = "|".join(re.escape(str(w)) for w in (cfg().get("phrases") or {}).get("ack_lead") or [])
+    core = re.sub(rf"^\s*(?:(?:{leads})\b[\s,.!]*)+", "", str(text), flags=re.I) if leads else str(text)
+    said = _norm(core)
+    names = (cfg().get("phrases") or {}).get("document_names") or {}
+    determiners = "|".join(re.escape(_norm(w).strip()) for w in (cfg().get("phrases") or {}).get(
+        "acceptable_not_before") or [])
+    aliases = "|".join(re.escape(_norm(a).strip()) for v in names.values() for a in v or [])
+    owned = bool(determiners and aliases and re.search(rf"\b({determiners})\s+({aliases})\b", said))
+    if not _has(core, "acceptable") or _has(core, "case_document_state") or (
+            (owned or _has(core, "acceptable_not_with")) and not _has(core, "acceptable_instead")):
+        return None
+    found = [code for code, aliases in names.items() if any(_norm(a) in said for a in aliases or [])]
+    lacked = _lacked(said, names, found)
+    if lacked:
+        # "he DOESN'T HAVE a DL, what else works for address proof?": that option ruled out -> the slot's others
+        for product in agent_config.products():
+            for row in agent_config.checklist_for(product) or []:
+                slot = str(row.get("slot") or "").upper()
+                accepts = [str(a).upper() for a in row.get("accepts") or []]
+                if lacked in accepts and len(accepts) > 1 and (slot in found or len(found) == 1):
+                    return _say("accepted_other", lang, document=_readable(lacked), slot=_readable(slot),
+                                options=", ".join(_readable(a) for a in accepts if a != lacked))
+    if len(found) == 2:
+        # "address proof ke liye passport chalega?" / "is a passport ok for address proof?" (2026-10-14 Hinglish
+        # dev): a requirement slot AND one of its options -- that pair, answered from the checklist
+        for product in agent_config.products():
+            for row in agent_config.checklist_for(product) or []:
+                slot = str(row.get("slot") or "").upper()
+                accepts = [str(a).upper() for a in row.get("accepts") or []]
+                other = next((c for c in found if c != slot), None)
+                if slot in found and other in accepts and len(accepts) > 1:
+                    return _say("accepted", lang, document=_readable(other), slot=_readable(slot),
+                                options=", ".join(_readable(a) for a in accepts))
+        return None
+    if len(found) != 1:
+        return None                                                     # none, or two documents: not this question
+    wanted = found[0]
+    rows: dict[str, list[str]] = {}
+    for product in agent_config.products():
+        for row in agent_config.checklist_for(product) or []:
+            accepts = [str(a).upper() for a in row.get("accepts") or []]
+            slot = str(row.get("slot") or "").upper()
+            if wanted in accepts and slot != wanted and len(accepts) > 1:
+                rows.setdefault(slot, accepts)
+    if not rows:
+        return acceptance(wanted, None, lang)                           # "electricity bill instead?" -- no / co-app
+    if len(rows) != 1:
+        return None                                                     # ambiguous: the case logic
+    slot, accepts = next(iter(rows.items()))
+    return _say("accepted", lang, document=_readable(wanted), slot=_readable(slot),
+                options=", ".join(_readable(a) for a in accepts))
+
+
+def _one_recorded_field(text: str) -> bool:
+    """Whether the message asks for ONE recorded application / applicant field (answering/profile.py detect)."""
+    from app.agents.applicant.copilot.answering import profile
+
+    try:
+        asked = profile.detect(text)
+    except Exception:  # noqa: BLE001
+        return False
+    return asked is not None and str(getattr(asked, "field", "") or "") not in ("", profile.ALL)
+
+
+def _direct_reply(text: str, case_id: str | None, request_id: str, lang: str) -> dict[str, Any] | None:
+    """The general layer's DIRECT answers, needing no model and no case read: confusion and "can you handle it" on an
+    open case (one question back about it), "is X accepted?" (the checklist). None for anything else."""
+    if case_id and _has(text, "frustrated") and not _has(text, "one_document") \
+            and not _has(text, "case_document_state"):
+        # CONFUSED ON AN OPEN CASE (2026-10-13 English eval: "I don't understand anything" got "outside what I can
+        # help with"): one question back about this case, with its two commonest asks
+        return _reply(request_id, "FRUSTRATED", _say("frustrated_case", lang),
+                      block=_asks(list(cfg().get("case_asks") or [])), case_id=case_id)
+    if case_id and _has(text, "delegate") and not _has(text, "one_document") \
+            and not _has(text, "case_document_state"):
+        # "can you handle it" names nothing to do (2026-10-13 English eval: a document guess, or "outside what I
+        # can help with"): one question back about the open case
+        return _reply(request_id, "WHICH_ACTION", _say("delegate_case", lang),
+                      block=_asks(list(cfg().get("case_asks") or [])), case_id=case_id)
+    accepted = _accepted(text, lang)
+    if accepted:
+        return _reply(request_id, "DOCUMENT_ACCEPTED", accepted, case_id=case_id, category="KNOWLEDGE")
+    from app.agents.applicant.copilot.capabilities import product_flow as _oos_first
+
+    if _oos_first.out_of_scope(text):
+        # CLEARLY OFF-TOPIC, BEFORE ANY MODEL STEP (2026-10-24: "what is the capital of france" waited 4 s on the
+        # definition / meaning steps): the same line and next option _fast gives, in well under a second
+        line, option = _oos_first.out_of_scope_reply(lang, len(text))
+        return _reply(request_id, "NOT_IN_SCOPE", line, case_id=case_id, block=option, category="UNSUPPORTED",
+                      query_type="CONVERSATION")
+    after = _after_stage(text, lang)
+    if after:
+        return _reply(request_id, "PROCESS_STAGES", after, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
+    return None
+
+
+def _after_stage(text: str, lang: str) -> str | None:
+    """"what comes after credit?" / "and after cpa?": the next stages, from config stage_sequence (never a guess)."""
+    sequence = [s for s in cfg().get("stage_sequence") or [] if isinstance(s, dict)]
+    if not sequence or _has(text, "case_document_state") or _has(text, "after_stage_not"):
+        return None
+    for pattern in (cfg().get("phrases") or {}).get("after_stage") or []:
+        found = re.search(pattern, str(text or ""), re.I)
+        if not found:
+            continue
+        code = found.group("stage").upper()
+        at = next((i for i, s in enumerate(sequence) if str(s.get("code")).upper() == code), None)
+        if at is None:
+            return None
+        if at == len(sequence) - 1:
+            return _say("after_last_stage", lang, stage=str(sequence[at].get("code")).title())
+        _NEXT_STAGE.code = str(sequence[at + 1].get("code"))      # "and after that?" steps on from here
+        rest = [str(s.get("say")) for s in sequence[at + 1:]]
+        following = rest[0] + (", then " + ", ".join(rest[1:]) if len(rest) > 1 else "")
+        return _say("after_stage", lang, stage=str(sequence[at].get("code")).title() if len(code) > 4
+                    else code, next=following)
+    return None
+
+
+def eligibility_question(text: str) -> str | None:
+    """Eligibility wording ("is rahul eligible for the loan?") -> the standard eligibility question, which the engine
+    answers with its redirect line (localized like every answer). None for "eligible to move to CPA" / a question over
+    the officer's cases (phrases.eligibility_not) -- those are about CPA readiness."""
+    from app.agents.applicant.copilot.semantics import task as _task
+
+    if not _has(text, "eligibility") or _has(text, "eligibility_not") or _task.asks_over_cases(text):
+        return None
+    return str(((cfg().get("texts") or {}).get("eligibility_question") or {}).get("en") or "") or None
+
+
+#: the stage the last "after <stage>" answer named first, per chat: "and after that?" steps on from it
+_NEXT_STAGE = threading.local()
+_STAGE_MEMO: dict[str, tuple[float, str]] = {}
+
+
+def _chat(claims: dict[str, Any], context: dict[str, Any] | None) -> str:
+    from app.agents.applicant.copilot.capabilities import workspace
+
+    workspace_id = (context or {}).get("workspace_id") if isinstance(context, dict) else None
+    return f"{workspace._subject(claims)}|{workspace_id or ''}"
+
+
+def direct(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str, lang: str,
+           case_in_scope: str | None = None) -> dict[str, Any] | None:
+    """_direct_reply for a request, BEFORE any model step (fos_api): these answers never wait on Qwen."""
+    import time as _time
+
+    state = _state(claims, context)
+    case_id = getattr(state, "active_case_id", None) or case_in_scope
+    chat = _chat(claims, context)
+    text = str(message)
+    with _LOCK:
+        memo = _STAGE_MEMO.pop(chat, None)
+    if memo and memo[0] > _time.time() and _has(text, "after_that") and not _has(text, "after_that_not"):
+        # "ok and after that?" RIGHT AFTER AN "after <stage>" ANSWER (2026-10-14): the stage after the one it named
+        text = f"what comes after {memo[1].lower()}?"
+    with _LOCK:
+        accept_memo = _ACCEPT_MEMO.pop(chat, 0.0)
+    names = (cfg().get("phrases") or {}).get("document_names") or {}
+    bare = _norm(text).strip(" ?.!")
+    if accept_memo > _time.time() and len(bare.split()) <= 4 and any(
+            re.fullmatch(rf"(?:and\s+|what\s+about\s+|how\s+about\s+|or\s+)?(?:a\s+|an\s+|the\s+)?"
+                         rf"{re.escape(_norm(a).strip())}", bare) for v in names.values() for a in v or []):
+        # "rent agreement?" RIGHT AFTER AN ACCEPTABILITY ANSWER (2026-10-14 officer set): is THAT one accepted
+        text = f"is {bare} acceptable?"
+    _NEXT_STAGE.code = None
+    reply = _direct_reply(text, case_id, request_id, lang)
+    if reply is not None and reply.get("intent") == "DOCUMENT_ACCEPTED":
+        with _LOCK:
+            _ACCEPT_MEMO[chat] = _time.time() + 600
+            if len(_ACCEPT_MEMO) > 5000:
+                _ACCEPT_MEMO.pop(next(iter(_ACCEPT_MEMO)))
+    if reply is not None and reply.get("intent") == "PROCESS_STAGES" and _NEXT_STAGE.code:
+        with _LOCK:
+            _STAGE_MEMO[chat] = (_time.time() + 600, _NEXT_STAGE.code)
+            if len(_STAGE_MEMO) > 5000:
+                _STAGE_MEMO.pop(next(iter(_STAGE_MEMO)))
+    return reply
+
+
 async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | None, request_id: str,
                 lang: str, case_in_scope: str | None = None, meaning_kind: str | None = None,
                 knowledge_hint: str | None = None) -> dict[str, Any] | None:
@@ -486,6 +770,9 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
     text = str(message)
     case_id = getattr(state, "active_case_id", None) or case_in_scope
 
+    reply = _direct_reply(text, case_id, request_id, lang)
+    if reply is not None:
+        return reply
     if _has(text, "frustrated") and not case_id:
         options = ["My pending cases", "What is pending?" if case_id else "Show my cases"]
         block = _asks(options) + "\n" + _pick((cfg().get("fallback") or {}).get("supervisor"), lang)
@@ -495,12 +782,14 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         return _reply(request_id, "GENERAL_HELP", _say("help", lang) + "\n\n" + _summary(claims, lang),
                       block=_asks(_suggestions(state, lang, 3)), case_id=case_id,
                       tts=_say("help", lang) + " " + _summary(claims, lang))
-    if _only(text, "ack") and not _pending(state, claims, context):
+    if _only(text, "ack") and (_only(text, "thanks") or not _pending(state, claims, context)):
         # the small-talk contract: THANKS / ACKNOWLEDGEMENT, a CONVERSATION answer that read nothing
         # (config phrases.thanks names the thank-yous among the ack words)
         kind = "THANKS" if _only(text, "thanks") else "ACKNOWLEDGEMENT"
         outcome = "NEGATION" if _only(text, "negation") else "ACKNOWLEDGEMENT"
-        return _reply(request_id, kind, _say("ack", lang, seed) + " " + _say("ack_next", lang),
+        said = _say("thanks_reply", lang, seed) if kind == "THANKS" and (cfg().get("texts") or {}).get("thanks_reply") \
+            else _say("ack", lang, seed)
+        return _reply(request_id, kind, said + " " + _say("ack_next", lang),
                       block=_asks(_suggestions(state, lang, 2)), case_id=case_id, category="CONVERSATION",
                       answer_basis={"composition": {"called": False}, "source": "SMALL_TALK"},
                       # the turn's conversation outcome, as the conversation-state layer names it: an acknowledgement
@@ -529,6 +818,12 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
     for topic, spec in (cfg().get("processes") or {}).items():
         if any(_norm(p) in _norm(text) for p in spec.get("phrases") or []):
             md, spoken = _process(topic, state, lang)
+            if spec.get("then_stage"):
+                # "who reviews it after that?" right after this process answer: the stage after it (stage_sequence)
+                import time as _time
+
+                with _LOCK:
+                    _STAGE_MEMO[_chat(claims, context)] = (_time.time() + 600, str(spec["then_stage"]))
             return _reply(request_id, "PROCESS_ANSWER", md, case_id=case_id, tts=spoken,
                           query_type="PROCESS_KNOWLEDGE")
     if _has(text, "product_documents") and _has(text, "co_applicant") and not _product_of(text)             and not _has(text, "case_document_state"):
@@ -537,7 +832,14 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         return _reply(request_id, "PRODUCT_CHECKLIST", md, case_id=case_id, tts=spoken, query_type="PROCESS_KNOWLEDGE")
     # "which documents are accepted as ADDRESS PROOF" asks about one document: the knowledge path answers it
     # "kaunse documents BAAKI hai" asks about a case's documents (pending / uploaded / verified): never the product list
-    if _has(text, "product_documents") and not _has(text, "one_document") and not _has(text, "case_document_state"):
+    # A PARAPHRASE of the checklist question ("what does the customer need to submit for a personal loan?"): meaning read
+    # a knowledge question whose nearest catalogue example IS the checklist shape, and the words name the product
+    # (the example may be a reviewed paraphrase in other words: "...what documents are accepted for a personal loan")
+    paraphrased = (meaning_kind == "knowledge" and bool(knowledge_hint) and _product_of(text) is not None
+                   and (_has(str(knowledge_hint), "product_documents")
+                        or bool(re.search(r"\bdocuments\b", str(knowledge_hint).lower()))))
+    if (_has(text, "product_documents") or paraphrased) and not _has(text, "one_document") \
+            and not _has(text, "case_document_state"):
         product = _product_of(text)
         if product is None and not case_id:
             from app.agents.applicant import config
@@ -550,6 +852,14 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
             md, spoken = _products_table(product, lang)
             return _reply(request_id, "PRODUCT_CHECKLIST", md, case_id=case_id, tts=spoken,
                           query_type="PROCESS_KNOWLEDGE")
+    from app.agents.applicant.copilot.capabilities import product_flow as _oos_flow
+
+    if _oos_flow.out_of_scope(text):
+        # CLEARLY OFF-TOPIC (product_flow.yaml out_of_scope words), case open or not: the one polite line and the next
+        # option -- never a company "policy value" (2026-10-18: "best mutual fund to invest in?" got POLICY_NOT_CONFIGURED)
+        line, option = _oos_flow.out_of_scope_reply(lang, len(text))
+        return _reply(request_id, "NOT_IN_SCOPE", line, case_id=case_id, block=option, category="UNSUPPORTED",
+                      query_type="CONVERSATION")
     if _decision(text) or meaning_kind == "decision":
         spec = cfg().get("decisions") or {}
         return _reply(request_id, "CREDIT_DECISION_DECLINED", _pick(spec.get("text"), lang), case_id=case_id,
@@ -595,6 +905,8 @@ async def _fast(message: str, claims: dict[str, Any], context: dict[str, Any] | 
         return None                      # definitions with a case open are off (COPILOT_TERMS_KNOWLEDGE=false)
     if in_case and _case_question_not_definition(text, meaning_kind):
         return None                      # "is any document still outstanding" -- that case's data, not the glossary
+    if in_case and _one_recorded_field(text):
+        return None                      # "what is the tenure" on an open case: its tenure, not the glossary
     compared = await _difference(text, request_id, lang, case_id)
     if compared is not None:
         return compared
@@ -855,7 +1167,9 @@ async def _knowledge(text: str, request_id: str, lang: str, case_id: str | None,
         return next((reply for authoritative, reply in found if authoritative), found[0][1])
     if case_id:
         return None                 # a case is in scope: nothing general found -- the case logic answers it
-    general = await _general_llm(text, request_id)
+    # THE HANDBOOK COVERS THE TOPIC (2026-11-02 audit): retrieval was confident but the passage failed the relevance
+    # guard -- the general model must never answer a question the approved source holds (it can contradict it)
+    general = None if _handbook_confident(text) else await _general_llm(text, request_id)
     if general:
         # NEVER PASSED OFF AS THE HANDBOOK (2026-10-11, directive section 9): a general answer carries no citation, so
         # it says what it is (config general_llm.provenance_note) and is marked as such on the reply
@@ -897,7 +1211,7 @@ async def _general_llm(question: str, request_id: str) -> str | None:
     if terms and not any(style.defined_term(f"what is {t}") for t in terms):
         return None                                      # an unknown acronym: "not in the knowledge base", logged
     from app.llm import availability
-    from app.llm.memory import free_gb
+    from app.llm.memory import free_gb_for_model as free_gb
 
     free = free_gb()
     if (free is not None and free < float(spec.get("min_free_ram_gb", 2.0))) or not availability.provider_reachable():
@@ -919,8 +1233,9 @@ async def _general_llm(question: str, request_id: str) -> str | None:
     timeout = float(spec.get("timeout_seconds", 8.0))
     GENERAL_LLM_STATS["called"] += 1
     try:
+        _tb.check("general")      # an earlier model call of this turn failed: answer without it (app/llm/turn_budget.py)
         async with httpx.AsyncClient(timeout=timeout + 0.5) as client:
-            response = await asyncio.wait_for(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), timeout)
+            response = await asyncio.wait_for(_tb.guarded(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), "general"), timeout)
             text = str(((response.json() or {}).get("message") or {}).get("content") or "").strip()
     except Exception:  # noqa: BLE001 - slow / down: "not in the knowledge base"
         return None
@@ -939,6 +1254,256 @@ async def _general_llm(question: str, request_id: str) -> str | None:
     return answer
 
 
+# --------------------------------------------------------------------------
+# GENERAL QUESTIONS AFTER LOS (Phase 4 directive 2C): conversation_general.yaml general_chat
+# --------------------------------------------------------------------------
+_LOS_VOCABULARY: dict[str, Any] = {"words": None, "phrases": None}
+
+
+def _los_vocabulary() -> tuple[set[str], list[str]]:
+    """
+    Every word / phrase that names something of the LOS, from the SAME sources the Copilot already answers from
+    (never a new list): the case words (product_flow which_case.case_words), the glossary terms, the approved
+    handbook glossary's headings (knowledge/fos/los_glossary.md), the stage names, the document types and their
+    aliases, the case list's nouns and the product aliases. Cached for the process.
+    """
+    if _LOS_VOCABULARY["words"] is not None:
+        return _LOS_VOCABULARY["words"], _LOS_VOCABULARY["phrases"]
+    terms: set[str] = set()
+    try:
+        from app.agents.applicant.copilot.capabilities import product_flow
+
+        terms |= {str(w) for w in (product_flow.cfg().get("which_case") or {}).get("case_words") or []}
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from app.agents.applicant.copilot.answering import style
+
+        terms |= {str(t) for t in style.terms()}
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from pathlib import Path
+
+        glossary = Path(__file__).resolve().parents[5] / "knowledge" / "fos" / "los_glossary.md"
+        for line in glossary.read_text(encoding="utf-8").splitlines():
+            if line.startswith("## "):
+                head = line[3:].strip()
+                terms.add(head.split("(")[0].strip())
+                inner = re.search(r"\(([^)]+)\)", head)
+                if inner:
+                    terms.add(inner.group(1).strip())
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from app.agents.applicant import config as _agent_config
+
+        for stage in getattr(_agent_config, "stage_codes", lambda: [])() or []:
+            terms |= {str(stage), str(_agent_config.stage_label(stage))}
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from app.agents.applicant.copilot.capabilities import case_list
+
+        singular, plural = case_list._case_nouns()
+        terms |= set(singular) | set(plural)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        spec = cfg().get("policy") or {}
+        for aliases in (spec.get("product_aliases") or {}).values():
+            terms |= {str(a) for a in aliases or []}
+        terms |= {str(p) for p in spec.get("unconfigured_products") or []}
+    except Exception:  # noqa: BLE001
+        pass
+    words, phrases = set(), []
+    for term in terms:
+        plain = _plain(term)
+        if not plain or len(plain) < 2:
+            continue                                  # a one-letter heading never names the LOS on its own
+        if " " in plain:
+            phrases.append(plain)
+        else:
+            words.add(plain)
+    _LOS_VOCABULARY.update(words=words, phrases=phrases)
+    return words, phrases
+
+
+def names_los(text: str) -> bool:
+    """Whether the message names anything of the LOS (a word / phrase of `_los_vocabulary`, a document, a product,
+    a stage, a case / applicant id)."""
+    plain = _plain(text)
+    words, phrases = _los_vocabulary()
+    said = set(plain.split())
+    if said & words or any(f" {p} " in f" {plain} " for p in phrases):
+        return True
+    if re.search(r"(?i)\b(case|app|coapp)-[0-9a-f]{4,}\b", str(text)):
+        return True
+    try:
+        from app.agents.applicant.copilot.semantics import intents, meaning
+
+        if meaning.document_in(text) or intents.stage_in(text):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return bool(_product_of(text))
+
+
+def is_general_question(text: str) -> bool:
+    """
+    A question that names NOTHING of the LOS and that no Copilot reader recognises as an LOS turn: answered as an
+    ordinary question (general_chat). Never a fragment ("why", "docs" -- general_chat.min_words), a social turn, an
+    action request ("sort this out", "approve this"), or anything the task layer / the engine's rules read as LOS.
+    """
+    spec = cfg().get("general_chat") or {}
+    plain = _plain(text)
+    if not plain or len(plain.split()) < int(spec.get("min_words", 3)) or names_los(text):
+        return False
+    # "give ME a tip" / "tell ME about Paris": the asker as the object of the request verb, not a pointer back into
+    # the conversation ("what still needs me?" is one)
+    asked = re.sub(r"^(can you |could you |please )?(give|tell|show|teach|help|remind|explain to) me\b", "", plain)
+    if set(asked.split()) & {str(w).lower() for w in spec.get("context_words") or []}:
+        return False                         # it points back into the conversation: its own follow-up
+    try:
+        from app.agents.applicant import language as _language
+
+        detected = _language.detect(text)
+        if getattr(detected, "code", None) not in set(spec.get("languages") or ["en"]) \
+                or getattr(detected, "code_mixed", False):
+            return False                     # Hinglish / another language: the LOS pipeline reads it
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        from app.agents.applicant import conversation
+        from app.agents.applicant.copilot.semantics import intents
+        from app.agents.applicant.copilot.semantics import task as _task
+
+        turn = conversation.classify(text)
+        if turn is not None and turn.kind != conversation.OFF_TOPIC:
+            return False                     # hello / thanks / bye / help / who are you: the conversation's own
+        if _task.unnamed_action(text) or _task.asks_over_cases(text) or _task.portfolio_followup(text, None):
+            return False
+        from app.agents.applicant.copilot.capabilities import vague as _vague
+
+        if _vague.is_command(text, case_open=True):
+            return False                     # "open Rohan Bye": a workspace / form command
+        if intents.classify(text).intent not in (intents.Intent.UNKNOWN, intents.Intent.FOS_KNOWLEDGE,
+                                                 intents.Intent.OUT_OF_SCOPE):
+            return False
+        if intents.classify(text).intent is intents.Intent.OUT_OF_SCOPE and turn is None:
+            return False                     # "approve this" / "reject the file": the LOS refusal, not a chat
+    except Exception:  # noqa: BLE001 - unsure: the LOS pipeline answers as before
+        return False
+    return True
+
+
+def general_chat_available() -> bool:
+    """General chat is on AND the model can take a question now -- checked FIRST, so with no model nothing (no name
+    lookup, no retrieval) runs for a general question and the LOS pipeline answers it as before."""
+    spec = cfg().get("general_chat") or {}
+    flag = (os.getenv("COPILOT_GENERAL_CHAT") or "").strip().lower()
+    if (flag and flag not in {"1", "true", "yes", "on"}) or (not flag and not spec.get("enabled", False)):
+        return False
+    return _general_chat_ready(spec)
+
+
+def _general_chat_ready(spec: dict[str, Any]) -> bool:
+    """The local model can take a general question now (enough free memory, the provider reachable)."""
+    try:
+        from app.llm import availability
+        from app.llm.memory import free_gb_for_model as free_gb
+
+        free = free_gb()
+        return not (free is not None and free < float(spec.get("min_free_ram_gb", 1.5))) \
+            and bool(availability.provider_reachable())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def _chat_model(messages: list[dict[str, str]], spec: dict[str, Any]) -> str | None:
+    """One bounded call to the configured local model (the same Ollama chat call as `_general_llm`)."""
+    import asyncio
+
+    import httpx
+
+    from app.agents.los.summary import keep_alive
+    from app.llm.config import ollama_host, ollama_model, with_num_ctx
+
+    body = {"model": str(spec.get("model") or ollama_model()), "stream": False, "keep_alive": keep_alive(),
+            "messages": messages,
+            "options": with_num_ctx({"temperature": 0.0, "num_predict": int(spec.get("num_predict", 180))})}
+    timeout = float(spec.get("timeout_seconds", 12.0))
+    try:
+        _tb.check("general")      # an earlier model call of this turn failed: answer without it (app/llm/turn_budget.py)
+        async with httpx.AsyncClient(timeout=timeout + 0.5) as client:
+            response = await asyncio.wait_for(_tb.guarded(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), "general"), timeout)
+            return str(((response.json() or {}).get("message") or {}).get("content") or "").strip()
+    except Exception:  # noqa: BLE001 - slow / down: said as unavailable, never guessed
+        return None
+
+
+def _unsafe_general(answer: str) -> bool:
+    """Anything internal in a general answer (a host, a URL, a source file, a key, a stack trace) or what the
+    output guardrail refuses."""
+    if re.search(r"(?i)https?://|\b127\.0\.0\.1\b|\blocalhost\b|\b11434\b|[\w-]+\.py\b|\bapp/\w+|\.env\b|"
+                 r"\bTraceback\b|eyJ[A-Za-z0-9_-]{8,}\.|-----BEGIN|\bsk-[A-Za-z0-9]{10,}|\bsystem prompt\b", answer):
+        return True
+    try:
+        from app.security import guardrails
+
+        return not guardrails.check_output(answer).allowed
+    except Exception:  # noqa: BLE001
+        return True
+
+
+async def general_chat(text: str, request_id: str, lang: str, case_id: str | None = None,
+                       chat_ref: Any = None) -> dict[str, Any] | None:
+    """
+    The answer to an ordinary (non-LOS) question, or None when general chat is off. The approved handbook is asked
+    first and wins; then the local model, with ONLY the question (no case, no customer, no history). A live-info
+    question is said to need a live source; an unsure / unsafe / empty answer is never shown.
+    """
+    spec = cfg().get("general_chat") or {}
+    flag = (os.getenv("COPILOT_GENERAL_CHAT") or "").strip().lower()
+    if (flag and flag not in {"1", "true", "yes", "on"}) or (not flag and not spec.get("enabled", False)):
+        return None
+    texts = spec.get("texts") or {}
+    if not _general_chat_ready(spec):
+        return None                              # no model now: the LOS pipeline answers as it always did
+    handbook = await _knowledge_candidate(text, request_id, case_id, False)
+    if handbook is not None:
+        return handbook[1]                       # the approved source answers: never the general model
+    if _handbook_confident(text):
+        return None                              # the handbook holds the topic: the LOS pipeline answers, not the model
+    else:
+        from app.agents.applicant.copilot.answering import realtime
+
+        realtime.hint(request_id, realtime.say_status("understanding", "en"))
+        # the chat's last exchanges (natural_chat: "and why is that?" follows the last answer); no case data in them
+        from app.agents.applicant.copilot.capabilities import natural_chat
+
+        said = await _chat_model([{"role": "system", "content": str(spec.get("instructions") or "")}]
+                                 + (natural_chat.history_for(chat_ref) if natural_chat.enabled() else [])
+                                 + [{"role": "user", "content": str(text)[:400]}], spec)
+        said = str(said or "").strip()
+        if said.upper().strip(" .") == str(spec.get("live_marker", "LIVE_INFO")).upper():
+            answer = _pick(texts.get("live"), lang)
+        elif not said or said.upper().strip(" .") == str(spec.get("unknown_marker", "UNKNOWN")).upper():
+            return None                          # the model does not know: the LOS pipeline's own clarification
+        elif _unsafe_general(said):
+            answer = _pick(texts.get("unknown"), lang)
+        else:
+            sentences = [s for s in re.split(r"(?<=[.!?])\s+", said) if s.strip()][:int(spec.get("max_sentences", 4))]
+            if len(sentences) > 1 and not re.search(r"[.!?)\]\"']$", sentences[-1].strip()):
+                sentences = sentences[:-1]       # cut by num_predict mid-sentence: never shown half-written
+            answer = " ".join(sentences).strip()
+            note = _pick(texts.get("note"), lang)
+            answer = f"{answer}\n\n{note}" if note else answer
+    reply = _reply(request_id, "GENERAL_CHAT", answer, case_id=case_id, query_type="CONVERSATION")
+    reply.update(response_source="LLM_GENERAL", tools_invoked=[])
+    return reply
+
+
 async def _knowledge_candidate(query: str, request_id: str, case_id: str | None,
                                allow: bool) -> tuple[bool, dict[str, Any]] | None:
     """(authoritative, reply) for one wording of the question, or None when nothing relevant was found."""
@@ -951,7 +1516,7 @@ async def _knowledge_candidate(query: str, request_id: str, case_id: str | None,
             # two sections scored alike: the one whose HEADING is the question wins, as written in the handbook
             # ("what happens after CPA" -> "What happens after CPA?", not "CPA readiness")
             return False, _reply(request_id, "GENERAL_KNOWLEDGE", tied.chunk.text.strip(), case_id=case_id,
-                                 query_type="PROCESS_KNOWLEDGE", citations=[tied.chunk.citation])
+                                 query_type="PROCESS_KNOWLEDGE", citations=[tied.chunk.citation()])
     except Exception:  # noqa: BLE001 - knowledge unavailable: said as not known, never guessed
         return None
     heading = _heading_of((detail.get("citations") or [""])[0])
@@ -960,8 +1525,101 @@ async def _knowledge_candidate(query: str, request_id: str, case_id: str | None,
             detail.get("authoritative") or _about(query, f"{reply_text} {heading}")):
         return bool(detail.get("authoritative")), _reply(
             request_id, "GENERAL_KNOWLEDGE", reply_text, case_id=case_id, query_type="PROCESS_KNOWLEDGE",
-            citations=detail.get("citations") or [])
+            citations=detail.get("citations") or [], answered_from=detail.get("answered_from"))
     return None
+
+
+_HEADINGS: dict[str, Any] = {"key": None, "plain": ()}
+
+
+def _question_headings() -> tuple[str, ...]:
+    """The handbook's question headings ("...?"), normalised as heading_answer compares them; cached per repository
+    load (the repository object changes when the handbook is reloaded)."""
+    try:
+        from app.knowledge import get_repository
+
+        repo = get_repository()
+        key = (id(repo), tuple(repo.stages()))
+        if _HEADINGS["key"] != key:
+            plain = {_plain(c.heading) for stage in repo.stages() for c in repo.chunks(stage)
+                     if str(c.heading or "").strip().endswith("?")}
+            _HEADINGS.update(key=key, plain=tuple(p for p in plain if p))
+        return _HEADINGS["plain"]
+    except Exception:  # noqa: BLE001 - no handbook list: let the retrieval path decide, as before
+        return ()
+
+
+def _near_a_heading(text: str, min_ratio: float) -> bool:
+    headings = _question_headings()
+    if not headings:
+        return True                       # unknown: never block the layer, the retrieval below decides
+    said = _plain(text)
+    # quick_ratio is an upper bound of ratio: cheap rejection first, the exact ratio only for survivors
+    for heading in headings:
+        matcher = difflib.SequenceMatcher(None, said, heading)
+        if matcher.quick_ratio() >= min_ratio and matcher.ratio() >= min_ratio:
+            return True
+    return False
+
+
+async def heading_answer(text: str, request_id: str, case_id: str | None) -> dict[str, Any] | None:
+    """
+    The message IS one of the handbook's question headings (config handbook_heading): that section's answer, through
+    the ordinary knowledge path (relevance guard, masking, citation). None for anything else.
+    """
+    spec = cfg().get("handbook_heading") or {}
+    flag = (os.getenv("COPILOT_HANDBOOK_HEADING") or "").strip().lower()      # rollback / A-B switch
+    on = flag in {"1", "true", "yes", "on"} if flag else bool(spec.get("enabled"))
+    if not on or any(re.search(p, str(text).lower()) for p in spec.get("not_with") or []):
+        return None
+    from app.agents.applicant.copilot.answering import style
+
+    if style.defined_term(text):
+        return None                     # "What is FOIR?": the glossary's definition layer answers, as before
+    # NO HEADING CLOSE ENOUGH, NO RETRIEVAL (2026-11-05): this layer runs before every other one, and it retrieved
+    # the handbook for EVERY message -- "what is pending" on a case too (the conversation eval failed 119 / 124 on
+    # "retrieval on a case conversation", and each turn paid a retrieval). The same ratio is checked first against
+    # the handbook's own question headings, in memory; only a message that can match one is retrieved, as before.
+    if not _near_a_heading(text, float(spec.get("min_ratio", 0.9))):
+        return None
+    try:
+        from app.agents.applicant import knowledge_answer
+
+        result = knowledge_answer.retrieve(text)
+    except Exception:  # noqa: BLE001 - retrieval unavailable: the ordinary layers answer
+        return None
+    if result is None or not result.confident or not result.hits:
+        return None
+    said = _plain(text)
+    for hit in result.hits[:3]:
+        heading = str(hit.chunk.heading or "")
+        if not heading.strip().endswith("?"):
+            continue
+        if difflib.SequenceMatcher(None, said, _plain(heading)).ratio() >= float(spec.get("min_ratio", 0.9)):
+            found = await _knowledge_candidate(heading, request_id, case_id, False)
+            return found[1] if found is not None else None
+    return None
+
+
+def _handbook_confident(question: str) -> bool:
+    """Whether handbook retrieval is confident for this question (whatever the relevance guard then decided)."""
+    try:
+        from app.agents.applicant import knowledge_answer
+
+        result = knowledge_answer.retrieve(question)
+        if not (result is not None and result.confident and result.hits):
+            return False
+        # ...ABOUT THE QUESTION'S SUBJECT, not only its frame: "What is the difference between RAM and storage?" was
+        # "confident" on the heading "What is the difference between a co-applicant and a guarantor?" (2026-11-02)
+        words = _subject_words(question)
+        if not words:
+            return True
+        top = result.hits[0].chunk
+        # most of the subject, as the answer layer's own relevance rule (_about): one shared word is not the topic
+        # ("cost-based query PLANNER" vs "Approved building PLAN", 2026-11-02)
+        return _about(question, f"{top.heading or ''} {top.text}")
+    except Exception:  # noqa: BLE001 - retrieval unavailable: not known to be covered
+        return False
 
 
 def _heading_of(citation: str) -> str:
@@ -1117,17 +1775,17 @@ def _say_text(template: Any, lang: str, **values: Any) -> str:
 
 def _policies(product: str | None = None) -> list[Any]:
     """The live eligibility policies (one product, else every configured one); [] when unavailable."""
-    from app.agents.applicant import config
-    from app.agents.eligibility import policy as eligibility_policy
+    # ELIGIBILITY IS NOT THE CHATBOT'S (owner, 2026-10-13): no eligibility limit is read here -- a policy-number
+    # question gets the configured redirect (conversation_general.yaml policy.texts.unavailable)
+    return []
 
-    names = [product] if product else [p for p in config.products() or [] if str(p).lower() != "default"]
-    out = []
-    for name in names:
-        try:
-            out.append(eligibility_policy.get_policy(name))
-        except Exception:  # noqa: BLE001 - PolicyUnavailable (production refuses a demo policy) or no policy
-            continue
-    return out
+
+def _ltv_grid_text(policy: Any) -> str:
+    """'80% (residential)' -- the product's one LTV limit and the property types it accepts."""
+    if policy.ltv_maximum_percent is None:
+        return ""
+    kinds = ", ".join(str(k).replace("_", " ").lower() for k in policy.property_types)
+    return f"{float(policy.ltv_maximum_percent):g}%" + (f" ({kinds})" if kinds else "")
 
 
 def _policy_values(kind: str) -> dict[str, Any] | None:
@@ -1150,6 +1808,13 @@ def _policy(text: str, state, lang: str, only: str | None = None) -> str | None:
     if not subjects and not only and _product_of(text):
         # "loan amount and tenure for personal loan": a PRODUCT named -> its policy, not a case's own data
         subjects = [s for s, words in (spec.get("bare_words") or {}).items() if any(_norm(w) in said for w in words)]
+    if not subjects and not only and any(_norm(w) in said for w in spec.get("limit_words") or []):
+        # "what FOIR is ALLOWED?": a topic word + a limit word is the configured limit -- never for ONE case
+        from app.agents.applicant.copilot.semantics import task as _limit_task
+
+        if not _limit_task.singular_pointer(text):
+            subjects = [s for s, words in (spec.get("bare_words") or {}).items()
+                        if any(_norm(w) in said for w in words)]
     if subjects and not only:
         # several values asked at once ("tenure and interest rate for home loan"): once one policy topic is named,
         # a bare topic word counts too (policy.bare_words) -- every value answered, never only the first
@@ -1205,9 +1870,13 @@ def _policy(text: str, state, lang: str, only: str | None = None) -> str | None:
             lines.append(_say_text(texts.get("age"), lang, product=name, minimum=p.age_minimum_years or 0,
                                    maximum=p.age_maximum_years))
         elif subject == "ltv":
-            lines.append(_say_text(texts.get("ltv"), lang, product=name, maximum=f"{p.ltv_maximum_percent:g}")
-                         if p.ltv_enabled and p.ltv_maximum_percent is not None
-                         else _say_text(texts.get("ltv_off"), lang, product=name))
+            if p.ltv_enabled and getattr(p, "ltv_grid", None):
+                # THE LTV GRID (2026-10-13): every row, as configured -- property / customer type and loan slab
+                lines.append(_say_text(texts.get("ltv_grid"), lang, product=name, grid=_ltv_grid_text(p)))
+            elif p.ltv_enabled and p.ltv_maximum_percent is not None:
+                lines.append(_say_text(texts.get("ltv"), lang, product=name, maximum=f"{p.ltv_maximum_percent:g}"))
+            else:
+                lines.append(_say_text(texts.get("ltv_off"), lang, product=name))
         elif subject == "foir" and p.foir_maximum_percent is not None:
             lines.append(_say_text(texts.get("foir"), lang, product=name, maximum=f"{p.foir_maximum_percent:g}"))
         elif subject == "income" and p.minimum_monthly_income is not None:
@@ -1304,6 +1973,22 @@ async def _stage_description(term: str) -> str | None:
     return f"**{_agent_config.stage_label(stage)}**: {described}" if described else None
 
 
+def glossary_acronym_asked(text: str) -> bool:
+    """"what is cpa" / "foir kya hai": a definition question whose whole term is an ACRONYM the glossary defines
+    (glossary.yaml keys, upper case) -- with a case open these are still definitions, never a case question."""
+    for pattern in (cfg().get("phrases") or {}).get("definition") or []:
+        found = re.match(pattern, text.strip(), re.I)
+        if found:
+            term = str(found.group("term") or "").strip(" ?.!")
+            if not term or " " in term:
+                return False
+            from app.agents.applicant.copilot.answering import style
+
+            known = style.defined_term(f"{term} kya hai")
+            return bool(known) and str(known).upper() == term.upper() and str(known).isupper()
+    return False
+
+
 async def _definition(text: str, request_id: str, lang: str, case_id: str | None) -> dict[str, Any] | None:
     """A definition / full form: the glossary, then the knowledge base; an unknown ACRONYM is logged."""
     term = None
@@ -1314,13 +1999,16 @@ async def _definition(text: str, request_id: str, lang: str, case_id: str | None
             break
     if not term:
         return None
+    if re.match(r"(?i)^\s*(my|mine|our|your|his|her|their|this|that|the\s+customer'?s?|mera|meri|mere)\b", term):
+        return None                     # "what is MY stage" asks about something specific, never a definition
     from app.agents.applicant.copilot.answering import professional, style
 
     known = style.defined_term(text) or style.defined_term(f"{term} kya hai")
     if known:
         said = professional.strip_emojis(style.definition(known, lang) or "").strip()
         source = _say("source", lang, source=_pick((cfg().get("texts") or {}).get("glossary_source"), lang) or "")
-        return _reply(request_id, "DEFINITION", f"{said}\n\n{source}", case_id=case_id,
+        # texts.source is "" (no sources in replies, Smart Bot plan section 8): then no empty trailing lines either
+        return _reply(request_id, "DEFINITION", f"{said}\n\n{source}" if source.strip() else said, case_id=case_id,
                       tts=professional.plain(said), query_type="PROCESS_KNOWLEDGE")
     # an ACRONYM: typed in capitals, or a short token with no vowel ("fnr", "ftnr") -- never an ordinary word
     acronym = term.isupper() or (2 <= len(term) <= 5 and not re.search(r"[aeiou]", term.lower()))
@@ -1333,7 +2021,8 @@ async def _definition(text: str, request_id: str, lang: str, case_id: str | None
     except Exception:  # noqa: BLE001 - knowledge unavailable: said as unknown, never guessed
         reply_text, detail = "", {"confident": False}
     if detail.get("confident") and reply_text and _about(text, reply_text):
-        return _reply(request_id, "DEFINITION", reply_text, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
+        return _reply(request_id, "DEFINITION", reply_text, case_id=case_id, query_type="PROCESS_KNOWLEDGE",
+                      citations=detail.get("citations") or [], answered_from=detail.get("answered_from"))
     if acronym:
         _log_gap(term)
         return _reply(request_id, "UNKNOWN_TERM", _say("unknown_term", lang, term=term.upper()), case_id=case_id)

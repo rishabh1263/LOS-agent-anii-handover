@@ -157,16 +157,16 @@ async def _eligibility_handler(
     request_id: str,
 ) -> dict[str, Any]:
     """
-    Adapter for the Eligibility Agent.
+    Adapter for the Eligibility Agent: {"case_id"} -> the decision from the configured data provider.
 
-    Nothing to adapt beyond the shape: the engine is synchronous,
-    deterministic and fast -- arithmetic over figures other stages
-    already produced -- so there is no client, no timeout of its own and
-    nothing to await.
+    The engine is deterministic arithmetic, but the provider reads a database synchronously (psycopg2, with its own
+    connect / statement timeouts) -- so it runs in a worker thread and never blocks the event loop.
     """
+    import asyncio
+
     from app.agents.eligibility.agent import assess_payload
 
-    return assess_payload(payload)
+    return await asyncio.to_thread(assess_payload, payload)
 
 
 register("eligibility_agent", _eligibility_handler)

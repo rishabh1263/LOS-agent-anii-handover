@@ -92,6 +92,9 @@ _CROSS = _rx(
     rf"before|recent\w*|latest|last|previous|earlier)\b",
     # someone else's
     r"\b(someone|somebody|anyone|anybody)\s+else'?s?\b",
+    # a customer of ANOTHER branch / office / region (2026-10-14: "pan number of <name> from the other branch")
+    r"\b(from|of|in|at)\s+(the\s+)?(other|another|different|next|neighbou?ring)\s+"
+    r"(branch|branches|office|offices|region|city|location|team|zone|dsa|centre|center)\b",
     # "the other customer", "that customer I mentioned" -- a customer is never
     # the co-applicant on this case
     r"\b(the|that|this|those)\s+other\s+(customers?|clients?|borrowers?|users?)\b",
@@ -507,4 +510,22 @@ def asks_capability(message: str) -> bool:
     return any(p.search(t) for p in _CAPABILITY for t in (message or "", text))
 
 
-__all__ = ["Decision", "asks_capability", "asks_own_history", "classify"]
+#: THE PARTY OF THE CASE IN SCOPE, pointed at: "this borrower", "my customer", "our applicant" -- ONE person, the
+#: pointer directly in front of the noun (so "my next borrower" / "this previous customer" never match).
+_CURRENT_PARTY = re.compile(r"\b(this|my|our)\s+(customer|client|borrower|applicant)('s)?(?![\w-])", _I)
+
+
+def current_party_neutral(message: str) -> str | None:
+    """
+    The message with its pointer to the CURRENT party ("this borrower") read as "this case", or None when it has none.
+    Classifying is NOT changed by this: the caller (fos_api, only with an authorized case open) must run the FULL
+    check again on the returned text, so "next customer's PAN ... this borrower" stays blocked by its other words.
+    """
+    raw = " ".join(str(message or "").split())
+    if not raw or re.search(rf"\b(these|those|all|every)\s+{_PERSON}", raw, _I):
+        return None
+    neutral = _CURRENT_PARTY.sub(lambda m: "this case's" if m.group(3) else "this case", raw)
+    return neutral if neutral != raw else None
+
+
+__all__ = ["Decision", "asks_capability", "asks_own_history", "classify", "current_party_neutral"]

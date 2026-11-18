@@ -1,0 +1,88 @@
+# The words of the answer's `summary` block (services/summary_service.py). Plain English for a credit officer.
+# Nothing here decides anything: the status, the open items and the action come from the rules.
+
+headline:
+  COMPLETE_AT_STAGE: "All required documents are in place. Credit underwriting can start."
+  COMPLETE_NOT_AT_STAGE: "All required documents are in place, but the case is at {stage}, not CREDIT. Underwriting can start once the case reaches CREDIT."
+  ACTION_REQUIRED: "Credit underwriting cannot start yet: {count} {items_need} attention."
+  EXCEPTION_PENDING: "Documents are complete except for {count} {exceptions} waiting for approval."
+
+# singular / plural of the words the headline counts
+plural:
+  items_need: ["item needs", "items need"]
+  minor_items: ["item is", "items are"]
+  minor_them: ["it", "them"]
+  critical_items: ["item is", "items are"]
+  critical_them: ["it", "them"]
+  exceptions: ["exception", "exceptions"]
+
+# THE ROUTE: where the case goes from here, decided only by what is open
+#   MOVE_AHEAD             nothing open
+#   MOVE_AHEAD_WITH_NOTES  only non-critical items open: the case moves ahead; the items go to the underwriter as notes
+#   REFER_TO_AUTHORITY     a critical item is open: fix it with the customer, or refer the case to the higher authority
+#   AWAIT_APPROVAL         only an exception is open, waiting for the authority's decision
+route:
+  authority: "the credit manager (ACM / RCM)"
+  label:
+    MOVE_AHEAD: "Move ahead"
+    MOVE_AHEAD_WITH_NOTES: "Move ahead with notes"
+    REFER_TO_AUTHORITY: "Refer to higher authority"
+    AWAIT_APPROVAL: "Awaiting authority's approval"
+  text:
+    MOVE_AHEAD: "Nothing is open. The case can move ahead to credit underwriting."
+    MOVE_AHEAD_NOT_AT_STAGE: "Nothing is open. The case can move ahead once it reaches the {stage} stage (it is at {current} now)."
+    MOVE_AHEAD_WITH_NOTES: "Only {minor} non-critical {minor_items} open. The case can move ahead; pass {minor_them} to the underwriter as notes."
+    MOVE_AHEAD_WITH_NOTES_NOT_AT_STAGE: "Only {minor} non-critical {minor_items} open. The case can move ahead once it reaches the {stage} stage (it is at {current} now)."
+    REFER_TO_AUTHORITY: "{critical} critical {critical_items} open. Get {critical_them} fixed with the customer, or refer the case to {authority} for a decision."
+    AWAIT_APPROVAL: "Only the pending exception is open. Wait for {authority} to decide it."
+
+# what each recommended action means, in words (the summary's next step)
+next_step:
+  RESOLVE_POLICY_CONFIGURATION: "Ask the credit policy team to fix the document policy for this case."
+  CAPTURE_APPLICATION_DATA: "Fill in the missing application details so the right document rules can apply."
+  REQUEST_DOCUMENTS: "Ask the customer for the missing documents."
+  REQUEST_FRESH_DOCUMENT: "Ask the customer for a newer copy of the outdated documents."
+  RECHECK_DOCUMENT: "Re-check the documents whose details could not be read or did not match."
+  AWAIT_VERIFICATION: "Wait for the uploaded documents to finish verification."
+  RAISE_EXCEPTION: "Raise an exception if a non-standard document should be accepted."
+  AWAIT_EXCEPTION_APPROVAL: "Wait for the approver to decide the pending exception."
+  AWAIT_CREDIT_STAGE: "Move the case to the CREDIT stage through the normal stage process."
+  PROCEED: "Start credit underwriting."
+
+ai_summary:
+  enabled: true
+  timeout_seconds: 0          # the answer never waits for the AI (CPU Qwen takes several seconds): the first call
+                              # carries the rules-built note + pending: true, the AI note is ready on the next call
+  model_timeout_seconds: 60
+  max_chars: 600
+  sentences: 3
+  num_predict: 150
+  keep_alive: "30m"
+  cache_size: 256
+  # checked notes are also kept in this file (relative to the repo), so a restart -- or the demo seed script
+  # (scripts/seed_docs_credit_demo.py --ai) -- leaves them ready at once. Empty: memory only.
+  cache_file: "runtime/docs_credit_ai_notes.json"
+  instructions: |
+    You are a senior credit officer writing a short note for a colleague about a loan file's documents.
+    You get the facts as JSON. Write at most 3 short sentences in simple English.
+    First say the route in plain words: whether the case can move ahead (only non-critical items open) or must go to
+    the higher authority named in the facts (a critical item is open). Then name the most important missing or failing
+    documents, saying whose they are (the applicant or the co-applicant, by name), and say what to do next.
+    Use only the facts given. Do not add numbers, documents or people that are not in the facts.
+    Do not use field names, codes, bullet points or quotes. Never say the loan is approved or rejected.
+  fallback: "{route} {first}"
+  # words that would contradict the status; a note containing one is not shown
+  # words that claim a document is absent: refused when nothing is in the summary's `missing` list
+  missing_words: ["missing", "not given", "not provided", "not submitted"]
+  # (a non-critical document that is genuinely absent -- e.g. an ITR's computation -- also allows them)
+  contradicts:
+    # a loan decision is never the agent's to state; a REJECTED document is a fact and may be named
+    ACTION_REQUIRED: ["can start", "can move ahead", "all documents are in place", "all required documents are",
+                      "loan is approved", "loan is rejected", "approve the loan", "reject the loan", "sanction"]
+    EXCEPTION_PENDING: ["can start", "can move ahead", "loan is approved", "loan is rejected", "approve the loan",
+                        "reject the loan", "sanction"]
+    COMPLETE: ["missing", "refer the case", "higher authority", "loan is approved", "loan is rejected",
+               "approve the loan", "reject the loan", "sanction"]
+    # a route listed here is used in place of the status (only non-critical items open: one may be "missing")
+    MOVE_AHEAD_WITH_NOTES: ["refer the case", "higher authority", "cannot move ahead", "loan is approved",
+                            "loan is rejected", "approve the loan", "reject the loan", "sanction"]

@@ -30,8 +30,8 @@ from app.store import request_cache
 from enum import Enum
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Request, Response, UploadFile, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.agents.applicant import audit, config, permissions
 from app.agents.applicant.copilot.agent import AgentError, answer_question
@@ -187,6 +187,8 @@ class ApplicantDetails(BaseModel):
     date_of_birth: str | None = Field(None, max_length=32, examples=["1990-04-12"])
     address: str | None = Field(None, max_length=500,
                                 examples=["Mumbai, Maharashtra"])
+    mobile_aadhaar_linked: bool | None = Field(
+        None, description="LOS Sourcing screen: is the mobile Aadhaar-linked (yes / no). No Aadhaar number is taken.")
 
 
 def _text(value: object) -> str | None:
@@ -247,7 +249,7 @@ class ApplicationDetails(BaseModel):
             "What the applicant says they already repay each month. "
             "DECLARED, and recorded as declared: whether a declared "
             "figure may be used in an affordability calculation is a "
-            "policy decision, set in eligibility_policy.yaml, and it is "
+            "policy decision, set in eligibility_config.yaml, and it is "
             "not accepted by default."
         ),
     )
@@ -268,6 +270,37 @@ class ApplicationDetails(BaseModel):
             "for an unsecured product, where LTV is NOT_APPLICABLE."
         ),
     )
+    property_type: str | None = Field(
+        None, examples=["RESIDENTIAL"],
+        description="RESIDENTIAL / COMMERCIAL / INDUSTRIAL -- selects the LTV limit for a secured product.")
+    purchase_price: float | str | None = Field(
+        None, examples=[7500000],
+        description=("The agreed price of the property being bought (agreement to sell). With a valuation, the "
+                     "LOWER of the two is the property value. Never an old sale deed's consideration."))
+    valuation_value: float | str | None = Field(
+        None, examples=[7800000],
+        description="The value on the valuation report. Without one, a declared value gives an indicative LTV.")
+    loan_purpose: str | None = Field(None, max_length=100, examples=["Business Expansion"],
+                                     description="LOS Sourcing screen. Free text until the business list is configured.")
+    applicant_type: str | None = Field(None, max_length=40, examples=["Individual"],
+                                       description="LOS Sourcing screen. Free text until the business list is configured.")
+    document_received_date: str | None = Field(None, max_length=10, examples=["2026-06-20"],
+                                               description="LOS Application Details: YYYY-MM-DD, not in the future.")
+    co_origination: bool | None = Field(None, description="LOS Application Details: co-origination yes / no. "
+                                                          "Absent = not captured (never read as no).")
+
+
+class CoApplicantDetails(BaseModel):
+    """A co-applicant declared on the form (2026-10-22). Stored through the SAME intake as a document upload
+    (co_applicants.record_intake: encrypted, on the case; access goes through the case). The co-applicant table has
+    no mobile column, so none is taken."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    full_name: str = Field(..., min_length=1, max_length=200)
+    date_of_birth: str | None = Field(None, max_length=32)
+    pan: str | None = Field(None, max_length=20)
+    relationship: str | None = Field(None, max_length=40, description="To the applicant, e.g. SPOUSE (free text).")
 
 
 class CreateCaseRequest(BaseModel):
@@ -275,6 +308,10 @@ class CreateCaseRequest(BaseModel):
 
     applicant: ApplicantDetails
     application: ApplicationDetails | None = None
+    co_applicants: list[CoApplicantDetails] = Field(
+        default_factory=list,
+        description="Optional co-applicants (at most product_flow.yaml case_form.co_applicants.max). Needs "
+                    "LOS_COAPP_IDENTITY on with migration 0004 applied; otherwise refused, never dropped.")
     applicant_id: str | None = Field(
         None, max_length=128,
         description="Optional. Generated when omitted.",
@@ -345,6 +382,12 @@ class CopilotRequest(BaseModel):
     chat_id: str | None = Field(
         None, max_length=128, description="The chat this message belongs to (the server remembers its context).")
     new_chat: bool = Field(False, description="Start this chat fresh: nothing remembered from before.")
+    stream: bool = Field(
+        False, description=("Reply as Server-Sent Events (status lines while it works, then the answer) instead of "
+                            "one JSON body. The same as sending `Accept: text/event-stream`. COPILOT_STREAMING."))
+    with_sources: bool = Field(
+        False, description=("Add `sources` [{type, document, section, title}] to a handbook answer: the handbook "
+                            "file and section retrieval cited for it. Left out on case answers and refusals."))
     context: dict[str, Any] | None = Field(
         None,
         description=(
@@ -698,6 +741,48 @@ class FosResponse(BaseModel):
                           "Codes, counts and milliseconds only -- never a value.")
 
 
+def _co_applicant_rows(request: "CreateCaseRequest", request_id: str) -> list[dict[str, Any]]:
+    """The declared co-applicants, validated with the case form's own rules (case_form.check; PAN by identity
+    rules); 422 INVALID_FIELDS naming co_applicants[i].field. More than the configured maximum, or co-applicant
+    identity not enabled: refused -- a declared co-applicant is never silently dropped."""
+    rows = list(request.co_applicants or [])
+    if not rows:
+        return []
+    from app.agents.applicant.copilot.capabilities import case_form as _cf
+    from app.agents.dedupe import identity as _ident
+    from app.agents.los import co_applicants as _co
+
+    limit = int(((_cf._cfg().get("co_applicants") or {}).get("max")) or 0)
+    if not _co.enabled():
+        raise HTTPException(409, detail={"request_id": request_id, "error": "CO_APPLICANTS_NOT_ENABLED",
+                                         "message": "Co-applicants cannot be stored here (co-applicant identity is "
+                                                    "off or its migration is not applied)."})
+    if limit and len(rows) > limit:
+        raise HTTPException(422, detail={"request_id": request_id, "error": "INVALID_FIELDS",
+                                         "fields": {"co_applicants": f"At most {limit} co-applicant(s)."}})
+    errors: dict[str, str] = {}
+    out: list[dict[str, Any]] = []
+    for i, co in enumerate(rows):
+        name, why = _cf.check("full_name", co.full_name)
+        if why:
+            errors[f"co_applicants[{i}].full_name"] = why
+        dob = None
+        if co.date_of_birth:
+            dob, why = _cf.check("date_of_birth", co.date_of_birth)
+            if why:
+                errors[f"co_applicants[{i}].date_of_birth"] = why
+        pan = None
+        if co.pan:
+            pan = _ident.normalise("PAN", co.pan)
+            if not pan:
+                errors[f"co_applicants[{i}].pan"] = _cf._why("pan", _cf._lang())
+        out.append({"profile": {"name": name, "date_of_birth": dob, "pan_number": pan},
+                    "relationship": (co.relationship or "").strip() or None})
+    if errors:
+        raise HTTPException(422, detail={"request_id": request_id, "error": "INVALID_FIELDS", "fields": errors})
+    return out
+
+
 def _blank(request_id: str, **overrides: Any) -> dict[str, Any]:
     """The full envelope, so no action can return a differently-shaped one."""
     base: dict[str, Any] = {
@@ -766,6 +851,49 @@ def _required_slots(checklist: list[dict[str, Any]]) -> list[str]:
 # API 1 -- CREATE APPLICANT + APPLICATION
 # ==========================================================================
 
+#: The fields a product's application uses beyond the common ones (property / LTV inputs).
+_PROPERTY_FIELDS = ("property_type", "property_value", "purchase_price", "valuation_value")
+
+#: /docs examples, ONE PER PRODUCT, each with only that product's fields.
+def _create_texts() -> dict[str, Any]:
+    """The create-case messages and example titles (applicant_agent.yaml chatbot.create_case)."""
+    from app.agents.applicant import config as _config
+
+    return _config.chatbot("create_case")
+
+
+_CREATE_CASE_EXAMPLES = {
+    "personal_loan": {
+        "summary": _create_texts()["examples"]["personal_loan"],
+        "value": {"applicant": {"full_name": "Rahul Sharma", "mobile": "9876543210", "date_of_birth": "1990-04-12",
+                                "address": "Pune, Maharashtra"},
+                  "application": {"product": "PERSONAL_LOAN", "loan_amount": 500000, "tenure_months": 60,
+                                  "employment_type": "SALARIED", "declared_monthly_obligations": 10000}}},
+    "home_loan": {
+        "summary": _create_texts()["examples"]["home_loan"],
+        "value": {"applicant": {"full_name": "Rahul Sharma", "mobile": "9876543210", "date_of_birth": "1990-04-12",
+                                "address": "Pune, Maharashtra"},
+                  "application": {"product": "HOME_LOAN", "loan_amount": 2000000, "tenure_months": 240,
+                                  "employment_type": "SALARIED", "declared_monthly_obligations": 0,
+                                  "property_type": "RESIDENTIAL", "valuation_value": 3000000,
+                                  "purchase_price": 2800000}}},
+    "loan_against_property": {
+        "summary": _create_texts()["examples"]["loan_against_property"],
+        "value": {"applicant": {"full_name": "Rahul Sharma", "mobile": "9876543210", "date_of_birth": "1990-04-12",
+                                "address": "Pune, Maharashtra"},
+                  "application": {"product": "LOAN_AGAINST_PROPERTY", "loan_amount": 3000000, "tenure_months": 120,
+                                  "employment_type": "SELF_EMPLOYED", "declared_monthly_obligations": 5000,
+                                  "property_type": "COMMERCIAL", "valuation_value": 8000000}}},
+}
+
+
+
+def _already_created(case_id: str) -> str:
+    """product_flow.yaml case_form.already_created."""
+    from app.agents.applicant.copilot.capabilities import case_form, product_flow
+
+    return product_flow.say((case_form._cfg().get("already_created") or {}), case_form._lang(), case_id=case_id)
+
 @router.post(
     "/applicants",
     summary="Open a case: create the applicant and their application",
@@ -781,14 +909,167 @@ def _required_slots(checklist: list[dict[str, Any]]) -> list[str]:
     responses={201: {"model": FosResponse, "description": "The opened case."}},
 )
 async def create_case_route(
-    request: CreateCaseRequest,
+    response: Response,
+    request: CreateCaseRequest = Body(..., openapi_examples=_CREATE_CASE_EXAMPLES),
     claims: dict[str, Any] = Depends(require_jwt),
+    idempotency_key: str | None = Header(
+        None, alias="Idempotency-Key", max_length=128,
+        description="Optional. A retry with the same key returns the case the first call created (never a second "
+                    "case); the reply then carries `Idempotent-Replayed: true`."),
 ):
-    return await create_case(request, claims, channel="ui")
+    # WHAT IT IS GIVEN IS VALIDATED (2026-10-13; a real run accepted a loan amount "lots", product "CAR_LOAN",
+    # mobile "123" ...): the form / chat rules (case_form.check) for every field sent, and the PRODUCT's own fields
+    # (from its eligibility policy: no property fields for an unsecured loan; the property types its LTV grid knows)
+    errors = _new_case_errors(request)
+    if errors:
+        raise HTTPException(422, detail={"request_id": f"fos_{uuid.uuid4().hex}", "error": "INVALID_FIELDS",
+                                         "fields": errors})
+    return await create_case(request, claims, channel="ui", idempotency_key=idempotency_key, response=response)
 
 
-async def create_case(request: CreateCaseRequest, claims: dict[str, Any], *, channel: str = "ui"):
-    """THE one create path: the UI form (create_case_route) and the chat (case_form, after Confirm) both use it."""
+def _new_case_errors(request: "CreateCaseRequest") -> dict[str, str]:
+    """{field: why} for a new case: the form rules for every field sent, the name always, and the product's own
+    fields (its eligibility policy decides: property fields only where LTV applies, the property types its grid
+    knows, a property type required where the grid needs one and names no default)."""
+    from app.agents.applicant.copilot.capabilities import case_form as _form
+
+    from app.agents.applicant import plausibility
+
+    _texts = _create_texts()
+    errors: dict[str, str] = {}
+    applicant = request.applicant.model_dump() if request.applicant else {}
+    name = str(applicant.get("full_name") or "").strip()
+    if len(name) < 2 or not re.search(r"[A-Za-zऀ-ॿ]", name):
+        errors["full_name"] = _texts["name_required"]
+    for field in ("mobile", "email", "date_of_birth", "address"):
+        if applicant.get(field) not in (None, ""):
+            _, why = _form.check(field, applicant[field], "en")
+            if why:
+                errors[field] = why
+    if request.application is None:
+        return errors
+    application = request.application.model_dump()
+    # an amount the intake plausibility check refuses ("5", "5 lakh") keeps ITS answer (AMOUNT_IMPLAUSIBLE, with the
+    # rupees example) -- create_case raises it; it is not re-reported here as INVALID_FIELDS
+    implausible = plausibility.problem(request.application.model_dump(exclude_none=True))
+    skip = {implausible[0]} if implausible else set()
+    for field in ("product", "loan_amount", "employment_type", "tenure_months", "interest_rate_pct",
+                  "declared_monthly_income", "declared_monthly_obligations", "property_value"):
+        if field not in skip and application.get(field) not in (None, ""):
+            _, why = _form.check(field, application[field], "en")
+            if why:
+                errors[field] = why
+    for field in ("purchase_price", "valuation_value"):
+        value = application.get(field)
+        if value not in (None, ""):
+            try:
+                if float(str(value).replace(",", "").strip()) <= 0:
+                    raise ValueError
+            except ValueError:
+                errors[field] = _texts["amount_above_zero"]
+    product = str(application.get("product") or "").strip().upper()
+    if not product or "product" in errors:
+        return errors
+    from app.agents.eligibility import config as _eligibility_config
+
+    rules = _eligibility_config.product_terms(product)
+    if rules is None:
+        return errors                   # no eligibility terms for the product: its checklist decides, not this
+    given = [f for f in _PROPERTY_FIELDS if application.get(f) not in (None, "")]
+    if not rules.ltv_enabled:
+        for field in given:
+            errors[field] = _texts["not_used_for"].format(product=product)
+        return errors
+    known = set(rules.property_types)
+    if rules.ltv_default_property_type:
+        known.add(rules.ltv_default_property_type)
+    kind = str(application.get("property_type") or "").strip().upper()
+    if kind and known and kind not in known:
+        errors["property_type"] = _texts["property_type_one_of"].format(product=product, types=", ".join(sorted(known)))
+    elif not kind and known and not rules.ltv_default_property_type:
+        errors["property_type"] = _texts["property_type_required"].format(product=product, types=", ".join(sorted(known)))
+    return errors
+
+
+async def create_case(request: CreateCaseRequest, claims: dict[str, Any], *, channel: str = "ui",
+                      idempotency_key: str | None = None, response: Response | None = None):
+    """
+    THE one create path, CONCURRENCY-SAFE (app/agents/applicant/create_guard.py; Phase A hardening 2026-10-22):
+    serialised per supplied id / declared mobile + product / idempotency key (database-wide advisory locks, no schema
+    change), so a supplied id is never overwritten by a simultaneous create; an Idempotency-Key retry returns the
+    case the first call created; a same-mobile same-product case is recorded as a possible duplicate, not blocked
+    (the business duplicate window is not approved).
+    """
+    from app.agents.applicant import create_guard
+
+    caller = Caller.from_claims(claims)
+    idem_ref = create_guard.idempotency_ref(caller.subject, idempotency_key)
+    details = request.application or ApplicationDetails()
+    # the body's fingerprint: a key reused for a DIFFERENT body is refused (409), never replayed as the wrong case
+    body_print = create_guard.fingerprint(request.model_dump(mode="json")) if idem_ref else None
+    keys = create_guard.keys_for(applicant_id=request.applicant_id, case_id=request.case_id,
+                                 mobile=request.applicant.mobile, product=details.product, idem_ref=idem_ref)
+    try:
+        async with create_guard.serialised(keys):
+            replay = create_guard.find_replay(idem_ref, body_print)
+            if replay is not None:
+                if response is not None:
+                    response.headers["Idempotent-Replayed"] = "true"
+                return await _replayed_case(*replay)
+            # A SUPPLIED case id that exists is refused BEFORE the applicant is written: the unguarded path created
+            # the applicant first and then failed on the case, leaving an orphan applicant behind. Same answer as the
+            # tool's own refusal (400 INVALID_INPUT), now checked under the lock, so it holds for simultaneous calls.
+            if request.case_id and request.case_id.strip():
+                from app.store import get_repository
+
+                if get_repository().get_application(request.case_id.strip()) is not None:
+                    raise HTTPException(400, detail={"request_id": f"fos_{uuid.uuid4().hex}", "error": "INVALID_INPUT",
+                                                     "message": f"Application {request.case_id.strip()} already "
+                                                                "exists."})
+            out = await _create_case_unguarded(request, claims, channel=channel)
+            case_id = out.get("case_id")
+            if case_id:
+                create_guard.remember(case_id, idem_ref, body_print)
+                create_guard.note_possible_duplicate(case_id, create_guard.possible_duplicates(
+                    mobile=request.applicant.mobile, product=details.product, exclude_case=case_id))
+            return out
+    except create_guard.KeyReused:
+        raise HTTPException(409, detail={"request_id": f"fos_{uuid.uuid4().hex}", "error": "IDEMPOTENCY_KEY_REUSED",
+                                         "message": "This Idempotency-Key was already used for a different case "
+                                                    "request; send a new key for a new case."}) from None
+    except create_guard.CreateBusy:
+        raise HTTPException(503, detail={"request_id": f"fos_{uuid.uuid4().hex}", "error": "CREATE_BUSY",
+                                         "message": "The same case is being created by another request; retry "
+                                                    "shortly."}) from None
+
+
+async def _replayed_case(case_id: str, applicant_id: str) -> dict[str, Any]:
+    """The case an earlier call with the same Idempotency-Key created, in the create response's envelope."""
+    from app.mcp import applicant as tools
+
+    request_id = f"fos_{uuid.uuid4().hex}"
+    view = await tools.applicant_360(case_id)
+    if not view.ok:
+        _raise_from(request_id, view)
+    result = view.result or {}
+    checklist = result.get("checklist") or []
+    return _blank(
+        request_id, applicant_id=applicant_id, case_id=case_id, action="CREATE_CASE", intent="CREATE_CASE",
+        answer=_already_created(case_id),
+        applicant=result.get("applicant"), application=result.get("application"), stage=result.get("stage"),
+        documents=result.get("documents") or [], checklist=checklist, required_documents=_required_slots(checklist),
+        policy=result.get("policy"), pending_items=result.get("pending_items") or [],
+        next_action=result.get("next_action"), readiness=result.get("readiness"), query_type="CASE_FACT",
+        **_frontend_contract({"query_type": "CASE_FACT"}, {
+            "applicant": result.get("applicant"), "application": result.get("application"),
+            "stage": result.get("stage"), "documents": result.get("documents") or [], "checklist": checklist,
+            "readiness": result.get("readiness"), "policy": result.get("policy")}),
+    )
+
+
+async def _create_case_unguarded(request: CreateCaseRequest, claims: dict[str, Any], *, channel: str = "ui"):
+    """THE one create path: the UI form (create_case_route) and the chat (case_form, after Confirm) both use it --
+    always through create_case (serialised), never directly."""
     from app.mcp import applicant as tools
 
     request_id = f"fos_{uuid.uuid4().hex}"
@@ -805,6 +1086,9 @@ async def create_case(request: CreateCaseRequest, claims: dict[str, Any], *, cha
         raise HTTPException(403, detail={
             "request_id": request_id, "error": exc.code, "message": exc.message,
         }) from exc
+
+    # CO-APPLICANTS: checked BEFORE anything is written, with the form's own rules
+    co_rows = _co_applicant_rows(request, request_id)
 
     # ALL AMOUNTS ARE IN RUPEES (FOS plan 1.1): an implausible amount is refused BEFORE the applicant is
     # created, so a bad form never leaves a half-made case behind
@@ -857,6 +1141,14 @@ async def create_case(request: CreateCaseRequest, claims: dict[str, Any], *, cha
             application_details.declared_monthly_obligations),
         property_value=_text(application_details.property_value),
         declared_monthly_income=_text(application_details.declared_monthly_income),
+        property_type=(str(application_details.property_type).strip().upper() or None)
+        if application_details.property_type else None,
+        purchase_price=_text(application_details.purchase_price),
+        valuation_value=_text(application_details.valuation_value),
+        loan_purpose=((application_details.loan_purpose or "").strip() or None),
+        applicant_type=((application_details.applicant_type or "").strip() or None),
+        document_received_date=((application_details.document_received_date or "").strip() or None),
+        co_origination=application_details.co_origination,
     )
     if not application.ok:
         _raise_from(request_id, application)
@@ -885,6 +1177,12 @@ async def create_case(request: CreateCaseRequest, claims: dict[str, Any], *, cha
     from app.agents.applicant.copilot.capabilities import case_form as _activity
 
     _activity.activity(case_id, "CASE_CREATED", f"case created by {caller.subject} ({channel})")
+    if co_rows:
+        from app.agents.los import co_applicants as _co
+
+        for row in co_rows:     # the same intake a document upload uses; no grant on the co-applicant id
+            _co.record_intake(case_id, applicant_id, _co.generate_id(), row["profile"], row["relationship"])
+        _activity.activity(case_id, "CO_APPLICANTS_ADDED", f"{len(co_rows)} co-applicant(s) declared ({channel})")
 
     logger.info("fos create_case request_id=%s applicant=%s case=%s product=%s",
                 request_id, applicant_id, case_id, application_details.product)
@@ -940,6 +1238,25 @@ _COPILOT_BODY = {
     "case_id": "CASE-7DFE2F497522",
     "action": "CUSTOM_QUERY",
     "message": "What documents are pending?",
+                    },
+                },
+                "ask_streamed": {
+                "summary": "CUSTOM_QUERY, streamed (SSE) — the same call with stream: true",
+                "value": {
+                "applicant_id": "APP-3D51FFAC6342",
+                "case_id": "CASE-7DFE2F497522",
+                "action": "CUSTOM_QUERY",
+                "message": "What documents are pending?",
+                "stream": True,
+                    },
+                },
+                "feedback": {
+                "summary": "FEEDBACK — 👍 / 👎 on an earlier answer (its request_id)",
+                "value": {
+                "action": "FEEDBACK",
+                "reply_to": "fos_0123456789abcdef0123456789abcdef",
+                "rating": "down",
+                "reason": "wrong document named",
                     },
                 },
                 "documents": {
@@ -1117,6 +1434,10 @@ _UPLOAD_BODY = {
         "answered: the response carries `route_to` and no verdict.\n\n"
         "Every action returns the same response shape; fields an action does "
         "not populate come back null or empty.\n\n"
+        "**Streaming:** `\"stream\": true` (or `Accept: text/event-stream`) returns the same answer as "
+        "Server-Sent Events. **Feedback:** `{\"action\": \"FEEDBACK\", \"reply_to\": <request_id>, "
+        "\"rating\": \"up\"|\"down\", \"reason\"?}` records a 👍 / 👎 on an earlier answer and returns "
+        "`{request_id, status: RECORDED | NOT_RECORDED, reply_to, rating}`.\n\n"
         "**Actions:** `GET_APPLICANT`, `GET_APPLICATION_STATUS`, "
         "`GET_DOCUMENTS`, `GET_DOCUMENT_CHECKLIST`, `GET_VERIFICATION_STATUS`, "
         "`GET_PENDING_ITEMS`, `GET_NEXT_ACTION`, `GET_CASE_360`, "
@@ -1132,6 +1453,12 @@ async def copilot(
 ):
     request_id = getattr(request.state, "request_id", None) or f"fos_{uuid.uuid4().hex}"
     content_type = (request.headers.get("content-type") or "").lower()
+    from app.agents.applicant.copilot.capabilities import qwen_agent as _hist_agent
+
+    _hist_agent.HISTORY_READ.set(None)          # the turn log reports only what THIS turn read as history
+    from app.llm import turn_budget as _turn_budget
+
+    _turn_budget.begin()                        # one failed model call ends the model for this turn (llm/turn_budget)
     # MASTER SPEC section 11: the same Idempotency-Key from the same caller returns the stored reply, never a rerun
     from app.agents.applicant.copilot.answering import contract as _contract_rt
     from app.agents.applicant.copilot.answering import realtime as _realtime
@@ -1143,6 +1470,19 @@ async def copilot(
         if _again is not None:
             return _again
     request.state.idempotency_key = _idem
+
+    # ONE API (2026-10-18): a 👍 / 👎 and a streamed reply come through this same route
+    if not content_type.startswith(("multipart/form-data", "application/x-www-form-urlencoded")):
+        try:
+            _body = await request.json()
+        except Exception:  # noqa: BLE001 - _copilot_json reports an unreadable body itself
+            _body = None
+        if isinstance(_body, dict) and _body.get("action") == "FEEDBACK":
+            return _copilot_feedback(_body, claims, request_id)
+        if not getattr(request.state, "streaming", False) and (
+                (isinstance(_body, dict) and _body.get("stream") is True)
+                or "text/event-stream" in (request.headers.get("accept") or "").lower()):
+            return await _stream_reply(request, claims)
 
     try:
         # Both form encodings reach the upload handler. A caller who posts
@@ -1175,7 +1515,33 @@ async def copilot(
         # (sensitivity.mask_payload; record ids are left untouched).
         from app.security import sensitivity as _sensitivity
 
+        import time as _tl_time
+
+        _tl_started = _tl_time.perf_counter()
         published = await _copilot_json(request, claims, request_id)
+        try:
+            # THE TURN LOG (observability/turn_log.py): masked, no answer text; resolved questions -> labelled rows
+            from app.observability import turn_log as _turn_log
+
+            if _turn_log.enabled() and isinstance(published, dict):
+                _tl_typed = str(getattr(request.state, "typed_message", "") or ((await request.json()) or {}).get(
+                    "message") or "")
+                _turn_log.record(chat_key=_agent_chat_key(request), typed=_tl_typed,
+                                 fixed=getattr(request.state, "copilot_message", None), reply=published,
+                                 meaning_intent=getattr(request.state, "meaning_intent", None),
+                                 layer=getattr(request.state, "answer_layer", None), started=_tl_started,
+                                 request_id=request_id, subject=str(_rt_subject(claims) or "anonymous"))
+        except Exception:  # noqa: BLE001 - the log is a convenience, never the answer
+            logger.debug("turn log: skipped", exc_info=True)
+        if isinstance(published, dict) and str(published.get("response_source") or "") != "AGENT":
+            try:
+                from app.agents.applicant.copilot.capabilities import qwen_agent as _mem_agent
+
+                _asked = str(((await request.json()) or {}).get("message") or "")
+                if _asked and published.get("answer"):
+                    _mem_agent.remember(_agent_chat_ref(request), _asked, str(published.get("answer")), request_id)
+            except Exception:  # noqa: BLE001 - the history is a convenience, never the answer
+                logger.debug("qwen agent: history not recorded", exc_info=True)
         if isinstance(published, dict) and published.get("atomic"):
             return _published_reply(request, published)         # a blocked message: the warning, untouched
         if isinstance(published, dict):
@@ -1270,7 +1636,9 @@ async def copilot(
             # TIME QUESTIONS: the dated timeline, days in stage, "kal wala" (FOS plan 7.3; shared)
             from app.agents.applicant.copilot.capabilities import timeline as _timeline
 
-            published = _timeline.attach(published, str(getattr(request.state, "copilot_message", "") or ""))
+            # the TYPED words too: a rewrite ("which stage is this case in?") can drop "since when"
+            published = _timeline.attach(published, " || ".join(
+                str(getattr(request.state, k, "") or "") for k in ("copilot_typed", "copilot_message")))
             # "why is it stuck" / "how long till approval": the readiness items, compact (config phrases)
             published = _readiness_report.attach_asked(published, " || ".join(
                 str(getattr(request.state, k, "") or "") for k in ("copilot_typed", "copilot_message")))
@@ -1309,7 +1677,9 @@ async def copilot(
             # REPLY POLISH (answering/polish.py): the model may REWORD the prose answer -- checked, else unchanged
             from app.agents.applicant.copilot.answering import polish as _polish
 
-            published = await _polish.apply(_professional.apply(_sensitivity.mask_payload(published)))
+            published = await _polish.apply(_professional.apply(_sensitivity.mask_payload(published)),
+                                            question=str(getattr(request.state, "asked_message", "")
+                                                         or getattr(request.state, "copilot_message", "") or ""))
             return _published_reply(request, published)
         return _published_reply(request, published)
     except HTTPException:
@@ -1339,6 +1709,857 @@ def _switches_case(message: str) -> bool:
     return _sw.enabled() and any(_sw._says(k, message) for k in ("switch", "previous"))
 
 
+def _agent_chat_key(request: Request) -> str | None:
+    key = getattr(request.state, "chat_key", None)
+    return "|".join(str(k) for k in key) if key else None
+
+
+def _clearly_off_topic(said: str) -> bool:
+    """
+    A message CLEARLY outside the product (2026-10-18, measured: off-topic turns waited 4 s for Qwen's choice to time
+    out, then were refused anyway): the configured off-topic words (product_flow.yaml out_of_scope), or the meaning
+    reader's TOP reading being out_of_scope at or above the accept score (intent_catalogue.yaml decide.accept).
+    Only Qwen is skipped -- the pipeline still writes the reply. Config copilot_reply.yaml agent.skip_off_topic.
+    """
+    from app.agents.applicant.copilot.capabilities import product_flow as _ot_flow
+    from app.agents.applicant.copilot.capabilities import qwen_agent as _ot_agent
+    from app.agents.applicant.copilot.semantics import meaning as _ot_meaning
+
+    if not _ot_agent.cfg().get("skip_off_topic", True):
+        return False
+    if _ot_flow.out_of_scope(said):
+        return True
+    ranked = _ot_meaning.rank(said)
+    if not ranked:
+        return False
+    name, score = ranked[0]
+    kind = ((_ot_meaning.catalogue().get("intents") or {}).get(name) or {}).get("kind")
+    accept = float((_ot_meaning.catalogue().get("decide") or {}).get("accept", 0.78))
+    return kind == "out_of_scope" and score >= accept
+
+
+def _agent_chat_ref(request: Request) -> tuple[str, str | None] | None:
+    """(subject, chat_id) of this turn: the Qwen agent's history is read / stored under it, shared by every worker."""
+    key = getattr(request.state, "chat_key", None)
+    return (str(key[0]), key[1]) if key and key[0] else None
+
+
+#: a message that CONTINUES the last answer ("and the salary slip?", "aur woh?", "what about the co-applicant?")
+_CONTINUES = re.compile(r"(?i)^\s*(and|also|aur|or|but|then|so|what about|how about|uska|iska|unka)\b|\b(too|also|bhi)\s*\??\s*$")
+#: a PERSON pronoun or a pick from the last list ("what loan is HE applying for", "which ONE first", "for THE FIRST
+#: ONE"): leans on what was said even when the message names something (measured 2026-10-15, en_followup_dev)
+_REFERS = re.compile(r"(?i)\b(he|she|him|his|her|hers|unka|uska|which one|(the )?(first|second|third|other|last|"
+                     r"next|same|previous) one|one of (them|those|these))\b|\b(first|pehla|pehle wala)\b.*\b(one|wala)\b")
+
+
+def _rule_reading_clear(said: str, case_open: bool) -> str | None:
+    """The intent the rule reading names at HIGH confidence for a message that does not lean on the previous turn,
+    else None. Such a message is answered by the engine's own tools, never re-read by Qwen."""
+    from app.agents.applicant.copilot.semantics import intents as _rr_intents
+
+    if _leans_on_previous(said):
+        return None
+    rule = _rr_intents.understand(said, has_case=case_open)
+    # only the intents config names (copilot_reply.yaml agent.rule_clear_intents: the case's own data)
+    from app.agents.applicant.copilot.capabilities import qwen_agent as _rr_agent
+
+    trusted = {str(i).upper() for i in _rr_agent.cfg().get("rule_clear_intents") or []}
+    if rule.confidence == "high" and rule.intent.value in trusted:
+        return rule.intent.value
+    return None
+
+
+def _leans_on_previous(said: str) -> bool:
+    """Whether a message leans on the previous answer: a continuation opener, or a pronoun ("it", "that one", "woh")
+    with no subject of its own named. Such a message is Qwen's to resolve with the history (structure, not phrases:
+    the same pronoun / subject lists the follow-up resolver uses)."""
+    from app.agents.applicant.copilot.conversation import followup as _fu
+
+    if _CONTINUES.search(said) or _REFERS.search(said):
+        return True
+    return bool(_fu._PRONOUN.search(said)) and not _fu._NAMES_A_THING.search(said)
+
+
+async def _context_followup_turn(request: Request, message: str, claims: dict[str, Any], payload: Any,
+                                 request_id: str) -> dict[str, Any] | None:
+    """
+    A FOLLOW-UP IS QWEN'S TO UNDERSTAND (owner, 2026-10-14: "hard code nahi ... qwen hi samjh ke dena chahiye"). On an
+    open case, with a conversation already under way, a message that names NOTHING of its own -- no document, no
+    party, no case id, not the officer's cases -- leans on what was said before ("is it verified by the bank too?",
+    "which one first?", "the first one", "that thing we talked about"). Qwen reads it WITH the chat's last exchanges
+    (every answer is remembered, whichever layer wrote it) and calls the tools, or asks one clarifying question
+    itself. Facts are still only the tools'. Qwen down / slow / no valid call -> None: the pipeline answers as before.
+    """
+    from app.agents.applicant.copilot.capabilities import general as _cf_general
+    from app.agents.applicant.copilot.capabilities import qwen_agent as _agent
+    from app.agents.applicant.copilot.capabilities import vague as _cf_vague
+    from app.agents.applicant.copilot.semantics import meaning as _cf_meaning
+    from app.agents.applicant.copilot.semantics import task as _cf_task
+    from app.security import guardrails as _cf_guard
+
+    if not (_agent.enabled() and _agent.cfg().get("followups_to_agent", True)) or not _agent._ready():
+        return None
+    said = " ".join(str(message or "").split())
+    state = _cf_general._state(claims, payload.context)
+    case_id = payload.case_id or getattr(state, "active_case_id", None)
+    chat_key = _agent_chat_ref(request)
+    # QWEN READS EVERY MESSAGE (owner, 2026-10-14: "qwen ko hi sab karne do, 2-3 sec theek hai"; config
+    # agent.all_messages): only security, a reply to a waiting question, a workspace command and the eligibility
+    # redirect stay before it; everything else -- questions, follow-ups, small talk -- is Qwen's choice
+    import os as _cf_os
+
+    _every_env = (_cf_os.getenv("COPILOT_AGENT_ALL_MESSAGES") or "").strip().lower()
+    every = _every_env in {"1", "true", "yes", "on"} if _every_env else bool(_agent.cfg().get("all_messages"))
+    if not said:
+        return None
+    if not (case_id or every):
+        # no case open, hybrid: only small talk is Qwen's here (the no-case questions keep their own path)
+        import asyncio as _cf_asyncio_n
+
+        if not (_agent.cfg().get("small_talk") and ((_cf_task.enabled() and _cf_task.social_kind(said))
+                                                    or await _cf_asyncio_n.to_thread(_cf_meaning.social_reading, said))):
+            return None
+    if getattr(payload, "co_applicant_id", None) or getattr(payload, "party_id", None):
+        return None
+    if not _cf_guard.check_input(said, allowed_ids=(payload.case_id, payload.applicant_id)).allowed:
+        return None
+    import asyncio as _cf_asyncio_o
+
+    if await _cf_asyncio_o.to_thread(_clearly_off_topic, said):
+        logger.info("qwen agent: skipped, clearly off-topic")
+        return None                 # the weather, cricket, coding, investment tips: the pipeline refuses at once
+    if _cf_task.enabled() and _cf_task.asks_role(said):
+        # A ROLE IN THE WORKFLOW ("who handles cpa?", "who reviews it after that?"): the stage knowledge answers it
+        # (the pipeline's role reading); Qwen here sees only the case's tools and answered with its readiness
+        logger.info("qwen agent: skipped, a workflow role question")
+        return None
+    # ITS OWN ANCHOR: the message says what it is about -- the ordinary (fast) path reads it
+    if not every and (_cf_meaning.document_in(said) or _cf_meaning.party_in(said) or _cf_meaning._names_many_cases(said)
+            or re.search(r"(?i)\b(case|app|appl)[-_ ]?[0-9a-f]{6,}\b", said)
+            # ONE recorded field ("what is the tenure"): the profile answer (the agent gave the glossary, 2026-10-23)
+            or (case_id and _ag_profile_field(said))):
+        return None
+    # a reply to a question the chat is waiting on, an option number, yes / no, a command, small talk: their own paths
+    if re.fullmatch(r"(?i)[\d\s.,]+|yes|no|ok|okay|haan|nahi", said) \
+            or _cf_vague.waits_for(said, state, claims, payload.context) \
+            or (_cf_vague.is_command(said, case_open=bool(case_id)) and not _list_reading_without_cases(said)) \
+            or (not every and not _agent.cfg().get("small_talk") and _cf_task.enabled() and _cf_task.social_kind(said)):
+        return None
+    if not every and _agent.cfg().get("small_talk"):
+        import asyncio as _cf_asyncio_t
+
+        if (_cf_task.enabled() and _cf_task.social_kind(said)) \
+                or await _cf_asyncio_t.to_thread(_cf_meaning.social_reading, said):
+            # SMALL TALK IN QWEN'S WORDS (owner, 2026-10-14), capped: past the cap the config line answers at once
+            return await _agent_reply(request, message, claims, payload, request_id, case_id,
+                                      timeout=float(_agent.cfg().get("small_talk_timeout_seconds", 3.0)))
+    if every:
+        if (_cf_general._has(said, "eligibility") and not _cf_general._has(said, "eligibility_not"))                 or _ag_is_eligibility(said):
+            return None             # owner policy: eligibility is never answered in chat -- the fixed redirect
+        reply = await _agent_reply(request, message, claims, payload, request_id, case_id,
+                                   timeout=float(_agent.cfg().get("followup_timeout_seconds", 8.0)))
+        if reply is not None:
+            reply["agent_followup"] = True
+        return reply
+    # THE CONVERSATION HANDLERS THAT ALREADY READ THE CONTEXT RIGHT answer first (measured 2026-10-14: the router took
+    # them and regressed held-out turns): the eligibility redirect (owner policy), "after that" right after a next-step
+    # answer, confusion / "can you handle it" / "is X accepted?", the co-applicant follow-ups
+    _last_intent = str(_last_turn(request, payload).get("last_intent") or "").upper()
+    if ((_cf_general._has(said, "eligibility") and not _cf_general._has(said, "eligibility_not"))
+            or _ag_is_eligibility(said)
+            or (_cf_general._has(said, "after_that") and not _cf_general._has(said, "after_that_not")
+                and (_last_intent in _NEXT_STEP_INTENTS or _last_intent == "PROCESS_STAGES"
+                     # a how-to answer ("how do I send a case from FOS to CPA?" -> FAQ_ANSWER): "who reviews it after
+                     # that?" is the stage after it -- the stage handler's, never Qwen's next step (dev_en, 2026-10-15)
+                     or _last_intent in _STAGE_ANSWER_INTENTS
+                     or _after_knowledge(request, payload)))
+            or _co_followup(message) or _cf_general._has(said, "only_applicant")
+            or _cf_general._has(said, "coapp_need")
+            or (_cf_general._has(said, "coapp_need_followup") and len(said.split()) <= 7
+                and ("CO_APPLICANT" in _last_intent
+                     or str(_last_turn(request, payload).get("last_subject") or "").upper() in ("CO", "CO_APPLICANT")
+                     or str(_last_turn(request, payload).get("last_missing_party") or "").upper()
+                     in ("CO", "CO_APPLICANT")))
+            # the general layer's own direct answers (confusion, "can you handle it", "is X accepted?", "after cpa?")
+            or _cf_general._direct_reply(said, case_id, request_id, "en") is not None):
+        return None
+    must_ask = False
+    if not _agent.history(chat_key):
+        # NO CONVERSATION YET: only a message the fast matcher cannot read is Qwen's (it asks back when it must)
+        import asyncio as _cf_asyncio
+
+        if await _cf_asyncio.to_thread(_cf_meaning.clear_reading, said, True):
+            return None
+        if _rule_reading_clear(said, bool(case_id)):
+            return None             # "pichle case ka status?": short but CLEAR to the rule reading -- never asked back
+        # A VERY SHORT UNCLEAR MESSAGE WITH NOTHING BEFORE IT ("hmm the paper", "that one"): nothing to resolve it
+        # from -- ASKED, never guessed (owner, 2026-10-14: "weak spot bhi fix")
+        must_ask = len(said.split()) <= int(_agent.cfg().get("ask_first_max_words", 3))
+    import asyncio as _cf_asyncio_s
+
+    if await _cf_asyncio_s.to_thread(_cf_meaning.social_reading, said):
+        return None                 # "thx a lot", "cool thanks": small talk -- its own instant answer, never Qwen
+    if (not must_ask and _agent.cfg().get("clear_followups_skip", True) and not _leans_on_previous(said)
+            and await _cf_asyncio_s.to_thread(_cf_meaning.clear_reading, said, True)):
+        # A CLEAR QUESTION MID-CHAT (owner, 2026-10-15: "clear follow-ups skip Qwen"): "what is pending", "summary of
+        # this case" name what they ask -- the fast path answers them as at the start of a chat (~3 s with the natural
+        # line instead of 7-12 s for Qwen + line on this CPU). A message leaning on the last answer stays Qwen's.
+        logger.info("qwen agent: skipped, clear follow-up")
+        return None
+    if not must_ask and _agent.cfg().get("clear_followups_skip", True):
+        # the same high-confidence rule reading mid-chat ("all document details", "doc pending hai kya?" after another
+        # question went to Qwen, which dropped the fields / the Hinglish -- 2026-10-16)
+        rule = _rule_reading_clear(said, bool(case_id))
+        if rule:
+            logger.info("qwen agent: skipped, clear follow-up by rule reading %s", rule)
+            return None
+    reply = await _agent_reply(request, message, claims, payload, request_id, case_id,
+                               timeout=float(_agent.cfg().get("followup_timeout_seconds", 8.0)), must_ask=must_ask)
+    if must_ask and reply is not None and str(reply.get("intent") or "") != "CLARIFICATION":
+        # Qwen answered instead of asking: the options question for this case (vague.ask), else the pipeline
+        reply = _cf_vague.ask(said, state, request_id, case_open=True)
+    if reply is None and case_id and len(said.split()) <= int(_agent.cfg().get("ask_on_nothing_max_words", 3)):
+        # (only a SHORT message: "ok and which ones r done" is a follow-up the conversation layer answers -- measured
+        # 2026-10-15, the options question took it)
+        # QWEN GAVE NOTHING (slow / down / no valid choice) AND NO READING IS CONFIDENT ("hmm not sure": best 0.68):
+        # the case's options question -- never "that's outside what I can help with", which is for a CLEAR off-topic
+        # message (the weather / cricket read 0.99 out_of_scope and keep their polite refusal)
+        ranked = await _cf_asyncio_s.to_thread(_cf_meaning.rank, said)
+        accept = float((_cf_meaning.catalogue().get("decide") or {}).get("accept", 0.78))
+        if ranked and ranked[0][1] < accept:
+            reply = _cf_vague.ask(said, state, request_id, case_open=True)
+    if reply is not None:
+        reply["agent_followup"] = True
+    return reply
+
+
+async def _case_record_reply(message: str, claims: dict[str, Any], payload: Any,
+                             request_id: str) -> dict[str, Any] | None:
+    """A specific fact of the OPEN case / one of its documents, from its masked fact sheet, fact-checked
+    (capabilities/snapshot_qa.py: every number, date, id, status and document name must be on the sheet). Ownership
+    is checked first. None: no case open, not authorised, the model unavailable -> the caller goes on as before."""
+    from app.agents.applicant.copilot.capabilities import general as _cr_general
+    from app.agents.applicant.copilot.capabilities import snapshot_qa as _cr_snapshot
+    from app.agents.applicant.copilot.capabilities import workspace as _cr_ws
+    from app.security import access as _cr_access
+
+    case_id = _cr_general._state(claims, payload.context).active_case_id or payload.case_id
+    if not case_id or not _cr_snapshot.enabled():
+        return None
+    try:
+        _cr_ws.authorize(claims, case_id)
+    except _cr_access.AccessDenied:
+        return None
+    found = await _cr_snapshot.answer(case_id, message)
+    if not found or not found.get("answer"):
+        return None
+    return _cr_general._reply(request_id, "CASE_SNAPSHOT", str(found["answer"]), case_id=case_id,
+                              query_type="CASE_FACT", tools_invoked=["case.snapshot"])
+
+
+def _ag_is_eligibility(said: str) -> bool:
+    """The rule classifier reads it as an eligibility question ("what FOIR is allowed?") -- the redirect's, never Qwen's."""
+    try:
+        from app.agents.applicant.copilot.semantics import intents as _ag_intents
+
+        return _ag_intents.classify(said).intent is _ag_intents.Intent.ELIGIBILITY
+    except Exception:  # noqa: BLE001 - unknown: Qwen may read it (the follow-up path keeps its own check)
+        return False
+
+
+def _ag_social_reading(said: str) -> bool:
+    from app.agents.applicant.copilot.semantics import meaning as _sr_meaning
+
+    try:
+        return _sr_meaning.social_reading(said)
+    except Exception:  # noqa: BLE001 - no embeddings: not small talk by meaning
+        return False
+
+
+def _list_reading_without_cases(said: str) -> bool:
+    """The case-list reader took the message ("which one should I do FIRST" -> a sorted list) but it names no case /
+    file / customer (case_list config case_nouns): on an open case it is about THAT case, never the portfolio."""
+    from app.agents.applicant.copilot.capabilities import case_list as _lr_list
+
+    if _lr_list.understand(said) is None:
+        return False
+    nouns = (_lr_list.cfg().get("phrases") or {}).get("case_nouns") or {}
+    words = {str(w).lower() for k in ("plural", "singular") for w in nouns.get(k) or []}
+    return not (set(re.findall(r"[a-z]+", said.lower())) & words)
+
+
+async def _agent_reply(request: Request, message: str, claims: dict[str, Any], payload: Any, request_id: str,
+                       case_id: str | None, *, timeout: float | None = None,
+                       must_ask: bool = False) -> dict[str, Any] | None:
+    """Qwen's tools for this message on `case_id` (authorised per tool by the lookup), as a reply; None: no answer."""
+    from app.agents.applicant.copilot.capabilities import general as _ag_general
+    from app.agents.applicant.copilot.capabilities import qwen_agent as _agent
+
+    applicant_id = payload.applicant_id
+    product = None
+    if case_id:
+        from app.store import get_repository
+
+        application = get_repository().get_application(case_id)
+        product = getattr(application, "product", None)
+        applicant_id = applicant_id or getattr(application, "applicant_id", None)
+
+    async def lookup(canonical: str) -> dict[str, Any]:
+        return await answer_question(message=canonical, applicant_id=applicant_id, case_id=case_id, claims=claims,
+                                     request_id=request_id, intent_override=None, concise=True,
+                                     context=payload.context)
+
+    async def handbook(question: str) -> str | None:
+        from app.agents.applicant.copilot.answering import language_lock as _ag_lock
+
+        reply = await _ag_general.answer(question, claims, payload.context, request_id, _ag_lock.current() or "en",
+                                         case_in_scope=None, meaning_kind="knowledge", knowledge_hint=None)
+        text = str((reply or {}).get("answer") or "").strip()
+        return text if text and str((reply or {}).get("intent") or "") not in ("UNKNOWN_TERM", "NOT_IN_SCOPE") else None
+
+    if getattr(request.state, "agent_tried", False):
+        return None                 # ONE Qwen choice a turn: it already read this message and had no answer
+    request.state.agent_tried = True
+    done = await _agent.answer(message, chat_key=_agent_chat_ref(request), case_id=case_id, product=product,
+                               claims=claims, lookup=lookup, handbook=handbook, timeout=timeout,
+                               must_ask=must_ask, request_id=request_id)
+    if done is None:
+        return None
+    if done["kind"] == "ask_rejected":
+        # Qwen wanted to ask but its question named something this case is not: the case's own options question
+        from app.agents.applicant.copilot.capabilities import vague as _ar_vague
+
+        return _ar_vague.ask(" ".join(str(message).split()), _ag_general._state(claims, payload.context), request_id,
+                             case_open=bool(case_id))
+    if done["kind"] == "chat":
+        # small talk: a CONVERSATION answer that read nothing (the same contract as the config greeting / thanks)
+        reply = _ag_general._reply(request_id, "SMALL_TALK", done["answer"], case_id=case_id, category="CONVERSATION",
+                                   query_type="CONVERSATION", response_source="AGENT", tools_invoked=[])
+        reply["agent_timings"] = done.get("timings")
+        return reply
+    reply = _ag_general._reply(request_id, "CLARIFICATION" if done["kind"] == "followup" else "AGENT_ANSWER",
+                               done["answer"], case_id=case_id,
+                               category="CASE_SPECIFIC" if case_id else "KNOWLEDGE_ONLY",
+                               response_source="AGENT", tools_invoked=list(done["tools"]))
+    reply["no_case_links"] = not case_id
+    reply["agent_timings"] = done.get("timings")
+    return reply
+
+
+async def _simple_turn(request: Request, message: str, claims: dict[str, Any], payload: Any,
+                       request_id: str) -> dict[str, Any] | None:
+    """THE SIMPLE PIPELINE (copilot/simple/pipeline.py, config simple_chat.yaml): a question it understands is the
+    engine's canonical question + the natural line from the same records -- no model; small talk and a bare glossary
+    acronym are their fixed lines; else None (the rest answers)."""
+    from app.agents.applicant.copilot.answering import language_lock as _sp_lock
+    from app.agents.applicant.copilot.capabilities import general as _sp_general
+    from app.agents.applicant.copilot.simple import pipeline as _simple
+
+    if not _simple.enabled():
+        return None
+    if getattr(payload, "co_applicant_id", None) or getattr(payload, "party_id", None):
+        return None                 # a named party: its authorization path decides first
+    from app.agents.applicant.copilot.semantics import intents as _sp_intents
+
+    if _sp_intents.compound_parts(message):
+        # SEVERAL QUESTIONS IN ONE MESSAGE (conversation eval n1 / n3): the simple pipeline reads ONE question and
+        # answered only the loan amount of "are my documents verified and what is my loan amount?" -- the engine
+        # splits it and answers every part
+        return None
+    state = _sp_general._state(claims, payload.context)
+    if _sp_general._pending(state, claims, payload.context):
+        return None                 # the chat waits on an answer: "ok" / "2" / "haan" answer ITS question
+    case_id = state.active_case_id or payload.case_id
+    lang = _sp_lock.current() or "en"
+
+    async def social(frame: Any) -> dict[str, Any] | None:
+        from app.agents.applicant import conversation as _sp_conv
+        from app.agents.applicant.copilot.capabilities import workspace as _sp_ws
+
+        if frame.intent == _sp_conv.GREETING:
+            # NATURAL CONVERSATION (2026-11-02): Qwen answers the actual message ("hows you ?"), no menu; the plain
+            # configured line only when the model cannot
+            from app.agents.applicant.copilot.capabilities import natural_chat as _sp_nat
+
+            natural = await _sp_nat.social(message, _agent_chat_ref(request), request_id, lang, case_id)
+            return natural or _sp_ws.greeting_reply(claims, request_id, state)
+        if frame.intent == _sp_conv.GOODBYE:
+            return _farewell_reply(request_id, payload)
+        return await _sp_general.answer(message, claims, payload.context, request_id, lang, case_in_scope=case_id)
+
+    async def definition(frame: Any) -> dict[str, Any] | None:
+        defined = await _sp_general._definition(message, request_id, lang, case_id)
+        return defined if defined is not None and defined.get("intent") == "DEFINITION" else None
+    applicant_id = payload.applicant_id
+    if case_id and not applicant_id:
+        from app.store import get_repository
+
+        applicant_id = getattr(get_repository().get_application(case_id), "applicant_id", None)
+
+    looked_up: dict[str, Any] = {}
+
+    async def lookup(canonical: str) -> dict[str, Any]:
+        found = await answer_question(message=canonical, applicant_id=applicant_id, case_id=case_id, claims=claims,
+                                      request_id=request_id, intent_override=None, concise=True,
+                                      context=payload.context)
+        looked_up["reply"] = found
+        return found
+
+    reply = await _simple.answer(message, chat=_agent_chat_key(request), lookup=lookup,
+                                 question=str(getattr(request.state, "copilot_message", "") or message),
+                                 handlers={"social": social, "definition": definition}, case_open=bool(case_id),
+                                 previous_intent=(payload.context or {}).get("last_intent")
+                                 if isinstance(payload.context, dict) else None)
+    if reply is not None:
+        request.state.simple_answered = True        # its "why?" / "which one first" memory survives this turn
+        engine = looked_up.get("reply") if isinstance(looked_up.get("reply"), dict) else None
+        engine_conv = ((engine or {}).get("understanding") or {}).get("conversation") \
+            if isinstance((engine or {}).get("understanding"), dict) else None
+        if isinstance(engine_conv, dict) and engine_conv.get("conversation_id"):
+            # A CASE ANSWER IS THE ENGINE'S ANSWER (lookup -> answer_question, which recorded it in the
+            # conversation): its conversation reading goes back with it -- the reply's context (conversation id) is
+            # built from it -- and moved_on does not erase it, so "more" / "again" / "why?" next refer to it
+            # (conversation eval v2: the simple reply came back with NO context, the next turn opened a new
+            # conversation and "more" was UNKNOWN)
+            understanding = reply.setdefault("understanding", {}) if isinstance(reply.get("understanding"), dict) \
+                or "understanding" not in reply else None
+            if isinstance(understanding, dict) and not understanding.get("conversation"):
+                understanding["conversation"] = engine_conv
+            if not reply.get("context"):
+                from app.agents.applicant.copilot.conversation import followup as _sp_followup
+
+                reply["context"] = _sp_followup.context_from_response(reply)
+        else:
+            _sp_general.moved_on(claims, payload.context)
+    return reply
+
+
+async def _clear_reading(request: Request, message: str, claims: dict[str, Any], payload: Any) -> bool:
+    """The meaning reader is sure of this message (simple/pipeline.clear) and the chat waits on nothing: the Qwen
+    follow-up reader and the Qwen agent are skipped, the deterministic layers answer it."""
+    from app.agents.applicant.copilot.capabilities import general as _cr_general
+    from app.agents.applicant.copilot.simple import pipeline as _cr_simple
+
+    if not (_cr_simple.enabled() and _cr_simple.cfg().get("front", False)):
+        return False
+    if _cr_general._pending(_cr_general._state(claims, payload.context), claims, payload.context):
+        return False
+    import asyncio as _cr_asyncio
+
+    def _sure() -> bool:
+        return _cr_simple.sure(message, _agent_chat_key(request))
+
+    try:
+        return bool(await _cr_asyncio.to_thread(_sure))
+    except Exception:  # noqa: BLE001 - no reading: the layers run as before
+        return False
+
+
+async def _qwen_agent_turn(request: Request, message: str, claims: dict[str, Any], payload: Any,
+                           request_id: str) -> dict[str, Any] | None:
+    """The Qwen agent's reply for this message, or None (not its turn / it could not answer: the pipeline answers)."""
+    from app.agents.applicant.copilot.capabilities import case_list as _ag_list
+    from app.agents.applicant.copilot.capabilities import general as _ag_general
+    from app.agents.applicant.copilot.capabilities import qwen_agent as _agent
+    from app.agents.applicant.copilot.capabilities import vague as _ag_vague
+    from app.agents.applicant.copilot.semantics import task as _ag_task
+
+    if not _agent.enabled() or not _agent._ready():
+        return None                 # Qwen cannot run: nothing is read for it (a refusal must read nothing)
+    if getattr(payload, "co_applicant_id", None) or getattr(payload, "party_id", None):
+        return None                 # a named party: its authorization path decides first
+    from app.security import guardrails as _ag_guard
+
+    _ag_verdict = _ag_guard.check_input(" ".join(str(message or "").split()),
+                                        allowed_ids=(payload.case_id, payload.applicant_id))
+    if not _ag_verdict.allowed:
+        return None                 # bulk data / export / any flagged input: the guarded pipeline, never the agent
+    state = _ag_general._state(claims, payload.context)
+    case_id = payload.case_id or getattr(state, "active_case_id", None)
+    said = " ".join(str(message or "").split())
+    settled = getattr(request.state, "task", None)
+    gates = (("reply", lambda: re.fullmatch(r"(?i)[\d\s.,]+|yes|no|ok|okay|haan|nahi", said)),
+             # OWNER POLICY: eligibility (FOIR, limits, "is he eligible") is never answered in chat -- the fixed
+             # redirect, before Qwen (2026-10-15: "what FOIR is allowed?" got Qwen's clarifying question here)
+             ("eligibility", lambda: (_ag_general._has(said, "eligibility") and not _ag_general._has(said, "eligibility_not"))
+              or _ag_is_eligibility(said)),
+             ("waits_for", lambda: _ag_vague.waits_for(said, state, claims, payload.context)),
+             ("command", lambda: _ag_vague.is_command(said, case_open=bool(case_id))),
+             ("social", lambda: _ag_task.enabled() and _ag_task.social_kind(said)),
+             ("social_meaning", lambda: _ag_social_reading(said)),
+             # the weather, cricket, coding, investment tips: refused by the pipeline, never 4 s of Qwen first
+             ("off_topic", lambda: _clearly_off_topic(said)),
+             ("over_cases", lambda: _ag_task.enabled() and _ag_task.asks_over_cases(said)),
+             # a ROLE in the workflow ("who handles cpa?"): the stage knowledge, never the case's tools
+             ("role", lambda: _ag_task.enabled() and _ag_task.asks_role(said)),
+             ("case_list", lambda: _ag_list.understand(said) is not None),
+             # the general layer's own direct answers: confusion, "can you handle it", "is X accepted?"
+             ("parties", lambda: _ag_general._has(said, "co_applicant")),
+             # ONE recorded field ("what is the tenure"): the profile answer names that field only, never the whole record
+             ("one_field", lambda: bool(case_id) and _ag_profile_field(said)),
+             ("general_fast", lambda: _ag_general._has(said, "frustrated") or _ag_general._has(said, "delegate")
+              or _ag_general._accepted(said, "en") is not None),
+             ("settled", lambda: settled is not None and (settled.operation in ("page", "farewell", "greet")
+                                                          or settled.references.get("kind") == "ordinal")))
+    for gate, hit in gates:
+        if hit():
+            logger.info("qwen agent: skipped by %s", gate)
+            return None             # a command / a reply / small talk / the case list: their own fast paths
+    if _agent.cfg().get("only_when_unclear"):
+        # HYBRID (copilot_reply.yaml agent.only_when_unclear): a message the fast matcher reads clearly is answered by
+        # the same tools directly (well under a second); Qwen chooses only for the unclear ones
+        import asyncio as _ag_asyncio
+
+        from app.agents.applicant.copilot.semantics import meaning as _ag_meaning
+
+        if await _ag_asyncio.to_thread(_ag_meaning.clear_reading, said, bool(case_id)):
+            logger.info("qwen agent: skipped by clear_reading")
+            return None
+        # THE RULE READING IS CLEAR TOO (2026-10-16): "bank statement ki details", "docs verify hue?", "show all
+        # documents" -- the embedding margin called them unclear, Qwen answered, and the fields / the Hinglish were
+        # lost, while the rule reading had each right at HIGH confidence. A high-confidence rule reading that does not
+        # lean on the previous turn is answered by the engine; vague messages and follow-ups still go to Qwen.
+        rule = _rule_reading_clear(said, bool(case_id))
+        if rule:
+            logger.info("qwen agent: skipped by rule reading %s", rule)
+            return None
+    return await _agent_reply(request, message, claims, payload, request_id, case_id)
+
+
+#: the previous answer's kind that a bare document name continues (a knowledge / process answer)
+_KNOWLEDGE_TYPES = {"PROCESS_KNOWLEDGE", "KNOWLEDGE_ONLY", "KNOWLEDGE"}
+_KNOWLEDGE_INTENTS = {"FOS_KNOWLEDGE", "GENERAL_KNOWLEDGE", "DEFINITION", "DOCUMENT_ACCEPTED", "PROCESS_STAGES",
+                      "DOCUMENTS_REQUIRED", "STAGE_PROCESS"}
+
+
+def _coapp_need_reply(message: str, case_id: str | None, request: Request, payload: Any,
+                      request_id: str) -> dict[str, Any] | None:
+    """IS A CO-APPLICANT REQUIRED? (2026-10-14) -- asked outright, or "do we need one?" right after a co-applicant
+    answer. From the product's own checklist: no configured product requires one, so the answer says that, for the
+    case's product. None when the message is not this question or no case is open."""
+    from app.agents.applicant.copilot.capabilities import general as _cn_general
+    from app.security import guardrails as _cn_guard
+
+    if not case_id:
+        return None
+    asked = _cn_general._has(message, "coapp_need")
+    if not asked and _cn_general._has(message, "coapp_need_followup") and len(str(message).split()) <= 7:
+        last = _last_turn(request, payload)
+        asked = "CO_APPLICANT" in str(last.get("last_intent") or "").upper() or \
+            str(last.get("last_subject") or "").upper() in ("CO", "CO_APPLICANT") or \
+            str(last.get("last_missing_party") or "").upper() in ("CO", "CO_APPLICANT")
+    if not asked or not _cn_guard.check_input(" ".join(str(message).split())).allowed:
+        return None
+    from app.agents.applicant import config as _cn_config
+    from app.agents.applicant.copilot.answering.answer import _readable
+    from app.store import get_repository as _cn_repo
+
+    application = _cn_repo().get_application(case_id)
+    product = str(getattr(application, "product", "") or "")
+    if not product:
+        return None
+    # the checklist decides: a product whose required documents include a co-applicant slot would say "yes"
+    rows = _cn_config.checklist_for(product) or []
+    if any("CO_APPLICANT" in str(r.get("slot") or "").upper() and r.get("mandatory", True) for r in rows):
+        return None
+    text = _cn_general._say_text((_cn_general.cfg().get("texts") or {}).get("coapp_not_required"), "en",
+                                 product=_readable(product))
+    return _cn_general._reply(request_id, "COAPP_REQUIREMENT", text, case_id=case_id, query_type="PROCESS_KNOWLEDGE")
+
+
+def _misunderstood(message: str) -> bool:
+    """"ye nahi poocha" / "that's not what I asked" (config chatbot.misunderstood): the engine's recovery answers it
+    -- never the which-action question (frontend contract 22_misunderstood, 2026-10-14)."""
+    from app.agents.applicant import config as _mu_config
+
+    said = " " + " ".join(re.findall(r"[\wऀ-ॿ']+", str(message or "").lower())) + " "
+    phrases = (_mu_config.chatbot("misunderstood") or {}).get("phrases") or []
+    return any(f" {str(p).lower().strip()} " in said for p in phrases)
+
+
+def _only_applicant_reply(message: str, case_id: str | None, request: Request, payload: Any,
+                          request_id: str, claims: dict[str, Any]) -> dict[str, Any] | None:
+    """"so it's ONLY Rahul then?" right after a no-co-applicant answer (2026-10-14): a confirmation with the
+    applicant's recorded name. Only as that follow-up (the previous turn found the co-applicant missing)."""
+    from app.agents.applicant.copilot.capabilities import general as _oa_general
+    from app.security import guardrails as _oa_guard
+
+    if not case_id or len(str(message).split()) > 8 or not _oa_general._has(message, "only_applicant"):
+        return None
+    after_no_coapp = str(_last_turn(request, payload).get("last_missing_party") or "").upper() in ("CO", "CO_APPLICANT")
+    if not _oa_guard.check_input(" ".join(str(message).split())).allowed:
+        return None
+    from app.agents.applicant.copilot.capabilities import workspace as _oa_ws
+    from app.security import access as _oa_access
+    from app.store import get_repository as _oa_repo
+
+    try:
+        _oa_ws.authorize(claims, case_id)              # the ordinary ownership check before any read
+    except _oa_access.AccessDenied:
+        return None
+    application = _oa_repo().get_application(case_id)
+    applicant = _oa_repo().get_applicant(application.applicant_id) if application else None
+    name = str(getattr(applicant, "full_name", "") or "").strip()
+    first = name.split()[0].lower() if name else ""
+    # the previous turn found no co-applicant, OR the message names the applicant ("so it's only RAHUL then?")
+    if not name or not (after_no_coapp or (first and re.search(rf"\b{re.escape(first)}\b", message.lower()))):
+        return None
+    if getattr(application, "co_applicant_id", None):
+        return None                     # there IS a co-applicant: the ordinary answer says who
+    text = _oa_general._say_text((_oa_general.cfg().get("texts") or {}).get("only_applicant"), "en", name=name)
+    return _oa_general._reply(request_id, "ONLY_APPLICANT", text, case_id=case_id, query_type="CASE_FACT")
+
+
+_STATUS_CUE = re.compile(r"\b(verified|verify|uploaded|upload|submitted|received|status|done|pending|approved|"
+                         r"rejected|cleared|complete|completed|ok)\b", re.IGNORECASE)
+_LIST_CUE = re.compile(r"\b(all|every|each|documents|docs|which|list)\b", re.IGNORECASE)
+
+
+def _several_documents_reply(message: str, case_id: str | None, request_id: str,
+                             claims: dict[str, Any]) -> dict[str, Any] | None:
+    """"is pan verified? and bank statement?" (2026-10-14 English officer set: only the last one was answered): TWO
+    OR MORE named documents with a status cue -> one status line each, from the case's own documents (the same line
+    as the documents list). Never the applicant + co-applicant mix (the conversation layer splits parties), never
+    "all / which documents" (the list answers that)."""
+    from app.agents.applicant.copilot.semantics import meaning as _sd_meaning
+    from app.agents.applicant.copilot.routing import subjects as _sd_subjects
+    from app.security import guardrails as _sd_guard
+
+    text = str(message or "")
+    if not case_id or len(text.split()) > 14 or not _STATUS_CUE.search(text) or _LIST_CUE.search(text):
+        return None
+    said = " " + re.sub(r"[^\w\s]", " ", _sd_meaning._normalised(text).lower()) + " "
+    spans: list[tuple[int, str]] = []
+    for alias, name in _sd_meaning._documents():               # longest alias first; a matched span is used up
+        at = said.find(f" {alias} ") if alias else -1
+        if at >= 0:
+            said = said[:at] + " " + "#" * len(alias) + " " + said[at + len(alias) + 2:]
+            spans.append((at, name))
+    named = list(dict.fromkeys(name for _, name in sorted(spans)))      # in the order the officer asked
+    if len(named) < 2 or _sd_subjects.mentioned(text) is not None:
+        return None
+    if not _sd_guard.check_input(" ".join(text.split())).allowed:
+        return None
+    from app.agents.applicant.copilot.answering.answer import _STATE_ICON, _readable
+    from app.agents.applicant.copilot.capabilities import general as _sd_general
+    from app.agents.applicant.copilot.capabilities import workspace as _sd_ws
+    from app.security import access as _sd_access
+    from app.store import get_repository as _sd_repo
+
+    try:
+        _sd_ws.authorize(claims, case_id)              # the ordinary ownership check before any read
+    except _sd_access.AccessDenied:
+        return None
+    documents = [d for d in _sd_repo().list_documents(case_id)
+                 if str(getattr(d, "party_role", "") or "").upper() != "CO_APPLICANT"]
+    lines = []
+    for name in named:
+        found = [d for d in documents if _readable(getattr(d, "document_type", "")) == name]
+        status = getattr(found[-1], "status", None) if found else "MISSING"
+        status = str(getattr(status, "value", status) or "").upper()
+        lines.append(f"- **{name}** — {_STATE_ICON.get(status, ('', status.replace('_', ' ').capitalize()))[1]}")
+    return _sd_general._reply(request_id, "DOCUMENT_STATUS", "\n".join(lines), case_id=case_id,
+                              query_type="CASE_FACT")
+
+
+#: answers after which "and after that?" means the case's NEXT STAGE
+_NEXT_STEP_INTENTS = {"NEXT_ACTION", "PENDING_ITEMS", "DOCUMENTS_PENDING", "WHY_STUCK", "CPA_READINESS", "READINESS"}
+#: process / how-to answers ABOUT A STAGE: "after that" next means the stage after the one they were about
+_STAGE_ANSWER_INTENTS = {"STAGE_PROCESS", "PROCESS_ANSWER", "FAQ_ANSWER", "PROCESS_STAGES"}
+
+
+async def _planner_turn(request: Request, message: str, claims: dict[str, Any], payload: Any,
+                        request_id: str) -> dict[str, Any] | None:
+    """ONE planner call, then the plan: a registered tool (validated, permission-checked, time-limited -- its own
+    deterministic handler writes the answer), Qwen's own words for social / general, or one short question back.
+    None when there is no usable plan: the deterministic layers answer, nothing is guessed."""
+    from app.agents.applicant.copilot.answering import language_lock as _pl_lock
+    from app.agents.applicant.copilot.capabilities import general as _pl_general
+    from app.agents.applicant.copilot.capabilities import natural_chat as _pl_nat
+    from app.agents.applicant.copilot.planner import plan as _pl_plan
+    from app.agents.applicant.copilot.planner import registry as _pl_registry
+
+    state = _pl_general._state(claims, payload.context)
+    if _pl_general._pending(state, claims, payload.context):
+        return None                          # the chat waits on an answer: its own handler reads it
+    case_id = getattr(state, "active_case_id", None) or payload.case_id
+    lang = _pl_lock.current() or payload.response_language or "en"
+    p = await _pl_plan.plan(message, _pl_nat.history_for(_agent_chat_ref(request)), case_open=bool(case_id))
+    request.state.planner = {"intent": p.intent, "tool": p.tool, "ms": p.ms, "error": p.error}
+    if p.error:
+        return None
+    reply: dict[str, Any] | None = None
+    if p.intent == "SOCIAL":
+        reply = await _pl_nat.social(message, _agent_chat_ref(request), request_id, lang, case_id)
+    elif p.intent == "OUT_OF_DOMAIN" and p.tool == "none":
+        reply = _pl_nat.out_of_domain_reply(request_id, lang, case_id)
+    elif p.tool != "none":
+        applicant_id = payload.applicant_id
+        if case_id and not applicant_id:
+            from app.store import get_repository
+
+            applicant_id = getattr(get_repository().get_application(case_id), "applicant_id", None)
+        ctx = _pl_registry.ToolContext(claims=claims, request_id=request_id, case_id=case_id,
+                                       applicant_id=applicant_id, lang=lang)
+        result = await _pl_registry.run(p.tool, ctx, p.args)
+        request.state.planner.update(tool_ok=result.ok, tool_error=result.error, tool_ms=result.ms)
+        reply = result.reply if result.ok else None
+    elif p.intent == "CLARIFICATION" and p.question.strip().endswith("?") and len(p.question) <= 200 \
+            and not _pl_general._unsafe_general(p.question):
+        reply = _pl_general._reply(request_id, "CLARIFICATION", p.question.strip(), case_id=case_id,
+                                   query_type="CONVERSATION")
+    if reply is not None:
+        reply.setdefault("tools_invoked", [])
+        _pl_general.moved_on(claims, payload.context)
+        _turn_layer(request, f"planner({p.intent.lower()}:{p.tool})")
+    return reply
+
+
+async def _natural_turn(request: Request, message: str, claims: dict[str, Any], payload: Any,
+                        request_id: str) -> dict[str, Any] | None:
+    """The natural-conversation answer of this turn (social / general / a follow-up of a general answer), or None --
+    every LOS message, a pending question, a named own case, or natural chat off goes on to the LOS layers."""
+    from app.agents.applicant import conversation as _nt_conv
+    from app.agents.applicant.copilot.answering import language_lock as _nt_lock
+    from app.agents.applicant.copilot.answering import realtime as _nt_rt
+    from app.agents.applicant.copilot.capabilities import general as _nt_general
+    from app.agents.applicant.copilot.capabilities import natural_chat as _nt_nat
+
+    if not _nt_nat.enabled():
+        return None
+    state = _nt_general._state(claims, payload.context)
+    if _nt_general._pending(state, claims, payload.context) or _names_own_case(message, claims):
+        return None
+    # THE LANGUAGE OF THIS MESSAGE ("hey there" after a Hinglish chat is English), else the chat's lock
+    try:
+        from app.agents.applicant import language as _nt_language
+
+        _detected = _nt_language.detect(message)
+        lang = ("hi-Latn" if getattr(_detected, "code_mixed", False) else getattr(_detected, "code", None)) \
+            or _nt_lock.current() or payload.response_language or "en"
+    except Exception:  # noqa: BLE001
+        lang = _nt_lock.current() or payload.response_language or "en"
+    case_id = getattr(state, "active_case_id", None) or payload.case_id
+    try:
+        turn = _nt_conv.classify(message)
+    except Exception:  # noqa: BLE001
+        turn = None
+    social = (_nt_rt.is_greeting(message) or _nt_nat.is_social(message)
+              or (turn is not None and turn.kind in (_nt_conv.GREETING, _nt_conv.SMALL_TALK)))
+    social = social and not _nt_general.names_los(message)   # "how are you handling KYC?" is an LOS question
+    if social:
+        reply = await _nt_nat.social(message, _agent_chat_ref(request), request_id, lang, case_id)
+        if reply is not None:
+            _nt_general.moved_on(claims, payload.context)
+            _turn_layer(request, "natural(social)")
+        return reply
+    if _nt_general.names_los(message):
+        return None
+    # A CASE IS OPEN AND THE DETERMINISTIC READERS ARE SURE it is about the case ("isko aage kaise bheju" -> the next
+    # action): never "general" / out of domain (2026-11-06 live eval refused it as a general question)
+    if case_id:
+        import asyncio as _nt_asyncio
+
+        from app.agents.applicant.copilot.simple import pipeline as _nt_simple
+
+        try:
+            if await _nt_asyncio.to_thread(_nt_simple.structural_sure, message):
+                return None
+        except Exception:  # noqa: BLE001 - not known to be sure: the natural layer decides, as before
+            pass
+    if not _nt_general.general_chat_available():
+        # LOS-ONLY SCOPE (owner 2026-11-03): an ordinary question is answered from the handbook when the handbook holds
+        # it (an LOS technical term), else with the out-of-domain line -- never a general answer, never a stray passage
+        if not _nt_general.is_general_question(message):
+            return None
+        found = await _nt_general._knowledge_candidate(message, request_id, case_id, False)
+        reply = found[1] if found is not None else _nt_nat.out_of_domain_reply(request_id, lang, case_id)
+        _nt_general.moved_on(claims, payload.context)
+        _turn_layer(request, "natural(out_of_domain)" if found is None else "natural(los_technical)")
+        return reply
+    after_general = str(_last_turn(request, payload).get("last_intent") or "").upper() == "GENERAL_CHAT"
+    short = len(str(message).split()) <= int((_nt_nat.cfg().get("followup") or {}).get("max_words", 8))
+    general = _nt_general.is_general_question(message)
+    if general or (after_general and short):
+        reply = await _nt_general.general_chat(message, request_id, lang, case_id=case_id,
+                                               chat_ref=_agent_chat_ref(request))
+        if reply is None and general and not _nt_general._handbook_confident(message):
+            # THE MODEL COULD NOT ANSWER an ordinary question (slow / down): say so -- the LOS layers would answer it
+            # with an unrelated handbook passage ("why is the sky blue?" -> match_score vs confidence, 2026-11-02)
+            texts = (_nt_general.cfg().get("general_chat") or {}).get("texts") or {}
+            reply = _nt_general._reply(request_id, "GENERAL_CHAT_UNAVAILABLE",
+                                       _nt_general._pick(texts.get("unavailable"), lang), case_id=case_id,
+                                       query_type="CONVERSATION")
+        if reply is not None:
+            _nt_general.moved_on(claims, payload.context)
+            _turn_layer(request, "natural(general)")
+        return reply
+    return None
+
+
+def _last_turn(request: Request, payload: Any) -> dict[str, Any]:
+    """The previous answer's context: the one the client sent back, else the one the server kept (contract.recall)."""
+    from app.agents.applicant.copilot.answering import contract as _ak_contract
+
+    last = dict(payload.context) if isinstance(getattr(payload, "context", None), dict) else {}
+    key = getattr(request.state, "chat_key", None)
+    if not (last.get("last_intent") or last.get("last_query_type")) and key:
+        try:
+            last = _ak_contract.recall(key[0], key[1]) or {}
+        except Exception:  # noqa: BLE001
+            last = {}
+    return last
+
+
+def _after_knowledge(request: Request, payload: Any) -> bool:
+    """Whether this chat's previous answer was a knowledge / process answer."""
+    last = _last_turn(request, payload)
+    return (str(last.get("last_query_type") or "").upper() in _KNOWLEDGE_TYPES
+            or str(last.get("last_intent") or "").upper() in _KNOWLEDGE_INTENTS)
+
+
+def _after_clarification(request: Request, payload: Any) -> bool:
+    """Whether the previous answer ASKED something ("which one do you mean?"): the reply is its answer, read by the
+    conversation layer -- never re-read as a new question (party_kyc v_other_one, 2026-10-14)."""
+    last = _last_turn(request, payload)
+    return ("CLARIF" in str(last.get("last_query_type") or "").upper()
+            or "CLARIF" in str(last.get("last_intent") or "").upper()
+            or str(last.get("last_intent") or "").upper() in {"DID_YOU_MEAN", "WHICH_ACTION", "VAGUE_OPTIONS"})
+
+
+def _co_followup(message: str) -> bool:
+    """A SHORT follow-up naming only the co-applicant ("aur co-applicant ka?", "and the co-applicant?"): on a case
+    without one, "there is no co-applicant" -- never the co-applicant canonical's "nothing pending" (2026-10-14)."""
+    from app.agents.applicant.copilot.routing import subjects as _co_subjects
+    from app.security import guardrails as _co_guard
+
+    try:
+        if not (len(str(message or "").split()) <= 4 and _co_subjects.mentioned(message) == _co_subjects.Kind.CO):
+            return False
+        # ONLY A FOLLOW-UP THAT NAMES THE PARTY ("and the co-applicant?", "aur co-applicant ka?") -- an existence
+        # question ("is there a co-applicant?", "co-applicant hai kya?") is the profile's to answer
+        rest = re.sub(r"(?i)\bco[\s-]?applicant'?s?\b", " ", str(message))
+        if set(re.findall(r"[a-z]+", rest.lower())) - {"and", "aur", "the", "ka", "ki", "ke", "what", "about", "how",
+                                                       "for", "of", "so", "ok", "okay", "then", "his", "her"}:
+            return False
+        # A REFUSED REQUEST READS NOTHING ("List all co-applicants." -- bulk): this shortcut reads the case, so it
+        # runs only for a message the input guardrail allows (party_kyc s_all_co, 2026-10-14)
+        return bool(_co_guard.check_input(" ".join(str(message).split())).allowed)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _ag_profile_field(said: str) -> bool:
+    """Whether the message asks for ONE recorded application / applicant field (answering/profile.py detect)."""
+    from app.agents.applicant.copilot.answering import profile
+
+    try:
+        asked = profile.detect(said)
+    except Exception:  # noqa: BLE001
+        return False
+    return asked is not None and str(getattr(asked, "field", "") or "") not in ("", profile.ALL)
+
+
 async def _understood(message: str, claims: dict[str, Any], payload: Any, request_id: str):
     """The meaning Decision for a typed message, or None (meaning off / a command / a pending reply / not understood)."""
     from app.agents.applicant.copilot.semantics import meaning as _meaning
@@ -1361,8 +2582,15 @@ async def _understood(message: str, claims: dict[str, Any], payload: Any, reques
                                                                                    payload.context):
         return None
 
-    if _vq.is_command(said, case_open=bool(state.active_case_id or payload.case_id)):
-        return None                 # open / close / a case id / a list / a new case: the workspace and the forms
+    from app.agents.applicant.copilot.semantics import task as _und_task
+
+    if _und_task.enabled() and _und_task.social_kind(said):
+        return None                 # "take care" / "namaste ji": the conversation's own answer, never a case intent
+    selects = _und_task.enabled() and _und_task.asks_over_cases(said)
+    if _vq.is_command(said, case_open=bool(state.active_case_id or payload.case_id)) and not selects:
+        # open / close / a case id / a list / a new case: the workspace and the forms -- but "WHICH applications can
+        # go to CPA now?" is a QUESTION over the cases (task.selectors), read by meaning + plural scope
+        return None
     from app.agents.applicant.copilot.capabilities import case_list as _ord_list
 
     if _ord_list.ordinal_pick(said, getattr(state, "listed_case_ids", None) or []):
@@ -1391,6 +2619,163 @@ async def _understood(message: str, claims: dict[str, Any], payload: Any, reques
         _meaning.remember(state, decision)
         _ws_m._save(state)
     return decision
+
+
+def _task_social(message: str) -> bool:
+    from app.agents.applicant.copilot.semantics import task as _task
+
+    return _task.plain_social(message)
+
+
+def _task_args(claims: dict[str, Any], payload: Any) -> tuple[Any, dict[str, Any]]:
+    from app.agents.applicant.copilot.capabilities import general as _tg
+
+    state = _tg._state(claims, payload.context)
+    return state, {"case_open": bool(state.active_case_id or payload.case_id),
+                   "listed": list(getattr(state, "listed_case_ids", None) or []),
+                   "previous": (getattr(state, "flow", None) or {}).get("last_task"),
+                   "list_query": getattr(state, "list_query", None) or None}
+
+
+def _task_turn(request: Request, message: str, claims: dict[str, Any], payload: Any) -> str:
+    """
+    THE STRUCTURED TASK, BEFORE ANY HANDLER (Phase 2; semantics/task.py). Returns the message the handlers answer:
+      a PORTFOLIO FOLLOW-UP ("what about the stuck ones?" after a count) -> the deterministic question of the previous
+        operation with the new filter ("how many cases stuck?") -- answered by the case insights / list, own rows only;
+      a CORRECTION to another row of the list just shown ("no, I meant the second one") -> "open <that row>": the
+        workspace opens it after its usual ownership check;
+      a bare NEGATION with softeners ("nah not really") -> "no": the conversation contract's NEGATION;
+      anything else -> unchanged (the meaning layer reads it later; the task is completed there).
+    Off (task.enabled false) or any failure: the message as typed.
+    """
+    from app.agents.applicant.copilot.capabilities import general as _tg
+    from app.agents.applicant.copilot.semantics import task as _task
+
+    if not _task.enabled() or getattr(payload, "co_applicant_id", None) or getattr(payload, "party_id", None):
+        return message
+    try:
+        state, args = _task_args(claims, payload)
+        # A TYPO of a word the case list knows ("show my oldst cases"): corrected ONLY when that makes the list /
+        # the insights understand what the typed words did not -- never a name, never anything else
+        from app.agents.applicant.copilot.capabilities import case_insights as _t_ins
+        from app.agents.applicant.copilot.capabilities import case_list as _t_list
+
+        fixed = _task.respelled(message)
+        if fixed != message and ((_t_list.understand(message) is None and _t_list.understand(fixed) is not None)
+                                 or (not _t_ins.kind_of(message) and _t_ins.kind_of(fixed))):
+            message = fixed
+            request.state.copilot_message = message
+        t = _task.interpret(message, None, **args)
+    except Exception:  # noqa: BLE001 - the task is an aid: the message goes on as typed
+        logger.warning("task: interpretation failed; the message goes on as typed", exc_info=True)
+        return message
+    request.state.task = t
+    if (getattr(state, "flow", None) or {}).get("write"):
+        return message                        # a draft / move waiting for Confirm: its own form reads every message
+    if t.scope == "unresolved" and not _tg._pending(state, claims, payload.context) and _task.unnamed_action(message):
+        # "sort this out for me" / "ye sambhal lo": an action asked that names none -> "which action?" with the supported
+        # options, before anything reads a case (a pending question / pick answers it instead)
+        t.scope, t.operation, t.intent, t.decided_by = "none", "clarify", "unnamed_action", "unnamed_action"
+        t.ambiguities = ["which_action"]
+        request.state.task_unnamed_action = True
+        return message
+    rewritten = None
+    if t.references.get("kind") == "previous_task" and t.filters:
+        rewritten = _task.canonical_for(t.operation, t.filters[0])
+    elif t.correction and t.references.get("kind") == "ordinal" and t.references.get("case_id"):
+        rewritten = f"open {t.references['case_id']}"
+    elif t.operation == "negate" and not _tg._only(message, "negation"):
+        rewritten = "no"
+    elif t.operation == "greet" and t.decided_by == "conversation_classifier":
+        rewritten = "hello"                   # "namaste ji" / "ram ram bhai": the same greeting as a typed hello
+    elif t.operation == "farewell" and t.decided_by == "conversation_classifier":
+        # "bye" / "ok bye" / "take care": answered BEFORE any case-name match or case read -- a case named "Rohan Bye"
+        # is opened only by asking for it ("open Rohan Bye"), never by a goodbye
+        request.state.task_farewell = True
+    if t.scope in ("portfolio", "one_case", "knowledge"):
+        _task.remember(state, t)              # the next turn's "what about ...?" refers to THIS task
+        from app.agents.applicant.copilot.capabilities import workspace as _tws
+
+        _tws._save(state)
+    if rewritten:
+        request.state.copilot_message = rewritten
+        return rewritten
+    return message
+
+
+def _current_party_turn(message: str, claims: dict[str, Any], payload: Any) -> str | None:
+    """
+    The message with "this borrower" read as "this case" -- or None. All must hold: the message points at ONE current
+    party (this / my / our + the noun, request_policy.current_party_neutral), that neutral text passes the full input
+    guardrail on its own, and a case is open that the caller is authorized for NOW (the workspace's open case, else
+    the request's case id -- each re-authorized; a case id the caller does not hold is no context).
+    """
+    from app.agents.applicant.copilot.capabilities import workspace as _pws
+    from app.security import access as _paccess
+    from app.security import guardrails as _pguard
+    from app.security import request_policy as _ppolicy
+
+    neutral = _ppolicy.current_party_neutral(message)
+    if neutral is None or not _pguard.check_input(
+            neutral, allowed_ids=(payload.case_id, payload.applicant_id)).allowed:
+        return None
+    workspace_id = (payload.context or {}).get("workspace_id") if isinstance(payload.context, dict) else None
+    if _pws.enabled() and _pws.active_case(claims, workspace_id) is not None:
+        return neutral
+    if payload.case_id:
+        try:
+            _pws.authorize(claims, payload.case_id)
+        except _paccess.AccessDenied:
+            return None
+        return neutral
+    return None
+
+
+def _names_own_case(message: str, claims: dict[str, Any]) -> bool:
+    """A name in the message ("tell me about Rohan Mehta") that is one of the caller's OWN applicants: an LOS question,
+    never a general one. Only the caller's own case names are compared (no case data is read); a message with no
+    capitalised word after its first is not looked up at all."""
+    if not re.search(r"\s[A-Z][a-z]+", str(message or "")):
+        return False
+    try:
+        from app.agents.applicant.copilot.capabilities import workspace as _nws
+
+        picked = _nws._by_name(message, _nws.my_cases(claims))
+        return bool(getattr(picked, "application", None) or getattr(picked, "candidates", None))
+    except Exception:  # noqa: BLE001 - unsure: not a general question
+        return True
+
+
+def _farewell_reply(request_id: str, payload: Any) -> dict[str, Any]:
+    """The goodbye, from nothing: no case lookup, no tool, no record read (conversation.py's own reply)."""
+    from app.agents.applicant import conversation as _conv
+    from app.agents.applicant.copilot.capabilities import workspace as _fws
+
+    language = payload.response_language or "en"
+    text, _ = _conv.reply(_conv.GOODBYE, language if _conv.has_reply(_conv.GOODBYE, language) else "en")
+    return _fws._base(request_id, _conv.GOODBYE, text, query_type="CONVERSATION", category="CONVERSATION",
+                      response_source="CONVERSATION", tools_invoked=[])
+
+
+def _task_with_meaning(request: Request, message: str, decision: Any, claims: dict[str, Any], payload: Any) -> None:
+    """The task completed with the semantic reading (when the early signals left it unresolved); remembered."""
+    from app.agents.applicant.copilot.semantics import task as _task
+
+    if not _task.enabled():
+        return
+    early = getattr(request.state, "task", None)
+    if early is not None and early.scope != "unresolved":
+        return
+    try:
+        state, args = _task_args(claims, payload)
+        t = _task.interpret(message, decision, **args)
+        request.state.task = t
+        _task.remember(state, t)
+        from app.agents.applicant.copilot.capabilities import workspace as _tws
+
+        _tws._save(state)
+    except Exception:  # noqa: BLE001 - diagnostics / follow-up aid only
+        logger.warning("task: completion failed", exc_info=True)
 
 
 def _no_case_turn(claims: dict[str, Any], request_id: str, payload: Any, message: str) -> Any:
@@ -1443,6 +2828,19 @@ def move_case_stage(confirmed: dict[str, Any], request_id: str) -> dict[str, Any
         except Exception:  # noqa: BLE001 - unreadable: the outcome stays unknown, never guessed
             return None
 
+    # THE GATE AGAIN, AT THE MOVE (Phase 4 audit, 2026-10-13): the transition service re-checks it only while
+    # LOS_STAGE_GATE_IN_SERVICE is on; a case that stopped passing between the proposal and the Confirm (up to the
+    # draft TTL) is never moved, whatever that flag says. Unreadable gate = no move (fail closed).
+    try:
+        _gate_now = _mv_flow.gate(case_id)
+    except Exception as exc:  # noqa: BLE001
+        _gate_now = {"status": "GATE_UNAVAILABLE", "blockers": [], "error": type(exc).__name__}
+    if str(_gate_now.get("status") or "") != "PASS":
+        _why = ", ".join(str(c.get("label")) for c in _gate_now.get("blockers") or [] if c.get("label")) \
+            or str(_gate_now.get("status") or "gate not passed")
+        audit.record(request_id=request_id, subject=actor, applicant_id=None, case_id=case_id, intent="STAGE_MOVE",
+                     tools=["los.stage"], write=True, status="REFUSED", detail=f"gate {_gate_now.get('status')}")
+        return {**reply, "intent": "STAGE_MOVE_REFUSED", "answer": _mv_flow.move_failed_text(case_id, _why, lang)}
     try:
         stage_lifecycle.transition(case_id, there, reason=f"{here} gate passed; confirmed in chat by {actor}",
                                    actor=actor, source="OPERATOR", expected_stage=here,
@@ -1478,6 +2876,7 @@ def move_case_stage(confirmed: dict[str, Any], request_id: str) -> dict[str, Any
 def _answered_before(claims: dict[str, Any], context: dict[str, Any] | None) -> bool:
     """Whether this chat's conversation state holds a previous ANSWER (its intent) a bare word can follow up on."""
     from app.agents.applicant.copilot.conversation import state as _conv
+    from app.security.auth import get_subject     # was missing: the NameError was swallowed -> always False
 
     if isinstance(context, dict) and context.get("last_intent"):
         return True                     # the previous reply's own context names what it answered (echoed back)
@@ -1500,7 +2899,17 @@ def _attach_next_step_upload(reply: dict[str, Any]) -> None:
     from app.agents.applicant.copilot.capabilities import product_flow as _pu_flow
 
     intent = str(reply.get("intent") or "")
-    every = {str(i) for i in (_pu_flow.cfg().get("link_policy") or {}).get("pending_uploads_on") or []}
+    _policy = _pu_flow.cfg().get("link_policy") or {}
+    every = {str(i) for i in _policy.get("pending_uploads_on") or []}
+    # ANY CASE ANSWER THAT SAYS SOMETHING IS PENDING / TO UPLOAD (owner, 2026-10-14: "kuch bhi pending hai ya docs, toh
+    # neeche upload aana" -- the KYC answer said "upload the documents" with no button): the case's own pending /
+    # re-upload documents as Upload buttons. Never on a reply that asks back, refuses or is small talk.
+    cues = [str(w).lower() for w in _policy.get("upload_cue_words") or []]
+    said_low = str(reply.get("answer") or "").lower()
+    quiet = {str(i) for i in _policy.get("no_upload_buttons_on") or []}
+    if (intent not in every and intent != "NEXT_ACTION" and intent not in quiet and cues
+            and any(re.search(rf"\b{re.escape(c)}", said_low) for c in cues)):
+        every = every | {intent}
     if intent in every and reply.get("case_id") and not reply.get("document_actions"):
         # after an upload (config link_policy.pending_uploads_on): what is STILL pending / needs a re-upload, each as
         # its Upload button -- the officer goes straight on to the next document
@@ -1514,7 +2923,12 @@ def _attach_next_step_upload(reply: dict[str, Any]) -> None:
             reply["document_actions"] = {"reupload": list(view.get("reupload") or []),
                                          "pending": list(view.get("pending") or [])}
         return
-    if intent != "NEXT_ACTION" or reply.get("document_actions") or not reply.get("case_id"):
+    # "pan" / "signature uploaded?" -> "No PAN document has been uploaded": the status AND its Upload button together
+    # (owner, 2026-10-14; config link_policy.named_document_upload_on) -- only for a document the case's own document
+    # actions list as pending / to re-upload, so a verified document never gets one
+    named = {"NEXT_ACTION"} | {str(i) for i in (_pu_flow.cfg().get("link_policy") or {}).get(
+        "named_document_upload_on") or []}
+    if intent not in named or reply.get("document_actions") or not reply.get("case_id"):
         return
     try:
         from app.agents.applicant.copilot.answering import document_actions as _next_da
@@ -1544,11 +2958,31 @@ def _published_reply(request: Request, reply: Any) -> Any:
 
     if not _contract.enabled() or not isinstance(reply, dict):
         return reply
+    if not (reply.get("simple") or getattr(request.state, "simple_answered", False)):
+        # another layer answered: the simple pipeline's "why?" / "which one first" no longer follow its last answer
+        from app.agents.applicant.copilot.simple import pipeline as _sp_forget
+
+        _sp_forget.forget(_agent_chat_key(request))
     _attach_next_step_upload(reply)
     key = getattr(request.state, "chat_key", None)
     if key and isinstance(reply.get("context"), dict):
         _contract.remember(key[0], key[1], reply["context"])
+    reply.setdefault("_question", str(getattr(request.state, "copilot_message", "") or ""))
+    # EVERY REPLY CHECKED AGAINST THE CASE'S FACTS (2026-11-06): whichever layer wrote it, a wrong stage / pending count
+    # / loan amount / readiness claim about this case is corrected here, once, from facts/case_facts.py
+    from app.agents.applicant.copilot.answering import fact_check as _fact_check
+
+    if _fact_check.enabled():
+        try:
+            _fact_check.check_reply(reply, reply.get("case_id") or getattr(request.state, "fact_case_id", None))
+        except Exception:  # noqa: BLE001 - a checker failure never blocks the reply
+            logger.info("fact_check failed; reply published unchecked", exc_info=True)
     published = _contract.publish(reply, chat_key=key)
+    if getattr(request.state, "with_sources", False) and isinstance(published, dict):
+        # OPT-IN (contract 1.1): the handbook sources retrieval cited for this answer; none -> the key is left out
+        _cited_sources = _contract.sources(reply)
+        if _cited_sources:
+            published["sources"] = _cited_sources
     from app.observability import turn_diagnostics as _td
 
     if _td.enabled() and isinstance(published, dict):
@@ -1713,6 +3147,8 @@ async def _copilot_json(
         payload = CopilotRequest.model_validate({**payload.model_dump(exclude={"action_link"}), **mapped})
     _subject_key = str(_chat_subject(claims) or "anonymous")
     request.state.chat_key = (_subject_key, payload.chat_id)
+    request.state.fact_case_id = payload.case_id
+    request.state.with_sources = bool(payload.with_sources)
     if _contract.enabled():
         from app.agents.applicant.copilot.answering import realtime as _realtime
 
@@ -1759,6 +3195,16 @@ async def _copilot_json(
         message = _ACTION_PHRASE[action]
     request.state.copilot_message = message if action is FosAction.CUSTOM_QUERY else ""   # post-steps read it
     request.state.copilot_typed = request.state.copilot_message      # as TYPED, before any meaning rewrite
+    if action is FosAction.CUSTOM_QUERY and (payload.case_id or payload.applicant_id):
+        # "what documents can he give for THE FIRST ONE" right after a list of documents: that document, by its place
+        # in the list the previous reply showed (followup.ordinal_document) -- every layer below reads the document's
+        # name; a model rewrite had made it "for it" (2026-10-23)
+        from app.agents.applicant.copilot.conversation import followup as _ord_followup
+
+        _ord_doc = _ord_followup.ordinal_document(message, _last_turn(request, payload).get("last_documents"))
+        if _ord_doc:
+            message = _ord_doc
+            request.state.copilot_message = message
 
     # THE ABUSE RULE, FIRST (MASTER SPEC sections 16 / 19; capabilities/abuse_guard.py): a message with foul
     # language is never answered in any part -- no case read, no tool, no model, no pending intent stored
@@ -1799,15 +3245,33 @@ async def _copilot_json(
         verdict = _early_guard.check_input(message, allowed_ids=(payload.case_id, payload.applicant_id))
         others = _scope_list.names_other_people(message)
         if (not verdict.allowed and verdict.category is _early_guard.Category.BULK_DATA and not others
-                and not _early_guard.names_protected_field(message)):
+                and not _early_guard.names_protected_field(message)
+                # only a request for the CASE LIST is the caller's own list (config guardrails.yaml own_list_nouns /
+                # bulk_export_words); an encoded one, an export or "all customers" stays refused before any read
+                and _early_guard.own_list_request(message, verdict.rule)):
             # "saare cases" / "list all case": the caller's OWN list (section 2) -- scoped by the grants
             verdict = _early_guard.Verdict(True)
         elif (not verdict.allowed and verdict.category is _early_guard.Category.CROSS_CUSTOMER_DATA and not others
+              # a switch names no identity field: "the mobile number of the other applicant in my branch" is
+              # another person's data, not a case switch (2026-11-06 live eval: it listed the officer's cases)
+              and not _early_guard.names_protected_field(message)
               and _switches_case(message)):
             # an OFFICER's "doosre applicant ka status" / "pehle wale applicant par chalo" is ANOTHER OF THEIR OWN
             # cases: the workspace's switch / back (the "which case?" pick lists only the caller's own cases, and
             # every case read is authorised per case). A customer never reaches this route.
             verdict = _early_guard.Verdict(True)
+        elif (not verdict.allowed and verdict.category is _early_guard.Category.CROSS_CUSTOMER_DATA
+              and verdict.rule == "cross_0" and not others):
+            # "what should I do NEXT with THIS borrower" (rule cross_0 reads "next ... borrower" as another person):
+            # the open case's own party -- ONLY with a case the caller is authorized for open now, and only when the
+            # message read with "this case" in place of "this borrower" passes the WHOLE input check again. That
+            # neutral text is what every later layer sees, so the agent's own guardrail and every per-case
+            # authorization still run on it; "next customer's PAN" / "the last borrower" stay blocked
+            _neutral = _current_party_turn(message, claims, payload)
+            if _neutral is not None:
+                verdict = _early_guard.Verdict(True)
+                message = _neutral
+                request.state.copilot_message = message
         elif verdict.allowed and others:
             # "show cases of other officers": never answered with anyone's list (section 17.2)
             verdict = _early_guard.Verdict(False, _early_guard.Category.BULK_DATA, "other_people")
@@ -1832,6 +3296,91 @@ async def _copilot_json(
                     "errors": [{"code": "REQUEST_NOT_ALLOWED",
                                 "message": _early_guard.refusal(verdict.category, verdict.rule)}]}
 
+    if action is FosAction.CUSTOM_QUERY and message:
+        # TYPOS / SMS SPELLING (owner, 2026-10-14; normalize.correct_typos): "pndng docs" -> "pending docs",
+        # "signatre uploded" -> "signature uploaded". AFTER the input guardrail (it judged the words typed); only
+        # misspelt words change, never the language. The typed message is kept for the history and the turn log.
+        from app.agents.applicant import normalize as _entry_normalize
+
+        request.state.typed_message = message
+        _fixed = _entry_normalize.correct_typos(message)
+        if _fixed.changed:
+            message = _fixed.text
+            request.state.copilot_message = message
+            request.state.typo_changes = list(_fixed.changes)
+        # what the officer ASKED, typo-fixed but never rewritten: the answer's shape (yes / no, "once done, can it",
+        # why, how many) is read from these words -- a follow-up rewrite to "Is this case ready for CPA?" turned
+        # "ye sab upload karne ke baad cpa ja sakta hai?" into a plain yes / no (2026-11-06 live eval)
+        request.state.asked_message = message
+        # STRONG ROUTING (owner 2026-10-25; simple_chat.yaml front / clear): a message the simple pipeline understands
+        # or the meaning reader is sure of never waits on the Qwen follow-up reader / agent -- the deterministic layers
+        # below answer it (the edit / case switch / list paging layers keep their turn first, then the simple pipeline)
+        # DETERMINISTIC FIRST (2026-11-02): the handbook's own question and portfolio analytics are answered from the
+        # approved source / the store BEFORE the Qwen follow-up reader -- with the model up it answered "What file
+        # types can I upload?" with the product checklist (AGENT_ANSWER), and the polish model reworded an analytics
+        # reply into a claim ("No cases were rejected")
+        from app.agents.applicant.copilot.capabilities import analytics as _analytics
+        from app.agents.applicant.copilot.capabilities import general as _det_general
+
+        # THE HANDBOOK'S OWN QUESTION (golden U2): "Can I upload several documents at once?" is a faq.md heading
+        _heading = await _det_general.heading_answer(message, request_id, payload.case_id)
+        if _heading is not None:
+            _det_general.moved_on(claims, payload.context)
+            _turn_layer(request, "handbook_heading")
+            return _heading
+        # ANALYTICS (capabilities/analytics.py): a period / grouping / total / average / comparison over the officer's
+        # own cases, or a follow-up of the last one ("compare with September") -- computed in code from the store,
+        # read from the officer's own words (the task layer below may rewrite them)
+        # AGENT INSIGHTS (2026-11-04; capabilities/agent_insights.py): what the AGENTS found -- one case across every
+        # agent, one agent on a case, credit readiness, or a count / list over the officer's own cases ("how many cases
+        # are high fraud risk?"). Read in code, each agent's latest result from its own table, a template reply whose
+        # every number is checked against those facts: no model call, so as accurate on a CPU laptop as anywhere.
+        import asyncio as _ai_asyncio
+
+        from app.agents.applicant.copilot.capabilities import agent_insights as _agent_insights
+
+        _ai_state = _det_general._state(claims, payload.context)
+        _ai_conv = (payload.context or {}).get("conversation_id") if isinstance(payload.context, dict) else None
+        _insight = await _ai_asyncio.to_thread(_agent_insights.answer, message, claims, request_id, state=_ai_state,
+                                           open_case=payload.case_id, conversation_id=_ai_conv)
+        if _insight is not None:
+            _analytics.forget(_ai_state)
+            _det_general.moved_on(claims, payload.context)
+            _turn_layer(request, "agent_insights")
+            return _insight
+        _analytic = _analytics.answer(message, claims, request_id, state=_det_general._state(claims, payload.context),
+                                      strong_only=True,
+                                      conversation_id=(payload.context or {}).get("conversation_id")
+                                      if isinstance(payload.context, dict) else None)
+        if _analytic is not None:
+            _det_general.moved_on(claims, payload.context)
+            _turn_layer(request, "case_analytics")
+            return _analytic
+        # NATURAL CONVERSATION FIRST (owner 2026-11-02; capabilities/natural_chat.py): a social turn ("hows you ?") and
+        # an ordinary question naming nothing of the LOS ("why is the sky blue?") -- or a short follow-up right after
+        # such an answer ("give me one example of it") -- go to Qwen HERE, with the turn's whole model time. Later,
+        # the follow-up reader / agent spent it first and the reply fell back to the fixed greeting + menu.
+        _nat = await _natural_turn(request, message, claims, payload, request_id)
+        if _nat is not None:
+            return _nat
+        request.state.clear_reading = await _clear_reading(request, message, claims, payload)
+        # THE PLANNER (2026-11-03; copilot/planner): a message the deterministic readers are NOT sure of gets ONE
+        # model call (intent + a registered read-only tool + validated arguments) in place of the follow-up reader /
+        # agent / chooser chain (up to 6 calls). Clear messages never wait on it. Off -> the follow-up reader as before.
+        from app.agents.applicant.copilot.planner import plan as _pl_plan
+
+        if not request.state.clear_reading and _pl_plan.enabled():
+            _planned = await _planner_turn(request, message, claims, payload, request_id)
+            if _planned is not None:
+                return _planned
+            _followup = None
+        else:
+            _followup = None if request.state.clear_reading else \
+                await _context_followup_turn(request, message, claims, payload, request_id)
+        if _followup is not None:
+            _turn_layer(request, "qwen_followup")
+            return _followup
+
     # CASE INSIGHTS (2026-10-11, audit P2-C): "how many of my cases have a KYC problem?", "which case is closest to
     # CPA?", "compare CASE-A and CASE-B" -- counted / ranked / compared deterministically over the caller's OWN cases
     # (capabilities/case_insights.py), before a fragment layer can read them as "which case is this about?"
@@ -1840,6 +3389,46 @@ async def _copilot_json(
 
         from app.agents.applicant.copilot.capabilities import general as _ins_general
 
+        # THE STRUCTURED TASK (Phase 2; semantics/task.py): scope / operation / filter / reference of this turn in its
+        # conversation. It re-asks only what the words alone mis-route; the deterministic handlers still answer
+        message = _task_turn(request, message, claims, payload)
+        if getattr(request.state, "task_farewell", False):
+            audit.record(request_id=request_id, subject=_subject_key, applicant_id=None, case_id=None,
+                         intent="GOODBYE", tools=[], status="CONVERSATION")
+            _turn_layer(request, "conversation")
+            return _farewell_reply(request_id, payload)
+        if getattr(request.state, "task_unnamed_action", False) and not _misunderstood(message):
+            from app.agents.applicant.copilot.capabilities import control as _ua_control
+
+            from app.agents.applicant.copilot.answering import language_lock as _ua_lock
+
+            # A CASE OPEN: the question back is about THAT case ("sort this out" got "top 5 cases / create a new
+            # case", 2026-10-13); no case open: the general which-action choice
+            _ua_direct = _ins_general.direct(message, claims, payload.context, request_id,
+                                             _ua_lock.current() or "en", case_in_scope=payload.case_id)
+            _turn_layer(request, "clarify_action(task)")
+            if _ua_direct is not None:
+                return _ua_direct
+            return _ua_control.ask_which_action(_ins_general._state(claims, payload.context), request_id)
+        # A GENERAL QUESTION (Phase 4 directive 2C): it names nothing of the LOS -> answered as an ordinary question
+        # (handbook first, then the local model with ONLY the question), before any case is read; the open case is
+        # kept and re-authorized when the officer comes back to it. A pending question / pick is answered first.
+        # (OFF by default, owner 2026-10-13: only LOS content -- with it off the LOS pipeline answers as before; the
+        # 2026-10-13 "not_los" refusal hook was REMOVED: it refused LOS questions its vocabulary missed, "What does
+        # REVIEW mean?")
+        if (_ins_general.general_chat_available() and _ins_general.is_general_question(message)
+                and not _ins_general._pending(_ins_general._state(claims, payload.context), claims, payload.context)
+                and not _names_own_case(message, claims)):
+            _gc_reply = await _ins_general.general_chat(message, request_id, payload.response_language or "en",
+                                                        chat_ref=_agent_chat_ref(request))
+            if _gc_reply is not None:
+                audit.record(request_id=request_id, subject=_subject_key, applicant_id=None, case_id=None,
+                             intent=str(_gc_reply.get("intent") or "GENERAL_CHAT"), tools=[], status="CONVERSATION")
+                _gc_task = getattr(request.state, "task", None)
+                if _gc_task is not None:
+                    _gc_task.scope, _gc_task.operation, _gc_task.decided_by = "general", "explain", "general_chat"
+                _turn_layer(request, "general_chat")
+                return _gc_reply
         # the ids of the list this chat was last shown: "compare the first two" compares THOSE rows
         _ins_listed = list(getattr(_ins_general._state(claims, payload.context), "listed_case_ids", None) or [])
         _insight = _insights.answer(message, claims, request_id, payload.response_language or "en",
@@ -1890,7 +3479,10 @@ async def _copilot_json(
 
     if _case_form.enabled() and action in (FosAction.CUSTOM_QUERY, FosAction.NEW_CASE):
         async def _create_from_chat(body: dict[str, Any]) -> Any:
-            return await create_case(CreateCaseRequest.model_validate(body), claims, channel="chat")
+            body = dict(body)
+            key = body.pop("_idempotency_key", None)          # the draft's / sheet row's key (case_form)
+            return await create_case(CreateCaseRequest.model_validate(body), claims, channel="chat",
+                                     idempotency_key=key)
 
         from app.agents.applicant.copilot.answering import language_lock as _form_lock
         from app.agents.applicant.copilot.capabilities import faq as _form_faq
@@ -1919,6 +3511,135 @@ async def _copilot_json(
     request.state.copilot_context = payload.context
     meaning_kind = None
     _knowledge_hint = None
+    if action is FosAction.CUSTOM_QUERY and message:
+        # QWEN CALLS THE TOOLS (owner, 2026-10-13; capabilities/qwen_agent.py): every question about documents, the
+        # open case or the process -- Qwen chooses the tools (or asks one follow-up), the tools answer, Qwen words one
+        # opening line. Commands, replies to a waiting question, greetings / thanks and case-list questions keep their
+        # own fast paths; anything the agent cannot answer goes on to the pipeline below.
+        # ONLY A DOCUMENT NAME (owner, 2026-10-13; capabilities/bare_document.py): a case open -> that document's
+        # status question; no case open -> one follow-up question, never a guessed case
+        from app.agents.applicant.copilot.answering import language_lock as _bare_lock
+        from app.agents.applicant.copilot.capabilities import bare_document as _bare
+        from app.agents.applicant.copilot.capabilities import general as _bare_general
+
+        # THE GENERAL LAYER'S DIRECT ANSWERS (confusion / "can you handle it" on an open case, "is X accepted?"):
+        # no model, no wait -- before the agent and the meaning step (both may ask Qwen)
+        _open_case = _bare_general._state(claims, payload.context).active_case_id or payload.case_id
+        if _open_case and _co_followup(message) and not re.search(r"(?i)^\s*(and|what about|how about)\b", message):
+            # "aur co-applicant ka?" / "co-applicant ka?" -> the English follow-up the conversation layer already
+            # reads correctly (it clarifies BEFORE any read, and says "no co-applicant" on a case without one); this
+            # step itself reads nothing (conversation eval o1, variants: "read before clarifying", 2026-10-14)
+            message = "and the co-applicant?"
+            request.state.copilot_message = message
+        _need = _coapp_need_reply(message, _open_case, request, payload, request_id) \
+            or _only_applicant_reply(message, _open_case, request, payload, request_id, claims) \
+            or _several_documents_reply(message, _open_case, request_id, claims)
+        if _need is not None:
+            _turn_layer(request, "general")
+            return _need
+        if _open_case and _bare_general._has(message, "after_that") and not _bare_general._has(message, "after_that_not") \
+                and str(_last_turn(request, payload).get("last_intent") or "").upper() in _NEXT_STEP_INTENTS:
+            # "ok after that?" RIGHT AFTER A NEXT-STEP / PENDING ANSWER (2026-10-14): once that is done, the case moves
+            # on -- the stage after the case's current one (config stage_sequence), never the same step again
+            from app.agents.applicant.copilot.capabilities import workspace as _at_workspace
+
+            _stage = str(_at_workspace._stage(_open_case) or "").upper()
+            _codes = {str(s.get("code")).upper() for s in _bare_general.cfg().get("stage_sequence") or []
+                      if isinstance(s, dict)}
+            if _stage in _codes:
+                message = f"what comes after {_stage.lower()}?"
+                request.state.copilot_message = message
+        elif _bare_general._has(message, "after_that") and not _bare_general._has(message, "after_that_not") \
+                and str(_last_turn(request, payload).get("last_intent") or "").upper() in _STAGE_ANSWER_INTENTS \
+                and str(_last_turn(request, payload).get("last_stage") or "").upper():
+            # "who reviews it after that?" RIGHT AFTER A PROCESS / HOW-TO ANSWER ABOUT A STAGE ("how do I send a case
+            # from FOS to CPA?" -> STAGE_PROCESS, last_stage FOS; 2026-10-15): the stage after the one it was about
+            _prev = str(_last_turn(request, payload).get("last_stage") or "").upper()
+            _codes = {str(s.get("code")).upper() for s in _bare_general.cfg().get("stage_sequence") or []
+                      if isinstance(s, dict)}
+            if _prev in _codes:
+                message = f"what comes after {_prev.lower()}?"
+                request.state.copilot_message = message
+        _direct = _bare_general.direct(message, claims, payload.context, request_id, _bare_lock.current() or "en",
+                                       case_in_scope=payload.case_id)
+        if _direct is not None:
+            _bare_general.moved_on(claims, payload.context)
+            _turn_layer(request, "general")
+            return _direct
+        if not (_bare_general._state(claims, payload.context).active_case_id or payload.case_id):
+            # NO CASE OPEN, "what is X" (2026-10-13 live: "what is kyc check" was read as one case's KYC status and
+            # asked "which case?" over 52 cases): the glossary definition first -- a known term or an acronym only
+            _defined = await _bare_general._definition(message, request_id, _bare_lock.current() or "en", None)
+            if _defined is not None:
+                _bare_general.moved_on(claims, payload.context)
+                _turn_layer(request, "general")
+                return _defined
+        elif _bare_general.glossary_acronym_asked(message):
+            # A CASE OPEN, "what is cpa" / "what is foir" (2026-10-24 live: Qwen asked back "Certificate of Payment
+            # Approval?"): a GLOSSARY ACRONYM asked bare is its definition -- no model; "what is the tenure" and other
+            # recorded fields never come here (not an acronym the glossary defines)
+            _defined = await _bare_general._definition(message, request_id, _bare_lock.current() or "en",
+                                                       _bare_general._state(claims, payload.context).active_case_id
+                                                       or payload.case_id)
+            if _defined is not None and _defined.get("intent") == "DEFINITION":
+                _bare_general.moved_on(claims, payload.context)   # "tell me more" next is about the case again
+                _turn_layer(request, "general")
+                return _defined
+        _elig = _bare_general.eligibility_question(message) if (
+            _bare_general._state(claims, payload.context).active_case_id or payload.case_id) else None
+        if _elig:
+            # (no case open: the general layer's own eligibility-policy redirect answers it, as before)
+            # ELIGIBILITY IS NOT THE CHAT'S (owner, 2026-10-13): any eligibility wording is the standard question, so
+            # the engine's redirect line answers it (in the officer's language) -- never the credit redirect
+            message = _elig
+            request.state.copilot_message = message
+        _contents = _bare.contents(message) if (_bare_general._state(claims, payload.context).active_case_id
+                                                 or payload.case_id) else None
+        if not _contents and (_bare_general._state(claims, payload.context).active_case_id or payload.case_id):
+            # ONE RECORDED FIELD whose name is also a glossary term ("what is the tenure", config
+            # texts.field_question_fields): asked as the field's own question, which the profile answers -- the
+            # glossary paths otherwise read "what is <term>" as a definition (2026-10-13)
+            from app.agents.applicant.copilot.answering import profile as _fq_profile
+
+            _texts = _bare_general.cfg().get("texts") or {}
+            _field = str(getattr(_fq_profile.detect(message), "field", "") or "")
+            _fq = str((_texts.get("field_question") or {}).get("en") or "")
+            from app.agents.applicant.copilot.routing import subjects as _fq_subjects
+
+            if _field and _fq and _field in set(_texts.get("field_question_fields") or []) \
+                    and re.match(r"(?i)^\s*(what|whats|what's)\b", message) \
+                    and _fq_subjects.mentioned(message) is None:
+                # never for a NAMED party ("the co-applicant's employment type"): the rewrite would drop whose
+                # only the plain "what is the tenure" form (the glossary clash); "no I mean the tenure" keeps its
+                # correction for the conversation state
+                message = _fq.format(field=_field.replace("_months", "").replace("_", " "))
+                request.state.copilot_message = message
+        if _contents:
+            message = _contents                      # "what does the salary slip say" -> its recorded fields
+            request.state.copilot_message = message
+            request.state.skip_meaning = True        # the classic reader quotes DOCUMENT_DETAILS (meaning read "upload")
+        _bare_code = _bare.document(message)
+        if _bare_code and _after_clarification(request, payload):
+            _bare_code = None                        # "the address proof" ANSWERS "which one do you mean?"
+        if _bare_code and _after_knowledge(request, payload):
+            # "and what about passport?" right after a KNOWLEDGE answer (which documents are accepted): that topic
+            # continued -- the follow-up logic reads it -- never the passport's status on the case
+            _bare_code = None
+        if _bare_code:
+            if _bare_general._state(claims, payload.context).active_case_id or payload.case_id:
+                message = _bare.question(_bare_code)
+                request.state.copilot_message = message
+            else:
+                _turn_layer(request, "general")
+                return _bare.no_case_reply(_bare_code, request_id, _bare_lock.current() or "en")
+        _simple_reply = await _simple_turn(request, message, claims, payload, request_id)
+        if _simple_reply is not None:
+            _turn_layer(request, "simple")
+            return _simple_reply
+        _agent_reply = None if getattr(request.state, "clear_reading", False) else             await _qwen_agent_turn(request, message, claims, payload, request_id)
+        if _agent_reply is not None:
+            _turn_layer(request, "qwen_agent")
+            return _agent_reply
     if action is FosAction.CUSTOM_QUERY:
         # UNDERSTANDING BY MEANING (Smart Bot plan sections 2-5; semantics/meaning.py): commands and replies to a
         # pending question stay with the rules above / the workspace; every other message is understood by MEANING --
@@ -1934,7 +3655,13 @@ async def _copilot_json(
             names_party = bool(getattr(payload, "co_applicant_id", None) or getattr(payload, "party_id", None))
             # a request that NAMES a party (co_applicant_id / party_id) goes through the party authorization first:
             # never answered by a follow-up question before that check can refuse it
-            if (not names_party and _vague.is_vague(message)
+            # A SETTLED TASK is never asked back as vague (Phase 2): "next two" pages the list on screen, "the third
+            # one" is that row -- a deterministic reading of THIS conversation, not a fragment
+            _t_early = getattr(request.state, "task", None)
+            # only a PAGE of the list on screen or a ROW of it -- a bare "top 2" still gets its "which order?" question
+            _settled = _t_early is not None and (_t_early.operation in ("page", "farewell", "greet")
+                                                 or _t_early.references.get("kind") == "ordinal")
+            if (not names_party and not _settled and _vague.is_vague(message)
                     and not _vague.waits_for(message, _vstate, claims, payload.context)
                     and not _vague.names_a_case(message, claims)):
                 _open = bool(_vstate.active_case_id or payload.case_id)
@@ -1945,7 +3672,16 @@ async def _copilot_json(
                     message = read                     # the one reading the conversation supports: answered now
                     request.state.copilot_message = message
                 elif not _answered_before(claims, payload.context):
-                    asked = _vague.ask(message, _vstate, request_id, _open)
+                    # a SHORT GREETING / THANKS the phrase lists do not hold ("namaste ji", "helo there"): the
+                    # semantic reading answers it as small talk -- never "what do you mean?" options (Phase 2)
+                    from app.agents.applicant.copilot.semantics import task as _vq_task
+
+                    _early = None
+                    if _vq_task.enabled():
+                        _early = await _understood(message, claims, payload, request_id)
+                        request.state.early_decision = (message, _early)
+                    _social = _early is not None and _early.kind in ("small_talk", "ack")                         and _vq_task.plain_social(message)
+                    asked = None if _social else _vague.ask(message, _vstate, request_id, _open)
                     if asked is not None:
                         _turn_layer(request, "vague")
                         return asked
@@ -1958,7 +3694,18 @@ async def _copilot_json(
         if _more:
             message = _more
             request.state.copilot_message = message
-        decision = await _understood(message, claims, payload, request_id)
+        _early_seen = getattr(request.state, "early_decision", None)
+        _case_now = bool(payload.case_id or _vg._state(claims, payload.context).active_case_id)
+        if getattr(request.state, "skip_meaning", False) or (_case_now and _ag_profile_field(message)):
+            # ONE RECORDED FIELD ("what is the tenure") or a document's CONTENTS on an open case: the classic reader
+            # answers it exactly (APPLICANT_PROFILE / DOCUMENT_DETAILS) -- the meaning read them as a glossary term /
+            # an upload (2026-10-13)
+            decision = None
+        elif _early_seen and _early_seen[0] == message:
+            decision = _early_seen[1]                  # already read above (the vague check): never embedded twice
+        else:
+            decision = await _understood(message, claims, payload, request_id)
+        request.state.meaning_intent = getattr(decision, "intent", None)     # the turn log's label for this turn
         if action is FosAction.CUSTOM_QUERY:
             # PLURAL SCOPE: "which files are still waiting on something" is about the CASES, never one case's pending
             from app.agents.applicant.copilot.capabilities import case_list as _ps_list
@@ -1967,7 +3714,35 @@ async def _copilot_json(
             # a list the case list already reads ("show top 3 pending cases": size / filter / order) keeps its own words
             if _ps_list.understand(message) is None:
                 decision = _ps_meaning.plural_scope(message, decision) or decision
+            elif decision is not None and getattr(decision, "kind", None) == "case":
+                # the CASE LIST reads it ("which of my cases are ready for cpa", 2026-10-13: rewritten to "is THIS case
+                # ready for CPA?" and asked "which case?"): one case's reading never replaces a question over the cases
+                from app.agents.applicant.copilot.semantics import task as _ps_task
+
+                if _ps_task.asks_over_cases(message):
+                    decision = None
+            # A ROLE IN THE WORKFLOW ("WHO reviews the file once it reaches CPA?"): the approved stage knowledge --
+            # never the open case's own readiness, whatever a case reading says (task.asks_role)
+            from app.agents.applicant.copilot.semantics import task as _role_task
+
+            from app.agents.applicant.copilot.semantics import intents as _role_intents
+
+            if _role_task.enabled() and _role_task.asks_role(message) \
+                    and _role_intents.looks_like_stage_process(message):
+                # A NAMED STAGE ("who handles cpa?"): that stage's guide answers (STAGE_PROCESS), not the stage list
+                decision = None
+            elif _role_task.enabled() and _role_task.asks_role(message) \
+                    and (decision is None or decision.kind == "case"):
+                # the question keeps ITS words ("who approves the loan" -> the handbook's credit-team passage); only
+                # the reading changes from the case to the workflow knowledge
+                decision = _ps_meaning.Decision(kind="process", intent="process_stages", canonical=None,
+                                                decided_by="role_question",
+                                                score=decision.score if decision is not None else 0.0)
+                _early_task = getattr(request.state, "task", None)
+                if _early_task is not None and _early_task.scope == "one_case":
+                    request.state.task = None          # re-read below with the process reading (task.interpret)
         request.state.meaning_decision = decision                 # the diagnostics' semantic reading
+        _task_with_meaning(request, message, decision, claims, payload)
         if decision is not None and decision.kind in ("control", "clarify_action"):
             # "ruko, abhi action mat lena" -> nothing pending is written; "usko process kar do" -> which action?
             from app.agents.applicant.copilot.capabilities import control as _control
@@ -1993,9 +3768,36 @@ async def _copilot_json(
             if _cp_app is not None and not getattr(_cp_app, "co_applicant_id", None):
                 from app.agents.applicant.copilot.capabilities import general as _cp_general
 
+                from app.agents.applicant.copilot.answering import language_lock as _cp_lock
+
                 return _cp_general._reply(request_id, "NO_CO_APPLICANT", _cp_general._say_text(
-                    (_cp_general.cfg().get("texts") or {}).get("no_co_applicant"), "en", case_id=_cp_case),
+                    (_cp_general.cfg().get("texts") or {}).get("no_co_applicant"), _cp_lock.current() or "en",
+                    case_id=_cp_case),
                     case_id=_cp_case, query_type="CONVERSATION")
+        if decision is not None and decision.kind == "ack" and not _task_social(message):
+            # "wats pendng here" read as "ok": a question -- as typed; "take care of this" read as "ok": a request
+            # without its action -- the next reading among the candidates when it is "which action?"
+            from app.agents.applicant.copilot.semantics import meaning as _alt_meaning
+
+            _intents = _alt_meaning.catalogue().get("intents") or {}
+            _alt = next((n for n, _ in (decision.candidates or [])[:3]
+                         if (_intents.get(n) or {}).get("kind") == "clarify_action"), None)
+            if _alt and (_vg._state(claims, payload.context).active_case_id or payload.case_id):
+                from app.agents.applicant.copilot.capabilities import control as _alt_control
+
+                _turn_layer(request, "clarify_action(meaning)")
+                _t_act = getattr(request.state, "task", None)
+                if _t_act is not None:              # the task the turn acted on: a request whose action is unsaid
+                    _t_act.scope, _t_act.operation, _t_act.intent = "none", "clarify", _alt
+                    _t_act.ambiguities = ["which_action"]
+                return _alt_control.ask_which_action(_vg._state(claims, payload.context), request_id)
+            decision = None
+        if decision is not None and decision.kind == "ack" and decision.canonical:
+            # AN ACKNOWLEDGEMENT / THANKS read by meaning ("great, thanks a lot", "theek hai samajh gaya"): the general
+            # layer's own THANKS / ACKNOWLEDGEMENT answer (its canonical "thanks" / "ok") -- never a hello, no case read
+            message = decision.canonical
+            request.state.copilot_message = message
+            decision = None
         if decision is not None and decision.kind == "small_talk":
             # MEANING READ A GREETING the phrase list does not hold ("hey there, good evening"; audit root cause #2):
             # the same greeting reply as a typed "hi" -- no case data. Thanks / ok / no / help keep the general layer's
@@ -2005,9 +3807,14 @@ async def _copilot_json(
                     or _vg._pending(_st_state, claims, payload.context)):
                 from app.agents.applicant.copilot.capabilities import workspace as _st_ws
 
+                from app.agents.applicant.copilot.answering import language_lock as _st_lock
+                from app.agents.applicant.copilot.capabilities import natural_chat as _st_nat
+
                 _vg.moved_on(claims, payload.context)
                 _turn_layer(request, "greeting(meaning)")
-                return _st_ws.greeting_reply(claims, request_id, _st_state)
+                _st_natural = await _st_nat.social(message, _agent_chat_ref(request), request_id,
+                                                   _st_lock.current() or "en", payload.case_id)
+                return _st_natural or _st_ws.greeting_reply(claims, request_id, _st_state)
         if decision is not None and decision.kind == "list" and decision.canonical:
             # "kis applicant par pehle kaam karu": the case list's own priority order -- the workspace answers it
             message = decision.canonical
@@ -2033,7 +3840,14 @@ async def _copilot_json(
                 import asyncio as _kn_asyncio
 
                 _knowledge_hint = await _kn_asyncio.to_thread(_kn_meaning.nearest_example, message, decision.intent)
-            if decision.kind in ("case", "process") and decision.canonical:
+            if decision.kind == "case" and decision.intent == "case_record":
+                # ASK ANYTHING ABOUT THE CASE: the fact-checked case record answers it (snapshot_qa); not answered /
+                # no case open -> the message goes on as typed (the engine reads it as before)
+                _cr_reply = await _case_record_reply(message, claims, payload, request_id)
+                if _cr_reply is not None:
+                    _turn_layer(request, "case_record")
+                    return _cr_reply
+            elif decision.kind in ("case", "process") and decision.canonical:
                 message = decision.canonical
                 request.state.copilot_message = message
         from app.agents.applicant.copilot.answering import language_lock as _gen_lock
@@ -2048,6 +3862,20 @@ async def _copilot_json(
         general_reply = None if (_cl_table.only_asks_for_the_table(message) or _ord_pick) else await _general.answer(
             message, claims, payload.context, request_id, _gen_lock.current() or "en", case_in_scope=payload.case_id,
             meaning_kind=meaning_kind, knowledge_hint=_knowledge_hint)
+        if general_reply is None and getattr(decision, "decided_by", None) == "role_question":
+            # a ROLE question the handbook does not match as worded: the approved stage sequence (process_stages),
+            # never the open case's own data
+            _role_canonical = ((_ps_meaning.catalogue().get("intents") or {}).get("process_stages") or {}).get(
+                "canonical")
+            if _role_canonical:
+                general_reply = await _general.answer(
+                    str(_role_canonical), claims, payload.context, request_id, _gen_lock.current() or "en",
+                    case_in_scope=payload.case_id, meaning_kind="process", knowledge_hint=None)
+                if general_reply is None:
+                    # a case is open: the engine answers the stage question from the approved stage guide
+                    # (FOS_KNOWLEDGE) -- the same path as a typed "what happens after CPA"
+                    message = str(_role_canonical)
+                    request.state.copilot_message = message
         if general_reply is not None:
             if str(general_reply.get("intent") or "") not in ("THANKS", "ACKNOWLEDGEMENT"):
                 _general.moved_on(claims, payload.context)       # a new topic: an older "which one?" is stale
@@ -2186,7 +4014,8 @@ async def _copilot_json(
     from app.agents.applicant.copilot.answering import style as _style
 
     if _style.enabled() and action is FosAction.CUSTOM_QUERY:
-        term = _style.defined_term(message)
+        # a case open and ONE recorded field asked ("what is the tenure"): that case's value, never the glossary
+        term = None if (case_id and _ag_profile_field(message)) else _style.defined_term(message)
         if term:
             from app.agents.applicant import language as _language
 
@@ -2502,7 +4331,12 @@ async def _answer_action_scoped(
     # listed three things blocking it -- the pruned envelope simply had
     # no readiness or pending items in it to see.
     summary_started = time.perf_counter()
-    envelope = await _with_summary(envelope, result)
+    from app.agents.applicant.copilot.answering import contract as _sum_contract
+
+    # A TYPED CHAT QUESTION UNDER THE REPLY CONTRACT never shows `summary` ({request_id, markdown, tts} is built from
+    # the answer): the computed sentence, not a model call every turn waits on (2026-10-14: up to ~4 s per turn)
+    envelope = await _with_summary(envelope, result, model=not (action is FosAction.CUSTOM_QUERY
+                                                                 and _sum_contract.enabled()))
     # ONE STRUCTURED RECORD PER TURN (app/observability/turn.py): why this
     # answer, in codes and milliseconds -- attached, and logged as JSON.
     from app.observability import turn as _turn
@@ -2514,7 +4348,7 @@ async def _answer_action_scoped(
     if action is FosAction.CUSTOM_QUERY:
         # A typed question carries its record; a dropdown action is a screen
         # read and stays byte-identical to the facade endpoint's answer.
-        envelope["observability"] = record
+        envelope["observability"] = _turn.public(record)      # the full record goes to the log only
     _turn.emit(record)
     # THE STRUCTURED CONTRACT on EVERY door (a dropdown read and a typed question
     # alike): one shape, whichever route served it (answering/presentation.py).
@@ -3226,7 +5060,7 @@ def _reads_nothing(result: dict) -> bool:
 
 
 async def _with_summary(envelope: dict[str, Any],
-                        state: dict[str, Any] | None = None) -> dict[str, Any]:
+                        state: dict[str, Any] | None = None, *, model: bool = True) -> dict[str, Any]:
     """
     Attach the short summary, and say honestly who wrote it.
 
@@ -3247,7 +5081,7 @@ async def _with_summary(envelope: dict[str, Any],
     from app.agents.applicant import case_summary
 
     try:
-        summary, source = await case_summary.summarise(state or envelope)
+        summary, source = await case_summary.summarise(state or envelope, model=model)
     except Exception as exc:
         logger.warning("Case summary failed: %r", exc)
         return envelope
@@ -3559,11 +5393,55 @@ def _raise_from(request_id: str, envelope) -> None:
 )
 async def copilot_stream(request: Request, claims: dict[str, Any] = Depends(require_jwt)):
     """
-    The same JSON request as /fos/copilot (COPILOT_STREAMING, default off -> 404). Events: `status`
-    (at once, then every tick_seconds), then `answer` (the full /fos/copilot response + `latency`) or
-    `error` (an HTTP status + detail). One pipeline: the answer IS the /fos/copilot answer.
+    KEPT FOR EXISTING CLIENTS: the same as POST /fos/copilot with `"stream": true` (or
+    `Accept: text/event-stream`). COPILOT_STREAMING, default off -> 404.
+    """
+    return await _stream_reply(request, claims)
+
+
+class _Feedback(BaseModel):
+    """A 👍 / 👎 on an earlier answer, sent to POST /fos/copilot."""
+
+    action: str
+    reply_to: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_\-]+$",
+                          description="The `request_id` of the answer being rated.")
+    rating: str = Field(..., max_length=16, description="up | down (config turn_log.feedback_ratings)")
+    reason: str | None = Field(None, max_length=1000, description="Optional; masked and cut before it is kept.")
+    chat_id: str | None = Field(None, max_length=128)
+
+
+def _copilot_feedback(body: dict[str, Any], claims: dict[str, Any], request_id: str) -> dict[str, Any]:
+    from pydantic import ValidationError
+
+    from app.observability import turn_log as _turn_log
+    from app.security.auth import get_subject
+
+    try:
+        given = _Feedback.model_validate(body)
+    except ValidationError as exc:
+        fields = [{"field": ".".join(str(p) for p in e.get("loc") or ()), "problem": str(e.get("msg") or "")}
+                  for e in exc.errors()]
+        raise HTTPException(422, detail={"request_id": request_id, "error": "INVALID_REQUEST",
+                                         "message": "The feedback could not be read.", "fields": fields}) from None
+    rating = given.rating.strip().lower()
+    if rating not in _turn_log.ratings():
+        raise HTTPException(422, detail={"request_id": request_id, "error": "INVALID_RATING",
+                                         "message": "rating must be one of: " + ", ".join(_turn_log.ratings()) + "."})
+    recorded = _turn_log.feedback(subject=str(get_subject(claims) or "anonymous"), reply_to=given.reply_to,
+                                  rating=rating, reason=given.reason)
+    return {"request_id": request_id, "status": "RECORDED" if recorded else "NOT_RECORDED",
+            "reply_to": given.reply_to, "rating": rating}
+
+
+async def _stream_reply(request: Request, claims: dict[str, Any]):
+    """
+    The copilot answer as Server-Sent Events. Events: `status` (at once, then every tick_seconds), then `answer`
+    (the full /fos/copilot response + `latency`) or `error` (an HTTP status + detail). One pipeline: the answer
+    IS the /fos/copilot answer.
     """
     from fastapi.responses import StreamingResponse
+
+    request.state.streaming = True            # the copilot() call inside answers as JSON, never streams again
 
     from app.agents.applicant.copilot.answering import streaming as _streaming
 
@@ -3825,8 +5703,20 @@ async def case_form_update(case_id: str, body: FormUpdate, lang: str | None = No
     if result["outcome"] == "NOT_FOUND":
         raise HTTPException(404, detail={"request_id": request_id, "error": "CASE_NOT_FOUND"})
     # `changed`: the fields actually written (empty for a duplicate / no-op request) -- additive to the contract
-    return {"request_id": request_id, "case_id": case_id, "values": _form.values_of(case_id),
-            "missing": _form.missing(case_id), "changed": sorted(result["changed"])}
+    reply = {"request_id": request_id, "case_id": case_id, "values": _form.values_of(case_id),
+             "missing": _form.missing(case_id), "changed": sorted(result["changed"])}
+    # THE LOAN TERMS CHANGED: the recorded eligibility verdict is re-assessed for them (the same agent, the recorded
+    # evidence) -- never left describing a loan that no longer exists. Additive: `eligibility` only when re-assessed.
+    from app.agents.los import eligibility_refresh as _refresh
+
+    if _refresh.affects(result["changed"]):
+        from app.security.auth import get_subject as _refresh_subject
+
+        refreshed = await _refresh.refresh(case_id, actor=str(_refresh_subject(claims) or ""), request_id=request_id,
+                                           reason="form edit: " + ", ".join(sorted(result["changed"])))
+        if refreshed is not None:
+            reply["eligibility"] = refreshed
+    return reply
 
 
 @router.get("/exports", summary="A short-lived download link: one case or a filtered list, as xlsx / docx / pdf")
@@ -4030,7 +5920,7 @@ async def import_confirm(import_id: str, lang: str | None = None, claims: dict[s
     for number, values in enumerate(rows, start=1):
         try:
             made = await create_case(CreateCaseRequest.model_validate(_importer.body_for(values)), claims,
-                                     channel="import")
+                                     channel="import", idempotency_key=f"import:{import_id}:{number}")
             created.append(made.get("case_id") if isinstance(made, dict) else getattr(made, "case_id", None))
         except HTTPException as exc:
             failed.append({"row": number, "message": (exc.detail or {}).get("message")

@@ -42,8 +42,12 @@ HISTORY = "CONVERSATION_HISTORY"
 FRUSTRATION = "FRUSTRATION"
 #: "tell me a joke", "capital of France?" -- outside the application, said so.
 OFF_TOPIC = "OFF_TOPIC"
+#: "i have one more query to ask?", "ek sawal hai" -- a question announced, nothing asked yet: "go ahead". LEARNED
+#: (semantics/answer_act.py act PREFACE), not matched by words.
+PREFACE = "PREFACE"
 
-KINDS = (GREETING, THANKS, ACKNOWLEDGEMENT, GOODBYE, SMALL_TALK, IDENTITY, HELP, FRUSTRATION, OFF_TOPIC)
+KINDS = (GREETING, THANKS, ACKNOWLEDGEMENT, GOODBYE, SMALL_TALK, IDENTITY, HELP, FRUSTRATION, OFF_TOPIC,
+         PREFACE)
 
 #: A word of the application's own domain anywhere in the message makes it a
 #: business question, never frustration or off-topic chat.
@@ -89,12 +93,14 @@ _FILLER = frozenset("""there you all bot copilot assistant sir madam maam mam de
 buddy bro bhai ji sahab so very much a lot lots again once more for your the help
 good have nice day great to it is that that's thats hai he hain bahut bohot bahot aapka
 aap and too man boss guys all everything nothing else needed done bas bass
-ok okay fine cool s""".split())
+ok okay fine cool s helps helped helpful useful was really""".split())
 
 #: Short conversational shapes, by kind.
 _PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
     (kind, re.compile(pattern, re.IGNORECASE)) for kind, pattern in (
         (GREETING, r"^\s*good\s+(morning|afternoon|evening|day)\b"),
+        # the Punjabi greeting typed in Latin letters (its Gurmukhi "ਸਤਿ" is in the vocabulary above)
+        (GREETING, r"^\s*sat\s+s?h?ri\s+akaa?l\b"),
         (SMALL_TALK, r"^\s*(how\s+are\s+(you|u)|how\s+r\s+u|how('?s|\s+is)\s+(it\s+going|your\s+day)|"
                      r"what'?s\s+up|sup|how\s+do\s+you\s+do|kaise\s+ho|kaisa\s+hai|kya\s+haal|"
                      r"aap\s+kaise\s+hain?)\b"),
@@ -115,7 +121,9 @@ _PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
                r"what\s+can\s+i\s+ask(\s+you)?|madad(\s+chahiye)?|help\s+chahiye|"
                r"mujhe\s+madad\s+chahiye)\s*[?.!]*\s*$"),
         (THANKS, r"^\s*(thank\s+you|thanks\s+a\s+lot|many\s+thanks)\b"),
-        (GOODBYE, r"^\s*(see\s+you|talk\s+(to\s+you\s+)?later|take\s+care|have\s+a\s+(good|nice|great)\s+day)\b"),
+        # "take care" is a farewell; "take care OF this" asks for an action (never a goodbye)
+        (GOODBYE, r"^\s*(see\s+you|talk\s+(to\s+you\s+)?later|take\s+care(?!\s+of\b)|"
+                  r"have\s+a\s+(good|nice|great)\s+day)\b"),
     ))
 
 _EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿️‍]")
@@ -170,6 +178,10 @@ def classify(message: str) -> Turn | None:
                 continue
             return Turn(kind, _language_of(text))
     words = _words(text)
+    # 2+ words: a bare "more" / "again" follows the previous answer ("tell me more", conversation eval v2) -- it is
+    # never a question announced
+    if words and 2 <= len(words) <= 12 and not _DOMAIN.search(text) and _learned_act(text) == "PREFACE":
+        return Turn(PREFACE, _language_of(text))
     if not words or len(words) > 8:
         return None
     # "everything okay?" / "sab theek hai?" ASKS about the case; "ok" answers
@@ -197,6 +209,16 @@ _LEADING = re.compile(
     re.IGNORECASE)
 
 
+def _learned_act(text: str) -> str | None:
+    """The answer act the model is sure of (semantics/answer_act.py), or None -- no model, no change."""
+    try:
+        from app.agents.applicant.copilot.semantics import answer_act
+
+        return answer_act.sure_act(text)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def without_greeting(message: str) -> str:
     """
     "hi, what is my stage?" -> "what is my stage?". A greeting in front of a
@@ -217,6 +239,12 @@ def _language_of(text: str) -> str:
 
 
 _REPLIES: dict[str, dict[str, str]] = {
+    PREFACE: {
+        "en": "Sure{smile} Go ahead, what would you like to know?",
+        "hi-Latn": "Haan zaroor{smile} Poochhiye, kya jaanna hai?",
+        "hi": "हाँ ज़रूर{smile} पूछिए, क्या जानना है?",
+        "mr": "हो नक्की{smile} विचारा, काय जाणून घ्यायचं आहे?",
+    },
     GREETING: {
         "en": "Hi{wave} How can I help with your application today?",
         "hi-Latn": "Namaste{wave} Aaj main aapke application mein kaise madad kar sakta hoon?",
@@ -348,5 +376,5 @@ SUGGESTIONS = ["What is my stage?", "What's pending?", "Why is my application un
 
 __all__ = ["ACKNOWLEDGEMENT", "CAPABILITIES", "GOODBYE", "GREETING", "HELP", "HISTORY",
            "KINDS", "SMALL_TALK", "SUGGESTIONS", "THANKS", "Turn", "classify", "enabled",
-           "FRUSTRATION", "OFF_TOPIC",
+           "FRUSTRATION", "OFF_TOPIC", "PREFACE",
            "reply", "without_greeting"]

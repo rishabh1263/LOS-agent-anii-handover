@@ -43,4 +43,42 @@ def free_gb() -> float | None:
     return None
 
 
-__all__ = ["free_gb"]
+#: (checked at, model resident?) -- Ollama's /api/ps is read at most every few seconds
+_RESIDENT: dict[str, tuple[float, bool]] = {}
+_RESIDENT_TTL_SECONDS = 5.0
+
+
+def _model_resident() -> bool:
+    """Whether Ollama already holds the configured model in memory (GET /api/ps). Any failure: False."""
+    import json
+    import time
+    import urllib.request
+
+    try:
+        from app.llm.config import ollama_host, ollama_model
+
+        model, host = str(ollama_model() or ""), str(ollama_host() or "").rstrip("/")
+    except Exception:  # noqa: BLE001
+        return False
+    if not model or not host:
+        return False
+    cached = _RESIDENT.get(model)
+    if cached and time.monotonic() - cached[0] < _RESIDENT_TTL_SECONDS:
+        return cached[1]
+    try:
+        with urllib.request.urlopen(f"{host}/api/ps", timeout=0.3) as response:
+            loaded = {str(m.get("name") or m.get("model") or "") for m in (json.load(response).get("models") or [])}
+        resident = model in loaded
+    except Exception:  # noqa: BLE001 - unknown: the free-memory reading decides
+        resident = False
+    _RESIDENT[model] = (time.monotonic(), resident)
+    return resident
+
+
+def free_gb_for_model() -> float | None:
+    """The free memory a model call must respect. A model ALREADY LOADED needs no new memory (2026-10-13: with
+    Qwen resident and 1.2 GB free, every Qwen step skipped itself) -> None ("not low"); otherwise free_gb()."""
+    return None if _model_resident() else free_gb()
+
+
+__all__ = ["free_gb", "free_gb_for_model"]

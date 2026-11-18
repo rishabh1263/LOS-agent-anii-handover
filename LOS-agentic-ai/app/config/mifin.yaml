@@ -1,0 +1,95 @@
+# MIFIN CUSTOMER DEDUPE -- how a MIFIN dedupe RESPONSE is read (app/agents/dedupe/mifin.py).
+#
+# Source of the shape: one reference response shared by the owner (2026-10-22), used ONLY as a structural reference --
+# no value from it is stored anywhere. Every MEANING not documented by MIFIN is marked here as UNVERIFIED and is never
+# used to compute exposure or to decide anything until a business / MIFIN owner confirms it.
+#
+# THE LIVE CALL: no MIFIN endpoint, request format or credentials exist in this repository. The client reads its
+# connection from the environment (MIFIN_DEDUPE_URL, MIFIN_DEDUPE_TOKEN); unset -> every lookup is UNAVAILABLE.
+
+contract_version: "reference-2026-10-22"
+
+client:
+  timeout_seconds: 8
+  retries: 2                 # transport failures / 5xx only; never on a 4xx or a parsed answer
+  backoff_seconds: 0.5
+
+status:
+  # RESPONSE.STATUS values that mean "the lookup ran". Observed: "S" (with "APPLICANT ID FOUND WITH GIVEN INPUT").
+  # Any other value is a SOURCE_ERROR -- never read as "no match".
+  success: ["S"]
+
+customer_types:
+  # APPLICANTDETAILS.CUSTTYPE -> the customer's role as MIFIN records it. Observed: "Applicant". The co-applicant
+  # spellings below are the business's to confirm; a value not listed is shown as UNMAPPED, never guessed.
+  map: {APPLICANT: APPLICANT, CO-APPLICANT: CO_APPLICANT, COAPPLICANT: CO_APPLICANT, CO_APPLICANT: CO_APPLICANT,
+        GUARANTOR: GUARANTOR}
+
+flags:
+  # STRONG_MATCH / POTENTIAL_MATCH values that mean yes. Observed: "Y" and "".
+  "yes": ["Y"]
+
+matching:
+  # How MIFIN's own flags become a match class. UNVERIFIED until MIFIN / the business confirms the flag semantics:
+  # the reference response had STRONG_MATCH="Y" AND POTENTIAL_MATCH="Y" together.
+  interpretation_status: UNVERIFIED
+  strong_flag_class: CONFIRMED_MATCH
+  potential_flag_class: POTENTIAL_MATCH
+  # SCORE: the reference had 5; its scale is not documented. NO threshold is applied -- the score is reported, never
+  # used to decide. null = unapproved.
+  score_threshold: null
+
+loans:
+  # Source LOAN_STATUS -> class. ONLY statuses actually seen are mapped; anything else is UNKNOWN (reported, never
+  # counted as active / disbursed / closed).
+  status_map:
+    CANCELED: CANCELED
+    CANCELLED: CANCELED
+    # owner decision 2026-10-23: a disbursed loan is shown as Disbursed. Whether it is still live (or closed) is the
+    # LMS's to say; without the LMS its balance is unknown and every total stays partial (loan_history._total).
+    DISBURSED: DISBURSED
+  # classes that are final from MIFIN alone: a cancelled application was never disbursed, so the LMS holds nothing
+  # for it and its absence there is expected (UNVERIFIED reading, never used to call a loan active)
+  final_without_lms: [CANCELED]
+  # classes whose amounts would count as live exposure -- EMPTY until the active-loan status values are confirmed
+  exposure_statuses: []
+  # OS_PRINCIPAL / OS_INTEREST / OS_OTHERCHARGES / SANCTIONED_AMOUNT: meaning UNVERIFIED (the reference showed a
+  # CANCELED loan with OS_PRINCIPAL equal to its sanctioned amount -- so OS_PRINCIPAL is NOT a balance owed there).
+  amount_semantics_verified: false
+  currency: INR              # UNVERIFIED: assumed rupees, stated on every amount
+  # A cancelled loan's reason, shown when the source sends one (owner request 2026-10-23). The reference response
+  # had NO such field: the name below is UNVERIFIED until the MIFIN team confirms it (a config change only). The first
+  # listed field present on a prospect is read; its text is trimmed to max_length and any PAN / mobile / AP / PR code
+  # or long number in it is masked. Absent -> null ("not given by the source"), never guessed.
+  cancel_reason:
+    fields: [CANCEL_REASON]
+    max_length: 120
+  # fields MIFIN does not return at all -- always reported as unavailable from this source
+  not_in_source: [DISBURSEMENT_DATE, CLOSURE_DATE, EMI, REPAYMENT_LEDGER, DPD, OVERDUE, SETTLEMENT, WRITE_OFF,
+                  TOPUP_HISTORY]
+
+# Reference formats seen in the reference response (AP code = customer id, PR code = prospect / loan account).
+# A value outside them is kept but flagged *_FORMAT_UNEXPECTED (the formats are observed, not documented).
+formats:
+  AP_CODE: '^AP\d{8}$'
+  PR_CODE: '^PR\d{8}$'
+
+privacy:
+  # never returned, logged or stored in clear: only "present / absent" and, for matching, keyed HMACs
+  identity_fields: [PAN, MOBILE, DOB, FNAME, MNAME, LNAME, FATHERNAME, MOTHERNAME, DL, VOTERIDCARDNO, PASSPORTNO,
+                    NOMINEE_NAME]
+  drop_sections: [BANKDETAIL, ADDRESSDETAIL]   # bank account / address: not needed for dedupe, never kept
+  # AP code (customer ID) and PR code (loan account no.) IN FULL in the answer to the officer who may open the case
+  # (owner decision 2026-10-23): `customer_code` / `prospect_code` beside the masked `customer_ref` / `prospect_ref`.
+  # 2026-10-23 (owner): the AP number in full wherever the page shows it -- a possible match and the summary text
+  # too (the model still sees only the masked form). Logs and the audit file keep the masked form.
+  # false = masked only (the earlier behaviour).
+  show_full_codes: true
+  # BOTH SIDES OF THE MATCHING TABLE (owner 2026-10-23: "entered me kya aaya, MIFIN me kya aaya"): for a customer
+  # MIFIN names (confirmed / possible match) the answer to the officer carries what was entered and what MIFIN holds --
+  # name and date of birth in full, PAN / mobile masked as below (same masks as the page). Logs and the audit file
+  # never carry them. false = only MATCH / MISMATCH (the earlier behaviour).
+  show_identity_values: true
+  value_mask:
+    PAN: {keep_start: 0, keep_end: 4}
+    MOBILE: {keep_start: 2, keep_end: 2}

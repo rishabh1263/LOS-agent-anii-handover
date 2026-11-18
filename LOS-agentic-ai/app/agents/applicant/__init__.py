@@ -27,6 +27,18 @@ repository; the only sqlite3 use is the conversation store's own optional
 backend (copilot/conversation/state.py), which holds labels, never case data.
 """
 
-from app.agents.applicant.copilot.agent import AgentError, answer_question, confirm_action
+# LAZY (2026-11-02): importing a small part of this package -- permissions, audit, config (the eligibility API, the
+# document desk use them) -- no longer loads the whole copilot; these three load on first use, exactly as before.
+_LAZY = {"AgentError", "answer_question", "confirm_action"}
+
+
+def __getattr__(name: str):
+    if name in _LAZY:
+        from app.agents.applicant.copilot import agent
+
+        return getattr(agent, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 
 __all__ = ["AgentError", "answer_question", "confirm_action"]

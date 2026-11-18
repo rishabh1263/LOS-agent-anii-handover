@@ -1,0 +1,1064 @@
+seed_actor: credit.officer
+specimen_mark: SPECIMEN COPY
+applications:
+- application_id: LGV-2026-001
+  title: Clean title (all checks agree)
+  branch: MUM
+  product: Home Loan
+  loan_amount: 4500000
+  applicant_name: Aditya Kulkarni
+  property_type: RESIDENTIAL_FLAT
+  property_address: Flat 702, Sai Darshan CHS, Plot 14, Sector 21, Kharghar, Navi Mumbai 410210
+  property_pin: '410210'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Priya Nair
+    collateral_no: Collateral 1
+    property_usage: Residential
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: Flat 702
+    address_line1: Sai Darshan CHS, Plot 14
+    address_line2: Sector 21
+    project_name: Sai Darshan CHS
+    landmark: Near Central Park
+    city: Navi Mumbai
+    district: Raigad
+    state: Maharashtra
+    owner_pan: AKKPK4821A
+    applicant_pan: AKKPK4821A
+    geo:
+      latitude: '19.0330'
+      longitude: '73.0297'
+      geo_address: Flat 702, Sai Darshan CHS, Plot 14, Sector 21, Kharghar, Navi Mumbai 410210
+      captured_by: Priya Nair
+      captured_at: 2026-10-20 11:30
+  owner_names:
+  - Aditya Kulkarni
+  - Neha Kulkarni
+  stage: VALIDATED
+  documents:
+  - SALE_DEED
+  - ENCUMBRANCE_CERTIFICATE
+  - PROPERTY_TAX_RECEIPT
+  - SOCIETY_NOC
+  - PREVIOUS_DEED
+  deed:
+    owner_names:
+    - Aditya Kulkarni
+    - Neha Kulkarni
+    seller_names:
+    - Ramesh Bhosale
+    document_type: SALE_DEED
+    sale_deed_number: PVL-3/4821/2019
+    sale_deed_date: '2019-08-14'
+    stamp_date: '2019-08-10'
+    sub_registrar_office: Sub-Registrar Panvel 3
+    property_address: Flat 702, Sai Darshan CHS, Plot 14, Sector 21, Kharghar, Navi Mumbai
+    pin_code: '410210'
+    area: 68.5 sq m carpet
+    consideration: '5200000'
+  agency: LEX_ASSOCIATES
+  report:
+    property_belongs_to: APPLICANT
+    documents_provided: Sale Deed, Encumbrance Certificate, property tax receipt
+    property_history: Traced from the first allotment to the present owner; see the transfers below.
+    title_docs_checked: 'yes'
+    owner_names:
+    - Aditya Kulkarni
+    - Neha Kulkarni
+    property_type: RESIDENTIAL_FLAT
+    document_type: SALE_DEED
+    sale_deed_number: PVL3-4821-2019
+    sale_deed_date: 14-08-2019
+    sub_registrar_office: SRO Panvel-3
+    title_history:
+    - date: '1992-03-02'
+      from_owner: CIDCO
+      to_owner: Shree Sai Developers
+      document: Lease Deed
+      instrument: SALE_DEED
+      reg_no: ''
+    - date: '2004-06-18'
+      from_owner: Shree Sai Developers
+      to_owner: Ramesh Bhosale
+      document: Agreement for Sale
+      instrument: SALE_DEED
+      reg_no: ''
+    - date: '2019-08-14'
+      from_owner: Ramesh Bhosale
+      to_owner: Aditya Kulkarni and Neha Kulkarni
+      document: Sale Deed
+      instrument: SALE_DEED
+      reg_no: PVL-3/4821/2019
+    ec_from: '2010-01-01'
+    ec_to: '2026-09-30'
+    encumbrance_found: 'no'
+    cersai_records_found: 'no'
+    cersai_searches:
+    - search_type: DEBTOR_BASED
+      searched_at: 2026-09-30 11:20
+      reference: CS-100231
+      parameters: 'Asset: Immovable; Debtor: Individual'
+      result: No relevant results
+    - search_type: ASSET_BASED
+      searched_at: 2026-09-30 11:24
+      reference: CS-100232
+      parameters: 'Asset: Immovable; PIN 410210'
+      result: No relevant results
+    registered_mortgage: 'no'
+    conclusion: Title traced for 34 years. No adverse entries.
+    property_doc_years: 34
+    title_search: Search taken at the Sub-Registrar office for the full period; no adverse entry noted.
+    signing_authority: The owner(s) in person
+    documents_required_prior: Original Sale Deed, previous title deeds, latest tax receipt
+    documents_post_disbursal: Memorandum of deposit of title deeds and CERSAI filing
+    state: Maharashtra
+    district: Raigad
+    taluka: Panvel
+    title_traced_adequately: 'yes'
+    chain_maintained: 'yes'
+    ec_verified: 'yes'
+    flat_title_certified: 'yes'
+    flat_undivided_share: 'yes'
+    equitable_mortgage_possible: 'yes'
+    title_clear_marketable: 'yes'
+    roc_search: na
+    report_date: '2026-09-30'
+    report_reference: LV/2026/0011
+    advocate_name: Adv. Meera Iyer
+    documents_examined:
+    - instrument: SALE_DEED
+      reg_no: ''
+      date: '1992-03-02'
+      executed_by: CIDCO
+      in_favour_of: Shree Sai Developers
+      copy: ORIGINAL
+      page: '1'
+    - instrument: SALE_DEED
+      reg_no: ''
+      date: '2004-06-18'
+      executed_by: Shree Sai Developers
+      in_favour_of: Ramesh Bhosale
+      copy: ORIGINAL
+      page: '2'
+    - instrument: SALE_DEED
+      reg_no: PVL-3/4821/2019
+      date: '2019-08-14'
+      executed_by: Ramesh Bhosale
+      in_favour_of: Aditya Kulkarni and Neha Kulkarni
+      copy: ORIGINAL
+      page: '3'
+    opinion_text: Title traced for 34 years. No adverse entries.
+    search_from_year: 2010
+    search_to_year: 2026
+- application_id: LGV-2026-002
+  title: Owner differs, agency says clear
+  branch: MUM
+  product: Loan Against Property
+  loan_amount: 3000000
+  applicant_name: Vikas Shetty
+  property_type: INDEPENDENT_HOUSE
+  property_address: House 18, Gulmohar Lane, Wakad, Pimpri-Chinchwad 411057
+  property_pin: '411057'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Rahul Desai
+    collateral_no: Collateral 1
+    property_usage: Residential
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: House 18
+    address_line1: Gulmohar Lane
+    address_line2: Wakad
+    project_name: Gulmohar Colony
+    landmark: Opp. City Library
+    city: Pimpri-Chinchwad
+    district: Pune
+    state: Maharashtra
+    owner_pan: BVSPS1107B
+    applicant_pan: BVSPS1107B
+    geo:
+      latitude: '18.5074'
+      longitude: '73.8077'
+      geo_address: House 18, Gulmohar Lane, Wakad, Pimpri-Chinchwad 411057
+      captured_by: Rahul Desai
+      captured_at: 2026-10-20 11:30
+  owner_names:
+  - Vikas Shetty
+  stage: VALIDATED
+  documents:
+  - SALE_DEED
+  - ENCUMBRANCE_CERTIFICATE
+  - PROPERTY_TAX_RECEIPT
+  - APPROVED_PLAN
+  deed:
+    owner_names:
+    - Prakash Shetty
+    seller_names:
+    - Anil Deshpande
+    document_type: SALE_DEED
+    sale_deed_number: HVL-2/1107/2015
+    sale_deed_date: '2015-02-11'
+    sub_registrar_office: Sub-Registrar Haveli 2
+    property_address: House 18, Gulmohar Lane, Wakad, Pune
+    pin_code: '411057'
+  agency: TITLEWISE
+  report:
+    property_belongs_to: APPLICANT
+    documents_provided: Sale Deed, Encumbrance Certificate, property tax receipt
+    property_history: Traced from the first allotment to the present owner; see the transfers below.
+    title_docs_checked: 'yes'
+    owner_names:
+    - Prakash Shetty
+    property_type: INDEPENDENT_HOUSE
+    document_type: SALE_DEED
+    sale_deed_number: HVL-2/1107/2015
+    sale_deed_date: '2015-02-11'
+    sub_registrar_office: Haveli 2
+    title_history:
+    - date: '1988-05-09'
+      from_owner: Govind Joshi
+      to_owner: Anil Deshpande
+      document: Sale Deed
+      instrument: SALE_DEED
+      reg_no: ''
+    - date: '2015-02-11'
+      from_owner: Anil Deshpande
+      to_owner: Prakash Shetty
+      document: Sale Deed
+      instrument: SALE_DEED
+      reg_no: HVL-2/1107/2015
+    ec_from: '2008-01-01'
+    ec_to: '2026-09-25'
+    encumbrance_found: 'no'
+    cersai_records_found: 'no'
+    cersai_searches:
+    - search_type: DEBTOR_BASED
+      searched_at: 2026-09-25 16:02
+      reference: CS-200410
+      parameters: 'Asset: Immovable; Debtor: Individual'
+      result: No relevant results
+    registered_mortgage: 'no'
+    conclusion: Title is clear and marketable.
+    property_doc_years: 38
+    title_search: Search taken at the Sub-Registrar office for the full period; no adverse entry noted.
+    signing_authority: The owner(s) in person
+    documents_required_prior: Original Sale Deed, previous title deeds, latest tax receipt
+    documents_post_disbursal: Memorandum of deposit of title deeds and CERSAI filing
+    state: Maharashtra
+    district: Pune
+    taluka: Haveli
+    title_traced_adequately: 'yes'
+    chain_maintained: 'yes'
+    ec_verified: 'yes'
+    flat_title_certified: na
+    flat_undivided_share: na
+    equitable_mortgage_possible: 'yes'
+    title_clear_marketable: 'yes'
+    roc_search: na
+    report_date: '2026-09-25'
+    report_reference: LV/2026/0021
+    advocate_name: Adv. Sanjay Kulkarni
+    documents_examined:
+    - instrument: SALE_DEED
+      reg_no: ''
+      date: '1988-05-09'
+      executed_by: Govind Joshi
+      in_favour_of: Anil Deshpande
+      copy: ORIGINAL
+      page: '1'
+    - instrument: SALE_DEED
+      reg_no: HVL-2/1107/2015
+      date: '2015-02-11'
+      executed_by: Anil Deshpande
+      in_favour_of: Prakash Shetty
+      copy: ORIGINAL
+      page: '2'
+    opinion_text: Title is clear and marketable.
+    search_from_year: 2008
+    search_to_year: 2026
+- application_id: LGV-2026-003
+  title: Search evidence missing
+  branch: MUM
+  product: Home Loan
+  loan_amount: 2800000
+  applicant_name: Farah Siddiqui
+  property_type: RESIDENTIAL_PLOT
+  property_address: Plot 9, Survey 112/3, Green Valley Layout, Wardha Road, Butibori 441108
+  property_pin: '441108'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Priya Nair
+    collateral_no: Collateral 1
+    property_usage: Residential
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: Plot 9
+    address_line1: Survey 112/3, Green Valley Layout
+    address_line2: Wardha Road
+    project_name: Green Valley Layout
+    landmark: Near Toll Plaza
+    city: Butibori
+    district: Nagpur
+    state: Maharashtra
+    owner_pan: CFSPS2290C
+    applicant_pan: CFSPS2290C
+    geo:
+      latitude: '21.0700'
+      longitude: '79.0600'
+      geo_address: Plot 9, Survey 112/3, Green Valley Layout, Wardha Road, Butibori 441108
+      captured_by: Priya Nair
+      captured_at: 2026-10-20 11:30
+  owner_names:
+  - Farah Siddiqui
+  stage: VALIDATED
+  documents:
+  - SALE_DEED
+  - LAND_RECORD_EXTRACT
+  deed:
+    owner_names:
+    - Farah Siddiqui
+    seller_names:
+    - Mohan Wankhede
+    document_type: SALE_DEED
+    sale_deed_number: NGP-4/2290/2021
+    sale_deed_date: '2021-11-03'
+    sub_registrar_office: Sub-Registrar Nagpur 4
+    property_address: Plot 9, Survey 112/3, Green Valley Layout, Wardha Road, Nagpur
+    pin_code: '441108'
+  agency: NYAYA_PARTNERS
+  report:
+    property_belongs_to: APPLICANT
+    documents_provided: Sale Deed, Encumbrance Certificate, property tax receipt
+    property_history: Traced from the first allotment to the present owner; see the transfers below.
+    title_docs_checked: 'no'
+    owner_names:
+    - Farah Siddiqui
+    property_type: RESIDENTIAL_PLOT
+    document_type: SALE_DEED
+    sale_deed_number: NGP-4/2290/2021
+    sale_deed_date: '2021-11-03'
+    sub_registrar_office: Nagpur 4
+    title_history:
+    - date: '2014-07-21'
+      from_owner: Mohan Wankhede
+      to_owner: Mohan Wankhede
+      document: Mutation entry
+      instrument: SALE_DEED
+      reg_no: ''
+    - date: '2021-11-03'
+      from_owner: Mohan Wankhede
+      to_owner: Farah Siddiqui
+      document: Sale Deed
+      instrument: SALE_DEED
+      reg_no: NGP-4/2290/2021
+    encumbrance_found: 'no'
+    cersai_records_found: 'no'
+    registered_mortgage: 'no'
+    conclusion: The Encumbrance Certificate has been applied for and is awaited. Mutation of the present owner's name in the
+      land records is still pending.
+    property_doc_years: 12
+    title_search: Search taken at the Sub-Registrar office for the full period; no adverse entry noted.
+    signing_authority: The owner(s) in person
+    documents_required_prior: Original Sale Deed, previous title deeds, latest tax receipt
+    documents_post_disbursal: Memorandum of deposit of title deeds and CERSAI filing
+    state: Maharashtra
+    district: Nagpur
+    taluka: Hingna
+    title_traced_adequately: 'yes'
+    chain_maintained: 'yes'
+    ec_verified: 'no'
+    flat_title_certified: na
+    flat_undivided_share: na
+    equitable_mortgage_possible: 'yes'
+    title_clear_marketable: 'no'
+    roc_search: na
+    report_date: '2026-09-25'
+    report_reference: LV/2026/0031
+    advocate_name: Adv. Farah Khan
+    documents_examined:
+    - instrument: SALE_DEED
+      reg_no: ''
+      date: '2014-07-21'
+      executed_by: Mohan Wankhede
+      in_favour_of: Mohan Wankhede
+      copy: ORIGINAL
+      page: '1'
+    - instrument: SALE_DEED
+      reg_no: NGP-4/2290/2021
+      date: '2021-11-03'
+      executed_by: Mohan Wankhede
+      in_favour_of: Farah Siddiqui
+      copy: ORIGINAL
+      page: '2'
+    opinion_text: The title of Farah Siddiqui cannot yet be certified as clear and marketable. The certificate will be issued
+      once the Encumbrance Certificate for the last 13 years is obtained and verified, and the mutation in the present owner's
+      name is completed in the land records.
+    opinion_conditions:
+    - condition: Encumbrance Certificate for the last 13 years obtained and verified
+    - condition: Mutation entry in the present owner's name completed in the land records
+    documents_required:
+    - document: Encumbrance Certificate for the last 13 years
+      stage: PRIOR_TO_MORTGAGE
+      copy: ORIGINAL
+    - document: Mutation extract (7/12 / property card) in the present owner's name
+      stage: PRIOR_TO_MORTGAGE
+      copy: CERTIFIED_COPY
+- application_id: LGV-2026-004
+  title: Active charge on CERSAI
+  branch: MUM
+  product: Loan Against Property
+  loan_amount: 6000000
+  applicant_name: Rohit Malhotra
+  property_type: COMMERCIAL
+  property_address: Shop 4, Ground Floor, Orchid Plaza, Station Road, Kalyan West 421301
+  property_pin: '421301'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Rahul Desai
+    collateral_no: Collateral 1
+    property_usage: Commercial
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: Shop 4
+    address_line1: Ground Floor, Orchid Plaza
+    address_line2: Station Road
+    project_name: Orchid Plaza
+    landmark: Near Kalyan Station
+    city: Kalyan
+    district: Thane
+    state: Maharashtra
+    owner_pan: DRMPM7731D
+    applicant_pan: DRMPM7731D
+    geo:
+      latitude: '19.1860'
+      longitude: '72.9750'
+      geo_address: Shop 4, Ground Floor, Orchid Plaza, Station Road, Kalyan West 421301
+      captured_by: Rahul Desai
+      captured_at: 2026-10-20 11:30
+  owner_names:
+  - Rohit Malhotra
+  stage: VALIDATED
+  documents:
+  - SALE_DEED
+  - ENCUMBRANCE_CERTIFICATE
+  - PROPERTY_TAX_RECEIPT
+  - APPROVED_PLAN
+  deed:
+    owner_names:
+    - Rohit Malhotra
+    seller_names:
+    - Orchid Builders
+    document_type: SALE_DEED
+    sale_deed_number: TNN-1/7731/2017
+    sale_deed_date: '2017-05-22'
+    sub_registrar_office: Sub-Registrar Kalyan 1
+    property_address: Shop 4, Ground Floor, Orchid Plaza, Station Road, Thane West
+    pin_code: '421301'
+  agency: LEX_ASSOCIATES
+  report:
+    property_belongs_to: APPLICANT
+    documents_provided: Sale Deed, Encumbrance Certificate, property tax receipt
+    property_history: Traced from the first allotment to the present owner; see the transfers below.
+    title_docs_checked: 'yes'
+    owner_names:
+    - Rohit Malhotra
+    property_type: COMMERCIAL
+    document_type: SALE_DEED
+    sale_deed_number: TNN-1/7731/2017
+    sale_deed_date: '2017-05-22'
+    sub_registrar_office: Kalyan 1
+    title_history:
+    - date: '1990-01-15'
+      from_owner: Kalyan-Dombivli Municipal Corporation
+      to_owner: Orchid Builders
+      document: Development Agreement
+      instrument: SALE_DEED
+      reg_no: ''
+    - date: '2017-05-22'
+      from_owner: Orchid Builders
+      to_owner: Rohit Malhotra
+      document: Sale Deed
+      instrument: SALE_DEED
+      reg_no: TNN-1/7731/2017
+    ec_from: '2010-01-01'
+    ec_to: '2026-10-01'
+    encumbrance_found: 'no'
+    cersai_records_found: 'yes'
+    cersai_details: Charge registered 2022 in favour of another lender (security interest ID SI-55120); not satisfied.
+    cersai_searches:
+    - search_type: ASSET_BASED
+      searched_at: 2026-10-01 10:12
+      reference: CS-300877
+      parameters: 'Asset: Immovable; PIN 421301'
+      result: 1 active charge
+    registered_mortgage: 'yes'
+    conclusion: Existing charge to be satisfied before disbursement.
+    property_doc_years: 36
+    title_search: Search taken at the Sub-Registrar office for the full period; no adverse entry noted.
+    signing_authority: The owner(s) in person
+    documents_required_prior: Original Sale Deed, previous title deeds, latest tax receipt
+    documents_post_disbursal: Memorandum of deposit of title deeds and CERSAI filing
+    state: Maharashtra
+    district: Thane
+    taluka: Kalyan
+    title_traced_adequately: 'yes'
+    chain_maintained: 'yes'
+    ec_verified: 'yes'
+    flat_title_certified: na
+    flat_undivided_share: na
+    equitable_mortgage_possible: 'yes'
+    title_clear_marketable: 'no'
+    roc_search: na
+    report_date: '2026-10-01'
+    report_reference: LV/2026/0041
+    advocate_name: Adv. Vivek Rao
+    documents_examined:
+    - instrument: SALE_DEED
+      reg_no: ''
+      date: '1990-01-15'
+      executed_by: Kalyan-Dombivli Municipal Corporation
+      in_favour_of: Orchid Builders
+      copy: ORIGINAL
+      page: '1'
+    - instrument: SALE_DEED
+      reg_no: TNN-1/7731/2017
+      date: '2017-05-22'
+      executed_by: Orchid Builders
+      in_favour_of: Rohit Malhotra
+      copy: ORIGINAL
+      page: '2'
+    opinion_text: Existing charge to be satisfied before disbursement.
+    search_from_year: 2010
+    search_to_year: 2026
+- application_id: LGV-2026-005
+  title: 'New: upload the Sale Deed'
+  branch: MUM
+  product: Home Loan
+  loan_amount: 3600000
+  applicant_name: Sneha Iyer
+  property_type: RESIDENTIAL_FLAT
+  property_address: Flat B-1104, Lakeview Towers, Powai, Mumbai 400076
+  property_pin: '400076'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Priya Nair
+    collateral_no: Collateral 1
+    property_usage: Residential
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: Flat B-1104
+    address_line1: Lakeview Towers
+    address_line2: Powai
+    project_name: Lakeview Towers
+    landmark: Near Hiranandani Gardens
+    city: Mumbai
+    district: Mumbai Suburban
+    state: Maharashtra
+    owner_pan: ESNPI5512E
+    applicant_pan: ESNPI5512E
+    geo:
+      latitude: '19.1176'
+      longitude: '72.9060'
+      geo_address: Flat B-1104, Lakeview Towers, Powai, Mumbai 400076
+      captured_by: Priya Nair
+      captured_at: 2026-10-20 11:30
+  owner_names:
+  - Sneha Iyer
+  stage: NEW
+- application_id: LGV-2026-006
+  title: 'With the agency: fill its report'
+  branch: MUM
+  product: Home Loan
+  loan_amount: 5200000
+  applicant_name: Karan Mehta
+  property_type: RESIDENTIAL_FLAT
+  property_address: Flat 305, Palm Grove, Sector 8, Vashi, Navi Mumbai 400703
+  property_pin: '400703'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Rahul Desai
+    collateral_no: Collateral 1
+    property_usage: Residential
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: Flat 305
+    address_line1: Palm Grove
+    address_line2: Sector 8
+    project_name: Palm Grove
+    landmark: Near Vashi Station
+    city: Vashi
+    district: Thane
+    state: Maharashtra
+    owner_pan: FKMPM3315F
+    applicant_pan: FKMPM3315F
+    geo:
+      latitude: '19.0771'
+      longitude: '72.9986'
+      geo_address: Flat 305, Palm Grove, Sector 8, Vashi, Navi Mumbai 400703
+      captured_by: Rahul Desai
+      captured_at: 2026-10-20 11:30
+  owner_names:
+  - Karan Mehta
+  stage: WITH_AGENCY
+  documents:
+  - SALE_DEED
+  - ENCUMBRANCE_CERTIFICATE
+  deed:
+    owner_names:
+    - Karan Mehta
+    seller_names:
+    - Sunil Rao
+    document_type: SALE_DEED
+    sale_deed_number: VSH-2/3315/2020
+    sale_deed_date: '2020-12-09'
+    sub_registrar_office: Sub-Registrar Vashi 2
+    property_address: Flat 305, Palm Grove, Sector 8, Vashi, Navi Mumbai
+    pin_code: '400703'
+  agency: NYAYA_PARTNERS
+- application_id: LGV-2026-007
+  title: 'New: upload the Sale Deed'
+  branch: MUM
+  product: Home Loan
+  loan_amount: 4850000
+  applicant_name: Rohan Deshpande
+  property_type: RESIDENTIAL_FLAT
+  property_address: Flat 1203, Orchid Heights, Hinjewadi Phase 1, Pimpri-Chinchwad 411057
+  property_pin: '411057'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Priya Nair
+    collateral_no: Collateral 1
+    property_usage: Residential
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: Flat 1203
+    address_line1: Orchid Heights
+    address_line2: Hinjewadi Phase 1
+    project_name: Orchid Heights
+    landmark: Near Rajiv Gandhi IT Park
+    city: Pimpri-Chinchwad
+    district: Pune
+    state: Maharashtra
+    owner_pan: BRDPD4821K
+    applicant_pan: BRDPD4821K
+    geo:
+      latitude: '18.5913'
+      longitude: '73.7389'
+      geo_address: Flat 1203, Orchid Heights, Hinjewadi Phase 1, Pimpri-Chinchwad 411057
+      captured_by: Priya Nair
+      captured_at: 2026-10-24 12:10
+  owner_names:
+  - Rohan Deshpande
+  - Kavya Deshpande
+  stage: NEW
+- application_id: LGV-2026-008
+  title: 'New: upload the Sale Deed'
+  branch: MUM
+  product: Loan Against Property
+  loan_amount: 2200000
+  applicant_name: Imran Shaikh
+  property_type: RESIDENTIAL_PLOT
+  property_address: Plot 27, Shanti Nagar Layout, Hingna Road, Hingna 440016
+  property_pin: '440016'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Rahul Desai
+    collateral_no: Collateral 1
+    property_usage: Residential
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: Plot 27
+    address_line1: Shanti Nagar Layout
+    address_line2: Hingna Road
+    project_name: Shanti Nagar Layout
+    landmark: Near MIDC Gate
+    city: Hingna
+    district: Nagpur
+    state: Maharashtra
+    owner_pan: CISPS6630M
+    applicant_pan: CISPS6630M
+    geo:
+      latitude: '21.1167'
+      longitude: '78.9845'
+      geo_address: Plot 27, Shanti Nagar Layout, Hingna Road, Hingna 440016
+      captured_by: Rahul Desai
+      captured_at: 2026-10-24 12:10
+  owner_names:
+  - Imran Shaikh
+  stage: NEW
+- application_id: LGV-2026-009
+  title: 'New: upload the Sale Deed'
+  branch: MUM
+  product: Business Loan
+  loan_amount: 3100000
+  applicant_name: Meera Joshi
+  property_type: COMMERCIAL
+  property_address: Shop 12, Galaxy Arcade, Vasai West, Vasai-Virar 401202
+  property_pin: '401202'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Priya Nair
+    collateral_no: Collateral 1
+    property_usage: Commercial
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: Shop 12
+    address_line1: Galaxy Arcade
+    address_line2: Vasai West
+    project_name: Galaxy Arcade
+    landmark: Near Vasai Road Station
+    city: Vasai-Virar
+    district: Palghar
+    state: Maharashtra
+    owner_pan: DMJPJ7714Q
+    applicant_pan: DMJPJ7714Q
+    geo:
+      latitude: '19.3800'
+      longitude: '72.8270'
+      geo_address: Shop 12, Galaxy Arcade, Vasai West, Vasai-Virar 401202
+      captured_by: Priya Nair
+      captured_at: 2026-10-24 12:10
+  owner_names:
+  - Meera Joshi
+  stage: NEW
+- application_id: LGV-2026-010
+  title: 'New: upload the Sale Deed'
+  branch: MUM
+  product: Loan Against Property
+  loan_amount: 6400000
+  applicant_name: Anil Patil
+  property_type: WAREHOUSE
+  property_address: Unit 5, Bhiwandi Logistics Park, Mankoli Naka, Bhiwandi 421302
+  property_pin: '421302'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Rahul Desai
+    collateral_no: Collateral 1
+    property_usage: Industrial
+    property_nature: Leasehold
+    document: Sale Deed
+    flat_no: Unit 5
+    address_line1: Bhiwandi Logistics Park
+    address_line2: Mankoli Naka
+    project_name: Bhiwandi Logistics Park
+    landmark: Near Mumbai-Nashik Highway
+    city: Bhiwandi
+    district: Thane
+    state: Maharashtra
+    owner_pan: EAPPP2209L
+    applicant_pan: EAPPP2209L
+    geo:
+      latitude: '19.2813'
+      longitude: '73.0483'
+      geo_address: Unit 5, Bhiwandi Logistics Park, Mankoli Naka, Bhiwandi 421302
+      captured_by: Rahul Desai
+      captured_at: 2026-10-24 12:10
+  owner_names:
+  - Anil Patil
+  stage: NEW
+- application_id: LGV-2026-011
+  title: 'New: upload the Sale Deed'
+  branch: MUM
+  product: Home Loan
+  loan_amount: 5200000
+  applicant_name: Suresh Pillai
+  property_type: INDEPENDENT_HOUSE
+  property_address: House 44, Sunrise Colony, New Panvel, Panvel 410206
+  property_pin: '410206'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Priya Nair
+    collateral_no: Collateral 1
+    property_usage: Residential
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: House 44
+    address_line1: Sunrise Colony
+    address_line2: New Panvel
+    project_name: Sunrise Colony
+    landmark: Near Panvel Bus Depot
+    city: Panvel
+    district: Raigad
+    state: Maharashtra
+    owner_pan: FSPPP3318N
+    applicant_pan: FSPPP3318N
+    geo:
+      latitude: '18.9894'
+      longitude: '73.1175'
+      geo_address: House 44, Sunrise Colony, New Panvel, Panvel 410206
+      captured_by: Priya Nair
+      captured_at: 2026-10-24 12:10
+  owner_names:
+  - Suresh Pillai
+  stage: NEW
+- application_id: LGV-2026-012
+  title: 'New: upload the Sale Deed'
+  branch: MUM
+  product: Home Loan
+  loan_amount: 2950000
+  applicant_name: Fatima Khan
+  property_type: RESIDENTIAL_FLAT
+  property_address: Flat 702, Riverview Residency, Kalyan West, Kalyan 421301
+  property_pin: '421301'
+  stage_label: Credit assessment
+  details:
+    external_id: NA
+    los_status: Queue
+    assigned_to: Rahul Desai
+    collateral_no: Collateral 1
+    property_usage: Residential
+    property_nature: Freehold
+    document: Sale Deed
+    flat_no: Flat 702
+    address_line1: Riverview Residency
+    address_line2: Kalyan West
+    project_name: Riverview Residency
+    landmark: Near Durgadi Fort
+    city: Kalyan
+    district: Thane
+    state: Maharashtra
+    owner_pan: GFKPK9041R
+    applicant_pan: GFKPK9041R
+    geo:
+      latitude: '19.2437'
+      longitude: '73.1355'
+      geo_address: Flat 702, Riverview Residency, Kalyan West, Kalyan 421301
+      captured_by: Rahul Desai
+      captured_at: 2026-10-24 12:10
+  owner_names:
+  - Fatima Khan
+  stage: NEW
+samples:
+  sellers:
+  - Ramesh Patil
+  - Sunita Deshmukh
+  - Harish Kamath
+  - Leela Menon
+  - Prakash Jadhav
+  - Anand Bhat
+  - Meena Chavan
+  - Gopal Nair
+  earlier_owners:
+  - Shree Ganesh Developers
+  - Vasant Kulkarni
+  - Lakshmi Constructions
+  - Dinesh More
+  - Sai Krupa Builders
+  - Bhaskar Rao
+  first_holders:
+  - CIDCO
+  - MHADA
+  - State Land Records
+  - Municipal Corporation
+  - Housing Board
+  offices:
+  - code: PVL
+    name: Sub-Registrar Panvel
+  - code: THN
+    name: Sub-Registrar Thane
+  - code: KRL
+    name: Sub-Registrar Kurla
+  - code: HVL
+    name: Sub-Registrar Haveli
+  - code: NGP
+    name: Sub-Registrar Nagpur
+  - code: VSH
+    name: Sub-Registrar Vashi
+  office_numbers:
+  - 1
+  - 4
+  deed_years:
+  - 2008
+  - 2024
+  first_transfer_years_ago:
+  - 32
+  - 42
+  ec_years:
+  - 14
+  - 22
+  areas:
+  - 58.2 sq m carpet
+  - 64.9 sq m carpet
+  - 71.5 sq m carpet
+  - 92.0 sq m built-up
+  - 1200 sq ft plot
+  - 1500 sq ft plot
+  consideration:
+  - 2500000
+  - 9500000
+  first_documents:
+  - Lease Deed
+  - Allotment Letter
+  - Conveyance Deed
+  middle_documents:
+  - Agreement for Sale
+  - Sale Deed
+  - Release Deed
+  search_parameters:
+  - 'Asset: Immovable; Debtor: Individual'
+  - 'Asset: Immovable; PIN {pin}'
+  - Debtor PAN (masked)
+  search_result: No relevant results
+  documents_to_deposit:
+  - Original Sale Deed
+  - Previous title deeds
+  - Encumbrance Certificate
+  - Share certificate
+  - Latest property tax receipt
+  documents_provided:
+  - Sale Deed
+  - Previous title deeds
+  - Encumbrance Certificate
+  - Property tax receipt
+  signing_authority_note: who signs the mortgage documents
+  signing_authorities:
+  - The owner(s) in person
+  - The owner(s), with the co-owner's consent
+  - The owner(s) through a registered power of attorney
+  post_disbursal:
+  - Registration of the mortgage with the Sub-Registrar and CERSAI filing
+  - Memorandum of deposit of title deeds and CERSAI filing
+  observations:
+  - Title traced through the full search period. No adverse entries.
+  - Chain of title complete; originals sighted at the time of search.
+  - No litigation or charge found in the searches performed.
+  title_search:
+  - Search taken at the Sub-Registrar office for the full period; no adverse entry noted.
+  - Online and physical search completed; the chain and the index entries agree.
+  application:
+    usages:
+    - Residential
+    - Self-occupied residential
+    - Commercial
+    - Industrial
+    natures:
+    - Freehold
+    - Leasehold
+    unit_prefixes:
+    - Flat
+    - House
+    - Unit
+    - Shop
+    buildings:
+    - Shanti Kunj
+    - Green Meadows
+    - Silver Oak Residency
+    - Sai Prasad CHS
+    - Lotus Heights
+    landmarks:
+    - Near Ganesh Temple
+    - Opp. Municipal School
+    - Near Bus Depot
+    - Behind Post Office
+    places:
+    - area: Kharghar
+      city: Navi Mumbai
+      district: Raigad
+      taluka: Panvel
+      state: Maharashtra
+      pin: '410210'
+    - area: Wakad
+      city: Pimpri-Chinchwad
+      district: Pune
+      taluka: Haveli
+      state: Maharashtra
+      pin: '411057'
+    - area: MIDC Hingna
+      city: Hingna
+      district: Nagpur
+      taluka: Hingna
+      state: Maharashtra
+      pin: '440016'
+    - area: Khadakpada
+      city: Kalyan
+      district: Thane
+      taluka: Kalyan
+      state: Maharashtra
+      pin: '421301'
+    - area: Vasai West
+      city: Vasai-Virar
+      district: Palghar
+      taluka: Vasai
+      state: Maharashtra
+      pin: '401202'
+  advocate_report:
+    advocates:
+    - Adv. R. K. Sharma
+    - Adv. Meera Iyer
+    - Adv. Sanjay Kulkarni
+    - Adv. Farah Khan
+    - Adv. Vivek Rao
+    reference_prefixes:
+    - LV
+    - TSR
+    - LGL
+    - TCR
+    addressed_to:
+    - The Branch Manager, Mumbai West branch
+    - The Branch Manager, Pune Central branch
+    - The Credit Manager, Thane branch
+    - The Branch Manager, Navi Mumbai branch
+    lenders:
+    - Sahyadri Home Finance Ltd
+    - Konkan Co-operative Bank Ltd
+    - Deccan Housing Finance Ltd
+    - Western Small Finance Bank Ltd
+    schemes:
+    - Gulmohar Housing Scheme
+    - Sai Nagar Layout
+    - Shanti Park
+    - Lakeview Enclave
+    - Green Acres Phase II
+    unit_prefixes:
+    - A
+    - B
+    - C
+    - Flat
+    - House
+    boundaries:
+    - Road
+    - Open plot
+    - Internal road
+    - Neighbouring unit
+    - Compound wall
+    - Garden
+    - Nala
+    - Adjoining building
+    post_documents:
+    - Registered mortgage deed in favour of the bank
+    - Memorandum of deposit of title deeds
+    - CERSAI registration of the bank's charge
+    opinions:
+    - '{owners} hold(s) a clear and marketable title, free from encumbrances, subject to the documents listed being handed
+      over before the mortgage is created.'
+    - The title of {owners} is clear and marketable; an equitable mortgage may be created on deposit of the listed original
+      documents.
+    conditions:
+    - All original title documents listed are handed over before disbursal
+    - The previous lender's release deed and No Due certificate are produced
+    - The technical (valuation) report is clear
+    - The society / association NOC is produced

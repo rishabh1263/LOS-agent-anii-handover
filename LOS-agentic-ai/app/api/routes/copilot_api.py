@@ -2149,7 +2149,7 @@ async def _query(
 
     _record = _turn.build(request_id=request_id, surface="copilot", claims=claims,
                           result=envelope, timings=timings)
-    published["observability"] = _record
+    published["observability"] = _turn.public(_record)     # the full record goes to the log only
     _turn.emit(_record)
     logger.info("copilot_timings request_id=%s stage=%s intent=%s %s",
                 request_id, published.get("stage"), published.get("intent"),

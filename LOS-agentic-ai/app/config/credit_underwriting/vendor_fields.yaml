@@ -1,0 +1,142 @@
+# VENDOR BANK ANALYSIS -> OUR FIELDS (credit underwriting, 2026-10-19)
+#
+# The vendor (Leviosa) sends a VERIFIED bank analysis -- no OCR here. Its 20 sheets fold into 4 blocks, nothing lost:
+#   account       <- "Customer & Account Information"
+#   monthly       <- "Monthly Details" (the superset of Derived Analysis, Monthwise Credits and Debits,
+#                    Monthwise EOD Balances)
+#   transactions  <- "AllAccountXns" (the superset of AccountXns)
+#   vendor_summary<- "Overall Analysis" + "Total Details" + "Average Details" (kept for reconciliation only)
+# Emi Transactions, Fixed Obligations, Recurring Credits / Debits, Non Salary Income, SalaryXns and the four TopFunds
+# sheets are views of the transactions: recomputed from `transactions`, never stored twice.
+# A new vendor format = a new mapping here; the code does not change.
+
+vendor: LEVIOSA
+version: "2026-10-19"
+
+sheets:
+  account: "Customer & Account Information"
+  monthly: "Monthly Details"
+  transactions: "AllAccountXns"
+  summary: ["Overall Analysis", "Total Details", "Average Details"]
+
+# rows of the monthly sheet that are not months (recomputed by us, never read as a month)
+skip_month_labels: [Total, Annualized, Annualised, Average]
+
+# account sheet: vendor label -> our field (identifiers are masked before anything is stored)
+account:
+  sName: holder_name
+  sBank: bank
+  sAccountType: account_type
+  sIfsc: ifsc
+  sAccountNo: account_number          # masked to the last 4 digits
+  aJointHolder: holder_type
+  sAnalysisStartDate: period_start
+  sAnalysisEndDate: period_end
+  Opening Balance: opening_balance
+  sCurrentBalance: current_balance
+  Monthly_Average_Balance: vendor_monthly_average_balance
+  EMI Detected: vendor_emi_detected
+  Cheque Bounce: vendor_cheque_bounce
+
+# monthly sheet: our metric -> {count: vendor key, amount: vendor key}; a single key is an amount
+monthly:
+  credits:                 { count: sCredits, amount: sTotalCredit }
+  debits:                  { count: sDebits, amount: sTotalDebit }
+  cash_deposits:           { count: sCashDeposits, amount: sTotalCashDeposit }
+  cash_withdrawals:        { count: sCashWithdrawals, amount: sTotalCashWithdrawal }
+  atm_withdrawals:         { count: sAtmWithdrawals, amount: sTotalAtmWithdrawal }
+  cheque_deposits:         { amount: sTotalChqDeposit }
+  salary:                  { count: sSalaries, amount: sTotalSalary }
+  salary_paid:             { amount: sTotalPaidSalary }
+  emi_or_loan:             { count: sEmiOrLoans, amount: sTotalEmiOrLoan }
+  loan_disbursal:          { amount: sTotalLoanDisbursal }
+  inward_bounces:          { count: sInwBounces, amount: sTotalInwBounce }
+  inward_cheque_bounces:   { count: sInwChqBounces, amount: sTotalInwChqBounce }
+  outward_bounces:         { count: sOutwBounces, amount: sTotalOutwBounce }
+  outward_cheque_bounces:  { count: sOutwChqBounces, amount: sTotalOutwChqBounce }
+  credit_card_payments:    { count: sCreditCardPayments, amount: sTotalCreditCardPayment }
+  utilities:               { count: sUtilityExpenses, amount: sTotalUtilityExpense }
+  investment_expense:      { count: sInvExpenses, amount: sTotalInvExpenses }
+  investment_income:       { amount: sTotalInvIncome }
+  interest_income:         { amount: sTotalInterestIncome }
+  interest_charged:        { amount: sTotalInterestCharged }
+  opening_balance:         { amount: sOpeningBalance }
+  closing_balance:         { amount: sClosingBalance }
+  max_income:              { amount: sMaxIncome }
+  max_expense:             { amount: sMaxExpense }
+  min_expense:             { amount: sMinExpense }
+  balance_min:             { amount: sBalMin }
+  balance_max:             { amount: sBalMax }
+  balance_avg:             { amount: sBalAvg }
+# end-of-day balance on day N of the month: vendor key pattern (the days present are read as given)
+eod_key_pattern: '^sBal(\d{1,2})$'
+
+# transactions sheet: vendor column -> our field
+transactions:
+  sDate: date
+  sAmount: amount
+  sCreditOrDebit: direction          # CREDIT / DEBIT
+  sMode: mode                        # UPI / NEFT / IMPS / NACH / ECS / CASH ...
+  transactionTypes: type
+  sBalance: balance
+  sNarration: narration              # kept for evidence; never logged
+  counter_party: counterparty
+  sCategory: category
+  txnId: txn_id
+  reference: reference
+  is_excluded: excluded
+  exclusion_reason: exclusion_reason
+
+# THE VENDOR'S OWN SHEETS, KEPT AS THE VENDOR NAMES THEM (the report quotes them field by field; our rules read them
+# and cross-check them). Derived Analysis, Monthwise Credits and Debits, Monthwise EOD Balances and AccountXns are
+# subsets of Monthly Details / AllAccountXns, so nothing is lost by not keeping them twice.
+vendor_view:
+  account_sheet: "Customer & Account Information"     # kept as vendor key -> value, minus drop_keys
+  key_value: ["Overall Analysis", "Total Details", "Average Details"]
+  month_grid: "Monthly Details"                       # month -> every vendor key (sTotalCredit, sInwBounces, sBal5 ...)
+  tables: ["Emi Transactions", "Fixed Obligations", "Non Salary Income", "SalaryXns", "Recurring Credits",
+           "Recurring Debits", "TopFundsReceived", "TopFundsTransferred", "TopFundsReceived by Category",
+           "TopFundsTransferred by Category"]
+  # identifiers never stored (account number is kept masked in `account`)
+  # the vendor's own EMI list: each loan in our obligation map says whether the vendor listed it too
+  emi_rows: { sheet: "Emi Transactions", date: sDate, amount: sAmount, category: sCategory }
+  drop_keys: [sEmail, sAddress, sMobile, sPan, sMicrCode, sAccountNo, account_number, micr_code, Items]
+  text_max: 120                                       # narrations cut to this length
+  # quoted in the report's "Vendor report" section (the rest stays in the stored analysis)
+  in_report: ["Customer & Account Information", "Overall Analysis", "Total Details", "Average Details",
+              "Emi Transactions", "Fixed Obligations"]
+
+# which vendor fields each rule / check reads (shown in the report next to the rule, so the officer can open the
+# same cell in the vendor's workbook)
+sources:
+  DATA_COMPLETE: ["Customer & Account Information: sAnalysisStartDate, sAnalysisEndDate, sName",
+                  "Monthly Details: sOpeningBalance, sClosingBalance", "AllAccountXns: sAmount, sCreditOrDebit"]
+  REPAYMENT_TRACK: ["Monthly Details: sInwBounces, sInwChqBounces", "Total Details: sChequeBounceL6MCount",
+                    "Emi Transactions", "AllAccountXns: sCategory (Reversal)"]
+  TRUE_FOIR: ["Emi Transactions", "Fixed Obligations", "AllAccountXns: recurring lender debits",
+              "Overall Analysis: EMI Payments, FOIR"]
+  BALANCE_COVER: ["Monthly Details: sBal5, sBal10, sBal15, sBal20, sBal25"]
+  INCOME_SUPPORT: ["AllAccountXns: credits less sCategory Loan Disbursed / Self Transfer / Reversal",
+                   "Overall Analysis: Salary Credits, Non Salary Income"]
+
+# the vendor's own verdict-like figures we cross-check against ours (vendor sheet, vendor key)
+cross_check:
+  foir_pct: ["Overall Analysis", "FOIR"]
+  emi_payments: ["Overall Analysis", "EMI Payments"]
+  fixed_obligations: ["Overall Analysis", "Fixed Obligations"]
+  cheque_bounces_6m: ["Total Details", "sChequeBounceL6MCount"]
+  emi_detected: ["Customer & Account Information", "EMI Detected"]
+  cheque_bounce_flag: ["Customer & Account Information", "Cheque Bounce"]
+  monthly_average_balance: ["Customer & Account Information", "Monthly_Average_Balance"]
+  differ_pct: 15                                      # vendor vs ours further apart than this -> a point to check
+
+# vendor categories we act on (exact vendor words; compared case-insensitively, "_" = " ")
+categories:
+  loan_disbursal: [Loan Disbursed]
+  emi: [EMI and Loans, Emi Paid]
+  salary: [Salary, Salary Received]
+  self_transfer: [Self Transfer, Own Account Transfer]
+  reversal: [Reversal, Refund]
+  bounce: [Bounce, Cheque Bounce, ECS Bounce, NACH Bounce, Return]
+  # never an EMI, however regular or lender-like the payee ("BANK CHARGES" every month is a fee, not a loan)
+  not_emi: [Bank Fees and Charges, Bank Charges, Penal Charges, Charges, Interest Charged, Tax, Insurance]

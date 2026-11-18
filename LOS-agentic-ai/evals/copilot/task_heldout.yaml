@@ -1,0 +1,103 @@
+# SEMANTIC TASK HELD-OUT SET (Phase 2, written 2026-10-12 BEFORE any Phase 2 code change; baseline measured on it
+# first). NEVER tune on it: a miss here is fixed only as a CLASS (confirmed on task_dev.yaml), then re-measured.
+# No sentence here is a catalogue example or a reviewed paraphrase (tests/integration/test_live_task_eval.py checks).
+#
+# Every item runs in its own chat through the real API (tests/integration/test_live_task_eval.py) with three cases of
+# the caller on file (+ one case of ANOTHER officer that must never appear). ctx:
+#   none   -- nothing open, nothing listed
+#   open   -- the caller's first case opened first
+#   listed -- "show my cases" answered first (a list of the caller's cases on screen)
+#   before -- extra turns sent first (after ctx), in order
+# expect (the INTERPRETATION, judged from what the system did):
+#   scope:  conversation | one_case | portfolio | knowledge | none
+#   op:     greet | ack | negate | retrieve | which_case | list | count | rank | compare | page | explain | clarify | refuse
+#   ref:    ordinal (a row of the list shown is the case) -- optional
+#   filter: a case_list.yaml filter key the portfolio answer must use -- optional
+# cat: the category reported; style: en | hinglish | typo | informal (reported too).
+items:
+  # ---- 1. greetings and acknowledgements -------------------------------------------------------------------------
+  - { id: G01, cat: greeting, style: informal, ctx: none, q: "yo, morning!", expect: { scope: conversation, op: greet } }
+  - { id: G02, cat: greeting, style: hinglish, ctx: none, q: "namaste ji", expect: { scope: conversation, op: greet } }
+  - { id: G03, cat: greeting, style: en, ctx: open, q: "good afternoon", expect: { scope: conversation, op: greet } }
+  - { id: G04, cat: greeting, style: typo, ctx: none, q: "helo there", expect: { scope: conversation, op: greet } }
+  - { id: G05, cat: greeting, style: hinglish, ctx: none, q: "hi bhai kya haal", expect: { scope: conversation, op: greet } }
+  - { id: A01, cat: ack, style: en, ctx: open, before: ["what is pending"], q: "great, thanks a lot", expect: { scope: conversation, op: ack } }
+  - { id: A02, cat: ack, style: hinglish, ctx: open, before: ["what is pending"], q: "theek hai samajh gaya", expect: { scope: conversation, op: ack } }
+  - { id: A03, cat: ack, style: informal, ctx: none, q: "cool", expect: { scope: conversation, op: ack } }
+  - { id: A04, cat: ack, style: en, ctx: listed, q: "alright", expect: { scope: conversation, op: ack } }
+  # ---- 2. negation and corrections ------------------------------------------------------------------------------
+  - { id: N01, cat: negation, style: en, ctx: open, before: ["what is pending"], q: "nope", expect: { scope: conversation, op: negate } }
+  - { id: N02, cat: negation, style: hinglish, ctx: open, before: ["what is pending"], q: "nahi ji", expect: { scope: conversation, op: negate } }
+  - { id: N03, cat: negation, style: en, ctx: none, q: "nah not really", expect: { scope: conversation, op: negate } }
+  - { id: R01, cat: correction, style: en, ctx: listed, before: ["open the first one"], q: "no, I meant the second one", expect: { scope: one_case, op: retrieve, ref: ordinal, rows: [2] } }
+  - { id: R02, cat: correction, style: hinglish, ctx: listed, before: ["open the first one"], q: "nahi, doosra wala", expect: { scope: one_case, op: retrieve, ref: ordinal, rows: [2] } }
+  - { id: R03, cat: correction, style: en, ctx: open, before: ["what is pending"], q: "no, I meant the co-applicant", expect: { scope: one_case, op: retrieve } }
+  - { id: R04, cat: correction, style: en, ctx: none, before: ["how many cases have documents pending?"], q: "no, I meant the KYC ones", expect: { scope: portfolio, op: count, filter: kyc_issue } }
+  # ---- 3. single-case questions ---------------------------------------------------------------------------------
+  - { id: S01, cat: single_case, style: en, ctx: open, q: "where does this file stand right now", expect: { scope: one_case, op: retrieve } }
+  - { id: S02, cat: single_case, style: en, ctx: open, q: "what's holding this application back", expect: { scope: one_case, op: retrieve } }
+  - { id: S03, cat: single_case, style: hinglish, ctx: open, q: "is customer ka loan kitne ka hai", expect: { scope: one_case, op: retrieve } }
+  - { id: S04, cat: single_case, style: informal, ctx: open, q: "kyc on this one ok?", expect: { scope: one_case, op: retrieve } }
+  - { id: S05, cat: single_case, style: en, ctx: open, q: "what should I be doing next for this borrower", expect: { scope: one_case, op: retrieve } }
+  - { id: S06, cat: single_case, style: en, ctx: none, q: "what is still pending on this application?", expect: { scope: one_case, op: which_case } }
+  - { id: S07, cat: single_case, style: hinglish, ctx: none, q: "is file ka kyc hua ki nahi", expect: { scope: one_case, op: which_case } }
+  - { id: S08, cat: single_case, style: typo, ctx: open, q: "wats pendng here", expect: { scope: one_case, op: retrieve } }
+  - { id: S09, cat: single_case, style: en, ctx: open, q: "can this go to CPA yet", expect: { scope: one_case, op: retrieve } }
+  - { id: S10, cat: single_case, style: hinglish, ctx: open, q: "ye case kis stage pe pada hai", expect: { scope: one_case, op: retrieve } }
+  # ---- 4. portfolio list questions ------------------------------------------------------------------------------
+  - { id: P01, cat: portfolio_list, style: en, ctx: none, q: "which applications have pending documents?", expect: { scope: portfolio, op: list } }
+  - { id: P02, cat: portfolio_list, style: en, ctx: none, q: "show me every file that is still incomplete", expect: { scope: portfolio, op: list } }
+  - { id: P03, cat: portfolio_list, style: hinglish, ctx: none, q: "jin cases mein kaam baaki hai woh dikhao", expect: { scope: portfolio, op: list } }
+  - { id: P04, cat: portfolio_list, style: en, ctx: none, q: "list the loans that have a KYC problem", expect: { scope: portfolio, op: list, filter: kyc_issue } }
+  - { id: P05, cat: portfolio_list, style: typo, ctx: none, q: "show my pendng cases", expect: { scope: portfolio, op: list } }
+  - { id: P06, cat: portfolio_list, style: en, ctx: open, q: "which of my other files still need documents?", expect: { scope: portfolio, op: list } }
+  - { id: P07, cat: portfolio_list, style: informal, ctx: none, q: "my stuck files pls", expect: { scope: portfolio, op: list } }
+  - { id: P08, cat: portfolio_list, style: en, ctx: none, q: "show me the last two cases", expect: { scope: portfolio, op: list } }
+  - { id: P09, cat: portfolio_list, style: hinglish, ctx: none, q: "kaunsi files CPA ke liye ready hain", expect: { scope: portfolio, op: list, filter: ready_for_cpa } }
+  # ---- 5. aggregate / count questions ---------------------------------------------------------------------------
+  - { id: C01, cat: count, style: en, ctx: none, q: "how many applications have pending documents?", expect: { scope: portfolio, op: count } }
+  - { id: C02, cat: count, style: en, ctx: none, q: "how many of my files are stuck?", expect: { scope: portfolio, op: count, filter: stuck } }
+  - { id: C03, cat: count, style: hinglish, ctx: none, q: "kitne case kyc mein atke hain", expect: { scope: portfolio, op: count, filter: kyc_issue } }
+  - { id: C04, cat: count, style: en, ctx: open, q: "how many cases do I have that are ready for CPA?", expect: { scope: portfolio, op: count, filter: ready_for_cpa } }
+  - { id: C05, cat: count, style: typo, ctx: none, q: "how mny files have documnets pending", expect: { scope: portfolio, op: count } }
+  - { id: C06, cat: count, style: hinglish, ctx: none, q: "total kitni applications me document baki hai", expect: { scope: portfolio, op: count } }
+  # ---- 6. filtering, ranking, comparison ------------------------------------------------------------------------
+  - { id: K01, cat: rank_compare, style: en, ctx: none, q: "which case is nearest to being ready for CPA?", expect: { scope: portfolio, op: rank } }
+  - { id: K02, cat: rank_compare, style: en, ctx: none, q: "which file has the most documents missing?", expect: { scope: portfolio, op: rank } }
+  - { id: K03, cat: rank_compare, style: hinglish, ctx: none, q: "sabse zyada loan amount kis case ka hai", expect: { scope: portfolio, op: rank } }
+  - { id: K04, cat: rank_compare, style: en, ctx: listed, q: "compare the first two", expect: { scope: portfolio, op: compare, ref: ordinal, rows: [1, 2] } }
+  - { id: K05, cat: rank_compare, style: en, ctx: none, q: "sort my files by loan value", expect: { scope: portfolio, op: rank } }
+  - { id: K06, cat: rank_compare, style: en, ctx: none, q: "which applicant has the smallest loan?", expect: { scope: portfolio, op: rank } }
+  # ---- 7. follow-ups and ordinal references ---------------------------------------------------------------------
+  - { id: F01, cat: followup, style: en, ctx: listed, q: "why is the first one pending?", expect: { scope: one_case, op: retrieve, ref: ordinal, rows: [1] } }
+  - { id: F02, cat: followup, style: en, ctx: listed, q: "next two", expect: { scope: portfolio, op: page } }
+  - { id: F03, cat: followup, style: en, ctx: listed, q: "only the ones with a KYC issue", expect: { scope: portfolio, op: list, filter: kyc_issue } }
+  - { id: F04, cat: followup, style: en, ctx: none, before: ["how many cases have documents pending?"], q: "what about the stuck ones?", expect: { scope: portfolio, op: count, filter: stuck } }
+  - { id: F05, cat: followup, style: en, ctx: open, before: ["what is pending"], q: "tell me more", expect: { scope: one_case, op: retrieve } }
+  - { id: F06, cat: followup, style: en, ctx: open, before: ["what is pending"], q: "and for the co-applicant?", expect: { scope: one_case, op: retrieve } }
+  - { id: F07, cat: followup, style: hinglish, ctx: listed, q: "teesre wale ka status kya hai", expect: { scope: one_case, op: retrieve, ref: ordinal, rows: [3] } }
+  - { id: F08, cat: followup, style: en, ctx: listed, q: "show more", expect: { scope: portfolio, op: page } }
+  - { id: F09, cat: followup, style: en, ctx: none, before: ["how many cases have a KYC issue?"], q: "and how many are ready for CPA?", expect: { scope: portfolio, op: count, filter: ready_for_cpa } }
+  - { id: F10, cat: followup, style: en, ctx: listed, q: "what's the loan amount on the second one?", expect: { scope: one_case, op: retrieve, ref: ordinal, rows: [2] } }
+  # ---- 8. document-status questions -----------------------------------------------------------------------------
+  - { id: D01, cat: document_status, style: en, ctx: open, q: "has the PAN been verified?", expect: { scope: one_case, op: retrieve } }
+  - { id: D02, cat: document_status, style: en, ctx: open, q: "which documents are pending for this application?", expect: { scope: one_case, op: retrieve } }
+  - { id: D03, cat: document_status, style: hinglish, ctx: open, q: "bank statement upload hua kya", expect: { scope: one_case, op: retrieve } }
+  - { id: D04, cat: document_status, style: en, ctx: none, q: "which documents are pending for this application?", expect: { scope: one_case, op: which_case } }
+  - { id: D05, cat: document_status, style: typo, ctx: open, q: "signatur uploaded?", expect: { scope: one_case, op: retrieve } }
+  - { id: D06, cat: document_status, style: en, ctx: open, q: "why was the address proof rejected", expect: { scope: one_case, op: retrieve } }
+  # ---- 9. handbook / policy paraphrases -------------------------------------------------------------------------
+  - { id: H01, cat: handbook, style: en, ctx: none, q: "for how many months do we collect bank statements?", expect: { scope: knowledge, op: explain } }
+  - { id: H02, cat: handbook, style: en, ctx: open, q: "what FOIR applies to salaried borrowers?", expect: { scope: knowledge, op: explain } }
+  - { id: H03, cat: handbook, style: hinglish, ctx: none, q: "address proof mein kya kya chalta hai", expect: { scope: knowledge, op: explain } }
+  - { id: H04, cat: handbook, style: en, ctx: none, q: "what does the customer need to submit for a personal loan?", expect: { scope: knowledge, op: explain } }
+  - { id: H05, cat: handbook, style: en, ctx: none, q: "explain what LTV stands for", expect: { scope: knowledge, op: explain } }
+  - { id: H06, cat: handbook, style: typo, ctx: none, q: "wat is the min cibil scor", expect: { scope: knowledge, op: explain } }
+  - { id: H07, cat: handbook, style: en, ctx: open, q: "is a passport accepted as identity proof?", expect: { scope: knowledge, op: explain } }
+  - { id: H08, cat: handbook, style: hinglish, ctx: none, q: "emi kaise calculate karte hai", expect: { scope: knowledge, op: explain } }
+  # ---- 10. unsupported / genuinely ambiguous --------------------------------------------------------------------
+  - { id: U01, cat: ambiguous, style: en, ctx: open, q: "just handle it", expect: { scope: none, op: clarify } }
+  - { id: U02, cat: ambiguous, style: hinglish, ctx: open, q: "isko aage kar do", expect: { scope: none, op: clarify } }
+  - { id: U03, cat: ambiguous, style: en, ctx: none, q: "what's the score of the cricket match", expect: { scope: none, op: refuse } }
+  - { id: U04, cat: ambiguous, style: en, ctx: none, q: "show me officer b's cases", expect: { scope: none, op: refuse } }
+  - { id: U05, cat: ambiguous, style: en, ctx: open, q: "approve this loan for me", expect: { scope: none, op: refuse } }

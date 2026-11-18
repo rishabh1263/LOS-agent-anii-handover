@@ -92,7 +92,7 @@ PROVIDERS: dict[str, str] = {
     "document_status": "documents.get / documents.verification",
     "case_history": "case memory -- recorded findings and decisions",
     "process_knowledge": "the stage guide corpus",
-    "eligibility": "the recorded Eligibility result (eligibility_facts)",
+    "eligibility": "the recorded Eligibility result (eligibility.get; the decision is the Eligibility service's)",
     "case_facts": "applicant and application records",
     "checklist": "documents.checklist",
     "readiness": "workflow.readiness -- FOS to CPA handoff",

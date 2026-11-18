@@ -1,0 +1,399 @@
+# =====================================================================================================================
+# LEGAL COLLATERAL VERIFICATION (app/agents/credit/legal_verification/) -- a sub-agent of Credit Underwriting: the
+# legal check of the property offered as collateral. CPA -> legal agency -> agent:
+#
+#   1. the CPA opens the application (from the LOS), uploads the Sale Deed and the supporting documents
+#   2. the agent reads the Sale Deed (app/agents/sale_deed) -- the CPA may correct a misread field (audited)
+#   3. the CPA picks the legal agency and initiates the verification (after a confirmation)
+#   4. the agency fills its Verification Report (the form below: `agency_report`)
+#   5. the agent runs the ten rules -- the application, the Sale Deed and the agency's answers, each kept apart
+#   6. the recommendation (CLEAR_FOR_REVIEW / REVIEW_REQUIRED / ESCALATE) + a summary; the CPA decides
+#
+# STATUS: DEMO_DUMMY / UNCONFIRMED. Every period, list and requirement below is a STARTING VALUE for the local demo on
+# synthetic data. The credit / legal owner confirms or changes them HERE; no code change is needed.
+# =====================================================================================================================
+status: DEMO_DUMMY
+demo_mode: true                      # synthetic applications; POST /demo/reset
+
+storage:
+  # The agent's OWN PostgreSQL database. LEGAL_VERIFICATION_DSN names it (from .env, never logged). Not set: DEMO MODE
+  # starts a private local PostgreSQL cluster here (pgserver) -- never in production.
+  embedded_pgdata: runtime/legal_verification/pgdata
+  embedded_database: legal_verification
+  documents_dir: runtime/legal_verification/documents   # uploaded files; the database keeps the reference + hash
+  reports_dir: runtime/legal_verification/reports
+  pool_min: 0
+  pool_max: 8
+  seed_when_empty: true
+
+# ---- WHO MAY DO WHAT -- from the verified LOS token only (require_jwt), never from the request
+access:
+  scopes:
+    los.credit.underwrite: [view, upload, correct_extraction, initiate, validate, decide, download_report, waive,
+                            edit_application]
+    los.legal.agency: [view, submit_agency_report]
+    los.write: [view, upload, correct_extraction, initiate, validate, decide, download_report, manage_applications,
+                submit_agency_report, waive, edit_application]
+    los.read: [view, download_report]
+  all_branches_scopes: [los.write]
+  branches:
+    local-developer: ["*"]
+  # DEMO MODE ONLY: the local developer drives the whole flow, the agency's part included
+  demo_grants:
+    local-developer: [view, upload, correct_extraction, initiate, validate, decide, download_report,
+                      submit_agency_report, waive, edit_application, reset_demo]
+
+ui:
+  path: /legal-verification
+  activity_visible: 6
+  switch_ms: 650                       # switching sections: the small loader turns this long (owner: "section change me bhi loader")
+  loader_line_ms: 1300                 # the loader shows each of its lines this long
+  typewriter: { type_ms: 95, erase_ms: 45, hold_ms: 2200, rest_ms: 500 }   # the brand title typing itself
+  show_reset: false
+  # a small "Fill sample" on the Sale Deed details and the agency report (DEMO MODE only): random realistic values
+  # from legal_verification_demo.yaml `samples`
+  show_fill_sample: true
+
+# ---- the Application Details section, as Leviosa shows it (owner's screenshot 2026-10-29): groups of fields from the
+# LOS application (`details`), in this order. A PAN is only ever stored and shown masked.
+application_view:
+  case: [applicant_name, reference_id, external_id, product, loan_amount, stage, los_status, assigned_to, collateral_no]
+  property: [property_type, property_usage, property_nature, document]
+  owner: [owner_first_name, owner_middle_name, owner_last_name, owner_pan, applicant_pan]
+  address: [flat_no, address_line1, address_line2, project_name, landmark, city, district, state, pin_code,
+            complete_address]
+pan_visible_digits: 4
+# what the CPA may edit in the Application Details (the rest comes from the LOS as it is); every change is audited
+application_edit: [property_type, property_usage, property_nature, document, owner_first_name, owner_middle_name,
+                   owner_last_name, flat_no, address_line1, address_line2, project_name, landmark, city, district, state,
+                   pin_code, owner_pan, applicant_pan]
+# the choices of the Application Details form's dropdowns (UNCONFIRMED lists until the LOS's own masters are wired)
+application_options:
+  property_usage: [Residential, Self-occupied residential, Commercial, Industrial, Mixed use, Agricultural]
+  property_nature: [Freehold, Leasehold]
+  document: [Sale Deed, Gift Deed, Partition Deed, Conveyance Deed, Release Deed, Allotment Letter]
+  state: [Andhra Pradesh, Assam, Bihar, Chhattisgarh, Delhi, Goa, Gujarat, Haryana, Himachal Pradesh, Jharkhand,
+          Karnataka, Kerala, Madhya Pradesh, Maharashtra, Odisha, Punjab, Rajasthan, Tamil Nadu, Telangana,
+          Uttar Pradesh, Uttarakhand, West Bengal]
+# the form's groups, in order, and which fields are read-only (they come from the LOS as they are)
+# (the Leviosa Application Details order: Applicant Name, Reference ID first -- read-only -- then these; the Legal Vendor
+# Name last, with the PANs)
+application_form:
+  property: [property_type, property_usage, property_nature, document]
+  owner: [owner_first_name, owner_middle_name, owner_last_name]
+  address: [flat_no, address_line1, address_line2, project_name, landmark, district, pin_code, city, state]
+  identity: [owner_pan, applicant_pan]
+
+# the Geo Location Details section (values from the LOS application's `details.geo`)
+geo_fields: [latitude, longitude, geo_address, captured_by, captured_at]
+
+# the LOS's own navigation, as the Leviosa page shows it (owner's spec 2026-10-29); `link` = the LOS route when the
+# LOS gives one (empty: shown, not clickable from this screen); `active` = this screen
+los_nav:
+  - { id: home, link: "" }
+  - { id: case_login, link: "" }
+  - { id: dedupe, link: "" }
+  - { id: financial, link: "" }
+  - { id: bureau, link: "" }
+  - { id: cam_summary, link: "" }
+  - { id: verifications, link: "" }
+  - { id: property_visit, link: "" }
+  - { id: credit_visit, link: "" }
+  - { id: property_valuation, link: "" }
+  - { id: legal_verification, link: "#/", active: true }
+  - { id: collateral_check, link: "" }
+  - { id: references, link: "" }
+  - { id: insurance_pricing, link: "" }
+
+# ---- documents the CPA uploads. `kind` -> label in wording documents.kinds
+documents:
+  max_mb: 25
+  allowed_types: [application/pdf, image/jpeg, image/png]
+  # the first bytes each type must start with (hex): a file named .pdf that is not a PDF is refused
+  signatures:
+    application/pdf: ["25504446"]
+    image/jpeg: ["ffd8ff"]
+    image/png: ["89504e47"]
+  kinds: [SALE_DEED, PREVIOUS_DEED, ENCUMBRANCE_CERTIFICATE, TITLE_SEARCH_REPORT, PROPERTY_TAX_RECEIPT,
+          APPROVED_PLAN, OCCUPANCY_CERTIFICATE, SOCIETY_NOC, LAND_RECORD_EXTRACT, MUTATION_ENTRY, OTHER, AGENCY_REPORT]
+  # uploaded by the legal agency with its Verification Report (permission submit_agency_report), shown in that section
+  agency_kinds: [AGENCY_REPORT]
+  # NO OCR (owner 2026-10-29): a file is stored, never read; the CPA enters the Sale Deed's details from it
+  # editing tools in the PDF metadata worth a look (rule 2: a signal, never proof)
+  suspicious_producers: [photoshop, gimp, canva, ilovepdf, smallpdf, pdf editor, sejda, pdfescape, foxit phantompdf]
+  modified_after_created_hours: 72
+
+# ---- the legal agencies on the panel
+agencies:
+  LEX_ASSOCIATES: { name: "Lex & Associates (Advocates)", enabled: true }
+  TITLEWISE: { name: "TitleWise Legal Services", enabled: true }
+  NYAYA_PARTNERS: { name: "Nyaya Partners LLP", enabled: true }
+default_agency: LEX_ASSOCIATES
+
+# the name the screen shows for a signed-in user id (the rail's foot); an id not listed shows as itself
+user_names:
+  local-developer: "Rishabh Singh"
+
+# ---- THE DEMO FLOW -- DEMO MODE ONLY, never in production (owner 2026-10-30: "pehle se upload sabka initiate aana
+# chahiye, verification report section me report aana chahiye after initiate")
+demo_flow:
+  # READY_TO_UPLOAD: every demo case starts new -- nothing uploaded, nothing sent, the legal vendor chosen; the CPA
+  #   uploads the Sale Deed, then Initiate opens (owner 2026-10-30: "pehle se upload mat karo").
+  # READY_TO_INITIATE: the documents already uploaded too -- Initiate open.
+  # STAGED: each case at the stage the demo file gives it (sent, reported, validated). Env LEGAL_VERIFICATION_DEMO_START.
+  start: READY_TO_UPLOAD
+  documents_when_none: [SALE_DEED, ENCUMBRANCE_CERTIFICATE, PROPERTY_TAX_RECEIPT]
+  # after Initiate the demo agency answers at once -- the demo file's report for the case, else a realistic sample
+  # consistent with the case -- submitted as that agency, and the rules run. Env LEGAL_VERIFICATION_DEMO_AGENCY_REPLY.
+  agency_reply: true
+
+# ---- property types: their own required documents and legal checks (rules 7 and 8). UNCONFIRMED starting values.
+property_types:
+# legal_checks = the Verification Report's legal-opinion questions that apply to the type (rule 8): Yes = done,
+# Not applicable = not needed, No = adverse, unanswered = pending
+  RESIDENTIAL_FLAT:
+    required_documents: [SALE_DEED, ENCUMBRANCE_CERTIFICATE, PROPERTY_TAX_RECEIPT, SOCIETY_NOC]
+    legal_checks: [flat_title_certified, flat_undivided_share, equitable_mortgage_possible, roc_search]
+  INDEPENDENT_HOUSE:
+    required_documents: [SALE_DEED, ENCUMBRANCE_CERTIFICATE, PROPERTY_TAX_RECEIPT, APPROVED_PLAN]
+    legal_checks: [equitable_mortgage_possible, roc_search]
+  RESIDENTIAL_PLOT:
+    required_documents: [SALE_DEED, ENCUMBRANCE_CERTIFICATE, LAND_RECORD_EXTRACT, MUTATION_ENTRY]
+    legal_checks: [equitable_mortgage_possible, roc_search]
+  COMMERCIAL:
+    required_documents: [SALE_DEED, ENCUMBRANCE_CERTIFICATE, PROPERTY_TAX_RECEIPT, APPROVED_PLAN]
+    legal_checks: [equitable_mortgage_possible, roc_search]
+  WAREHOUSE:
+    required_documents: [SALE_DEED, ENCUMBRANCE_CERTIFICATE, PROPERTY_TAX_RECEIPT, APPROVED_PLAN]
+    legal_checks: [equitable_mortgage_possible, roc_search]
+
+# ---- periods (rules 4, 6 and 7). The Leviosa Verification Report asks "Title docs checked for last 13 years" (owner's
+# screenshots 2026-10-29): the title search period is 13 years; the EC period the same until the owner says otherwise
+title_search:
+  years: 13
+encumbrance:
+  years: 13
+
+# ---- the agency's VERIFICATION REPORT -- the Leviosa form's fields in its order (owner's spec 2026-10-29), in four
+# groups, then the search reports the rules also read (EC period, CERSAI, the transfers -- kept, not dropped).
+# Types: text, textarea, date, number, select, yesno, yesnona (Yes / No / Not applicable), people, chain, searches.
+agency_report:
+  max_table_rows: 60                    # the most rows one table field (documents, chain, EC entries...) may carry
+  sections:
+    report_header: [report_date, report_reference, advocate_name, addressed_to]
+    owner_document: [owners, property_belongs_to, documents_examined, documents_provided, property_history, document_type,
+                     sale_deed_number, sale_deed_date, sub_registrar_office, property_doc_years, property_type, title_search]
+    property_identity: [project_scheme, unit_no, area, revenue_survey_no, city_survey_no, city_survey_ward, sheet_no,
+                        tp_scheme_no, final_plot_no, village, boundary_north, boundary_south, boundary_east, boundary_west]
+    mortgage: [registered_mortgage, mortgage_type, signing_authority, documents_required, documents_required_prior,
+               documents_post_disbursal, title_docs_checked, conclusion]
+    location: [state, district, taluka]
+    legal_opinion: [title_traced_adequately, chain_maintained, ec_verified, flat_title_certified, flat_undivided_share,
+                    equitable_mortgage_possible, title_clear_marketable, roc_search]
+    certificate: [opinion_text, opinion_conditions, sarfaesi_enforceable]
+    searches: [search_from_year, search_to_year, search_sro, search_receipt_no, search_date, title_history, ec_from, ec_to,
+               ec_entries, encumbrance_found, encumbrance_details, cersai_records_found, cersai_details, cersai_searches]
+  fields:
+    # the report itself (an advocate's report carries its date, its file number and to whom it is addressed)
+    report_date: { type: date, required: true }
+    report_reference: { type: text, required: true }
+    advocate_name: { type: text, required: true }
+    addressed_to: { type: text, required: false }
+    owners: { type: people, required: true }
+    # UNCONFIRMED choices: the Leviosa dropdown's own list is not in the screenshots
+    property_belongs_to: { type: select, options: [APPLICANT, CO_APPLICANT, APPLICANT_AND_CO_APPLICANT, GUARANTOR,
+                                                   THIRD_PARTY], required: true }
+    # every document the agency examined, one row each (an original or a copy, with its registration details)
+    documents_examined:
+      type: table
+      required: true
+      columns:
+        - { id: instrument, type: select, options: title_instruments }
+        - { id: reg_no, type: text }
+        - { id: date, type: date }
+        - { id: executed_by, type: text }
+        - { id: in_favour_of, type: text }
+        - { id: copy, type: select, options: [ORIGINAL, PHOTOCOPY, CERTIFIED_COPY] }
+        - { id: page, type: text }
+    documents_provided: { type: textarea, required: false }
+    property_history: { type: textarea, required: true }
+    document_type: { type: select, options: [SALE_DEED, GIFT_DEED, PARTITION_DEED, CONVEYANCE_DEED, RELEASE_DEED], required: true }
+    sale_deed_number: { type: text, required: true }
+    sale_deed_date: { type: date, required: true }
+    sub_registrar_office: { type: text, required: true }
+    property_doc_years: { type: number, required: true }
+    property_type: { type: select, options: property_types, required: true }
+    title_search: { type: textarea, required: false }
+    # how the property is identified on the land records, and its four boundaries
+    project_scheme: { type: text, required: false }
+    unit_no: { type: text, required: false }
+    area: { type: text, required: false }
+    revenue_survey_no: { type: text, required: false }
+    city_survey_no: { type: text, required: false }
+    city_survey_ward: { type: text, required: false }
+    sheet_no: { type: text, required: false }
+    tp_scheme_no: { type: text, required: false }
+    final_plot_no: { type: text, required: false }
+    village: { type: text, required: false }
+    boundary_north: { type: text, required: false }
+    boundary_south: { type: text, required: false }
+    boundary_east: { type: text, required: false }
+    boundary_west: { type: text, required: false }
+    registered_mortgage: { type: yesno, required: true }
+    mortgage_type: { type: select, options: [EQUITABLE, REGISTERED], required: false }
+    signing_authority: { type: text, required: false }
+    # what the bank must take before (or after) the mortgage -- separate from what the agency examined
+    documents_required:
+      type: table
+      required: false
+      columns:
+        - { id: document, type: text }
+        - { id: stage, type: select, options: [PRIOR_TO_MORTGAGE, POST_DISBURSAL] }
+        - { id: copy, type: select, options: [ORIGINAL, PHOTOCOPY, CERTIFIED_COPY] }
+    documents_required_prior: { type: textarea, required: false }
+    documents_post_disbursal: { type: textarea, required: false }
+    title_docs_checked: { type: yesno, required: true }
+    conclusion: { type: textarea, required: false }
+    state: { type: text, required: true }
+    district: { type: text, required: true }
+    taluka: { type: text, required: false }
+    title_traced_adequately: { type: yesno, required: true }
+    chain_maintained: { type: yesno, required: true }
+    ec_verified: { type: yesno, required: true }
+    flat_title_certified: { type: yesnona, required: true }
+    flat_undivided_share: { type: yesnona, required: true }
+    equitable_mortgage_possible: { type: yesno, required: true }
+    title_clear_marketable: { type: yesno, required: true }
+    roc_search: { type: yesnona, required: true }
+    # the certificate in the advocate's words, and every condition it is subject to (a conditional opinion is not a pass)
+    opinion_text: { type: textarea, required: true }
+    opinion_conditions:
+      type: table
+      required: false
+      columns:
+        - { id: condition, type: text }
+    sarfaesi_enforceable: { type: yesnona, required: false }
+    # the search: the period, the office, the receipt -- then the transfers and the EC's own entries
+    search_from_year: { type: number, required: false }
+    search_to_year: { type: number, required: false }
+    search_sro: { type: text, required: false }
+    search_receipt_no: { type: text, required: false }
+    search_date: { type: date, required: false }
+    title_history:
+      type: table
+      required: false
+      columns:
+        - { id: date, type: date }
+        - { id: instrument, type: select, options: title_instruments }
+        - { id: reg_no, type: text }
+        - { id: from_owner, type: text }
+        - { id: to_owner, type: text }
+        - { id: document, type: text }
+    ec_from: { type: date, required: false }
+    ec_to: { type: date, required: false }
+    # each entry the Encumbrance Certificate lists -- a charge on it is evidence to assess, not proof that a loan is
+    # outstanding; a release is not proof of discharge without the lender's No Due
+    ec_entries:
+      type: table
+      required: false
+      columns:
+        - { id: date, type: date }
+        - { id: nature, type: select, options: ec_natures }
+        - { id: doc_no, type: text }
+        - { id: executant, type: text }
+        - { id: claimant, type: text }
+        - { id: amount, type: text }
+        - { id: page, type: text }
+    encumbrance_found: { type: yesno, required: false }
+    encumbrance_details: { type: textarea, required: false }
+    cersai_records_found: { type: yesno, required: false }
+    cersai_details: { type: textarea, required: false }
+    cersai_searches: { type: searches, required: false }
+
+# the instruments a title passes through: a TRANSFER moves the title (the chain must run unbroken through them); a
+# CORRECTION (declaration, rectification) fixes a deed and moves nothing; an ORIGIN is the first allotment
+title_instruments:
+  ALLOTMENT: ORIGIN
+  SALE_DEED: TRANSFER
+  GIFT_DEED: TRANSFER
+  PARTITION_DEED: TRANSFER
+  CONVEYANCE_DEED: TRANSFER
+  RELEASE_DEED: TRANSFER
+  WILL_PROBATE: TRANSFER
+  DECLARATION_DEED: CORRECTION
+  RECTIFICATION_DEED: CORRECTION
+  TRANSFER_LETTER: CORRECTION
+  OTHER: CORRECTION
+
+# what an EC entry is: a CHARGE (a mortgage, a further charge) stays open until a RELEASE by the same lender appears;
+# both still need the lender's own papers (mortgage deed / release deed / No Due) before anything is concluded
+ec_natures:
+  TRANSFER: OTHER
+  MORTGAGE: CHARGE
+  FURTHER_CHARGE: CHARGE
+  RELEASE: RELEASE
+  CORRECTION: OTHER
+  LEASE: OTHER
+  OTHER: OTHER
+
+# the CERSAI search types an agency reports (rule 6 needs at least one performed)
+cersai:
+  search_types: [DEBTOR_BASED, ASSET_BASED, AUTHENTICATION_BASED]
+
+# ---- the ten rules: severity when a rule FAILS (CRITICAL / HIGH / MEDIUM); a rule that needs review is AMBER
+rules:
+  R1: { severity: CRITICAL, action: VERIFY_OWNER_IDENTITY }
+  R2: { severity: HIGH, action: CHECK_SALE_DEED_ORIGINAL }
+  R3: { severity: HIGH, action: VERIFY_PROPERTY_ADDRESS }
+  R4: { severity: HIGH, action: REQUEST_TITLE_CHAIN }
+  R5: { severity: HIGH, action: VERIFY_REGISTRATION }
+  R6: { severity: CRITICAL, action: CLEAR_ENCUMBRANCE }
+  R7: { severity: MEDIUM, action: REQUEST_MISSING_DOCUMENTS }
+  R8: { severity: MEDIUM, action: COMPLETE_LEGAL_CHECKS }
+  R9: { severity: HIGH, action: CLARIFY_WITH_AGENCY }
+  R10: { severity: HIGH, action: null }
+
+# ---- the recommendation (rule 10): ESCALATE when a CRITICAL rule failed or `escalate_when_failed` rules failed;
+# REVIEW_REQUIRED when any rule failed or needs review; else CLEAR_FOR_REVIEW (the CPA still decides -- the agent never
+# declares the title clear)
+recommendation:
+  escalate_on_severity: [CRITICAL]
+  escalate_min_failed: 2
+
+# ---- the CPA's decision; remarks required for some
+decision:
+  options: [PROCEED, SEND_BACK_TO_AGENCY, ESCALATE_TO_LEGAL, REJECT_COLLATERAL]
+  remarks_required_for: [SEND_BACK_TO_AGENCY, ESCALATE_TO_LEGAL, REJECT_COLLATERAL]
+  # PROCEED only when the latest validation's recommendation is one of these
+  proceed_allowed_for: [CLEAR_FOR_REVIEW, REVIEW_REQUIRED]
+
+# ---- names: folding before comparing (rule 1, 9)
+names:
+  honorifics: [mr, mrs, ms, shri, smt, sri, kumari, km, dr, late]
+  # tokens that may be dropped when one side has fewer (initials, "s/o"...): a FOLDED match, said as such
+  relation_markers: ["s/o", "d/o", "w/o", "c/o"]
+
+registration:
+  # words that name no PLACE in a Sub-Registrar office (rule 5 compares the place words)
+  office_words_ignored: [sub, registrar, office, joint, senior, sro, the, registration, registering]
+
+address:
+  # words dropped before comparing address tokens
+  stop_words: [flat, "no", house, plot, near, opp, road, rd, street, st, the, and, at, post, dist, district, taluka,
+               tal, village, vill, nagar, sector, floor, building, bldg, apartment, apt, society, soc, india]
+  # share of the application's address words that must appear on the Sale Deed (with the PIN equal)
+  min_shared_words: 0.5
+
+# ---- the AI summary: ordered points, each checked; the rules-written one stands when the model fails
+ai_summary:
+  enabled: true                    # LEGAL_VERIFICATION_AI_SUMMARY=off overrides (tests)
+  model: null                      # null -> the app's model (OLLAMA_MODEL)
+  timeout_seconds: 25
+  num_predict: 260
+  num_ctx: 2048
+  temperature: 0.1
+  keep_alive: "30m"
+
+report:
+  version: "1.0"
+  type: LEGAL_VERIFICATION_REPORT

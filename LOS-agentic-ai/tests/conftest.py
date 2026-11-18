@@ -31,6 +31,11 @@ from typing import Any, Callable
 for _flag in ("LOS_CASE_MEMORY_ENABLED", "LOS_OCR_WORKER_ENABLED"):
     os.environ[_flag] = "false"
 
+# THE SUITE IS A TEST ENVIRONMENT. An UNSET ENVIRONMENT is production (auth and the eligibility policy guard read it
+# that way, fail closed); the suite says what it is instead of relying on whichever test imports `main` (and its
+# .env) first. A test of production behaviour sets ENVIRONMENT itself.
+os.environ.setdefault("ENVIRONMENT", "test")
+
 # THE SAME FOR RETRIEVAL. The deployment .env points at an embedded Qdrant
 # store and Ollama embeddings. The suite keeps the code defaults -- an
 # in-memory store and the local hashing embedder -- so it never takes the
@@ -39,6 +44,20 @@ for _flag in ("LOS_CASE_MEMORY_ENABLED", "LOS_OCR_WORKER_ENABLED"):
 for _name, _value in (("QDRANT_PATH", ""), ("EMBEDDING_PROVIDER", "hashing"),
                       ("LOS_DEMO_INDEX_ENABLED", "false")):
     os.environ[_name] = _value
+
+# AND THE AGENT DATABASES (2026-10-28). The deployment .env names each agent's REAL database (app/config/
+# agent_databases.yaml: ELIGIBILITY_DSN, DOCS_POLICY_DSN, BANK_VERIFICATION_DSN, CRIME_VERIFICATION_DSN, CHATBOT_DSN,
+# AGENT_DB_ADMIN_DSN). Once a test imported `main` (load_dotenv), a store fixture picked them up and a demo seed ran
+# against the owner's pgAdmin database. Set EMPTY here, so .env (which never overrides a present variable) cannot
+# fill them: a test that needs an agent database creates its own on the test server and sets the variable itself.
+# LOS_AGENTIC_DSN (2026-11-02): the ONE shared database of every agent -- the most dangerous of them all to inherit.
+for _name in ("ELIGIBILITY_DSN", "DOCS_POLICY_DSN", "BANK_VERIFICATION_DSN", "CRIME_VERIFICATION_DSN", "CHATBOT_DSN",
+              "LOS_AUDIT_DSN", "AGENT_DB_ADMIN_DSN", "LEGAL_VERIFICATION_DSN", "LOS_AGENTIC_DSN",
+              "DEDUPE_DSN",                    # the dedupe agent's own schema (2026-11-03)
+              # the eligibility agent's older name (and the repayment store's): since the rules live in the
+              # database (2026-11-02) an inherited one is reached at IMPORT time -- never from a test
+              "DATABASE_URL"):
+    os.environ[_name] = ""
 
 # AND THE MCP RUNTIME. The deployment .env may select the MCP protocol; the
 # suite runs the capability layer in process unless a test selects protocol
@@ -75,6 +94,15 @@ import tempfile as _tempfile
 
 _SESSION_STORE = _tempfile.mkdtemp(prefix="los-tests-")
 os.environ["LOS_DOCUMENT_STORE_PATH"] = os.path.join(_SESSION_STORE, "documents")
+# THE AUDIT FILES TOO (2026-10-28): left at their defaults, every test run appended to runtime/audit/*.jsonl -- the
+# owner's real audit history (46k "risk decisions" were test runs). A test that checks a file sets the path itself.
+for _name, _file in (("DEDUPE_AUDIT_PATH", "dedupe_decisions.jsonl"), ("CUSTOMER_HISTORY_AUDIT_PATH",
+                     "customer_history.jsonl"), ("FRAUD_RISK_AUDIT_PATH", "risk_decisions.jsonl"),
+                     ("AGENT_RUN_AUDIT_PATH", "agent_runs.jsonl"),
+                     ("ISSUER_VERIFICATION_AUDIT_PATH", "issuer_verification.jsonl"),
+                     ("APPLICANT_AGENT_AUDIT_PATH", "applicant_agent.jsonl"),
+                     ("DOCUMENT_LABELS_PATH", "field_corrections.jsonl")):
+    os.environ.setdefault(_name, os.path.join(_SESSION_STORE, "audit", _file))
 
 import jwt
 import pytest
@@ -237,6 +265,13 @@ def llm_router_off_by_default(monkeypatch):
     monkeypatch.setenv("COPILOT_MEANING", "false")
     monkeypatch.setenv("COPILOT_GENERAL_LLM", "false")
     monkeypatch.setenv("COPILOT_POLISH", "false")         # the reply polish calls the model: off in the suite
+    # the Qwen tool-calling agent (copilot_reply.yaml agent.enabled: ON in config) calls the live model too: off in the
+    # suite, or routing depends on whichever model Ollama holds (2026-10-23: ~30 copilot tests went to CONVERSATION)
+    monkeypatch.setenv("COPILOT_QWEN_AGENT", "false")
+    # general chat + natural conversation (ON in config since 2026-11-02) call the live model: off in the suite too
+    monkeypatch.setenv("COPILOT_GENERAL_CHAT", "false")
+    monkeypatch.setenv("COPILOT_NATURAL_CHAT", "false")
+    monkeypatch.setenv("COPILOT_PLANNER", "false")        # the planner calls the live model too (ON in config)
     monkeypatch.setenv("EMBEDDING_PROVIDER", "hashing")
     monkeypatch.delenv("COPILOT_UNDERSTANDING_LLM", raising=False)
     from app.agents.applicant.copilot import agent as _agent
@@ -424,3 +459,12 @@ def authenticate() -> Callable[[TestClient, dict[str, str]], TestClient]:
         return client
 
     return _authenticate
+
+
+@pytest.fixture(autouse=True)
+def summaries_unnumbered_by_default(monkeypatch):
+    """The summaries' CONTENT is what the agents' tests check (their exact sentences); the numbered presentation
+    (app/core/summary_points.py, 2026-11-02) is checked on its own in tests/agents/test_summary_points.py."""
+    from app.core import summary_points
+
+    monkeypatch.setitem(summary_points.settings(), "enabled", False)

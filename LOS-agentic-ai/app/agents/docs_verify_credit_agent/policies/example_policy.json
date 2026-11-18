@@ -1,0 +1,55 @@
+{
+  "_notice": "FORMAT REFERENCE ONLY -- never loaded (only *.credit.json files are). Copy to <product>.credit.json and fill in the credit team's approved values. Keys starting with _ are comments; any other unknown key makes the file invalid.",
+  "policy_id": "CREDIT_DOCS_<PRODUCT>",
+  "version": "<PRODUCT>-CREDIT-1.0.0",
+  "status": "APPROVED",
+  "approval": {"approved_by": "<name / role of the approver>", "approved_on": "2026-11-01", "reference": "<circular / minutes ref>"},
+  "effective_from": "2026-11-01",
+  "effective_to": null,
+  "applies_to": {"products": ["<PRODUCT>"], "schemes": [], "stage": "CREDIT"},
+
+  "base": {"source": "PRODUCT_POLICY_ENGINE", "through_stage": "CREDIT", "blocking": true},
+
+  "document_states": {
+    "satisfied": ["VERIFIED"],
+    "pending": ["UPLOADED", "PROCESSING"],
+    "under_review": ["REVIEW"],
+    "rejected": ["REJECTED"],
+    "verification_failed": ["FAIL", "FAILED", "REJECTED", "BLOCKED"]
+  },
+
+  "parties": {
+    "PRIMARY_APPLICANT": {"source": "base"},
+    "CO_APPLICANT": {"source": "applicant_agent.readiness.co_applicant_documents", "blocking": true},
+    "GUARANTOR": {"source": "policy", "blocking": true, "requirements": [
+      {"slot": "PAN", "accepts": ["PAN"]},
+      {"slot": "ADDRESS_PROOF", "accepts": ["PASSPORT", "DRIVING_LICENCE", "VOTER_ID"]}
+    ]}
+  },
+
+  "period_and_freshness": [
+    {"rule_id": "PF_BANK_STATEMENT_PERIOD", "document_types": ["BANK_STATEMENT"], "min_months_from": "product_policy",
+     "date_field": "period_end", "max_age_days": 30, "blocking": true, "reason": "<why>"},
+    {"rule_id": "PF_SALARY_SLIPS", "document_types": ["SALARY_SLIP"], "min_count": 3,
+     "date_field": "pay_period", "max_age_days": 45, "blocking": true, "reason": "<why>"},
+    {"rule_id": "PF_ID_VALIDITY", "document_types": ["DRIVING_LICENCE", "PASSPORT"], "expiry_from": "product_policy",
+     "blocking": true, "reason": "<why>"}
+  ],
+
+  "supporting_documents": [
+    {"rule_id": "SD_ITR_COMPUTATION", "when_present": "ITR", "requires_one_of": ["ITR_COMPUTATION", "FORM_16"],
+     "blocking": false, "reason": "<why>"}
+  ],
+
+  "same_kind": {"ADDRESS_PROOF": ["UTILITY_BILL", "RENT_AGREEMENT"]},
+  "display_names": {"PAN": "PAN", "ITR": "ITR"},
+
+  "cross_stage": {"reuse_from_stages": ["FOS", "CPA"], "collect_at_stage": ["BANK_STATEMENT"]},
+
+  "exceptions": [
+    {"rule_id": "EX_NON_STANDARD_ADDRESS_PROOF", "slots": ["ADDRESS_PROOF"], "deviation_codes": ["DVM-62A2A3"],
+     "reason": "<which deviation may waive which requirement, as the credit policy says>"}
+  ],
+
+  "unevaluated_conditions_block": true
+}

@@ -106,8 +106,13 @@ def bank_doc(*, income_evidence=True, verification="PASS", party_id=APP, source=
 
 
 def full_evidence(repository, *, co=False):
-    documents = [bank_doc(), {"source_id": "pan.jpg", "type": "PAN", "verification": "PASS",
-                              "party_id": APP}]
+    from evals.credit.suite import _BANK_PERIOD, co_docs, credit_docs
+
+    bank = bank_doc()
+    bank["extraction"]["fields"].update(_BANK_PERIOD)
+    # the full credit-stage document set (docs_verify_credit_agent), so a clean case is clean on documents too
+    documents = [bank, {"source_id": "pan.jpg", "type": "PAN", "verification": "PASS", "party_id": APP},
+                 *credit_docs(APP), *(co_docs(CO) if co else [])]
     persist({"documents": documents, **KYC, **INCOME, **ELIGIBILITY, **RISK})
     demo_bureau.assign(APP, "DEMO-BUREAU-CLEAN")
     if co:
@@ -155,7 +160,7 @@ def test_salaried_plan_follows_policy_order_and_sources():
     assert forbidden == []
     assert [s.step_id for s in steps] == [
         "application", "documents", "kyc", "income", "banking", "eligibility", "risk",
-        f"bureau:{APP}"]
+        f"bureau:{APP}", "repayment", "document_policy"]
     income = next(s for s in steps if s.category == "income")
     assert income.sources == ["income.get", "bank_behaviour.get", "financial_documents.get"]
     assert income.reason == "policy evidence_plan"
@@ -220,12 +225,15 @@ def test_sufficient_evidence_stops_with_every_required_step_resolved(store):
     state = run()
     assert state["status"] == RunStatus.EVIDENCE_COMPLETE
     assert state["stop_reason"] == StopReason.ALL_STEPS_SETTLED
-    assert all(s.status == StepStatus.RESOLVED for s in state["plan"])
+    # every step resolved but the optional bank analysis, which this case never received
+    assert all(s.status == StepStatus.RESOLVED for s in state["plan"] if s.category != "repayment")
+    assert step(state, "repayment").status == StepStatus.UNRESOLVED
     assert tools_called(state) == [
         ("application.get", None), ("documents.get", None), ("kyc.get", None),
         ("income.get", None), ("bank_behaviour.get", None), ("eligibility.get", None),
-        ("risk.get", None), ("bureau.get", APP)]
-    assert state["steps"] == 8 and state["replans"] == 0
+        ("risk.get", None), ("bureau.get", APP), ("repayment.get", None),
+        ("document_readiness.get", None)]
+    assert state["steps"] == 10 and state["replans"] == 0
     assert state["errors"] == [] and state["forbidden_attempts"] == []
     assert events(state, "FINAL")[-1]["status"] == RunStatus.EVIDENCE_COMPLETE
 
@@ -366,16 +374,16 @@ def test_max_tool_calls_stops_the_run(store):
     assert state["steps"] == 4
     assert state["stop_reason"] == StopReason.MAX_TOOL_CALLS
     skipped = [s.step_id for s in state["plan"] if s.status == StepStatus.SKIPPED_BUDGET]
-    assert skipped == ["banking", "eligibility", "risk", f"bureau:{APP}"]
+    assert skipped == ["banking", "eligibility", "risk", f"bureau:{APP}", "repayment", "document_policy"]
     assert state["status"] == RunStatus.EVIDENCE_INCOMPLETE
 
 
-def test_default_budget_is_ten_and_never_exceeded(store):
+def test_default_budget_is_twelve_and_never_exceeded(store):
     seed(store, co=True)
     full_evidence(store, co=True)
     state = run()
-    assert credit_config.max_tool_calls() == 10
-    assert state["steps"] <= 10 and len(state["tool_trace"]) == state["steps"]
+    assert credit_config.max_tool_calls() == 12          # agents.yaml, raised 10 -> 12 for document_readiness.get
+    assert state["steps"] <= 12 and len(state["tool_trace"]) == state["steps"]
 
 
 def test_max_replans_is_enforced(store):
@@ -574,7 +582,7 @@ def test_the_callers_identity_reaches_every_mcp_call(store):
     who = caller()
     with patch.object(runtime, "call", spy):
         run(who)
-    assert [s[0] for s in seen] == ["application.get", "documents.get", "eligibility.get"]
+    assert [s[0] for s in seen] == ["application.get", "documents.get", "eligibility.get", "repayment.get"]
     assert all(s[1] is who and s[2] == CASE and s[3] == "req-cr2" for s in seen)
 
 

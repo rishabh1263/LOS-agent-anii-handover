@@ -68,7 +68,7 @@ def test_a_new_topic_drops_an_older_which_one_question(client, five):
 def test_a_greeting_inside_a_case_is_a_greeting(client, five):
     say(client, f"open {five[0]}", "r5")
     md = say(client, "Hii", "r5")
-    assert md.split()[0].rstrip("!.?,") in ("Hello", "Hi") and "which one do you mean" not in md.lower(), md
+    assert md.split()[0].rstrip("!.?,") in ("Hello", "Hi", "Good", "Namaste") and "which one do you mean" not in md.lower(), md
 
 
 def test_an_ordinal_never_reaches_another_officers_case(client, other, five, prod):

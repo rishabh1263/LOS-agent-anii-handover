@@ -1,0 +1,202 @@
+# RESUME READING CONFIG (2026-10-16) -- read by app/agents/resume/parse.py and reader.py. Every word list the resume
+# parser uses lives here, never in code: add a heading, a label spelling, a city or a job-title word here.
+#
+# Matching is case-insensitive and ignores spacing / punctuation inside a label ("D.O.B", "Date of Birth",
+# "DateOfBirth" are one label). A value is taken ONLY from its own label or its own shape: nothing is guessed.
+
+# ---- what the API returns (owner 2026-10-21: the resume API gives ONLY the candidate's name) ------------------------
+# the keys of `fields` the API sends back; every other read value stays inside the service (the checks still use them)
+api_fields: [name]
+# fields only with VERIFIED; any other status sends "fields": null (a failed verification extracts nothing)
+extract_only_when_verified: true
+
+# ---- what is NEVER returned (data minimisation, owner 2026-10-16: father's name and gender skipped) -----------------
+# lines carrying these labels are dropped from every returned free text (job / education text, address)
+never_return_labels: [father, "father's name", fathers name, "father name", mother, "mother's name", husband, spouse,
+                      gender, sex, marital status, religion, caste, category, nationality, blood group, height, weight,
+                      pan, pan no, pan number, aadhaar, aadhar, aadhaar no, uid, passport, passport no, passport number,
+                      bank account, account no, account number, ifsc]
+# identity numbers masked wherever they appear in returned text
+mask_patterns:
+  pan: '\b[A-Z]{5}[0-9]{4}[A-Z]\b'
+  aadhaar: '\b[2-9][0-9]{3}\s?[0-9]{4}\s?[0-9]{4}\b'
+  passport: '\b[A-PR-WY][1-9][0-9]\s?[0-9]{4}[1-9]\b'
+
+# ---- labels (a label then ":" / "-" / spaces then the value, on its line or the next) -----------------------------
+labels:
+  date_of_birth: [date of birth, dob, d.o.b, birth date, birthdate, born on, born, janm tithi, date of birth (dd/mm/yyyy)]
+  age: [age]
+  current_location: [current location, present location, location, current city, city, based in, residing at,
+                     residing in, currently residing at, currently based at, current residence]
+  address: [address, current address, present address, residential address, permanent address, correspondence address,
+            postal address, communication address, local address, home address]
+  pin_code: [pin, pin code, pincode, postal code, zip, zip code]
+  current_ctc: [current ctc, present ctc, ctc, current salary, present salary, current package, current annual ctc,
+                annual ctc, salary drawn, last drawn salary, last drawn ctc, existing ctc, current compensation,
+                current pay, gross salary]
+  expected_ctc: [expected ctc, expected salary, salary expected, expected package, salary expectation,
+                 expected compensation, desired salary, ectc]
+  notice_period: [notice period, notice, notice period required, joining time, availability to join, can join within,
+                  available to join, joining period]
+  languages: [languages known, languages, language known, language proficiency, linguistic proficiency,
+              languages spoken, known languages]
+  employer: [company, organisation, organization, employer, company name, organisation name, organization name,
+             name of the company, name of organisation, name of organization, firm, current employer,
+             current organisation, current organization, current company]
+  designation: [designation, role, position, job title, title, post, profile, current designation, current role]
+
+# the declaration footer's "Place: Pune" is the candidate's city only when nothing better is printed
+weak_location_labels: [place]
+# "preferred location: Pune" is where they WANT to work, never where they are
+not_current_location_labels: [preferred location, preferred job location, preferred work location, job location,
+                              desired location, location preference]
+
+# ---- section headings (exact, after removing spaces / punctuation) ---------------------------------------------------
+headings:
+  education: [education, educational qualification, educational qualifications, academic qualification,
+              academic qualifications, academics, academic details, academic background, qualification, qualifications,
+              education details, educational background, academic profile, educational details, scholastic profile,
+              education and training, academic record, academic credentials]
+  experience: [experience, work experience, professional experience, employment history, employment, work history,
+               career history, employment details, internship, internships, professional background, job history,
+               experience summary, work profile, career profile, organisational experience, organizational experience,
+               relevant experience, employment record, professional journey, work details]
+  skills: [skills, technical skills, key skills, core competencies, skill set, it skills, computer skills, soft skills,
+           areas of expertise, technical proficiency, competencies, skills summary, software skills, computer proficiency,
+           strengths, key strengths]
+  summary: [summary, profile, objective, career objective, professional summary, about me, profile summary,
+            career summary, executive summary, professional profile, objective statement]
+  projects: [projects, academic projects, key projects, project details, project undertaken, projects undertaken]
+  certifications: [certifications, certificates, certification, courses, trainings, training, certification courses,
+                   professional certifications, licenses and certifications]
+  achievements: [achievements, awards, accomplishments, extra curricular activities, extracurricular activities,
+                 honors and awards, awards and achievements, co curricular activities]
+  personal: [personal details, personal information, personal profile, personal data, personal particulars,
+             personal dossier, other details, personal info, bio data, biodata]
+  languages: [languages, languages known, language known, language proficiency, linguistic proficiency]
+  hobbies: [hobbies, interests, hobbies and interests, hobbies & interests, extra interests]
+  declaration: [declaration, self declaration]
+  references: [references, referees, reference]
+  contact: [contact, contact details, contact information, contact info]
+  # ends the experience block (2026-10-19, a real resume: a mission period under "ADDITIONAL INFORMATION" became a job)
+  additional: [additional information, additional details, other information, miscellaneous, extra information,
+               additional info]
+
+# ---- employer / designation ------------------------------------------------------------------------------------------
+# a part that ends with / contains one of these is an EMPLOYER
+company_markers: [ltd, ltd., limited, pvt, pvt., private, llp, inc, inc., corp, corporation, company, co., bank, finance,
+                  financial, finserv, fincorp, capital, services, solutions, technologies, technology, tech, systems,
+                  software, consultancy, consultants, consulting, industries, enterprises, group, holdings, ventures,
+                  infotech, infosystems, global, international, india, motors, pharma, pharmaceuticals, healthcare,
+                  hospital, insurance, securities, broking, exports, traders, trading, agency, associates, logistics,
+                  retail, mart, labs, studio, foundation, trust, nbfc, microfinance, housing, telecom, communications,
+                  airways, airlines, steel, cement, power, energy, automobiles, auto, foods, textiles, chemicals]
+# well-known employers that carry no marker word
+known_employers: [infosys, wipro, tcs, accenture, capgemini, cognizant, deloitte, amazon, flipkart, google, microsoft,
+                  ibm, oracle, hcl, genpact, concentrix, teleperformance, swiggy, zomato, paytm, phonepe, byjus,
+                  reliance, airtel, jio, vodafone, idea, bajaj, tata, mahindra, godrej, hdfc, icici, axis, kotak, sbi,
+                  yes bank, indusind, muthoot, manappuram, shriram, aditya birla, l&t, larsen & toubro, ey, kpmg, pwc]
+# a part that contains one of these is a DESIGNATION
+designation_words: [officer, manager, executive, engineer, analyst, associate, assistant, intern, developer, consultant,
+                    lead, head, director, sales, relationship, clerk, accountant, supervisor, agent, advisor, adviser,
+                    representative, trainee, specialist, coordinator, co-ordinator, teller, cashier, operator,
+                    technician, administrator, admin, architect, designer, tester, programmer, president, vp,
+                    founder, partner, auditor, inspector, collector, collection, recovery, underwriter, processor,
+                    telecaller, tele caller, caller, team leader, tl, incharge, in-charge, controller, secretary,
+                    receptionist, teacher, lecturer, professor, faculty, trainer, nurse, doctor, pharmacist, chemist,
+                    driver, field, credit, loan, branch, territory, area, zonal, regional, cluster, deputy, senior,
+                    junior, chief, principal, staff, member, apprentice, fellow, scientist, researcher, writer,
+                    editor, marketing, business development, bde, bdm, rm, sm, asm, dsa, cro, fos]
+# joins between designation and employer on one line ("Sales Officer at HDFC Bank")
+role_employer_joins: [at, with, in, for, '@']
+
+# ---- CTC ---------------------------------------------------------------------------------------------------------
+ctc:
+  lakh_words: [lpa, lakhs per annum, lakh per annum, lakhs, lakh, lacs, lac, l, lpa.]
+  crore_words: [cr, crore, crores]
+  thousand_words: [k, thousand]
+  monthly_words: [per month, p.m, pm, monthly, /month, / month, a month, month]
+  annual_words: [per annum, p.a, pa, annually, /annum, per year, yearly, a year, annual]
+  not_a_number: [negotiable, as per company norms, as per industry standards, as per company standards,
+                 as per norms, best in industry, open, not disclosed, confidential]
+
+# ---- notice period ------------------------------------------------------------------------------------------------
+notice:
+  immediate_words: [immediate, immediately, immediate joiner, available immediately, can join immediately, none, nil,
+                    no notice, 0 days, zero]
+  serving_words: [serving, serving notice, currently serving]
+
+# ---- employment gaps ------------------------------------------------------------------------------------------------
+gaps:
+  report_months: 6              # a gap of at least this many months between two full-time jobs is reported
+  review_months: null           # a gap this long sends the resume to MANUAL_REVIEW; null = reported only
+
+# ---- languages (Indian scheduled + common) --------------------------------------------------------------------------
+languages: [english, hindi, marathi, gujarati, tamil, telugu, kannada, malayalam, bengali, bangla, punjabi, odia, oriya,
+            urdu, assamese, konkani, sanskrit, sindhi, kashmiri, nepali, bhojpuri, rajasthani, marwari, tulu, maithili,
+            dogri, manipuri, santali, bodo, haryanvi, chhattisgarhi, awadhi, garhwali, kumaoni, french, german,
+            spanish, japanese, arabic, mandarin, chinese, russian, italian, portuguese, korean]
+
+# ---- places ------------------------------------------------------------------------------------------------------
+states: [andhra pradesh, arunachal pradesh, assam, bihar, chhattisgarh, goa, gujarat, haryana, himachal pradesh,
+         jharkhand, karnataka, kerala, madhya pradesh, maharashtra, manipur, meghalaya, mizoram, nagaland, odisha,
+         orissa, punjab, rajasthan, sikkim, tamil nadu, telangana, tripura, uttar pradesh, uttarakhand, west bengal,
+         andaman and nicobar, chandigarh, dadra and nagar haveli, daman and diu, delhi, new delhi, jammu and kashmir,
+         ladakh, lakshadweep, puducherry, pondicherry]
+state_abbreviations: {mh: maharashtra, ka: karnataka, tn: tamil nadu, ap: andhra pradesh, up: uttar pradesh,
+                      mp: madhya pradesh, wb: west bengal, gj: gujarat, rj: rajasthan, ts: telangana, dl: delhi,
+                      hr: haryana, pb: punjab, br: bihar, or: odisha, kl: kerala, ga: goa, jh: jharkhand,
+                      cg: chhattisgarh, uk: uttarakhand, hp: himachal pradesh}
+cities: [mumbai, navi mumbai, thane, pune, pimpri chinchwad, nagpur, nashik, aurangabad, chhatrapati sambhajinagar,
+         solapur, kolhapur, sangli, satara, ahmednagar, ahilyanagar, jalgaon, akola, amravati, latur, nanded, dhule,
+         ratnagiri, chandrapur, parbhani, beed, wardha, yavatmal, baramati, kalyan, dombivli, vasai, virar, panvel,
+         bhiwandi, ulhasnagar, delhi, new delhi, noida, greater noida, gurgaon, gurugram, faridabad, ghaziabad,
+         bangalore, bengaluru, mysore, mysuru, mangalore, mangaluru, hubli, dharwad, belgaum, belagavi, davangere,
+         chennai, coimbatore, madurai, trichy, tiruchirappalli, salem, tirunelveli, vellore, erode, hosur,
+         hyderabad, secunderabad, warangal, karimnagar, nizamabad, vijayawada, visakhapatnam, vizag, guntur, nellore,
+         tirupati, kurnool, rajahmundry, kakinada, kolkata, howrah, durgapur, asansol, siliguri, ahmedabad, surat,
+         vadodara, baroda, rajkot, bhavnagar, jamnagar, gandhinagar, anand, jaipur, jodhpur, udaipur, kota, ajmer,
+         bikaner, lucknow, kanpur, agra, varanasi, prayagraj, allahabad, meerut, bareilly, aligarh, gorakhpur,
+         moradabad, jhansi, indore, bhopal, gwalior, jabalpur, ujjain, sagar, raipur, bhilai, bilaspur, patna, gaya,
+         muzaffarpur, bhagalpur, ranchi, jamshedpur, dhanbad, bokaro, bhubaneswar, cuttack, rourkela, chandigarh,
+         ludhiana, amritsar, jalandhar, patiala, mohali, dehradun, haridwar, shimla, jammu, srinagar, guwahati,
+         shillong, imphal, agartala, kochi, cochin, ernakulam, thiruvananthapuram, trivandrum, kozhikode, calicut,
+         thrissur, kollam, panaji, margao, puducherry, pondicherry, belgavi, karnal, panipat, rohtak, hisar, sonipat,
+         ambala, alwar, bharatpur, mathura, firozabad, saharanpur, dewas, ratlam, satna, rewa, korba, durg, hazaribagh,
+         purnia, darbhanga, sambalpur, berhampur, tirupur, thoothukudi, nagercoil, kanchipuram, sivakasi, karur,
+         ongole, anantapur, kadapa, eluru, bidar, gulbarga, kalaburagi, shimoga, shivamogga, tumkur, udupi, hassan,
+         raichur, bellary, ballari, vapi, valsad, navsari, bharuch, mehsana, morbi, junagadh, porbandar]
+
+# ---- qualifications (moved from code 2026-10-16) -------------------------------------------------------------------
+# checked in this order; the first level whose pattern matches a line is that line's level (regex, upper-case text)
+qualification_levels:
+  - {level: phd, pattern: '\b(?:PH\.?\s?D|DOCTORATE|DOCTOR OF PHILOSOPHY)\b'}
+  - {level: post_graduation, pattern: '\b(?:M\.?\s?TECH|M\.?\s?E\b|MBA|MCA|M\.?\s?SC|M\.?\s?COM|M\.?\s?A\b|PGDM|PGDBA|MASTER(?:S|''S)?|POST[\s-]?GRADUAT\w*|LL\.?\s?M|M\.?\s?PHARM|CHARTERED ACCOUNTANT|PG DIPLOMA|P\.?G\.?D\.?B\.?M)'}
+  - {level: graduation, pattern: '\b(?:B\.?\s?TECH|B\.?\s?E\b|B\.?\s?SC|B\.?\s?COM|BCA|BBA|BMS|BBM|B\.?\s?A\b|BACHELOR\w*|UNDERGRADUATE DEGREE|LL\.?\s?B|B\.?\s?PHARM|B\.?\s?ED|MBBS|B\.?\s?ARCH|B\.?\s?DES|GRADUATION|GRADUATE)'}
+  - {level: diploma, pattern: '\b(?:DIPLOMA|POLYTECHNIC|ITI)\b'}
+  - {level: 12th, pattern: '\b(?:12\s?TH|XII|HSC|H\.S\.C|HIGHER SECONDARY|INTERMEDIATE|SENIOR SECONDARY|CLASS 12|STD\.? 12|PUC|PRE[\s-]?UNIVERSITY|10\s?\+\s?2)\b'}
+  - {level: 10th, pattern: '\b(?:10\s?TH|SSC|S\.S\.C|MATRICULATION|MATRIC|SECONDARY SCHOOL|CLASS 10|STD\.? 10|HIGH SCHOOL|X\b(?=\s*(?:STD|STANDARD|CLASS|\(|,|\|)))'}
+# "Graduation: 2026" / "Year of Graduation 2015" is a LABEL for the year of the degree named nearby, never a degree of
+# its own (a real resume, 2026-10-19: "B.Sc. Information Technology" + "SIA College | CGPA 9.7 | Graduation: 2026" read
+# as two graduations, the first without its year)
+graduation_label: '\b(?:YEAR\s+OF\s+)?GRADUATION\s*(?:YEAR|DATE)?\s*[:\-]?\s*(?:[A-Z]{3,9}\.?\s*|\d{1,2}\s*[/.-]\s*)?(?:19|20)\d{2}\b'
+# (2026-10-19: "Graduation 12/2020" is the DATE of a degree named on another line, never a bachelor's of its own)
+not_a_qualification: '^\W*(?:RELEVANT\s+)?(?:COURSE\s?WORK|COURSES?|SUBJECTS?|THESIS|DISSERTATION|PUBLICATIONS?|RESEARCH|PAPER|PROJECTS?)\b|COURSEWORK:|^\W*GRADUATION\s*(?:DATE|YEAR|ON)?\s*[:\-]?\s*(?:(?:\d{1,2}\s*[/.-]\s*)?(?:19|20)\d{2}|[A-Z]{3,9}\.?\s*(?:19|20)\d{2})\W*$'
+institution_words: [university, college, institute, school, board, vidyalaya, academy, polytechnic, iit, nit, vidyapeeth,
+                    mahavidyalaya, cbse, icse, state board, kendriya]
+pursuing_words: [pursuing, expected, appearing, ongoing, currently studying, final year, persuing]
+# roles that are not a full-time job: beside a job they are not an overlap; excluded from total experience
+not_full_time_words: [intern, internship, interned, volunteer, volunteering, part time, part-time, freelance, freelancer,
+                      consultant, contract, contractual, tutor, tutoring, teaching assistant, research assistant,
+                      graduate assistant, student, board member, member, peer, ambassador, fellow, fellowship,
+                      apprentice, apprenticeship, trainee, club, society, nss, ncc, adjunct, visiting]
+# a short line naming its section ("Relevant Experience", "Additional Experience")
+heading_keywords: {experience: experience, employment: experience, education: education, academic: education,
+                   qualification: education, skill: skills, certification: certifications, project: projects,
+                   language: languages, personal: personal}
+
+# ---- limits ------------------------------------------------------------------------------------------------------------
+# a photo / scanned page is read by OCR: 1-2 s on an idle laptop, 7-10 s on a busy one (measured 2026-10-19) -- past
+# this the call answers 504 PROCESSING_TIMEOUT. Env RESUME_TIMEOUT_SECONDS overrides.
+limits:
+  timeout_seconds: 60

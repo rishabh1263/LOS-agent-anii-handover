@@ -1,0 +1,935 @@
+{
+  "note": "Officer-facing words for the result page: what to do next with this customer, and the customer-history policy checks (app/config/customer_history_policy.yaml, keyed by rule id; the id itself is never shown). Placeholders: {ref} Customer ID, {what} the searched identifier, {failed} the failed checks.",
+  "status": {
+    "NOT_TRIGGERED": {
+      "label": "Passed",
+      "tone": "pass"
+    },
+    "TRIGGERED": {
+      "label": "Failed",
+      "tone": "fail"
+    },
+    "NOT_EVALUATED": {
+      "label": "Not checked",
+      "tone": "skip"
+    },
+    "EVALUATION_FAILED": {
+      "label": "Not checked",
+      "tone": "skip"
+    },
+    "LIMIT_NOT_SET": {
+      "label": "Limit not set",
+      "tone": "skip"
+    }
+  },
+  "reasons": {
+    "THRESHOLD_UNCONFIGURED": "Not checked: the business has not set this limit yet.",
+    "DATA_UNAVAILABLE": "Not checked: the data this check needs is not available or not verified.",
+    "EVALUATION_FAILED": "Not checked: the value could not be compared.",
+    "PASSED": "All good.",
+    "FAILED": "Needs attention."
+  },
+  "rules": {
+    "H01_SOURCE_AVAILABLE": {
+      "title": "MIFIN responded",
+      "what": "Checks that MIFIN gave a proper answer for this customer."
+    },
+    "H02_IDENTITY_RESOLVED": {
+      "title": "Customer identity confirmed",
+      "what": "Checks that MIFIN confirmed this is the same customer, not just a possible match."
+    },
+    "H03_HISTORY_COMPLETE": {
+      "title": "Loan history complete",
+      "what": "Checks that the status of every earlier loan is known from Leviosa."
+    },
+    "H04_NO_CONFLICTING_RECORDS": {
+      "title": "No conflicting loan records",
+      "what": "Checks that the same loan does not appear twice with different details."
+    },
+    "H05_NO_UNKNOWN_LOAN_STATUS": {
+      "title": "All loan statuses known",
+      "what": "Checks that no earlier loan has an unknown status."
+    },
+    "H06_ADVERSE_HISTORY": {
+      "title": "No settled or written-off loan",
+      "what": "Checks that no earlier loan was settled or written off."
+    },
+    "H07_EXISTING_LOAN_COUNT": {
+      "title": "Running loans within limit",
+      "what": "Checks the number of running loans against the allowed limit."
+    },
+    "H08_TOTAL_EXPOSURE": {
+      "title": "Total exposure within limit",
+      "what": "Checks the amount still owed plus this loan against the allowed limit."
+    },
+    "H09_EMI_BURDEN": {
+      "title": "EMI burden within limit",
+      "what": "Checks the existing monthly EMIs against the allowed limit."
+    },
+    "H10_DPD": {
+      "title": "Repayment delays within limit",
+      "what": "Checks the longest payment delay (DPD) in the last 12 months against the allowed limit."
+    },
+    "H11_TOPUP_ELIGIBILITY": {
+      "title": "Running loans meet the top-up conditions",
+      "what": "Months since disbursal, repayment delays and the share still outstanding, for every running loan."
+    },
+    "H12_EMI_BOUNCES": {
+      "title": "EMI bounces within limit",
+      "what": "EMIs bounced in the last 12 months, from Leviosa."
+    },
+    "H13_FRAUD_HISTORY": {
+      "title": "No open or confirmed fraud case",
+      "what": "RCU / fraud cases on the customer."
+    },
+    "H14_COLLATERAL_REUSE": {
+      "title": "Property not pledged by another customer",
+      "what": "The customer's pledged properties in the collateral registry."
+    }
+  },
+  "next": {
+    "UNKNOWN": {
+      "tone": "bad",
+      "title": "Could not check this customer",
+      "text": "MIFIN did not answer, so we cannot tell if this is an existing customer. Run the check again before going ahead."
+    },
+    "AMBIGUOUS": {
+      "tone": "warn",
+      "title": "More than one customer matched",
+      "text": "This {what} matches more than one customer in MIFIN. Check the KYC documents with operations and pick the right customer before going ahead."
+    },
+    "POSSIBLE_EXISTING": {
+      "tone": "warn",
+      "title": "Confirm the customer first",
+      "text": "This may be an existing customer ({ref}), but it is not confirmed. Match the name, date of birth and PAN with the customer's documents. Only then link the case and use the loan history."
+    },
+    "EXISTING_FAILED": {
+      "tone": "bad",
+      "title": "Existing customer – check before sending to credit",
+      "text": "Existing SBFC customer ({ref}). Found: {failed}. Resolve them, or note your reason, before sending the case to credit."
+    },
+    "EXISTING_CLEAN": {
+      "tone": "ok",
+      "title": "Existing customer – history is clean",
+      "text": "Existing SBFC customer ({ref}). No loan history check failed. Link this case to the customer and send it to credit."
+    },
+    "DECLARED_EXISTING_NOT_FOUND": {
+      "tone": "warn",
+      "title": "Marked Existing, but no record found",
+      "text": "No SBFC customer has this {what}. Check that the {what} was typed correctly; if it is right, change the customer type to New and continue."
+    },
+    "NEW_OTHER_CASES": {
+      "tone": "warn",
+      "title": "New customer, but seen in other cases",
+      "text": "No earlier SBFC loan, but other cases in the LOS have this {what}. Check those cases are the same person before going ahead."
+    },
+    "NEW": {
+      "tone": "ok",
+      "title": "New customer – continue onboarding",
+      "text": "No earlier SBFC customer or loan has this {what}. Continue as a new customer."
+    },
+    "DECLARED_NEW_BUT_FOUND": "This customer was marked New but already has an SBFC record. Change the customer type to Existing.",
+    "EXISTING_OTHER_RECORDS": {
+      "tone": "warn",
+      "title": "Existing customer – check the other records first",
+      "text": "Existing SBFC customer ({ref}) and the loan history is clean, but other records need a look: {review}. Check them, then send the case to credit."
+    },
+    "NEW_REVIEW": {
+      "tone": "warn",
+      "title": "New customer – check the other records first",
+      "text": "No earlier SBFC loan, but other records need a look: {review}. Check them before going ahead."
+    },
+    "CHECK_INCOMPLETE": {
+      "tone": "bad",
+      "title": "Check incomplete – do not decide yet",
+      "text": "Some searches did not run ({missing}), so the result is not complete. Run the check again before going ahead."
+    }
+  },
+  "roles": {
+    "APPLICANT": "Applicant",
+    "PRIMARY_APPLICANT": "Applicant",
+    "CO_APPLICANT": "Co-applicant",
+    "GUARANTOR": "Guarantor",
+    "UNMAPPED": "Not recognised"
+  },
+  "parties": {
+    "APPLICANT": "Applicant",
+    "CO_APPLICANT": "Co-applicant"
+  },
+  "business_rules_note": "The business's dedupe rules R01-R11, shown on the result page. Each rule is built from what the answer really carries: loan-history checks (history, by rule id), LOS dedupe scenarios (scenario), the LOS search for the entered identifier (los_search) and whether MIFIN's PAN / mobile equals the searched one (identifier). A rule with no parts is not implemented and says which source it needs.",
+  "business_status": {
+    "pass": "Clear",
+    "fail": "Found",
+    "skip": "Not checked",
+    "partial": "Partly checked",
+    "na": "Not available"
+  },
+  "business_rules": [
+    {
+      "id": "R01",
+      "name": "Customer identity duplication",
+      "what": "Same customer with more than one application or record.",
+      "parts": [
+        {
+          "kind": "los_search",
+          "label": "other LOS cases with this identifier"
+        },
+        {
+          "kind": "scenario",
+          "scenario": "S02_EXISTING_CUSTOMER",
+          "label": "other cases of this customer in the LOS",
+          "needs_identity": true
+        }
+      ]
+    },
+    {
+      "id": "R02",
+      "name": "Previous loan default / overdue",
+      "what": "Default, overdue or late payments (DPD) on earlier loans.",
+      "parts": [
+        {
+          "kind": "history",
+          "rule": "H06_ADVERSE_HISTORY",
+          "label": "settled or written-off loan"
+        },
+        {
+          "kind": "history",
+          "rule": "H10_DPD",
+          "label": "repayment delays (DPD) above the limit"
+        }
+      ]
+    },
+    {
+      "id": "R03",
+      "name": "Same document reused across customers",
+      "what": "The same document used on another customer's case.",
+      "parts": [
+        {
+          "kind": "scenario",
+          "scenario": "S12_DOCUMENT_REUSE",
+          "label": "same file on another customer's case"
+        }
+      ]
+    },
+    {
+      "id": "R04",
+      "name": "Applicant / co-applicant role change",
+      "what": "The person was applicant on one case and co-applicant on another.",
+      "parts": [
+        {
+          "kind": "scenario",
+          "scenario": "S09_ROLE_CHANGE",
+          "label": "role swapped on another case",
+          "needs_identity": true
+        }
+      ]
+    },
+    {
+      "id": "R05",
+      "name": "Multiple existing loans / exposure",
+      "what": "Number of running loans and total amount still owed.",
+      "parts": [
+        {
+          "kind": "history",
+          "rule": "H07_EXISTING_LOAN_COUNT",
+          "label": "running loans above the limit"
+        },
+        {
+          "kind": "history",
+          "rule": "H08_TOTAL_EXPOSURE",
+          "label": "total exposure above the limit"
+        },
+        {
+          "kind": "history",
+          "rule": "H09_EMI_BURDEN",
+          "label": "EMI burden above the limit"
+        }
+      ]
+    },
+    {
+      "id": "R06",
+      "name": "Duplicate / simultaneous application",
+      "what": "The same customer has a duplicate or overlapping application.",
+      "parts": [
+        {
+          "kind": "scenario",
+          "scenario": "S10_SIMULTANEOUS_APPLICATION",
+          "label": "another application for the same product",
+          "needs_identity": true
+        },
+        {
+          "kind": "unproven",
+          "scenario": "S11_POSSIBLE_MATCH",
+          "label": "another case shares only this mobile",
+          "why": "same customer not proven – needs a PAN",
+          "needs_identity": true
+        }
+      ]
+    },
+    {
+      "id": "R07",
+      "name": "Conflicting identity / KYC",
+      "what": "PAN, mobile or identity details that do not agree.",
+      "parts": [
+        {
+          "kind": "identifier",
+          "label": "MIFIN record has a different PAN / mobile",
+          "short": "searched PAN / mobile"
+        },
+        {
+          "kind": "scenario",
+          "scenario": "S11_IDENTITY_CONFLICT",
+          "label": "PAN held by another customer record",
+          "needs_identity": true,
+          "short": "PAN on another customer's record"
+        },
+        {
+          "kind": "identity",
+          "field": "pan",
+          "label": "applicant's PAN differs from the MIFIN customer record",
+          "short": "PAN"
+        },
+        {
+          "kind": "identity",
+          "field": "name",
+          "label": "applicant's name differs from the MIFIN customer record",
+          "short": "name"
+        },
+        {
+          "kind": "identity",
+          "field": "dob",
+          "label": "applicant's date of birth differs from the MIFIN customer record",
+          "short": "date of birth"
+        }
+      ]
+    },
+    {
+      "id": "R08",
+      "name": "Bank repayment / account inconsistency",
+      "what": "Bank account and repayment details that do not agree.",
+      "parts": [
+        {
+          "kind": "history",
+          "rule": "H12_EMI_BOUNCES",
+          "label": "EMI bounces above the limit"
+        }
+      ]
+    },
+    {
+      "id": "R09",
+      "name": "Previous fraud investigation",
+      "what": "An earlier fraud investigation or confirmed fraud finding.",
+      "parts": [
+        {
+          "kind": "history",
+          "rule": "H13_FRAUD_HISTORY",
+          "label": "a confirmed or open RCU / fraud case"
+        }
+      ]
+    },
+    {
+      "id": "R10",
+      "name": "Property / collateral reuse",
+      "what": "The same property used for more than one loan.",
+      "parts": [
+        {
+          "kind": "history",
+          "rule": "H14_COLLATERAL_REUSE",
+          "label": "a property also pledged by another customer"
+        }
+      ]
+    },
+    {
+      "id": "R11",
+      "name": "Top-up / closed loan eligibility",
+      "what": "Earlier loan closure and eligibility for a top-up.",
+      "parts": [
+        {
+          "kind": "history",
+          "rule": "H11_TOPUP_ELIGIBILITY",
+          "label": "a running loan that does not meet the top-up conditions"
+        }
+      ]
+    }
+  ],
+  "dedupe_status": {
+    "DUPLICATE_FOUND": {
+      "label": "Duplicate found",
+      "tone": "bad"
+    },
+    "POSSIBLE_DUPLICATE": {
+      "label": "Possible duplicate",
+      "tone": "warn"
+    },
+    "NO_DUPLICATE_FOUND": {
+      "label": "No duplicate found",
+      "tone": "ok"
+    },
+    "CHECK_INCOMPLETE": {
+      "label": "Check incomplete",
+      "tone": "bad"
+    },
+    "NOT_INVOKED": {
+      "label": "New customer – dedupe not required",
+      "tone": "ok"
+    }
+  },
+  "dedupe_actions": {
+    "CONTINUE": "Continue",
+    "MANUAL_REVIEW": "Manual review",
+    "BLOCK_DUPLICATE": "Block duplicate"
+  },
+  "existing_loan_note": "Existing Loan Details: the columns of the LOS 'Loan Existing' screen, in its order, each mapped ONLY to a verified source field (docs/DEDUPE_LOAN_EXISTING_AUDIT.md). A column with no source shows 'Not available' -- never a guess.",
+  "existing_loan_columns": [
+    {
+      "key": "prospect_code",
+      "label": "PR Code",
+      "source": "MIFIN PROSPECTCODE (loan account no.)"
+    },
+    {
+      "key": "ap_code",
+      "label": "AP Code",
+      "source": "MIFIN CUSTID (customer ID)"
+    },
+    {
+      "key": "applicant_type",
+      "label": "Applicant Type",
+      "source": "MIFIN CUSTTYPE"
+    },
+    {
+      "key": "product_name",
+      "label": "Product Name",
+      "source": "MIFIN SCHEME"
+    },
+    {
+      "key": "loan_amount",
+      "label": "Loan Amount",
+      "source": "MIFIN SANCTIONED_AMOUNT",
+      "num": true
+    },
+    {
+      "key": "principal_outstanding",
+      "label": "Principal Outstanding",
+      "source": "Leviosa principal_outstanding",
+      "num": true
+    },
+    {
+      "key": "emi",
+      "label": "EMI",
+      "source": "Leviosa emi",
+      "num": true
+    },
+    {
+      "key": "disbursement_date",
+      "label": "Disbursement Date",
+      "source": "Leviosa disbursed_on"
+    },
+    {
+      "key": "tenor",
+      "label": "Tenor",
+      "source": "Leviosa tenure_months, shown as months and days"
+    },
+    {
+      "key": "roi",
+      "label": "ROI",
+      "source": "not in MIFIN or Leviosa"
+    },
+    {
+      "key": "loan_status",
+      "label": "Loan Status",
+      "source": "Leviosa status, else MIFIN LOAN_STATUS mapped"
+    },
+    {
+      "key": "cancel_reason",
+      "label": "Cancellation Reason",
+      "source": "MIFIN cancellation reason (field name in mifin.yaml loans.cancel_reason, UNVERIFIED)"
+    },
+    {
+      "key": "common_applicant",
+      "label": "Common Applicant",
+      "source": "every case MIFIN lists sits under the one confirmed customer ID"
+    },
+    {
+      "key": "pan_match",
+      "label": "PAN Match",
+      "source": "the applicant's PAN on this case against the MIFIN customer record (compared, never shown)"
+    },
+    {
+      "key": "match_found",
+      "label": "Match Found",
+      "source": "dedupe check: 'this loan account' = the searched loan account no.; 'same customer' = the loan belongs to the customer the searched identifier matched"
+    }
+  ],
+  "assessment_summary": {
+    "title": "Dedupe Assessment Summary",
+    "note": "",
+    "labels": {
+      "overall": "Overall status",
+      "existing": "Existing customer / loan",
+      "duplicate": "Duplicate application",
+      "applicant": "Applicant result",
+      "co_applicant": "Co-applicant result",
+      "evidence": "Key evidence",
+      "conflicts": "Conflicts",
+      "complete": "Search completeness",
+      "recommendation": "Recommendation",
+      "reason": "Reason",
+      "next": "Next action",
+      "question": "Open policy question",
+      "lookup": "Customer lookup",
+      "agent": "Dedupe agent"
+    },
+    "existing": {
+      "FOUND": "Found",
+      "NOT_FOUND": "Not found"
+    },
+    "duplicate": {
+      "CONFIRMED": "Confirmed",
+      "POSSIBLE": "Possible – needs review",
+      "NOT_FOUND": "Not found",
+      "UNKNOWN": "Unknown – check incomplete",
+      "NOT_EVALUATED": "Not evaluated – new customer"
+    },
+    "recommendation": {
+      "PROCEED_TO_NEXT_STAGE": {
+        "label": "Proceed to next stage",
+        "tone": "ok"
+      },
+      "HOLD_FOR_REVIEW": {
+        "label": "Hold for review",
+        "tone": "warn"
+      },
+      "BLOCK_APPLICATION": {
+        "label": "Block application",
+        "tone": "bad"
+      },
+      "UNABLE_TO_DECIDE": {
+        "label": "Unable to decide (no approved rule)",
+        "tone": "na"
+      }
+    },
+    "no_co_applicant": "Not applicable – no co-applicant on this case",
+    "none": "None found",
+    "agent": {
+      "invoked": "Ran",
+      "not_invoked": "Not invoked – not needed for a new customer"
+    }
+  },
+  "customer_lookup": {
+    "NEW": "New customer",
+    "EXISTING": "Existing customer",
+    "POSSIBLE_EXISTING": "Possible existing customer",
+    "CONFLICTING": "Conflicting identity",
+    "LOOKUP_FAILED": "Lookup did not complete"
+  },
+  "existing_loan_layout": {
+    "note": "Columns the same for every row are shown once in the strip above; columns empty for every loan are hidden and named below the table.",
+    "constant_columns": [
+      "ap_code",
+      "applicant_type"
+    ],
+    "hide_empty_columns": true
+  },
+  "scheme_labels_note": "MIFIN SCHEME code -> a friendly product name. EMPTY until the business confirms each meaning (e.g. what 'ME' stands for); an unmapped scheme is shown exactly as MIFIN sends it.",
+  "scheme_labels": {},
+  "form_layout_note": "The create form's sections and order (like the LOS Sourcing screen's Application Details). '@' entries are the page's own controls (codes, customer type, dedupe parameter / value, loan tenure in years -> tenure_months x 12). With no 'loan' section, a backend field not listed goes to Application Details, so a new field never disappears; the Loan Details card shows only if a 'loan' section is listed again.",
+  "form_layout": {
+    "application_details": [
+      "loan_amount",
+      "product",
+      "property_type",
+      "@customer_type",
+      "@dedupe_parameter",
+      "@dedupe_value",
+      "@tenure_years",
+      "loan_purpose",
+      "co_origination",
+      "applicant_type",
+      "employment_type",
+      "mobile",
+      "mobile_aadhaar_linked"
+    ],
+    "applicant": [
+      "full_name",
+      "date_of_birth",
+      "address"
+    ]
+  },
+  "form_labels": {
+    "loan_amount": "Loan Amount Requested (₹)",
+    "employment_type": "Applicant Category",
+    "mobile": "Applicant's Mobile No.",
+    "tenure_years": "Loan Tenure (Years)",
+    "mobile_aadhaar_linked": "Is it Aadhaar Linked Mobile No",
+    "product": "Product",
+    "co_origination": "Co-origination",
+    "document_received_date": "Document Received Date"
+  },
+  "form_hidden_fields_note": "Optional backend fields NOT on the LOS Sourcing screen: not shown, not filled, not sent. A required field is never hidden.",
+  "form_hidden_fields": [
+    "email",
+    "interest_rate_pct",
+    "declared_monthly_income",
+    "declared_monthly_obligations",
+    "property_value",
+    "document_received_date"
+  ],
+  "loan_detail_fields": [
+    {
+      "key": "ap_code",
+      "label": "AP Code",
+      "source": "MIFIN CUSTID"
+    },
+    {
+      "key": "common_applicant",
+      "label": "Common Applicant",
+      "source": "one confirmed MIFIN customer ID across all cases"
+    },
+    {
+      "key": "pan_match",
+      "label": "PAN Match",
+      "source": "applicant's PAN on the case vs the MIFIN customer record"
+    },
+    {
+      "key": "name_match",
+      "label": "Name Match",
+      "source": "the applicant's name on the case vs the MIFIN customer record (compared, never shown)"
+    },
+    {
+      "key": "dob_match",
+      "label": "DOB Match",
+      "source": "the applicant's date of birth vs the MIFIN customer record (compared, never shown)"
+    },
+    {
+      "key": "applicant_type",
+      "label": "Role in MIFIN",
+      "source": "MIFIN CUSTTYPE"
+    },
+    {
+      "key": "product_name",
+      "label": "Product Name",
+      "source": "MIFIN SCHEME, named by scheme_labels"
+    },
+    {
+      "key": "product_code",
+      "label": "Scheme",
+      "source": "MIFIN SCHEME"
+    },
+    {
+      "key": "loan_amount",
+      "label": "Loan Amount",
+      "source": "MIFIN SANCTIONED_AMOUNT",
+      "num": true
+    },
+    {
+      "key": "disbursement_date",
+      "label": "Disbursement Date",
+      "source": "Leviosa disbursed_on"
+    },
+    {
+      "key": "principal_outstanding",
+      "label": "Principal Outstanding",
+      "source": "Leviosa principal_outstanding",
+      "num": true
+    },
+    {
+      "key": "emi",
+      "label": "EMI",
+      "source": "Leviosa emi",
+      "num": true
+    },
+    {
+      "key": "overdue",
+      "label": "EMI Outstanding (overdue)",
+      "source": "Leviosa overdue_amount",
+      "num": true
+    },
+    {
+      "key": "foreclosure_interest",
+      "label": "Foreclosure Interest",
+      "source": "not in MIFIN or Leviosa"
+    },
+    {
+      "key": "tenor",
+      "label": "Tenor",
+      "source": "Leviosa tenure_months"
+    },
+    {
+      "key": "roi",
+      "label": "ROI",
+      "source": "not in MIFIN or Leviosa"
+    },
+    {
+      "key": "loan_status",
+      "label": "Status",
+      "source": "Leviosa status, else MIFIN LOAN_STATUS mapped"
+    },
+    {
+      "key": "mifin_status",
+      "label": "MIFIN Status",
+      "source": "MIFIN LOAN_STATUS, as sent"
+    },
+    {
+      "key": "lms_record",
+      "label": "Leviosa Record",
+      "source": "Leviosa lookup by PR code"
+    },
+    {
+      "key": "status_why",
+      "label": "Why",
+      "source": "how the status was decided"
+    },
+    {
+      "key": "data_problems",
+      "label": "Data Problems",
+      "source": "values the source sent that could not be read"
+    },
+    {
+      "key": "topup",
+      "label": "Top-up",
+      "source": "the top-up conditions (customer_history_policy.yaml topup)"
+    },
+    {
+      "key": "emi_bounces",
+      "label": "EMI Bounces (12 m)",
+      "source": "Leviosa emi_bounces_12m"
+    },
+    {
+      "key": "cancel_reason",
+      "label": "Cancellation Reason",
+      "source": "MIFIN (mifin.yaml loans.cancel_reason)",
+      "only_when": "CANCELED"
+    }
+  ],
+  "all_parameters": {
+    "title": "All parameters",
+    "labels": { "PAN": "PAN", "MOBILE": "Mobile number", "AP_CODE": "Customer ID (AP code)", "PR_CODE": "Loan account (PR code)" },
+    "sources": { "ENTERED": "Entered", "CASE_RECORD": "Case record" },
+    "consistency": {
+      "SAME_CUSTOMER": "All identifiers point to the same customer ({customers}).",
+      "CONFLICT": "The identifiers point to different customers: {customers}. Check this before going ahead.",
+      "NO_CUSTOMER_FOUND": "No identifier found an existing customer in MIFIN."
+    },
+    "missing": "Not checked (no value entered and none on the case record)",
+    "found_via": "Found via {via}.",
+    "findings": {
+      "PARAMETERS_POINT_TO_DIFFERENT_CUSTOMERS": "Identifiers point to different customers",
+      "NAME_DIFFERS_FROM_MIFIN_RECORD": "Name differs from MIFIN",
+      "DOB_DIFFERS_FROM_MIFIN_RECORD": "Date of birth differs from MIFIN",
+      "PAN_DIFFERS_FROM_MIFIN_RECORD": "PAN differs from MIFIN"
+    }
+  },
+  "match_table": {
+    "title": "Field by field",
+    "note": "PAN and mobile are shown masked. Name and date of birth are shown as MIFIN holds them.",
+    "no_customer": {
+      "NO_MATCH": "Not in MIFIN",
+      "AMBIGUOUS": "More than one customer in MIFIN",
+      "SOURCE_ERROR": "MIFIN could not answer",
+      "UNAVAILABLE": "MIFIN could not answer",
+      "MALFORMED": "MIFIN could not answer"
+    },
+    "results": {
+      "MATCH": "Matches",
+      "MISMATCH": "Does not match",
+      "NOT_COMPARED": "Not compared"
+    },
+    "checks": {
+      "MATCH": "✓ Matches",
+      "MISMATCH": "✗ Differs",
+      "NOT_COMPARED": "Not compared"
+    }
+  },
+  "loan_detail_groups": [
+    {
+      "title": "Customer",
+      "tone": "brand",
+      "keys": [
+        "ap_code",
+        "applicant_type",
+        "common_applicant",
+        "pan_match",
+        "name_match",
+        "dob_match"
+      ]
+    },
+    {
+      "title": "Loan",
+      "tone": "teal",
+      "keys": [
+        "product_name",
+        "product_code",
+        "loan_amount",
+        "tenor",
+        "roi"
+      ]
+    },
+    {
+      "title": "Repayment",
+      "tone": "warn",
+      "keys": [
+        "disbursement_date",
+        "principal_outstanding",
+        "emi",
+        "overdue",
+        "foreclosure_interest",
+        "emi_bounces"
+      ]
+    },
+    {
+      "title": "Status",
+      "tone": "ok",
+      "keys": [
+        "loan_status",
+        "topup",
+        "status_why",
+        "mifin_status",
+        "lms_record",
+        "data_problems",
+        "cancel_reason"
+      ]
+    }
+  ],
+  "reason": {
+    "title": "Why this recommendation",
+    "loading": "Getting the AI's wording…",
+    "llm": "AI-worded, checked against the facts",
+    "standard": "From the verified result",
+    "more": "Full summary"
+  },
+  "cancel_reason_missing": "Not given by source",
+  "simple_summary": {
+    "title": "In simple words",
+    "questions": {
+      "customer": "Is this person already our customer?",
+      "loans": "Have they taken loans from us before?",
+      "pan": "Is the PAN the same as in our records?",
+      "duplicate": "Is the same person applying twice right now?",
+      "decision": "So what should we do?",
+      "next": "What do I do next?"
+    },
+    "customer": {
+      "CONFIRMED_MATCH": "Yes. They are our customer {ref}.",
+      "POTENTIAL_MATCH": "Maybe. MIFIN found someone who looks similar. Please confirm it is the same person.",
+      "AMBIGUOUS": "Not sure. More than one customer looks similar.",
+      "NO_MATCH": "No. This is a new customer.",
+      "UNKNOWN": "We could not check. MIFIN did not answer."
+    },
+    "loans": {
+      "HAS": "Yes, {n}: {list}.",
+      "NO_PREVIOUS_LOANS": "No. Never.",
+      "NOT_APPLICABLE": "No. They are new.",
+      "NOT_ATTRIBUTED": "Hidden until you confirm it is the same customer.",
+      "UNKNOWN": "We don't know. The loan system did not answer."
+    },
+    "pan": {
+      "MATCH": "Yes. The same PAN is on all {n} loan(s).",
+      "MATCH_NO_LOANS": "Yes. It is the same PAN.",
+      "MISMATCH": "No! The PAN is different. Please check carefully.",
+      "NOT_COMPARED": "Not checked. This case has no PAN yet."
+    },
+    "duplicate": {
+      "CONFIRMED": "Yes. This is a duplicate. Stop.",
+      "POSSIBLE": "Maybe. Another application looks the same. Please check it.",
+      "NOT_FOUND": "No.",
+      "UNKNOWN": "Not sure. The check could not finish.",
+      "NOT_EVALUATED": "Not needed. They are a new customer."
+    },
+    "decision": {
+      "PROCEED_TO_NEXT_STAGE": "Go ahead. Nothing here stops this application.",
+      "HOLD_FOR_REVIEW": "Wait. Someone must check it first.",
+      "BLOCK_APPLICATION": "Stop. This application cannot go on.",
+      "UNABLE_TO_DECIDE": "Ask your manager. There is no rule for this yet."
+    }
+  },
+  "form_choices_note": "Drop-down lists for the free-text LOS fields. PROVISIONAL until the business sends the official lists: the backend accepts any text, so replacing a list here is enough.",
+  "form_choices": {
+    "loan_purpose": [
+      "Business Expansion",
+      "Working Capital",
+      "Home Purchase",
+      "Home Construction",
+      "Home Renovation",
+      "Debt Consolidation",
+      "Education",
+      "Medical Expenses",
+      "Marriage"
+    ],
+    "applicant_type": [
+      "Individual",
+      "Proprietorship",
+      "Partnership Firm",
+      "Private Limited Company",
+      "LLP",
+      "HUF",
+      "Trust"
+    ]
+  },
+  "display_mask_note": "How the page SHOWS an identifier the officer typed (the backend never returns one): keep this many characters at the start / end, the rest as the mask character.",
+  "display_mask": {
+    "PAN": {
+      "keep_start": 0,
+      "keep_end": 4,
+      "char": "*"
+    },
+    "MOBILE": {
+      "keep_start": 2,
+      "keep_end": 2,
+      "char": "*"
+    }
+  },
+  "pr_panel": {
+    "title": "Loan details",
+    "close": "Close",
+    "hint": "Click a loan to see its details."
+  },
+  "status_explain": {
+    "lms_record": {
+      "FOUND": "Found",
+      "NOT_FOUND": "No record",
+      "UNAVAILABLE": "Leviosa not reachable",
+      "UNREADABLE": "Reply could not be read"
+    },
+    "why_lms": "Confirmed by Leviosa.",
+    "why_mifin": "From MIFIN's status ({status}).",
+    "why_unknown": "Not confirmed: MIFIN's status \"{status}\" is not mapped yet and Leviosa {lms}.",
+    "why_unknown_no_status": "Not confirmed: MIFIN sent no status and Leviosa {lms}.",
+    "lms_says": {
+      "FOUND": "has no status for it",
+      "NOT_FOUND": "has no record of it",
+      "UNAVAILABLE": "could not be reached",
+      "UNREADABLE": "sent a reply that could not be read"
+    },
+    "problems": {
+      "SANCTIONED_AMOUNT_NOT_A_NUMBER": "loan amount is not a number",
+      "OS_PRINCIPAL_NOT_A_NUMBER": "outstanding principal is not a number",
+      "PR_CODE_FORMAT_UNEXPECTED": "loan account number in an unexpected format"
+    },
+    "why_disbursed": "Disbursed per MIFIN. Leviosa {lms}, so whether it is still running, and its balance, are not known yet."
+  },
+  "completeness_words": {
+    "history_partial": "{done} of {total} loans confirmed by Leviosa",
+    "total_partial": "{value} · {n} loan{s} not included",
+    "total_partial_none": "Not calculated · {n} loan{s} not confirmed",
+    "source_partial": "{done} of {total} loans found",
+    "providers": {
+      "LEVIOSA": "Leviosa"
+    },
+    "source_names": {
+      "RCU": "RCU / fraud cases",
+      "COLLATERAL": "Collateral registry"
+    }
+  },
+  "topup_words": {
+    "ELIGIBLE": "✓ Eligible",
+    "NOT_ELIGIBLE": "✗ Not eligible",
+    "NOT_EVALUATED": "Not checked",
+    "reasons": {
+      "TOO_SOON_AFTER_DISBURSAL": "too soon after disbursal",
+      "DPD_ABOVE_LIMIT": "repayment delays above the limit",
+      "OUTSTANDING_ABOVE_LIMIT": "too much still outstanding",
+      "CONFLICTING_RECORDS": "conflicting records",
+      "VALUE_NOT_READABLE": "a value could not be read"
+    }
+  }
+}

@@ -149,6 +149,86 @@ def ocr_page(image: Any, *, engine: str = "rapidocr", lang: str = "eng") -> str:
     return _tokens_to_lines(tokens)
 
 
+def _scan_config(document_type: str) -> dict[str, Any]:
+    """config financial_documents.yaml scan_ocr.<TYPE> (upright / osd / osd_min_tokens / early_stop); {} = old way."""
+    try:
+        import yaml
+
+        path = Path(__file__).resolve().parents[2] / "config" / "financial_documents.yaml"
+        return ((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("scan_ocr") or {}).get(
+            str(document_type or "").upper()) or {}
+    except Exception as exc:  # noqa: BLE001 - no config: the old behaviour
+        logger.debug("scan_ocr config unreadable: %s", exc)
+        return {}
+
+
+def _iter_rasterise(path: str, *, dpi: int = 200, max_pages: int = 2):
+    """Pages one at a time: a page that is never read is never rendered (early stop)."""
+    from PIL import Image
+
+    if is_image(path):
+        try:
+            yield Image.open(path).convert("RGB")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not open image: %s", exc)
+        return
+    try:
+        try:
+            import pymupdf as fitz
+        except ImportError:
+            import fitz  # type: ignore[no-redef]
+        with fitz.open(path) as doc:
+            for page in list(doc)[:max_pages]:
+                yield Image.open(io.BytesIO(page.get_pixmap(dpi=dpi).tobytes("png"))).convert("RGB")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not rasterise PDF: %s", exc)
+
+
+def _read_tokens(image: Any, *, upright: bool) -> list[Any]:
+    from app.agents.document_agent import preprocess as PP
+    from app.agents.document_agent.ocr import get_engine
+
+    tokens, _ = get_engine().read_array(PP.to_array(PP.standard(image)), upright=upright)
+    return tokens
+
+
+def iter_scanned_pages(path: str, *, document_type: str, max_pages: int = 2):
+    """
+    PAGE BY PAGE, so the caller can stop as soon as it has what it needs (2026-11-12).
+
+    Yields (page_text, info). With scan_ocr.<TYPE>.osd = fallback the page is read as it is first, and only a read
+    with fewer than osd_min_tokens tokens is turned upright by Tesseract OSD and read again (the better of the two
+    kept) -- OSD cost ~0.9 s on every already-upright ITR / salary-slip page. A type with no scan_ocr settings is read
+    exactly as scanned_text always did (OSD first, the classifier on).
+    """
+    cfg = _scan_config(document_type)
+    engine, lang = engine_for(document_type)
+    upright = bool(cfg.get("upright", False))
+    osd = str(cfg.get("osd", "always")).lower()
+    min_tokens = int(cfg.get("osd_min_tokens", 25))
+    for image in _iter_rasterise(path, max_pages=max_pages):
+        rotated = False
+        try:
+            if engine == "tesseract":
+                page = orient(image) if osd != "off" else image
+                rotated = page is not image
+                yield ocr_page(deskew(page), engine=engine, lang=lang), {"engine": engine, "rotated": rotated}
+                continue
+            page = orient(image) if osd == "always" else image
+            rotated = page is not image
+            tokens = _read_tokens(deskew(page), upright=upright)
+            if osd == "fallback" and len(tokens) < min_tokens:
+                turned = orient(image)
+                if turned is not image:
+                    again = _read_tokens(deskew(turned), upright=upright)
+                    if len(again) > len(tokens):
+                        tokens, rotated = again, True
+            yield _tokens_to_lines(tokens), {"engine": engine, "rotated": rotated}
+        except Exception as exc:  # noqa: BLE001 - one page never costs the others
+            logger.warning("OCR failed on a page: %s", exc)
+            yield "", {"engine": engine, "rotated": rotated}
+
+
 def scanned_text(path: str, *, document_type: str, max_pages: int = 2) -> tuple[list[str], dict[str, Any]]:
     """Page texts of a scan, and how they were produced (engine, pages, orientation)."""
     engine, lang = engine_for(document_type)
@@ -165,4 +245,4 @@ def scanned_text(path: str, *, document_type: str, max_pages: int = 2) -> tuple[
     return pages, {"engine": engine, "lang": lang, "pages": len(pages), "rotated_pages": rotated}
 
 
-__all__ = ["engine_for", "is_image", "ocr_page", "orient", "rasterise", "scanned_text"]
+__all__ = ["engine_for", "is_image", "iter_scanned_pages", "ocr_page", "orient", "rasterise", "scanned_text"]

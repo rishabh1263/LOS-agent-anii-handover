@@ -1,0 +1,102 @@
+# DEMO ONLY -- synthetic MIFIN customers and LMS loan records (owner, 2026-10-22: "everything dummy, the logic runs on
+# it"). Used only when MIFIN_PROVIDER=demo / LMS_PROVIDER=demo, and NEVER in production (refused there). Every result
+# built from this file carries is_demo: true -- demo data is never customer history.
+#
+# Every value is invented. The codes follow the real formats (AP + 8 digits, PR + 8 digits) so screens look real.
+# Lookup keys: PAN / MOBILE / AP_CODE / PR_CODE, as the FOS form's Dedupe Parameter sends them.
+
+customers:
+  # 1. EXISTING CUSTOMER, three cancelled applications (the reference response's shape)
+  - keys: {PAN: "ABCPK4321L", MOBILE: "9876501111", AP_CODE: "AP00731942"}
+    applicant: {CUSTID: "AP00731942", STRONG_MATCH: "Y", POTENTIAL_MATCH: "Y", SCORE: 5, CUSTTYPE: "Applicant",
+                FNAME: "RAHUL", LNAME: "KADAM", DOB: "1992-06-14", PAN: "ABCPK4321L", MOBILE: "9876501111"}
+    prospects:
+      - {PROSPECTCODE: "PR02184467", SCHEME: "ME NEW CUSTOMER", LOAN_STATUS: "CANCELED", SANCTIONED_AMOUNT: "150000",
+         OS_PRINCIPAL: "150000", OS_INTEREST: "", OS_OTHERCHARGES: "0", CANCEL_REASON: "Customer withdrew"}
+      - {PROSPECTCODE: "PR02236105", SCHEME: "HL", LOAN_STATUS: "CANCELED", SANCTIONED_AMOUNT: "1800000",
+         OS_PRINCIPAL: "900000", OS_INTEREST: "", OS_OTHERCHARGES: "0", CANCEL_REASON: "Property title defect"}
+      - {PROSPECTCODE: "PR02311890", SCHEME: "ME BT TOPUP", LOAN_STATUS: "CANCELED", SANCTIONED_AMOUNT: "100000",
+         OS_PRINCIPAL: "100000", OS_INTEREST: "", OS_OTHERCHARGES: "0", CANCEL_REASON: "Income not verified"}
+
+  # 2. EXISTING CUSTOMER with a live loan, a closed one and a cancelled one (the LMS below has the live / closed ones)
+  - keys: {PAN: "BCDPM5678N", MOBILE: "9876502222", AP_CODE: "AP00745218"}
+    applicant: {CUSTID: "AP00745218", STRONG_MATCH: "Y", POTENTIAL_MATCH: "", SCORE: 8, CUSTTYPE: "Applicant",
+                FNAME: "PRIYA", LNAME: "MORE", DOB: "1988-11-02", PAN: "BCDPM5678N", MOBILE: "9876502222"}
+    prospects:
+      - {PROSPECTCODE: "PR02407753", SCHEME: "ME NEW CUSTOMER", LOAN_STATUS: "DISBURSED", SANCTIONED_AMOUNT: "500000",
+         OS_PRINCIPAL: "312400", OS_INTEREST: "2150", OS_OTHERCHARGES: "0"}
+      - {PROSPECTCODE: "PR02251346", SCHEME: "LAP", LOAN_STATUS: "CLOSED", SANCTIONED_AMOUNT: "800000",
+         OS_PRINCIPAL: "0", OS_INTEREST: "0", OS_OTHERCHARGES: "0"}
+      - {PROSPECTCODE: "PR02190028", SCHEME: "ME BT TOPUP", LOAN_STATUS: "CANCELED", SANCTIONED_AMOUNT: "200000",
+         OS_PRINCIPAL: "200000", OS_INTEREST: "", OS_OTHERCHARGES: "0"}
+
+  # 3. STRONG MATCH, NO LOANS (the list is there and empty: an authoritative "none")
+  - keys: {PAN: "CDEPN2468Q", MOBILE: "9876503333", AP_CODE: "AP00752673"}
+    applicant: {CUSTID: "AP00752673", STRONG_MATCH: "Y", POTENTIAL_MATCH: "", SCORE: 6, CUSTTYPE: "Co-Applicant",
+                FNAME: "AMIT", LNAME: "PATIL", DOB: "1995-02-20", PAN: "CDEPN2468Q", MOBILE: "9876503333"}
+    prospects: []
+
+  # 4. POTENTIAL MATCH ONLY -- not confirmed: loans are not attributed to the applicant
+  - keys: {PAN: "DEFPR1357S", MOBILE: "9876504444", AP_CODE: "AP00768031"}
+    applicant: {CUSTID: "AP00768031", STRONG_MATCH: "", POTENTIAL_MATCH: "Y", SCORE: 3, CUSTTYPE: "Applicant",
+                FNAME: "SNEHA", LNAME: "JOSHI", DOB: "1990-08-09", PAN: "DEFPR1357S", MOBILE: "9876504444"}
+    prospects:
+      - {PROSPECTCODE: "PR02455102", SCHEME: "HL", LOAN_STATUS: "DISBURSED", SANCTIONED_AMOUNT: "2500000",
+         OS_PRINCIPAL: "2100000", OS_INTEREST: "9800", OS_OTHERCHARGES: "0"}
+
+  # 5. A MOBILE SHARED BY TWO CUSTOMERS -- ambiguous, never a pick
+  - keys: {MOBILE: "9876505555"}
+    ambiguous: ["AP00771190", "AP00771204"]
+
+  # 6. MIFIN ANSWERS WITH AN ERROR STATUS -- a source error, never "no match"
+  - keys: {PAN: "EFGPS9753T"}
+    error_status: "F"
+
+  # 7. A MALFORMED / DUPLICATED LOAN LIST (duplicates collapse; a conflicting duplicate is flagged)
+  - keys: {PAN: "FGHPT8642U", AP_CODE: "AP00783315"}
+    applicant: {CUSTID: "AP00783315", STRONG_MATCH: "Y", POTENTIAL_MATCH: "", SCORE: 7, CUSTTYPE: "Applicant",
+                FNAME: "KIRAN", LNAME: "DESAI", DOB: "1985-12-30", PAN: "FGHPT8642U", MOBILE: "9876506666"}
+    prospects:
+      - {PROSPECTCODE: "PR02490017", SCHEME: "ME NEW CUSTOMER", LOAN_STATUS: "DISBURSED", SANCTIONED_AMOUNT: "300000",
+         OS_PRINCIPAL: "120000", OS_INTEREST: "", OS_OTHERCHARGES: "0"}
+      - {PROSPECTCODE: "PR02490017", SCHEME: "ME NEW CUSTOMER", LOAN_STATUS: "DISBURSED", SANCTIONED_AMOUNT: "350000",
+         OS_PRINCIPAL: "120000", OS_INTEREST: "", OS_OTHERCHARGES: "0"}
+      - {PROSPECTCODE: "PR02490231", SCHEME: "HL", LOAN_STATUS: "DISBURSED", SANCTIONED_AMOUNT: "abc",
+         OS_PRINCIPAL: "", OS_INTEREST: "", OS_OTHERCHARGES: ""}
+
+# Anything not listed: MIFIN answers STATUS "S" with no applicant -> NO_MATCH.
+
+# THE LMS (loan-level detail by PR code) -- the LOS-side typed record (app/agents/dedupe/lms.py). Fields absent here are
+# UNAVAILABLE for that loan, never zero.
+lms:
+  PR02407753: {status: ACTIVE, disbursed_on: "2024-03-15", emi: "11200", principal_outstanding: "312400",
+               dpd_current: 0, dpd_max_12m: 0, overdue_amount: "0", tenure_months: 60}
+  PR02251346: {status: CLOSED, disbursed_on: "2019-07-01", closed_on: "2023-06-30", principal_outstanding: "0",
+               dpd_max_12m: 0, settled: false, written_off: false}
+  PR02490017: {status: ACTIVE, disbursed_on: "2023-01-10", emi: "9400", principal_outstanding: "120000",
+               dpd_current: 15, dpd_max_12m: 32, overdue_amount: "9400"}
+  # PR02490231 deliberately absent: the LMS has no record -> that loan's detail is UNAVAILABLE (partial history)
+
+# LEVIOSA AS THE LMS (LMS_PROVIDER=leviosa-demo): the same SYNTHETIC loans, sent the way the Leviosa adapter expects a
+# reply (app/config/leviosa_lms.yaml -- field names UNVERIFIED until a real sample arrives): Leviosa's own status words
+# (LIVE), dd-mm-yyyy dates, Y / N flags. The real adapter reads them (leviosa.to_record), so its mapping is exercised.
+leviosa:
+  PR02407753: {prospect_code: PR02407753, status: LIVE, disbursed_on: "15-03-2024", emi: "11200",
+               principal_outstanding: "312400", dpd_current: 0, dpd_max_12m: 0, overdue_amount: "0", tenure_months: 60, emi_bounces_12m: 0}
+  PR02251346: {prospect_code: PR02251346, status: CLOSED, disbursed_on: "01-07-2019", closed_on: "30-06-2023",
+               principal_outstanding: "0", dpd_max_12m: 0, settled: "N", written_off: "N", emi_bounces_12m: 0}
+  PR02490017: {prospect_code: PR02490017, status: LIVE, disbursed_on: "10-01-2023", emi: "9400",
+               principal_outstanding: "120000", dpd_current: 15, dpd_max_12m: 32, overdue_amount: "9400", emi_bounces_12m: 3}
+  PR02455102: {prospect_code: PR02455102, status: LIVE, disbursed_on: "01-06-2026", emi: "26500",
+               principal_outstanding: "2100000", dpd_current: 0, dpd_max_12m: 0, overdue_amount: "0", emi_bounces_12m: 1}
+  # PR02490231 deliberately absent: Leviosa has no record (404) -> that loan stays unconfirmed
+
+# THE TWO EXTRA SOURCES (app/agents/dedupe/extra_sources.py), keyed by the customer's AP number. SYNTHETIC.
+# RCU / fraud cases (R09): status only -- FRAUD_CONFIRMED / UNDER_INVESTIGATION fire; CLEARED does not.
+rcu:
+  AP00783315: [{status: UNDER_INVESTIGATION}]
+  AP00768031: [{status: CLEARED}]
+# Collateral registry (R10): the customer's pledged properties; other_customers > 0 = also pledged by someone else.
+collateral:
+  AP00745218: [{property_ref: PRP000101, other_customers: 0}]
+  AP00768031: [{property_ref: PRP000207, other_customers: 1}]

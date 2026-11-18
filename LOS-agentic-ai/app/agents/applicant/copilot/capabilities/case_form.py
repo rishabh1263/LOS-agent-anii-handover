@@ -26,9 +26,10 @@ from typing import Any, Awaitable, Callable
 
 FLAG = "COPILOT_CHAT_CASE_CREATE"
 
-APPLICANT_FIELDS = ("full_name", "mobile", "email", "date_of_birth", "address")
+APPLICANT_FIELDS = ("full_name", "mobile", "email", "date_of_birth", "address", "mobile_aadhaar_linked")
 APPLICATION_FIELDS = ("product", "loan_amount", "employment_type", "tenure_months", "interest_rate_pct",
-                      "declared_monthly_income", "declared_monthly_obligations", "property_value")
+                      "declared_monthly_income", "declared_monthly_obligations", "property_value", "property_type",
+                      "loan_purpose", "applicant_type", "document_received_date", "co_origination")
 
 
 def _cfg() -> dict[str, Any]:
@@ -83,12 +84,30 @@ def _max_length(field: str) -> int | None:
     return None
 
 
+def property_types_by_product() -> dict[str, dict[str, Any]]:
+    """product -> {choices, required} for the products whose eligibility terms use a property type (LTV), from the
+    SAME terms the create API checks (fos_api._property_errors): required when the product has no default type.
+    Read through app/agents/applicant/form_terms.py: the chatbot imports no eligibility module (owner, 2026-10-13)."""
+    from app.agents.applicant import form_terms
+
+    return form_terms.property_types_by_product(choices("product"))
+
+
 def choices(field: str) -> list[str]:
     if field == "product":
         from app.agents.applicant import config
 
         return [p for p in config.products() if str(p).lower() != "default"]
+    if field == "property_type":
+        return sorted({c for spec in property_types_by_product().values() for c in spec["choices"]})
     return [str(c) for c in (_cfg().get("choices") or {}).get(field) or []]
+
+
+def _rules(field: str) -> dict[str, Any]:
+    rules = dict((_cfg().get("formats") or {}).get(field) or {})
+    if field == "property_type":
+        rules["by_product"] = property_types_by_product()   # the UI shows / requires it only where it applies
+    return rules
 
 
 def schema(lang: str | None = None) -> dict[str, Any]:
@@ -96,10 +115,20 @@ def schema(lang: str | None = None) -> dict[str, Any]:
     lang = lang or _lang()
     order = list(_cfg().get("order") or (*APPLICANT_FIELDS, *APPLICATION_FIELDS))
     required = set(_cfg().get("required") or [])
-    formats = _cfg().get("formats") or {}
+    co = _cfg().get("co_applicants") or {}
     return {"fields": [{"name": f, "group": "applicant" if f in APPLICANT_FIELDS else "application",
                         "label": label(f, lang), "required": f in required, "max_length": _max_length(f),
-                        "choices": choices(f) or None, "rules": formats.get(f) or {}} for f in order]}
+                        "choices": choices(f) or None, "rules": _rules(f)} for f in order],
+            # co-applicants (POST /fos/applicants co_applicants[]): the same rules as the applicant's fields
+            "co_applicants": {"max": int(co.get("max") or 0), "fields": [
+                {"name": f.get("name"), "label": product_flow_say(f.get("label"), lang), "required": bool(f.get("required")),
+                 "rules": f.get("rules") or {}} for f in co.get("fields") or []]}}
+
+
+def product_flow_say(text: Any, lang: str) -> str:
+    from app.agents.applicant.copilot.capabilities import product_flow
+
+    return product_flow.say(text, lang) if text else ""
 
 
 def _why(key: str, lang: str, **values: Any) -> str:
@@ -119,8 +148,21 @@ def check(field: str, raw: Any, lang: str | None = None) -> tuple[Any, str | Non
         return None, _why("too_long", lang, max=limit)
     rule = (_cfg().get("formats") or {}).get(field) or {}
     if rule.get("strip"):
-        text = re.sub(rule["strip"], "", text)
-    if field in ("product", "employment_type"):
+        # until stable: one pass of "[\s+-]|^91(?=\d{10}$)" over "+91 98765 43210" removes the "+" but not the
+        # "91" (its lookahead saw the "+" form), leaving "919876543210"; the UI strips the same way
+        for _ in range(5):
+            stripped = re.sub(rule["strip"], "", text)
+            if stripped == text:
+                break
+            text = stripped
+    if rule.get("boolean"):                     # a yes / no checkbox (e.g. mobile_aadhaar_linked)
+        word = text.strip().lower()
+        if word in {"yes", "y", "true", "1", "haan", "ha", "on"}:
+            return True, None
+        if word in {"no", "n", "false", "0", "nahi", "off"}:
+            return False, None
+        return None, _why("choice", lang, choices="Yes, No")
+    if field in ("product", "employment_type", "property_type"):
         wanted = text.upper().replace(" ", "_").replace("-", "_")
         options = choices(field)
         if options and wanted not in options:
@@ -132,6 +174,10 @@ def check(field: str, raw: Any, lang: str | None = None) -> tuple[Any, str | Non
         except ValueError:
             return None, _why("date", lang)
         today = date.today()
+        if rule.get("not_future"):              # a date something happened (e.g. documents received), not an age
+            if born > today:
+                return None, _why("future", lang)
+            return born.isoformat(), None
         age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
         low, high = int(rule.get("min_age", 0)), int(rule.get("max_age", 150))
         if not low <= age <= high:
@@ -318,7 +364,7 @@ def shown(field: str, value: Any) -> str:
     text = str(value)
     if re.fullmatch(r"-?\d+\.0+", text):
         return text.split(".")[0]
-    if field in ("product", "employment_type") and re.fullmatch(r"[A-Z_]+", text):
+    if field in ("product", "employment_type", "property_type") and re.fullmatch(r"[A-Z_]+", text):
         return text.replace("_", " ").capitalize()
     return text
 
@@ -491,7 +537,7 @@ async def chat_turn(action: str, message: str, claims: dict[str, Any], request_i
             return _reply(request_id, _say("no_rights", lang))
         from app.agents.applicant.copilot.answering import contract
 
-        write = {"kind": "create", "values": {}, "field": _next({}), "ref": "draft",
+        write = {"kind": "create", "values": {}, "field": _next({}), "ref": "draft", "draft_id": uuid.uuid4().hex,
                  "expires": time.time() + float(_cfg().get("draft_ttl_seconds", 1800))}
         reply = _reply(request_id, "\n\n".join([_say("start", lang), _ask(write["field"], lang),
                                                 _say("or_form", lang) + " " + contract.link("new_case", lang)]))
@@ -525,9 +571,10 @@ async def _import_step(verb: str, import_id: str, claims: dict[str, Any], reques
     if verb == "cancel":
         return _reply(request_id, _say("cancelled", lang))
     made = []
-    for values in rows:
+    for row_no, values in enumerate(rows, start=1):
         try:
-            created = await create(importer.body_for(values))
+            # one key per (sheet, row): confirming the same sheet again never creates its rows twice
+            created = await create({**importer.body_for(values), "_idempotency_key": f"import:{import_id}:{row_no}"})
             created = created.model_dump() if hasattr(created, "model_dump") else dict(created or {})
             made.append(str(created.get("case_id") or ""))
         except HTTPException:
@@ -628,9 +675,16 @@ def _inline_edit(write: dict[str, Any], message: str, field: str, lang: str, the
     return _summary(write["values"], lang, str(write.get("ref") or "draft"))
 
 
+#: drafts claimed by a Confirm: (subject, draft id) -> the case created ("" while the create is running)
+_CREATING: dict[tuple[str, str], str] = {}
+_CREATING_LOCK = threading.Lock()
+
+
 async def _create_now(write: dict[str, Any], claims: dict[str, Any], request_id: str, lang: str, create: Creator,
                       state) -> dict[str, Any]:
     from fastapi import HTTPException
+
+    from app.agents.applicant.copilot.capabilities import workspace
 
     values = write.get("values") or {}
     errors = check_all(values, lang)
@@ -641,14 +695,37 @@ async def _create_now(write: dict[str, Any], claims: dict[str, Any], request_id:
                       + _ask(field, lang))
     body = {"applicant": {f: values[f] for f in APPLICANT_FIELDS if values.get(f) not in (None, "")},
             "application": {f: values[f] for f in APPLICATION_FIELDS if values.get(f) not in (None, "")}}
+    # ONE DRAFT, ONE CASE (Phase 4, 2026-10-13): a second Confirm of the same draft -- a double click, a retried
+    # request that loaded the draft before the first one wrote -- is answered from the first, never created again.
+    # The draft is claimed BEFORE the create is awaited, so a Confirm arriving meanwhile sees it.
+    key = (workspace._subject(claims), str(write.get("draft_id") or write.get("expires") or ""))
+    with _CREATING_LOCK:
+        claimed = key in _CREATING
+        if not claimed:
+            _CREATING[key] = ""
+            while len(_CREATING) > 2000:
+                _CREATING.pop(next(iter(_CREATING)))
+    if claimed:
+        write["done"] = True
+        made = _CREATING.get(key)
+        if made:
+            return _reply(request_id, _say("already_created", lang, case_id=made), case_id=made)
+        return _reply(request_id, _say("already_creating", lang))
     try:
-        created = await create(body)
+        # THE DRAFT'S KEY, persisted by the create guard: a second Confirm after a restart / on another worker is
+        # still the same case (the in-memory claim above covers this process only); a new draft has a new draft_id
+        created = await create({**body, "_idempotency_key": f"chat-draft:{key[1]}"} if key[1] else body)
     except HTTPException as exc:
+        _CREATING.pop(key, None)                      # nothing was created: the draft may be confirmed again
         detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
         write["field"] = detail.get("field") if detail.get("field") in values else None
         return _reply(request_id, _say("failed", lang, why=str(detail.get("message") or "")))
+    except BaseException:
+        _CREATING.pop(key, None)
+        raise
     created = created.model_dump() if hasattr(created, "model_dump") else dict(created or {})
     case_id = str(created.get("case_id") or "")
+    _CREATING[key] = case_id
     write["done"] = True
     state.active_case_id = case_id or state.active_case_id          # the new case is the open case now
     required = sum(1 for item in created.get("checklist") or [] if isinstance(item, dict) and item.get("mandatory"))
@@ -764,7 +841,7 @@ def _edit_step(write: dict[str, Any], message: str, claims: dict[str, Any], requ
         return None
     from app.agents.applicant.copilot.capabilities import workspace
 
-    workspace.authorize(claims, case_id)                       # scope re-checked at the write
+    workspace.authorize(claims, case_id, write=True)           # scope re-checked AS A WRITE
     if not editable(case_id):
         write["done"] = True
         return _reply(request_id, _say("edit_locked", lang), case_id=case_id)

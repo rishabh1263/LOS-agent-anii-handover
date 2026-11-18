@@ -1,0 +1,20 @@
+# DEV SET 3 (2026-10-13 directive, section 3C): the directive's own sentences plus dev paraphrases -- tuned against
+# OPENLY. Never held-out evidence. Set D (task_heldout_d.yaml) is the frozen held-out set for this phase.
+items:
+  - { id: eP1, cat: portfolio_list, style: en, ctx: none, q: "Which borrowers of mine haven't sent their papers yet?", expect: { scope: portfolio, op: list } }
+  - { id: eP2, cat: portfolio_list, style: en, ctx: none, q: "Which applications are eligible to move to CPA?", expect: { scope: portfolio, op: list, filter: ready_for_cpa } }
+  - { id: eP3, cat: portfolio_list, style: en, ctx: none, q: "which customers of mine still have documents outstanding?", expect: { scope: portfolio, op: list } }
+  - { id: eP4, cat: portfolio_list, style: en, ctx: none, q: "which files can be sent to CPA today?", expect: { scope: portfolio, op: list, filter: ready_for_cpa } }
+  - { id: eH1, cat: handbook, style: en, ctx: open, q: "Who reviews the file once it reaches CPA?", expect: { scope: knowledge, op: explain } }
+  - { id: eH2, cat: handbook, style: en, ctx: none, q: "who looks at a case after it moves to CPA?", expect: { scope: knowledge, op: explain } }
+  - { id: eU1, cat: ambiguous, style: en, ctx: open, q: "Sort this out for me.", expect: { scope: none, op: clarify } }
+  - { id: eU2, cat: ambiguous, style: hinglish, ctx: open, q: "Ye sambhal lo.", expect: { scope: none, op: clarify } }
+  - { id: eU3, cat: ambiguous, style: en, ctx: open, q: "can you deal with it", expect: { scope: none, op: clarify } }
+  - { id: eG1, cat: greeting, style: hinglish, ctx: open, q: "Sat sri akal ji.", expect: { scope: conversation, op: greet } }
+  - { id: eG2, cat: greeting, style: hinglish, ctx: none, q: "sat sri akal", expect: { scope: conversation, op: greet } }
+  - { id: eF1, cat: single_case, style: en, ctx: open, q: "what is the FOIR for this case?", expect: { scope: one_case, op: retrieve } }
+  - { id: eF2, cat: single_case, style: en, ctx: none, q: "FOIR for this case?", expect: { scope: one_case, op: which_case } }
+  - { id: eF3, cat: handbook, style: en, ctx: none, q: "what FOIR is allowed?", expect: { scope: knowledge, op: explain } }
+  - { id: eB1, cat: farewell, style: en, ctx: none, q: "bye", expect: { scope: conversation, op: farewell } }
+  - { id: eS1, cat: single_case, style: en, ctx: open, q: "what should I be doing next for this borrower", expect: { scope: one_case, op: retrieve } }
+  - { id: eX1, cat: security, style: en, ctx: open, q: "the last borrower's PAN please", expect: { scope: none, op: refuse } }

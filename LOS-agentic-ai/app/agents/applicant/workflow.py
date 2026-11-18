@@ -612,7 +612,16 @@ def next_action(
         target = item.get("slot") or item.get("document_type")
         if target and code in {"DOCUMENT_MISSING", "DOCUMENT_REJECTED",
                                "DOCUMENT_UNDER_REVIEW", "DOCUMENT_NOT_VERIFIED"}:
-            detail = f"{detail.rstrip('.')}: {_readable(str(target))}."
+            # ONE ACTION, EVERY DOCUMENT IT COVERS (2026-10-14): two missing documents are one "collect" step --
+            # naming only the first left the officer to find the second afterwards
+            same = list(dict.fromkeys(_readable(str(i.get("slot") or i.get("document_type")))
+                                      for i in items if i["code"] == code and (i.get("slot") or i.get("document_type"))))
+            if len(same) > 1:
+                plural = detail.rstrip(".").replace("the missing document", "the missing documents") \
+                    .replace("the rejected document", "the rejected documents")
+                detail = f"{plural}: {', '.join(same)}."
+            else:
+                detail = f"{detail.rstrip('.')}: {_readable(str(target))}."
         return {
             "action": action,
             "detail": detail,

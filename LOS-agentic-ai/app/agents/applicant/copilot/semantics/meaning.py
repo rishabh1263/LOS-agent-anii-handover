@@ -20,7 +20,10 @@ FALLBACKS, NEVER AN ERROR: the embedding model unreachable, the model slow / dow
 
 from __future__ import annotations
 
+from app.llm import turn_budget as _tb
+
 import asyncio
+import contextvars
 import json
 import logging
 import math
@@ -154,11 +157,63 @@ def _adapted(v: list[float]) -> list[float]:
     return _norm([float(x) for x in matrix @ _norm(v)])
 
 
+_CLASSIFIER: dict[str, Any] = {"mtime": None, "model": None}
+
+
+def _classifier():
+    """
+    THE MEANING CLASSIFIER (2026-10-14; scripts/train_meaning_classifier.py): softmax regression over the same adapted
+    embeddings, trained on the catalogue + paraphrases (+ labelled logs). Config intent_catalogue.yaml `classifier`
+    (enabled + path + weight); missing / unreadable / another embedding size: None (k-NN only, as before).
+    """
+    spec = catalogue().get("classifier") or {}
+    if not spec.get("enabled"):
+        return None
+    path = Path(__file__).resolve().parents[4] / str(spec.get("path") or "models/meaning_classifier.npz")
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    with _LOCK:
+        if _CLASSIFIER["mtime"] != mtime:
+            try:
+                import numpy as np
+
+                data = np.load(path, allow_pickle=False)
+                _CLASSIFIER.update(mtime=mtime, model={
+                    "w": data["w"], "b": data["b"], "classes": [str(c) for c in data["classes"]],
+                    "temperature": float(data["temperature"])})
+            except Exception:  # noqa: BLE001 - an unreadable classifier is no classifier
+                logger.warning("meaning: classifier %s unreadable; k-NN only", path, exc_info=True)
+                _CLASSIFIER.update(mtime=mtime, model=None)
+        return _CLASSIFIER["model"]
+
+
+def _blended(query: list[float], ranked: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """k-NN ORDER refined by the classifier: sorted by cosine + weight * log p(intent). The SCORES stay the cosines, so
+    the accept / margin thresholds mean what they meant -- a reorder that puts a lower cosine on top yields a negative
+    margin, i.e. never a confident accept (it goes to the chooser / clarification)."""
+    model = _classifier()
+    if model is None or model["w"].shape[0] != len(query) or not ranked:
+        return ranked
+    import numpy as np
+
+    logits = (np.asarray(query) @ model["w"] + model["b"]) / model["temperature"]
+    logits -= logits.max()
+    p = np.exp(logits)
+    p /= p.sum()
+    prob = dict(zip(model["classes"], p))
+    weight = float((catalogue().get("classifier") or {}).get("weight", 0.1))
+    return sorted(ranked, key=lambda kv: kv[1] + weight * float(np.log(prob.get(kv[0], 0.0) + 1e-9)), reverse=True)
+
+
 def _bank(embedder) -> tuple[list[str], list[list[float]], list[str]]:
     intents = catalogue().get("intents") or {}
-    extra = (_load("intent_paraphrases.yaml").get("paraphrases") or {})
     pairs = [(name, str(e)) for name, spec in intents.items() for e in spec.get("examples") or []]
-    pairs += [(name, str(e)) for name, items in extra.items() if name in intents for e in items or []]
+    # every reviewed paraphrase file the catalogue names (config paraphrase_files; default the generated bank)
+    for file in catalogue().get("paraphrase_files") or ["intent_paraphrases.yaml"]:
+        extra = (_load(str(file)).get("paraphrases") or {})
+        pairs += [(name, str(e)) for name, items in extra.items() if name in intents for e in items or []]
     _adapter()
     key = hash((tuple(pairs), _ADAPTER["mtime"] if (catalogue().get("adapter") or {}).get("enabled") else None))
     with _LOCK:
@@ -172,19 +227,113 @@ def _bank(embedder) -> tuple[list[str], list[list[float]], list[str]]:
     return _BANK["intents"], _BANK["vectors"], _BANK["texts"]
 
 
+#: the last few rankings (message -> ranked): the hybrid gate and the reading after it rank the same text once
+_RANKED: "dict[str, list[tuple[str, float]]]" = {}
+
+
+def _named_document_state(message: str, top: str) -> bool:
+    """A NAMED DOCUMENT'S STATE ("address proof uploaded or not", "is the PAN verified"): the status reading is clear --
+    never the "upload a document" command it can tie with (0.857 vs 0.856, 2026-10-14)."""
+    return top == "document_status" and bool(document_in(message)) and bool(re.search(
+        r"\b(uploaded|verified|submitted|received|approved|rejected|pending|or\s+not|has\s+been|have\s+been|"
+        r"is\s+it|status|done)\b", str(message or ""), re.IGNORECASE))
+
+
+#: the catalogue kinds that are conversation, not a question (thanks / ok / hello / bye)
+_SOCIAL_KINDS = {"ack", "small_talk"}
+
+
+def social_reading(message: str) -> bool:
+    """
+    SMALL TALK BY MEANING (2026-10-14 live: "thx a lot" took 6.7 s -- two Qwen calls and a rewrite, then THANKS
+    anyway): a short message whose top reading is a social kind (catalogue `kind` ack / small_talk) and either the
+    runner-up is social too, or the lead is clear. Read from the embeddings, no phrase list, no model.
+    """
+    if len(str(message or "").split()) > int((_decide_cfg().get("social") or {}).get("max_words", 5)):
+        return False
+    ranked = rank(message)
+    if not ranked:
+        return False
+    kinds = catalogue().get("intents") or {}
+    kind = lambda name: str((kinds.get(name) or {}).get("kind") or "")            # noqa: E731
+    top, score = ranked[0]
+    spec = _decide_cfg().get("social") or {}
+    if kind(top) not in _SOCIAL_KINDS or score < float(spec.get("min_score", 0.6)):
+        return False
+    if len(ranked) < 2:
+        return True
+    second, runner = ranked[1]
+    return kind(second) in _SOCIAL_KINDS or score - runner >= float(spec.get("margin", 0.05))
+
+
+def clear_reading(message: str, case_open: bool) -> bool:
+    """Whether the fast matcher reads this message CLEARLY on its own (decide.accept + margin, or the clear lead) --
+    no model. The Qwen agent's hybrid gate (copilot_reply.yaml agent.only_when_unclear): clear -> the tools answer
+    directly, unclear -> Qwen chooses. A follow-up of the previous turn, a clarification case or no embedder: False."""
+    if not enabled() or not _clean(message):
+        return False
+    embedder = _embedder()
+    if embedder is None:
+        return False
+    try:
+        ranked = rank(message, embedder)
+    except Exception:  # noqa: BLE001
+        return False
+    if not ranked:
+        return False
+    intents = catalogue().get("intents") or {}
+    if case_open and str((intents.get(ranked[0][0]) or {}).get("kind")) == "case" and not _names_many_cases(message):
+        # A CASE IS OPEN AND NO PLURAL CASE NOUN ("which ones are still missing?", 2026-10-14): a list over the
+        # officer's cases is no rival reading -- the runner-up is the next one-case / process reading
+        ranked = [r for r in ranked if str((intents.get(r[0]) or {}).get("kind")) != "list"]
+    cfg = _decide_cfg()
+    if (intents.get(ranked[0][0]) or {}).get("one_document_intent") and document_in(message):
+        return True     # a list question naming ONE document: its status, read deterministically (never Qwen's list)
+    if _named_document_state(message, ranked[0][0]):
+        return True     # a named document's STATE ("address proof uploaded or not"), never the upload command
+    score, second = ranked[0][1], (ranked[1][1] if len(ranked) > 1 else 0.0)
+    lead = cfg.get("accept_with_lead") or {}
+    if lead and score >= float(lead["score"]) and score - second >= float(lead["margin"]):
+        return True
+    return score >= float(cfg["accept"]) and score - second >= float(cfg["margin"])
+
+
+def _names_many_cases(message: str) -> bool:
+    """Whether the message names cases in the plural ("cases", "files", "applications") -- case_list's nouns."""
+    try:
+        from app.agents.applicant.copilot.capabilities import case_list
+
+        plural = {str(w).lower() for w in case_list._case_nouns()[1]}
+    except Exception:  # noqa: BLE001 - unknown: treat as naming many (the strict reading stands)
+        return True
+    return bool(set(re.findall(r"[a-z]+", str(message or "").lower())) & plural)
+
+
 def rank(message: str, embedder=None) -> list[tuple[str, float]]:
     """Every intent with its score: the best cosine of its examples (k-NN max), highest first. [] without a model."""
     embedder = embedder or _embedder()
     if embedder is None:
         return []
-    names, vectors, _ = _bank(embedder)
-    query = _adapted(embedder.embed(_clean(message)))
+    key = _clean(message)
+    if key in _RANKED:
+        return list(_RANKED[key])
+    try:
+        names, vectors, _ = _bank(embedder)
+        query = _adapted(embedder.embed(key))
+    except Exception as exc:  # noqa: BLE001 - the embedding model down: no ranking, the rules answer (2026-11-02:
+        # an uncaught EmbeddingError here failed EVERY chat turn with HTTP 500 while Ollama was down)
+        logger.info("meaning rank unavailable (%s)", type(exc).__name__)
+        return []
     best: dict[str, float] = {}
     for name, vec in zip(names, vectors):
         score = sum(a * b for a, b in zip(query, vec))
         if score > best.get(name, -1.0):
             best[name] = score
-    return sorted(best.items(), key=lambda kv: kv[1], reverse=True)
+    ranked = _blended(query, sorted(best.items(), key=lambda kv: kv[1], reverse=True))
+    if len(_RANKED) > 256:
+        _RANKED.clear()
+    _RANKED[key] = ranked
+    return list(ranked)
 
 
 def plural_scope(message: str, decision: "Decision | None") -> "Decision | None":
@@ -195,19 +344,56 @@ def plural_scope(message: str, decision: "Decision | None") -> "Decision | None"
     id in the message (that names one case). The answer is the deterministic list / insights over the caller's own rows.
     """
     spec = _decide_cfg().get("plural_scope") or {}
-    if not spec or (decision is not None and decision.kind != "case"):
+    if not spec:
         return None
+    from app.agents.applicant.copilot.semantics import task as _task
+
     said = " " + re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", _normalised(message).lower())).strip() + " "
+    # THE CO-APPLICANT IS ONE PERSON ON THIS CASE: "the co-applicant's KYC" (-> "co applicant s") is never the plural
+    # noun "applicants" over the officer's cases (party_kyc co_kyc_about, 2026-10-14)
+    said = re.sub(r"\bco\s?applicant(s|\s+s)?\b", " party ", said)
+    # ...and "both applicants" / "both of them" are this case's two parties, never the officer's cases
+    said = re.sub(r"\bboth\s+(the\s+)?(applicants|borrowers|of\s+them)\b", " parties ", said)
     hit = lambda key: any(re.search(p, said) for p in spec.get(key) or [])          # noqa: E731
-    if not (hit("nouns") and hit("status_cues")) or re.search(r"\b(case|app|coapp)-[0-9a-f]{4,}\b", said):
+    # A SELECTION QUESTION OVER THE OFFICER'S OWN CASES ("which of MY customers still owe me documents?"): the
+    # portfolio whatever the reading -- a knowledge / process reading of it asks about THEIR cases (task.selectors +
+    # plural_scope.owned_words), never the handbook
+    owned = _task.asks_over_cases(message) and hit("owned_words")
+    if decision is not None and decision.kind != "case" and not (owned and decision.kind in ("knowledge", "process")):
         return None
-    kyc = hit("kyc_words")
-    which = ("kyc_" if kyc else "") + ("count" if hit("count_words") else "list")
+    # THE STATUS CUE comes from the words OR from the semantic reading itself (Phase 2): a case-STATUS reading
+    # (pending / stuck / KYC / CPA readiness: plural_scope.status_intents) of a message about the CASES is that status
+    # asked over the cases -- "show my pendng cases", "kaunsi files CPA ke liye ready hain" carry no cue word -- OR a
+    # filter the selection question names ("which customers ... DOCUMENTS?": documents pending)
+    from_meaning = decision is not None and decision.intent in set(spec.get("status_intents") or [])
+    selection = _task.asks_over_cases(message)
+    from_filter = selection and _task.filter_in(message) is not None
+    # the CASES are the subject: a plural case noun -- or the people a selection question picks among ("which
+    # BORROWERS of mine ...": task.people_plural, the same vocabulary asks_over_cases reads)
+    if not ((hit("nouns") or selection) and (hit("status_cues") or from_meaning or from_filter)) \
+            or re.search(r"\b(case|app|coapp)-[0-9a-f]{4,}\b", said):
+        return None
+
+    if _task.singular_pointer(message):
+        return None                     # "this application's pending documents": ONE case, whatever the plural
+    kyc = hit("kyc_words") or (from_meaning and decision.intent == "kyc_status")
+    count = hit("count_words")
+    which = ("kyc_" if kyc else "") + ("count" if count else "list")
     name = (spec.get("intents") or {}).get(which)
     intent = (catalogue().get("intents") or {}).get(name) or {}
     if intent.get("kind") != "list" or not intent.get("canonical"):
         return None
-    return Decision(kind="list", intent=str(name), canonical=str(intent["canonical"]), decided_by="plural_scope",
+    canonical = str(intent["canonical"])
+    # THE FILTER the message names ("ready", "stuck", "KYC" -- task.filter_roots, closed set) makes the question that
+    # filter's deterministic one; none named: the intent's own canonical
+    key = _task.filter_in(message)
+    if key is None and from_meaning:
+        # no filter word ("which applications are ELIGIBLE to move to CPA?"): the status the reading names is the
+        # filter (plural_scope.status_filters) -- never the generic pending list
+        key = (spec.get("status_filters") or {}).get(decision.intent)
+    if key and not (kyc and key != "kyc_issue"):
+        canonical = _task.canonical_for("count" if count else "list", key) or canonical
+    return Decision(kind="list", intent=str(name), canonical=canonical, decided_by="plural_scope",
                     score=getattr(decision, "score", 0.0) or 0.0)
 
 
@@ -304,8 +490,16 @@ def _canonical(spec: dict[str, Any], party: str | None, document: str | None) ->
 
 
 def _decision(name: str, score: float, ranked: list[tuple[str, float]], by: str, message: str) -> Decision:
-    spec = (catalogue().get("intents") or {}).get(name) or {}
+    intents = catalogue().get("intents") or {}
+    spec = intents.get(name) or {}
     party, document = party_in(message), document_in(message)
+    if document and spec.get("one_document_intent") in intents and not re.search(
+            r"\b(documents|docs|ones|papers|which|list|all|other\s+than|except|apart|besides|baaki|sab)\b",
+            str(message or ""), re.IGNORECASE):
+        # A LIST QUESTION ABOUT ONE NAMED DOCUMENT ("address proof uploaded or not"): that document's status --
+        # the list alone never says whether THIS one is in it (config intents.*.one_document_intent, 2026-10-14)
+        name = str(spec["one_document_intent"])
+        spec = intents[name]
     nxt = next(((n, s) for n, s in ranked if n != name), (None, 0.0))
     return Decision(kind=str(spec.get("kind") or "knowledge"), intent=name,
                     canonical=_canonical(spec, party, document), score=round(score, 3), runner_up=nxt[0],
@@ -385,7 +579,23 @@ def _followup(message: str, previous: dict[str, Any] | None) -> Decision | None:
 
 async def understand(message: str, *, case_open: bool, previous: dict[str, Any] | None = None,
                      request_id: str | None = None, generator=None) -> Decision | None:
-    """The Decision for this message, or None (not understood with confidence / meaning unavailable: the rules answer)."""
+    """The Decision for this message, or None (not understood with confidence / meaning unavailable: the rules answer).
+
+    TWO READERS MUST AGREE (2026-11-06, config simple_chat.yaml agreement): an embedding / model reading whose question
+    the structural reader reads as a different intent family than the message itself is dropped -- the rules answer
+    the message ("how many are pending" was answered as the time in stage)."""
+    d = await _understand(message, case_open=case_open, previous=previous, request_id=request_id, generator=generator)
+    if d is not None and case_open and d.decided_by in ("embedding", "model") and d.canonical:
+        from app.agents.applicant.copilot.simple import pipeline as _agree
+
+        if await asyncio.to_thread(_agree.disagrees, message, d.canonical):
+            STATS["disagreed"] = STATS.get("disagreed", 0) + 1
+            return None
+    return d
+
+
+async def _understand(message: str, *, case_open: bool, previous: dict[str, Any] | None = None,
+                      request_id: str | None = None, generator=None) -> Decision | None:
     if not enabled() or not _clean(message):
         return None
     STATS["asked"] += 1
@@ -416,8 +626,20 @@ async def understand(message: str, *, case_open: bool, previous: dict[str, Any] 
             d = _decision(general[0][0], general[0][1], ranked, "embedding", message)
             _log(message, d)
             return d
+    if case_open and kind(ranked[0][0]) == "list" and not _names_many_cases(message):
+        # A CASE IS OPEN AND NO PLURAL CASE NOUN: a list over the officer's cases is not this question
+        # ("What about the co-applicant's KYC?" was read as "show kyc issue cases", answered for the primary
+        # applicant -- party_kyc, 2026-10-14); the best one-case reading wins instead
+        one_case = [(n, s_) for n, s_ in ranked if kind(n) != "list"]
+        if one_case and one_case[0][1] >= float(cfg["floor"]):
+            ranked = one_case + [r for r in ranked if kind(r[0]) == "list"]
     top, score = ranked[0]
-    second = ranked[1][1] if len(ranked) > 1 else 0.0
+    rivals = ranked
+    if case_open and kind(top) == "case" and not _names_many_cases(message):
+        # the same rule as clear_reading: with a case open and no plural case noun, a list over the officer's cases
+        # is no rival reading of "which ones are still missing?" (2026-10-14)
+        rivals = [r for r in ranked if kind(r[0]) != "list"]
+    second = rivals[1][1] if len(rivals) > 1 else 0.0
     unsure = _clarify(message, ranked, case_open, previous)
     if unsure is not None:
         STATS["clarify"] += 1
@@ -425,7 +647,13 @@ async def understand(message: str, *, case_open: bool, previous: dict[str, Any] 
         return unsure
     lead = cfg.get("accept_with_lead") or {}
     clear_lead = bool(lead) and score >= float(lead["score"]) and score - second >= float(lead["margin"])
-    if clear_lead or (score >= float(cfg["accept"]) and score - second >= float(cfg["margin"])):
+    clear = clear_lead or (score >= float(cfg["accept"]) and score - second >= float(cfg["margin"]))
+    clear = clear or _named_document_state(message, top)
+    # QWEN DECIDES (owner, 2026-10-13: "question samjhne ka kaam Qwen karega", config decide.model_always): the
+    # embedding only NARROWS the choice to the top candidates; Qwen picks one (or "none"). Qwen unavailable / slow
+    # -> a clear embedding winner still answers, so the officer is never left without one.
+    always = bool(cfg.get("model_always")) and generator is not False
+    if clear and not always:
         STATS["embedding"] += 1
         d = _decision(top, score, ranked, "embedding", message)
         _log(message, d)
@@ -435,6 +663,8 @@ async def understand(message: str, *, case_open: bool, previous: dict[str, Any] 
         return None
     chosen = await _model_choice(message, ranked[:int(cfg.get("model_candidates", 3))], case_open, previous,
                                  request_id, generator)
+    if chosen is None and clear and always and _MODEL_FAILED.get():
+        chosen = top                                # the model could not run: the clear embedding reading
     fallback = cfg.get("fallback_accept")
     if chosen is None and fallback is not None and case_open and kind(top) in ("case", "process")             and score >= float(fallback):
         # the model could not choose (or is down) but the best CASE reading is strong: that reading, never the
@@ -457,13 +687,70 @@ def _prefix() -> str:
     return str((catalogue().get("model") or {}).get("instructions") or "").strip()   # intent_catalogue.yaml model
 
 
+def full_catalogue() -> bool:
+    """QWEN CHOOSES FROM EVERY INTENT (config model.full_catalogue, 2026-10-13): measured, "FOIR kitna aaya?" never
+    reached the model as eligibility -- the embedding's top candidates were loan_amount / case_stage -- so a choice
+    limited to them could not be right. The whole catalogue sits in the system prompt (byte-identical every call,
+    so Ollama reuses it); the embedding's best guesses are only HINTS."""
+    return bool((catalogue().get("model") or {}).get("full_catalogue"))
+
+
+_FULL_PREFIX: dict[str, Any] = {"key": None, "text": ""}
+
+
+def prime() -> float | None:
+    """One real chooser call with the system prompt, so the weights are paged in and the prompt is cached before the
+    first officer asks (blocking; run it in a background thread). Milliseconds, or None when it could not run."""
+    import urllib.request
+
+    from app.agents.los.summary import keep_alive
+    from app.llm.config import ollama_host, ollama_model, with_num_ctx
+
+    started = time.perf_counter()
+    spec = catalogue().get("model") or {}
+    body = {"model": str(spec.get("name") or ollama_model()), "stream": False, "keep_alive": keep_alive(),
+            "format": {"type": "object", "properties": {"i": {"type": "string"}}, "required": ["i"]},
+            "messages": [{"role": "system", "content": _full_prefix() if full_catalogue() else _prefix()},
+                         {"role": "user", "content": str(spec.get("prime_message") or "")}],
+            "options": with_num_ctx({"temperature": 0.0, "num_predict": 8})}
+    try:
+        request = urllib.request.Request(f"{ollama_host().rstrip('/')}/api/chat", json.dumps(body).encode(),
+                                         {"Content-Type": "application/json"})
+        urllib.request.urlopen(request, timeout=180).read()
+    except Exception:  # noqa: BLE001 - priming is a convenience; the first turn is just slower
+        logger.info("meaning: prime skipped", exc_info=True)
+        return None
+    ms = round((time.perf_counter() - started) * 1000, 1)
+    logger.info("meaning: chooser primed in %s ms", ms)
+    return ms
+
+
+def _full_prefix() -> str:
+    intents = catalogue().get("intents") or {}
+    key = id(intents)
+    if _FULL_PREFIX["key"] != key:
+        lines = "\n".join(f"- {name}: {str((spec or {}).get('description') or '').strip()}"
+                          for name, spec in sorted(intents.items()))
+        _FULL_PREFIX.update(key=key, text=f"{_prefix().replace('CANDIDATES', 'INTENTS')}\n\nINTENTS:\n{lines}")
+    return str(_FULL_PREFIX["text"])
+
+
+#: whether THIS turn's model choice failed to run (down / slow / low memory / invalid), as opposed to choosing "none"
+_MODEL_FAILED: "contextvars.ContextVar[bool]" = contextvars.ContextVar("meaning_model_failed", default=False)
+
+
 async def _model_choice(message: str, candidates: list[tuple[str, float]], case_open: bool,
                         previous: dict[str, Any] | None, request_id: str | None, generator=None) -> str | None:
+    _MODEL_FAILED.set(True)
+    from app.agents.applicant.copilot.capabilities import qwen_agent as _qa
+
+    if _qa.spent():
+        return None                                 # the agent used this turn's model time: embeddings only
     intents = catalogue().get("intents") or {}
     spec = catalogue().get("model") or {}
     if generator is None:
         from app.llm import availability
-        from app.llm.memory import free_gb
+        from app.llm.memory import free_gb_for_model as free_gb
 
         free = free_gb()
         if free is not None and free < float(spec.get("min_free_ram_gb", 2.0)):
@@ -472,17 +759,27 @@ async def _model_choice(message: str, candidates: list[tuple[str, float]], case_
         if not availability.provider_reachable():
             STATS["model_failed"] += 1
             return None
+        name = str(spec.get("name") or "")
+        if name and availability.model_loaded(name) is False:
+            # THE MODEL IS NOT IN MEMORY: a 4 s call would only start a load it cannot wait for (and abort it). One
+            # background load instead; this turn answers from the embeddings at once (2026-10-28)
+            availability.warm_in_background(name)
+            STATS["model_failed"] += 1
+            return None
         generator = _ollama
     if request_id:
         from app.agents.applicant.copilot.answering import realtime
 
         realtime.hint(request_id, realtime.say_status("understanding", "en"))
+    full = full_catalogue()
     lines = "\n".join(f"- {n}: {intents.get(n, {}).get('description', '')}" for n, _ in candidates)
+    hints = ", ".join(n for n, _ in candidates)
     content = (f"Case open: {'yes' if case_open else 'no'}. Previous question type: {(previous or {}).get('intent') or '-'}.\n"
-               f"MESSAGE: {_masked(message)}\nCANDIDATES:\n{lines}")
+               + (f"MESSAGE: {_masked(message)}\n{spec.get('likely_label') or ''} {hints}" if full
+                  else f"MESSAGE: {_masked(message)}\nCANDIDATES:\n{lines}"))
     timeout = float(spec.get("timeout_seconds", 4.0))
     try:
-        body = await asyncio.wait_for(generator(_prefix(), content, timeout), timeout)
+        body = await asyncio.wait_for(generator(_full_prefix() if full else _prefix(), content, timeout), timeout)
         raw = ((body or {}).get("message") or {}).get("content") or ""
         chosen = str((json.loads(raw) if raw.strip().startswith("{") else {}).get("i") or "").strip()
     except Exception:  # noqa: BLE001 - slow / down / invalid: the rules answer
@@ -492,13 +789,21 @@ async def _model_choice(message: str, candidates: list[tuple[str, float]], case_
 
             _avail.warm_in_background(str(spec.get("name") or "") or None)   # a cold model: ready for the next turn
         return None
-    return chosen if chosen in {n for n, _ in candidates} else None
+    _MODEL_FAILED.set(False)                        # it ran: "none" / an id outside the list is its answer
+    allowed = set(intents) if full else {n for n, _ in candidates}
+    return chosen if chosen in allowed else None
+
+
+_MOBILE_IN_TEXT = re.compile(r"(?<!\d)(?:\+?91[\s-]?)?([6-9]\d{4})[\s-]?(\d{5})(?!\d)")
 
 
 def _masked(message: str) -> str:
+    """What a MODEL may read of the officer's message: PAN / Aadhaar / account masked (sensitivity policy) and, for a
+    model, an Indian mobile too -- last 4 kept (2026-10-23: a full mobile reached the planner's prompt)."""
     from app.security import sensitivity
 
-    return sensitivity.mask_identifiers(_clean(message))
+    out = sensitivity.mask_identifiers(_clean(message))
+    return _MOBILE_IN_TEXT.sub(lambda m: "XXXXXX" + m.group(2)[-4:], out)
 
 
 async def _ollama(prefix: str, content: str, timeout: float) -> dict:
@@ -515,8 +820,9 @@ async def _ollama(prefix: str, content: str, timeout: float) -> dict:
                                                                                .get("num_predict", 20))})}
     if model.startswith("qwen3"):
         body["think"] = False
+    _tb.check("meaning")      # an earlier model call of this turn failed: answer without it (app/llm/turn_budget.py)
     async with httpx.AsyncClient(timeout=timeout + 0.5) as client:
-        response = await client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body)
+        response = await _tb.guarded(client.post(f"{ollama_host().rstrip('/')}/api/chat", json=body), "meaning")
         response.raise_for_status()
         return response.json()
 

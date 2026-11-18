@@ -90,6 +90,36 @@ def standard(img: Image.Image) -> Image.Image:
     return img
 
 
+def gray_denoise_enabled() -> bool:
+    # OFF by default (2026-11-05): on the HELD-OUT set non-local means gave 98.8% field / 94.2% documents -- exactly
+    # what the pass without it gives -- for ~0.17 s more per card; the dev gain did not carry over. On: =true.
+    return (os.getenv("DOCUMENT_OCR_GRAY_DENOISE") or "false").strip().lower() in {"true", "1", "yes", "on"}
+
+
+def ocr_ready(img: Image.Image) -> Image.Image:
+    """
+    The image an OCR pass reads: `standard`, then grayscale + non-local-means denoise.
+
+    MEASURED 2026-11-05 on the synthetic dev set (120 cards, one process per variant, same images), documents fully
+    correct: baseline 92.5% | grayscale 93.3% | grayscale + NON-LOCAL MEANS 95.0% (field 98.1 -> 98.6%, PAN 100%) |
+    grayscale + bilateral 95.8% BUT it swapped the holder and father names on a real PAN layout
+    (tests/document_agent/test_pan_layouts.py f3) -- rejected | CLAHE 92.5% (and p95 22 s). The display / stored
+    image stays in colour -- only what the recogniser reads changes. HELD-OUT: no gain (98.8% / 94.2% with and
+    without), so OFF by default; on: DOCUMENT_OCR_GRAY_DENOISE=true.
+    """
+    out = standard(img)
+    if not gray_denoise_enabled():
+        return out
+    try:
+        import cv2
+
+        gray = cv2.cvtColor(np.asarray(out.convert("RGB")), cv2.COLOR_RGB2GRAY)
+        gray = cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7, searchWindowSize=21)
+        return Image.fromarray(cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB))
+    except Exception:  # noqa: BLE001 - no OpenCV / a bad image: the standard pass, as before
+        return out
+
+
 def enhance(img: Image.Image) -> Image.Image:
     """
     Escalation pass: upscale and raise local contrast.

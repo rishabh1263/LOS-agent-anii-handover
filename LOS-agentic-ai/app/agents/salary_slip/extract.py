@@ -92,7 +92,7 @@ _COMPANY_SUFFIX_RE = re.compile(
 _MONTH_RE = re.compile(
     r"\b(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUNE?|JULY?|"
     r"AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)"
-    r"\s+(\d{4})\b",
+    r"\s*(\d{4})\b",                       # "JUNE 2025", and "JUNE2025" as OCR glues it
     re.IGNORECASE,
 )
 
@@ -176,15 +176,37 @@ def _value_spaced(lines: list[str], captions: tuple[str, ...]) -> str | None:
     """
     stop = re.compile(r"\s+(?:" + "|".join(re.escape(c) for c in _STOP_CAPTIONS) + r")\b\.?", re.IGNORECASE)
     for caption in captions:
-        pattern = re.compile(r"^\s*" + re.escape(caption) + r"\s+(\S.*)$", re.IGNORECASE)
+        # the caption at the start of the line, or after a space mid-line (an OCR'd two-column header row puts
+        # "Designation X  Date of Joining Y" on one line; 2026-11-12: joining date / UAN / code were read 0 times)
+        pattern = re.compile(r"(?:^|\s)" + re.escape(caption) + r"\s*[:\-]*\s+(\S.*)$", re.IGNORECASE)
         for line in lines:
-            match = pattern.match(line)
+            match = pattern.search(line)
             if not match:
                 continue
             value = stop.split(match.group(1), maxsplit=1)[0].strip(" :-")
             if value:
                 return value
     return None
+
+
+def _unglue(text: str) -> str:
+    """
+    OCR drops the space inside a caption: "EmployeeName", "TotalEarnings", "NetPay", "Payslipforthe month of".
+    Every known caption is put back in its spaced form (case and spacing free), so the parser reads an OCR'd slip as
+    it reads a text layer. Only OCR'd text is touched (2026-11-12: name 7/36, net pay 12/36 on synthetic scans).
+    """
+    captions = set(_STOP_CAPTIONS)
+    for group in (_EMPLOYEE_NAME_CAPTIONS, _EMPLOYEE_CODE_CAPTIONS, _DESIGNATION_CAPTIONS, _DOJ_CAPTIONS,
+                  _PAN_CAPTIONS, _UAN_CAPTIONS, _GROSS_CAPTIONS, _BASIC_CAPTIONS, _DEDUCTIONS_CAPTIONS,
+                  _NET_PAY_CAPTIONS):
+        captions.update(group)
+    for caption in sorted(captions, key=len, reverse=True):
+        words = [re.escape(w) for w in caption.split()]
+        if len(words) < 2:
+            continue
+        pattern = re.compile(r"(?<![A-Za-z])" + r"\s*".join(words) + r"(?![a-z])", re.IGNORECASE)
+        text = pattern.sub(caption, text)
+    return text
 
 
 def _value_after(lines: list[str], captions: tuple[str, ...]) -> str | None:
@@ -299,6 +321,15 @@ def max_ocr_pages() -> int:
         return 2
 
 
+def _slip_complete(text: str) -> bool:
+    """Enough read to stop OCR'ing pages: the employee, the net pay, and net = gross - deductions."""
+    lines = [l for l in text.split("\n") if l.strip()]
+    if len(text.strip()) < 100 or not _value_after(lines, _EMPLOYEE_NAME_CAPTIONS):
+        return False
+    gross, ded, net = (_amount_after(lines, c) for c in (_GROSS_CAPTIONS, _DEDUCTIONS_CAPTIONS, _NET_PAY_CAPTIONS))
+    return None not in (gross, ded, net) and abs((gross - ded) - net) < Decimal("1.00")
+
+
 def extract_salary_slip(path: str) -> SalarySlipResult:
     """Read a salary slip's identity, period and pay figures."""
     started = time.perf_counter()
@@ -325,13 +356,23 @@ def extract_salary_slip(path: str) -> SalarySlipResult:
     # Whatever OCR reads still has to pass the parser's own checks -- net pay must
     # equal gross minus deductions -- or the slip is PARTIAL, never a quiet PASS.
     if len(text.strip()) < 100 and ocr_enabled():
-        page_texts, how = scan_text.scanned_text(path, document_type="SALARY_SLIP",
-                                                 max_pages=max_ocr_pages())
+        # PAGE BY PAGE, STOPPING EARLY (2026-11-12): a slip is one page; a scan of three months' slips was OCR'd in
+        # full for the first month's figures. The next page is read only while the name / net pay are missing or the
+        # net pay does not reconcile (config financial_documents.yaml scan_ocr.SALARY_SLIP.early_stop).
+        early = bool(scan_text._scan_config("SALARY_SLIP").get("early_stop", False))
+        page_texts, engine, rotated = [], "rapidocr", 0
+        for page_text, info in scan_text.iter_scanned_pages(path, document_type="SALARY_SLIP",
+                                                            max_pages=max_ocr_pages()):
+            page_texts.append(page_text)
+            engine = info.get("engine", engine)
+            rotated += bool(info.get("rotated"))
+            if early and _slip_complete(_unglue("\n".join(page_texts))):
+                break
         if len("".join(page_texts).strip()) >= 100:
-            text = "\n".join(page_texts)
-            pages = pages or how["pages"]
-            ocr_note = (f"Read by OCR ({how['engine']}"
-                        + (f", {how['rotated_pages']} page(s) auto-rotated" if how["rotated_pages"] else "")
+            text = _unglue("\n".join(page_texts))
+            pages = pages or len(page_texts)
+            ocr_note = (f"Read by OCR ({engine}"
+                        + (f", {rotated} page(s) auto-rotated" if rotated else "")
                         + "): check the figures against the slip.")
 
     if len(text.strip()) < 100:

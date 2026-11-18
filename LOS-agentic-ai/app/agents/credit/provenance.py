@@ -78,6 +78,15 @@ def _verify_fact(node: dict[str, Any], case_id: str, repository: Any,
         if owner and party_id and owner != party_id:
             return False, "PARTY_MISMATCH"
         return True, "DOCUMENT"
+    if record_type == "BANK_ANALYSIS":
+        # the vendor bank analysis this case holds (credit/repayment store)
+        from app.agents.credit.repayment import store
+
+        try:
+            ok = record_id == case_id and store.load(case_id) is not None
+        except Exception:  # noqa: BLE001 - a store that cannot be read verifies nothing
+            ok = False
+        return ok, "VENDOR_BANK_ANALYSIS" if ok else "RECORD_NOT_ON_CASE"
     if record_type.startswith("BUREAU:"):
         ok = record_id in bureau_reports.get(party_id, set())
         return ok, "PROVIDER_REPORT" if ok else "REPORT_NOT_RETURNED"

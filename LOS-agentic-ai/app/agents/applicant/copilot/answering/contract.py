@@ -634,6 +634,21 @@ def tts(md: str, lang: str | None = None) -> str:
 _LAST_LINKS: dict[tuple[str, str], set[str]] = {}
 
 
+_API_PATH = re.compile(r"\s*\(?\b(?:GET|POST|PUT|PATCH|DELETE)?\s*/api/v\d+/[\w/{}.?=&%-]*\)?")
+
+
+def _no_api_paths(md: str) -> str:
+    """An API path ("(POST /api/v1/eligibility/check)") is internal: never shown in a chat reply (owner, 2026-10-13).
+    Link targets ("](action:..." / "](ask:...") are not paths and are untouched."""
+    return _API_PATH.sub("", md)
+
+
+def _balanced_bold(md: str) -> str:
+    """A line with an odd number of "**" (a model sentence bolded half a term: "Disbursement** (the money ...)",
+    2026-10-13 English eval) shows no stray asterisks: that line's bold markers are dropped, the words stay."""
+    return "\n".join(line.replace("**", "") if line.count("**") % 2 else line for line in md.split("\n"))
+
+
 def publish(reply: Any, request_id: str | None = None, chat_key: tuple[str, str | None] | None = None) -> Any:
     """
     {request_id, markdown, tts} when the contract is on, else the reply unchanged. `chat_key` (subject, chat_id):
@@ -664,6 +679,10 @@ def publish(reply: Any, request_id: str | None = None, chat_key: tuple[str, str 
 
     key = (str(chat_key[0]), str(chat_key[1] or "default")) if chat_key else None
     md, body = _render(reply, _LAST_LINKS.get(key) if key else None)
+    from app.agents.applicant.copilot.answering import card as _card
+
+    md = _card.apply(md, reply)                 # THE CLEAN CARD: icons, one Next line, no housekeeping lines
+    md = _balanced_bold(_no_api_paths(md))
     if key:
         with _LOCK:
             if len(_LAST_LINKS) > 5000:
@@ -672,9 +691,105 @@ def publish(reply: Any, request_id: str | None = None, chat_key: tuple[str, str 
     if reply.get("tts_text"):
         body = str(reply["tts_text"])          # a reply that names what the voice reads (a subset of the screen)
     # generated text (drafts, summaries, notes, quoted messages) never carries a flagged word, on screen or spoken
-    md, body = abuse_guard.mask_text(md), abuse_guard.mask_text(body, spoken=True)
+    md, body = abuse_guard.mask_text(md), abuse_guard.mask_text(_no_api_paths(body), spoken=True)
     return {"request_id": str(reply.get("request_id") or request_id or ""), "markdown": md,
             "tts": tts(body, _language(reply))}
+
+
+# --------------------------------------------------------------------------
+# handbook sources (P1-B, 2026-10-18): what a knowledge answer was built from, for a "Source" chip
+# --------------------------------------------------------------------------
+
+#: handbook file -> (mtime, its headings): re-read when the file changes
+_HEADINGS: dict[str, tuple[float, frozenset[str]]] = {}
+
+
+def _headings(path: Path, mtime: float) -> frozenset[str]:
+    with _LOCK:
+        cached = _HEADINGS.get(str(path))
+        if cached and cached[0] == mtime:
+            return cached[1]
+    found = frozenset(line.lstrip("#").strip() for line in path.read_text(encoding="utf-8").splitlines()
+                      if line.startswith("#"))
+    with _LOCK:
+        _HEADINGS[str(path)] = (mtime, found)
+    return found
+
+
+def _handbook_file(document: str) -> Path | None:
+    """The handbook file a citation names -- only a real .md file inside the knowledge root, never outside it."""
+    from app import knowledge
+
+    root = Path(knowledge.knowledge_root()).resolve()
+    if not document.endswith(".md") or "\\" in document or ".." in document.split("/"):
+        return None
+    for candidate in (root / document, *(d / document for d in root.iterdir() if d.is_dir())):
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved.is_file() and root in resolved.parents:
+            return resolved
+    return None
+
+
+def _cited(reply: dict[str, Any]) -> list[str]:
+    """The citations of the passages THIS answer was built from (`answered_from`; else every citation retrieval
+    attached): a general-layer knowledge reply's, or the agent's GROUNDED `knowledge` block. A refusal / an
+    ungrounded retrieval / a case answer carries none."""
+    if reply.get("refused") or str(reply.get("intent") or "") in ("UNKNOWN", "UNKNOWN_TERM", "NOT_IN_SCOPE",
+                                                                   "GUARDRAIL_BLOCKED", "OUT_OF_SCOPE"):
+        return []
+    knowledge = reply.get("knowledge")
+    if isinstance(knowledge, dict):
+        # the agent's public block lists every kept hit; its answer always reads the TOP passage -> that one only
+        cited = list(knowledge.get("sources") or [])[:1] if knowledge.get("grounded") else []
+    else:
+        cited = reply.get("answered_from") or reply.get("citations") or []
+    cited = [c for c in cited if isinstance(c, str)] if isinstance(cited, list) else []
+    # an answer built from a CONFIGURED fact cites the configuration only: a handbook passage retrieval also attached
+    # was not what it said (2026-10-23: "what can be used as address proof?" listed address_proof.md beside it)
+    configured = [c for c in cited if c.startswith("configuration:")]
+    return configured or cited
+
+
+def sources(reply: Any) -> list[dict[str, Any]]:
+    """
+    THE HANDBOOK SOURCES OF A REPLY, as {type, document, section, title}: only what retrieval cited for THIS answer,
+    and only when it exists -- the file inside the knowledge root, the section a heading of that file. A configured
+    fact is {type: "configuration"}. Nothing is invented: no URL, no page number (the handbook has neither).
+    Words from copilot_reply.yaml `sources`.
+    """
+    spec = cfg().get("sources") or {}
+    if not isinstance(reply, dict) or not spec.get("enabled", True):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str | None]] = set()
+    for citation in _cited(reply):
+        if citation.startswith("configuration:"):
+            kind = citation.partition(":")[2]
+            if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", kind) or ("configuration", kind) in seen:
+                continue
+            seen.add(("configuration", kind))
+            out.append({"type": "configuration", "document": kind, "section": None,
+                        "title": str(spec.get("configuration_title") or "Configured document policy")})
+            continue
+        document, _, section = citation.partition("#")
+        path = _handbook_file(document)
+        if path is None:
+            continue
+        section = section.strip() or None
+        if section and section not in _headings(path, path.stat().st_mtime):
+            section = None                           # a heading the file does not have is never shown
+        name = path.stem
+        if (name, section) in seen:
+            continue
+        seen.add((name, section))
+        title = str(spec.get("handbook_title") or "{document}").format(      # the wording: copilot_reply.yaml
+            document=name.replace("_", " ").strip().capitalize())
+        out.append({"type": "handbook", "document": name, "section": section,
+                    "title": f"{title} ({section})" if section else title})
+    return out[:int(spec.get("max", 3))]
 
 
 # --------------------------------------------------------------------------
@@ -716,4 +831,4 @@ def forget(subject: str, chat_id: str | None) -> None:
 
 
 __all__ = ["FLAG", "LINK", "ask", "cfg", "dedupe", "enabled", "forget", "link", "markdown", "parse", "publish",
-           "recall", "registry", "remember", "request_for", "speakable", "tts"]
+           "recall", "registry", "remember", "request_for", "sources", "speakable", "tts"]

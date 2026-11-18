@@ -81,6 +81,9 @@ def test_the_long_statement_is_queued_not_truncated(monkeypatch):
     from app.agents.bank_statement.extract import extract_bank_statement
 
     monkeypatch.setenv("BANK_STATEMENT_TIME_BUDGET_MS", "8000")
+    # ONE table reader: with the default six (2026-10-14) this statement now completes inside 8 s, so the case
+    # under test -- a table that cannot be read in time -- is reproduced by the slower reader, not a shorter clock
+    monkeypatch.setenv("BANK_STATEMENT_TABLE_WORKERS", "1")
 
     result = extract_bank_statement(str(LONG))
 
