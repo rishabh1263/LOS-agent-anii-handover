@@ -1124,6 +1124,33 @@ def test_one_dedupe_answer_becomes_rows_in_the_four_tables():
     assert ds.record_check(_DEDUPE_ANSWER) is False                         # no database configured: nothing, no error
 
 
+def test_the_dedupe_event_keeps_why_it_was_flagged_codes_only():
+    """2026-11-18: "why was this flagged as a duplicate?" -- the agent's match reasons, rule findings, conflicts and each
+    party's reasons go into the DEDUPE_CHECKED event's details (existing jsonb column); free text never does."""
+    from app.agent_db import dedupe_store as ds
+
+    answer = {**_DEDUPE_ANSWER, "dedupe": {
+        **_DEDUPE_ANSWER["dedupe"], "status": "POSSIBLE_DUPLICATE", "checked_identifier_status": "POSSIBLE_DUPLICATE",
+        "match_reasons": ["PAN_MATCHES_EXISTING_CUSTOMER", "IDENTIFIER_ON_OTHER_LOS_CASES", "free text never stored"],
+        "rule_findings": ["NAME_MISMATCH_ON_SOURCE"], "searches_missing": [],
+        "assessment": {"conflicts": ["IDENTIFIER_DIFFERS_ON_MIFIN_RECORD"]},
+        "parties": [{"role": "CO_APPLICANT", "status": "CHECK_INCOMPLETE", "match_reasons": ["MIFIN_UNAVAILABLE"],
+                     "party_id": "P-2"}]}}
+    event = dict(zip(ds.EVENT_COLUMNS, ds.rows_for(answer)["audit_events"][0]))
+    details = json.loads(event["details"])
+    assert details["dedupe_status"] == "POSSIBLE_DUPLICATE"
+    assert details["match_reasons"] == ["PAN_MATCHES_EXISTING_CUSTOMER", "IDENTIFIER_ON_OTHER_LOS_CASES"]
+    assert details["rule_findings"] == ["NAME_MISMATCH_ON_SOURCE"]
+    assert details["conflicts"] == ["IDENTIFIER_DIFFERS_ON_MIFIN_RECORD"]
+    assert details["party_reasons"] == [{"role": "CO_APPLICANT", "status": "CHECK_INCOMPLETE",
+                                         "match_reasons": ["MIFIN_UNAVAILABLE"]}]
+    assert details["reason_codes"] == _DEDUPE_ANSWER["reason_codes"]              # the existing keys are kept
+    # an answer with no dedupe block (agent not invoked) still writes the event, reasons empty
+    bare = json.loads(dict(zip(ds.EVENT_COLUMNS, ds.rows_for({**_DEDUPE_ANSWER, "dedupe": {}})["audit_events"][0]))
+                      ["details"])
+    assert (bare["dedupe_status"], bare["match_reasons"], bare["party_reasons"]) == (None, [], [])
+
+
 def test_the_dedupe_check_tables_fill_live_and_from_the_stored_answers(tmp_path, monkeypatch):
     """The live path (record_check, the background writer) and the backfill from api_responses write the same rows;
     the backfill never writes a check twice; the tables are append-only."""

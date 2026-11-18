@@ -197,6 +197,32 @@ def _evidence(value: Any) -> dict[str, Any]:
     return out
 
 
+def _codes(value: Any) -> list[str]:
+    """Reason codes only (PAN_MATCHES_EXISTING_CUSTOMER, CO_APPLICANT:MIFIN_UNAVAILABLE): an upper-case token of
+    letters, digits, '_' and ':' -- anything else (free text, a value) is dropped, never stored."""
+    out: list[str] = []
+    for v in value if isinstance(value, list) else []:
+        if (isinstance(v, str) and 0 < len(v) <= 80 and v.replace("_", "").replace(":", "").isalnum()
+                and v.upper() == v and v not in out):
+            out.append(v)
+    return out
+
+
+def _dedupe_reasons(dedupe: dict[str, Any]) -> dict[str, Any]:
+    """WHY the dedupe status came out as it did (2026-11-18: "why was this flagged as a duplicate?" had no stored
+    answer): the agent's match reasons, triggered rule findings, conflicts and each party's status + reasons -- codes
+    only. Kept in the DEDUPE_CHECKED event's details (an existing jsonb column; no schema change)."""
+    parties = [{"role": p.get("role"), "status": p.get("status"), "match_reasons": _codes(p.get("match_reasons"))}
+               for p in (dedupe.get("parties") or []) if isinstance(p, dict)]
+    return {"dedupe_status": dedupe.get("status"),
+            "checked_identifier_status": dedupe.get("checked_identifier_status"),
+            "match_reasons": _codes(dedupe.get("match_reasons")),
+            "rule_findings": _codes(dedupe.get("rule_findings")),
+            "conflicts": _codes(_d(dedupe.get("assessment")).get("conflicts")),
+            "searches_missing": _codes(dedupe.get("searches_missing")),
+            "party_reasons": parties}
+
+
 def rows_for(result: dict[str, Any], *, actor: str | None = None,
              at: datetime | None = None) -> dict[str, list[tuple]]:
     """The four tables' rows for ONE dedupe answer (the dict the API returned). Pure: no database."""
@@ -234,7 +260,8 @@ def rows_for(result: dict[str, Any], *, actor: str | None = None,
                         rec.get("record_ref"), None, None, rec.get("record_type"), None, None, None,
                         _j(rec.get("matched_fields"), []), _j([], []), None, None, None, demo))
     event = (at, actor or "system", "DEDUPE_CHECKED", case_id, "dedupe_check", request_id, request_id,
-             result.get("outcome"), _j({"customer_status": result.get("customer_status"),
+             result.get("outcome"), _j({**_dedupe_reasons(dedupe),
+                                        "customer_status": result.get("customer_status"),
                                         "parameter": result.get("searched_parameter"),
                                         "checked_party": result.get("checked_party"),
                                         "reason_codes": result.get("reason_codes") or []}, {}), demo)
